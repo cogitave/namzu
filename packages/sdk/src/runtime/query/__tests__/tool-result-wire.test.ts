@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -18,7 +18,7 @@ import { ToolExecutor } from '../executor.js'
  * arrived — the mapper tests passed because they set the fields by hand.
  */
 
-const RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as RunId
+const RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -58,7 +58,7 @@ function executorReturning(result: ToolResult, maxToolOutputChars?: number): Too
 	return new ToolExecutor(
 		{
 			tools,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},

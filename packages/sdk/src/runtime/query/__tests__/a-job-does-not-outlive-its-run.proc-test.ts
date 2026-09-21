@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { Run } from '../../../types/run/index.js'
+import type { Run } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
@@ -88,7 +88,7 @@ async function runStartingAJob(
 	return await drainQuery({
 		provider,
 		tools,
-		runConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('start the watcher')],
@@ -169,7 +169,7 @@ describe('a run takes its background jobs with it', () => {
 				] as never,
 			}),
 			tools,
-			runConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('start the watcher')],

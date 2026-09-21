@@ -15,7 +15,7 @@ import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type ToolMessage,
@@ -23,16 +23,16 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../../types/session/durable.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import { type ResumeRunParams, resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
 
 /**
  * The pieces of a cross-process resume all existed and nothing joined them.
  * `CheckpointManager` wrote the history, budgets, working state and any
- * park; `loadRunState` read them back; `query` accepted `runId` +
+ * park; `loadTurnState` read them back; `query` accepted `runId` +
  * `resumeFromCheckpoint` and restored all of it. But `resumeFromCheckpoint`
  * had no caller anywhere outside `packages/sdk/src`, so the whole path
  * shipped untravelled — every host was expected to write the same wiring
@@ -43,11 +43,11 @@ import type { RunStateScope } from '../run-state.js'
  * a park without the answer that park is waiting for.
  */
 
-const SCOPE: RunStateScope = {
+const SCOPE: TurnStateScope = {
 	tenantId: '31bdf543-d0dc-4022-b64a-09f4d6e8b377' as TenantId,
 	projectId: 'e8110271-6961-4eb4-ac8c-7f55ea83839a' as ProjectId,
 	sessionId: 'a89fa2a8-3672-4495-9a89-ad85ddaf0b50' as SessionId,
-	runId: '9dbf5ebc-ce42-425d-aeee-c60e281113c2' as RunId,
+	turnId: '9dbf5ebc-ce42-425d-aeee-c60e281113c2' as TurnId,
 	topicId: '3cd0ae75-30ea-4858-ae2c-ca6aed6ebe25' as TopicId,
 }
 
@@ -101,7 +101,7 @@ class InMemoryCheckpointStore implements CheckpointStore {
 function checkpoint(overrides: Partial<IterationCheckpoint> = {}): IterationCheckpoint {
 	return {
 		id: 'ckpt_1' as CheckpointId,
-		runId: SCOPE.runId,
+		turnId: SCOPE.runId,
 		iteration: 2,
 		messages: [createUserMessage('the work so far')],
 		tokenUsage: { ...ZERO_USAGE, promptTokens: 120, totalTokens: 120 },
@@ -160,7 +160,7 @@ async function baseParams(store: CheckpointStore) {
 		checkpointStore: store,
 		provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -185,7 +185,7 @@ describe('a run is picked back up from its store', () => {
 		const store = new InMemoryCheckpointStore()
 		await store.writeCheckpoint(SCOPE, checkpoint())
 
-		const outcome = await resumeRun(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(store))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
@@ -200,14 +200,14 @@ describe('a run is picked back up from its store', () => {
 		['topicId', '25c69d31-6765-49e0-848e-a189eca3c19a' as TopicId],
 		['projectId', 'dd33c142-d050-42d8-9d06-6167dd8b27d1' as ProjectId],
 		['tenantId', '03857320-0500-482a-85e0-add350d8ffdd' as TenantId],
-		['parentRunId', 'e53b7b64-32f3-4439-8cb1-6c1d13ec5d96' as RunId],
+		['parentRunId', 'e53b7b64-32f3-4439-8cb1-6c1d13ec5d96' as TurnId],
 	] as const)('refuses a mismatched %s before provider work', async (field, value) => {
 		const store = new InMemoryCheckpointStore()
 		await store.writeCheckpoint(SCOPE, checkpoint())
 		const base = await baseParams(store)
-		const candidate = { ...base, [field]: value } as ResumeRunParams
+		const candidate = { ...base, [field]: value } as ResumeSessionParams
 
-		await expect(resumeRun(candidate)).rejects.toMatchObject({
+		await expect(resumeSession(candidate)).rejects.toMatchObject({
 			code: 'invalid_config',
 			details: { fields: [field] },
 		})
@@ -218,11 +218,11 @@ describe('a run is picked back up from its store', () => {
 		const store = new InMemoryCheckpointStore()
 		await store.writeCheckpoint(
 			SCOPE,
-			checkpoint({ runId: 'a2c2d074-2ed9-4653-b4b9-7d0589265864' as RunId }),
+			checkpoint({ runId: 'a2c2d074-2ed9-4653-b4b9-7d0589265864' as TurnId }),
 		)
 		const candidate = await baseParams(store)
 
-		await expect(resumeRun(candidate)).rejects.toMatchObject({
+		await expect(resumeSession(candidate)).rejects.toMatchObject({
 			code: 'invalid_config',
 			details: { fields: ['runId'] },
 		})
@@ -249,13 +249,13 @@ describe('a run is picked back up from its store', () => {
 			}),
 		)
 		const provider = new MockLLMProvider({ turns: [{ text: 'checked state first' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const resumeParams = await baseParams(store)
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...resumeParams,
 			provider,
-			runConfig: { ...resumeParams.runConfig, maxIterations: 4 },
+			turnConfig: { ...resumeParams.turnConfig, maxIterations: 4 },
 			listener: (event) => {
 				events.push(event)
 			},
@@ -294,7 +294,7 @@ describe('a run is picked back up from its store', () => {
 		const store = new InMemoryCheckpointStore()
 		await store.writeCheckpoint(SCOPE, checkpoint())
 
-		const outcome = await resumeRun(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(store))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
@@ -311,7 +311,7 @@ describe('a run is picked back up from its store', () => {
 			checkpoint({ id: 'ckpt_new' as CheckpointId, createdAt: 2_000 }),
 		)
 
-		const outcome = await resumeRun(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(store))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
@@ -326,7 +326,7 @@ describe('a run is picked back up from its store', () => {
 			checkpoint({ id: 'ckpt_new' as CheckpointId, createdAt: 2_000 }),
 		)
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...(await baseParams(store)),
 			checkpointId: 'ckpt_old' as CheckpointId,
 		})
@@ -339,7 +339,7 @@ describe('a run is picked back up from its store', () => {
 
 describe('it refuses rather than guessing', () => {
 	it('reports no checkpoint instead of silently starting fresh', async () => {
-		const outcome = await resumeRun(await baseParams(new InMemoryCheckpointStore()))
+		const outcome = await resumeSession(await baseParams(new InMemoryCheckpointStore()))
 
 		// Starting a new run here would be the worst outcome: a different
 		// run wearing a recycled id, with the original's budget reset.
@@ -354,7 +354,7 @@ describe('it refuses rather than guessing', () => {
 				pending: {
 					request: {
 						type: 'tool_review',
-						runId: SCOPE.runId,
+						turnId: SCOPE.runId,
 						checkpointId: 'ckpt_1' as CheckpointId,
 						toolCalls: [{ id: 'call_1', name: 'write', input: {} }],
 					},
@@ -364,7 +364,7 @@ describe('it refuses rather than guessing', () => {
 			} as unknown as Partial<IterationCheckpoint>),
 		)
 
-		const outcome = await resumeRun(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(store))
 
 		expect(outcome.resumed).toBe(false)
 		if (outcome.resumed || outcome.reason !== 'awaiting-decision') {
@@ -383,7 +383,7 @@ describe('it refuses rather than guessing', () => {
 				pending: {
 					request: {
 						type: 'tool_review',
-						runId: SCOPE.runId,
+						turnId: SCOPE.runId,
 						checkpointId: 'ckpt_1' as CheckpointId,
 						toolCalls: [{ id: 'call_1', name: 'write', input: {} }],
 					},
@@ -394,7 +394,7 @@ describe('it refuses rather than guessing', () => {
 			} as unknown as Partial<IterationCheckpoint>),
 		)
 
-		const outcome = await resumeRun(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(store))
 
 		// `resolvedAt` is what makes a park answered. Blocking on one that
 		// already has its answer would strand the run permanently.
@@ -416,7 +416,7 @@ describe('a resume carries the claim it was given', () => {
 	 * tested with no path between a run and its store carrying the number.
 	 *
 	 * So this drives the real entry point with the real store. It crosses both
-	 * hops — `resumeRun` forwards the fence to `query`, `query` presents it to
+	 * hops — `resumeSession` forwards the fence to `query`, `query` presents it to
 	 * the manager, the manager presents it on the write — and it asserts the
 	 * refusal, which only the store can produce. Remove either line and the run
 	 * writes unfenced and this test fails.
@@ -426,7 +426,7 @@ describe('a resume carries the claim it was given', () => {
 			...(await baseParams(store)),
 			provider: toolCallingProvider(),
 			tools: registryWithEcho(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -448,12 +448,12 @@ describe('a resume carries the claim it was given', () => {
 		// know otherwise — a pause, a suspended container and a partition all
 		// look from the inside like time not passing. The write is the only
 		// place it can be told, and it is two hops away from here.
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...(await iteratingParams(store)),
 			claimFence: stale?.fence,
 		})
 
-		// `resumeRun` RESOLVES. The refusal arrives as a failed run rather than
+		// `resumeSession` RESOLVES. The refusal arrives as a failed run rather than
 		// a rejected promise, which is worth stating because a host wrapping
 		// this call in `try`/`catch` would see nothing: the fence is reported
 		// on the run, and `status` is what a queue worker has to read.
@@ -472,7 +472,7 @@ describe('a resume carries the claim it was given', () => {
 		await store.writeCheckpoint(SCOPE, checkpoint())
 		const claim = await store.claimRun(SCOPE, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...(await iteratingParams(store)),
 			claimFence: claim?.fence,
 		})
@@ -490,7 +490,7 @@ describe('a resume carries the claim it was given', () => {
 		await store.writeCheckpoint(SCOPE, checkpoint())
 		await store.claimRun(SCOPE, { holder: 'somebody-else', ttlMs: 60_000, now: 1_000 })
 
-		const outcome = await resumeRun(await iteratingParams(store))
+		const outcome = await resumeSession(await iteratingParams(store))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
@@ -501,7 +501,7 @@ describe('a resume carries the claim it was given', () => {
 /**
  * A resumed run used to forget every file the conversation had written.
  *
- * The observation ledger is process memory: `resumeRun` restored the history,
+ * The observation ledger is process memory: `resumeSession` restored the history,
  * the budgets and the working state, and then handed the run an empty tracker.
  * So the projection admitted nothing, and the first thing a resumed agent did
  * was read back a file whose whole body was in the transcript it had just been
@@ -541,11 +541,11 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 			turns: [{ text: 'already know what is in it' }],
 		})
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...base,
 			provider,
 			tools: fileTools(),
-			runConfig: { ...base.runConfig, maxIterations: 4 },
+			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
 		expect(outcome.resumed).toBe(true)
@@ -583,11 +583,11 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 			],
 		})
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...base,
 			provider,
 			tools: fileTools(),
-			runConfig: { ...base.runConfig, maxIterations: 4 },
+			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
 		expect(outcome.resumed).toBe(true)
@@ -633,17 +633,17 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		for (const event of [
 			// From the beginning, because recovery refuses a log it cannot see
 			// the start of — a partial one proves nothing about what ran.
-			{ type: 'run_started', runId: SCOPE.runId },
+			{ type: 'turn_started', runId: SCOPE.runId },
 			{ type: 'tool_executing', runId: SCOPE.runId, toolUseId: 'w2', toolName: 'write', input: {} },
 			{
 				type: 'tool_completed',
-				runId: SCOPE.runId,
+				turnId: SCOPE.runId,
 				toolUseId: 'w2',
 				toolName: 'write',
 				result: `Created ${path}`,
 				isError: false,
 			},
-		] as RunEvent[]) {
+		] as SessionEvent[]) {
 			await runStore.appendEvent(event)
 		}
 		const requests: Message[][] = []
@@ -652,12 +652,12 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 			turns: [{ text: 'the newer body, then' }],
 		})
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...base,
 			provider,
 			runStore,
 			tools: fileTools(),
-			runConfig: { ...base.runConfig, maxIterations: 4 },
+			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
 		expect(outcome.resumed).toBe(true)
@@ -681,7 +681,7 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 			turns: [{ text: 'no witnesses, then' }],
 		})
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...base,
 			provider,
 			tools: fileTools(),
@@ -691,7 +691,7 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 					throw new Error('the ledger refused the entry')
 				},
 			},
-			runConfig: { ...base.runConfig, maxIterations: 4 },
+			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
 		expect(outcome.resumed).toBe(true)
@@ -714,11 +714,11 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 			turns: [{ text: 'nothing to go on' }],
 		})
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...base,
 			provider,
 			tools: fileTools(),
-			runConfig: { ...base.runConfig, maxIterations: 4 },
+			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
 
 		expect(outcome.resumed).toBe(true)

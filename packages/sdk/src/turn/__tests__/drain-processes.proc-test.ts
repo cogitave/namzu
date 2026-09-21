@@ -1,6 +1,6 @@
 import { fixtureUuid } from '../../test-support/ids.js'
 /**
- * `drainRuns` across REAL processes.
+ * `drainParkedTurns` across REAL processes.
  *
  * A drain loop tested inside one process proves nothing about a claim: the
  * event loop serializes the two drainers, so "each run exactly once" holds
@@ -37,8 +37,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../__fixtures__/temp-dir.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import type { HITLDecisionRequest, IterationCheckpoint } from '../../types/hitl/index.js'
-import type { CheckpointId, ProjectId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
-import type { CheckpointRunScope } from '../../types/run/checkpoint-store.js'
+import type { CheckpointId, ProjectId, TurnId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { CheckpointRunScope } from '../../types/session/durable.js'
 
 const exec = promisify(execFile)
 const here = dirname(fileURLToPath(import.meta.url))
@@ -82,7 +82,7 @@ let dir: string
 let store: DiskCheckpointStore
 
 function scope(runId: string): CheckpointRunScope {
-	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as RunId }
+	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as TurnId }
 }
 
 let seq = 0
@@ -93,13 +93,13 @@ function parkedCheckpoint(runId: string): IterationCheckpoint {
 	const id = fixtureUuid(`cp_seed_${seq}`) as CheckpointId
 	const request: HITLDecisionRequest = {
 		type: 'tool_review',
-		runId: runId as RunId,
+		turnId: runId as TurnId,
 		checkpointId: id,
 		toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 	}
 	return {
 		id,
-		runId: runId as RunId,
+		turnId: runId as TurnId,
 		iteration: 1,
 		messages: [],
 		tokenUsage: {

@@ -20,7 +20,7 @@ import { drainQuery } from '../index.js'
 /**
  * A notification appended after the answer must not become the answer's grave.
  *
- * `RunPersistence.resolveResult` assembles `Run.result` by walking the message
+ * `TurnRecorder.resolveResult` assembles `Run.result` by walking the message
  * tail BACKWARDS and stopping at the first non-assistant message, and it runs
  * at `markCompleted` — after the loop has finished. So a task notification
  * pushed after the final assistant turn hides that turn from the assembler
@@ -146,7 +146,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 			agentName: 'Test Agent',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,

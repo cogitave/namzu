@@ -5,10 +5,10 @@ import {
 	createUserMessage,
 } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 } from '../../utils/id.js'
@@ -25,7 +25,7 @@ const scope = {
 	projectId: generateProjectId(),
 	sessionId: generateSessionId(),
 }
-const sourceRun = generateRunId()
+const sourceRun = generateTurnId()
 const candidate = (
 	excerpt = 'DELTA tracking code: A17',
 	extra: Partial<EvidenceRecallCandidate> = {},
@@ -42,7 +42,7 @@ const candidate = (
 })
 function context(query = 'DELTA tracking code'): PrepareStepContext {
 	return {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		messages: [createUserMessage(query)],
 		steps: [],
@@ -585,17 +585,17 @@ describe('ephemeral scoped evidence recall', () => {
 	})
 
 	it('passes the current writer with a bounded lifetime, then revokes new captures', async () => {
-		let held: EvidenceRecallRequest['captureRunEvidence']
+		let held: EvidenceRecallRequest['captureSessionEvidence']
 		const capture = vi.fn(async () => undefined)
 		const recall = createEvidenceRecallStep({
 			scope,
-			retrieve: async ({ captureRunEvidence }) => {
-				held = captureRunEvidence
+			retrieve: async ({ captureSessionEvidence }) => {
+				held = captureSessionEvidence
 				expect(await held!(2 * 1024 * 1024)).toBeUndefined()
 				return batch()
 			},
 		})
-		await recall({ ...context(), captureRunEvidence: capture })
+		await recall({ ...context(), captureSessionEvidence: capture })
 		expect(capture).toHaveBeenCalledWith(2 * 1024 * 1024, expect.any(AbortSignal))
 		await expect(held!()).rejects.toThrow('pass ended')
 		expect(capture).toHaveBeenCalledTimes(1)
@@ -692,7 +692,7 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(metadata.visibleEvidence).toHaveLength(1)
 		expect(metadata.visibleEvidence[0].textQuote).toBe(a.excerpt)
 		expect(metadata.visibleEvidence[0].address).toEqual({
-			runId: sourceRun,
+			turnId: sourceRun,
 			seq: 2,
 			part: 0,
 			byteOffset: 1024,
@@ -706,7 +706,7 @@ describe('ephemeral scoped evidence recall', () => {
 		const correction =
 			'DELTA tracking destination changed to NEW-892 after review. Previous receipt OLD-471 is superseded; this entry records the correction.'
 		const copies = Array.from({ length: 4 }, (_, i) =>
-			candidate(old, { seq: i + 1, scope: { ...scope, runId: generateRunId() } }),
+			candidate(old, { seq: i + 1, scope: { ...scope, runId: generateTurnId() } }),
 		)
 		const { recall } = fixture([...copies, candidate(correction, { seq: 5 })])
 		const result = await recall(context('DELTA tracking destination'))
@@ -809,7 +809,7 @@ describe('ephemeral scoped evidence recall', () => {
 				batch(
 					candidate(),
 					candidate('unrelated', {
-						scope: { ...scope, runId: sourceRun, [field]: generateRunId() },
+						scope: { ...scope, runId: sourceRun, [field]: generateTurnId() },
 					}),
 				),
 			)

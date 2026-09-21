@@ -7,11 +7,11 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { isTerminalStatus } from '../../../types/common/index.js'
-import { deriveRunStatus } from '../../../types/run/derive-status.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import { deriveTurnStatus } from '../../../types/session/derive-status.js'
+import type { Run, SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -41,7 +41,7 @@ registerMock()
 const RUN_CONFIG = { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 }
 
 interface RunUnderTest {
-	generator: AsyncGenerator<RunEvent, Run>
+	generator: AsyncGenerator<SessionEvent, Run>
 	runStore: InMemoryRunStore
 	/** Every durable run-meta write this run performed, wherever it came from. */
 	writes: MockInstance
@@ -83,7 +83,7 @@ function startRun(): RunUnderTest {
 		runStore,
 		checkpointStore: new InMemoryCheckpointStore(),
 		backgroundJobs: jobs,
-		runConfig: RUN_CONFIG,
+		turnConfig: RUN_CONFIG,
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -144,7 +144,7 @@ describe('a consumer that abandons the run', () => {
 
 		// `persist()` is what writes this, and before the fix it never ran:
 		// the durable run was the one `init()` wrote — `idle` — which
-		// `deriveRunStatus` reads back as `queued`, a run waiting to start.
+		// `deriveTurnStatus` reads back as `queued`, a run waiting to start.
 		const status = run.runStore.snapshot().meta?.status
 		expect(status).toBeDefined()
 		expect(status).not.toBe('running')
@@ -177,7 +177,7 @@ describe('a consumer that abandons the run', () => {
  * A park is a promise to a human, and it outlives the consumer that walked
  * away: the run is resumable and somebody is still owed an answer.
  *
- * The abandonment path must not write a verdict over that. `deriveRunStatus`
+ * The abandonment path must not write a verdict over that. `deriveTurnStatus`
  * reads a terminal status FIRST and the park second, so a parked run recorded
  * `cancelled` stops reporting `awaiting_hitl` — it reads as work somebody
  * gave up on, while the unanswered question is still on the record and the
@@ -198,7 +198,7 @@ describe('a consumer that walks away while a human is being asked', () => {
 			tenantId: generateTenantId(),
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
-			runId: generateRunId(),
+			turnId: generateTurnId(),
 		}
 
 		const tools = new ToolRegistry()
@@ -227,7 +227,7 @@ describe('a consumer that walks away while a human is being asked', () => {
 			workingDirectory: process.cwd(),
 			runStore,
 			checkpointStore,
-			runId: scope.runId,
+			turnId: scope.runId,
 			tenantId: scope.tenantId,
 			projectId: scope.projectId,
 			sessionId: scope.sessionId,
@@ -238,7 +238,7 @@ describe('a consumer that walks away while a human is being asked', () => {
 				request.type === 'iteration_checkpoint'
 					? { action: 'pause', reason: 'not while I am reading this' }
 					: { action: 'continue' },
-			runConfig: RUN_CONFIG,
+			turnConfig: RUN_CONFIG,
 		})
 
 		// Break where a host's socket dies. The park is already durable by
@@ -246,7 +246,7 @@ describe('a consumer that walks away while a human is being asked', () => {
 		// even when the answer arrived too fast for the park-record delay.
 		let sawPause = false
 		for await (const event of generator) {
-			if (event.type === 'run_paused') {
+			if (event.type === 'turn_paused') {
 				sawPause = true
 				break
 			}
@@ -264,6 +264,6 @@ describe('a consumer that walks away while a human is being asked', () => {
 		const status = runStore.snapshot().meta?.status ?? 'running'
 		expect(status).not.toBe('cancelled')
 		expect(isTerminalStatus(status)).toBe(false)
-		expect(deriveRunStatus({ status, park: park?.pending })).toBe('awaiting_hitl')
+		expect(deriveTurnStatus({ status, park: park?.pending })).toBe('awaiting_hitl')
 	})
 })

@@ -19,20 +19,20 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { PluginId, RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { PluginId, TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type MessageAttachment,
 	createAssistantMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
-import type { CheckpointStore, FencingToken } from '../../../types/run/checkpoint-store.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
+import type { CheckpointStore, FencingToken } from '../../../types/session/durable.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'
-import { resumeRun } from '../resume-run.js'
+import { resumeSession } from '../resume-session.js'
 
 const dirs: string[] = []
 
@@ -127,7 +127,7 @@ async function params(
 		messages: [...messages],
 		...(attachmentStore ? { attachmentStore } : {}),
 		workingDirectory: await workingDirectory(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,
@@ -142,7 +142,7 @@ async function params(
 
 describe('stored attachment resolution belongs to the run', () => {
 	it('lets withdrawn authority outrank a missing attachment store', async () => {
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		const caller = new AbortController()
 		caller.abort(reason)
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
@@ -158,7 +158,7 @@ describe('stored attachment resolution belongs to the run', () => {
 
 	it('starts no store or provider work when authority was already withdrawn', async () => {
 		const caller = new AbortController()
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const get = vi.fn(
 			async (): Promise<StoredBytes> => ({
 				data: 'must-not-be-read',
@@ -205,7 +205,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		const pending = drainQuery(await params(provider, store, [input], caller.signal))
 
 		await started
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		caller.abort(reason)
 		const safety = Symbol('attachment resolution ignored cancellation')
 		let timer: ReturnType<typeof setTimeout> | undefined
@@ -269,16 +269,16 @@ describe('stored attachment resolution belongs to the run', () => {
 		const ordinaryStart = vi.fn(async () => ({ action: 'continue' as const }))
 		const interrupted = vi.fn(async () => ({ action: 'continue' as const }))
 		manager.registerHook('plugin_start' as PluginId, {
-			event: 'run_start',
+			event: 'turn_start',
 			handler: ordinaryStart,
 		})
 		manager.registerHook('plugin_interrupt' as PluginId, {
-			event: 'run_interrupt',
+			event: 'turn_interrupt',
 			handler: interrupted,
 		})
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const pending = drainQuery(
 			{
 				...(await params(provider, store, [storedDocumentMessage()], caller.signal)),
@@ -290,7 +290,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		)
 
 		await started
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const run = await pending
 		release({ data: 'late-pdf', mediaType: 'application/pdf' })
 
@@ -299,9 +299,9 @@ describe('stored attachment resolution belongs to the run', () => {
 		expect(ordinaryStart).not.toHaveBeenCalled()
 		expect(interrupted).toHaveBeenCalledOnce()
 		const interruptCompleted = events.findIndex(
-			(event) => event.type === 'plugin_hook_completed' && event.hookEvent === 'run_interrupt',
+			(event) => event.type === 'plugin_hook_completed' && event.hookEvent === 'turn_interrupt',
 		)
-		const runCompleted = events.findIndex((event) => event.type === 'run_completed')
+		const runCompleted = events.findIndex((event) => event.type === 'turn_completed')
 		expect(interruptCompleted).toBeGreaterThan(-1)
 		expect(interruptCompleted).toBeLessThan(runCompleted)
 	})
@@ -336,7 +336,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		})
 
 		await storeStarted
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const safety = Symbol('cancelled run entered a non-cooperative guardrail')
 		let timer: ReturnType<typeof setTimeout> | undefined
 		const outcome = await Promise.race([
@@ -395,7 +395,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		})
 
 		await preparationStarted
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const run = await pending
 		releasePreparation(undefined)
 
@@ -438,7 +438,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		const pending = drainQuery({ ...queryParams, promptContributions })
 
 		await storeStarted
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const run = await pending
 		releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
 
@@ -482,7 +482,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		})
 
 		await storeStarted
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const run = await pending
 		releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
 
@@ -496,7 +496,7 @@ describe('stored attachment resolution belongs to the run', () => {
 	it('preserves checkpoint history when a queued attachment is cancelled on resume', async () => {
 		const { started } = recordSpanParents()
 		const ids = identity()
-		const runId = '263718f0-e331-4ff9-be88-29684aa5f2fd' as RunId
+		const runId = '263718f0-e331-4ff9-be88-29684aa5f2fd' as TurnId
 		const checkpointId = 'ckpt_attachment_cancel_resume' as CheckpointId
 		const scope = { ...ids, runId }
 		const priorUser = createUserMessage('history before the process stopped')
@@ -504,7 +504,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		const checkpointStore = new InMemoryCheckpointStore()
 		const checkpoint: IterationCheckpoint = {
 			id: checkpointId,
-			runId,
+			turnId,
 			iteration: 2,
 			messages: [priorUser, priorAssistant],
 			tokenUsage: {
@@ -552,12 +552,12 @@ describe('stored attachment resolution belongs to the run', () => {
 		const runStore = new InMemoryRunStore()
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const caller = new AbortController()
-		const pending = resumeRun({
+		const pending = resumeSession({
 			scope,
 			checkpointStore,
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -575,7 +575,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		})
 
 		await storeStarted
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const outcome = await pending
 		releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
 
@@ -602,13 +602,13 @@ describe('stored attachment resolution belongs to the run', () => {
 
 	it('does not reread the selected checkpoint after resume cancellation', async () => {
 		const ids = identity()
-		const runId = '55814da4-6bf7-4cfd-8d8b-692f88b78ab1' as RunId
+		const runId = '55814da4-6bf7-4cfd-8d8b-692f88b78ab1' as TurnId
 		const checkpointId = 'ckpt_attachment_cancel_selected' as CheckpointId
 		const scope = { ...ids, runId }
 		const prior = createUserMessage('selected checkpoint history')
 		const checkpoint: IterationCheckpoint = {
 			id: checkpointId,
-			runId,
+			turnId,
 			iteration: 3,
 			messages: [prior],
 			tokenUsage: {
@@ -662,20 +662,20 @@ describe('stored attachment resolution belongs to the run', () => {
 		await runStore.initRun(runId)
 		await runStore.appendEvent({
 			type: 'approval_policy_changed',
-			runId,
+			turnId,
 			from: 'historical-policy',
 			to: 'replacement-policy',
 			reason: 'persisted before reconnect',
 			generation: 9 as FencingToken,
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const caller = new AbortController()
-		const pending = resumeRun({
+		const pending = resumeSession({
 			scope,
 			checkpointStore,
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -698,7 +698,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		})
 
 		await storeStarted
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const safety = Symbol('resume reread its checkpoint after cancellation')
 		let timer: ReturnType<typeof setTimeout> | undefined
 		const result = await Promise.race([
@@ -732,17 +732,17 @@ describe('stored attachment resolution belongs to the run', () => {
 		}
 		expect(events[0]?.type).toBe('approval_policy_changed')
 		const terminalEvents = events.filter((event) =>
-			['run_resuming', 'run_started', 'run_completed'].includes(event.type),
+			['turn_resuming', 'turn_started', 'turn_completed'].includes(event.type),
 		)
 		expect(terminalEvents.map((event) => event.type)).toEqual([
-			'run_resuming',
-			'run_started',
-			'run_completed',
+			'turn_resuming',
+			'turn_started',
+			'turn_completed',
 		])
 		expect(terminalEvents.every((event) => event.generation === 9)).toBe(true)
 		const persistedEvents = await runStore.readEvents()
 		const persistedTerminal = persistedEvents.filter((event) =>
-			['run_resuming', 'run_started', 'run_completed'].includes(event.type),
+			['turn_resuming', 'turn_started', 'turn_completed'].includes(event.type),
 		)
 		expect(persistedTerminal.every((event) => event.generation === 9)).toBe(true)
 	})
@@ -750,7 +750,7 @@ describe('stored attachment resolution belongs to the run', () => {
 	it('keeps cancellation authoritative when replay notification throws', async () => {
 		const { ended } = recordSpanParents()
 		const ids = identity()
-		const runId = '3172238b-3330-4b21-b3e3-28131f3e533f' as RunId
+		const runId = '3172238b-3330-4b21-b3e3-28131f3e533f' as TurnId
 		const checkpointId = 'ckpt_attachment_cancel_replay_callback' as CheckpointId
 		const scope = { ...ids, runId }
 		const checkpointStore = new InMemoryCheckpointStore()
@@ -765,7 +765,7 @@ describe('stored attachment resolution belongs to the run', () => {
 		}
 		await checkpointStore.writeCheckpoint(scope, {
 			id: checkpointId,
-			runId,
+			turnId,
 			iteration: 1,
 			messages: [checkpointUser, checkpointAssistant],
 			tokenUsage: checkpointUsage,
@@ -786,14 +786,14 @@ describe('stored attachment resolution belongs to the run', () => {
 		await runStore.initRun(runId)
 		await runStore.appendEvent({
 			type: 'approval_policy_changed',
-			runId,
+			turnId,
 			from: 'historical-policy',
 			to: 'replacement-policy',
 			reason: 'persisted before reconnect',
 		})
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const caller = new AbortController()
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const replayFailure = new Error('host replay observer failed')
 		let replayCallbacks = 0
 		let rejectReplay!: (error: Error) => void
@@ -805,14 +805,14 @@ describe('stored attachment resolution belongs to the run', () => {
 			unhandledRejections.push(reason)
 		}
 		process.on('unhandledRejection', recordUnhandledRejection)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
-		const pending = resumeRun({
+		const pending = resumeSession({
 			scope,
 			checkpointStore,
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -873,18 +873,18 @@ describe('stored attachment resolution belongs to the run', () => {
 		const persisted = await runStore.readEvents()
 		expect(events.map((event) => event.type)).toEqual([
 			'approval_policy_changed',
-			'run_resuming',
-			'run_started',
-			'run_completed',
+			'turn_resuming',
+			'turn_started',
+			'turn_completed',
 		])
 		expect(persisted.map((event) => event.type)).toEqual([
 			'approval_policy_changed',
-			'run_resuming',
-			'run_started',
-			'run_completed',
+			'turn_resuming',
+			'turn_started',
+			'turn_completed',
 		])
 		expect(persisted).toContainEqual(
-			expect.objectContaining({ type: 'run_completed', stopReason: 'cancelled' }),
+			expect.objectContaining({ type: 'turn_completed', stopReason: 'cancelled' }),
 		)
 		expect(ended).toHaveLength(1)
 	})

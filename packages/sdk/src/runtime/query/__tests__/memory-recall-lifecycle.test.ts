@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryRecallStep } from '../../../run/memory-recall.js'
+import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { buildMemoryTools } from '../../../tools/memory/index.js'
 import {
@@ -72,7 +72,7 @@ describe('memory controls the next actual model request', () => {
 				},
 			],
 			workingDirectory: process.cwd(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 10000,
 				tokenBudget: 100000,

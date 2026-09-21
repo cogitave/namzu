@@ -11,14 +11,14 @@ import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
-import { type RunStateScope, loadRunState } from '../run-state.js'
+import { type TurnStateScope, loadTurnState } from '../turn-state.js'
 
 /**
  * The whole point of #14, end to end: a run parks on a tool approval in
@@ -60,7 +60,7 @@ function deleteRowTool(calls: string[]): ToolDefinition<{ id: number }> {
 
 interface Harness {
 	dir: string
-	scope: RunStateScope
+	scope: TurnStateScope
 	store: DiskCheckpointStore
 	calls: string[]
 	tools: ToolRegistry
@@ -81,7 +81,7 @@ async function harness(): Promise<Harness> {
 			projectId: 'f4feb4a0-1fe7-447e-a5bb-29988d224bb0' as ProjectId,
 			sessionId: '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId,
 			topicId: '62a3b800-6711-4be4-9574-b8821f466408' as TopicId,
-			runId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6' as RunId,
+			turnId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6' as TurnId,
 		},
 	}
 }
@@ -92,8 +92,8 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 		tools: h.tools,
 		resumeHandler,
 		checkpointStore: h.store,
-		runId: h.scope.runId,
-		runConfig: {
+		turnId: h.scope.runId,
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
@@ -137,9 +137,9 @@ describe('an approval survives a process boundary', () => {
 		expect(h.calls).toEqual([])
 
 		// --- the handoff: durable state is all process 2 gets ---
-		const state = await loadRunState(new DiskCheckpointStore({ baseDir: join(h.dir, 'runs') }), {
+		const state = await loadTurnState(new DiskCheckpointStore({ baseDir: join(h.dir, 'runs') }), {
 			...h.scope,
-			runId: parked.id,
+			turnId: parked.id,
 		})
 		expect(state?.pending?.request.type).toBe('tool_review')
 		const recalled =
@@ -179,7 +179,7 @@ describe('an approval survives a process boundary', () => {
 
 		// --- process 2: the human said yes ---
 		const second = new MockLLMProvider({ turns: [{ text: 'row 42 is gone' }] })
-		const resumeEvents: RunEvent[] = []
+		const resumeEvents: SessionEvent[] = []
 		const resumed = await drainQuery(
 			{
 				...baseParams(h, second, pauseOnReview),
@@ -231,7 +231,7 @@ describe('an approval survives a process boundary', () => {
 			messages: [createUserMessage('delete row 7')],
 		})
 
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await loadTurnState(h.store, { ...h.scope, runId: parked.id })
 		const second = new MockLLMProvider({ turns: [{ text: 'understood, leaving it alone' }] })
 		await drainQuery({
 			...baseParams(h, second, pauseOnReview),
@@ -345,7 +345,7 @@ describe('an approval survives a process boundary', () => {
 			...baseParams(h, first, pauseOnReview),
 			messages: [createUserMessage('delete row 3')],
 		})
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await loadTurnState(h.store, { ...h.scope, runId: parked.id })
 
 		const second = new MockLLMProvider({ turns: [{ text: 'ok' }] })
 		await drainQuery({
@@ -413,7 +413,7 @@ describe('an approval survives a process boundary', () => {
 		expect(parked.stopReason).toBe('paused')
 		expect(executions).toEqual([])
 
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await loadTurnState(h.store, { ...h.scope, runId: parked.id })
 		if (state?.pending?.request.type !== 'tool_review') throw new Error('expected tool review')
 		expect(state.pending.request.toolCalls).toEqual(
 			expect.arrayContaining([
@@ -483,7 +483,7 @@ describe('an approval survives a process boundary', () => {
 			tools: makeTools(),
 			messages: [createUserMessage('normalize x')],
 		})
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await loadTurnState(h.store, { ...h.scope, runId: parked.id })
 		expect(state?.pending?.request.type).toBe('tool_review')
 
 		const second = new MockLLMProvider({ turns: [{ text: 'done' }] })
@@ -533,7 +533,7 @@ describe('an approval survives a process boundary', () => {
 			tools: makeTools('v1'),
 			messages: [createUserMessage('normalize')],
 		})
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await loadTurnState(h.store, { ...h.scope, runId: parked.id })
 		if (state?.pending?.request.type !== 'tool_review') throw new Error('expected tool review')
 		expect(state.pending.request.toolCalls[0]?.input).toEqual({ value: 'v1:x' })
 

@@ -15,7 +15,7 @@ import {
 	createUserMessage,
 } from '../../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider } from '../../../types/provider/index.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import type { Run, SessionEvent } from '../../../types/session/index.js'
 import { query } from '../index.js'
 
 /**
@@ -77,8 +77,8 @@ async function runUntilCompactionSnapshot(options: {
 	contextWindowTokens: number
 	clearToolResults?: boolean
 }): Promise<{
-	events: RunEvent[]
-	usage: Extract<RunEvent, { type: 'token_usage_updated' }>
+	events: SessionEvent[]
+	usage: Extract<SessionEvent, { type: 'token_usage_updated' }>
 	chatCalls: number
 	prepareStepCalls: number
 }> {
@@ -89,7 +89,7 @@ async function runUntilCompactionSnapshot(options: {
 	const iterator = query({
 		provider: recorded.provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,
@@ -127,7 +127,7 @@ async function runUntilCompactionSnapshot(options: {
 		}),
 	})
 
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	try {
 		for (;;) {
 			const next = await iterator.next()
@@ -159,7 +159,7 @@ describe('automatic compaction publishes its state before the next request', () 
 			})
 
 			const completed = result.events.find(
-				(event): event is Extract<RunEvent, { type: 'compaction_completed' }> =>
+				(event): event is Extract<SessionEvent, { type: 'compaction_completed' }> =>
 					event.type === 'compaction_completed',
 			)
 			expect(completed).toBeDefined()
@@ -202,7 +202,7 @@ describe('automatic compaction publishes its state before the next request', () 
 		})
 
 		const cleared = result.events.find(
-			(event): event is Extract<RunEvent, { type: 'compaction_tool_results_cleared' }> =>
+			(event): event is Extract<SessionEvent, { type: 'compaction_tool_results_cleared' }> =>
 				event.type === 'compaction_tool_results_cleared',
 		)
 		expect(cleared?.reliefWasEnough).toBe(true)

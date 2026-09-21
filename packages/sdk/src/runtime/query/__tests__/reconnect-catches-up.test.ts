@@ -9,15 +9,15 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEventReplay } from '../../../types/run/event-cursor.js'
-import type { RunEvent } from '../../../types/run/events.js'
+import type { SessionLogReplay } from '../../../types/session/log-cursor.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { QueryParams } from '../index.js'
 import { query } from '../index.js'
-import { resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
 
 /**
  * "Refresh the page and keep watching the answer arrive."
@@ -27,9 +27,9 @@ import type { RunStateScope } from '../run-state.js'
  * exactly once, in order — or be told, in a value it cannot ignore, that it
  * cannot have them.
  *
- * These drive `resumeRun`, which is the call a host makes to continue a run a
+ * These drive `resumeSession`, which is the call a host makes to continue a run a
  * different process started. Entering at `query` instead would prove the
- * catch-up and not the road to it: `resumeRun` drained the run with NO listener
+ * catch-up and not the road to it: `resumeSession` drained the run with NO listener
  * at all until this change, so every event it produced was discarded, and a
  * catch-up delivered into that reaches nobody.
  */
@@ -42,11 +42,11 @@ const LOG = {
 	child: vi.fn(() => LOG),
 }
 
-const SCOPE: RunStateScope = {
+const SCOPE: TurnStateScope = {
 	tenantId: 'f9a63b7d-293a-44dc-8437-c7aaa838030a' as TenantId,
 	projectId: 'e1b45cba-6ba4-4344-b729-0e1ae32006c0' as ProjectId,
 	sessionId: '5d7ae317-76ee-4da2-af79-58339cc3d4cd' as SessionId,
-	runId: 'fbc2d6ad-2dbb-479e-a1fe-6f5c93d92739' as RunId,
+	turnId: 'fbc2d6ad-2dbb-479e-a1fe-6f5c93d92739' as TurnId,
 	topicId: '0f20d062-dd85-4cc2-8a88-73846d81f64f' as TopicId,
 }
 
@@ -91,7 +91,7 @@ async function resumeParams(baseDir: string, checkpointStore: InMemoryCheckpoint
 		checkpointStore,
 		provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
 		tools: registryWithEcho(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -118,19 +118,19 @@ async function resumeParams(baseDir: string, checkpointStore: InMemoryCheckpoint
  */
 async function crashedRun(): Promise<{
 	baseDir: string
-	seen: RunEvent[]
+	seen: SessionEvent[]
 	checkpointStore: InMemoryCheckpointStore
 }> {
 	const baseDir = await workdir()
 	const checkpointStore = new InMemoryCheckpointStore()
-	const seen: RunEvent[] = []
+	const seen: SessionEvent[] = []
 	const gen = query({
 		messages: [createUserMessage('go')],
 		provider: new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
 		}),
 		tools: registryWithEcho(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -140,7 +140,7 @@ async function crashedRun(): Promise<{
 		agentId: 'agent_re',
 		agentName: 'Reconnect Agent',
 		workingDirectory: baseDir,
-		runId: SCOPE.runId,
+		turnId: SCOPE.runId,
 		sessionId: SCOPE.sessionId,
 		topicId: SCOPE.topicId,
 		projectId: SCOPE.projectId,
@@ -166,11 +166,11 @@ describe('a consumer that lost its connection', () => {
 		// It stopped watching a third of the way through.
 		const cursor = recorded[1]?.seq as number
 
-		const received: RunEvent[] = []
-		const outcome = await resumeRun({
+		const received: SessionEvent[] = []
+		const outcome = await resumeSession({
 			...(await resumeParams(baseDir, checkpointStore)),
 			eventCursor: { sinceSeq: cursor },
-			listener: (event: RunEvent) => {
+			listener: (event: SessionEvent) => {
 				received.push(event)
 			},
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
@@ -196,11 +196,11 @@ describe('a consumer that lost its connection', () => {
 		const cursor = recorded[1]?.seq as number
 		const lastRecordedSeq = recorded.at(-1)?.seq as number
 
-		const received: RunEvent[] = []
-		await resumeRun({
+		const received: SessionEvent[] = []
+		await resumeSession({
 			...(await resumeParams(baseDir, checkpointStore)),
 			eventCursor: { sinceSeq: cursor },
-			listener: (event: RunEvent) => {
+			listener: (event: SessionEvent) => {
 				received.push(event)
 			},
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
@@ -221,11 +221,11 @@ describe('a consumer that lost its connection', () => {
 		const { baseDir, seen, checkpointStore } = await crashedRun()
 		const head = seen.filter((e) => e.seq !== undefined).at(-1)?.seq as number
 
-		const received: RunEvent[] = []
-		const outcome = await resumeRun({
+		const received: SessionEvent[] = []
+		const outcome = await resumeSession({
 			...(await resumeParams(baseDir, checkpointStore)),
 			eventCursor: { sinceSeq: head },
-			listener: (event: RunEvent) => {
+			listener: (event: SessionEvent) => {
 				received.push(event)
 			},
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
@@ -243,15 +243,15 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 	it('calls a cursor above the log ahead, hands over nothing, and runs anyway', async () => {
 		const { baseDir, checkpointStore } = await crashedRun()
 
-		let replay: RunEventReplay | undefined
-		const received: RunEvent[] = []
-		const outcome = await resumeRun({
+		let replay: SessionLogReplay | undefined
+		const received: SessionEvent[] = []
+		const outcome = await resumeSession({
 			...(await resumeParams(baseDir, checkpointStore)),
 			eventCursor: { sinceSeq: 10_000 },
-			onEventReplay: (verdict: RunEventReplay) => {
+			onEventReplay: (verdict: SessionLogReplay) => {
 				replay = verdict
 			},
-			listener: (event: RunEvent) => {
+			listener: (event: SessionEvent) => {
 				received.push(event)
 			},
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
@@ -269,18 +269,18 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 		const cursor = recorded[1]?.seq as number
 		const head = recorded.at(-1)?.seq as number
 
-		let replay: RunEventReplay | undefined
-		const received: RunEvent[] = []
-		await resumeRun({
+		let replay: SessionLogReplay | undefined
+		const received: SessionEvent[] = []
+		await resumeSession({
 			...(await resumeParams(baseDir, checkpointStore)),
 			// The run is taken over under a higher fence; the consumer's cursor
 			// was minted under the lower one.
 			claimFence: 9,
 			eventCursor: { sinceSeq: cursor, generation: 4 },
-			onEventReplay: (verdict: RunEventReplay) => {
+			onEventReplay: (verdict: SessionLogReplay) => {
 				replay = verdict
 			},
-			listener: (event: RunEvent) => {
+			listener: (event: SessionEvent) => {
 				received.push(event)
 			},
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
@@ -306,19 +306,19 @@ describe('the listener is the hop', () => {
 	it('delivers the resumed run’s own events, cursor or no cursor', async () => {
 		const { baseDir, checkpointStore } = await crashedRun()
 
-		const received: RunEvent[] = []
-		await resumeRun({
+		const received: SessionEvent[] = []
+		await resumeSession({
 			...(await resumeParams(baseDir, checkpointStore)),
-			listener: (event: RunEvent) => {
+			listener: (event: SessionEvent) => {
 				received.push(event)
 			},
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
 		} as any)
 
-		// Before this parameter existed `resumeRun` drained the run and dropped
+		// Before this parameter existed `resumeSession` drained the run and dropped
 		// every event it produced, so the one API for continuing a run another
 		// process started could not show anybody what the run was doing.
 		expect(received.length).toBeGreaterThan(0)
-		expect(received.some((e) => e.type === 'run_completed')).toBe(true)
+		expect(received.some((e) => e.type === 'turn_completed')).toBe(true)
 	})
 })

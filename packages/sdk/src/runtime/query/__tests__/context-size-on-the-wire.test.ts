@@ -8,7 +8,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -33,7 +33,7 @@ afterEach(async () => {
 	workdirs = []
 })
 
-type UsageEvent = Extract<RunEvent, { type: 'token_usage_updated' }>
+type UsageEvent = Extract<SessionEvent, { type: 'token_usage_updated' }>
 
 async function run(
 	compaction: CompactionConfig | undefined,
@@ -47,7 +47,12 @@ async function run(
 		{
 			provider: new MockLLMProvider({ turns: turns as never }),
 			tools: new ToolRegistry(),
-			runConfig: { model: 'mock-model', timeoutMs: 30_000, tokenBudget: 100_000, maxIterations: 3 },
+			turnConfig: {
+				model: 'mock-model',
+				timeoutMs: 30_000,
+				tokenBudget: 100_000,
+				maxIterations: 3,
+			},
 			...(compaction ? { compactionConfig: compaction } : {}),
 			agentId: 'agent_ctx',
 			agentName: 'Context Agent',
@@ -58,7 +63,7 @@ async function run(
 			tenantId: fixtureId.tenant('ctx'),
 			messages: [createUserMessage('go')],
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			if (event.type === 'token_usage_updated') seen.push(event)
 		},
 	)

@@ -1,5 +1,5 @@
 /**
- * `drainRuns` — the loop every host had to write itself.
+ * `drainParkedTurns` — the loop every host had to write itself.
  *
  * These are the single-process properties: what it refuses, what it
  * releases, what it does with a claim it lost. The properties that need
@@ -14,13 +14,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
 import { fixtureId, fixtureUuid } from '../../test-support/ids.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
-import type { CheckpointId, ProjectId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { CheckpointId, ProjectId, TurnId, SessionId, TenantId } from '../../types/ids/index.js'
 import type {
 	CheckpointRunScope,
 	CheckpointStore,
 	DurableRunEntry,
-} from '../../types/run/checkpoint-store.js'
-import { drainRuns } from '../drain.js'
+} from '../../types/session/durable.js'
+import { drainParkedTurns } from '../drain.js'
 
 const TENANT = '988097f6-b538-4e9a-a5ec-d6bf9864204a' as TenantId
 const PROJECT = 'baa3f1b2-7a3d-4291-ba2e-694e4b02352b' as ProjectId
@@ -29,7 +29,7 @@ const SESSION = '5b2340e7-1a7e-45e3-97bd-c297d5334dd9' as SessionId
 const listingScope = { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION }
 
 function scope(runId: string): CheckpointRunScope {
-	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as RunId }
+	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as TurnId }
 }
 
 let seq = 0
@@ -39,7 +39,7 @@ function checkpoint(runId: string, parked: boolean): IterationCheckpoint {
 	seq += 1
 	return {
 		id: fixtureUuid(`cp_${seq}`) as CheckpointId,
-		runId: runId as RunId,
+		turnId: runId as TurnId,
 		iteration: 1,
 		messages: [],
 		tokenUsage: {
@@ -57,7 +57,7 @@ function checkpoint(runId: string, parked: boolean): IterationCheckpoint {
 					pending: {
 						request: {
 							type: 'tool_review',
-							runId: runId as RunId,
+							turnId: runId as TurnId,
 							checkpointId: fixtureUuid(`cp_${seq}`) as CheckpointId,
 							toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 						},
@@ -82,7 +82,7 @@ async function seeded(runIds: readonly string[], parked = true): Promise<InMemor
  * Built method by method rather than by spreading the instance. A class's
  * methods live on its prototype, so `{ ...store }` yields an object holding
  * the private maps and NO methods whatever — and a refusal test written that
- * way passes against a `drainRuns` that checks nothing, because the store it
+ * way passes against a `drainParkedTurns` that checks nothing, because the store it
  * was handed genuinely implements nothing. Two of the tests below would have
  * been decorative.
  */
@@ -128,7 +128,7 @@ describe('refusing a store that cannot arbitrate a queue', () => {
 	it('refuses a store with no claim, and drains nothing', async () => {
 		const onRun = vi.fn()
 		await expect(
-			drainRuns({ store: cannotClaim, scope: listingScope, holder, ttlMs, onRun }),
+			drainParkedTurns({ store: cannotClaim, scope: listingScope, holder, ttlMs, onRun }),
 		).rejects.toThrow(/does not implement `claimRun`/)
 		expect(onRun).not.toHaveBeenCalled()
 		// Refused BEFORE the listing, not after: a store that cannot claim must
@@ -147,9 +147,9 @@ describe('refusing a store that cannot arbitrate a queue', () => {
 			releaseRun: async () => {},
 		}
 		const onRun = vi.fn()
-		await expect(drainRuns({ store, scope: listingScope, holder, ttlMs, onRun })).rejects.toThrow(
-			/does not implement `listDurableRuns`/,
-		)
+		await expect(
+			drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun }),
+		).rejects.toThrow(/does not implement `listDurableRuns`/)
 		expect(onRun).not.toHaveBeenCalled()
 	})
 
@@ -158,7 +158,7 @@ describe('refusing a store that cannot arbitrate a queue', () => {
 		const noRelease = without(store, 'releaseRun')
 		const onRun = vi.fn()
 		await expect(
-			drainRuns({ store: noRelease, scope: listingScope, holder, ttlMs, onRun }),
+			drainParkedTurns({ store: noRelease, scope: listingScope, holder, ttlMs, onRun }),
 		).rejects.toThrow(/does not implement.*`releaseRun`/)
 		expect(onRun).not.toHaveBeenCalled()
 	})
@@ -171,7 +171,7 @@ describe('refusing a store that cannot arbitrate a queue', () => {
 			deleteCheckpoint: async () => {},
 		}
 		await expect(
-			drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} }),
+			drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} }),
 		).rejects.toThrow(/`listDurableRuns`, `claimRun`, `releaseRun`/)
 	})
 })
@@ -180,14 +180,14 @@ describe('refusing configuration that cannot mean what it says', () => {
 	it('refuses an empty holder', async () => {
 		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		await expect(
-			drainRuns({ store, scope: listingScope, holder: '  ', ttlMs, onRun: () => {} }),
+			drainParkedTurns({ store, scope: listingScope, holder: '  ', ttlMs, onRun: () => {} }),
 		).rejects.toThrow(/`holder` is empty/)
 	})
 
 	it('refuses a lease that has already expired', async () => {
 		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		await expect(
-			drainRuns({ store, scope: listingScope, holder, ttlMs: 0, onRun: () => {} }),
+			drainParkedTurns({ store, scope: listingScope, holder, ttlMs: 0, onRun: () => {} }),
 		).rejects.toThrow(/ttlMs must be a positive number/)
 	})
 
@@ -195,7 +195,7 @@ describe('refusing configuration that cannot mean what it says', () => {
 		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		const onRun = vi.fn()
 		await expect(
-			drainRuns({ store, scope: listingScope, holder, ttlMs, onRun, maxConcurrent: 0 }),
+			drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun, maxConcurrent: 0 }),
 		).rejects.toThrow(/maxConcurrent must be a positive integer/)
 		expect(onRun).not.toHaveBeenCalled()
 	})
@@ -210,7 +210,7 @@ describe('one pass over the queue', () => {
 		])
 		const seen: { runId: string; fence: number; holder: string }[] = []
 
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -250,9 +250,9 @@ describe('one pass over the queue', () => {
 			'90a466e2-f869-4a3c-b750-f2156342ff40',
 			'fe818a89-6a50-4e51-8a91-5f108ad85280',
 		])
-		await drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
+		await drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
 
-		const second = await drainRuns({
+		const second = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -276,7 +276,7 @@ describe('one pass over the queue', () => {
 			'90a466e2-f869-4a3c-b750-f2156342ff40',
 			'fe818a89-6a50-4e51-8a91-5f108ad85280',
 		])
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -313,7 +313,13 @@ describe('one pass over the queue', () => {
 		})
 		const onRun = vi.fn()
 
-		const result = await drainRuns({ store: raced, scope: listingScope, holder, ttlMs, onRun })
+		const result = await drainParkedTurns({
+			store: raced,
+			scope: listingScope,
+			holder,
+			ttlMs,
+			onRun,
+		})
 
 		expect(result.skipped).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
@@ -331,7 +337,7 @@ describe('one pass over the queue', () => {
 				throw new Error('disk went away')
 			},
 		})
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store: stuck,
 			scope: listingScope,
 			holder,
@@ -355,7 +361,7 @@ describe('one pass over the queue', () => {
 				throw new Error('disk went away')
 			},
 		})
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store: stuck,
 			scope: listingScope,
 			holder,
@@ -383,7 +389,13 @@ describe('one pass over the queue', () => {
 			ttlMs: 60_000,
 		})
 
-		const result = await drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
+		const result = await drainParkedTurns({
+			store,
+			scope: listingScope,
+			holder,
+			ttlMs,
+			onRun: () => {},
+		})
 
 		// `claimed: false` is not a parameter, and this is why: a drainer that
 		// listed held runs would spend a claim attempt on every one of them
@@ -400,7 +412,7 @@ describe('one pass over the queue', () => {
 			now: 1_000,
 		})
 
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -447,7 +459,7 @@ describe('one pass over the queue', () => {
 			},
 		})
 
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store: raced,
 			scope: listingScope,
 			holder,
@@ -461,7 +473,7 @@ describe('one pass over the queue', () => {
 		// The point of the whole re-read: the work does NOT run a second time.
 		expect(onRun).toHaveBeenCalledTimes(1)
 		expect(onRun.mock.calls[0]?.[0]).toMatchObject({
-			runId: 'fe818a89-6a50-4e51-8a91-5f108ad85280',
+			turnId: 'fe818a89-6a50-4e51-8a91-5f108ad85280',
 		})
 		// And the stale run's lease is handed straight back rather than held
 		// for the full TTL over work nobody is doing.
@@ -474,7 +486,7 @@ describe('one pass over the queue', () => {
 		const listCheckpoints = vi.fn(store.listCheckpoints.bind(store))
 		const watched = facade(store, { listCheckpoints })
 
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store: watched,
 			scope: listingScope,
 			holder,
@@ -501,7 +513,7 @@ describe('one pass over the queue', () => {
 			checkpoint('4a16723e-b50c-4522-ab32-14e12cc15a99', false),
 		)
 
-		const inbox = await drainRuns({
+		const inbox = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -514,7 +526,13 @@ describe('one pass over the queue', () => {
 		// And with no filter, the run that never parked is included — the case
 		// a crash sweep exists for, and the one any default park filter would
 		// have hidden.
-		const sweep = await drainRuns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
+		const sweep = await drainParkedTurns({
+			store,
+			scope: listingScope,
+			holder,
+			ttlMs,
+			onRun: () => {},
+		})
 		expect([...sweep.drained].sort()).toEqual(
 			['4a16723e-b50c-4522-ab32-14e12cc15a99', 'c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'].sort(),
 		)
@@ -526,7 +544,7 @@ describe('bounds', () => {
 		const ids = Array.from({ length: 7 }, (_, i) => `run_${i}`)
 		const store = await seeded(ids)
 
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -544,7 +562,7 @@ describe('bounds', () => {
 		let inFlight = 0
 		let peak = 0
 
-		await drainRuns({
+		await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -572,7 +590,7 @@ describe('bounds', () => {
 		])
 		let inFlight = 0
 		let peak = 0
-		await drainRuns({
+		await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -598,7 +616,7 @@ describe('cancellation', () => {
 		const controller = new AbortController()
 		const seen: string[] = []
 
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -625,7 +643,7 @@ describe('cancellation', () => {
 			'fe818a89-6a50-4e51-8a91-5f108ad85280',
 		])
 		const onRun = vi.fn()
-		const result = await drainRuns({
+		const result = await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -643,7 +661,7 @@ describe('what the callback receives', () => {
 	it('hands over an entry that is itself an addressable run scope', async () => {
 		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		let received: DurableRunEntry | undefined
-		await drainRuns({
+		await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,
@@ -652,13 +670,13 @@ describe('what the callback receives', () => {
 				received = entry
 			},
 		})
-		// The property `resumeRun({ scope: entry, … })` depends on: a row that
+		// The property `resumeSession({ scope: entry, … })` depends on: a row that
 		// cannot be turned back into a scope is a report, not a work queue.
 		expect(received).toMatchObject({
 			tenantId: TENANT,
 			projectId: PROJECT,
 			sessionId: SESSION,
-			runId: '90a466e2-f869-4a3c-b750-f2156342ff40',
+			turnId: '90a466e2-f869-4a3c-b750-f2156342ff40',
 		})
 		expect(received?.latestCheckpointId).toBeDefined()
 	})
@@ -666,7 +684,7 @@ describe('what the callback receives', () => {
 	it('hands over a fence that the store will accept and a stale one it will not', async () => {
 		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
 		let fence = 0
-		await drainRuns({
+		await drainParkedTurns({
 			store,
 			scope: listingScope,
 			holder,

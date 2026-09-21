@@ -9,8 +9,8 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -74,13 +74,13 @@ async function run(
 ) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-window-'))
 	dirs.push(workingDirectory)
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 
 	const result = await drainQuery(
 		{
 			provider,
 			tools: registry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs,
 				tokenBudget: 200_000,
@@ -102,7 +102,7 @@ async function run(
 			tenantId: 'bc5e378a-03cb-4f5b-af29-e1d5409863d6' as TenantId,
 			...(signal ? { signal } : {}),
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			events.push(event)
 		},
 	)
@@ -131,7 +131,7 @@ describe('the context window is asked for once per run', () => {
 		const { events } = await run(provider)
 
 		const usage = events.filter(
-			(e): e is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+			(e): e is Extract<SessionEvent, { type: 'token_usage_updated' }> =>
 				e.type === 'token_usage_updated',
 		)
 		expect(usage.length).toBeGreaterThan(0)
@@ -151,7 +151,7 @@ describe('the context window is asked for once per run', () => {
 
 		expect(result.status).toBe('completed')
 		const usage = events.filter(
-			(e): e is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+			(e): e is Extract<SessionEvent, { type: 'token_usage_updated' }> =>
 				e.type === 'token_usage_updated',
 		)
 		expect(usage.every((e) => e.windowSource !== 'provider')).toBe(true)
@@ -165,7 +165,7 @@ describe('the context window is asked for once per run', () => {
 		expect(result.status).toBe('completed')
 		expect(provider.calls).toBe(1)
 		const usage = events.filter(
-			(e): e is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+			(e): e is Extract<SessionEvent, { type: 'token_usage_updated' }> =>
 				e.type === 'token_usage_updated',
 		)
 		expect(usage.every((e) => e.windowSource !== 'provider')).toBe(true)
@@ -197,7 +197,7 @@ describe('the context window is asked for once per run', () => {
 		)
 
 		await started
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 
 		let waitFailure: unknown
 		try {
@@ -214,8 +214,8 @@ describe('the context window is asked for once per run', () => {
 		if (waitFailure) throw waitFailure
 		expect(result.status).toBe('cancelled')
 		expect(provider.requests).toHaveLength(0)
-		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
+		expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+			type: 'turn_completed',
 			stopReason: 'cancelled',
 			cancelCause: 'user',
 		})
@@ -247,7 +247,7 @@ describe('the context window is asked for once per run', () => {
 			await started
 
 			// `timeoutMs` is BOTH the run's budget and the resolver's deadline
-			// — `resolveProviderContextWindow` is handed `runConfig.timeoutMs`
+			// — `resolveProviderContextWindow` is handed `turnConfig.timeoutMs`
 			// — and on a real clock the two raced: the run's seam checks could
 			// see a 20 ms budget already spent by the very wait the deadline
 			// exists to end, so this case measured the machine and failed in
@@ -285,7 +285,7 @@ describe('the context window is asked for once per run', () => {
 			expect(result.status).toBe('completed')
 			expect(provider.requests).toHaveLength(1)
 			const usage = events.filter(
-				(event): event is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+				(event): event is Extract<SessionEvent, { type: 'token_usage_updated' }> =>
 					event.type === 'token_usage_updated',
 			)
 			expect(usage.every((event) => event.windowSource !== 'provider')).toBe(true)
@@ -297,7 +297,7 @@ describe('the context window is asked for once per run', () => {
 	it('does not enter the optional resolver after authority was already withdrawn', async () => {
 		const provider = new ReportingProvider(async () => 1_000_000, 1)
 		const caller = new AbortController()
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 
 		const { result, events } = await run(provider, 2, caller.signal)
 
@@ -305,8 +305,8 @@ describe('the context window is asked for once per run', () => {
 		expect(provider.calls).toBe(0)
 		expect(provider.resolverSignals).toHaveLength(0)
 		expect(provider.requests).toHaveLength(0)
-		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
+		expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+			type: 'turn_completed',
 			stopReason: 'cancelled',
 			cancelCause: 'user',
 		})

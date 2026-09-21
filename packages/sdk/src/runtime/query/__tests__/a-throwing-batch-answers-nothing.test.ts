@@ -11,10 +11,10 @@ import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { PluginId } from '../../../types/ids/index.js'
 import type { AssistantMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import type { Run, SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -64,7 +64,7 @@ const REFUSAL = 'the transcript refused the hook record'
 class RefusingRunStore extends InMemoryRunStore {
 	readonly refusedRetries: string[] = []
 
-	override async appendEvent(event: RunEvent): Promise<void> {
+	override async appendEvent(event: SessionEvent): Promise<void> {
 		if (event.type === 'tool_calls_admitted' && event.kind === 'retry') {
 			this.refusedRetries.push(event.kind)
 			throw new Error(REFUSAL)
@@ -123,13 +123,13 @@ describe('a batch whose per-call work throws', () => {
 	it('answers nothing, and the calls behind the throwing one never run', async () => {
 		const executions: string[] = []
 		const tools = toolsThatRecord(executions)
-		const events: RunEvent[] = []
-		const runId = generateRunId()
+		const events: SessionEvent[] = []
+		const runId = generateTurnId()
 		const executor = new ToolExecutor(
 			{
 				tools,
 				pluginManager: pluginThatObserves(tools),
-				runId,
+				turnId,
 				workingDirectory: process.cwd(),
 				permissionMode: 'auto',
 				env: {},
@@ -203,7 +203,7 @@ describe('a run whose tool batch throws', () => {
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
 			maxToolCalls: 50,
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 3 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 3 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),

@@ -175,7 +175,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 			agentName: 'Test Agent',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs,
 				tokenBudget: 100_000,
@@ -244,7 +244,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 			agentName: 'Test Agent',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,

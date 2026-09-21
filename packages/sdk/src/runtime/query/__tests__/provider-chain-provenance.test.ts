@@ -92,7 +92,7 @@ function baseParams(
 	return {
 		provider,
 		tools,
-		runConfig: {
+		turnConfig: {
 			model: 'primary-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -276,8 +276,8 @@ describe('the run record names the member that served', () => {
 		const base = baseParams(failing('anthropic', 401), tools, await mkWorkdir(), 10)
 		const run = await drainQuery({
 			...base,
-			runConfig: {
-				...base.runConfig,
+			turnConfig: {
+				...base.turnConfig,
 				model: 'claude-opus-5',
 				tokenBudget: 2_200_000,
 			},

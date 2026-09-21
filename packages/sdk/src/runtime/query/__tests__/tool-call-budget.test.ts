@@ -9,10 +9,10 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolContext, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -20,7 +20,7 @@ import { ToolExecutor } from '../executor.js'
 import { query } from '../index.js'
 import { ToolCallBudget } from '../tool-call-budget.js'
 
-const runId = 'e2d37322-06f5-48ad-9575-2f16bd7bb972' as RunId
+const runId = 'e2d37322-06f5-48ad-9575-2f16bd7bb972' as TurnId
 const dirs: string[] = []
 afterEach(async () => {
 	for (const dir of dirs.splice(0)) await removeTempDirAsync(dir)
@@ -78,15 +78,15 @@ function harness(
 	limit?: number,
 	options: {
 		signal?: AbortSignal
-		events?: RunEvent[]
-		emit?: (event: RunEvent) => Promise<void>
-		read?: () => Promise<readonly RunEvent[]>
+		events?: SessionEvent[]
+		emit?: (event: SessionEvent) => Promise<void>
+		read?: () => Promise<readonly SessionEvent[]>
 	} = {},
 ) {
-	const events = options.events ?? [{ type: 'run_started', runId, seq: 1 }]
+	const events = options.events ?? [{ type: 'turn_started', runId, seq: 1 }]
 	const emit =
 		options.emit ??
-		(async (event: RunEvent) => {
+		(async (event: SessionEvent) => {
 			events.push({ ...event, seq: events.length + 1 })
 		})
 	const log = {
@@ -99,7 +99,7 @@ function harness(
 	const executor = new ToolExecutor(
 		{
 			tools,
-			runId,
+			turnId,
 			workingDirectory: '/tmp',
 			env: {},
 			permissionMode: 'auto',
@@ -205,7 +205,7 @@ describe('cumulative tool-call admission', () => {
 
 	it('persists admission before a cancelled batch and retains its slots on recovery', async () => {
 		const controller = new AbortController()
-		const events: RunEvent[] = [{ type: 'run_started', runId, seq: 1 }]
+		const events: SessionEvent[] = [{ type: 'turn_started', runId, seq: 1 }]
 		const run = vi.fn(successful)
 		const first = harness(registry(run), 2, {
 			signal: controller.signal,
@@ -226,18 +226,18 @@ describe('cumulative tool-call admission', () => {
 
 	it('fails closed on unreadable, gapped, foreign or inconsistent recovery evidence', async () => {
 		const run = vi.fn(successful)
-		const start: RunEvent = { type: 'run_started', runId, seq: 1 }
+		const start: SessionEvent = { type: 'turn_started', runId, seq: 1 }
 		for (const read of [
-			async (): Promise<RunEvent[]> => {
+			async (): Promise<SessionEvent[]> => {
 				throw new Error('store unavailable')
 			},
 			async () => [{ ...start, seq: 2 }],
-			async () => [{ ...start, runId: 'foreign' as RunId }],
+			async () => [{ ...start, runId: 'foreign' as TurnId }],
 			async () => [
 				start,
 				{
 					type: 'tool_calls_admitted' as const,
-					runId,
+					turnId,
 					seq: 2,
 					kind: 'batch' as const,
 					count: 1,
@@ -257,7 +257,7 @@ describe('cumulative tool-call admission', () => {
 		const run = vi.fn(successful)
 		await expect(
 			harness(registry(run), 3, {
-				read: async () => new Array(100_001).fill({ type: 'run_started', runId, seq: 1 }),
+				read: async () => new Array(100_001).fill({ type: 'turn_started', runId, seq: 1 }),
 			}).executor.executeBatch(response('one')),
 		).rejects.toThrow(/100000/)
 		const broken = harness(registry(run), 3, {
@@ -279,9 +279,9 @@ describe('cumulative tool-call admission', () => {
 		dirs.push(dir)
 		const store = new RunDiskStore({ baseDir: dir })
 		await store.initRun(runId)
-		await store.appendEvent({ type: 'run_started', runId, seq: 1 })
+		await store.appendEvent({ type: 'turn_started', runId, seq: 1 })
 		let seq = 1
-		const emit = async (event: RunEvent) => {
+		const emit = async (event: SessionEvent) => {
 			await store.appendEvent({ ...event, seq: ++seq })
 		}
 		const ledger = new ToolCallBudget(2, runId, emit, () =>
@@ -290,7 +290,7 @@ describe('cumulative tool-call admission', () => {
 		await ledger.admit(2, 'batch', new AbortController().signal)
 		await emit({
 			type: 'tool_completed',
-			runId,
+			turnId,
 			toolUseId: 'c0',
 			toolName: 'one',
 			result: 'already completed',
@@ -323,7 +323,7 @@ describe('cumulative tool-call admission', () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-query-call-budget-'))
 		dirs.push(workingDirectory)
 		const run = vi.fn(successful)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		for await (const event of query({
 			provider: new MockLLMProvider({
 				turns: [
@@ -341,7 +341,7 @@ describe('cumulative tool-call admission', () => {
 			}),
 			tools: registry(run),
 			maxToolCalls: 3,
-			runConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 4 },
 			agentId: 'budget',
 			agentName: 'Budget',
 			messages: [createUserMessage('perform work')],
@@ -354,7 +354,7 @@ describe('cumulative tool-call admission', () => {
 		}))
 			events.push(event)
 		expect(run).toHaveBeenCalledTimes(1)
-		expect(events.some((event) => event.type === 'run_completed')).toBe(true)
+		expect(events.some((event) => event.type === 'turn_completed')).toBe(true)
 		expect(events.filter((event) => event.type === 'tool_completed' && event.isError)).toHaveLength(
 			3,
 		)

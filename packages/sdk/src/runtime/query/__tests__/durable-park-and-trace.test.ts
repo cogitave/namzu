@@ -7,9 +7,9 @@ import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import { serializeSpan } from '../../../telemetry/attributes.js'
 import type { HITLDecisionRequest, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { CheckpointId, RunId } from '../../../types/ids/index.js'
-import type { CheckpointRunScope } from '../../../types/run/checkpoint-store.js'
-import { deriveRunStatus } from '../../../types/run/derive-status.js'
+import type { CheckpointId, TurnId } from '../../../types/ids/index.js'
+import type { CheckpointRunScope } from '../../../types/session/durable.js'
+import { deriveTurnStatus } from '../../../types/session/derive-status.js'
 import {
 	CheckpointManager,
 	findPendingCheckpoint,
@@ -35,9 +35,9 @@ import {
  * run id, not even that.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 const SCOPE: CheckpointRunScope = {
-	runId: RID,
+	turnId: RID,
 	tenantId: 'ten_1' as never,
 	projectId: 'a0dab60c-1b56-4235-8c96-81fb213b4fbf' as never,
 	sessionId: '46bf2fa8-7b48-40ea-bd28-fa94f4fa05e6' as never,
@@ -45,12 +45,12 @@ const SCOPE: CheckpointRunScope = {
 
 const request = (): HITLDecisionRequest => ({
 	type: 'tool_review',
-	runId: RID,
+	turnId: RID,
 	checkpointId: 'f496fad2-a721-4bb9-9a40-b959b0f3ecf8' as CheckpointId,
 	toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 })
 
-function runMgr(): never {
+function recorder(): never {
 	return {
 		id: RID,
 		messages: [],
@@ -77,7 +77,7 @@ describe('a park that nobody answers', () => {
 	})
 
 	const park = async (ttlMs?: number): Promise<IterationCheckpoint> => {
-		const checkpoint = await manager.create(runMgr(), 1)
+		const checkpoint = await manager.create(recorder(), 1)
 		return manager.park(checkpoint, request(), ttlMs === undefined ? undefined : { ttlMs })
 	}
 
@@ -164,30 +164,30 @@ describe('projecting a run onto the session-layer status', () => {
 		// `awaiting_hitl_resolution` has documented a "persisted wait after
 		// a HITL timeout" since it was declared, for a timeout nothing could
 		// raise.
-		expect(deriveRunStatus({ status: 'running', park, now: 200 })).toBe('awaiting_hitl_resolution')
+		expect(deriveTurnStatus({ status: 'running', park, now: 200 })).toBe('awaiting_hitl_resolution')
 	})
 
 	it('reports a live park as awaiting, not expired', () => {
-		expect(deriveRunStatus({ status: 'running', park, now: 50 })).toBe('awaiting_hitl')
+		expect(deriveTurnStatus({ status: 'running', park, now: 50 })).toBe('awaiting_hitl')
 	})
 
 	it('lets a terminal run beat a stale park record', () => {
 		// A run that finished is not waiting for anyone, whatever the park
 		// record still says.
-		expect(deriveRunStatus({ status: 'completed', park, now: 200 })).toBe('succeeded')
-		expect(deriveRunStatus({ status: 'failed', park, now: 200 })).toBe('failed')
+		expect(deriveTurnStatus({ status: 'completed', park, now: 200 })).toBe('succeeded')
+		expect(deriveTurnStatus({ status: 'failed', park, now: 200 })).toBe('failed')
 	})
 
 	it('ignores a park that was already answered', () => {
 		expect(
-			deriveRunStatus({ status: 'running', park: { ...park, resolvedAt: 60 }, now: 200 }),
+			deriveTurnStatus({ status: 'running', park: { ...park, resolvedAt: 60 }, now: 200 }),
 		).toBe('running')
 	})
 
 	it('maps an unparked run without inventing a wait', () => {
-		expect(deriveRunStatus({ status: 'running' })).toBe('running')
-		expect(deriveRunStatus({ status: 'idle' })).toBe('queued')
-		expect(deriveRunStatus({ status: 'cancelled' })).toBe('cancelled')
+		expect(deriveTurnStatus({ status: 'running' })).toBe('running')
+		expect(deriveTurnStatus({ status: 'idle' })).toBe('queued')
+		expect(deriveTurnStatus({ status: 'cancelled' })).toBe('cancelled')
 	})
 })
 
@@ -209,7 +209,7 @@ describe('the trace a checkpoint was taken inside', () => {
 
 	it('is recorded, so a resume can join it', async () => {
 		manager.setTraceSource(() => serializeSpan(fakeSpan('a'.repeat(32), 'b'.repeat(16))))
-		const checkpoint = await manager.create(runMgr(), 1)
+		const checkpoint = await manager.create(recorder(), 1)
 
 		expect(checkpoint.traceContext).toMatchObject({
 			traceId: 'a'.repeat(32),
@@ -219,7 +219,7 @@ describe('the trace a checkpoint was taken inside', () => {
 
 	it('is readable back without loading the whole restore path', async () => {
 		manager.setTraceSource(() => serializeSpan(fakeSpan('c'.repeat(32), 'd'.repeat(16))))
-		const checkpoint = await manager.create(runMgr(), 1)
+		const checkpoint = await manager.create(recorder(), 1)
 
 		// Read before the root span is minted, because a parent can only be
 		// set at creation.
@@ -242,7 +242,7 @@ describe('the trace a checkpoint was taken inside', () => {
 	})
 
 	it('is absent when no telemetry is registered', async () => {
-		const checkpoint = await manager.create(runMgr(), 1)
+		const checkpoint = await manager.create(recorder(), 1)
 		expect(checkpoint.traceContext).toBeUndefined()
 	})
 })

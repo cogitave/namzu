@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
-import { isEphemeralEvent } from '../../../types/run/events.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { isEphemeralEvent } from '../../../types/session/events.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { streamProviderTurn } from '../iteration/stream-turn.js'
 
@@ -16,7 +16,7 @@ import { streamProviderTurn } from '../iteration/stream-turn.js'
  * stall with zero events while the model was demonstrably working.
  */
 
-const RUN_ID = '99b1ceae-1a8b-4b07-b56e-327eae34f058' as RunId
+const RUN_ID = '99b1ceae-1a8b-4b07-b56e-327eae34f058' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -35,13 +35,13 @@ function providerOf(chunks: StreamChunk[]): LLMProvider {
 
 /** Drive the turn, collecting every event it emits. */
 async function run(chunks: StreamChunk[]) {
-	const events: RunEvent[] = []
-	const pending: RunEvent[] = []
-	const emitEvent = async (e: RunEvent) => {
+	const events: SessionEvent[] = []
+	const pending: SessionEvent[] = []
+	const emitEvent = async (e: SessionEvent) => {
 		events.push(e)
 		pending.push(e)
 	}
-	const drainPending = function* (): Generator<RunEvent> {
+	const drainPending = function* (): Generator<SessionEvent> {
 		while (pending.length > 0) {
 			const next = pending.shift()
 			if (next) yield next
@@ -79,7 +79,7 @@ const finish = (): StreamChunk => ({
 describe('reasoning blocks survive the stream', () => {
 	it('retains received public phases when a streamed answer is cancelled', async () => {
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const part = { id: 'progress', phase: 'commentary' as const }
 		const provider = {
 			...providerOf([]),
@@ -220,23 +220,23 @@ describe('reasoning blocks survive the stream', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'reasoning_delta',
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				iteration: 1,
 				messageId: '1424e839-3768-4813-8d3d-e5190867e5d3',
 				blockIndex: 0,
 				text: 'x',
-			} as unknown as RunEvent),
+			} as unknown as SessionEvent),
 		).toBe(true)
 		// The completed block carries the full text and IS recorded.
 		expect(
 			isEphemeralEvent({
 				type: 'reasoning_completed',
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				iteration: 1,
 				messageId: '1424e839-3768-4813-8d3d-e5190867e5d3',
 				blockIndex: 0,
 				signed: true,
-			} as unknown as RunEvent),
+			} as unknown as SessionEvent),
 		).toBe(false)
 	})
 })

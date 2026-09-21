@@ -25,7 +25,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -49,7 +49,7 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 	return {
 		provider,
 		tools,
-		runConfig: {
+		turnConfig: {
 			model: 'primary-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -87,7 +87,7 @@ describe('query() drives the declared provider chain', () => {
 	it('falls over to a declared member and finishes the run on it', async () => {
 		const primary = failing('primary', 401)
 		const fallback = new MockLLMProvider({ turns: [{ text: 'the fallback answered' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -118,7 +118,7 @@ describe('query() drives the declared provider chain', () => {
 
 	it('emits nothing new and behaves exactly as before when no chain is declared', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'ok' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{

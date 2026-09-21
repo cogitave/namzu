@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { RunStatus } from '../../../types/run/status.js'
+import type { TurnStatus } from '../../../types/session/turn.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session, SessionStatus } from '../../../types/session/entity.js'
 import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../../types/session/ids.js'
@@ -33,7 +33,7 @@ function makeSession(status: SessionStatus): Session {
 	}
 }
 
-function runs(...statuses: RunStatus[]): readonly { status: RunStatus }[] {
+function runs(...statuses: TurnStatus[]): readonly { status: TurnStatus }[] {
 	return statuses.map((status) => ({ status }))
 }
 

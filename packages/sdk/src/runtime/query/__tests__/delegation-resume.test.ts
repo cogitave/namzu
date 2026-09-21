@@ -6,7 +6,7 @@ import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
 import { RunDiskStore } from '../../../store/run/disk.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -30,7 +30,7 @@ import { planCrashResume, recoverCompletedCalls } from '../resume-pending.js'
  * blocking, they fail — which is exactly when somebody needs to know.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -77,7 +77,7 @@ describe('a fan-out interrupted part-way through', () => {
 		const lines = ids.map((id, index) =>
 			JSON.stringify({
 				type: 'tool_completed',
-				runId: RID,
+				turnId: RID,
 				seq: index + 2,
 				toolUseId: id,
 				toolName: 'create_task',
@@ -87,7 +87,7 @@ describe('a fan-out interrupted part-way through', () => {
 		)
 		await writeFile(
 			join(dir, RID, 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'run_started', runId: RID, seq: 1 })}\n${lines.join('\n')}\n`,
+			`${JSON.stringify({ type: 'turn_started', runId: RID, seq: 1 })}\n${lines.join('\n')}\n`,
 			'utf-8',
 		)
 	}
@@ -95,9 +95,9 @@ describe('a fan-out interrupted part-way through', () => {
 	it('recovers the workers that already finished', async () => {
 		await recordCompletions(['w1', 'w2', 'w3'])
 
-		const runMgr = { id: RID, getRunStore: () => store } as never
+		const recorder = { id: RID, getRunStore: () => store } as never
 		const recovered = await recoverCompletedCalls(
-			runMgr,
+			recorder,
 			(fanOut()[1] as { toolCalls: { id: string }[] }).toolCalls as never,
 			makeLogger(),
 		)
@@ -164,9 +164,9 @@ describe('a fan-out interrupted part-way through', () => {
 	it('does not confuse a worker id with one from an earlier turn', async () => {
 		await recordCompletions(['from-an-older-turn'])
 
-		const runMgr = { id: RID, getRunStore: () => store } as never
+		const recorder = { id: RID, getRunStore: () => store } as never
 		const recovered = await recoverCompletedCalls(
-			runMgr,
+			recorder,
 			(fanOut()[1] as { toolCalls: { id: string }[] }).toolCalls as never,
 			makeLogger(),
 		)

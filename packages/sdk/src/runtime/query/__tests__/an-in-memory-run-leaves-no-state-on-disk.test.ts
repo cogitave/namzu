@@ -14,7 +14,7 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -22,7 +22,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
-import { heldRunState } from '../stores-held-in-memory.js'
+import { heldRunState } from '../session-storage.js'
 
 /**
  * A run whose run store is in memory, with no path builder, writes nothing
@@ -78,7 +78,7 @@ function params(projectId: ReturnType<typeof generateProjectId>, workingDirector
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'go' }],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,
@@ -142,7 +142,7 @@ it('resumes in the same process from what the same run store holds', async () =>
 	// Same run store instance: its checkpoints and its ledger are still there.
 	const resumed = await drainQuery({
 		...base,
-		runId: paused.id,
+		turnId: paused.id,
 		messages: [],
 		resumeFromCheckpoint: checkpointId,
 	})
@@ -176,7 +176,7 @@ it('keeps the ledger beside an in-memory checkpoint store the host passed', asyn
 	const resumed = await drainQuery({
 		...base,
 		runStore: new InMemoryRunStore(),
-		runId: paused.id,
+		turnId: paused.id,
 		messages: [],
 		resumeFromCheckpoint: checkpointId,
 	})
@@ -193,7 +193,7 @@ it('holds one run of state when one run store is reused for many runs', async ()
 	const projectId = generateProjectId()
 	const base = params(projectId, workingDirectory)
 	const runStore = base.runStore
-	const runIds: RunId[] = []
+	const runIds: TurnId[] = []
 
 	for (let i = 0; i < 10; i++) {
 		const run = await drainQuery({
@@ -213,7 +213,7 @@ it('holds one run of state when one run store is reused for many runs', async ()
 		expect(await checkpoints.listCheckpoints({ ...scopeOf(base), runId })).toEqual([])
 		expect(await checkpoints.tokenBudgets.load({ ...scopeOf(base), runId })).toBeNull()
 	}
-	const current = { ...scopeOf(base), runId: runIds.at(-1) as RunId }
+	const current = { ...scopeOf(base), runId: runIds.at(-1) as TurnId }
 	expect((await checkpoints.listCheckpoints(current)).length).toBeGreaterThan(0)
 	expect(await checkpoints.tokenBudgets.load(current)).not.toBeNull()
 	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
@@ -249,7 +249,7 @@ it('no longer resumes a run the reused run store has moved past', async () => {
 		drainQuery({
 			...base,
 			provider: params(projectId, workingDirectory).provider,
-			runId: first.id,
+			turnId: first.id,
 			messages: [],
 			resumeFromCheckpoint: checkpointId,
 		}),
@@ -273,7 +273,7 @@ it("bounds the current run's checkpoints by retention, as on disk", async () => 
 	const run = await drainQuery({
 		...base,
 		provider,
-		runConfig: { ...base.runConfig, maxIterations: 6, pruneKeepLast: 1 },
+		turnConfig: { ...base.turnConfig, maxIterations: 6, pruneKeepLast: 1 },
 	})
 
 	expect(run.status).toBe('completed')

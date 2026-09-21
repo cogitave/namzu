@@ -12,7 +12,7 @@ import { ProviderError } from '../../../types/provider/errors.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -38,7 +38,7 @@ async function recovery(mode: 'retry' | 'fallback' | 'auth', measured: number) {
 		tenantId: generateTenantId(),
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 	}
 	const baseDir = join(workingDirectory, 'ledgers')
 	const budget = await openTokenBudget({
@@ -69,7 +69,7 @@ async function recovery(mode: 'retry' | 'fallback' | 'auth', measured: number) {
 		tools: new ToolRegistry(),
 		fallbackProviders: mode === 'retry' ? [] : [{ provider: fallback }],
 		retry: mode === 'retry' ? { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 1 } : false,
-		runConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 1_000, maxIterations: 2 },
+		turnConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 1_000, maxIterations: 2 },
 		agentId: 'recovery-budget',
 		agentName: 'Recovery budget',
 		messages: [createUserMessage('Answer the request.')],

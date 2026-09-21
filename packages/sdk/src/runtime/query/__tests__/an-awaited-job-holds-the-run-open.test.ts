@@ -106,7 +106,7 @@ describe('a run suspends for a job the model awaited, and pays no tokens for it'
 			messages: [createUserMessage('start the job and tell me when it ends')],
 			workingDirectory: process.cwd(),
 			...ids(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: 6,
 				tokenBudget: 200_000,
@@ -169,7 +169,7 @@ describe('a run suspends for a job the model awaited, and pays no tokens for it'
 			messages: [createUserMessage('start both and tell me when the second ends')],
 			workingDirectory: process.cwd(),
 			...ids(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: 8,
 				tokenBudget: 200_000,
@@ -231,7 +231,7 @@ describe('a run suspends for a job the model awaited, and pays no tokens for it'
 				messages: [createUserMessage('start the job and tell me when it ends')],
 				workingDirectory: process.cwd(),
 				...ids(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					maxIterations: 6,
 					tokenBudget: 200_000,
@@ -292,7 +292,7 @@ describe('a run suspends for a job the model awaited, and pays no tokens for it'
 			messages: [createUserMessage('start the dev server')],
 			workingDirectory: process.cwd(),
 			...ids(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: 6,
 				tokenBudget: 200_000,
@@ -355,7 +355,7 @@ describe('a run suspends for a job the model awaited, and pays no tokens for it'
 			messages: [createUserMessage('start the job')],
 			workingDirectory: process.cwd(),
 			...ids(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: 4,
 				tokenBudget: 200_000,

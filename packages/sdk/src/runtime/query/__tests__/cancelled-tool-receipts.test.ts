@@ -4,17 +4,17 @@ import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../run/token-budget.js'
+import { TokenBudget } from '../../../turn/token-budget.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { PluginId } from '../../../types/ids/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -26,7 +26,7 @@ import { drainQuery } from '../index.js'
 describe('cancellation after a tool returned its receipt', () => {
 	it('persists the completed call in a cancelled real query without leaking its unreviewed output', async () => {
 		const caller = new AbortController()
-		const runId = generateRunId()
+		const runId = generateTurnId()
 		const tools = new ToolRegistry()
 		let executions = 0
 		tools.register({
@@ -56,7 +56,7 @@ describe('cancellation after a tool returned its receipt', () => {
 		})
 		const runStore = new InMemoryRunStore()
 		const run = await drainQuery({
-			runId,
+			turnId,
 			provider,
 			tools,
 			pluginManager: manager,
@@ -72,7 +72,7 @@ describe('cancellation after a tool returned its receipt', () => {
 			agentName: 'Receipt observer',
 			messages: [{ role: 'user', content: 'commit once' }],
 			signal: caller.signal,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -105,7 +105,7 @@ describe('cancellation after a tool returned its receipt', () => {
 		'retains an execution receipt when cancellation interrupts $hook (success=$success)',
 		async ({ success, hook }) => {
 			const caller = new AbortController()
-			const runId = generateRunId()
+			const runId = generateTurnId()
 			const tools = new ToolRegistry()
 			let executions = 0
 			const receipt = {
@@ -148,7 +148,7 @@ describe('cancellation after a tool returned its receipt', () => {
 					return held
 				},
 			})
-			const events: RunEvent[] = []
+			const events: SessionEvent[] = []
 			const logged: { message: string; data?: LogContext }[] = []
 			const record = (message: string, data?: LogContext) => {
 				logged.push({ message, data })
@@ -164,7 +164,7 @@ describe('cancellation after a tool returned its receipt', () => {
 				{
 					tools,
 					pluginManager: manager,
-					runId,
+					turnId,
 					workingDirectory: process.cwd(),
 					permissionMode: 'auto',
 					env: {},

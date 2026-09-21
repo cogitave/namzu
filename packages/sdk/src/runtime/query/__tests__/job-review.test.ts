@@ -8,7 +8,7 @@ import type { PermissionMode } from '../../../types/permission/index.js'
 import type { BackgroundJobRegistryRef, ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -24,9 +24,9 @@ function registry() {
 }
 
 function context(permissionMode: PermissionMode): ToolContext {
-	const runId = generateRunId()
+	const runId = generateTurnId()
 	return {
-		runId,
+		turnId,
 		workingDirectory: process.cwd(),
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -91,7 +91,7 @@ async function run(
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runConfig: { model: 'mock', maxIterations: 3, tokenBudget: 10_000, timeoutMs: 5_000 },
+		turnConfig: { model: 'mock', maxIterations: 3, tokenBudget: 10_000, timeoutMs: 5_000 },
 		backgroundJobs: new BackgroundJobRegistry(),
 		authorizationGate: {
 			enabled: true,

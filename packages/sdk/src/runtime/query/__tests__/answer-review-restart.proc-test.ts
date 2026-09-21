@@ -18,7 +18,7 @@ const sdk = await import(pathToFileURL(process.argv[2]).href)
 const root = process.argv[3], mode = process.argv[4]
 const stateFile = join(root, 'state.json')
 const state = mode === 'resume' ? JSON.parse(await readFile(stateFile, 'utf8')) : {
-  runId: sdk.generateRunId(), sessionId: sdk.generateSessionId(),
+  turnId: sdk.generateTurnId(), sessionId: sdk.generateSessionId(),
   projectId: sdk.generateProjectId(), tenantId: sdk.generateTenantId(), topicId: sdk.generateTopicId(),
 }
 const store = new sdk.DiskCheckpointStore({ baseDir: join(root, 'runs') })
@@ -27,7 +27,7 @@ const run = await sdk.drainQuery({
   ...state, provider, checkpointStore: store, tools: new sdk.ToolRegistry(),
   agentId: 'review-restart', agentName: 'Review restart', workingDirectory: root,
   messages: [sdk.createUserMessage('Give a verified answer.')],
-  runConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 5, timeoutMs: 10000 },
+  turnConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 5, timeoutMs: 10000 },
   maxAnswerReviews: 0, reviewAnswer: () => ({ accept: false, feedback: 'Evidence mismatch.' }),
   ...(mode === 'resume' ? { resumeFromCheckpoint: state.checkpointId } : {}),
 })

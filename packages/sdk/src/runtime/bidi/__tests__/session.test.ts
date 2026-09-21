@@ -6,11 +6,11 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type {
 	BidiEvent,
 	BidiProvider,
-	BidiRunEvent,
+	BidiTurnEvent,
 	BidiSession,
 } from '../../../types/bidi/index.js'
 import { createMockBidiProvider } from '../mock.js'
-import { BidiSessionCloseTimeoutError, startBidiRun } from '../session.js'
+import { BidiSessionCloseTimeoutError, startBidiTurn } from '../session.js'
 
 /**
  * Every other seam in this kernel is turn-based by construction: a run
@@ -82,8 +82,8 @@ function open(gate?: Promise<void>) {
 	return { tools, provider }
 }
 
-const collectEvents = async (run: { events(): AsyncIterable<BidiRunEvent> }, until: number) => {
-	const seen: BidiRunEvent[] = []
+const collectEvents = async (run: { events(): AsyncIterable<BidiTurnEvent> }, until: number) => {
+	const seen: BidiTurnEvent[] = []
 	for await (const event of run.events()) {
 		seen.push(event)
 		if (seen.length >= until) break
@@ -106,7 +106,7 @@ describe('a session with no turn boundary', () => {
 		}
 
 		const outcome = await caught(
-			startBidiRun({
+			startBidiTurn({
 				provider,
 				tools: emptyTools(),
 				connect: { model: 'mock' },
@@ -132,7 +132,7 @@ describe('a session with no turn boundary', () => {
 			}
 
 			await expect(
-				startBidiRun({
+				startBidiTurn({
 					provider,
 					tools: emptyTools(),
 					connect: { model: 'mock' },
@@ -153,7 +153,7 @@ describe('a session with no turn boundary', () => {
 		}
 		const controller = new AbortController()
 		const reason = new Error('stop during connect')
-		const starting = startBidiRun({
+		const starting = startBidiTurn({
 			provider,
 			tools: emptyTools(),
 			connect: { model: 'mock' },
@@ -175,7 +175,7 @@ describe('a session with no turn boundary', () => {
 
 	it('carries the model text through', async () => {
 		const { tools, provider } = open()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -191,7 +191,7 @@ describe('a session with no turn boundary', () => {
 
 	it('answers a tool call on the same session', async () => {
 		const { tools, provider } = open()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -218,7 +218,7 @@ describe('a session with no turn boundary', () => {
 			release = resolve
 		})
 		const { tools, provider } = open(gate)
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -250,7 +250,7 @@ describe('a session with no turn boundary', () => {
 			}),
 		)
 		const provider = createMockBidiProvider()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -272,7 +272,7 @@ describe('a session with no turn boundary', () => {
 
 	it('treats a tool result send already in progress as committed across a later interruption', async () => {
 		const { tools, provider } = open()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -318,7 +318,7 @@ describe('a session with no turn boundary', () => {
 			}),
 		)
 		const provider = createMockBidiProvider()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -356,7 +356,7 @@ describe('a session with no turn boundary', () => {
 		)
 		const provider = createMockBidiProvider()
 		const controller = new AbortController()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -384,7 +384,7 @@ describe('a session with no turn boundary', () => {
 
 		expect(closeCalls).toBe(1)
 		expect(session.sent).toEqual([])
-		const afterClose: BidiRunEvent[] = []
+		const afterClose: BidiTurnEvent[] = []
 		for await (const event of run.events()) afterClose.push(event)
 		expect(afterClose).toEqual([])
 	})
@@ -393,7 +393,7 @@ describe('a session with no turn boundary', () => {
 		const { tools, provider } = open()
 		const controller = new AbortController()
 		const reason = new Error('the caller owns this stop')
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -422,7 +422,7 @@ describe('a session with no turn boundary', () => {
 			},
 		}
 		const provider: BidiProvider = { id: 'held-close', connect: async () => session }
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools: emptyTools(),
 			connect: { model: 'mock' },
@@ -433,7 +433,7 @@ describe('a session with no turn boundary', () => {
 		const closing = run.close()
 		await closeStarted.promise
 		await expect(closing).rejects.toBeInstanceOf(BidiSessionCloseTimeoutError)
-		const seen: BidiRunEvent[] = []
+		const seen: BidiTurnEvent[] = []
 		for await (const event of run.events()) seen.push(event)
 		expect(seen).toEqual([])
 	})
@@ -443,7 +443,7 @@ describe('a session with no turn boundary', () => {
 		try {
 			const session = lateSession(async () => await new Promise<void>(() => undefined))
 			const provider: BidiProvider = { id: 'default-close-bound', connect: async () => session }
-			const run = await startBidiRun({
+			const run = await startBidiTurn({
 				provider,
 				tools: emptyTools(),
 				connect: { model: 'mock' },
@@ -476,7 +476,7 @@ describe('a session with no turn boundary', () => {
 			const releaseClose = deferred<void>()
 			const session = lateSession(async () => await releaseClose.promise)
 			const provider: BidiProvider = { id: 'unbounded-close', connect: async () => session }
-			const run = await startBidiRun({
+			const run = await startBidiTurn({
 				provider,
 				tools: emptyTools(),
 				connect: { model: 'mock' },
@@ -514,7 +514,7 @@ describe('a session with no turn boundary', () => {
 			}),
 		)
 		const provider = createMockBidiProvider()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -533,7 +533,7 @@ describe('a session with no turn boundary', () => {
 		expect(started[0]?.type).toBe('tool_started')
 
 		session.push({ type: 'closed', reason: 'peer left' })
-		const rest: BidiRunEvent[] = []
+		const rest: BidiTurnEvent[] = []
 		for await (const event of run.events()) rest.push(event)
 
 		expect(rest).toEqual([{ type: 'closed', runId: run.runId, reason: 'peer left' }])
@@ -544,7 +544,7 @@ describe('a session with no turn boundary', () => {
 	it('coalesces caller and repeated manual close around one non-idempotent provider close', async () => {
 		const { tools, provider } = open()
 		const controller = new AbortController()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -610,7 +610,7 @@ describe('a session with no turn boundary', () => {
 			},
 		}
 		const provider: BidiProvider = { id: 'late-event', connect: async () => session }
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -621,7 +621,7 @@ describe('a session with no turn boundary', () => {
 		await new Promise((resolve) => setImmediate(resolve))
 
 		expect(executeCalls).toBe(0)
-		const seen: BidiRunEvent[] = []
+		const seen: BidiTurnEvent[] = []
 		for await (const event of run.events()) seen.push(event)
 		expect(seen).toEqual([])
 	})
@@ -648,7 +648,7 @@ describe('a session with no turn boundary', () => {
 			}),
 		)
 		const provider = createMockBidiProvider()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -680,7 +680,7 @@ describe('a session with no turn boundary', () => {
 
 	it('answers a tool that finished before the interruption', async () => {
 		const { tools, provider } = open()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -712,7 +712,7 @@ describe('a session with no turn boundary', () => {
 			}),
 		)
 		const provider = createMockBidiProvider()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -736,7 +736,7 @@ describe('a session with no turn boundary', () => {
 		// and a loop that kept forwarding would hand a consumer output from
 		// a session it was told had ended.
 		const { tools, provider } = open()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -746,7 +746,7 @@ describe('a session with no turn boundary', () => {
 		provider.session()?.push({ type: 'closed' })
 		provider.session()?.push({ type: 'text', text: 'still here' })
 
-		const seen: BidiRunEvent[] = []
+		const seen: BidiTurnEvent[] = []
 		for await (const event of run.events()) seen.push(event)
 
 		expect(seen.map((e) => e.type)).toEqual(['closed'])
@@ -754,7 +754,7 @@ describe('a session with no turn boundary', () => {
 
 	it('ends the event stream when the far side closes', async () => {
 		const { tools, provider } = open()
-		const run = await startBidiRun({
+		const run = await startBidiTurn({
 			provider,
 			tools,
 			connect: { model: 'mock' },
@@ -763,7 +763,7 @@ describe('a session with no turn boundary', () => {
 
 		provider.session()?.push({ type: 'closed', reason: 'the far side hung up' })
 
-		const seen: BidiRunEvent[] = []
+		const seen: BidiTurnEvent[] = []
 		for await (const event of run.events()) seen.push(event)
 
 		expect(seen).toEqual([{ type: 'closed', runId: run.runId, reason: 'the far side hung up' }])

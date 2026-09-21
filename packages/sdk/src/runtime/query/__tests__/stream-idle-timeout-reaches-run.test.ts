@@ -13,7 +13,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -56,7 +56,7 @@ function baseParams(provider: LLMProvider, workingDirectory: string, caller: Abo
 	return {
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,
 			streamIdleTimeoutMs: 10,
@@ -93,7 +93,7 @@ describe('the provider idle bound reaches a real query', () => {
 	it('settles a stalled run as a network failure and closes its transport', async () => {
 		const provider = new GenericAbortStallProvider()
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const safety = setTimeout(
 			() => caller.abort(new Error('test safety bound: production watchdog did not settle')),
 			1_000,
@@ -115,8 +115,8 @@ describe('the provider idle bound reaches a real query', () => {
 				providerId: 'idle-primary',
 				detail: expect.stringContaining('10ms'),
 			})
-			expect(events.find((event) => event.type === 'run_failed')).toMatchObject({
-				type: 'run_failed',
+			expect(events.find((event) => event.type === 'turn_failed')).toMatchObject({
+				type: 'turn_failed',
 				providerError: run.lastProviderError,
 			})
 			expect(provider.transportSignals).toHaveLength(1)
@@ -136,7 +136,7 @@ describe('the provider idle bound reaches a real query', () => {
 		const primary = new GenericAbortStallProvider()
 		const fallback = new MockLLMProvider({ turns: [{ text: 'fallback answered' }] })
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const safety = setTimeout(
 			() => caller.abort(new Error('test safety bound: recovery did not settle')),
 			1_000,
@@ -178,8 +178,8 @@ describe('the provider idle bound reaches a real query', () => {
 		await expect(
 			drainQuery({
 				...params,
-				runConfig: {
-					...params.runConfig,
+				turnConfig: {
+					...params.turnConfig,
 					streamIdleTimeoutMs: Number.NaN,
 				},
 			}),

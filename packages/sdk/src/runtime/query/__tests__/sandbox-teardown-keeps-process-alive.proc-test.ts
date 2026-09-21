@@ -54,7 +54,7 @@ sdk.drainQuery({
   agentId: 'a', agentName: 'A',
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],
   workingDirectory: process.argv[3],
-  runConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 2 },
+  turnConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 2 },
   sessionId: randomUUID(), topicId: randomUUID(), projectId: randomUUID(), tenantId: randomUUID(),
 }, (event) => { last = event.type }).then(
   (run) => console.log('RESULT ' + JSON.stringify({ status: run.status, result: run.result, last })),

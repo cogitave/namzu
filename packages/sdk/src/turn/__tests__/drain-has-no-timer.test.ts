@@ -6,9 +6,9 @@ import { fixtureUuid } from '../../test-support/ids.js'
 
 import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
-import type { CheckpointId, ProjectId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
-import type { CheckpointRunScope } from '../../types/run/checkpoint-store.js'
-import { drainRuns } from '../drain.js'
+import type { CheckpointId, ProjectId, TurnId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { CheckpointRunScope } from '../../types/session/durable.js'
+import { drainParkedTurns } from '../drain.js'
 
 /**
  * `drain.ts` claims, in prose: "A supervisor, a daemon, or a scheduler.
@@ -31,13 +31,13 @@ const PROJECT = 'bc95b1e3-142f-4045-a846-c067c164684f' as ProjectId
 const SESSION = '732ba7f1-a9eb-447f-913a-dfc2513a10cb' as SessionId
 
 function scope(runId: string): CheckpointRunScope {
-	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as RunId }
+	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as TurnId }
 }
 
 function checkpoint(runId: string): IterationCheckpoint {
 	return {
 		id: fixtureUuid(`cp_${runId}`) as CheckpointId,
-		runId: runId as RunId,
+		turnId: runId as TurnId,
 		iteration: 1,
 		messages: [],
 		tokenUsage: {
@@ -53,7 +53,7 @@ function checkpoint(runId: string): IterationCheckpoint {
 		pending: {
 			request: {
 				type: 'tool_review',
-				runId: runId as RunId,
+				turnId: runId as TurnId,
 				checkpointId: fixtureUuid(`cp_${runId}`) as CheckpointId,
 				toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
 			},
@@ -62,7 +62,7 @@ function checkpoint(runId: string): IterationCheckpoint {
 	}
 }
 
-describe('drainRuns makes one pass and arms nothing', () => {
+describe('drainParkedTurns makes one pass and arms nothing', () => {
 	it('never schedules a timer across a full pass over several runs', async () => {
 		// Several runs, so a per-run backoff would be caught as surely as a
 		// per-pass one. Spied rather than faked: `vi.useFakeTimers` would
@@ -81,7 +81,7 @@ describe('drainRuns makes one pass and arms nothing', () => {
 				await store.writeCheckpoint(scope(id), checkpoint(id))
 			}
 
-			const result = await drainRuns({
+			const result = await drainParkedTurns({
 				store,
 				scope: { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION },
 				holder: 'worker-1',
@@ -89,13 +89,13 @@ describe('drainRuns makes one pass and arms nothing', () => {
 				onRun: async () => {},
 			})
 
-			// The pass must actually have done something, or a `drainRuns`
+			// The pass must actually have done something, or a `drainParkedTurns`
 			// that returned early would satisfy the timer assertions for the
 			// wrong reason.
 			expect(result.listed, 'the pass listed nothing, so it proved nothing').toBeGreaterThan(0)
 			expect(result.drained.length + result.skipped.length).toBeGreaterThan(0)
-			expect(setTimeoutSpy, 'drainRuns armed a timer').not.toHaveBeenCalled()
-			expect(setIntervalSpy, 'drainRuns armed an interval').not.toHaveBeenCalled()
+			expect(setTimeoutSpy, 'drainParkedTurns armed a timer').not.toHaveBeenCalled()
+			expect(setIntervalSpy, 'drainParkedTurns armed an interval').not.toHaveBeenCalled()
 		} finally {
 			setTimeoutSpy.mockRestore()
 			setIntervalSpy.mockRestore()

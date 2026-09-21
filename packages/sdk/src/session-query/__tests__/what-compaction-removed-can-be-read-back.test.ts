@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunId } from '../../types/ids/index.js'
+import type { TurnId } from '../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { PersistedRunEvent, RunMessageSnapshot, RunStore } from '../../types/run/index.js'
-import { RunQuery, RunTranscriptUnavailableError } from '../index.js'
+import type { SessionRecord, RunMessageSnapshot, RunStore } from '../../types/session/index.js'
+import { SessionQuery, SessionTranscriptUnavailableError } from '../index.js'
 
 /**
  * Asking a finished run what happened.
@@ -19,18 +19,18 @@ import { RunQuery, RunTranscriptUnavailableError } from '../index.js'
  * nobody kept.
  */
 
-const RUN = '22951021-e8cd-4454-815c-4a420d9d53fe' as RunId
+const RUN = '22951021-e8cd-4454-815c-4a420d9d53fe' as TurnId
 
 let seq = 0
-const event = (type: string, over: Record<string, unknown> = {}): PersistedRunEvent =>
-	({ type, runId: RUN, seq: ++seq, timestamp: 1_000 + seq, ...over }) as PersistedRunEvent
+const event = (type: string, over: Record<string, unknown> = {}): SessionRecord =>
+	({ type, runId: RUN, seq: ++seq, timestamp: 1_000 + seq, ...over }) as SessionRecord
 
 const reset = () => {
 	seq = 0
 }
 
 function storeWith(
-	events: PersistedRunEvent[],
+	events: SessionRecord[],
 	snapshot: RunMessageSnapshot = { kind: 'unavailable', reason: 'not-persisted' },
 ): RunStore {
 	return {
@@ -51,9 +51,9 @@ describe('what compaction removed can be read back', () => {
 		reset()
 		const first = [createUserMessage('the first thing')]
 		const second = [createUserMessage('the second thing')]
-		const query = new RunQuery({
+		const query = new SessionQuery({
 			store: storeWith([
-				event('run_started'),
+				event('turn_started'),
 				shed(first, { iteration: 3 }),
 				event('iteration_started', { iteration: 4 }),
 				shed(second, { iteration: 7, reason: 'overflow' }),
@@ -69,8 +69,8 @@ describe('what compaction removed can be read back', () => {
 
 	it('carries the log position, for a caller correlating with events', async () => {
 		reset()
-		const query = new RunQuery({
-			store: storeWith([event('run_started'), shed([createUserMessage('gone')])]),
+		const query = new SessionQuery({
+			store: storeWith([event('turn_started'), shed([createUserMessage('gone')])]),
 		})
 
 		expect((await query.shedHistory())[0]?.seq).toBe(2)
@@ -78,7 +78,7 @@ describe('what compaction removed can be read back', () => {
 
 	it('says nothing for a run that never compacted', async () => {
 		reset()
-		const query = new RunQuery({ store: storeWith([event('run_started')]) })
+		const query = new SessionQuery({ store: storeWith([event('turn_started')]) })
 
 		expect(await query.shedHistory()).toEqual([])
 	})
@@ -89,8 +89,8 @@ describe('the full transcript is complete', () => {
 		reset()
 		const gone = createUserMessage('the durable instruction')
 		const survived = [createAssistantMessage('the durable summary')]
-		const events = [event('run_started'), shed([gone]), event('run_completed')]
-		const query = new RunQuery({
+		const events = [event('turn_started'), shed([gone]), event('turn_completed')]
+		const query = new SessionQuery({
 			store: storeWith(events, {
 				kind: 'available',
 				throughEventSeq: 3,
@@ -107,15 +107,15 @@ describe('the full transcript is complete', () => {
 	it('refuses a terminal run whose message publication was interrupted', async () => {
 		reset()
 		const events = [
-			event('run_started'),
+			event('turn_started'),
 			shed([createUserMessage('recoverable only from the log')]),
-			event('run_completed'),
+			event('turn_completed'),
 		]
-		const query = new RunQuery({ store: storeWith(events) })
+		const query = new SessionQuery({ store: storeWith(events) })
 
 		const refusal = await query.fullTranscript().catch((error: unknown) => error)
 
-		expect(refusal).toBeInstanceOf(RunTranscriptUnavailableError)
+		expect(refusal).toBeInstanceOf(SessionTranscriptUnavailableError)
 		expect(refusal).toMatchObject({
 			reason: 'message-snapshot-not-persisted',
 			eventHeadSeq: 3,
@@ -125,15 +125,15 @@ describe('the full transcript is complete', () => {
 	it('refuses a stale snapshot left by an earlier pause of the same run', async () => {
 		reset()
 		const events = [
-			event('run_started'),
-			event('run_paused', {
+			event('turn_started'),
+			event('turn_paused', {
 				checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c',
 				reason: 'retry',
 			}),
-			event('run_resuming', { fromCheckpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
-			event('run_completed'),
+			event('turn_resuming', { fromCheckpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
+			event('turn_completed'),
 		]
-		const query = new RunQuery({
+		const query = new SessionQuery({
 			store: storeWith(events, {
 				kind: 'available',
 				throughEventSeq: 2,
@@ -151,8 +151,8 @@ describe('the full transcript is complete', () => {
 
 	it('keeps legacy messages readable but refuses to call their transcript complete', async () => {
 		reset()
-		const events = [event('run_started'), event('run_completed')]
-		const query = new RunQuery({
+		const events = [event('turn_started'), event('turn_completed')]
+		const query = new SessionQuery({
 			store: storeWith(events, {
 				kind: 'legacy-unverified',
 				messages: [createUserMessage('from an older sdk')],
@@ -169,8 +169,8 @@ describe('the full transcript is complete', () => {
 		reset()
 		const gone = createUserMessage('the instruction that was shed')
 		const survived = [createAssistantMessage('a summary'), createUserMessage('and then')]
-		const query = new RunQuery({
-			store: storeWith([event('run_started'), shed([gone])]),
+		const query = new SessionQuery({
+			store: storeWith([event('turn_started'), shed([gone])]),
 		})
 
 		const full = await query.fullTranscript(survived)
@@ -184,7 +184,7 @@ describe('the full transcript is complete', () => {
 		// So the common case costs one log read and no allocation.
 		reset()
 		const messages = [createUserMessage('hello')]
-		const query = new RunQuery({ store: storeWith([event('run_started')]) })
+		const query = new SessionQuery({ store: storeWith([event('turn_started')]) })
 
 		expect(await query.fullTranscript(messages)).toBe(messages)
 	})
@@ -193,8 +193,8 @@ describe('the full transcript is complete', () => {
 		reset()
 		const a = createUserMessage('A')
 		const b = createUserMessage('B')
-		const query = new RunQuery({
-			store: storeWith([event('run_started'), shed([a]), shed([b])]),
+		const query = new SessionQuery({
+			store: storeWith([event('turn_started'), shed([a]), shed([b])]),
 		})
 
 		const full = await query.fullTranscript([createUserMessage('C')])
@@ -209,8 +209,8 @@ describe('status comes from the read model, not a second fold', () => {
 		// reads differently depending on which surface asked is what this
 		// seam exists to remove.
 		reset()
-		const query = new RunQuery({
-			store: storeWith([event('run_started'), event('run_completed')]),
+		const query = new SessionQuery({
+			store: storeWith([event('turn_started'), event('turn_completed')]),
 		})
 
 		expect(await query.status()).toBe('succeeded')
@@ -218,8 +218,8 @@ describe('status comes from the read model, not a second fold', () => {
 
 	it('answers about a run waiting on a human', async () => {
 		reset()
-		const query = new RunQuery({
-			store: storeWith([event('run_started'), event('tool_review_requested', { toolCalls: [] })]),
+		const query = new SessionQuery({
+			store: storeWith([event('turn_started'), event('tool_review_requested', { toolCalls: [] })]),
 		})
 
 		expect(await query.status()).toBe('awaiting_hitl')
@@ -227,8 +227,8 @@ describe('status comes from the read model, not a second fold', () => {
 
 	it('hands back the whole projected state for a caller that wants the park', async () => {
 		reset()
-		const query = new RunQuery({
-			store: storeWith([event('run_started'), event('tool_review_requested', { toolCalls: [] })]),
+		const query = new SessionQuery({
+			store: storeWith([event('turn_started'), event('tool_review_requested', { toolCalls: [] })]),
 		})
 
 		const state = await query.statusState()
@@ -239,7 +239,7 @@ describe('status comes from the read model, not a second fold', () => {
 
 	it('says queued for a run whose log is empty', async () => {
 		reset()
-		expect(await new RunQuery({ store: storeWith([]) }).status()).toBe('queued')
+		expect(await new SessionQuery({ store: storeWith([]) }).status()).toBe('queued')
 	})
 })
 
@@ -249,8 +249,8 @@ describe('the events themselves', () => {
 		// processes, and hiding that produces a plausible transcript of a run
 		// that never happened.
 		reset()
-		const events = [event('run_started'), event('iteration_started', { iteration: 1 })]
-		const query = new RunQuery({ store: storeWith(events) })
+		const events = [event('turn_started'), event('iteration_started', { iteration: 1 })]
+		const query = new SessionQuery({ store: storeWith(events) })
 
 		expect(await query.events()).toBe(events)
 	})

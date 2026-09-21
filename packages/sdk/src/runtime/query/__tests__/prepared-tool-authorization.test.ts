@@ -8,7 +8,7 @@ import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
@@ -47,7 +47,7 @@ function params(
 		agentName: 'Prepared Authorization Agent',
 		messages: [{ role: 'user' as const, content: 'run it' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,
@@ -103,7 +103,7 @@ describe('prepared tool authorization', () => {
 				},
 			],
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -128,7 +128,7 @@ describe('prepared tool authorization', () => {
 		expect(provider.requests).toHaveLength(1)
 		expect(events).toContainEqual(
 			expect.objectContaining({
-				type: 'run_failed',
+				type: 'turn_failed',
 				error: expect.stringMatching(/duplicate tool call id "call_same"/i),
 			}),
 		)
@@ -136,7 +136,7 @@ describe('prepared tool authorization', () => {
 
 	it('authorizes the schema-transformed value the tool would actually execute', async () => {
 		const executions: string[] = []
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const runStore = new InMemoryRunStore()
 		const tools = new ToolRegistry()
 		tools.register(
@@ -345,7 +345,7 @@ describe('prepared tool authorization', () => {
 				return typeof value === 'function' ? value.bind(target) : value
 			},
 		}) as unknown as ToolRegistryContract
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const allow: AuthorizationGateConfig = {
 			...gate,
 			rules: [{ type: 'allow_by_name', toolNames: ['shell'] }],

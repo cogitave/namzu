@@ -11,11 +11,11 @@ import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../types/ids/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../../types/session/durable.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -23,12 +23,12 @@ import {
 import { type QueryParams, drainQuery } from '../index.js'
 
 /**
- * `runConfig.checkpointEvery` and `runConfig.pruneKeepLast` are read by the
+ * `turnConfig.checkpointEvery` and `turnConfig.pruneKeepLast` are read by the
  * iteration-checkpoint phase, and only by it.
  *
  * The existing coverage drives that phase with a hand-built
- * `IterationContext` — which proves the phase honours a `runConfig` object
- * somebody constructed, not that a host's `runConfig` ever becomes one. The
+ * `IterationContext` — which proves the phase honours a `turnConfig` object
+ * somebody constructed, not that a host's `turnConfig` ever becomes one. The
  * only `query()`-level test that touches checkpoints uses the default
  * cadence, so both knobs could be dropped on the way from `QueryParams` to
  * the phase and every test would still pass.
@@ -107,16 +107,16 @@ function threeToolTurns(): MockLLMProvider {
 	})
 }
 
-async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
-	events: RunEvent[]
+async function runThreeIterations(turnConfig: Record<string, unknown>): Promise<{
+	events: SessionEvent[]
 	store: RecordingCheckpointStore
-	runId: ReturnType<typeof generateRunId>
+	turnId: ReturnType<typeof generateTurnId>
 }> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-cadence-'))
 	dirs.push(dir)
 	const store = new RecordingCheckpointStore()
-	const events: RunEvent[] = []
-	const runId = generateRunId()
+	const events: SessionEvent[] = []
+	const runId = generateTurnId()
 
 	await drainQuery(
 		{
@@ -127,7 +127,7 @@ async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
 			agentName: 'Cadence agent',
 			messages: [{ role: 'user', content: 'work' }],
 			workingDirectory: dir,
-			runId,
+			turnId,
 			tenantId: generateTenantId(),
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
@@ -140,13 +140,13 @@ async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
 				maxIterations: 6,
 				maxResponseTokens: 256,
-				...runConfig,
+				...turnConfig,
 			},
 		} as unknown as QueryParams,
 		(event) => {
@@ -157,10 +157,10 @@ async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
 	return { events, store, runId }
 }
 
-const createdIterations = (events: readonly RunEvent[]): number[] =>
+const createdIterations = (events: readonly SessionEvent[]): number[] =>
 	events
 		.filter((event) => event.type === 'checkpoint_created')
-		.map((event) => (event as Extract<RunEvent, { type: 'checkpoint_created' }>).iteration)
+		.map((event) => (event as Extract<SessionEvent, { type: 'checkpoint_created' }>).iteration)
 
 describe('the checkpoint cadence a host configures', () => {
 	it('defaults to a checkpoint on every tool iteration', async () => {
@@ -212,7 +212,7 @@ describe('a resume can still see the scope the cadence wrote under', () => {
 			seen.push(scope)
 			await original(scope, checkpoint)
 		}
-		const runId = generateRunId()
+		const runId = generateTurnId()
 		const tenantId = generateTenantId()
 		const projectId = generateProjectId()
 		const sessionId = generateSessionId()
@@ -225,7 +225,7 @@ describe('a resume can still see the scope the cadence wrote under', () => {
 			agentName: 'Cadence agent',
 			messages: [{ role: 'user', content: 'work' }],
 			workingDirectory: dir,
-			runId,
+			turnId,
 			tenantId,
 			projectId,
 			sessionId,
@@ -238,7 +238,7 @@ describe('a resume can still see the scope the cadence wrote under', () => {
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,

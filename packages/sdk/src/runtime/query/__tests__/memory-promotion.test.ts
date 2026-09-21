@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryPromoter } from '../../../run/memory-promoter.js'
+import { createMemoryPromoter } from '../../../turn/memory-promoter.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
-import type { RunMemoryCandidate } from '../../../types/run/memory-promotion.js'
-import { memoryCandidateFor } from '../../../types/run/memory-promotion.js'
+import type { SessionMemoryCandidate } from '../../../types/session/memory-promotion.js'
+import { memoryCandidateFor } from '../../../types/session/memory-promotion.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -28,7 +28,7 @@ import { drainQuery } from '../index.js'
 registerMock()
 
 function run(opts: {
-	promoteMemory?: (candidate: RunMemoryCandidate) => void | Promise<void>
+	promoteMemory?: (candidate: SessionMemoryCandidate) => void | Promise<void>
 	failing?: boolean
 	compaction?: boolean
 }) {
@@ -41,7 +41,7 @@ function run(opts: {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'ship the invoice job' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -59,7 +59,7 @@ describe('what a finished run leaves behind', () => {
 		await run({ promoteMemory: promote })
 
 		expect(promote).toHaveBeenCalledTimes(1)
-		const candidate = promote.mock.calls[0]?.[0] as RunMemoryCandidate
+		const candidate = promote.mock.calls[0]?.[0] as SessionMemoryCandidate
 		expect(candidate.runId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)

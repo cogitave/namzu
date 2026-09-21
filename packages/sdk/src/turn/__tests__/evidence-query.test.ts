@@ -5,10 +5,10 @@ import {
 	createUserMessage,
 } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 } from '../../utils/id.js'
@@ -55,7 +55,7 @@ function context(
 ): PrepareStepContext & { generateText: ReturnType<typeof vi.fn> } {
 	const current = createUserMessage(question)
 	return {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
 		prepared: {},
@@ -370,7 +370,7 @@ describe('grounded conversation query resolution', () => {
 			question,
 		)
 		expect(ctx.generateText).toHaveBeenCalledTimes(1)
-		await resolve({ ...ctx, runId: generateRunId() }, question)
+		await resolve({ ...ctx, runId: generateTurnId() }, question)
 		await resolve({ ...ctx, latestUserMessage: createUserMessage(question) }, question)
 		expect(ctx.generateText).toHaveBeenCalledTimes(3)
 	})
@@ -393,7 +393,7 @@ describe('grounded conversation query resolution', () => {
 			incomplete: false,
 			candidates: [
 				{
-					scope: { ...scope, runId: generateRunId() },
+					scope: { ...scope, runId: generateTurnId() },
 					seq: 2,
 					part: 0,
 					source: 'tool_completed',

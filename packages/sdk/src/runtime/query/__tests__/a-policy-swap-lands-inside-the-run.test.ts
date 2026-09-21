@@ -8,11 +8,11 @@ import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
-import type { RunApprovalPolicy } from '../../../types/hitl/policy.js'
+import type { SessionApprovalPolicy } from '../../../types/hitl/policy.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { isEntityId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
@@ -37,15 +37,15 @@ afterEach(async () => {
 
 async function runWithPolicy(opts: {
 	approvalPolicyName?: string
-	onPolicy?: (policy: RunApprovalPolicy) => void
+	onPolicy?: (policy: SessionApprovalPolicy) => void
 	handler?: () => Promise<{ action: 'continue' }>
 	turns?: unknown[]
-}): Promise<{ events: RunEvent[] }> {
+}): Promise<{ events: SessionEvent[] }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-'))
 	dirs.push(workingDirectory)
 	const tools = new ToolRegistry()
 	tools.register(BashTool)
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 
 	await drainQuery(
 		{
@@ -53,7 +53,7 @@ async function runWithPolicy(opts: {
 				turns: (opts.turns ?? [{ text: 'nothing to do' }]) as never,
 			}),
 			tools,
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('go')],
@@ -76,7 +76,7 @@ async function runWithPolicy(opts: {
 
 describe('a host can reach the run’s policy box', () => {
 	it('is handed one', async () => {
-		let seen: RunApprovalPolicy | undefined
+		let seen: SessionApprovalPolicy | undefined
 		await runWithPolicy({
 			onPolicy: (policy) => {
 				seen = policy
@@ -93,7 +93,7 @@ describe('a host can reach the run’s policy box', () => {
 		// the auto-approve default — so "is it set" is always yes and would
 		// name every run `host`, including the ones approving everything
 		// unattended.
-		let seen: RunApprovalPolicy | undefined
+		let seen: SessionApprovalPolicy | undefined
 		await runWithPolicy({
 			onPolicy: (policy) => {
 				seen = policy
@@ -104,7 +104,7 @@ describe('a host can reach the run’s policy box', () => {
 	})
 
 	it('names a run with a real handler `host` by default', async () => {
-		let seen: RunApprovalPolicy | undefined
+		let seen: SessionApprovalPolicy | undefined
 		await runWithPolicy({
 			onPolicy: (policy) => {
 				seen = policy
@@ -116,7 +116,7 @@ describe('a host can reach the run’s policy box', () => {
 	})
 
 	it('takes the name the host gave it', async () => {
-		let seen: RunApprovalPolicy | undefined
+		let seen: SessionApprovalPolicy | undefined
 		await runWithPolicy({
 			approvalPolicyName: 'operator-tui',
 			onPolicy: (policy) => {
@@ -167,7 +167,7 @@ describe('the swap reaches the places that actually ask a human', () => {
 		// survived on before this existed: swapping the box means nothing if
 		// the executor is still holding the handler it was handed at start.
 		const answeredBy: string[] = []
-		let policyBox: RunApprovalPolicy | undefined
+		let policyBox: SessionApprovalPolicy | undefined
 
 		const first = async () => {
 			answeredBy.push('first')
@@ -222,7 +222,7 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 		await drainQuery({
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] as never }),
 			tools: new ToolRegistry(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('go')],
@@ -275,13 +275,13 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 		const answeredBy: string[] = []
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-plan-'))
 		dirs.push(workingDirectory)
-		let policyBox: RunApprovalPolicy | undefined
+		let policyBox: SessionApprovalPolicy | undefined
 		let plans: PlanManager | undefined
 
 		await drainQuery({
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] as never }),
 			tools: new ToolRegistry(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('go')],
@@ -336,7 +336,7 @@ describe('the model is told, in the slot it already reads', () => {
 		dirs.push(workingDirectory)
 		const tools = new ToolRegistry()
 		tools.register(BashTool)
-		let policyBox: RunApprovalPolicy | undefined
+		let policyBox: SessionApprovalPolicy | undefined
 		let swapped = false
 
 		class Capturing extends MockLLMProvider {
@@ -364,7 +364,7 @@ describe('the model is told, in the slot it already reads', () => {
 		await drainQuery({
 			provider,
 			tools,
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('go')],
@@ -418,7 +418,7 @@ describe('the model is told, in the slot it already reads', () => {
 		await drainQuery({
 			provider: new Capturing({ turns: [{ text: 'done' }] as never }),
 			tools: new ToolRegistry(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('go')],

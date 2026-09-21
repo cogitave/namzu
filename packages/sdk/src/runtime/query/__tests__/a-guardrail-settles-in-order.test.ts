@@ -10,7 +10,7 @@ import type { OutputGuardrailSpec } from '../../../types/guardrail/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { AgentPersona } from '../../../types/persona/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { secretRedactionGuardrail } from '../guardrail-presets.js'
 import { drainQuery } from '../index.js'
@@ -25,7 +25,7 @@ import { drainQuery } from '../index.js'
  *
  * That gap matters more than it looks, because the block is now the body of
  * `finalize-run.ts`: it emits `guardrail_triggered`, drains, and only then
- * hands the run to the assembler. An emit moved past `completeRun` would
+ * hands the run to the assembler. An emit moved past `completeTurn` would
  * still be found by a `find` and would arrive after the run had settled, and
  * a host folding the stream in order is exactly the reader that would be
  * wronged by it: it records the run, then receives a correction to a result
@@ -72,16 +72,16 @@ async function runWithOutputGuardrail(opts: {
 	responseText: string
 	guardrails: readonly OutputGuardrailSpec[]
 	persona?: AgentPersona
-}): Promise<{ result: Awaited<ReturnType<typeof drainQuery>>; events: RunEvent[] }> {
+}): Promise<{ result: Awaited<ReturnType<typeof drainQuery>>; events: SessionEvent[] }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-guardrail-order-'))
 	workdirs.push(workingDirectory)
 
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const result = await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: opts.responseText }] }),
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -110,7 +110,7 @@ async function runWithOutputGuardrail(opts: {
 /** A persona, so the block's `persona?.identity.role` arm is taken too. */
 const PERSONA: AgentPersona = { identity: { role: 'operator', description: 'the operator' } }
 
-const types = (events: readonly RunEvent[]): string[] => events.map((event) => event.type)
+const types = (events: readonly SessionEvent[]): string[] => events.map((event) => event.type)
 
 describe('an output guardrail that fires', () => {
 	it('announces itself after the iteration that produced the text, and before the run settles', async () => {
@@ -128,10 +128,10 @@ describe('an output guardrail that fires', () => {
 		// the settlement fixes: the block sits after the loop's last
 		// `iteration_completed` (the text it judges already reached the host,
 		// as `text_delta`, while the model produced it) and before
-		// `completeRun`, which is why a host folding the stream in order never
+		// `completeTurn`, which is why a host folding the stream in order never
 		// sees the run settle before it hears the correction.
 		expect(types(events)).toEqual([
-			'run_started',
+			'turn_started',
 			'activity_created',
 			'activity_updated',
 			'iteration_started',
@@ -145,11 +145,11 @@ describe('an output guardrail that fires', () => {
 			'activity_updated',
 			'iteration_completed',
 			'guardrail_triggered',
-			'run_completed',
+			'turn_completed',
 		])
 
 		const triggered = events.findIndex((event) => event.type === 'guardrail_triggered')
-		const completed = events.findIndex((event) => event.type === 'run_completed')
+		const completed = events.findIndex((event) => event.type === 'turn_completed')
 		expect(triggered).toBeGreaterThan(-1)
 		// The claim, stated on its own so a failure names it rather than
 		// pointing at a list: the guardrail arrives BEFORE the run settles.
@@ -173,7 +173,7 @@ describe('an output guardrail that fires', () => {
 		// block's: the deltas are collapsed here because their count is the
 		// mock's chunking, not the ordering under test.
 		expect(types(events).filter((type) => type !== 'text_delta')).toEqual([
-			'run_started',
+			'turn_started',
 			'activity_created',
 			'activity_updated',
 			'iteration_started',
@@ -184,7 +184,7 @@ describe('an output guardrail that fires', () => {
 			'activity_updated',
 			'iteration_completed',
 			'guardrail_triggered',
-			'run_completed',
+			'turn_completed',
 		])
 
 		const triggered = events.findIndex((event) => event.type === 'guardrail_triggered')

@@ -43,9 +43,9 @@ function harness(taskRouter?: TaskRouterConfig): {
 	const ctx = {
 		compactionConfig: config,
 		workingStateManager: new WorkingStateManager(config),
-		runConfig: { model: 'primary-model' },
+		turnConfig: { model: 'primary-model' },
 		...(taskRouter ? { taskRouter } : {}),
-		runMgr: {
+		recorder: {
 			id: '0b69064f-36a8-4ec0-87c8-5ec601789313',
 			messages,
 			accumulateUsage: vi.fn(),

@@ -7,21 +7,15 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { fixtureId } from '../../../test-support/ids.js'
+import type { CheckpointScope, SessionCheckpointStore } from '../../../store/checkpoint/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { HITLDecisionRequest, IterationCheckpoint } from '../../../types/hitl/index.js'
+import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../types/ids/index.js'
-import type { CheckpointRunScope } from '../../../types/run/checkpoint-store.js'
+import type { Checkpoint } from '../../../types/session/checkpoint.js'
 import type { ToolPauseOutcome } from '../../../types/tool/index.js'
-import {
-	generateProjectId,
-	generateSessionId,
-	generateTenantId,
-	generateTopicId,
-} from '../../../utils/id.js'
+import { readParks } from '../checkpoint.js'
 import { type QueryParams, drainQuery } from '../index.js'
-import type { RunStateScope } from '../run-state.js'
+import { checkpointStoreFor, memorySession } from './support/session.js'
 
 /**
  * The run-level arm of "a store that cannot record the park must not take
@@ -40,14 +34,6 @@ import type { RunStateScope } from '../run-state.js'
  * act on.
  */
 
-const SCOPE: RunStateScope = {
-	runId: fixtureId.run('question-park-refused'),
-	tenantId: generateTenantId(),
-	projectId: generateProjectId(),
-	sessionId: generateSessionId(),
-	topicId: generateTopicId(),
-}
-
 const PAUSE = {
 	name: 'target_environment',
 	prompt: 'which environment should this run against?',
@@ -57,20 +43,36 @@ const PAUSE = {
 	],
 }
 
-/** A store that cannot write a question park, and can write everything else. */
-class StoreRefusingQuestionParks extends InMemoryCheckpointStore {
+/**
+ * A checkpoint store that refuses every write while `refusing` is set: the
+ * tool sets it around its question, so the checkpoint a question park
+ * writes is the one refused, and every other checkpoint is written.
+ */
+class StoreRefusingDuringQuestions implements SessionCheckpointStore {
 	readonly refused: CheckpointId[] = []
-
-	override async writeCheckpoint(
-		scope: CheckpointRunScope,
-		checkpoint: IterationCheckpoint,
-		fence?: number,
-	): Promise<void> {
-		if (checkpoint.pending?.request.type === 'user_question') {
-			this.refused.push(checkpoint.id)
+	refusing = false
+	constructor(private readonly inner: SessionCheckpointStore) {}
+	async write(scope: CheckpointScope, checkpoint: Checkpoint) {
+		if (this.refusing) {
+			this.refused.push(checkpoint.checkpointId)
 			throw new Error('the checkpoint store refused this park')
 		}
-		return await super.writeCheckpoint(scope, checkpoint, fence as never)
+		return this.inner.write(scope, checkpoint)
+	}
+	read(scope: CheckpointScope, id: CheckpointId) {
+		return this.inner.read(scope, id)
+	}
+	restore(scope: CheckpointScope, id: CheckpointId) {
+		return this.inner.restore(scope, id)
+	}
+	list(scope: CheckpointScope) {
+		return this.inner.list(scope)
+	}
+	delete(scope: CheckpointScope, id: CheckpointId) {
+		return this.inner.delete(scope, id)
+	}
+	prune(scope: CheckpointScope, keepLast: number) {
+		return this.inner.prune(scope, keepLast)
 	}
 }
 
@@ -81,7 +83,10 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function pausingRegistry(seen: Array<ToolPauseOutcome | undefined>): ToolRegistry {
+function pausingRegistry(
+	seen: Array<ToolPauseOutcome | undefined>,
+	store: StoreRefusingDuringQuestions,
+): ToolRegistry {
 	const tools = new ToolRegistry()
 	tools.register(
 		defineTool({
@@ -94,7 +99,12 @@ function pausingRegistry(seen: Array<ToolPauseOutcome | undefined>): ToolRegistr
 			destructive: false,
 			concurrencySafe: true,
 			execute: async (_input, context) => {
-				seen.push(await context.requestPause?.(PAUSE))
+				store.refusing = true
+				try {
+					seen.push(await context.requestPause?.(PAUSE))
+				} finally {
+					store.refusing = false
+				}
 				return { success: true, output: 'deployed' }
 			},
 		}),
@@ -106,7 +116,8 @@ describe('a question whose park cannot be recorded', () => {
 	it('is still asked in-process, and the answer still reaches the tool', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-question-refused-'))
 		dirs.push(workingDirectory)
-		const store = new StoreRefusingQuestionParks()
+		const session = memorySession()
+		const store = new StoreRefusingDuringQuestions(checkpointStoreFor(session.sessionLog))
 		const seen: Array<ToolPauseOutcome | undefined> = []
 		const asked: HITLDecisionRequest['type'][] = []
 
@@ -118,17 +129,13 @@ describe('a question whose park cannot be recorded', () => {
 						{ text: 'deployed to staging' },
 					],
 				}),
-				tools: pausingRegistry(seen),
+				tools: pausingRegistry(seen, store),
+				...session,
 				checkpointStore: store,
 				agentId: 'agent_question_refused',
 				agentName: 'Question refusal agent',
 				messages: [{ role: 'user', content: 'deploy it' }],
 				workingDirectory,
-				runId: SCOPE.runId,
-				tenantId: SCOPE.tenantId,
-				projectId: SCOPE.projectId,
-				sessionId: SCOPE.sessionId,
-				topicId: SCOPE.topicId,
 				authorizationGate: {
 					enabled: true,
 					rules: [{ type: 'allow_by_name', toolNames: ['deploy'] }],
@@ -146,7 +153,7 @@ describe('a question whose park cannot be recorded', () => {
 							}
 						: { action: 'continue' }
 				},
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 30_000,
 					tokenBudget: 100_000,
@@ -172,7 +179,8 @@ describe('a question whose park cannot be recorded', () => {
 	it('leaves no park behind, which is the half that IS lost', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-question-refused-'))
 		dirs.push(workingDirectory)
-		const store = new StoreRefusingQuestionParks()
+		const session = memorySession()
+		const store = new StoreRefusingDuringQuestions(checkpointStoreFor(session.sessionLog))
 		const seen: Array<ToolPauseOutcome | undefined> = []
 
 		await drainQuery(
@@ -183,17 +191,13 @@ describe('a question whose park cannot be recorded', () => {
 						{ text: 'deployed' },
 					],
 				}),
-				tools: pausingRegistry(seen),
+				tools: pausingRegistry(seen, store),
+				...session,
 				checkpointStore: store,
 				agentId: 'agent_question_refused',
 				agentName: 'Question refusal agent',
 				messages: [{ role: 'user', content: 'deploy it' }],
 				workingDirectory,
-				runId: SCOPE.runId,
-				tenantId: SCOPE.tenantId,
-				projectId: SCOPE.projectId,
-				sessionId: SCOPE.sessionId,
-				topicId: SCOPE.topicId,
 				authorizationGate: {
 					enabled: true,
 					rules: [{ type: 'allow_by_name', toolNames: ['deploy'] }],
@@ -209,7 +213,7 @@ describe('a question whose park cannot be recorded', () => {
 								selectedOptionIds: ['staging'],
 							}
 						: { action: 'continue' },
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 30_000,
 					tokenBudget: 100_000,
@@ -227,8 +231,8 @@ describe('a question whose park cannot be recorded', () => {
 		expect(store.refused).toHaveLength(1)
 		expect(store.refused[0]).toMatch(/^[0-9a-f-]{36}$/)
 		expect(
-			(await store.listCheckpoints(SCOPE)).some(
-				(cp) => cp.pending?.request.type === 'user_question',
+			(await readParks(session.sessionLog)).some(
+				(park) => park.pending.request.type === 'user_question',
 			),
 		).toBe(false)
 	})

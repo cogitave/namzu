@@ -83,7 +83,7 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider,
 		tools: registry(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 3 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 3 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],

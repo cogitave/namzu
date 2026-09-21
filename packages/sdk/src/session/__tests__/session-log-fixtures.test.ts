@@ -300,14 +300,14 @@ describe('the session event and record type lists', () => {
 	})
 
 	it.each([
-		['run_started', 'turn_started'],
-		['run_completed', 'turn_completed'],
-		['run_failed', 'turn_failed'],
-		['run_paused', 'turn_paused'],
-		['run_resuming', 'turn_resuming'],
-		['subsession_spawned', 'child_session_spawned'],
-		['subsession_messaged', 'child_session_messaged'],
-		['subsession_idled', 'child_session_idled'],
+		['turn_started', 'turn_started'],
+		['turn_completed', 'turn_completed'],
+		['turn_failed', 'turn_failed'],
+		['turn_paused', 'turn_paused'],
+		['turn_resuming', 'turn_resuming'],
+		['child_session_spawned', 'child_session_spawned'],
+		['child_session_messaged', 'child_session_messaged'],
+		['child_session_idled', 'child_session_idled'],
 	])('renames %s to %s', (old, renamed) => {
 		expect(SESSION_EVENT_TYPES).toContain(renamed)
 		expect(SESSION_EVENT_TYPES).not.toContain(old)
@@ -351,7 +351,7 @@ describe('the record schema refuses', () => {
 			},
 		],
 		['a missing prev after seq 1', (r: Record<string, unknown>) => ({ ...r, prev: null })],
-		['an unknown type', (r: Record<string, unknown>) => ({ ...r, type: 'run_started' })],
+		['an unknown type', (r: Record<string, unknown>) => ({ ...r, type: 'turn_started' })],
 		['a prefixed session id', (r: Record<string, unknown>) => ({ ...r, sessionId: 'ses_old' })],
 		[
 			'a local timestamp',

@@ -18,7 +18,7 @@ import type {
 	HITLResumeDecision,
 	IterationCheckpoint,
 } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -27,8 +27,8 @@ import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
 import { planPendingResume } from '../resume-pending.js'
-import { resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
 import { pauseId } from '../tool-pause.js'
 
 /**
@@ -59,11 +59,11 @@ import { pauseId } from '../tool-pause.js'
 
 registerMock()
 
-const SCOPE: RunStateScope = {
+const SCOPE: TurnStateScope = {
 	tenantId: '8407b5a4-6bb9-4098-a195-f7e8e1abc066' as TenantId,
 	projectId: '9a7750f2-c71b-43de-b4af-37588af238f4' as ProjectId,
 	sessionId: 'fd81d2e1-e142-47b3-b41a-c1a85cdb64f6' as SessionId,
-	runId: 'f577b249-d7f3-4834-9296-5e1a02fb3cd5' as RunId,
+	turnId: 'f577b249-d7f3-4834-9296-5e1a02fb3cd5' as TurnId,
 	topicId: 'e67d9ab1-1c89-4257-9048-008e2a228b3d' as TopicId,
 }
 
@@ -145,7 +145,7 @@ describe('the resume gate, on the id the general seam actually parks under', () 
 				parkedAt: 0,
 				request: {
 					type: 'user_question',
-					runId: SCOPE.runId,
+					turnId: SCOPE.runId,
 					checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 					question: {
 						questionId,
@@ -266,7 +266,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			// Each resumed runtime has a different cwd and a fresh store instance.
 			// Its durable token ledger travels alongside the checkpoint backend.
 			tokenBudgetStore: new DiskTokenBudgetStore({ baseDir: budgetDirectory }),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -304,7 +304,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 
 		await drainQuery({
 			...(await baseParams(store)),
-			runId: SCOPE.runId,
+			turnId: SCOPE.runId,
 			provider: new MockLLMProvider({
 				turns: [
 					{ toolCalls: [{ id: 'call_1', name: 'deploy', args: {} }], finishReason: 'tool_calls' },
@@ -366,7 +366,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		const seen: { outcome?: ToolPauseOutcome } = {}
 		const asked = vi.fn()
 
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...(await baseParams(store)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
@@ -396,7 +396,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 
 		await drainQuery({
 			...(await baseParams(store)),
-			runId: SCOPE.runId,
+			turnId: SCOPE.runId,
 			provider: new MockLLMProvider({
 				turns: [
 					{
@@ -434,7 +434,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 
 		const resumedSeen: { outcome?: ToolPauseOutcome } = {}
 		const asked = vi.fn()
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...(await baseParams(store)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
@@ -469,7 +469,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 
 		await drainQuery({
 			...(await baseParams(new InMemoryCheckpointStore())),
-			runId: SCOPE.runId,
+			turnId: SCOPE.runId,
 			questionParks: parks,
 			provider: new MockLLMProvider({ turns: [{ text: 'nothing to deploy' }] }),
 			tools: new ToolRegistry(),
@@ -495,7 +495,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 
 		await drainQuery({
 			...(await baseParams(new InMemoryCheckpointStore())),
-			runId: SCOPE.runId,
+			turnId: SCOPE.runId,
 			pendingAnswers: answers,
 			provider: new MockLLMProvider({
 				turns: [
@@ -521,7 +521,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 
 		const seen: { outcome?: ToolPauseOutcome } = {}
 
-		await resumeRun({
+		await resumeSession({
 			...(await baseParams(store)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),

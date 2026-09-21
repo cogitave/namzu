@@ -5,8 +5,8 @@ import type { ContextReducer } from '../../../../compaction/reducer.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { Message } from '../../../../types/message/index.js'
-import { isEphemeralEvent } from '../../../../types/run/events.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import { isEphemeralEvent } from '../../../../types/session/events.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 
@@ -37,7 +37,7 @@ function longHistory(): Message[] {
 interface Harness {
 	readonly ctx: IterationContext
 	readonly messages: Message[]
-	readonly events: RunEvent[]
+	readonly events: SessionEvent[]
 	/** The live array as it stood when each event was emitted. */
 	readonly lengthsAtEmit: number[]
 }
@@ -51,22 +51,22 @@ function harness(over: { compaction?: Partial<CompactionConfig>; reducer?: Conte
 		llmVerification: false,
 		...over.compaction,
 	}
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const lengthsAtEmit: number[] = []
 
 	const ctx = {
 		compactionConfig: config,
 		workingStateManager: new WorkingStateManager(config),
-		runConfig: { model: 'mock-model' },
+		turnConfig: { model: 'mock-model' },
 		...(over.reducer ? { contextReducer: over.reducer } : {}),
-		runMgr: {
+		recorder: {
 			id: 'e2fba0bc-4e38-409f-bbcb-d6d4a86a79c7',
 			currentIteration: 3,
 			messages,
 			accumulateUsage: vi.fn(),
 			clearLastPromptTokens: vi.fn(),
 		},
-		emitEvent: async (event: RunEvent) => {
+		emitEvent: async (event: SessionEvent) => {
 			events.push(event)
 			// Recorded at emit time. This is what turns "the event exists"
 			// into "the event exists BEFORE the deletion", which is the only
@@ -84,7 +84,7 @@ function harness(over: { compaction?: Partial<CompactionConfig>; reducer?: Conte
 
 const shedOf = (h: Harness) =>
 	h.events.filter(
-		(e): e is Extract<RunEvent, { type: 'compaction_shed' }> => e.type === 'compaction_shed',
+		(e): e is Extract<SessionEvent, { type: 'compaction_shed' }> => e.type === 'compaction_shed',
 	)
 
 describe('a compaction records what it removes', () => {
@@ -191,7 +191,7 @@ describe('a compaction records what it removes', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'compaction_shed',
-				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+				turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				messages: [],
 				reason: 'threshold',

@@ -15,7 +15,7 @@ import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import { generateRunId } from '../../../utils/id.js'
+import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
 
@@ -90,7 +90,7 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider,
 		tools: registry(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -160,7 +160,7 @@ describe('text queued between turns arrives at the next one', () => {
 							createdAt: 1,
 							completedAt: 2,
 							result: {
-								runId: generateRunId(),
+								turnId: generateTurnId(),
 								status: 'completed',
 								result: 'ACTUAL WORKER FINDINGS',
 								usage: {

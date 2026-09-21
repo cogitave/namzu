@@ -22,7 +22,7 @@ import type {
 	HandoffLockedEvent,
 	HandoffUnlockedEvent,
 } from '../events.js'
-import { type RunStatusResolver, type SingleHandoffDeps, executeSingleHandoff } from '../single.js'
+import { type TurnStatusResolver, type SingleHandoffDeps, executeSingleHandoff } from '../single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from '../version.js'
 
 const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
@@ -67,7 +67,7 @@ function buildDeps(
 	store: InMemorySessionStore,
 	threadStore: InMemoryTopicStore,
 	execOverride?: ExecFile,
-	runResolver?: RunStatusResolver,
+	runResolver?: TurnStatusResolver,
 ): { deps: SingleHandoffDeps; events: MockedHandoffEventSink; execCalls: string[] } {
 	const execCalls: string[] = []
 	const exec: ExecFile = execOverride
@@ -205,7 +205,7 @@ describe('executeSingleHandoff', () => {
 
 	it('rejects when Run resolver reports pending_hitl', async () => {
 		const { project, thread, session } = await seedIdle(store, threadStore)
-		const resolver: RunStatusResolver = {
+		const resolver: TurnStatusResolver = {
 			async blockingRun() {
 				return { reason: 'pending_hitl' }
 			},

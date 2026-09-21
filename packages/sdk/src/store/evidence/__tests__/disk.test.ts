@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { applyToolOutputBudget } from '../../../runtime/query/tool-output-budget.js'
-import { createDiskRunEvidenceSource, createDiskRunTextEvidenceSource } from '../disk.js'
+import { createSessionEvidenceSource, createSessionTextEvidenceSource } from '../disk.js'
 import { EVIDENCE_CHUNK_BYTES, digest } from '../format.js'
 import { stamp } from '../io.js'
-import type { RunEvidenceSearchResult, RunTextEvidenceSearchResult } from '../types.js'
+import type { SessionEvidenceSearchResult, SessionTextEvidenceSearchResult } from '../types.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -32,13 +32,13 @@ async function fixture(
 		tenantId: randomUUID(),
 		projectId: randomUUID(),
 		sessionId: randomUUID(),
-		runId: randomUUID(),
+		turnId: randomUUID(),
 	}
 	await writeFile(
 		join(runDir, 'run.json'),
 		JSON.stringify({ id: scope.runId, metadata: { scope }, status: 'completed' }),
 	)
-	const events: object[] = [{ type: 'run_started', runId: scope.runId, seq: 1 }]
+	const events: object[] = [{ type: 'turn_started', runId: scope.runId, seq: 1 }]
 	for (const [index, output] of outputs.entries()) {
 		const toolUseId = `call-${index}`
 		const retained = output.spill
@@ -52,7 +52,7 @@ async function fixture(
 			: null
 		events.push({
 			type: 'tool_completed',
-			runId: scope.runId,
+			turnId: scope.runId,
 			seq: index + 2,
 			timestamp: output.timestamp,
 			toolUseId,
@@ -72,8 +72,8 @@ async function fixture(
 	const options = { scope, runDir, indexDir }
 	return {
 		...options,
-		source: createDiskRunEvidenceSource(options),
-		reopen: () => createDiskRunEvidenceSource(options),
+		source: createSessionEvidenceSource(options),
+		reopen: () => createSessionEvidenceSource(options),
 	}
 }
 
@@ -85,7 +85,7 @@ describe('bounded retained tool evidence', () => {
 				...Array.from({ length: 20 }, (_, i) => ({ text: `Atlas regional check ${i}` })),
 				...Array.from({ length: 8 }, (_, i) => ({ text: `Borealis TRACK_${i}` })),
 			])
-			const make = () => (kind === 'tool' ? f.reopen() : createDiskRunTextEvidenceSource(f))
+			const make = () => (kind === 'tool' ? f.reopen() : createSessionTextEvidenceSource(f))
 			const options = {
 				terms: ['Atlas', 'Borealis'],
 				matchMode: 'token' as const,
@@ -150,8 +150,8 @@ describe('bounded retained tool evidence', () => {
 			const f = await fixture([{ text: `DELTA ${'ordinary '.repeat(150_000)}` }])
 			const make = (maxReadBytes?: number) =>
 				mode === 'tool'
-					? createDiskRunEvidenceSource({ ...f, maxReadBytes })
-					: createDiskRunTextEvidenceSource({ ...f, maxReadBytes })
+					? createSessionEvidenceSource({ ...f, maxReadBytes })
+					: createSessionTextEvidenceSource({ ...f, maxReadBytes })
 			const source = make()
 			const full = await source.search({ query: 'DELTA' })
 			const match = full.matches[0]!
@@ -201,7 +201,7 @@ describe('bounded retained tool evidence', () => {
 				const source =
 					mode === 'tool'
 						? f.reopen()
-						: createDiskRunTextEvidenceSource({
+						: createSessionTextEvidenceSource({
 								...f,
 								...(mode === 'snapshot' ? { consistency: 'snapshot' as const } : {}),
 							})
@@ -234,7 +234,7 @@ describe('bounded retained tool evidence', () => {
 			await writeFile(path, metadata)
 			const transcript = await readFile(join(f.runDir, 'transcript.jsonl'))
 			await expect(f.source.search()).rejects.toThrow('not closed')
-			const source = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+			const source = createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' })
 			const result = await source.search({ query: 'ORCHID' })
 			expect(result.matches).toHaveLength(1)
 			expect(result.incomplete).toBe(true)
@@ -258,8 +258,8 @@ describe('bounded retained tool evidence', () => {
 
 	it('keeps snapshot addresses bound to their source version, consistency mode and owner', async () => {
 		const f = await fixture([{ text: 'ORCHID exact original', spill: true }])
-		const snapshot = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
-		const closed = createDiskRunTextEvidenceSource(f)
+		const snapshot = createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const closed = createSessionTextEvidenceSource(f)
 		const match = (await snapshot.search({ query: 'ORCHID' })).matches[0]!
 		await expect(closed.read({ address: match.address })).rejects.toThrow()
 		expect((await snapshot.read({ address: match.address })).text).toBe('ORCHID exact original')
@@ -285,7 +285,7 @@ describe('bounded retained tool evidence', () => {
 
 	it('refuses unknown snapshot status and changed authenticated output', async () => {
 		const f = await fixture([{ text: `${'background '.repeat(1000)}ORCHID`, spill: true }])
-		const snapshot = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const snapshot = createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' })
 		const match = (await snapshot.search({ query: 'ORCHID' })).matches[0]!
 		const files = await readdir(join(f.runDir, 'tool-output'))
 		const output = files.find((name) => !name.endsWith('.json'))!
@@ -311,7 +311,7 @@ describe('bounded retained tool evidence', () => {
 		const path = join(f.runDir, 'transcript.jsonl')
 		const raw = `${await readFile(path, 'utf8')}{"type":"message_completed","content":"unfinished`
 		await writeFile(path, raw)
-		const source = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const source = createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' })
 		const page = await source.search({ query: 'ORCHID' })
 		expect(page.matches).toHaveLength(1)
 		expect(page.incomplete).toBe(true)
@@ -343,7 +343,7 @@ describe('bounded retained tool evidence', () => {
 			const raw = `${size > 20 ? await readFile(path, 'utf8') : ''}${'x'.repeat(size)}`
 			await writeFile(path, raw)
 			await expect(
-				createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' }).search(),
+				createSessionTextEvidenceSource({ ...f, consistency: 'snapshot' }).search(),
 			).rejects.toThrow(/complete recorded evidence|bounded record size/)
 			expect(await readFile(path, 'utf8')).toBe(raw)
 		},
@@ -360,13 +360,13 @@ describe('bounded retained tool evidence', () => {
 			path,
 			`${await readFile(path, 'utf8')}${JSON.stringify({
 				type: 'compaction_shed',
-				runId: f.scope.runId,
+				turnId: f.scope.runId,
 				seq: 2,
 				messages,
 			})}\n`,
 		)
 		for (const _phase of ['cold', 'warm']) {
-			const source = createDiskRunTextEvidenceSource(f)
+			const source = createSessionTextEvidenceSource(f)
 			let cursor: string | undefined
 			let bytes = 0
 			const matches = []
@@ -433,13 +433,13 @@ describe('bounded retained tool evidence', () => {
 			path,
 			`${await readFile(path, 'utf8')}${JSON.stringify({
 				type: 'compaction_shed',
-				runId: f.scope.runId,
+				turnId: f.scope.runId,
 				seq: 2,
 				timestamp: recordedAt,
 				messages: [{ role: 'tool', content: 'DELTA receipt from 2020', timestamp: 1 }],
 			})}\n`,
 		)
-		const source = createDiskRunTextEvidenceSource(f)
+		const source = createSessionTextEvidenceSource(f)
 		const match = (await source.search({ query: 'DELTA' })).matches[0]!
 		expect(match.source).toBe('compaction_shed:tool')
 		expect(match.recordedAt).toBe(recordedAt)
@@ -473,7 +473,7 @@ describe('bounded retained tool evidence', () => {
 			{ type: 'message_completed', runId: f.scope.runId, seq: 3, content: 'shared assistant 🦉' },
 			{
 				type: 'compaction_shed',
-				runId: f.scope.runId,
+				turnId: f.scope.runId,
 				seq: 4,
 				messages: [
 					{ role: 'assistant', content: [{ type: 'image' }] },
@@ -492,10 +492,12 @@ describe('bounded retained tool evidence', () => {
 		const matches = []
 		let calls = 0
 		do {
-			const page: RunTextEvidenceSearchResult = await createDiskRunTextEvidenceSource(f).search({
-				query: 'shared',
-				cursor: cursor ?? undefined,
-			})
+			const page: SessionTextEvidenceSearchResult = await createSessionTextEvidenceSource(f).search(
+				{
+					query: 'shared',
+					cursor: cursor ?? undefined,
+				},
+			)
 			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
 			matches.push(...page.matches)
 			cursor = page.nextCursor
@@ -506,7 +508,7 @@ describe('bounded retained tool evidence', () => {
 			[3, 0],
 			...Array.from({ length: 130 }, (_, part) => [4, part]),
 		])
-		const source = createDiskRunTextEvidenceSource(f)
+		const source = createSessionTextEvidenceSource(f)
 		const read = await source.read({ address: matches[1]!.address })
 		expect(read).toMatchObject({
 			text: 'shared assistant 🦉',
@@ -529,7 +531,7 @@ describe('bounded retained tool evidence', () => {
 		const prefix = '\ufeff' + 'α🦉\r\n'.repeat(30_000)
 		const full = prefix + 'UNIQUE-RECEIPT' + 'β'.repeat(40_000)
 		const f = await fixture([{ text: full, spill: true }])
-		const source = createDiskRunTextEvidenceSource(f)
+		const source = createSessionTextEvidenceSource(f)
 		const result = await source.search({ query: 'UNIQUE-RECEIPT' })
 		const match = result.matches[0]!
 		const near = await source.read({ address: match.address, byteOffset: match.byteOffset })
@@ -598,7 +600,7 @@ describe('bounded retained tool evidence', () => {
 		const found: number[] = []
 		let cursor = first.nextCursor
 		while (cursor) {
-			const page: RunEvidenceSearchResult = await f
+			const page: SessionEvidenceSearchResult = await f
 				.reopen()
 				.search({ query: 'late evidence', cursor })
 			found.push(...page.matches.map((match) => match.seq))
@@ -677,7 +679,7 @@ describe('bounded retained tool evidence', () => {
 		const b = await fixture([{ text: 'other result' }])
 		const address = (await a.source.search()).matches[0]!.address
 		await expect(b.source.read({ address })).rejects.toThrow('different scope')
-		await expect(createDiskRunEvidenceSource({ ...a, scope: b.scope }).search()).rejects.toThrow(
+		await expect(createSessionEvidenceSource({ ...a, scope: b.scope }).search()).rejects.toThrow(
 			'authorized scope',
 		)
 		await writeFile(join(a.runDir, 'transcript.jsonl'), 'changed\n')

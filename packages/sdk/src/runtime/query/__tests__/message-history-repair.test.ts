@@ -14,7 +14,7 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -35,7 +35,7 @@ async function params(provider: MockLLMProvider) {
 	return {
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -55,7 +55,7 @@ async function params(provider: MockLLMProvider) {
 describe('query() repairs provider-invalid tool history at the real boundary', () => {
 	it('repairs chronological violations, emits measured counts, and sends only the projection', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'continued safely' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const callA = {
 			id: 'call-a',
 			type: 'function' as const,
@@ -101,7 +101,7 @@ describe('query() repairs provider-invalid tool history at the real boundary', (
 
 		const repairIndex = events.findIndex((event) => event.type === 'message_history_repaired')
 		const requestIndex = events.findIndex((event) => event.type === 'request_envelope')
-		expect(events[0]?.type).toBe('run_started')
+		expect(events[0]?.type).toBe('turn_started')
 		expect(repairIndex).toBeGreaterThan(0)
 		expect(repairIndex).toBeLessThan(requestIndex)
 		expect(events[repairIndex]).toMatchObject({
@@ -143,7 +143,7 @@ describe('query() repairs provider-invalid tool history at the real boundary', (
 
 	it('drops stale prompt floors before deciding whether an exact tool result is displaced', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'used the observed result' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const call = {
 			id: 'call-observed',
 			type: 'function' as const,

@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { RunPersistence } from '../../../manager/run/persistence.js'
+import { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { EventTranslator } from '../events.js'
 
 /**
@@ -17,7 +17,7 @@ import { EventTranslator } from '../events.js'
  * smallest change that lets a host draw the plan the model has in mind.
  */
 
-const RUN = 'b20a3380-db4f-47a7-b446-d48bcbbbdfef' as RunId
+const RUN = 'b20a3380-db4f-47a7-b446-d48bcbbbdfef' as TurnId
 
 const LOG = {
 	info: vi.fn(),
@@ -28,7 +28,7 @@ const LOG = {
 }
 
 /**
- * The real `RunPersistence`, over the in-memory run store.
+ * The real `TurnRecorder`, over the in-memory run store.
  *
  * This was a hand-written object with an `id` and a stub `getRunStore`, and it
  * kept growing a member behind the emitter: first a store, because `emitEvent`
@@ -38,12 +38,12 @@ const LOG = {
  * is the shape the rule about fixtures unlike production names. Using the real
  * class ends that: the next member the emitter reaches for is simply there.
  */
-function persistence(): RunPersistence {
-	return new RunPersistence({
-		runId: RUN,
+function persistence(): TurnRecorder {
+	return new TurnRecorder({
+		turnId: RUN,
 		agentId: 'a',
 		agentName: 'A',
-		runConfig: {},
+		turnConfig: {},
 		providerId: 'mock',
 		// Nothing may be written: the injected store is not a filesystem.
 		outputDir: '/namzu-nonexistent-should-never-be-written',
@@ -58,11 +58,11 @@ function persistence(): RunPersistence {
 	} as any)
 }
 
-async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promise<RunEvent[]> {
+async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promise<SessionEvent[]> {
 	const store = new InMemoryTaskStore()
-	const runMgr = persistence()
-	await runMgr.init()
-	const emitter = new EventTranslator(runMgr)
+	const recorder = persistence()
+	await recorder.init()
+	const emitter = new EventTranslator(recorder)
 	const stop = emitter.wireTaskStore(store, RUN)
 
 	await body(store)
@@ -73,8 +73,8 @@ async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promi
 	return [...emitter.drainPending()]
 }
 
-type Created = Extract<RunEvent, { type: 'task_created' }>
-type Updated = Extract<RunEvent, { type: 'task_updated' }>
+type Created = Extract<SessionEvent, { type: 'task_created' }>
+type Updated = Extract<SessionEvent, { type: 'task_updated' }>
 
 describe('a host can see what a unit waits on', () => {
 	it('carries the edges once a dependency exists', async () => {

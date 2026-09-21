@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createProbeRegistry } from '../../../probe/registry.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
@@ -25,7 +25,7 @@ import { ToolExecutor } from '../executor.js'
  * guard against clearing error results silently excluded vetoed ones.
  */
 
-const RUN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as RunId
+const RUN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -63,7 +63,7 @@ function response(): ChatCompletionResponse {
 }
 
 describe('a tool call a probe vetoed', () => {
-	let emitted: RunEvent[]
+	let emitted: SessionEvent[]
 	let executor: ToolExecutor
 
 	beforeEach(() => {
@@ -76,14 +76,14 @@ describe('a tool call a probe vetoed', () => {
 		executor = new ToolExecutor(
 			{
 				tools: makeToolRegistry(),
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
 			new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
-			async (e: RunEvent) => {
+			async (e: SessionEvent) => {
 				emitted.push(e)
 			},
 			makeLogger(),
@@ -126,7 +126,7 @@ describe('a tool call a probe vetoed', () => {
 		const allowed = new ToolExecutor(
 			{
 				tools: makeToolRegistry(),
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},

@@ -10,7 +10,7 @@ import { buildAgentTool } from '../../../tools/coordinator/agent.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { type CancelCause, RunCancelled } from '../../../types/run/cancel-cause.js'
+import { type CancelCause, TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -121,7 +121,7 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 		const pending = drainQuery({
 			provider,
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -143,7 +143,7 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 
 		await gateway.createStarted.promise
 		if (!holdCreation) await gateway.waitStarted.promise
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const run = await Promise.race([
 			pending,
 			new Promise<never>((_resolve, reject) => {

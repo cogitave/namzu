@@ -10,7 +10,7 @@
  *   - awaiting_hitl_resol. → 'pending_hitl'
  *   - awaiting_subsession  → 'pending_subsession'
  *
- * This integration test wires the `RunStatusResolver` seam into a full
+ * This integration test wires the `TurnStatusResolver` seam into a full
  * single-handoff flow so the rejection triggers from the run-fan-in check
  * (§5.1), not just from a status precondition.
  */
@@ -25,7 +25,7 @@ import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import type { HandoffEventSink } from '../../handoff/events.js'
 import {
-	type RunStatusResolver,
+	type TurnStatusResolver,
 	type SingleHandoffDeps,
 	executeSingleHandoff,
 } from '../../handoff/single.js'
@@ -37,7 +37,7 @@ import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
 function buildDeps(
 	store: InMemorySessionStore,
 	threadStore: InMemoryTopicStore,
-	runStatus?: RunStatusResolver,
+	runStatus?: TurnStatusResolver,
 ): SingleHandoffDeps {
 	const driver = new GitWorktreeDriver({
 		repoRoot: '/repo',
@@ -203,7 +203,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 
 	it('session status precondition: active-status session rejects before resolver fires', async () => {
 		// When the session itself is already non-idle (e.g. `active`), the lock
-		// rejection fires from the status check — no RunStatusResolver invoked.
+		// rejection fires from the status check — no TurnStatusResolver invoked.
 		const store = new InMemorySessionStore()
 		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)

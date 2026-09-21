@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { fixtureId } from '../../../test-support/ids.js'
-import type { RunStore, ToolExecutionSnapshot } from '../../../types/run/store.js'
+import type { RunStore, ToolExecutionSnapshot } from '../../../types/session/tool-execution.js'
 import type { Logger } from '../../../utils/logger.js'
 import { PendingAnswers } from '../question-park.js'
 import { recoverCompletedCalls } from '../resume-pending.js'
@@ -30,7 +30,7 @@ const snapshot = (): ToolExecutionSnapshot => ({
 	]),
 })
 function manager(store: Partial<RunStore>) {
-	return { id: runId, getRunStore: () => store } as RunPersistence
+	return { id: runId, getRunStore: () => store } as TurnRecorder
 }
 
 it('keeps real completions, marks starts unknown, and leaves proven unstarted calls eligible', async () => {
@@ -77,7 +77,7 @@ it('uses strict ordered events for a store without the optional bounded scan', a
 	const readEvents = vi.fn(
 		async () =>
 			[
-				{ type: 'run_started', runId, seq: 1 },
+				{ type: 'turn_started', runId, seq: 1 },
 				{ type: 'tool_executing', runId, seq: 2, toolUseId: 'unknown', toolName: 'effect' },
 			] as never,
 	)

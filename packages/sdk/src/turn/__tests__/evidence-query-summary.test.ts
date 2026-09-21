@@ -7,8 +7,8 @@ import {
 	createUserMessage,
 } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
-import { generateRunId } from '../../utils/id.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
+import { generateTurnId } from '../../utils/id.js'
 import { createEvidenceQueryResolver } from '../evidence-query.js'
 
 const question = 'En başta incelediğin kaydın iki kimliğini aynen yazar mısın?'
@@ -40,7 +40,7 @@ function fixture(history: Message[]) {
 		}
 	})
 	const ctx: PrepareStepContext = {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
 		prepared: {},

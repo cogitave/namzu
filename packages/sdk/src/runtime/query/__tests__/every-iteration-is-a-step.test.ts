@@ -25,7 +25,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -47,7 +47,7 @@ function baseParams(
 	return {
 		provider,
 		tools,
-		runConfig: {
+		turnConfig: {
 			model: 'run-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -123,7 +123,7 @@ describe('every iteration leaves a step', () => {
 		})
 		const tools = new ToolRegistry()
 		registerEcho(tools)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{

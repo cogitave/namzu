@@ -3,15 +3,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId } from '../../../utils/id.js'
+import { TokenBudget } from '../../../turn/token-budget.js'
+import { generateTurnId } from '../../../utils/id.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -31,7 +31,7 @@ function orphanTaskGateway(): TaskScheduler {
 		createdAt: Date.now(),
 	}
 	return {
-		budget: TokenBudget.create(200_000, generateRunId()).reserve(100_000),
+		budget: TokenBudget.create(200_000, generateTurnId()).reserve(100_000),
 		createTask: async () => handle,
 		waitForTask: () => new Promise<TaskHandle>(() => {}),
 		continueTask: async () => {},
@@ -51,7 +51,7 @@ describe('end of turn with running agent tasks', () => {
 	})
 
 	// Regression: the loop used to poll `pendingNotifications` every
-	// 250ms for up to `runConfig.timeoutMs` (120s default) whenever the
+	// 250ms for up to `turnConfig.timeoutMs` (120s default) whenever the
 	// turn ended while the gateway still listed a running task — but
 	// nothing has pushed onto that queue since dc16d58 removed the
 	// onTaskCompleted producer, so the wait always injected nothing and
@@ -65,13 +65,13 @@ describe('end of turn with running agent tasks', () => {
 		})
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-orphan-task-'))
 		workdirs.push(workingDirectory)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
 				provider,
 				tools: new ToolRegistry(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					// Deliberately longer than the vitest timeout: the old
 					// code waited min(timeoutMs, …) polling the dead queue.
@@ -101,6 +101,6 @@ describe('end of turn with running agent tasks', () => {
 		// One turn only — no futile re-invocation loop on the orphan.
 		// Exactly one model call: the run must NOT busy-wait on the orphan.
 		expect(provider.requests).toHaveLength(1)
-		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
+		expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
 	}, 10_000)
 })

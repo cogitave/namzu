@@ -4,7 +4,7 @@ import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../../provider/index.js'
 import { ToolRegistry } from '../../../../registry/index.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../../../../types/hitl/index.js'
-import type { Run, RunEvent } from '../../../../types/run/index.js'
+import type { Run, SessionEvent } from '../../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -42,14 +42,14 @@ interface ParkedPlanRun {
 	parked: Promise<void>
 	/** Resolves with the run's terminal value, or 'hung' if it never settles. */
 	settled: Promise<Run | 'hung'>
-	events: RunEvent[]
+	events: SessionEvent[]
 	requests: HITLDecisionRequest[]
 	abort: () => void
 }
 
 function startRunParkedOnPlanApproval(): ParkedPlanRun {
 	const controller = new AbortController()
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const requests: HITLDecisionRequest[] = []
 
 	let markParked: () => void = () => {}
@@ -64,7 +64,7 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -133,7 +133,7 @@ describe('a Stop while the run is parked on plan approval', () => {
 		run.abort()
 		await run.settled
 
-		const completed = run.events.find((event) => event.type === 'run_completed')
+		const completed = run.events.find((event) => event.type === 'turn_completed')
 		expect(completed).toMatchObject({ stopReason: 'cancelled' })
 	})
 })

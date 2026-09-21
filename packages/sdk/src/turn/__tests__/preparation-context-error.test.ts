@@ -39,7 +39,7 @@ it.each(['safe', 'ordinary', 'ceiling', 'remaining-room'] as const)(
 			agentId: 'note',
 			agentName: 'Note',
 			messages: [createUserMessage('Continue the task.')],
-			runConfig: { model: 'mock', maxIterations: 1, timeoutMs: 10_000, tokenBudget: 100_000 },
+			turnConfig: { model: 'mock', maxIterations: 1, timeoutMs: 10_000, tokenBudget: 100_000 },
 			compactionConfig: CompactionConfigSchema.parse({ contextWindowTokens: 4_000 }),
 			prepareStep: [
 				() => ({ context: 'Prior observation.', system: 'Prior system.', temperature: 0.1 }),

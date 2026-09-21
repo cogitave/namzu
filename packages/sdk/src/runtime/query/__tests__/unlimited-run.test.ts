@@ -8,7 +8,7 @@ import { RuntimeConfigSchema } from '../../../config/runtime.js'
 import { RunConfigSchema } from '../../../contracts/schemas.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { checkLimitsDetailed } from '../../../run/LimitChecker.js'
+import { checkLimitsDetailed } from '../../../turn/LimitChecker.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -53,7 +53,7 @@ it.each([
 		topicId: fixtureId.topic('unlimited-run'),
 		sessionId: fixtureId.session('unlimited-run'),
 		runStore: new InMemoryRunStore(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 0,
 			tokenBudget: test.tokenBudget,

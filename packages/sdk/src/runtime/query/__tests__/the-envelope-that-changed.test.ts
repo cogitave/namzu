@@ -11,8 +11,8 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import { isEphemeralEvent } from '../../../types/run/events.js'
-import type { PrepareStep, RunEvent } from '../../../types/run/index.js'
+import { isEphemeralEvent } from '../../../types/session/events.js'
+import type { PrepareStep, SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -73,7 +73,7 @@ function tools(extra?: { readonly schemaBody: string }): ToolRegistry {
 	return registry
 }
 
-type Envelope = Extract<RunEvent, { type: 'request_envelope' }>
+type Envelope = Extract<SessionEvent, { type: 'request_envelope' }>
 
 async function run(opts: {
 	readonly turns: number
@@ -82,7 +82,7 @@ async function run(opts: {
 }): Promise<Envelope[]> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-envelope-'))
 	dirs.push(workingDirectory)
-	const seen: RunEvent[] = []
+	const seen: SessionEvent[] = []
 
 	await drainQuery(
 		{
@@ -90,7 +90,7 @@ async function run(opts: {
 				turns: [...Array.from({ length: opts.turns }, (_, i) => call(`c${i}`)), { text: 'done' }],
 			}),
 			tools: opts.registry ?? tools(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 200_000,
@@ -106,7 +106,7 @@ async function run(opts: {
 			tenantId: 'e16d7f36-5234-4a6a-b880-7e2972f9a59b' as TenantId,
 			...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			seen.push(event)
 		},
 	)
@@ -179,7 +179,7 @@ describe('what the model was asked, recorded when it changed', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'request_envelope',
-				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+				turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				model: 'm',
 				systemPrompt: '',

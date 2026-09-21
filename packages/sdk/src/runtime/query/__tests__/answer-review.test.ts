@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createCommandGate } from '../../../run/command-gate.js'
+import { createCommandGate } from '../../../turn/command-gate.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import type { AnswerReview, ReviewAnswer } from '../../../types/run/answer-review.js'
+import type { AnswerReview, ReviewAnswer } from '../../../types/session/answer-review.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -50,12 +50,12 @@ function scriptedRun(
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		checkpointStore: new InMemoryCheckpointStore(),
 		reviewAnswer,
 		...(signal ? { signal } : {}),
@@ -105,7 +105,7 @@ describe('judging the answer a run is about to settle with', () => {
 			['Everything passed.'],
 			(answer) =>
 				gate(answer, {
-					runId: generateRunId(),
+					turnId: generateTurnId(),
 					iteration: 1,
 					messages: [],
 				}),
@@ -157,7 +157,7 @@ describe('judging the answer a run is about to settle with', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
@@ -364,7 +364,7 @@ describe('judging the answer a run is about to settle with', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),

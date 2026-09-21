@@ -12,7 +12,7 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { fixtureId } from '../../../test-support/ids.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { HITLDecisionRequest, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -20,8 +20,8 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
-import { type ResumeRunParams, resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
 
 /**
  * Compaction's working state is the run's own record of what it was doing —
@@ -36,12 +36,12 @@ import type { RunStateScope } from '../run-state.js'
  * the resume is silently gone. The run keeps working; it just forgets.
  *
  * Both ends are asserted here through a real paused run and a real
- * `resumeRun`, because a hand-built manager proves the restore helper works
+ * `resumeSession`, because a hand-built manager proves the restore helper works
  * and nothing about whether anything calls it.
  */
 
-const SCOPE: RunStateScope = {
-	runId: fixtureId.run('working-state-adopt'),
+const SCOPE: TurnStateScope = {
+	turnId: fixtureId.run('working-state-adopt'),
 	tenantId: generateTenantId(),
 	projectId: generateProjectId(),
 	sessionId: generateSessionId(),
@@ -124,7 +124,7 @@ async function runUntilPaused(store: InMemoryCheckpointStore, workingDirectory: 
 			agentName: 'Working state agent',
 			messages: [{ role: 'user', content: TASK }],
 			workingDirectory,
-			runId: SCOPE.runId,
+			turnId: SCOPE.runId,
 			tenantId: SCOPE.tenantId,
 			projectId: SCOPE.projectId,
 			sessionId: SCOPE.sessionId,
@@ -134,9 +134,9 @@ async function runUntilPaused(store: InMemoryCheckpointStore, workingDirectory: 
 				request.type === 'iteration_checkpoint'
 					? { action: 'pause', reason: 'stop here for a moment' }
 					: { action: 'continue' },
-			runConfig: RUN_CONFIG,
+			turnConfig: RUN_CONFIG,
 		} as unknown as QueryParams,
-		(_event: RunEvent) => {},
+		(_event: SessionEvent) => {},
 	)
 }
 
@@ -169,7 +169,7 @@ describe('a resumed run', () => {
 		) as IterationCheckpoint[]
 		const parked = before[0] as IterationCheckpoint
 
-		const resumed = await resumeRun({
+		const resumed = await resumeSession({
 			scope: SCOPE,
 			checkpointStore: store,
 			sessionId: SCOPE.sessionId,
@@ -184,8 +184,8 @@ describe('a resumed run', () => {
 			agentName: 'Working state agent',
 			workingDirectory,
 			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+			turnConfig: RUN_CONFIG,
+		} as unknown as ResumeSessionParams)
 
 		expect(resumed.resumed).toBe(true)
 		if (!resumed.resumed) return
@@ -223,7 +223,7 @@ describe('a resumed run', () => {
 		// resumed run re-derived.
 		expect(parked.workingState?.task).toBe(TASK)
 
-		const resumed = await resumeRun({
+		const resumed = await resumeSession({
 			scope: SCOPE,
 			checkpointStore: store,
 			sessionId: SCOPE.sessionId,
@@ -238,12 +238,12 @@ describe('a resumed run', () => {
 			agentName: 'Working state agent',
 			workingDirectory,
 			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+			turnConfig: RUN_CONFIG,
+		} as unknown as ResumeSessionParams)
 
 		expect(resumed.resumed).toBe(true)
 		if (!resumed.resumed) return
-		// The same claim from the other side: `resumeRun` forces `messages: []`,
+		// The same claim from the other side: `resumeSession` forces `messages: []`,
 		// so no seeding pass ran, and the task above survived on the state
 		// alone.
 		expect(resumed.state.messages.some((m) => m.content === TASK)).toBe(true)

@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import type { RepairToolCall } from '../../../types/tool/repair.js'
@@ -19,7 +19,7 @@ import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
  * also had to decide on its own that retrying was worth it.
  */
 
-const RUN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as RunId
+const RUN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -53,7 +53,7 @@ function makeExecutor(
 	const executor = new ToolExecutor(
 		{
 			tools: registry,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
 			env: {},

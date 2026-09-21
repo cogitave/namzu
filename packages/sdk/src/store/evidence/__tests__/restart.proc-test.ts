@@ -15,19 +15,19 @@ it.each([false, true])(
 				tenantId: randomUUID(),
 				projectId: randomUUID(),
 				sessionId: randomUUID(),
-				runId: randomUUID(),
+				turnId: randomUUID(),
 			}
 			const sdkUrl = new URL('../../../../dist/index.js', import.meta.url).href
-			const script = `import {RunDiskStore,createDiskRunTextEvidenceSource,createUserMessage} from ${JSON.stringify(sdkUrl)};
+			const script = `import {RunDiskStore,createSessionTextEvidenceSource,createUserMessage} from ${JSON.stringify(sdkUrl)};
 import {writeFile} from 'node:fs/promises';import {join} from 'node:path';
 const [root,raw,mode,address]=process.argv.slice(1),scope=JSON.parse(raw),runDir=join(root,scope.runId);
 if(mode==='seed') {
  const store=new RunDiskStore({baseDir:root});await store.initRun(scope.runId);
  await writeFile(join(runDir,'run.json'),JSON.stringify({id:scope.runId,status:'idle',metadata:{scope}}));
- await store.appendEvent({type:'run_started',runId:scope.runId,seq:1});
+ await store.appendEvent({type:'turn_started',runId:scope.runId,seq:1});
  await store.appendEvent({type:'compaction_shed',runId:scope.runId,seq:2,iteration:1,reason:'threshold',messages:[createUserMessage('ORCHID exact original α🦉',[{data:'A'.repeat(5*1024*1024),mediaType:'image/png'}])]});
 } else {
- const source=createDiskRunTextEvidenceSource({scope,runDir,indexDir:join(runDir,'index'),consistency:'snapshot'});
+ const source=createSessionTextEvidenceSource({scope,runDir,indexDir:join(runDir,'index'),consistency:'snapshot'});
  console.log(JSON.stringify(mode==='search'?await source.search({query:'ORCHID'}):await source.read({address})));
 }`
 			const exec = promisify(execFile)
@@ -68,20 +68,20 @@ it('reads retained compaction text and restores whole attachments across process
 			tenantId: randomUUID(),
 			projectId: randomUUID(),
 			sessionId: randomUUID(),
-			runId: randomUUID(),
+			turnId: randomUUID(),
 		}
 		const sdkUrl = new URL('../../../../dist/index.js', import.meta.url).href
-		const script = `import {RunDiskStore,createDiskRunTextEvidenceSource,createUserMessage} from ${JSON.stringify(sdkUrl)};
+		const script = `import {RunDiskStore,createSessionTextEvidenceSource,createUserMessage} from ${JSON.stringify(sdkUrl)};
 import {writeFile} from 'node:fs/promises'; import {join} from 'node:path';
 const [root,raw,mode,address]=process.argv.slice(1),scope=JSON.parse(raw),store=new RunDiskStore({baseDir:root});
 const runDir=await store.initRun(scope.runId);
 if(mode==='seed') {
 await writeFile(join(runDir,'run.json'),JSON.stringify({id:scope.runId,status:'completed',metadata:{scope}}));
-await store.appendEvent({type:'run_started',runId:scope.runId,seq:1});
+await store.appendEvent({type:'turn_started',runId:scope.runId,seq:1});
 await store.appendEvent({type:'compaction_shed',runId:scope.runId,seq:2,iteration:1,reason:'threshold',generation:9,
 messages:[createUserMessage('ORCHID exact original A17',[{data:'A'.repeat(5*1024*1024),mediaType:'image/png'}])]});
 }
-const source=createDiskRunTextEvidenceSource({scope,runDir,indexDir:join(runDir,'index')});
+const source=createSessionTextEvidenceSource({scope,runDir,indexDir:join(runDir,'index')});
 if(mode==='seed') console.log(JSON.stringify(await source.search({query:'ORCHID'})));
 else { const read=await source.read({address}); const events=await store.readEvents();const shed=events.find(e=>e.type==='compaction_shed');
 console.log(JSON.stringify({read,imageBytes:shed.messages[0].attachments[0].data.length,generation:shed.generation})); }`
@@ -122,7 +122,7 @@ it.each(['query', 'terms', 'tokens', 'refined'] as const)(
 				tenantId: randomUUID(),
 				projectId: randomUUID(),
 				sessionId: randomUUID(),
-				runId: randomUUID(),
+				turnId: randomUUID(),
 			}
 			const runDir = join(root, 'run')
 			await mkdir(runDir)
@@ -136,12 +136,12 @@ it.each(['query', 'terms', 'tokens', 'refined'] as const)(
 				}),
 			)
 			const lines = [
-				{ type: 'run_started', runId: scope.runId, seq: 1 },
+				{ type: 'turn_started', runId: scope.runId, seq: 1 },
 				...Array.from({ length: 80 }, (_, i) => ({
 					type: 'tool_completed',
 					seq: i + 2,
 					timestamp: 1_735_689_600_000 + i,
-					runId: scope.runId,
+					turnId: scope.runId,
 					toolUseId: `call-${i}`,
 					toolName: 'observe',
 					isError: false,
@@ -156,7 +156,7 @@ it.each(['query', 'terms', 'tokens', 'refined'] as const)(
 			const moduleUrl = new URL('../../../../dist/store/evidence/disk.js', import.meta.url).href
 			const exec = promisify(execFile)
 			async function child(method: 'search' | 'read', input: unknown) {
-				const script = `import {createDiskRunEvidenceSource} from ${JSON.stringify(moduleUrl)}; const source=createDiskRunEvidenceSource(JSON.parse(process.argv[1])); console.log(JSON.stringify(await source[process.argv[2]](JSON.parse(process.argv[3]))));`
+				const script = `import {createSessionEvidenceSource} from ${JSON.stringify(moduleUrl)}; const source=createSessionEvidenceSource(JSON.parse(process.argv[1])); console.log(JSON.stringify(await source[process.argv[2]](JSON.parse(process.argv[3]))));`
 				const { stdout } = await exec(
 					process.execPath,
 					[
@@ -204,7 +204,7 @@ it('reconstructs a live writer boundary in another process and retains durable e
 			tenantId: randomUUID(),
 			projectId: randomUUID(),
 			sessionId: randomUUID(),
-			runId: randomUUID(),
+			turnId: randomUUID(),
 		}
 		const storeUrl = new URL('../../../../dist/store/run/disk.js', import.meta.url).href
 		const exec = promisify(execFile)
@@ -214,7 +214,7 @@ const [root, encoded, previous] = process.argv.slice(1); const scope = JSON.pars
 const store = new RunDiskStore({baseDir:root});const dir = await store.initRun(scope.runId);
 if(!previous) {
  await writeFile(join(dir,'run.json'),JSON.stringify({id:scope.runId,status:'running',metadata:{scope}}));
- await store.appendEvent({type:'run_started',runId:scope.runId,seq:1});
+ await store.appendEvent({type:'turn_started',runId:scope.runId,seq:1});
  await store.appendEvent({type:'message_completed',runId:scope.runId,seq:2,content:'original receipt 🦉'});
 } else await store.appendEvent({type:'message_completed',runId:scope.runId,seq:3,content:'new writer'});
 const source=await store.captureTextEvidence(scope);const page=await source.search({query:'original receipt'});

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createUserMessage } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 } from '../../utils/id.js'
@@ -42,7 +42,7 @@ function plan(query = current, focus = ['SIGMA']) {
 function context(query = current, raw = plan(query)): PrepareStepContext {
 	const latestUserMessage = createUserMessage(query)
 	return {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
 		prepared: { context: 'Earlier host context.' },
@@ -63,7 +63,7 @@ function context(query = current, raw = plan(query)): PrepareStepContext {
 }
 function candidate(excerpt: string): EvidenceRecallCandidate {
 	return {
-		scope: { ...scope, runId: generateRunId() },
+		scope: { ...scope, runId: generateTurnId() },
 		seq: 2,
 		part: 0,
 		source: 'tool_completed',

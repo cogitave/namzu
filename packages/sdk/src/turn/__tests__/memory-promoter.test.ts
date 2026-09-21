@@ -11,13 +11,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryMemoryStore } from '../../store/memory/memory.js'
-import type { RunId } from '../../types/ids/index.js'
-import type { RunMemoryCandidate } from '../../types/run/memory-promotion.js'
-import { RUN_MEMORY_TAG, createMemoryPromoter } from '../memory-promoter.js'
+import type { TurnId } from '../../types/ids/index.js'
+import type { SessionMemoryCandidate } from '../../types/session/memory-promotion.js'
+import { SESSION_MEMORY_TAG, createMemoryPromoter } from '../memory-promoter.js'
 
-function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
+function candidate(over: Partial<SessionMemoryCandidate> = {}): SessionMemoryCandidate {
 	return {
-		runId: 'e88daa46-7351-4bf1-ba52-19112767bf4a' as RunId,
+		turnId: 'e88daa46-7351-4bf1-ba52-19112767bf4a' as TurnId,
 		task: 'ship the invoice job',
 		decisions: [],
 		discoveries: [],
@@ -46,7 +46,7 @@ describe('a run that learned something', () => {
 		expect(page.totalCount).toBe(1)
 		const [entry] = page.entries
 		expect(entry?.title).toBe('ship the invoice job')
-		expect(entry?.tags).toContain(RUN_MEMORY_TAG)
+		expect(entry?.tags).toContain(SESSION_MEMORY_TAG)
 	})
 
 	it('writes the requirement into the body, not just a count', async () => {
@@ -72,7 +72,7 @@ describe('a run that learned something', () => {
 		// Without it, a surprising memory cannot be checked against what
 		// actually happened.
 		expect(body?.metadata).toMatchObject({
-			runId: 'e88daa46-7351-4bf1-ba52-19112767bf4a',
+			turnId: 'e88daa46-7351-4bf1-ba52-19112767bf4a',
 		})
 	})
 
@@ -111,7 +111,7 @@ describe('a run that learned something', () => {
 		)
 
 		const [entry] = (await stored(store)).entries
-		expect(entry?.tags).toEqual(expect.arrayContaining([RUN_MEMORY_TAG, 'triage-bot']))
+		expect(entry?.tags).toEqual(expect.arrayContaining([SESSION_MEMORY_TAG, 'triage-bot']))
 	})
 })
 

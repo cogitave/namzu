@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { generateRunId } from '../../utils/id.js'
+import { generateTurnId } from '../../utils/id.js'
 import {
 	type JsonClaimObservation,
 	type JsonClaimReadRequest,
@@ -8,7 +8,7 @@ import {
 	createJsonClaimVerifier,
 } from '../json-claim-verifier.js'
 
-const runId = generateRunId()
+const runId = generateTurnId()
 const context = { runId, iteration: 2 }
 const requirement = { id: 'version', source: 'manifest', pointer: '/version' }
 function observation(
@@ -28,7 +28,7 @@ function observation(
 function verifier(overrides: Partial<JsonClaimVerifierOptions> = {}) {
 	return createJsonClaimVerifier({
 		scope: 'tenant/project/claim/revision',
-		runId,
+		turnId,
 		requirements: [requirement],
 		observe: async (source, request) => observation(source, request),
 		...overrides,
@@ -77,7 +77,7 @@ describe('explicit claims require current source evidence', () => {
 
 	it.each([
 		{ scope: 'other tenant' },
-		{ runId: generateRunId() },
+		{ runId: generateTurnId() },
 		{ iteration: 99 },
 		{ requestId: 'old receipt' },
 		{ source: 'foreign document' },
@@ -113,7 +113,7 @@ describe('explicit claims require current source evidence', () => {
 			(
 				await verifier({ observe }).verify(
 					{ version: '3.0.0' },
-					{ ...context, runId: generateRunId() },
+					{ ...context, runId: generateTurnId() },
 				)
 			).accept,
 		).toBe(false)

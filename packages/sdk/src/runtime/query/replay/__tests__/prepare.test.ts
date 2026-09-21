@@ -3,18 +3,18 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { CheckpointId, IterationCheckpoint } from '../../../../types/hitl/index.js'
-import type { EmergencySaveId, RunId, ToolCallId } from '../../../../types/ids/index.js'
+import type { EmergencySaveId, TurnId, ToolCallId } from '../../../../types/ids/index.js'
 import type { AssistantMessage, ToolMessage } from '../../../../types/message/index.js'
-import type { EmergencySaveData } from '../../../../types/run/emergency.js'
-import type { Mutation } from '../../../../types/run/replay.js'
+import type { EmergencySaveData } from '../../../../types/session/emergency.js'
+import type { Mutation } from '../../../../types/session/fork.js'
 import { prepareReplayState } from '../prepare.js'
 
-const RUN_ID = '773652d8-a3bf-4154-b92c-322af6d773e4' as RunId
+const RUN_ID = '773652d8-a3bf-4154-b92c-322af6d773e4' as TurnId
 
 function makeCheckpoint(overrides: Partial<IterationCheckpoint>): IterationCheckpoint {
 	return {
 		id: '40144495-50fc-4842-9e2b-41543a128a64' as CheckpointId,
-		runId: RUN_ID,
+		turnId: RUN_ID,
 		iteration: 1,
 		messages: [{ role: 'user', content: 'hi' }],
 		tokenUsage: {
@@ -76,7 +76,7 @@ describe('prepareReplayState', () => {
 
 		const prepared = await prepareReplayState({
 			baseDir,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			fromCheckpoint: '17f1fb6b-0479-40a1-bf1e-115de23b0ba3' as CheckpointId,
 		})
 
@@ -104,7 +104,7 @@ describe('prepareReplayState', () => {
 
 		const prepared = await prepareReplayState({
 			baseDir,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			fromCheckpoint: 'latest',
 		})
 
@@ -116,7 +116,7 @@ describe('prepareReplayState', () => {
 		await expect(
 			prepareReplayState({
 				baseDir,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				fromCheckpoint: 'latest',
 			}),
 		).rejects.toThrow(/No checkpoints found/)
@@ -126,7 +126,7 @@ describe('prepareReplayState', () => {
 		await expect(
 			prepareReplayState({
 				baseDir,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				fromCheckpoint: 'e8e27c68-a53c-4003-9fbe-3349649af71a' as CheckpointId,
 			}),
 		).rejects.toThrow(/not found/)
@@ -154,7 +154,7 @@ describe('prepareReplayState', () => {
 
 		const prepared = await prepareReplayState({
 			baseDir,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			fromCheckpoint: '77b62568-8f82-427b-ba26-8cf13e67bece' as CheckpointId,
 			mutate: mutations,
 		})
@@ -173,7 +173,7 @@ describe('prepareReplayState', () => {
 	])('resolves emergency dump %s with stable projection %s', async (emergencyId, checkpointId) => {
 		const dump: EmergencySaveData = {
 			id: emergencyId as EmergencySaveId,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			messages: [{ role: 'user', content: 'before crash' }],
 			tokenUsage: {
 				promptTokens: 4,
@@ -191,7 +191,7 @@ describe('prepareReplayState', () => {
 
 		const prepared = await prepareReplayState({
 			baseDir,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			fromCheckpoint: 'emergency',
 			emergencyDir,
 		})
@@ -206,7 +206,7 @@ describe('prepareReplayState', () => {
 		await expect(
 			prepareReplayState({
 				baseDir,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				fromCheckpoint: 'emergency',
 			}),
 		).rejects.toThrow(/emergencyDir/)
@@ -216,7 +216,7 @@ describe('prepareReplayState', () => {
 		await expect(
 			prepareReplayState({
 				baseDir,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				fromCheckpoint: 'emergency',
 				emergencyDir,
 			}),

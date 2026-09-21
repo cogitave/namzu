@@ -10,7 +10,7 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
-import type { CheckpointRunScope } from '../../../types/run/checkpoint-store.js'
+import type { CheckpointRunScope } from '../../../types/session/durable.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -75,7 +75,7 @@ async function run(checkpointStore: InMemoryCheckpointStore) {
 		workingDirectory: root,
 		pathBuilder: new DefaultPathBuilder(join(root, 'state')),
 		checkpointStore,
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,

@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { HITLDecisionRequest, ToolCallSummary } from '../../../types/hitl/index.js'
-import type { CheckpointId, RunId } from '../../../types/ids/index.js'
+import type { CheckpointId, TurnId } from '../../../types/ids/index.js'
 import {
 	PLAN_MODE_REFUSAL,
 	STRICT_MODE_REFUSAL,
@@ -30,7 +30,7 @@ const call = (name: string, extra: Partial<ToolCallSummary> = {}): ToolCallSumma
 
 const review = (...toolCalls: ToolCallSummary[]): HITLDecisionRequest => ({
 	type: 'tool_review',
-	runId: 'f8223c92-2ebb-4961-8f5c-51dffd77693e' as RunId,
+	turnId: 'f8223c92-2ebb-4961-8f5c-51dffd77693e' as TurnId,
 	checkpointId: '82267e66-99cd-4ee0-8a15-b8108f6fce73' as CheckpointId,
 	toolCalls,
 })
@@ -181,7 +181,7 @@ describe('the five modes', () => {
 		expect(
 			await decide({
 				type: 'plan_approval',
-				runId: 'r' as RunId,
+				turnId: 'r' as TurnId,
 				checkpointId: 'c' as CheckpointId,
 			} as HITLDecisionRequest),
 		).toEqual({ action: 'approve_plan' })

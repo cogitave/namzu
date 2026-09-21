@@ -75,7 +75,7 @@ async function run(turns: readonly MockTurn[], outcomes: readonly boolean[]) {
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
 		tools: tools(outcomes, executions),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 12 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 12 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],

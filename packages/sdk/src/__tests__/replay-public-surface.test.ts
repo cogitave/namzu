@@ -35,7 +35,7 @@ describe('ses_005 replay primitive — root public surface', () => {
 		}
 		const entry: CheckpointListEntry = {
 			id: 'f496fad2-a721-4bb9-9a40-b959b0f3ecf8' as never,
-			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
+			turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 			iteration: 0,
 			createdAt: 0,
 			messageCount: 0,

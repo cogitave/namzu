@@ -246,7 +246,7 @@ describe('connector method contracts reach a real query', () => {
 		return drainQuery({
 			provider,
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,

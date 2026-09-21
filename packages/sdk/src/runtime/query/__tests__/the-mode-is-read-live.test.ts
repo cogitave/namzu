@@ -88,7 +88,7 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider,
 		tools: registry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,
@@ -236,7 +236,7 @@ describe('the mode is read live, not frozen at run start', () => {
 				] as never,
 			}),
 			tools: registryWithFlip,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 200_000,

@@ -11,13 +11,17 @@ import type {
 	HITLDecisionRequest,
 	IterationCheckpoint,
 } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
-import type { CheckpointRunScope } from '../../../types/run/checkpoint-store.js'
-import { RUN_STATE_VERSION, RunStateVersionError, parseRunState } from '../../../types/run/state.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { CheckpointRunScope } from '../../../types/session/durable.js'
+import {
+	TURN_STATE_VERSION,
+	TurnStateVersionError,
+	parseTurnState,
+} from '../../../types/session/turn-state.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { CheckpointManager, findPendingCheckpoint } from '../checkpoint.js'
-import { type RunStateScope, loadRunState } from '../run-state.js'
+import { type TurnStateScope, loadTurnState } from '../turn-state.js'
 
 /**
  * A parked approval used to exist only as a suspended `await` inside one
@@ -26,25 +30,25 @@ import { type RunStateScope, loadRunState } from '../run-state.js'
  * a run at all — the container that held the promise had to stay alive.
  */
 
-const RUN_ID = '54bf5651-0b7b-443e-a3c6-05170fe66108' as RunId
+const RUN_ID = '54bf5651-0b7b-443e-a3c6-05170fe66108' as TurnId
 
 describe('aggregate budget snapshot versioning', () => {
 	it('upgrades pre-budget version 3 without inventing aggregate authority', () => {
-		const state = parseRunState({ version: 3, runId: RUN_ID })
+		const state = parseTurnState({ version: 3, runId: RUN_ID })
 		expect(state.version).toBe(4)
 		expect(state.budgetBinding).toBeUndefined()
 		expect(state.budgetAccountId).toBeUndefined()
 	})
 
 	it.each([1, 2, 3])('refuses budget authority mislabeled as version %s', (version) => {
-		expect(() => parseRunState({ version, runId: RUN_ID, budgetAccountId: RUN_ID })).toThrow(
-			RunStateVersionError,
+		expect(() => parseTurnState({ version, runId: RUN_ID, budgetAccountId: RUN_ID })).toThrow(
+			TurnStateVersionError,
 		)
 	})
 })
 let baseDir: string
 let store: DiskCheckpointStore
-let scope: RunStateScope
+let scope: TurnStateScope
 
 beforeEach(async () => {
 	baseDir = await mkdtemp(join(tmpdir(), 'namzu-durable-'))
@@ -54,7 +58,7 @@ beforeEach(async () => {
 		projectId: '38018058-7f48-4a66-8cac-67bc513451f4' as ProjectId,
 		sessionId: '3bd5ef45-8a0c-4fe7-8b55-f4453d7d8e43' as SessionId,
 		topicId: '78bd1b88-07a8-43ba-b3c1-cc02468a3781' as TopicId,
-		runId: RUN_ID,
+		turnId: RUN_ID,
 	}
 })
 
@@ -65,7 +69,7 @@ afterEach(async () => {
 function checkpoint(id: string, iteration: number): IterationCheckpoint {
 	return {
 		id: id as CheckpointId,
-		runId: RUN_ID,
+		turnId: RUN_ID,
 		iteration,
 		messages: [{ role: 'user', content: `turn ${iteration}` }],
 		tokenUsage: {
@@ -83,7 +87,7 @@ function checkpoint(id: string, iteration: number): IterationCheckpoint {
 
 const reviewRequest = (checkpointId: string): HITLDecisionRequest => ({
 	type: 'tool_review',
-	runId: RUN_ID,
+	turnId: RUN_ID,
 	checkpointId: checkpointId as CheckpointId,
 	toolCalls: [{ id: 'call_1', name: 'delete_row', input: { id: 42 }, isDestructive: true }],
 })
@@ -170,12 +174,12 @@ describe('recording a park', () => {
 	})
 })
 
-describe('loadRunState', () => {
+describe('loadTurnState', () => {
 	it('rebuilds a snapshot with no live run object', async () => {
 		await store.writeCheckpoint(scope, checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
 		await store.writeCheckpoint(scope, checkpoint('7802b395-981e-430a-86c7-058cb79dbaf9', 2))
 
-		const state = await loadRunState(store, scope)
+		const state = await loadTurnState(store, scope)
 
 		expect(state).not.toBeNull()
 		expect(state?.runId).toBe(RUN_ID)
@@ -197,7 +201,7 @@ describe('loadRunState', () => {
 			reviewRequest('62d8ff8a-122d-4369-8274-e1f1dc479c1c'),
 		)
 
-		const state = await loadRunState(store, scope)
+		const state = await loadTurnState(store, scope)
 		expect(state?.checkpointId).toBe('62d8ff8a-122d-4369-8274-e1f1dc479c1c')
 		expect(state?.pending?.request.type).toBe('tool_review')
 	})
@@ -205,49 +209,49 @@ describe('loadRunState', () => {
 	it('returns null for a run that never checkpointed', async () => {
 		// Rather than synthesizing a snapshot that would restart from zero
 		// while claiming to be a continuation.
-		expect(await loadRunState(store, scope)).toBeNull()
+		expect(await loadTurnState(store, scope)).toBeNull()
 	})
 
 	it('survives a JSON round trip', async () => {
 		await store.writeCheckpoint(scope, checkpoint('62d8ff8a-122d-4369-8274-e1f1dc479c1c', 1))
-		const state = await loadRunState(store, scope)
-		const revived = parseRunState(JSON.stringify(state))
+		const state = await loadTurnState(store, scope)
+		const revived = parseTurnState(JSON.stringify(state))
 		expect(revived).toEqual(state)
 	})
 })
 
-describe('parseRunState', () => {
+describe('parseTurnState', () => {
 	it('refuses a snapshot from an incompatible version', () => {
 		// A silent partial restore produces a run that looks healthy and has
 		// lost its budgets.
-		expect(() => parseRunState(JSON.stringify({ version: 99, runId: RUN_ID }))).toThrow(
-			RunStateVersionError,
+		expect(() => parseTurnState(JSON.stringify({ version: 99, runId: RUN_ID }))).toThrow(
+			TurnStateVersionError,
 		)
 	})
 
 	it('refuses a snapshot with no version at all', () => {
-		expect(() => parseRunState('{"runId":"f4e0af37-43f7-48fd-82b0-f1b1c68881d3"}')).toThrow(
-			RunStateVersionError,
+		expect(() => parseTurnState('{"runId":"f4e0af37-43f7-48fd-82b0-f1b1c68881d3"}')).toThrow(
+			TurnStateVersionError,
 		)
-		expect(() => parseRunState('null')).toThrow(RunStateVersionError)
+		expect(() => parseTurnState('null')).toThrow(TurnStateVersionError)
 	})
 
 	it('accepts an object as well as a string', () => {
-		const state = { version: RUN_STATE_VERSION, runId: RUN_ID }
-		expect(parseRunState(state).runId).toBe(RUN_ID)
+		const state = { version: TURN_STATE_VERSION, runId: RUN_ID }
+		expect(parseTurnState(state).runId).toBe(RUN_ID)
 	})
 
 	it('coerces a version-1 snapshot: threadId becomes topicId', () => {
 		const legacy = {
 			version: 1,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			sessionId: '3bd5ef45-8a0c-4fe7-8b55-f4453d7d8e43',
 			threadId: '78bd1b88-07a8-43ba-b3c1-cc02468a3781',
 			projectId: '38018058-7f48-4a66-8cac-67bc513451f4',
 			tenantId: '56b14123-e653-4cef-ac96-21f2d79d9bbd',
 		}
-		const revived = parseRunState(JSON.stringify(legacy))
-		expect(revived.version).toBe(RUN_STATE_VERSION)
+		const revived = parseTurnState(JSON.stringify(legacy))
+		expect(revived.version).toBe(TURN_STATE_VERSION)
 		expect((revived as unknown as { topicId?: unknown }).topicId).toBe(
 			'78bd1b88-07a8-43ba-b3c1-cc02468a3781',
 		)
@@ -263,8 +267,8 @@ describe('parseRunState', () => {
 		['topicId', 'top_old'],
 		['checkpointId', 'cp_old'],
 	])('refuses a prefixed %s without rewriting its recorded value', (field, value) => {
-		const raw = { version: RUN_STATE_VERSION, [field]: value }
-		expect(() => parseRunState(raw)).toThrow(InvalidIdError)
+		const raw = { version: TURN_STATE_VERSION, [field]: value }
+		expect(() => parseTurnState(raw)).toThrow(InvalidIdError)
 		expect(raw[field]).toBe(value)
 	})
 
@@ -273,17 +277,17 @@ describe('parseRunState', () => {
 		// deciding what a record means on the writer's behalf; it refuses and
 		// names the way out instead.
 		const v1 = { version: 1, runId: RUN_ID, threadId: 'thd_d' }
-		expect(() => parseRunState(JSON.stringify(v1))).toThrow(InvalidIdError)
+		expect(() => parseTurnState(JSON.stringify(v1))).toThrow(InvalidIdError)
 		const v2 = { version: 2, runId: RUN_ID, topicId: 'thd_d' }
-		expect(() => parseRunState(JSON.stringify(v2))).toThrow(InvalidIdError)
-		const current = { version: RUN_STATE_VERSION, runId: RUN_ID, topicId: 'thd_d' }
-		expect(() => parseRunState(JSON.stringify(current))).toThrow(InvalidIdError)
+		expect(() => parseTurnState(JSON.stringify(v2))).toThrow(InvalidIdError)
+		const current = { version: TURN_STATE_VERSION, runId: RUN_ID, topicId: 'thd_d' }
+		expect(() => parseTurnState(JSON.stringify(current))).toThrow(InvalidIdError)
 	})
 
 	it('coerces a version-1 snapshot with no threadId without stamping a stray topicId', () => {
 		const legacy = { version: 1, runId: RUN_ID }
-		const revived = parseRunState(JSON.stringify(legacy))
-		expect(revived.version).toBe(RUN_STATE_VERSION)
+		const revived = parseTurnState(JSON.stringify(legacy))
+		expect(revived.version).toBe(TURN_STATE_VERSION)
 		// toEqual would forgive an unconditionally-added `topicId: undefined`;
 		// the `in` check does not, which is the whole point of this assertion.
 		expect('topicId' in revived).toBe(false)
@@ -291,8 +295,8 @@ describe('parseRunState', () => {
 
 	it('coerces a version-2 snapshot with no topicId without stamping a stray field', () => {
 		const v2 = { version: 2, runId: RUN_ID }
-		const revived = parseRunState(JSON.stringify(v2))
-		expect(revived.version).toBe(RUN_STATE_VERSION)
+		const revived = parseTurnState(JSON.stringify(v2))
+		expect(revived.version).toBe(TURN_STATE_VERSION)
 		expect('topicId' in revived).toBe(false)
 	})
 
@@ -300,14 +304,14 @@ describe('parseRunState', () => {
 		'preserves topic ID %s through current and legacy snapshot reads',
 		(topicId) => {
 			const current = {
-				version: RUN_STATE_VERSION,
-				runId: RUN_ID,
+				version: TURN_STATE_VERSION,
+				turnId: RUN_ID,
 				topicId,
 			}
-			const revived = parseRunState(JSON.stringify(current))
+			const revived = parseTurnState(JSON.stringify(current))
 			expect(revived).toEqual(current)
-			expect(parseRunState({ ...current, version: 2 })).toEqual(current)
-			expect(parseRunState({ version: 1, runId: RUN_ID, threadId: topicId })).toEqual(current)
+			expect(parseTurnState({ ...current, version: 2 })).toEqual(current)
+			expect(parseTurnState({ version: 1, runId: RUN_ID, threadId: topicId })).toEqual(current)
 		},
 	)
 })

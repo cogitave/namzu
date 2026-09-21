@@ -22,13 +22,13 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
-import { agentRunSpanName } from '../../../telemetry/attributes.js'
+import { agentTurnSpanName } from '../../../telemetry/attributes.js'
 import { resetRuntimeMetrics } from '../../../telemetry/metrics.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import { type RunExecutionStatus, isTerminalStatus } from '../../../types/common/index.js'
+import { type TurnExecutionStatus, isTerminalStatus } from '../../../types/common/index.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, UserQuestionData } from '../../../types/hitl/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -130,7 +130,7 @@ function recordingTracer(): {
 	return {
 		tracer,
 		ended: () => [...counts.values()].reduce((sum, n) => sum + n, 0),
-		rootEnded: () => counts.get(agentRunSpanName('Abandoned agent')) ?? 0,
+		rootEnded: () => counts.get(agentTurnSpanName('Abandoned agent')) ?? 0,
 	}
 }
 
@@ -196,7 +196,7 @@ describe('a host that walks away from the generator', () => {
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -208,13 +208,13 @@ describe('a host that walks away from the generator', () => {
 		// The walk-away: a host that has seen what it needed, or whose
 		// consumer went away first.
 		let pulled = 0
-		const seen: RunEvent[] = []
+		const seen: SessionEvent[] = []
 		for await (const event of gen) {
 			seen.push(event)
 			pulled += 1
-			if (event.type === 'run_started') break
+			if (event.type === 'turn_started') break
 		}
-		expect(seen.some((event) => event.type === 'run_started')).toBe(true)
+		expect(seen.some((event) => event.type === 'turn_started')).toBe(true)
 		// And it was the FIRST event of the run, so this host walked away after
 		// exactly one pull. That is what makes the assertions below assertions
 		// about abandonment: the `finally` released a run that had not yet
@@ -227,7 +227,7 @@ describe('a host that walks away from the generator', () => {
 		expect(rootEnded()).toBe(1)
 		// The duration metric was recorded, which happens nowhere but the
 		// `finally` — so this is a second, independent proof the block ran.
-		expect(recorded.filter((entry) => entry.instrument === 'namzu.run.duration')).toHaveLength(1)
+		expect(recorded.filter((entry) => entry.instrument === 'namzu.turn.duration')).toHaveLength(1)
 		// The crash-save handlers were removed, so the abandoned run is not
 		// the process's crash target for the rest of its life.
 		expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore)
@@ -251,7 +251,7 @@ describe('a host that walks away from the generator', () => {
 			unknown
 		>
 		// `init()` wrote this row before the first model call and nothing else
-		// rewrote it, so it used to say `idle` — which `deriveRunStatus` reads
+		// rewrote it, so it used to say `idle` — which `deriveTurnStatus` reads
 		// back as `queued`, a run waiting to start, for one that no longer
 		// exists. The abandonment now marks the run cancelled and persists it,
 		// so what a host rebuilds from the store is a run that is over.
@@ -259,7 +259,7 @@ describe('a host that walks away from the generator', () => {
 		// down under a consumer that left, which is the same fact
 		// `markCancelled` already records when an abort tears a run down.
 		expect(meta.status).toBe('cancelled')
-		expect(isTerminalStatus(meta.status as RunExecutionStatus)).toBe(true)
+		expect(isTerminalStatus(meta.status as TurnExecutionStatus)).toBe(true)
 		// The verdict carries the moment it was reached...
 		expect(meta.endedAt).toBeGreaterThan(0)
 		// ...and names no error, because there was none to name.
@@ -283,8 +283,8 @@ describe('a host that walks away from the generator', () => {
 		// consumer left to receive one, so the stream is untouched and only
 		// the durable record moved.
 		const types = await store.readEvents()
-		expect(types.some((event) => event.type === 'run_completed')).toBe(false)
-		expect(types.some((event) => event.type === 'run_failed')).toBe(false)
+		expect(types.some((event) => event.type === 'turn_completed')).toBe(false)
+		expect(types.some((event) => event.type === 'turn_failed')).toBe(false)
 		// The span that DID close and the row that WAS written now agree: both
 		// say the run is over, which is the whole of what the fix bought.
 		expect(ended()).toBeGreaterThan(0)

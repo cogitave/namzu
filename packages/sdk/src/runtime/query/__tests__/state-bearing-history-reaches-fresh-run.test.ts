@@ -98,7 +98,7 @@ describe('state-bearing history reaches a fresh run', () => {
 			runStore: store,
 			retry: false,
 			compactionConfig: config,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 500_000,
@@ -142,7 +142,7 @@ describe('state-bearing history reaches a fresh run', () => {
 		await drainQuery({
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,

@@ -1,14 +1,11 @@
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { removeTempDirAsync } from '../__fixtures__/temp-dir.js'
 import { runCompactionCheck } from '../runtime/query/iteration/phases/compaction.js'
 import type { IterationContext } from '../runtime/query/iteration/phases/context.js'
-import { acquireClaim } from '../store/run/claim-disk.js'
+import '../store/session-claim.js'
+import { InMemorySessionLog } from '../store/session-log/index.js'
 import type { Message } from '../types/message/index.js'
-import type { RunEvent } from '../types/run/index.js'
+import type { SessionEvent } from '../types/session/index.js'
 import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import {
 	InvariantNameCollisionError,
@@ -18,10 +15,10 @@ import {
 } from './index.js'
 
 /**
- * Importing `runCompactionCheck` and `acquireClaim` above is not only for
- * the calls further down — it is what runs `compaction.ts`'s and
- * `claim-disk.ts`'s top-level `invariants.register(...)` before any `it()`
- * below reads the shared registry.
+ * Importing `runCompactionCheck` and `store/session-claim.ts` above is not
+ * only for the calls further down — it is what runs `compaction.ts`'s and
+ * `session-claim.ts`'s top-level `invariants.register(...)` before any
+ * `it()` below reads the shared registry.
  */
 
 describe('InvariantRegistry — collision', () => {
@@ -123,14 +120,14 @@ describe('InvariantRegistry — assert', () => {
 	})
 })
 
-describe('the shared registry, as compaction.ts and claim-disk.ts leave it', () => {
-	it('lists exactly the two production invariants from the day this lands', () => {
-		// Non-empty because importing `runCompactionCheck` and the claim-disk
+describe('the shared registry, as compaction.ts and session-claim.ts leave it', () => {
+	it('lists exactly the two production invariants', () => {
+		// Non-empty because importing `runCompactionCheck` and the session-claim
 		// bindings above already ran both modules' top-level
 		// `invariants.register(...)` calls. An empty set here is the
 		// declared-but-undriven failure this task exists to close.
 		expect(new Set(invariants.listIds())).toEqual(
-			new Set(['compaction:no-split-tool-pair', 'store.run:single-open-writer']),
+			new Set(['compaction:no-split-tool-pair', 'session-log:single-open-writer']),
 		)
 	})
 })
@@ -142,10 +139,10 @@ describe('compaction:no-split-tool-pair — wired at its real call site', () => 
 		const messages: Message[] = Array.from({ length: 12 }, (_, i) =>
 			user(`m${i} ${'x'.repeat(400)}`),
 		)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const ctx = {
-			runMgr: { id: 'ab94d3c0-4f08-417b-b411-66f6b869f37e', messages, currentIteration: 1 },
-			runConfig: { model: 'mock-model' },
+			recorder: { id: 'ab94d3c0-4f08-417b-b411-66f6b869f37e', messages, currentIteration: 1 },
+			turnConfig: { model: 'mock-model' },
 			compactionConfig: {
 				strategy: 'custom',
 				triggerThreshold: 0.1,
@@ -163,7 +160,7 @@ describe('compaction:no-split-tool-pair — wired at its real call site', () => 
 				} as Message,
 			],
 			log: NOOP_LOGGER,
-			emitEvent: async (event: RunEvent) => {
+			emitEvent: async (event: SessionEvent) => {
 				events.push(event)
 			},
 		} as unknown as IterationContext
@@ -182,41 +179,39 @@ describe('compaction:no-split-tool-pair — wired at its real call site', () => 
 	})
 })
 
-describe('store.run:single-open-writer — wired against real currentFence/readClaim', () => {
-	it('reports unknown when handed no run directory, the namzu doctor call shape', async () => {
-		const outcome = await invariants.evaluate('store.run:single-open-writer', undefined)
+describe('session-log:single-open-writer — wired against the session lease', () => {
+	it('reports unknown when handed no session, the namzu doctor call shape', async () => {
+		const outcome = await invariants.evaluate('session-log:single-open-writer', undefined)
 		expect(outcome.state).toBe('unknown')
 	})
 
-	it('holds when the presented fence matches the current claim, and violates — naming the holder — when it is stale', async () => {
-		const runDir = await mkdtemp(join(tmpdir(), 'namzu-invariant-claim-'))
-		try {
-			const claim = await acquireClaim(runDir, { holder: 'worker-a', ttlMs: 60_000 })
-			expect(claim).not.toBeNull()
-			const fence = claim?.fence ?? 0
+	it('holds when the presented fence matches the current lease, and violates — naming the holder — when it is stale', async () => {
+		const log = new InMemorySessionLog({
+			sessionId: '0197a3f0-0000-7000-8000-000000000001' as never,
+		})
+		const lease = await log.claim({ holder: 'worker-a', ttlMs: 60_000 })
+		expect(lease).not.toBeNull()
+		const fence = lease?.fence ?? 0
 
-			const holds = await invariants.evaluate('store.run:single-open-writer', {
-				runDir,
-				presentedFence: fence,
-			})
-			expect(holds).toEqual({ state: 'holds' })
+		const holds = await invariants.evaluate('session-log:single-open-writer', {
+			log,
+			presentedFence: fence,
+		})
+		expect(holds).toEqual({ state: 'holds' })
 
-			const before = invariants.violationCount('store.run:single-open-writer')
-			const stale = await invariants.evaluate('store.run:single-open-writer', {
-				runDir,
-				presentedFence: fence - 1,
-			})
+		const before = invariants.violationCount('session-log:single-open-writer')
+		const stale = await invariants.evaluate('session-log:single-open-writer', {
+			log,
+			presentedFence: fence - 1,
+		})
 
-			expect(stale.state).toBe('violated')
-			expect(
-				invariants.violationCount('store.run:single-open-writer') - before,
-				'the stale presentation counts as exactly one violation',
-			).toBe(1)
-			if (stale.state === 'violated') {
-				expect(stale.detail).toContain('worker-a')
-			}
-		} finally {
-			await removeTempDirAsync(runDir)
+		expect(stale.state).toBe('violated')
+		expect(
+			invariants.violationCount('session-log:single-open-writer') - before,
+			'the stale presentation counts as exactly one violation',
+		).toBe(1)
+		if (stale.state === 'violated') {
+			expect(stale.detail).toContain('worker-a')
 		}
 	})
 })

@@ -703,7 +703,7 @@ export const SandboxConfigSchema = z.object({
 	 * instead of on an empty directory. That is the case the sandbox was
 	 * wanted for and the one it could not do: the field existed on
 	 * `SandboxCreateConfig` and the kernel never set it, so configuring a
-	 * sandbox through `runConfig.sandbox` always got a temp directory
+	 * sandbox through `turnConfig.sandbox` always got a temp directory
 	 * whatever the run's own cwd was.
 	 *
 	 * The trade is the point of naming it rather than inferring it. Rooted

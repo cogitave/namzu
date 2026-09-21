@@ -80,7 +80,7 @@ describe('guarded web fetch cancellation reaches a real run', () => {
 			provider,
 			tools,
 			web: { fetch: guarded },
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,

@@ -12,7 +12,7 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { CreateMemoryParams, MemoryStore } from '../../../types/memory/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { query } from '../index.js'
 
@@ -83,7 +83,7 @@ async function run(consolidateInto: MemoryStore) {
 			execute: async () => ({ success: false, output: '', error: 'the deploy key was rejected' }),
 		}),
 	)
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	for await (const event of query({
 		provider: new MockLLMProvider({
 			turns: [
@@ -92,7 +92,7 @@ async function run(consolidateInto: MemoryStore) {
 			],
 		}),
 		tools,
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('deploy the service')],
@@ -125,7 +125,7 @@ describe('a run writes down what it learned', () => {
 			failures: 1,
 		})
 		const order = events.map((e) => e.type)
-		expect(order.indexOf('memory_consolidated')).toBeLessThan(order.indexOf('run_completed'))
+		expect(order.indexOf('memory_consolidated')).toBeLessThan(order.indexOf('turn_completed'))
 	})
 
 	it('writes the same knowledge once, even after it was archived', async () => {
@@ -138,7 +138,7 @@ describe('a run writes down what it learned', () => {
 
 		const second = await run(memory)
 		expect(second.some((e) => e.type === 'memory_consolidated')).toBe(false)
-		expect(second.some((e) => e.type === 'run_completed')).toBe(true)
+		expect(second.some((e) => e.type === 'turn_completed')).toBe(true)
 		expect((await memory.list()).totalCount).toBe(1)
 
 		await memory.update(saved?.id as never, { status: 'archived' })
@@ -148,7 +148,7 @@ describe('a run writes down what it learned', () => {
 
 	it('never fails the run when the store does', async () => {
 		const events = await run(store(true))
-		expect(events.some((e) => e.type === 'run_completed')).toBe(true)
+		expect(events.some((e) => e.type === 'turn_completed')).toBe(true)
 		expect(events.some((e) => e.type === 'memory_consolidated')).toBe(false)
 	})
 })

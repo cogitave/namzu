@@ -8,7 +8,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryRecallStep } from '../../../run/memory-recall.js'
+import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
@@ -22,7 +22,7 @@ import {
 	createSystemMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { PrepareStepContext, RunEvent } from '../../../types/run/index.js'
+import type { PrepareStepContext, SessionEvent } from '../../../types/session/index.js'
 import { generateGoalId } from '../../../utils/id.js'
 import { CheckpointManager } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
@@ -71,7 +71,7 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 	})
 	const prepared: { topic: string | undefined; users: string[] }[] = []
 	const refusedTopics: (string | undefined)[] = []
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	await drainQuery(
 		{
 			...scope,
@@ -81,7 +81,7 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 			agentId: 'attention-audit',
 			agentName: 'Attention audit',
 			workingDirectory: await workingDirectory(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -142,7 +142,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 		const direction = 'NEW_OPERATOR_CONSTRAINT_USE_CERULEAN_ONLY'
 		const pending: Message[] = []
 		const steering = new SteeringBinding()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const latest: (string | undefined)[] = []
 		const reviewed: (string | undefined)[] = []
 		const largeTurn = ingress === 'stranded-steering' ? 2 : 1
@@ -200,7 +200,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 					reviewed.push(latestUserMessage?.content)
 					return { accept: true }
 				},
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -267,7 +267,7 @@ describe('which user-role messages can supply current intent', () => {
 				continuationMode,
 				systemPrompt: 'Follow the current operator task.',
 				contextLevel: 'minimal',
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -328,7 +328,7 @@ describe('which user-role messages can supply current intent', () => {
 				agentId: 'latest-input',
 				agentName: 'Latest input',
 				workingDirectory: await workingDirectory(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -371,7 +371,7 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 		workingDirectory: await workingDirectory(),
 		agentId: 'resume-intent',
 		agentName: 'Resume intent',
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,
@@ -425,7 +425,7 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	const reviewed: (string | undefined)[] = []
 	const resumed = await drainQuery({
 		...params,
-		runId: paused.id,
+		turnId: paused.id,
 		provider,
 		checkpointStore: restoredStore,
 		runStore: new InMemoryRunStore(),
@@ -480,7 +480,7 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 			...params.compactionConfig,
 			contextWindowTokens: 10_000,
 		},
-		runId: paused.id,
+		turnId: paused.id,
 		provider: queuedProvider,
 		checkpointStore: restoredStore,
 		topicStateStore,
@@ -559,7 +559,7 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 		workingDirectory: await workingDirectory(),
 		systemPrompt: 'Answer the question.',
 		messages: [createUserMessage('billing')],
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			tokenBudget: 100_000,
 			timeoutMs: 20_000,
@@ -629,7 +629,7 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 		workingDirectory: await workingDirectory(),
 		systemPrompt: 'Answer.',
 		messages: [createUserMessage('billing')],
-		runConfig: {
+		turnConfig: {
 			model: 'large-base',
 			tokenBudget: 100_000,
 			timeoutMs: 20_000,
@@ -682,7 +682,7 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	const provider = new MockLLMProvider({
 		turns: [{ toolCalls: [{ name: 'inspect', args: {} }] }, { text: 'Done' }],
 	})
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const result = await drainQuery(
 		{
 			...scope,
@@ -699,7 +699,7 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 				createAssistantMessage('Old report'),
 				createUserMessage('Investigate billing'),
 			],
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,

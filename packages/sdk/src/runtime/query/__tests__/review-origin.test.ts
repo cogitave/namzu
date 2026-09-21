@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 
-import { generateCheckpointId, generateRunId } from '../../../utils/id.js'
+import { generateCheckpointId, generateTurnId } from '../../../utils/id.js'
 import {
 	type ToolReviewAnswer,
 	type ToolReviewRequest,
@@ -16,7 +16,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 			return new Promise((done) => resolve.push(done))
 		},
 	})
-	const runIds = [generateRunId(), generateRunId()]
+	const runIds = [generateTurnId(), generateTurnId()]
 	const calls = [
 		{
 			id: 'same-call',
@@ -28,7 +28,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 	const pending = runIds.map((runId) =>
 		handler({
 			type: 'tool_review',
-			runId,
+			turnId,
 			checkpointId: generateCheckpointId(),
 			toolCalls: calls,
 		}),

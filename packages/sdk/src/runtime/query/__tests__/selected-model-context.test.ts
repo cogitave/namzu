@@ -12,7 +12,7 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 registerMock()
@@ -56,7 +56,7 @@ async function setup(base: string, selected: string, turns = 1) {
 		inputSchema: z.object({}),
 		execute: async () => ({ success: true, output: 'ok' }),
 	})
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const run = await drainQuery(
 		{
 			projectId: fixtureId.project('selected-context'),
@@ -69,7 +69,7 @@ async function setup(base: string, selected: string, turns = 1) {
 			runStore: new InMemoryRunStore(),
 			agentId: 'context-audit',
 			agentName: 'Context audit',
-			runConfig: { model: base, timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 4 },
+			turnConfig: { model: base, timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 4 },
 			compactionConfig: CompactionConfigSchema.parse({
 				strategy: 'structured',
 				llmVerification: false,

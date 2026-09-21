@@ -72,7 +72,7 @@ async function run(turns: MockTurn[]) {
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runConfig: { model: 'mock', maxIterations: 8, tokenBudget: 200_000, timeoutMs: 20_000 },
+		turnConfig: { model: 'mock', maxIterations: 8, tokenBudget: 200_000, timeoutMs: 20_000 },
 		backgroundJobs: new BackgroundJobRegistry(),
 	})
 	return { result, provider }

@@ -9,7 +9,7 @@ import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
@@ -47,7 +47,7 @@ function params(provider: MockLLMProvider, tools: ToolRegistry) {
 		agentName: 'Nested Authority Agent',
 		messages: [{ role: 'user' as const, content: 'run the requested tool' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,
@@ -146,7 +146,7 @@ describe('nested dispatch authority', () => {
 	it('cannot be retained and used after a successful parent call settles', async () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -175,13 +175,13 @@ describe('nested dispatch authority', () => {
 		await expect(dispatch?.('late_effect', {})).rejects.toThrow(/invocation.*settled/i)
 		expect(effects).toBe(0)
 		expect(events).toHaveLength(eventCount)
-		expect(events.at(-1)?.type).toBe('run_completed')
+		expect(events.at(-1)?.type).toBe('turn_completed')
 	})
 
 	it('cannot be retained and used after the parent is abandoned on timeout', async () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -221,7 +221,7 @@ describe('nested dispatch authority', () => {
 		const childRelease = new Promise<void>((resolve) => {
 			releaseChild = resolve
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -302,7 +302,7 @@ describe('nested dispatch authority', () => {
 
 	it('cannot use an allowed parent to execute a child the operator denied', async () => {
 		let shellExecutions = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const runStore = new InMemoryRunStore()
 		const tools = new ToolRegistry()
 		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
@@ -559,7 +559,7 @@ describe('nested dispatch authority', () => {
 
 	it('applies the probe veto to nested calls too', async () => {
 		let effects = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
 		tools.register(

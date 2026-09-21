@@ -6,9 +6,9 @@ import fc from 'fast-check'
 import { afterEach, expect, it } from 'vitest'
 import { applyToolOutputBudget } from '../../../runtime/query/tool-output-budget.js'
 import { evidenceTokenEntries } from '../../../utils/evidence-tokens.js'
-import { asRunId } from '../../../utils/id.js'
-import { RunDiskStore } from '../../run/disk.js'
-import { createDiskRunTextEvidenceSource } from '../disk.js'
+import { asTurnId } from '../../../utils/id.js'
+import { RunDiskStore } from '../../turn/disk.js'
+import { createSessionTextEvidenceSource } from '../disk.js'
 import {
 	EVIDENCE_CHUNK_BYTES,
 	digest,
@@ -20,7 +20,7 @@ import {
 } from '../format.js'
 import { RECORD_BYTES } from '../io.js'
 import { passageMatcher } from '../passages.js'
-import type { RunTextEvidenceSource } from '../types.js'
+import type { SessionTextEvidenceSource } from '../types.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -127,7 +127,7 @@ async function fixture(
 		tenantId: randomUUID(),
 		projectId: randomUUID(),
 		sessionId: randomUUID(),
-		runId: asRunId(randomUUID()),
+		turnId: asTurnId(randomUUID()),
 	}
 	const store = new RunDiskStore({ baseDir: root })
 	const runDir = await store.initRun(scope.runId)
@@ -163,10 +163,10 @@ async function fixture(
 		await writeFile(`${path}.manifest.json`, raw)
 		integrity = digest(raw)
 	}
-	await store.appendEvent({ type: 'run_started', runId: scope.runId, seq: 1 })
+	await store.appendEvent({ type: 'turn_started', runId: scope.runId, seq: 1 })
 	await store.appendEvent({
 		type: 'tool_completed',
-		runId: scope.runId,
+		turnId: scope.runId,
 		seq: 2,
 		toolName: 'read',
 		toolUseId: 'original',
@@ -178,7 +178,7 @@ async function fixture(
 	const source =
 		mode === 'live'
 			? (await store.captureTextEvidence(scope, 1024 * 1024))!
-			: createDiskRunTextEvidenceSource({
+			: createSessionTextEvidenceSource({
 					scope,
 					runDir,
 					indexDir: join(root, 'index'),
@@ -188,7 +188,7 @@ async function fixture(
 	return { source, sourceText, path }
 }
 
-async function search(source: RunTextEvidenceSource) {
+async function search(source: SessionTextEvidenceSource) {
 	let cursor: string | undefined
 	const matches = []
 	const unavailable = []

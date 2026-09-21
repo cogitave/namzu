@@ -28,8 +28,8 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 			case 'turn_started':
 				log.info('Turn started', {
 					[NAMZU.TURN_ID]: event.turnId,
-					'namzu.run.has_system_prompt': !!event.systemPrompt,
-					'namzu.run.system_prompt_length': event.systemPrompt?.length ?? 0,
+					'namzu.turn.has_system_prompt': !!event.systemPrompt,
+					'namzu.turn.system_prompt_length': event.systemPrompt?.length ?? 0,
 				})
 				break
 
@@ -56,7 +56,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.info('Iteration completed', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,
-					'namzu.run.has_tool_calls': event.hasToolCalls,
+					'namzu.turn.has_tool_calls': event.hasToolCalls,
 				})
 				break
 
@@ -80,7 +80,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					[GENAI.USAGE_INPUT_TOKENS]: event.usage.promptTokens,
 					[GENAI.USAGE_OUTPUT_TOKENS]: event.usage.completionTokens,
 					'namzu.usage.total_tokens': event.usage.totalTokens,
-					'namzu.run.total_cost': event.cost.totalCost,
+					'namzu.turn.total_cost': event.cost.totalCost,
 				})
 				break
 
@@ -95,9 +95,9 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					// A greppable id and a sentence saying what to change,
 					// where before there was only whatever prose the vendor
 					// SDK happened to write.
-					'namzu.run.code': event.failure?.code,
-					'namzu.run.reason': event.explanation?.id,
-					'namzu.run.hint': event.explanation?.hint,
+					'namzu.turn.code': event.failure?.code,
+					'namzu.turn.reason': event.explanation?.id,
+					'namzu.turn.hint': event.explanation?.hint,
 				})
 				break
 
@@ -130,8 +130,8 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.info('Agent task pending', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.task.id': event.taskId,
-					'namzu.run.parent_agent_id': event.parentAgentId,
-					'namzu.run.child_agent_id': event.childAgentId,
+					'namzu.turn.parent_agent_id': event.parentAgentId,
+					'namzu.turn.child_agent_id': event.childAgentId,
 					'namzu.agent.depth': event.depth,
 				})
 				break
@@ -141,7 +141,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.task.id': event.taskId,
 					[NAMZU.TURN_STATUS]: event.result.status,
-					'namzu.run.iterations': event.result.iterations,
+					'namzu.turn.iterations': event.result.iterations,
 				})
 				break
 
@@ -175,7 +175,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.task.id': event.taskId,
 					[NAMZU.TURN_STATUS]: event.status,
-					'namzu.run.owner': event.owner,
+					'namzu.turn.owner': event.owner,
 				})
 				break
 
@@ -183,7 +183,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.debug('Plugin hook executing', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.plugin.id': event.pluginId,
-					'namzu.run.hook_event': event.hookEvent,
+					'namzu.turn.hook_event': event.hookEvent,
 				})
 				break
 
@@ -191,8 +191,8 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.debug('Plugin hook completed', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.plugin.id': event.pluginId,
-					'namzu.run.hook_event': event.hookEvent,
-					'namzu.run.action': event.result.action,
+					'namzu.turn.hook_event': event.hookEvent,
+					'namzu.turn.action': event.result.action,
 				})
 				break
 
@@ -208,8 +208,8 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.debug('Sandbox exec', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.sandbox.id': event.sandboxId,
-					'namzu.run.command': event.command,
-					'namzu.run.exit_code': event.exitCode,
+					'namzu.turn.command': event.command,
+					'namzu.turn.exit_code': event.exitCode,
 					'namzu.duration_ms': event.durationMs,
 				})
 				break
@@ -235,7 +235,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.session.child_id': event.childSessionId,
 					[NAMZU.SESSION_ID]: event.sessionId,
-					'namzu.run.message_id': event.messageId,
+					'namzu.turn.message_id': event.messageId,
 					'namzu.agent.depth': event.lineage?.depth ?? 0,
 				})
 				break
@@ -259,19 +259,19 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.debug('Reasoning block completed', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,
-					'namzu.run.block_index': event.blockIndex,
-					'namzu.run.signed': event.signed,
-					'namzu.run.chars': event.text?.length ?? 0,
+					'namzu.turn.block_index': event.blockIndex,
+					'namzu.turn.signed': event.signed,
+					'namzu.turn.chars': event.text?.length ?? 0,
 				})
 				break
 
 			case 'guardrail_triggered':
 				log.warn('Guardrail triggered', {
 					[NAMZU.TURN_ID]: event.turnId,
-					'namzu.run.stage': event.stage,
-					'namzu.run.action': event.action,
+					'namzu.turn.stage': event.stage,
+					'namzu.turn.action': event.action,
 					'namzu.guardrail.name': event.guardrail,
-					'namzu.run.reason': event.reason,
+					'namzu.turn.reason': event.reason,
 				})
 				break
 
@@ -279,12 +279,12 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.info('Context compacted', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,
-					'namzu.run.messages_dropped': event.messagesBefore - event.messagesAfter,
-					'namzu.run.tokens_before': event.tokensBefore,
-					'namzu.run.tokens_after': event.tokensAfter,
-					'namzu.run.measured_by': event.measuredBy,
-					'namzu.run.context_window_tokens': event.contextWindowTokens,
-					'namzu.run.window_source': event.windowSource,
+					'namzu.turn.messages_dropped': event.messagesBefore - event.messagesAfter,
+					'namzu.turn.tokens_before': event.tokensBefore,
+					'namzu.turn.tokens_after': event.tokensAfter,
+					'namzu.turn.measured_by': event.measuredBy,
+					'namzu.turn.context_window_tokens': event.contextWindowTokens,
+					'namzu.turn.window_source': event.windowSource,
 				})
 				break
 
@@ -343,8 +343,8 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.warn('Context compaction shed nothing', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,
-					'namzu.run.cause': event.cause,
-					'namzu.run.messages': event.messages,
+					'namzu.turn.cause': event.cause,
+					'namzu.turn.messages': event.messages,
 					...(event.error !== undefined ? { 'exception.message': event.error } : {}),
 				})
 				break
@@ -352,9 +352,9 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 			case 'capability_warning':
 				log.warn('Provider capability mismatch', {
 					[NAMZU.TURN_ID]: event.turnId,
-					'namzu.run.capability': event.capability,
+					'namzu.turn.capability': event.capability,
 					[GENAI.SYSTEM]: event.providerId,
-					'namzu.run.message': event.message,
+					'namzu.turn.message': event.message,
 				})
 				break
 
@@ -380,7 +380,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.debug('Tool progress', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[GENAI.TOOL_NAME]: event.toolName,
-					'namzu.run.message': event.message,
+					'namzu.turn.message': event.message,
 				})
 				break
 
@@ -388,7 +388,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.info('Question asked — the run is parked on an answer', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.checkpoint.id': event.checkpointId,
-					'namzu.run.question_id': event.questionId,
+					'namzu.turn.question_id': event.questionId,
 				})
 				break
 
@@ -407,10 +407,10 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,
 					'namzu.retry.attempt': event.attempt,
-					'namzu.run.max_retries': event.maxRetries,
-					'namzu.run.code': event.code,
+					'namzu.turn.max_retries': event.maxRetries,
+					'namzu.turn.code': event.code,
 					[NAMZU.TURN_STATUS]: event.status,
-					'namzu.run.server_directed': event.serverDirected,
+					'namzu.turn.server_directed': event.serverDirected,
 				})
 				break
 
@@ -420,13 +420,13 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				log.warn('Provider could not serve — continuing on the fallback', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,
-					'namzu.run.from_index': event.fromIndex,
-					'namzu.run.from_provider_id': event.fromProviderId,
-					'namzu.run.from_model': event.fromModel,
-					'namzu.run.to_index': event.toIndex,
-					'namzu.run.to_provider_id': event.toProviderId,
-					'namzu.run.to_model': event.toModel,
-					'namzu.run.code': event.code,
+					'namzu.turn.from_index': event.fromIndex,
+					'namzu.turn.from_provider_id': event.fromProviderId,
+					'namzu.turn.from_model': event.fromModel,
+					'namzu.turn.to_index': event.toIndex,
+					'namzu.turn.to_provider_id': event.toProviderId,
+					'namzu.turn.to_model': event.toModel,
+					'namzu.turn.code': event.code,
 					[NAMZU.TURN_STATUS]: event.status,
 				})
 				break
@@ -453,15 +453,15 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 
 		log.info('Turn summary', {
 			[NAMZU.TURN_ID]: turn.id,
-			'namzu.run.agent': turn.metadata.agentName,
+			'namzu.turn.agent': turn.metadata.agentName,
 			[NAMZU.TURN_STATUS]: turn.status,
-			'namzu.run.stop_reason': stopReason ?? 'unknown',
-			'namzu.run.iterations': currentIteration,
+			'namzu.turn.stop_reason': stopReason ?? 'unknown',
+			'namzu.turn.iterations': currentIteration,
 			[GENAI.USAGE_INPUT_TOKENS]: tokenUsage.promptTokens,
 			[GENAI.USAGE_OUTPUT_TOKENS]: tokenUsage.completionTokens,
 			'namzu.usage.total_tokens': tokenUsage.totalTokens,
-			'namzu.run.cost': formatCost(costInfo.totalCost),
-			'namzu.run.duration': formatDuration(elapsed),
+			'namzu.turn.cost': formatCost(costInfo.totalCost),
+			'namzu.turn.duration': formatDuration(elapsed),
 		})
 	}
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -32,8 +32,8 @@ import { drainQuery } from '../index.js'
 
 registerMock()
 
-async function runWithPlan(seed: (pm: PlanManager) => void): Promise<RunEvent[]> {
-	const events: RunEvent[] = []
+async function runWithPlan(seed: (pm: PlanManager) => void): Promise<SessionEvent[]> {
+	const events: SessionEvent[] = []
 
 	await drainQuery(
 		{
@@ -43,14 +43,14 @@ async function runWithPlan(seed: (pm: PlanManager) => void): Promise<RunEvent[]>
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			onContextCreated: ({ planManager }: { planManager: PlanManager }) => seed(planManager),
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			events.push(event)
 		},
 	)
@@ -67,7 +67,7 @@ function twoStepPlan(pm: PlanManager): void {
 	pm.startExecution()
 }
 
-const typesOf = (events: RunEvent[]) => events.map((e) => e.type)
+const typesOf = (events: SessionEvent[]) => events.map((e) => e.type)
 
 describe('a settled plan says so on the run stream', () => {
 	it('emits plan_completed when the run settles a successful plan', async () => {

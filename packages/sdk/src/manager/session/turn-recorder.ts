@@ -1104,3 +1104,39 @@ export async function readFoldedHistory(
 	}
 	return out
 }
+
+/**
+ * A session's audit trail: its `audit` records as {@link AuditEvent}s, in log
+ * order, each numbered among the session's audit entries. What
+ * `replayAudit` reads.
+ */
+export async function readAuditTrail(log: SessionLog): Promise<AuditEvent[]> {
+	const trail: AuditEvent[] = []
+	for await (const { record } of log.read()) {
+		if (record.type !== 'audit') continue
+		const actor = record.actor
+		trail.push({
+			id: record.auditId as AuditEvent['id'],
+			sessionId: record.sessionId,
+			...(record.turnId !== undefined ? { turnId: record.turnId } : {}),
+			seq: trail.length + 1,
+			timestamp: Date.parse(record.ts),
+			who: {
+				agentId: actor.kind === 'agent' ? actor.agentId : actor.kind,
+				tenantId: actor.tenantId,
+				...(record.persona !== undefined ? { persona: record.persona } : {}),
+			},
+			what: {
+				action: record.action,
+				...(record.tool !== undefined ? { tool: record.tool } : {}),
+				...(record.resource !== undefined ? { resource: record.resource } : {}),
+			},
+			outcome: record.outcome,
+			cost: record.cost ?? { ...ZERO_COST },
+			...(record.reason !== undefined ? { reason: record.reason } : {}),
+			...(record.traceId !== undefined ? { traceId: record.traceId } : {}),
+			...(record.spanId !== undefined ? { spanId: record.spanId } : {}),
+		})
+	}
+	return trail
+}

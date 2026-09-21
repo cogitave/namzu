@@ -26,7 +26,7 @@ import {
 } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
 import { QuestionParkBinding } from '../question-park.js'
-import type { RunStateScope } from '../run-state.js'
+import type { TurnStateScope } from '../turn-state.js'
 
 /**
  * Everything a run borrows is released in its `finally`, and four of those
@@ -45,8 +45,8 @@ import type { RunStateScope } from '../run-state.js'
  * "how long do these take, and how do they end".
  */
 
-const SCOPE: RunStateScope = {
-	runId: fixtureId.run('cleanup'),
+const SCOPE: TurnStateScope = {
+	turnId: fixtureId.run('cleanup'),
 	tenantId: generateTenantId(),
 	projectId: generateProjectId(),
 	sessionId: generateSessionId(),
@@ -92,13 +92,13 @@ async function baseParams(overrides: Record<string, unknown>): Promise<QueryPara
 		agentName: 'Cleanup agent',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: await dirWith('namzu-cleanup-work-'),
-		runId: SCOPE.runId,
+		turnId: SCOPE.runId,
 		tenantId: SCOPE.tenantId,
 		projectId: SCOPE.projectId,
 		sessionId: SCOPE.sessionId,
 		topicId: SCOPE.topicId,
 		resumeHandler: autoApproveHandler,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -239,12 +239,12 @@ describe('the duration a run records as it settles', () => {
 			}),
 		)
 
-		const duration = recorded.filter((entry) => entry.instrument === 'namzu.run.duration')
+		const duration = recorded.filter((entry) => entry.instrument === 'namzu.turn.duration')
 		expect(duration).toHaveLength(1)
 		// Keyed by HOW it settled, not merely that it did: a cancelled run and
 		// a run that hit its budget have very different duration
 		// distributions, and averaging them together describes neither.
-		expect(duration[0]?.attributes[NAMZU.RUN_STATUS]).toBe('completed')
+		expect(duration[0]?.attributes[NAMZU.TURN_STATUS]).toBe('completed')
 		expect(run.status).toBe('completed')
 		// Seconds, not milliseconds — the instrument declares `unit: 's'`.
 		expect(duration[0]?.value).toBeLessThan(60)
@@ -265,9 +265,9 @@ describe('the duration a run records as it settles', () => {
 			},
 		)
 
-		const duration = recorded.filter((entry) => entry.instrument === 'namzu.run.duration')
+		const duration = recorded.filter((entry) => entry.instrument === 'namzu.turn.duration')
 		// The negative control for the case above: if the status were a
 		// constant, two runs that settled differently could not disagree.
-		expect(duration[0]?.attributes[NAMZU.RUN_STATUS]).toBe('cancelled')
+		expect(duration[0]?.attributes[NAMZU.TURN_STATUS]).toBe('cancelled')
 	})
 })

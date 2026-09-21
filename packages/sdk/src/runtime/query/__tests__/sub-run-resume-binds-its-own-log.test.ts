@@ -9,17 +9,17 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { RunDiskStore, readRunEventsIn } from '../../../store/run/disk.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { QueryParams } from '../index.js'
 import { query } from '../index.js'
-import { resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
 
 /**
  * A delegated run's evidence lives under `<parent>/children/<run>`, and
- * `resumeRun` forwarded the run id without the parent — so resuming a sub-run
+ * `resumeSession` forwarded the run id without the parent — so resuming a sub-run
  * bound `<base>/<run>` instead. That is a second, empty transcript under a run
  * id that already has one: its sequence restarts at 1, and a consumer catching
  * up on a live sub-run is told it has produced nothing at all.
@@ -36,13 +36,13 @@ const LOG = {
 	child: vi.fn(() => LOG),
 }
 
-const PARENT = 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId
+const PARENT = 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId
 
-const SCOPE: RunStateScope = {
+const SCOPE: TurnStateScope = {
 	tenantId: '9d281239-ff89-4ad9-8483-672c036fb2d8' as TenantId,
 	projectId: '20acca90-a3e6-4f9b-a1cd-0f49541e5f13' as ProjectId,
 	sessionId: '358bccfc-ab33-4c8b-b205-a0c8963f066c' as SessionId,
-	runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+	turnId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as TurnId,
 	topicId: 'd53bb72a-3aa5-4c6c-a538-693dba3b26f8' as TopicId,
 	parentRunId: PARENT,
 }
@@ -76,7 +76,7 @@ describe('a resumed sub-run continues its own log', () => {
 				turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
 			}),
 			tools: registryWithEcho(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -86,7 +86,7 @@ describe('a resumed sub-run continues its own log', () => {
 			agentId: 'agent_sub',
 			agentName: 'Sub Agent',
 			workingDirectory: baseDir,
-			runId: SCOPE.runId,
+			turnId: SCOPE.runId,
 			parentRunId: PARENT,
 			depth: 1,
 			sessionId: SCOPE.sessionId,
@@ -105,12 +105,12 @@ describe('a resumed sub-run continues its own log', () => {
 		const before = (await readRunEventsIn(childDir)).length
 		expect(before).toBeGreaterThan(0)
 
-		await resumeRun({
+		await resumeSession({
 			scope: SCOPE,
 			checkpointStore,
 			provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
 			tools: registryWithEcho(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,

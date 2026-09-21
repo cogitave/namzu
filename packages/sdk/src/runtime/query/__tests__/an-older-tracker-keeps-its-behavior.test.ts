@@ -42,7 +42,7 @@ function olderTracker(): FileReadTracker & { calls: string[] } {
 
 function contextIn(cwd: string, tracker: FileReadTracker, toolUseId: string): ToolContext {
 	return {
-		runId: '5b1d3b6a-59f7-4f4b-9d4f-7f8f8a0d2a11' as ToolContext['runId'],
+		turnId: '5b1d3b6a-59f7-4f4b-9d4f-7f8f8a0d2a11' as ToolContext['runId'],
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},

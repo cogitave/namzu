@@ -69,7 +69,7 @@ it.each([100_000, 1_000])(
 			messages: [
 				{ role: 'user', content: 'Ask a worker for the meeting details and report them.' },
 			],
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: 3,
 				maxResponseTokens: 100,
@@ -165,7 +165,7 @@ it('keeps a task launched before the turn visible after the turn launches many m
 		sessionId: fixtureId.session('owned-context-running'),
 		topicId: fixtureId.topic('owned-context-running'),
 		messages: [{ role: 'user', content: 'Delegate more work and report back.' }],
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			maxIterations: 3,
 			maxResponseTokens: 100,

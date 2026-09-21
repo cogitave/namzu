@@ -70,7 +70,7 @@ it('returns admission-time drift to the model and preserves the newer body', asy
 		agentName: 'Stale Write Agent',
 		messages: [createUserMessage('read doc.md and then replace it')],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,

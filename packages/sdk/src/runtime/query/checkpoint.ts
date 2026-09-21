@@ -210,8 +210,15 @@ export async function listExpiredParks(
 	)
 }
 
+/**
+ * What a {@link CheckpointManager} needs of the turn it serves: the log it
+ * reads and appends to (in order with the turn's other records), and the
+ * tenant decisions are attributed under. A {@link TurnRecorder} is one.
+ */
+export type CheckpointRecords = Pick<TurnRecorder, 'log' | 'appendRecord' | 'flush' | 'tenantId'>
+
 /** Who answered a decision the turn itself carried out. */
-function resolver(recorder: TurnRecorder) {
+function resolver(recorder: CheckpointRecords) {
 	return {
 		kind: 'system' as const,
 		role: 'sys_approval_policy' as const,
@@ -229,7 +236,7 @@ function resolver(recorder: TurnRecorder) {
  * checkpoint whose document or covered prefix no longer matches its record.
  */
 export class CheckpointManager {
-	private readonly recorder: TurnRecorder
+	private readonly recorder: CheckpointRecords
 	private readonly store: SessionCheckpointStore
 	private readonly scope: CheckpointScope
 	private workingStateSource?: () => WorkingStateSnapshot | undefined
@@ -252,7 +259,7 @@ export class CheckpointManager {
 	 */
 	private turnCreatedAt?: string
 
-	constructor(recorder: TurnRecorder, store: SessionCheckpointStore, scope: CheckpointScope) {
+	constructor(recorder: CheckpointRecords, store: SessionCheckpointStore, scope: CheckpointScope) {
 		this.recorder = recorder
 		this.store = store
 		this.scope = scope

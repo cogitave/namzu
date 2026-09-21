@@ -47,7 +47,7 @@ it('writes nothing into the working directory when no path builder is given', as
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,

@@ -1,9 +1,9 @@
 import { expect, it, vi } from 'vitest'
 import { createAssistantMessage, createUserMessage } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 } from '../../utils/id.js'
@@ -25,7 +25,7 @@ function fixture(maxChars = 6000) {
 		.fn<NonNullable<PrepareStepContext['generateText']>>()
 		.mockRejectedValue(new Error('PRIVATE_INVALID_PLAN'))
 	const context: PrepareStepContext = {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
 		prepared: {},
@@ -40,7 +40,7 @@ function fixture(maxChars = 6000) {
 	const batch: EvidenceRecallBatch = {
 		candidates: [
 			{
-				scope: { ...scope, runId: generateRunId() },
+				scope: { ...scope, runId: generateTurnId() },
 				seq: 2,
 				part: 0,
 				source: 'tool_completed',

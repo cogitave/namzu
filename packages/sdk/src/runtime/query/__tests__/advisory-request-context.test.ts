@@ -12,7 +12,7 @@ import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
-import { generateRunId } from '../../../utils/id.js'
+import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { IterationOrchestrator } from '../iteration/index.js'
 
@@ -26,12 +26,12 @@ async function fixture(provider: LLMProvider, advisor: LLMProvider) {
 	roots.push(workingDirectory)
 	return {
 		provider,
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		tools: new ToolRegistry(),
 		agentId: 'advisory-request',
 		agentName: 'Advisory request',
 		workingDirectory,
-		runConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 5, timeoutMs: 5000 },
+		turnConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 5, timeoutMs: 5000 },
 		tenantId: fixtureId.tenant('advisory-request'),
 		projectId: fixtureId.project('advisory-request'),
 		sessionId: fixtureId.session('advisory-request'),

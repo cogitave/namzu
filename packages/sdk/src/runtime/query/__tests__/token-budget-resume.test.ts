@@ -5,24 +5,24 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../run/token-budget.js'
+import { TokenBudget } from '../../../turn/token-budget.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { DiskTokenBudgetStore, openTokenBudget } from '../../../store/run/token-budget-disk.js'
 import type { TokenUsage } from '../../../types/common/index.js'
 import { type IterationCheckpoint, autoApproveHandler } from '../../../types/hitl/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { TokenBudgetScope } from '../../../types/run/token-budget-store.js'
+import type { TokenBudgetScope } from '../../../types/session/token-budget-store.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import {
 	generateCheckpointId,
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
-import { type ResumeRunParams, resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
 import { resolveQueryBudget } from '../token-budget.js'
 
 const directories: string[] = []
@@ -47,14 +47,14 @@ async function fixture(limit = 1_000) {
 		tenantId: generateTenantId(),
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 	}
 	const store = new DiskTokenBudgetStore({ baseDir: join(workingDirectory, 'ledgers') })
 	const root = await openTokenBudget({ store, scope: rootScope, limit })
-	const scope: RunStateScope = { ...rootScope, topicId: generateTopicId() }
+	const scope: TurnStateScope = { ...rootScope, topicId: generateTopicId() }
 	const checkpointStore = new InMemoryCheckpointStore()
 	const provider = new MockLLMProvider({ turns: [{ text: 'continued', usage: usage(50) }] })
-	const params: ResumeRunParams = {
+	const params: ResumeSessionParams = {
 		...scope,
 		scope,
 		provider,
@@ -66,19 +66,19 @@ async function fixture(limit = 1_000) {
 		retry: false,
 		agentId: 'resume-budget',
 		agentName: 'Resume budget',
-		runConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 1_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 1_000, maxIterations: 4 },
 	}
 	return { workingDirectory, rootScope, root, store, scope, checkpointStore, provider, params }
 }
 
 function checkpoint(
 	budget: TokenBudget,
-	scope: RunStateScope,
+	scope: TurnStateScope,
 	tokens: number,
 ): IterationCheckpoint {
 	return {
 		id: generateCheckpointId(),
-		runId: scope.runId,
+		turnId: scope.runId,
 		iteration: 1,
 		messages: [createUserMessage('Continue the saved work.')],
 		tokenUsage: usage(tokens),
@@ -100,9 +100,9 @@ describe('checkpoint resume keeps the latest token authority', () => {
 			iteration: 500,
 			guardState: { iterationCount: 500, elapsedMs: 24 * 60 * 60 * 1000 },
 		})
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...f.params,
-			runConfig: { model: 'mock', tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
+			turnConfig: { model: 'mock', tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
 		})
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
@@ -132,7 +132,7 @@ describe('checkpoint resume keeps the latest token authority', () => {
 				...f.params,
 				budget: f.root,
 				messages: [],
-				runConfig: { ...f.params.runConfig, tokenBudget: 100 },
+				turnConfig: { ...f.params.turnConfig, tokenBudget: 100 },
 			},
 			f.scope.runId,
 		)
@@ -153,11 +153,11 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(f.root, f.scope, 100))
 		f.root.recordUsage(usage(300))
 		const child = f.root.reserve(400)
-		child.bindRun(generateRunId())
+		child.bindRun(generateTurnId())
 		child.recordUsage(usage(200))
 		child.settle()
 		await f.root.flush()
-		const outcome = await resumeRun(f.params)
+		const outcome = await resumeSession(f.params)
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
 		expect(f.provider.requests).toHaveLength(1)
@@ -179,7 +179,7 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		const childScope = {
 			...f.scope,
 			sessionId: generateSessionId(),
-			runId: generateRunId(),
+			turnId: generateTurnId(),
 			parentRunId: f.rootScope.runId,
 		}
 		child.bindRun(childScope.runId)
@@ -187,11 +187,11 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		await f.checkpointStore.writeCheckpoint(childScope, checkpoint(child, childScope, 100))
 		child.recordUsage(usage(250))
 		await f.root.flush()
-		const outcome = await resumeRun({
+		const outcome = await resumeSession({
 			...f.params,
 			...childScope,
 			scope: childScope,
-			runConfig: { ...f.params.runConfig, tokenBudget: 400 },
+			turnConfig: { ...f.params.turnConfig, tokenBudget: 400 },
 		})
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
@@ -211,7 +211,7 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(f.root, f.scope, 100))
 		f.root.recordUsage(usage(1_000))
 		await f.root.flush()
-		const outcome = await resumeRun(f.params)
+		const outcome = await resumeSession(f.params)
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
 		expect(f.provider.requests).toHaveLength(0)
@@ -224,9 +224,9 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		const current = TokenBudget.create(1_000, f.scope.runId)
 		current.recordUsage(usage(150))
 		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(current, f.scope, 100))
-		await expect(resumeRun(f.params)).rejects.toThrow('current authoritative budget')
+		await expect(resumeSession(f.params)).rejects.toThrow('current authoritative budget')
 		expect(f.provider.requests).toHaveLength(0)
-		const result = await resumeRun({ ...f.params, budget: current })
+		const result = await resumeSession({ ...f.params, budget: current })
 		expect(result.resumed).toBe(true)
 		expect(current.ownTokens).toBe(200)
 	})
@@ -238,16 +238,16 @@ describe('checkpoint resume keeps the latest token authority', () => {
 			scope: { ...f.rootScope, sessionId: generateSessionId() },
 			save: async () => {},
 		})
-		await expect(resumeRun({ ...f.params, budget: copied })).rejects.toThrow('root scope')
+		await expect(resumeSession({ ...f.params, budget: copied })).rejects.toThrow('root scope')
 		expect(f.provider.requests).toHaveLength(0)
 	})
 
 	it('does not create a ledger while resolving a missing checkpoint', async () => {
 		const f = await fixture()
-		const runId = generateRunId()
+		const runId = generateTurnId()
 		const queryParams = {
 			...f.params,
-			runId,
+			turnId,
 			messages: [],
 			resumeFromCheckpoint: generateCheckpointId(),
 		}

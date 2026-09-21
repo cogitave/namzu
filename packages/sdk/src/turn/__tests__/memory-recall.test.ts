@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { InMemoryMemoryStore } from '../../store/memory/memory.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import { createRuntimeContextMessage, createUserMessage } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
-import { generateRunId } from '../../utils/id.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
+import { generateTurnId } from '../../utils/id.js'
 import { createMemoryRecallStep } from '../memory-recall.js'
 
 function context(query = 'What did we learn about cerulean-cache expiry?'): PrepareStepContext {
 	return {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		messages: [createUserMessage(query)],
 		steps: [],
@@ -22,7 +22,7 @@ async function fixture() {
 		title: 'Inspect service configuration',
 		summary: 'One discovery',
 		content: 'cerulean-cache expires after 14 hours',
-		metadata: { runId: generateRunId() },
+		metadata: { runId: generateTurnId() },
 	})
 	return { store, entry, recall: createMemoryRecallStep({ store }) }
 }

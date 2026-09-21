@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import type { IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
-import type { RunEvent, StepResult } from '../../../types/run/index.js'
-import { hasToolCall, stepCountIs } from '../../../types/run/step.js'
+import type { SessionEvent, StepResult } from '../../../types/session/index.js'
+import { hasToolCall, stepCountIs } from '../../../types/session/step.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
@@ -27,7 +27,7 @@ import { IterationOrchestrator } from '../iteration/index.js'
  * budget stopped it, burning the whole envelope after the work was done.
  */
 
-const RUN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as RunId
+const RUN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -52,7 +52,7 @@ function harness(opts: {
 
 function buildCtx(opts: {
 	provider: LLMProvider
-	stopWhen?: import('../../../types/run/step.js').StopCondition
+	stopWhen?: import('../../../types/session/step.js').StopCondition
 	maxIterations?: number
 }): Harness {
 	const executedTools: string[] = []
@@ -90,7 +90,7 @@ function buildCtx(opts: {
 	const toolExecutor = new ToolExecutor(
 		{
 			tools,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -101,7 +101,7 @@ function buildCtx(opts: {
 		log,
 	)
 
-	const runMgr = {
+	const recorder = {
 		id: RUN_ID,
 		messages,
 		tokenUsage: {
@@ -139,15 +139,15 @@ function buildCtx(opts: {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: opts.provider,
-		runConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
+		turnConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
 		tools,
-		runMgr: runMgr as unknown as RunPersistence,
+		recorder: recorder as unknown as TurnRecorder,
 		toolExecutor,
 		activityStore,
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
 			create: async () =>

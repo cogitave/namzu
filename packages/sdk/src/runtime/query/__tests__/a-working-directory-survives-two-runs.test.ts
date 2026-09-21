@@ -41,7 +41,7 @@ async function run(
 		provider,
 		tools: tools(),
 		sandboxProvider: new LocalSandboxProvider(NOOP_LOGGER),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,

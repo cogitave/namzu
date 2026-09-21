@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { mapRunToA2AEvent } from '../../../bridge/a2a/mapper.js'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { NamzuError } from '../../../types/errors/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import type { Run, SessionEvent } from '../../../types/session/index.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -21,7 +21,7 @@ import { ResultAssembler } from '../result.js'
  * widening the event, not retrofitting hundreds of throw sites.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 
 function makeLogger() {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -29,12 +29,12 @@ function makeLogger() {
 	return self as never
 }
 
-async function failWith(err: unknown): Promise<RunEvent[]> {
-	const emitted: RunEvent[] = []
-	const pending: RunEvent[] = []
+async function failWith(err: unknown): Promise<SessionEvent[]> {
+	const emitted: SessionEvent[] = []
+	const pending: SessionEvent[] = []
 
 	const assembler = new ResultAssembler({
-		runMgr: {
+		recorder: {
 			id: RID,
 			currentIteration: 1,
 			stopReason: undefined,
@@ -43,11 +43,11 @@ async function failWith(err: unknown): Promise<RunEvent[]> {
 			// LOG-14: `handleError` now calls `recordAudit` on the run_failed path,
 			// which every test in this file reaches.
 			recordAudit: async () => undefined as never,
-		} as unknown as RunPersistence,
+		} as unknown as TurnRecorder,
 		planManager: { isActive: false, failPlan: () => {} } as never,
 		activityStore: { enabled: false } as never,
 		log: makeLogger(),
-		emitEvent: async (event: RunEvent) => {
+		emitEvent: async (event: SessionEvent) => {
 			emitted.push(event)
 			pending.push(event)
 		},
@@ -72,14 +72,14 @@ async function failWith(err: unknown): Promise<RunEvent[]> {
 	return emitted
 }
 
-const failureOf = (events: RunEvent[]) =>
-	events.find((e): e is Extract<RunEvent, { type: 'run_failed' }> => e.type === 'run_failed')
+const failureOf = (events: SessionEvent[]) =>
+	events.find((e): e is Extract<SessionEvent, { type: 'turn_failed' }> => e.type === 'turn_failed')
 		?.failure
 
 describe('what run_failed carries', () => {
 	it('keeps the flattened message, for consumers that only render a string', async () => {
 		const events = await failWith(new Error('boom'))
-		const failed = events.find((e) => e.type === 'run_failed')
+		const failed = events.find((e) => e.type === 'turn_failed')
 		expect(failed && 'error' in failed && failed.error).toContain('boom')
 	})
 
@@ -127,8 +127,8 @@ describe('what the bridges do with it', () => {
 	it('sends the classification to a remote peer as metadata', () => {
 		const event = mapRunToA2AEvent(
 			{
-				type: 'run_failed',
-				runId: RID,
+				type: 'turn_failed',
+				turnId: RID,
 				error: 'slow down',
 				failure: { code: 'provider_error', message: 'slow down', retryable: true },
 			},
@@ -141,7 +141,7 @@ describe('what the bridges do with it', () => {
 	})
 
 	it('still maps a failure that carries no classification', () => {
-		const event = mapRunToA2AEvent({ type: 'run_failed', runId: RID, error: 'boom' }, 'ctx-1')
+		const event = mapRunToA2AEvent({ type: 'turn_failed', runId: RID, error: 'boom' }, 'ctx-1')
 		expect(event).not.toBeNull()
 		expect(event?.metadata).toBeUndefined()
 	})

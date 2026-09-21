@@ -7,7 +7,7 @@ import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -217,13 +217,13 @@ describe('executing a batch that carries recovered results', () => {
 		const executor = new ToolExecutor(
 			{
 				tools,
-				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 				workingDirectory: tmpdir(),
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId, {
+			new ActivityStore('37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId, {
 				enabled: false,
 				trackToolCalls: false,
 				trackLlmTurns: false,

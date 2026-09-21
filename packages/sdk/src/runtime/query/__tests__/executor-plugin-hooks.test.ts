@@ -4,15 +4,15 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolDefinition, ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 
-const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
+const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function makeLogger(): Logger {
 	const stub = {
@@ -65,8 +65,8 @@ function buildResponse(toolName: string, args: object): ChatCompletionResponse {
 
 describe('ToolExecutor plugin hooks', () => {
 	let activityStore: ActivityStore
-	let emitted: RunEvent[]
-	let emitEvent: (e: RunEvent) => Promise<void>
+	let emitted: SessionEvent[]
+	let emitEvent: (e: SessionEvent) => Promise<void>
 
 	beforeEach(() => {
 		activityStore = new ActivityStore(mockRunId, {
@@ -85,7 +85,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -123,7 +123,7 @@ describe('ToolExecutor plugin hooks', () => {
 			const executor = new ToolExecutor(
 				{
 					tools,
-					runId: mockRunId,
+					turnId: mockRunId,
 					workingDirectory: '/tmp',
 					permissionMode: 'auto',
 					env: {},
@@ -155,7 +155,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -191,7 +191,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -220,7 +220,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -246,7 +246,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -271,7 +271,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -303,7 +303,7 @@ describe('ToolExecutor plugin hooks', () => {
 			const exec = new ToolExecutor(
 				{
 					tools,
-					runId: mockRunId,
+					turnId: mockRunId,
 					workingDirectory: root,
 					permissionMode: 'auto',
 					env: {},
@@ -365,7 +365,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -416,7 +416,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -451,7 +451,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const exec = new ToolExecutor(
 			{
 				tools,
-				runId: mockRunId,
+				turnId: mockRunId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},

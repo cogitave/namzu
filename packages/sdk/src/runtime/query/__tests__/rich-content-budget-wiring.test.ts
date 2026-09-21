@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -24,7 +24,7 @@ import { ToolingBootstrap } from '../tooling.js'
  * against an executor built by hand, which is precisely how the gap survived.
  */
 
-const RUN_ID = '9c2a5358-a2bf-4868-9ffc-2a9cc8908f99' as RunId
+const RUN_ID = '9c2a5358-a2bf-4868-9ffc-2a9cc8908f99' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -72,7 +72,7 @@ function bootstrapReturning(
 			tools,
 			...(maxToolOutputChars !== undefined ? { maxToolOutputChars } : {}),
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},

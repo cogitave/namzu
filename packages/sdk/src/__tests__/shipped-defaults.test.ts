@@ -98,7 +98,7 @@ describe('a run cannot blow its own context', () => {
 	})
 
 	it('compaction always resolves a real window, never a spend budget', () => {
-		// The trigger divided by `runConfig.tokenBudget` — a cumulative spend
+		// The trigger divided by `turnConfig.tokenBudget` — a cumulative spend
 		// cap — whenever `contextWindowTokens` was absent, which was always.
 		for (const model of [undefined, '', 'totally-unknown-model', 'claude-opus-5', 'gpt-4']) {
 			const resolved = resolveContextWindow(undefined, model)

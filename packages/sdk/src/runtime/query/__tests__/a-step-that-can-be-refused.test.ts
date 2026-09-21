@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../../registry/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
-import type { BeforeStep, RunEvent } from '../../../types/run/index.js'
+import type { BeforeStep, SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -63,18 +63,18 @@ async function run(opts: {
 }): Promise<{
 	provider: CountingProvider
 	run: Awaited<ReturnType<typeof drainQuery>>
-	events: RunEvent[]
+	events: SessionEvent[]
 }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-veto-'))
 	dirs.push(workingDirectory)
 	const provider = new CountingProvider()
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 
 	const result = await drainQuery(
 		{
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 200_000,
@@ -91,7 +91,7 @@ async function run(opts: {
 			...(opts.beforeStep ? { beforeStep: opts.beforeStep } : {}),
 			...(opts.signal ? { signal: opts.signal } : {}),
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			events.push(event)
 		},
 	)
@@ -163,7 +163,7 @@ describe('a host can refuse the next model call', () => {
 			expect(provider.calls).toBe(0)
 			expect(provider.requests).toHaveLength(0)
 			expect(events.some((event) => event.type === 'iteration_started')).toBe(false)
-			expect(events.find((event) => event.type === 'run_completed')).toMatchObject({
+			expect(events.find((event) => event.type === 'turn_completed')).toMatchObject({
 				stopReason: 'cancelled',
 			})
 		},
@@ -179,7 +179,7 @@ describe('a host can refuse the next model call', () => {
 		const settled = await drainQuery({
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('go')],

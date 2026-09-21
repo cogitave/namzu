@@ -9,7 +9,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { secretRedactionGuardrail } from '../guardrail-presets.js'
 import { drainQuery } from '../index.js'
@@ -23,7 +23,7 @@ import { drainQuery } from '../index.js'
  * consumes.
  *
  * Since LOG-14: a guardrail BLOCK is also a first-class 'refused' entry in
- * the audit trail, not merely the `guardrail_triggered` RunEvent a host
+ * the audit trail, not merely the `guardrail_triggered` SessionEvent a host
  * happens to be subscribed to when it fires.
  */
 
@@ -44,13 +44,13 @@ async function run(opts: {
 	workdirs.push(workingDirectory)
 
 	const provider = new MockLLMProvider({ turns: [{ text: opts.responseText }] })
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 
 	const result = await drainQuery(
 		{
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -184,7 +184,7 @@ describe('output guardrails through query()', () => {
 		})
 
 		const streamed = events
-			.filter((e): e is Extract<RunEvent, { type: 'text_delta' }> => e.type === 'text_delta')
+			.filter((e): e is Extract<SessionEvent, { type: 'text_delta' }> => e.type === 'text_delta')
 			.map((e) => e.text)
 			.join('')
 

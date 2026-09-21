@@ -73,7 +73,7 @@ async function runWith(
 	const executor = new ToolExecutor(
 		{
 			tools,
-			runId: '99ae284f-e48a-46c5-a4ce-5297f12cd9cc' as never,
+			turnId: '99ae284f-e48a-46c5-a4ce-5297f12cd9cc' as never,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
 			env: {},

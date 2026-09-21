@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../run/token-budget.js'
+import { TokenBudget } from '../../../turn/token-budget.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -19,10 +19,10 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import { generateRunId } from '../../../utils/id.js'
+import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
 const dirs: string[] = []
@@ -95,13 +95,13 @@ async function runFixture(
 	messages: ChatCompletionParams['messages'],
 	signal?: AbortSignal,
 ) {
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const run = await drainQuery(
 		{
 			provider,
 			tools: new ToolRegistry(),
 			retry: { maxRetries: 0 },
-			runConfig: {
+			turnConfig: {
 				model: 'vision-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -153,7 +153,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		]
 		const provider = new RejectsOneImageProvider()
 		const runStore = new InMemoryRunStore()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -161,7 +161,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 				tools: new ToolRegistry(),
 				runStore,
 				retry: { maxRetries: 0 },
-				runConfig: {
+				turnConfig: {
 					model: 'vision-model',
 					timeoutMs: 5_000,
 					tokenBudget: 100_000,
@@ -227,13 +227,13 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 			yield { id: 'next', delta: { content: 'continued' } }
 			yield { id: 'next', delta: {}, finishReason: 'stop', usage: ZERO_USAGE }
 		}
-		const nextEvents: RunEvent[] = []
+		const nextEvents: SessionEvent[] = []
 		const continued = await drainQuery(
 			{
 				provider: next,
 				tools: new ToolRegistry(),
 				retry: { maxRetries: 0 },
-				runConfig: {
+				turnConfig: {
 					model: 'vision-model',
 					timeoutMs: 5_000,
 					tokenBudget: 100_000,
@@ -395,7 +395,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 
 		const pending = runFixture(provider, messages, controller.signal)
 		await retryStarted
-		controller.abort(new RunCancelled('user'))
+		controller.abort(new TurnCancelled('user'))
 		const { run } = await pending
 		releaseRetry()
 
@@ -406,18 +406,18 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 
 	it('issues no image-recovery request when the inherited token account is exhausted', async () => {
 		const provider = new RejectsOneImageProvider()
-		const events: RunEvent[] = []
-		const runId = generateRunId()
+		const events: SessionEvent[] = []
+		const runId = generateTurnId()
 		const budget = TokenBudget.create(100_000, runId)
 		budget.recordUsage({ ...ZERO_USAGE, promptTokens: 100_000, totalTokens: 100_000 })
 		const run = await drainQuery(
 			{
-				runId,
+				turnId,
 				budget,
 				provider,
 				tools: new ToolRegistry(),
 				retry: { maxRetries: 0 },
-				runConfig: {
+				turnConfig: {
 					model: 'vision-model',
 					timeoutMs: 5_000,
 					tokenBudget: 100_000,

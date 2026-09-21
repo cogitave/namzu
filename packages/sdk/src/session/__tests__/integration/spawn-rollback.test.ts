@@ -1,6 +1,6 @@
-import { TokenBudget } from '../../../run/token-budget.js'
+import { TokenBudget } from '../../../turn/token-budget.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateTurnId as budgetRunId } from '../../../utils/id.js'
 /**
  * Integration — AgentManager.provisionSpawn compensating rollback.
  *
@@ -42,7 +42,7 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { RunId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { TurnId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId } from '../../../types/session/ids.js'
@@ -80,7 +80,7 @@ function buildAgent(id: string): Agent<BaseAgentConfig, BaseAgentResult> {
 			capabilities,
 		},
 		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
-			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+			turnId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as TurnId,
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -182,7 +182,7 @@ describe('provisionSpawn compensating rollback', () => {
 		})
 
 		const taskContext: AgentTaskContext = {
-			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
+			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
@@ -279,7 +279,7 @@ describe('provisionSpawn compensating rollback', () => {
 		})
 
 		const taskContext: AgentTaskContext = {
-			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
+			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,

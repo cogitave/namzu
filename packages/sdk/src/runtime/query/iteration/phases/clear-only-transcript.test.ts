@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { isClearedToolResult } from '../../../../compaction/tool-result-editing.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
-import { RunQuery } from '../../../../run-query/index.js'
+import { SessionQuery } from '../../../../run-query/index.js'
 import { InMemoryRunStore } from '../../../../store/run/memory.js'
 import type { Message } from '../../../../types/message/index.js'
-import type { Run, RunEvent } from '../../../../types/run/index.js'
+import type { Run, SessionEvent } from '../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../utils/log/create-logger.js'
 import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
@@ -48,13 +48,13 @@ async function context(
 	const archiveSawOriginal = vi.fn()
 	const invalidate = vi.fn()
 	const ctx = {
-		runConfig: { model: 'mock' },
+		turnConfig: { model: 'mock' },
 		compactionConfig: config,
 		workingStateManager: manager,
 		tools: { toLLMTools: () => [] },
 		log: NOOP_LOGGER,
 		abortController: new AbortController(),
-		runMgr: {
+		recorder: {
 			id: '70f44a33-f56a-4b59-bf2e-d722397f9382',
 			currentIteration: 3,
 			messages,
@@ -62,7 +62,7 @@ async function context(
 			lastPromptMessageCount: messages.length,
 			clearLastPromptTokens: invalidate,
 		},
-		emitEvent: async (event: RunEvent) => {
+		emitEvent: async (event: SessionEvent) => {
 			if (event.type === 'compaction_shed') {
 				archiveSawOriginal(messages[3]?.content === BODY)
 				if (options.refuseArchive) throw new Error('archive write refused')
@@ -91,7 +91,7 @@ describe('clear-only compaction preserves recoverable original evidence', () => 
 			'token_usage_updated',
 		])
 		await store.writeMessages({ messages } as Run, events.at(-1)?.seq ?? 0)
-		const query = new RunQuery({ store })
+		const query = new SessionQuery({ store })
 		expect(await query.shedHistory()).toMatchObject([
 			{
 				reason: options.force ? 'overflow' : 'threshold',
@@ -108,7 +108,7 @@ describe('clear-only compaction preserves recoverable original evidence', () => 
 		await runCompactionCheck(ctx)
 		expect(isClearedToolResult(messages[3]?.content)).toBe(true)
 		expect(archiveSawOriginal).not.toHaveBeenCalled()
-		expect(await new RunQuery({ store }).shedHistory()).toEqual([])
+		expect(await new SessionQuery({ store }).shedHistory()).toEqual([])
 	})
 
 	it('keeps the original live history when its archive cannot be recorded', async () => {

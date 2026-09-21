@@ -6,7 +6,7 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -33,7 +33,7 @@ function fixture(
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'Return a score below ten' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
@@ -43,7 +43,7 @@ function fixture(
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		checkpointStore: new InMemoryCheckpointStore(),
 		structuredOutput: { schema, review, maxReviews },
 		signal,

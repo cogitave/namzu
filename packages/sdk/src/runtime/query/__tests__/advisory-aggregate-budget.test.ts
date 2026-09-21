@@ -6,11 +6,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../run/token-budget.js'
+import { TokenBudget } from '../../../turn/token-budget.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -30,7 +30,7 @@ const usage = (tokens: number) => ({
 async function fixture() {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-advisory-ledger-'))
 	directories.push(workingDirectory)
-	const runId = generateRunId()
+	const runId = generateTurnId()
 	const budget = TokenBudget.create(1_000, runId)
 	const tools = new ToolRegistry()
 	tools.register({
@@ -41,7 +41,7 @@ async function fixture() {
 	})
 	return {
 		workingDirectory,
-		runId,
+		turnId,
 		budget,
 		tools,
 		projectId: generateProjectId(),
@@ -52,7 +52,7 @@ async function fixture() {
 		agentName: 'Advisory budget',
 		messages: [createUserMessage('Consult and finish.')],
 		retry: false as const,
-		runConfig: { model: 'mock', tokenBudget: 1_000, timeoutMs: 5_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', tokenBudget: 1_000, timeoutMs: 5_000, maxIterations: 4 },
 	}
 }
 

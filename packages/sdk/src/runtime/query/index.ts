@@ -1074,7 +1074,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// `SupervisorAgent` builds both before the run exists, because the
 		// tools it builds close over them, and it passes them in. Nothing else
 		// could: neither type is exported from `public-runtime.ts`, so a host
-		// on `ReactiveAgent`, `drainQuery` or `resumeRun` had no way to supply
+		// on `ReactiveAgent`, `drainQuery` or `resumeSession` had no way to supply
 		// either — and `ToolContext.requestPause`, which every tool author is
 		// handed, silently wrote no checkpoint and could receive no answer on
 		// those surfaces. Which agent class the host happened to pick is not

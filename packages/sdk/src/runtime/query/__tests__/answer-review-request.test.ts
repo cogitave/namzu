@@ -16,8 +16,8 @@ import {
 } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider, MockTurn } from '../../../types/provider/index.js'
-import type { AnswerReviewContext } from '../../../types/run/answer-review.js'
-import { generateRunId } from '../../../utils/id.js'
+import type { AnswerReviewContext } from '../../../types/session/answer-review.js'
+import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
 
@@ -30,12 +30,12 @@ async function fixture(provider: LLMProvider) {
 	roots.push(workingDirectory)
 	return {
 		provider,
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		tools: new ToolRegistry(),
 		agentId: 'review-request',
 		agentName: 'Review request',
 		workingDirectory,
-		runConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 4, timeoutMs: 5000 },
+		turnConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 4, timeoutMs: 5000 },
 		tenantId: fixtureId.tenant('review-request'),
 		projectId: fixtureId.project('review-request'),
 		sessionId: fixtureId.session('review-request'),

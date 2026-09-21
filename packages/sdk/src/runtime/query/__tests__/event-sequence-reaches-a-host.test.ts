@@ -5,16 +5,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { RunPersistence } from '../../../manager/run/persistence.js'
+import { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
-import { isEphemeralEvent } from '../../../types/run/events.js'
-import type { RunStore } from '../../../types/run/store.js'
+import type { SessionEvent } from '../../../types/session/events.js'
+import { isEphemeralEvent } from '../../../types/session/events.js'
+import type { RunStore } from '../../../types/session/tool-execution.js'
 import { EventTranslator } from '../events.js'
 import { type QueryParams, drainQuery, query } from '../index.js'
 
@@ -49,12 +49,12 @@ async function workdir(): Promise<string> {
 }
 
 /** The real class over the injected store — the shape production builds. */
-function persistence(runStore: RunStore, runId: string): RunPersistence {
-	return new RunPersistence({
-		runId,
+function persistence(runStore: RunStore, runId: string): TurnRecorder {
+	return new TurnRecorder({
+		turnId,
 		agentId: 'a',
 		agentName: 'A',
-		runConfig: {},
+		turnConfig: {},
 		providerId: 'mock',
 		// The injected store owns its location; this fallback must never be written.
 		outputDir: '/namzu-nonexistent-should-never-be-written',
@@ -98,7 +98,7 @@ async function params(runStore: RunStore): Promise<QueryParams> {
 			turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
 		}),
 		tools: registryWithEcho(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -117,8 +117,8 @@ async function params(runStore: RunStore): Promise<QueryParams> {
 	} as unknown as QueryParams
 }
 
-async function drain(p: QueryParams): Promise<RunEvent[]> {
-	const seen: RunEvent[] = []
+async function drain(p: QueryParams): Promise<SessionEvent[]> {
+	const seen: SessionEvent[] = []
 	const gen = query(p)
 	let next = await gen.next()
 	while (!next.done) {
@@ -201,12 +201,12 @@ describe('the number is a claim that the event is recoverable', () => {
 
 		vi.spyOn(store, 'appendEvent').mockRejectedValueOnce(new Error('disk full'))
 		await expect(
-			emitter.emitEvent({ type: 'run_started', runId: fixtureId.run('fail') } as RunEvent),
+			emitter.emitEvent({ type: 'turn_started', runId: fixtureId.run('fail') } as SessionEvent),
 		).rejects.toThrow('disk full')
 		// The next event must take the number the failed one did NOT consume.
 		await emitter.emitEvent({
 			type: 'iteration_started',
-			runId: 'e08c38cc-7a59-40b2-8032-31b2b4e3c261',
+			turnId: 'e08c38cc-7a59-40b2-8032-31b2b4e3c261',
 			iteration: 1,
 		} as never)
 
@@ -216,7 +216,7 @@ describe('the number is a claim that the event is recoverable', () => {
 		// delivering it without a cursor — and unnumbered, because it is not in
 		// the log and a consumer must never advance a cursor onto it.
 		expect(drained.map((e) => [e.type, e.seq])).toEqual([
-			['run_started', undefined],
+			['turn_started', undefined],
 			['iteration_started', 1],
 		])
 		expect((await store.readEvents()).map((e) => e.type)).toEqual(['iteration_started'])
@@ -242,7 +242,7 @@ describe('emits that overlap still get distinct numbers', () => {
 			Array.from({ length: 20 }, (_, i) =>
 				emitter.emitEvent({
 					type: 'iteration_started',
-					runId: '849aee55-b85a-4d73-ba09-ab034da1a47b',
+					turnId: '849aee55-b85a-4d73-ba09-ab034da1a47b',
 					iteration: i,
 				} as never),
 			),
@@ -275,12 +275,12 @@ describe('a live transcript snapshot stays between whole appends', () => {
 		})
 		const writing = emitter.emitEvent({
 			type: 'iteration_started',
-			runId,
+			turnId,
 			iteration: 1,
-		} as RunEvent)
+		} as SessionEvent)
 		await entered.promise
 		const local = new AbortController()
-		const capture = emitter.captureRunEvidence(undefined, local.signal)
+		const capture = emitter.captureSessionEvidence(undefined, local.signal)
 		local.abort(new Error('cancel queued read'))
 		try {
 			await expect(capture).rejects.toThrow('cancel queued read')
@@ -289,7 +289,7 @@ describe('a live transcript snapshot stays between whole appends', () => {
 			release.resolve()
 		}
 		await writing
-		await emitter.captureRunEvidence()
+		await emitter.captureSessionEvidence()
 		expect(captureTextEvidence).toHaveBeenCalledTimes(1)
 		expect((await store.readEvents()).map((e) => e.seq)).toEqual([1])
 	})
@@ -309,14 +309,14 @@ describe('a live transcript snapshot stays between whole appends', () => {
 		mgr.markRunning()
 		const emitter = new EventTranslator(mgr)
 		const local = new AbortController()
-		const capture = emitter.captureRunEvidence(undefined, local.signal)
+		const capture = emitter.captureSessionEvidence(undefined, local.signal)
 		await entered.promise
 		const append = vi.spyOn(store, 'appendEvent')
 		const writing = emitter.emitEvent({
 			type: 'iteration_started',
-			runId,
+			turnId,
 			iteration: 1,
-		} as RunEvent)
+		} as SessionEvent)
 		local.abort(new Error('cancel active read'))
 		try {
 			await expect(capture).rejects.toThrow('cancel active read')
@@ -487,18 +487,18 @@ describe('the sequence survives the process that was writing it', () => {
 		const store = new InMemoryRunStore()
 		await store.initRun('8b0b7ac8-7f23-4ebf-9222-52fce838aa3e')
 		await store.appendEvent({
-			type: 'run_started',
-			runId: '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e',
+			type: 'turn_started',
+			turnId: '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e',
 			seq: 1,
 		} as never)
 		await store.appendEvent({
 			type: 'iteration_started',
-			runId: fixtureId.run('restart'),
+			turnId: fixtureId.run('restart'),
 			iteration: 1,
 			seq: 2,
 		})
 
-		// A different `RunPersistence` over the same store is what a second
+		// A different `TurnRecorder` over the same store is what a second
 		// process is: the object graph is new, the log is not.
 		const mgr = persistence(store, '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e')
 		await mgr.init()

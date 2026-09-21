@@ -6,7 +6,7 @@ import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import type { Message } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -81,7 +81,7 @@ function setup() {
 		agentName: 'A',
 		systemPrompt: 'You are a coding agent.',
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		compactionConfig: CompactionConfigSchema.parse({}),
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
@@ -99,7 +99,7 @@ describe('the working-memory slot in a request', () => {
 				{ text: 'done' },
 			],
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const result = await drainQuery(
 			{ ...setup(), provider, messages: [{ role: 'user', content: 'pin things' }] },
 			(event) => {

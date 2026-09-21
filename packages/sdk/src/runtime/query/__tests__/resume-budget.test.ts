@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { GuardCoordinator } from '../guard.js'
 
 /**
@@ -17,12 +17,12 @@ function runMgrAt(opts: {
 	totalTokens?: number
 	totalCost?: number
 	iteration?: number
-}): RunPersistence {
+}): TurnRecorder {
 	return {
 		tokenUsage: { totalTokens: opts.totalTokens ?? 0 },
 		costInfo: { totalCost: opts.totalCost ?? 0 },
 		currentIteration: opts.iteration ?? 0,
-	} as unknown as RunPersistence
+	} as unknown as TurnRecorder
 }
 
 const live = new AbortController().signal
@@ -89,14 +89,14 @@ describe('GuardCoordinator — elapsed time survives a resume', () => {
 	})
 })
 
-describe('RunPersistence.restoreUsage', () => {
+describe('TurnRecorder.restoreUsage', () => {
 	it('replaces the counters rather than adding to them', async () => {
-		const { RunPersistence } = await import('../../../manager/run/persistence.js')
-		const mgr = new RunPersistence({
-			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+		const { TurnRecorder } = await import('../../../manager/session/turn-recorder.js')
+		const mgr = new TurnRecorder({
+			turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 			agentId: 'a',
 			agentName: 'A',
-			runConfig: {},
+			turnConfig: {},
 			providerId: 'mock',
 			outputDir: '/tmp',
 			log: {

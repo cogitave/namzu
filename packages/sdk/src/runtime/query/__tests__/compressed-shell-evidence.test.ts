@@ -8,7 +8,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import { ToolExecutor } from '../executor.js'
 
 const roots: string[] = []
@@ -33,12 +33,12 @@ async function execute(output: string, hook?: PluginHookResult) {
 		}),
 	})
 	const runId = fixtureId.run('shell-evidence')
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const stub = { info() {}, warn() {}, error() {}, debug() {} }
 	const executor = new ToolExecutor(
 		{
 			tools,
-			runId,
+			turnId,
 			workingDirectory: root,
 			permissionMode: 'auto',
 			env: {},

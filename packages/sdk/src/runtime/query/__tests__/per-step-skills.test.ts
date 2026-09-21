@@ -43,7 +43,7 @@ async function run(provider: MockLLMProvider, over: Record<string, unknown> = {}
 	await drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,

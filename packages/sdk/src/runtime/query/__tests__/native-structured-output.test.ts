@@ -7,7 +7,7 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -37,8 +37,8 @@ function fixture(turns: MockTurn[]) {
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runId: generateRunId(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, maxIterations: 10, timeoutMs: 10_000 },
+		turnId: generateTurnId(),
+		turnConfig: { model: 'mock', tokenBudget: 100_000, maxIterations: 10, timeoutMs: 10_000 },
 		checkpointStore: new InMemoryCheckpointStore(),
 		structuredOutput: { mode: 'native' as const, schema, maxRetries: 2 },
 	}
@@ -174,7 +174,7 @@ describe('native structured output through the real query loop', () => {
 		const { params } = fixture([{ text: 'invalid' }])
 		const run = await drainQuery({
 			...params,
-			runConfig: { ...params.runConfig, maxIterations: 1 },
+			turnConfig: { ...params.turnConfig, maxIterations: 1 },
 			structuredOutput: { ...params.structuredOutput, maxRetries: 0 },
 		})
 		expect(run.stopReason).toBe('structured_output_failed')

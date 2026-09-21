@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { SharedRunWorkspace } from '../shared-run.js'
+import { SharedSessionWorkspace } from '../shared-run.js'
 
-describe('SharedRunWorkspace', () => {
+describe('SharedSessionWorkspace', () => {
 	it('creates a canonical workspace manifest with runtime-visible paths', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work',
 			label: 'Cowork task',
@@ -36,7 +36,7 @@ describe('SharedRunWorkspace', () => {
 
 	it('records source inventory and seeded supervisor brief before workers launch', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work/',
 		})
@@ -73,7 +73,7 @@ describe('SharedRunWorkspace', () => {
 
 	it('preserves every agent record when workers register concurrently', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work',
 		})
@@ -105,7 +105,7 @@ describe('SharedRunWorkspace', () => {
 
 	it('writes and appends per-worker briefs without losing earlier sections', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work',
 		})
@@ -146,7 +146,7 @@ describe('SharedRunWorkspace', () => {
 
 	it('writeTaskContext stores the user request verbatim under 01_task_context.md', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work',
 		})
@@ -163,7 +163,7 @@ describe('SharedRunWorkspace', () => {
 
 	it('writeSharedContext stores the shared coordination packet under 02_shared_context.md', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work',
 		})
@@ -177,7 +177,7 @@ describe('SharedRunWorkspace', () => {
 
 	it('rejects host paths that escape the shared workspace root', async () => {
 		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
-		const workspace = await SharedRunWorkspace.create({ hostRoot })
+		const workspace = await SharedSessionWorkspace.create({ hostRoot })
 
 		expect(() => workspace.hostPath('..', 'outside')).toThrow(/escapes root/)
 	})
@@ -190,7 +190,7 @@ describe('SharedRunWorkspace', () => {
 		const pathological = `/mnt/user-data/${'/'.repeat(200_000)}x`
 
 		const started = Date.now()
-		const workspace = await SharedRunWorkspace.create({
+		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: pathological,
 		})

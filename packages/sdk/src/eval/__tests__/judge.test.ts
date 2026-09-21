@@ -4,7 +4,7 @@ import type { ChatCompletionParams, StreamChunk } from '../../types/provider/ind
 import type { LLMProvider } from '../../types/provider/interface.js'
 import { runExperiment } from '../experiment.js'
 import { judgeScorer } from '../judge.js'
-import type { EvalCase, EvalRun } from '../types.js'
+import type { EvalCase, EvalTurn } from '../types.js'
 
 /**
  * Every other scorer is a pure function over the run, which is what makes
@@ -53,7 +53,7 @@ function fakeProvider(reply: string | (() => never), tokens = 42): LLMProvider {
 	return provider
 }
 
-const RUN: EvalRun = {
+const RUN: EvalTurn = {
 	output: 'The capital of France is Paris.',
 	steps: [],
 	toolCalls: ['search'],
@@ -234,7 +234,7 @@ describe('a broken judge is not a bad run', () => {
 	const dataset = {
 		name: 'suite',
 		cases: [CASE],
-		run: async (): Promise<EvalRun> => RUN,
+		run: async (): Promise<EvalTurn> => RUN,
 	}
 
 	it('reports the case as inconclusive rather than failed', async () => {

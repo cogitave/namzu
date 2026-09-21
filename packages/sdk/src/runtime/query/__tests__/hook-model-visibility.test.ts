@@ -57,7 +57,7 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'what is the answer' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
@@ -128,7 +128,7 @@ describe('what an extension is shown about a model call', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'look it up' }],
 			workingDirectory: process.cwd(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				tokenBudget: 100_000,
 				timeoutMs: 30_000,
@@ -143,14 +143,14 @@ describe('what an extension is shown about a model call', () => {
 		})
 
 		const expected = [
-			'run_start',
+			'turn_start',
 			'iteration_start',
 			'pre_llm_call',
 			'post_llm_call',
 			'pre_tool_use',
 			'post_tool_use',
 			'iteration_end',
-			'run_end',
+			'turn_end',
 		] satisfies PluginHookEvent[]
 		const firstSignal = seen[0]?.ctx.signal
 		expect(firstSignal).toBeInstanceOf(AbortSignal)

@@ -17,9 +17,9 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import { type CancelCause, RunCancelled } from '../../../types/run/cancel-cause.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import { type CancelCause, TurnCancelled } from '../../../types/session/cancel-cause.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../../types/session/durable.js'
+import type { Run, SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -119,7 +119,7 @@ const baseParams = async (overrides: Partial<QueryParams>): Promise<QueryParams>
 		agentName: 'Cancellation order agent',
 		messages: [{ role: 'user', content: 'do the work' }],
 		workingDirectory: await workdir(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -144,10 +144,10 @@ const baseParams = async (overrides: Partial<QueryParams>): Promise<QueryParams>
  * `iteration_completed`" a fact about the loop rather than a race.
  */
 async function drain(
-	gen: AsyncGenerator<RunEvent, Run>,
-	onEvent?: (event: RunEvent) => void,
-): Promise<{ events: RunEvent[]; run: Run }> {
-	const events: RunEvent[] = []
+	gen: AsyncGenerator<SessionEvent, Run>,
+	onEvent?: (event: SessionEvent) => void,
+): Promise<{ events: SessionEvent[]; run: Run }> {
+	const events: SessionEvent[] = []
 	let next = await gen.next()
 	while (!next.done) {
 		events.push(next.value)
@@ -157,10 +157,10 @@ async function drain(
 	return { events, run: next.value }
 }
 
-const types = (events: readonly RunEvent[]): string[] => events.map((event) => event.type)
+const types = (events: readonly SessionEvent[]): string[] => events.map((event) => event.type)
 
-const onlyOf = <T extends RunEvent['type']>(events: readonly RunEvent[], type: T) =>
-	events.filter((event) => event.type === type) as Extract<RunEvent, { type: T }>[]
+const onlyOf = <T extends SessionEvent['type']>(events: readonly SessionEvent[], type: T) =>
+	events.filter((event) => event.type === type) as Extract<SessionEvent, { type: T }>[]
 
 function registryWithNoop(): ToolRegistry {
 	const tools = new ToolRegistry()
@@ -208,14 +208,14 @@ describe('a run cancelled while the provider held the turn', () => {
 
 		const pending = drain(query(params))
 		await provider.entered.promise
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const { events, run } = await pending
 
 		// The full ordered stream, pinned. A host folds this list into its
 		// state in order, so a reordering is a behavioural change even when
 		// every event is still present.
 		expect(types(events)).toEqual([
-			'run_started',
+			'turn_started',
 			'activity_created',
 			'activity_updated',
 			'iteration_started',
@@ -223,18 +223,18 @@ describe('a run cancelled while the provider held the turn', () => {
 			'message_started',
 			'text_delta',
 			'message_completed',
-			'run_completed',
+			'turn_completed',
 		])
 
 		// A deliberate Stop is a decision, not a fault — and the error path
 		// records one in the audit trail and the error dashboard as such.
-		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
+		expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
 
-		const completed = onlyOf(events, 'run_completed')
+		const completed = onlyOf(events, 'turn_completed')
 		expect(completed).toHaveLength(1)
 
 		const messageCompleted = events.findIndex((event) => event.type === 'message_completed')
-		const runCompleted = events.findIndex((event) => event.type === 'run_completed')
+		const runCompleted = events.findIndex((event) => event.type === 'turn_completed')
 		expect(messageCompleted).toBeGreaterThanOrEqual(0)
 		expect(events[messageCompleted]).toMatchObject({
 			stopReason: 'cancelled',
@@ -272,17 +272,17 @@ describe('a run cancelled between one iteration and the next', () => {
 			// the two — and the loop breaks out of the `for` at that point,
 			// which is the boundary a cancelled run crosses.
 			if (event.type === 'iteration_completed' && !caller.signal.aborted) {
-				caller.abort(new RunCancelled('user'))
+				caller.abort(new TurnCancelled('user'))
 			}
 		})
 
-		expect(onlyOf(events, 'run_completed')).toHaveLength(1)
-		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
-		expect(types(events).at(-1)).toBe('run_completed')
+		expect(onlyOf(events, 'turn_completed')).toHaveLength(1)
+		expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
+		expect(types(events).at(-1)).toBe('turn_completed')
 		// The iteration that was interrupted still reports itself: a host
 		// counting steps must not lose the one that was already paid for.
 		expect(types(events).indexOf('iteration_completed')).toBeLessThan(
-			types(events).indexOf('run_completed'),
+			types(events).indexOf('turn_completed'),
 		)
 		// And the run did not go round again — the turn after the abort is the
 		// cancellation's whole point.
@@ -331,7 +331,7 @@ describe('a Stop that arrives while the run is parked on a tool review', () => {
 		const { tools, executed } = reviewFixture()
 
 		const asked = latch()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const params = await baseParams({
 			provider,
 			tools,
@@ -353,7 +353,7 @@ describe('a Stop that arrives while the run is parked on a tool review', () => {
 			events.push(event)
 		})
 		await asked.promise
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 
 		const { run } = await pending
 
@@ -361,8 +361,8 @@ describe('a Stop that arrives while the run is parked on a tool review', () => {
 		expect(run.stopReason).toBe('cancelled')
 		// Nothing was approved, so nothing ran.
 		expect(executed).toEqual([])
-		expect(onlyOf(events, 'run_completed')).toHaveLength(1)
-		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
+		expect(onlyOf(events, 'turn_completed')).toHaveLength(1)
+		expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
 		expect(events).toContainEqual(
 			expect.objectContaining({ type: 'tool_review_completed', decision: 'rejected' }),
 		)
@@ -395,7 +395,7 @@ describe('a Stop that arrives while the run is parked on a tool review', () => {
 		// Wait for the write rather than for a duration: what makes this a
 		// run-level claim is that the park is on the durable record at all.
 		await vi.waitFor(() => expect(store.pendingCount()).toBeGreaterThan(0))
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		await pending
 
 		// An approval queue built from durable state must stop re-serving a
@@ -411,7 +411,7 @@ describe('the in-iteration abort checkpoints', () => {
 	 * or one of them failing to — is invisible in a single-event assertion, so
 	 * the invariant is asserted at every point a real run can be reached.
 	 */
-	const cases: Array<{ name: string; abortAfter: RunEvent['type'] }> = [
+	const cases: Array<{ name: string; abortAfter: SessionEvent['type'] }> = [
 		{ name: 'a completed tool batch', abortAfter: 'tool_completed' },
 		{ name: 'a review decision', abortAfter: 'tool_review_completed' },
 		{ name: 'a durable checkpoint', abortAfter: 'checkpoint_created' },
@@ -436,14 +436,14 @@ describe('the in-iteration abort checkpoints', () => {
 			})
 			const { events, run } = await drain(query(params), (event) => {
 				if (event.type === abortAfter && !caller.signal.aborted) {
-					caller.abort(new RunCancelled('user'))
+					caller.abort(new TurnCancelled('user'))
 				}
 			})
 
-			expect(onlyOf(events, 'run_completed')).toHaveLength(1)
-			expect(events.some((event) => event.type === 'run_failed')).toBe(false)
+			expect(onlyOf(events, 'turn_completed')).toHaveLength(1)
+			expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
 			expect(run.status).toBe('cancelled')
-			expect(types(events).at(-1)).toBe('run_completed')
+			expect(types(events).at(-1)).toBe('turn_completed')
 		})
 	}
 })
@@ -458,7 +458,7 @@ describe('why a run was cancelled', () => {
 			hookTimeoutMs: 5_000,
 		})
 		manager.registerHook(id as PluginId, {
-			event: 'run_interrupt',
+			event: 'turn_interrupt',
 			handler: async (context) => {
 				seen.push((context as { cancelCause?: string }).cancelCause)
 				return { action: 'continue' }
@@ -482,10 +482,10 @@ describe('why a run was cancelled', () => {
 			})
 
 			const { events } = await drain(query(params), () => {
-				if (!caller.signal.aborted) caller.abort(new RunCancelled(cause))
+				if (!caller.signal.aborted) caller.abort(new TurnCancelled(cause))
 			})
 
-			const completed = onlyOf(events, 'run_completed')
+			const completed = onlyOf(events, 'turn_completed')
 			expect(completed).toHaveLength(1)
 			// The cause is the difference between an operator pressing Stop and
 			// a parent abandoning a child; without it a reader investigates the
@@ -513,10 +513,10 @@ describe('why a run was cancelled', () => {
 		})
 
 		const { events } = await drain(query(params), () => {
-			if (!caller.signal.aborted) caller.abort(new RunCancelled('user'))
+			if (!caller.signal.aborted) caller.abort(new TurnCancelled('user'))
 		})
 
-		expect(onlyOf(events, 'run_completed')[0]).toMatchObject({ cancelCause: 'user' })
+		expect(onlyOf(events, 'turn_completed')[0]).toMatchObject({ cancelCause: 'user' })
 		expect(seen).toEqual(['user'])
 	})
 
@@ -534,7 +534,7 @@ describe('why a run was cancelled', () => {
 			if (!caller.signal.aborted) caller.abort()
 		})
 
-		const completed = onlyOf(events, 'run_completed')
+		const completed = onlyOf(events, 'turn_completed')
 		expect(completed).toHaveLength(1)
 		// `undefined` is a real answer: a cancellation nobody attributed is not
 		// a user cancellation, and defaulting would put a confident wrong value

@@ -1,5 +1,5 @@
 /**
- * A drainer process, for the multi-process `drainRuns` test.
+ * A drainer process, for the multi-process `drainParkedTurns` test.
  *
  * A separate FILE rather than an inline closure because it has to import the
  * BUILT drain loop and store, and because the whole point is that the
@@ -32,7 +32,7 @@ const [, , dist, baseDir, tenantId, projectId, sessionId, holder, ttlMs, mode, b
 
 const from = (rel) => new URL(rel, `file://${dist.replace(/\\/g, '/')}/`).href
 const { DiskCheckpointStore } = await import(from('store/run/checkpoint-disk.js'))
-const { drainRuns } = await import(from('run/drain.js'))
+const { drainParkedTurns } = await import(from('run/drain.js'))
 const { generateCheckpointId } = await import(from('utils/id.js'))
 
 const store = new DiskCheckpointStore({ baseDir }, { tenantId, projectId, sessionId })
@@ -42,7 +42,7 @@ function checkpoint(runId, marker) {
 	seq += 1
 	return {
 		id: generateCheckpointId(),
-		runId,
+		turnId,
 		iteration: 2,
 		messages: [{ role: 'assistant', content: JSON.stringify({ marker: 'drain-worker', ...marker }) }],
 		tokenUsage: {
@@ -72,7 +72,7 @@ if (barrierMs) {
 /** Whether the store refused a deliberately superseded write, per run. */
 const probes = []
 
-const result = await drainRuns({
+const result = await drainParkedTurns({
 	store,
 	scope: { tenantId, projectId, sessionId },
 	holder,

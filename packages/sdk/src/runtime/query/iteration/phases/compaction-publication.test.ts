@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import { EMPTY_TOKEN_USAGE, ZERO_COST } from '../../../../constants/limits.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -15,7 +15,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../../types/provider/index.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { measureContext, runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
@@ -110,15 +110,15 @@ describe('compaction publication is one coherent transition', () => {
 				})()
 			},
 		}
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const usage = { ...EMPTY_TOKEN_USAGE }
 		const clearLastPromptTokens = vi.fn()
 		const ctx = {
 			compactionConfig: config,
 			workingStateManager: new WorkingStateManager(config),
-			runConfig: { model: 'mock-model' },
-			runMgr: {
-				id: '961ed68c-2538-4057-8a47-188c2eb11a2c' as RunId,
+			turnConfig: { model: 'mock-model' },
+			recorder: {
+				id: '961ed68c-2538-4057-8a47-188c2eb11a2c' as TurnId,
 				currentIteration: 2,
 				messages,
 				tokenUsage: usage,
@@ -135,7 +135,7 @@ describe('compaction publication is one coherent transition', () => {
 			tools: { toLLMTools: () => [] },
 			abortController: new AbortController(),
 			log: logger(),
-			emitEvent: async (event: RunEvent) => {
+			emitEvent: async (event: SessionEvent) => {
 				events.push(event)
 			},
 		} as unknown as IterationContext
@@ -186,9 +186,9 @@ describe('compaction publication is one coherent transition', () => {
 		const ctx = {
 			compactionConfig: config,
 			workingStateManager: new WorkingStateManager(config),
-			runConfig: { model: 'mock-model' },
-			runMgr: {
-				id: 'a6ee8bee-addb-43c3-bbb6-e6cc685ff7ef' as RunId,
+			turnConfig: { model: 'mock-model' },
+			recorder: {
+				id: 'a6ee8bee-addb-43c3-bbb6-e6cc685ff7ef' as TurnId,
 				currentIteration: 1,
 				messages,
 				tokenUsage: { ...EMPTY_TOKEN_USAGE },

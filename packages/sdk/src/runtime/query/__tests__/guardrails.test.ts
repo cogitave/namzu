@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { promptInjectionGuardrail, secretRedactionGuardrail } from '../guardrail-presets.js'
@@ -18,7 +18,7 @@ import { runInputGuardrails, runOutputGuardrails } from '../guardrails.js'
  * that moment.
  */
 
-const RUN_ID = '6b594743-d743-4af4-9d00-75b4829048db' as RunId
+const RUN_ID = '6b594743-d743-4af4-9d00-75b4829048db' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }

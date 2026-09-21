@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
-import { asRunId } from '../../../utils/id.js'
-import { RunDiskStore } from '../../run/disk.js'
+import type { SessionEvent } from '../../../types/session/events.js'
+import { asTurnId } from '../../../utils/id.js'
+import { RunDiskStore } from '../../turn/disk.js'
 import { compactionArchiveSchema } from '../compaction-archive.js'
 import { compactedToolMetadata } from '../compaction-provenance.js'
-import { createDiskRunTextEvidenceSource } from '../disk.js'
-import type { RunTextEvidenceSource } from '../types.js'
+import { createSessionTextEvidenceSource } from '../disk.js'
+import type { SessionTextEvidenceSource } from '../types.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -24,7 +24,7 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', extraMessages?: unk
 		tenantId: randomUUID(),
 		projectId: randomUUID(),
 		sessionId: randomUUID(),
-		runId: asRunId(randomUUID()),
+		turnId: asTurnId(randomUUID()),
 	}
 	const store = new RunDiskStore({ baseDir: root })
 	const runDir = await store.initRun(scope.runId)
@@ -37,7 +37,7 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', extraMessages?: unk
 		}),
 	)
 	const events = [
-		{ type: 'run_started' },
+		{ type: 'turn_started' },
 		{
 			type: 'tool_completed',
 			toolName: 'read',
@@ -87,11 +87,11 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', extraMessages?: unk
 			messages: extraMessages,
 		} as (typeof events)[number])
 	for (const [i, event] of events.entries())
-		await store.appendEvent({ ...event, runId: scope.runId, seq: i + 1 } as RunEvent)
+		await store.appendEvent({ ...event, runId: scope.runId, seq: i + 1 } as SessionEvent)
 	const source =
 		mode === 'live'
 			? (await store.captureTextEvidence(scope))!
-			: createDiskRunTextEvidenceSource({
+			: createSessionTextEvidenceSource({
 					scope,
 					runDir,
 					indexDir: join(runDir, 'evidence-index'),
@@ -100,7 +100,7 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', extraMessages?: unk
 	return { source, store, runDir }
 }
 
-async function all(source: RunTextEvidenceSource, excludeSuccessfulTools?: readonly string[]) {
+async function all(source: SessionTextEvidenceSource, excludeSuccessfulTools?: readonly string[]) {
 	let cursor: string | undefined
 	const matches = []
 	let excluded = 0

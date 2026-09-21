@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type {
@@ -13,10 +13,10 @@ import type {
 	HITLDecisionRequest,
 	IterationCheckpoint,
 } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../../types/session/durable.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { CheckpointManager } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
@@ -35,7 +35,7 @@ const SCOPE: CheckpointRunScope = {
 	tenantId: 'abe9b1f4-58f3-4617-9092-e3c3eddf7fa8' as TenantId,
 	projectId: '6b5fe163-dd2f-47ac-a34b-7f4c61e3d111' as ProjectId,
 	sessionId: '63a68db5-e762-413a-aebc-6edc4b1d61f2' as SessionId,
-	runId: '828316da-a45c-4d83-98f7-7b6a534df23b' as RunId,
+	turnId: '828316da-a45c-4d83-98f7-7b6a534df23b' as TurnId,
 }
 
 /**
@@ -89,7 +89,7 @@ const ZERO_USAGE = {
 	cacheWriteTokens: 0,
 }
 
-function makeRunMgrStub(): RunPersistence {
+function makeRunMgrStub(): TurnRecorder {
 	return {
 		id: SCOPE.runId,
 		messages: [{ role: 'user', content: 'hello' }],
@@ -97,17 +97,17 @@ function makeRunMgrStub(): RunPersistence {
 		costInfo: { ...ZERO_COST },
 		currentIteration: 1,
 		getSession: () => ({ startedAt: Date.now() }),
-	} as unknown as RunPersistence
+	} as unknown as TurnRecorder
 }
 
 describe('CheckpointManager against an injected CheckpointStore', () => {
 	it('round-trips create → restore → list → prune through the interface', async () => {
 		const store = new InMemoryCheckpointStore()
 		const mgr = new CheckpointManager(store, SCOPE)
-		const runMgr = makeRunMgrStub()
+		const recorder = makeRunMgrStub()
 
-		const first = await mgr.create(runMgr, 1)
-		const second = await mgr.create(runMgr, 2)
+		const first = await mgr.create(recorder, 1)
+		const second = await mgr.create(recorder, 2)
 		// Deterministic ordering for prune (createdAt can tie at ms resolution).
 		const storedFirst = store.rows.get(
 			[SCOPE.tenantId, SCOPE.projectId, SCOPE.sessionId, SCOPE.runId, first.id].join('/'),
@@ -149,22 +149,22 @@ describe('CheckpointManager against an injected CheckpointStore', () => {
 
 function makePhaseContext(
 	store: InMemoryCheckpointStore,
-	runConfig: { checkpointEvery?: number; pruneKeepLast?: number },
-): { ctx: IterationContext; events: RunEvent[] } {
-	const events: RunEvent[] = []
+	turnConfig: { checkpointEvery?: number; pruneKeepLast?: number },
+): { ctx: IterationContext; events: SessionEvent[] } {
+	const events: SessionEvent[] = []
 	const ctx = {
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
-			...runConfig,
+			...turnConfig,
 		},
-		runMgr: makeRunMgrStub(),
+		recorder: makeRunMgrStub(),
 		checkpointMgr: new CheckpointManager(store, SCOPE),
-		emitEvent: async (event: RunEvent) => {
+		emitEvent: async (event: SessionEvent) => {
 			events.push(event)
 		},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		resumeHandler: async () => ({ action: 'continue' as const }),
 	} as unknown as IterationContext
 	return { ctx, events }
@@ -200,7 +200,7 @@ describe('iteration checkpoint cadence (checkpointEvery)', () => {
 		}
 
 		const created = events.filter(
-			(e): e is Extract<RunEvent, { type: 'checkpoint_created' }> =>
+			(e): e is Extract<SessionEvent, { type: 'checkpoint_created' }> =>
 				e.type === 'checkpoint_created',
 		)
 		expect(created.map((e) => e.iteration)).toEqual([1, 3, 5])
@@ -261,7 +261,7 @@ describe('query() with an injected checkpointStore', () => {
 			provider,
 			tools,
 			checkpointStore: store,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -410,8 +410,8 @@ describe('prune() and an outstanding park', () => {
 			}),
 			tools,
 			checkpointStore: store,
-			runId: SCOPE.runId,
-			runConfig: {
+			turnId: SCOPE.runId,
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,

@@ -8,7 +8,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ReasoningEffort } from '../../../types/provider/index.js'
-import type { AgentRunConfig } from '../../../types/run/index.js'
+import type { TurnConfig } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -31,7 +31,7 @@ afterEach(async () => {
 	workdirs = []
 })
 
-async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promise<MockLLMProvider> {
+async function run(overrides: Partial<TurnConfig>, turns: unknown[]): Promise<MockLLMProvider> {
 	const provider = new MockLLMProvider({
 		turns: turns as never,
 		capabilities: {
@@ -47,7 +47,7 @@ async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promis
 	await drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -123,7 +123,7 @@ describe('the front door forwards it too, not only the kernel', () => {
 	 * it proves the loop forwards the field and nothing about whether a caller
 	 * can set it. Every ergonomic entry point — this one, `ReactiveAgent`,
 	 * `SupervisorAgent`, and the manager's bare-config branch — builds its
-	 * `AgentRunConfig` by HAND-LISTING fields, so a field nobody remembered to
+	 * `TurnConfig` by HAND-LISTING fields, so a field nobody remembered to
 	 * add is dropped in silence, with no cast to blame and no error to see.
 	 * `thinking` had been in that state since it shipped.
 	 *

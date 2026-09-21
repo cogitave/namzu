@@ -34,13 +34,13 @@ for(const name of names)tools.register({name,description:'Synthetic local effect
  return{success:true,output:name+' receipt'};
 }});
 const store=new sdk.DiskCheckpointStore({baseDir:join(root,'runs')});
-const params={...scope,tools,checkpointStore:store,runStore:new sdk.RunDiskStore({baseDir:join(root,'runs')}),workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',runConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
+const params={...scope,tools,checkpointStore:store,runStore:new sdk.RunDiskStore({baseDir:join(root,'runs')}),workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',turnConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
 if(seed)await sdk.drainQuery({...params,provider:new sdk.MockLLMProvider({turns:[{toolCalls:names.map(name=>({id:name,name,args:{}}))}]}),messages:[sdk.createUserMessage('Do each effect once.')]});
 else{if(hasSibling==='partial'){const latest=(await store.listCheckpoints(scope)).at(-1);
  if(!latest)throw new Error('Missing checkpoint');
  await store.writeCheckpoint(scope,{...latest,messages:[...latest.messages,sdk.createToolMessage('settled receipt','settled')]});}
  const provider=new sdk.MockLLMProvider({turns:[{text:'Inspect the unknown effect before retrying.'}]});
- const outcome=await sdk.resumeRun({...params,scope,provider});console.log(JSON.stringify({resumed:outcome.resumed,messages:provider.requests[0]?.messages}));}
+ const outcome=await sdk.resumeSession({...params,scope,provider});console.log(JSON.stringify({resumed:outcome.resumed,messages:provider.requests[0]?.messages}));}
 `,
 			)
 			child = fork(script, ['seed', root, JSON.stringify(scope), shape], {

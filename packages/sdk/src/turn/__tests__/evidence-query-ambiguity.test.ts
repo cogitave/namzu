@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createUserMessage } from '../../types/message/index.js'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 } from '../../utils/id.js'
@@ -27,7 +27,7 @@ function setup() {
 	const current = createUserMessage(question)
 	const generateText = vi.fn(async () => ({ text: JSON.stringify(plan) }))
 	const context = {
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
 		messages: [createUserMessage(previous), current],

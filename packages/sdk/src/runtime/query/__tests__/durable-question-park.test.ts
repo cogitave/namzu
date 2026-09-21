@@ -6,7 +6,7 @@ import type {
 	HITLResumeDecision,
 	IterationCheckpoint,
 } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -30,7 +30,7 @@ import { planPendingResume } from '../resume-pending.js'
  * recorded answer is handed to it instead of a second question.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -57,7 +57,7 @@ function askTool(opts: {
 		gateway: {} as never,
 		workingDirectory: '/tmp',
 		allowedAgentIds: [],
-		runId: RID,
+		turnId: RID,
 		resumeHandler: opts.resumeHandler as never,
 		...(opts.questionParks ? { questionParks: opts.questionParks } : {}),
 		...(opts.pendingAnswers ? { pendingAnswers: opts.pendingAnswers } : {}),
@@ -258,7 +258,7 @@ describe('planning the resume', () => {
 				parkedAt: 0,
 				request: {
 					type: 'user_question',
-					runId: RID,
+					turnId: RID,
 					checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 					question: {
 						questionId,

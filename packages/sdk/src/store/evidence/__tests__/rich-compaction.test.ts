@@ -6,11 +6,11 @@ import { afterEach, expect, it } from 'vitest'
 import { buildCompactionMessage } from '../../../compaction/summary.js'
 import type { Message, ToolResultBlock } from '../../../types/message/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { asRunId } from '../../../utils/id.js'
-import { RunDiskStore } from '../../run/disk.js'
+import { asTurnId } from '../../../utils/id.js'
+import { RunDiskStore } from '../../turn/disk.js'
 import { compactionArchiveSchema, compactionPartPath } from '../compaction-archive.js'
-import { createDiskRunTextEvidenceSource } from '../disk.js'
-import type { RunTextEvidenceMatch, RunTextEvidenceSource } from '../types.js'
+import { createSessionTextEvidenceSource } from '../disk.js'
+import type { SessionTextEvidenceMatch, SessionTextEvidenceSource } from '../types.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -38,7 +38,7 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', removed: Message[])
 		tenantId: randomUUID(),
 		projectId: randomUUID(),
 		sessionId: randomUUID(),
-		runId: asRunId(randomUUID()),
+		turnId: asTurnId(randomUUID()),
 	}
 	const store = new RunDiskStore({ baseDir: root })
 	const runDir = await store.initRun(scope.runId)
@@ -50,17 +50,17 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', removed: Message[])
 			metadata: { scope },
 		}),
 	)
-	await store.appendEvent({ type: 'run_started', runId: scope.runId, seq: 1 })
+	await store.appendEvent({ type: 'turn_started', runId: scope.runId, seq: 1 })
 	await store.appendEvent({
 		type: 'compaction_shed',
-		runId: scope.runId,
+		turnId: scope.runId,
 		seq: 2,
 		iteration: 0,
 		reason: 'manual',
 		messages: removed,
 	})
 	const reopen = () =>
-		createDiskRunTextEvidenceSource({
+		createSessionTextEvidenceSource({
 			scope,
 			runDir,
 			indexDir: join(runDir, 'evidence-index'),
@@ -70,8 +70,8 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', removed: Message[])
 	return { source, reopen, store, scope, runDir }
 }
 
-async function all(source: RunTextEvidenceSource, query: string) {
-	const matches: RunTextEvidenceMatch[] = []
+async function all(source: SessionTextEvidenceSource, query: string) {
+	const matches: SessionTextEvidenceMatch[] = []
 	let cursor: string | undefined
 	let pages = 0
 	do {
@@ -110,7 +110,7 @@ it.each(['live', 'closed', 'snapshot'] as const)(
 			let cursor: string | undefined
 			let excluded = 0
 			let pages = 0
-			const found: RunTextEvidenceMatch[] = []
+			const found: SessionTextEvidenceMatch[] = []
 			do {
 				const page = await f.source.search({
 					query: 'ORCHID',
@@ -284,7 +284,7 @@ it('paginates rich-only messages beyond one index page after reopening', async (
 	)
 	const f = await fixture('live', removed.slice(1, 3))
 	// No plain message can accidentally keep a rich-only record in the text chain.
-	await f.store.appendEvent({ type: 'run_completed', runId: f.scope.runId, seq: 3, result: '' })
+	await f.store.appendEvent({ type: 'turn_completed', runId: f.scope.runId, seq: 3, result: '' })
 	const live = (await f.store.captureTextEvidence(f.scope))!
 	for (const source of [live, f.reopen()]) {
 		const found = await all(source, 'ORCHID')

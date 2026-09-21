@@ -65,7 +65,7 @@ function params(
 		provider,
 		tools: new ToolRegistry(),
 		compactionConfig,
-		runConfig: {
+		turnConfig: {
 			model: 'compaction-model',
 			timeoutMs: 5_000,
 			streamIdleTimeoutMs,

@@ -11,10 +11,10 @@ import { ActivityStore } from '../../../store/activity/memory.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
@@ -39,7 +39,7 @@ import { type QueryParams, drainQuery } from '../index.js'
  * the answers the model reads back.
  */
 
-const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
+const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -86,15 +86,15 @@ function batchOf(calls: ReadonlyArray<{ id: string; name: string }>): ChatComple
 
 interface ExecutorFixture {
 	executor: ToolExecutor
-	events: RunEvent[]
+	events: SessionEvent[]
 }
 
 function executorOver(tools: ToolRegistry): ExecutorFixture {
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const executor = new ToolExecutor(
 		{
 			tools,
-			runId: mockRunId,
+			turnId: mockRunId,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -126,12 +126,12 @@ function toolResultIds(messages: readonly Message[]): string[] {
 }
 
 /** Every `tool_executing` / `tool_completed` as `[type, toolUseId]`. */
-const toolEventPairs = (events: readonly RunEvent[]) =>
+const toolEventPairs = (events: readonly SessionEvent[]) =>
 	events
 		.filter((event) => event.type === 'tool_executing' || event.type === 'tool_completed')
 		.map((event) => [
 			event.type,
-			(event as Extract<RunEvent, { type: 'tool_executing' }>).toolUseId,
+			(event as Extract<SessionEvent, { type: 'tool_executing' }>).toolUseId,
 		])
 
 describe('a batch whose calls finish in the opposite order to the one they were asked in', () => {
@@ -461,7 +461,7 @@ describe('a real run that asked for two tools at once', () => {
 	}
 
 	async function runBoth(): Promise<{
-		events: RunEvent[]
+		events: SessionEvent[]
 		run: Awaited<ReturnType<typeof drainQuery>>
 	}> {
 		const { tools } = concurrentRegistry()
@@ -477,7 +477,7 @@ describe('a real run that asked for two tools at once', () => {
 				{ text: 'both came back' },
 			],
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const run = await drainQuery(
 			{
 				provider,
@@ -487,7 +487,7 @@ describe('a real run that asked for two tools at once', () => {
 				agentName: 'Tool order agent',
 				messages: [{ role: 'user', content: 'go' }],
 				workingDirectory: await workdir(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,

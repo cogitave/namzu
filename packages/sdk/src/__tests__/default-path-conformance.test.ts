@@ -8,9 +8,9 @@ import { IterationOrchestrator } from '../runtime/query/iteration/index.js'
 import { ActivityStore } from '../store/activity/memory.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { HITLResumeDecision } from '../types/hitl/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { TurnId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
-import type { RunEvent } from '../types/run/index.js'
+import type { SessionEvent } from '../types/session/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
 import type { Logger } from '../utils/logger.js'
 
@@ -30,7 +30,7 @@ import type { Logger } from '../utils/logger.js'
  * turn, is the conversation still something a provider would accept?
  */
 
-const RUN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as RunId
+const RUN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as TurnId
 
 /** The CLI's gate, verbatim in shape: read-only allowed, dangerous denied. */
 const CLI_GATE: AuthorizationGateConfig = {
@@ -81,7 +81,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		trackLlmTurns: false,
 	})
 
-	const runMgr = {
+	const recorder = {
 		id: RUN_ID,
 		messages,
 		tokenUsage: {
@@ -124,14 +124,14 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: new MockLLMProvider({ turns: opts.turns as never }),
-		// The CLI's runConfig shape: a huge cumulative budget and a model id.
-		runConfig: { model: 'claude-opus-5', maxIterations: 50, tokenBudget: 1_000_000 },
+		// The CLI's turnConfig shape: a huge cumulative budget and a model id.
+		turnConfig: { model: 'claude-opus-5', maxIterations: 50, tokenBudget: 1_000_000 },
 		tools,
-		runMgr,
+		recorder,
 		toolExecutor: new ToolExecutor(
 			{
 				tools,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -145,7 +145,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
 			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),

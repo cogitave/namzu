@@ -21,7 +21,7 @@ import { drainQuery } from '../index.js'
  *
  * `calculateCost` existed, `CostInfo` was carried on the run, the step, the
  * checkpoint and the `token_usage_updated` event — and nothing supplied a rate
- * to any of it. `RunPersistence` priced a turn only when the host passed
+ * to any of it. `TurnRecorder` priced a turn only when the host passed
  * `pricing` to `query()`; `ReactiveAgent` does not forward that field, and
  * `@namzu/cli` never sets it, so the accumulation branch was dead on every
  * shipped surface.
@@ -97,7 +97,7 @@ function run(opts: {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'hello' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: opts.model,
 			tokenBudget: opts.tokenBudget ?? 100_000_000,
 			timeoutMs: 30_000,
@@ -132,9 +132,9 @@ describe('a run against a catalogued model', () => {
 	it('prices a turn at the rate of the member that SERVED it, not the one declared', async () => {
 		// Every other case here runs a single provider on the run's own model,
 		// where "priced per turn against who answered" and "priced once against
-		// runConfig.model" give the same number — so none of them can tell the
+		// turnConfig.model" give the same number — so none of them can tell the
 		// two apart. Deleting the per-turn attribution and reading
-		// `runConfig.model` instead passed all of them.
+		// `turnConfig.model` instead passed all of them.
 		//
 		// A chain that falls over separates the two: the head is asked for the
 		// dearer model at $5/$25 and fails, and the member that actually

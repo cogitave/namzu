@@ -440,7 +440,7 @@ export async function* handleHITLDecision(
 			yield* ctx.drainPending()
 			ctx.recorder.setStopReason('paused')
 			ctx.log.info('Run paused', {
-				'namzu.run.phase': context,
+				'namzu.turn.phase': context,
 				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.reason': decision.reason,
 			})
@@ -450,7 +450,7 @@ export async function* handleHITLDecision(
 			ctx.recorder.setStopReason('cancelled')
 			ctx.recorder.markCancelled()
 			ctx.log.info('Run aborted', {
-				'namzu.run.phase': context,
+				'namzu.turn.phase': context,
 				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.reason': decision.reason,
 			})

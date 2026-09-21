@@ -8,7 +8,7 @@ import {
 	stepBudgetScorer,
 	trajectoryScorer,
 } from '../scorers.js'
-import type { EvalCase, EvalRun } from '../types.js'
+import type { EvalCase, EvalTurn } from '../types.js'
 
 /**
  * There was no evaluation harness of any kind — no dataset, no scorer, no
@@ -20,7 +20,7 @@ import type { EvalCase, EvalRun } from '../types.js'
  * hit it.
  */
 
-function run(overrides: Partial<EvalRun> = {}): EvalRun {
+function run(overrides: Partial<EvalTurn> = {}): EvalTurn {
 	return {
 		output: 'done',
 		steps: [],
