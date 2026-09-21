@@ -2,6 +2,7 @@
 
 ## 2026-09-21
 
+- **Update** [Zen](sdk/zen.md) continues a conversation from `first.turn.messages`; [Run the kernel](sdk/quick-start.md)'s `paths` example is compiled by the fence gate now that `runAgent` takes `paths`.
 - **Update** [Delegation events](sdk/delegation-events.md): the parent turn records `child_session_spawned` and `child_session_ended` itself, through the scheduler's optional `onChildSessionEvent`; the manager starts a child's log with `session_started.parent`.
 - **Update** [Zen](sdk/zen.md): the Go catalogue carries `grok-4.7`; four ids the pages route without a models.dev entry are recorded as omissions until their limits are published.
 - **Creation** [Session storage](cli/session-storage.md): every file the CLI and SDK keep under `NAMZU_HOME` — `projects/<slug>/`, one `<session-id>.jsonl` per session and what sits in `<session-id>/`, `index.sqlite`, the per-user scratch directory — and which are safe to delete. Nothing is written under the working directory.

@@ -79,7 +79,7 @@ the layout and the record schema.
 To put that state somewhere else, set `NAMZU_HOME`, or pass `paths`, a
 `SessionPaths` rooted where you choose:
 
-```ts sketch
+```ts
 import { ensureProject, MockLLMProvider, runAgent, SessionPaths } from '@namzu/sdk'
 
 const home = '/absolute/path/private-runtime-state'

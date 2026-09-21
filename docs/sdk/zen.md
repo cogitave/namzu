@@ -52,7 +52,7 @@ const second = await runAgent({
   ...first.identity,
   provider,
   model: 'muse-spark-1.3-contributor-free',
-  prompt: [...first.run.messages, { role: 'user', content: 'Give one example.' }],
+  prompt: [...first.turn.messages, { role: 'user', content: 'Give one example.' }],
 })
 
 console.log(second.output)
