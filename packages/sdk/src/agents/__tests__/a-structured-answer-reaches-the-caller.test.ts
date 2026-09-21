@@ -4,7 +4,7 @@
  * `runAgent` never forwarded `structuredOutput`, so the most convenient way
  * into the kernel was the one way that could not produce a typed answer. The
  * runtime has parsed and validated these throughout — the eval harness reads
- * `run.structuredOutput` correctly, which is the proof the value is real and
+ * `turn.structuredOutput` correctly, which is the proof the value is real and
  * only the ergonomic boundaries dropped it.
  *
  * Driven end-to-end through `runAgent` rather than against the parser: the
@@ -68,7 +68,7 @@ describe('runAgent with a schema', () => {
 		// durable record and `structuredOutput` is the ergonomic handle that did
 		// not exist. A fix that populated only the run would leave the front door
 		// exactly as unusable as it was.
-		expect(out.run.structuredOutput).toEqual(ANSWER)
+		expect(out.turn.structuredOutput).toEqual(ANSWER)
 		expect(out.structuredOutput).toEqual(ANSWER)
 	})
 
@@ -82,11 +82,11 @@ describe('runAgent with a schema', () => {
 		const out = await runWithSchema(dir)
 
 		expect(out.output).toBe(JSON.stringify(ANSWER))
-		expect(out.run.result).toBe(JSON.stringify(ANSWER))
+		expect(out.turn.result).toBe(JSON.stringify(ANSWER))
 	})
 
 	it('leaves `output` as prose when no schema was asked for', async () => {
-		// The preservation half: the serialization must not reach an ordinary run.
+		// The preservation half: the serialization must not reach an ordinary turn.
 		const dir = await mkdtemp(join(tmpdir(), 'namzu-so-'))
 		const provider = new MockLLMProvider({ turns: [{ text: 'just prose' }] })
 

@@ -1,24 +1,28 @@
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { type QueryParams, drainQuery } from '../runtime/query/index.js'
 import type { ProjectInstructionContext } from '../runtime/query/project-instructions.js'
+import { resolveNamzuHome } from '../session/home.js'
+import { SessionPaths, ensureProject } from '../session/paths.js'
+import { InMemorySessionLog } from '../store/session-log/index.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
-import type { Run, RunEventListener } from '../types/run/index.js'
 import type { SandboxProvider } from '../types/sandbox/index.js'
+import type { SessionEventListener } from '../types/session/events.js'
+import type { Turn } from '../types/session/turn.js'
 import type { Skill } from '../types/skills/index.js'
 import type { StructuredOutputConfig } from '../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
 import {
+	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
-	projectIdForDirectory,
 } from '../utils/id.js'
 
 /**
- * The session a run belongs to.
+ * The session a turn belongs to.
  *
  * Every field is generated when absent, and the generated values come back on
  * the result so a second turn can be handed the same ones. That pairing is the
@@ -32,16 +36,19 @@ import {
  * refused at the first delegation with `Project <id> not found for tenant
  * <id> — spawn rejected`, which is the enforcement site behaving correctly:
  * delegation limits live on the project, and a missing project has no limits
- * to read. A run that has to delegate should be given the id returned by
+ * to read. A turn that has to delegate should be given the id returned by
  * `store.createProject()`.
  */
 export interface AgentIdentity {
 	sessionId?: SessionId
 	topicId?: TopicId
 	/**
-	 * Omitted: derived from `workingDirectory` by {@link projectIdForDirectory},
-	 * so every run in one directory shares a Project. The other three are
-	 * minted per call when omitted.
+	 * Omitted: the project the working directory stands for, read from (or
+	 * minted once into) `~/.namzu/projects/<slug>/project.json` by
+	 * `ensureProject`, so every turn in one directory shares a Project. A
+	 * session held in memory with no `paths` gets a fresh id and writes
+	 * nothing. A host whose `paths` name a slug of its own passes the id. The
+	 * other three are minted per call when omitted.
 	 */
 	projectId?: ProjectId
 	tenantId?: TenantId
@@ -87,7 +94,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	/** Execute sandbox-aware tools inside this provider's boundary. */
 	sandboxProvider?: SandboxProvider
 	/** What a supplied sandbox is rooted at and its per-run limits. */
-	sandbox?: import('../types/run/config.js').AgentRunConfig['sandbox']
+	sandbox?: import('../types/session/config.js').TurnConfig['sandbox']
 	/** Sandbox teardown wait; defaults to 30 seconds and `0` is unbounded. */
 	sandboxTeardownTimeoutMs?: number
 
@@ -122,10 +129,14 @@ export interface RunAgentOptions extends AgentIdentity {
 	/** Defaults to the current working directory. */
 	workingDirectory?: string
 
-	/** Host-owned state layout, independent of the tool working directory. */
-	pathBuilder?: QueryParams['pathBuilder']
-	/** Optional evidence store; omitted uses the resolved disk layout. */
-	runStore?: QueryParams['runStore']
+	/** Host-owned state layout (`NAMZU_HOME` and the project slug), independent of the tool working directory. */
+	paths?: QueryParams['paths']
+	/**
+	 * The session log this turn appends to; omitted uses the log in the
+	 * resolved layout. An `InMemorySessionLog` keeps the whole session in
+	 * memory.
+	 */
+	sessionLog?: QueryParams['sessionLog']
 	/** Optional checkpoint store; omitted uses the resolved disk layout. */
 	checkpointStore?: QueryParams['checkpointStore']
 
@@ -152,7 +163,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 * structured output throughout and this function never forwarded the
 	 * config, so the single most convenient way into the kernel was the one way
 	 * that could not produce a typed answer. Present, the validated value comes
-	 * back on {@link RunAgentResult.structuredOutput} and on `run`.
+	 * back on {@link RunAgentResult.structuredOutput} and on `turn`.
 	 */
 	structuredOutput?: StructuredOutputConfig
 
@@ -179,7 +190,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	name?: string
 
 	signal?: AbortSignal
-	listener?: RunEventListener
+	listener?: SessionEventListener
 	/** Live project policy for hosts that discover nested instruction scopes. */
 	projectInstructionContext?: ProjectInstructionContext
 }
@@ -192,14 +203,14 @@ export interface RunAgentResult {
 	 * The schema-validated answer, when {@link RunAgentOptions.structuredOutput}
 	 * asked for one and the model produced it.
 	 *
-	 * Mirrors `run.structuredOutput` the way {@link output} mirrors
-	 * `run.result` — the whole point of this shape is that the two answers a
-	 * run can give are reachable without unpacking the run.
+	 * Mirrors `turn.structuredOutput` the way {@link output} mirrors
+	 * `turn.result` — the whole point of this shape is that the two answers a
+	 * turn can give are reachable without unpacking the turn.
 	 */
 	readonly structuredOutput?: unknown
 
-	/** The full run — usage, cost, steps, stop reason, every message. */
-	readonly run: Run
+	/** The full turn — usage, cost, steps, stop reason, every message. */
+	readonly turn: Turn
 
 	/**
 	 * The identity this run used, with anything generated filled in.
@@ -259,19 +270,19 @@ export const DEFAULT_TIMEOUT_MS = 300_000
  *   provider,
  *   model,
  *   ...first.identity,
- *   prompt: [...first.run.messages, createUserMessage('What is my name?')],
+ *   prompt: [...first.turn.messages, createUserMessage('What is my name?')],
  * })
  * ```
  */
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
 	const workingDirectory = options.workingDirectory ?? process.cwd()
+	const layout = await resolveLayout(options, workingDirectory)
 	const identity: Required<AgentIdentity> = {
 		sessionId: options.sessionId ?? generateSessionId(),
 		topicId: options.topicId ?? generateTopicId(),
-		// Derived from the working directory, not minted: a minted Project put
-		// every call in a Project of its own, so a batch of runs in one
-		// directory left one `projects/<id>/` tree per run.
-		projectId: options.projectId ?? projectIdForDirectory(workingDirectory),
+		// The working directory's project, not a minted one: a minted Project
+		// put every call in a Project of its own.
+		projectId: options.projectId ?? layout.projectId,
 		tenantId: options.tenantId ?? generateTenantId(),
 	}
 
@@ -286,11 +297,11 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				]
 			: options.prompt
 
-	const run = await drainQuery(
+	const turn = await drainQuery(
 		{
 			provider: options.provider,
-			...(options.pathBuilder ? { pathBuilder: options.pathBuilder } : {}),
-			...(options.runStore ? { runStore: options.runStore } : {}),
+			...(layout.paths ? { paths: layout.paths } : {}),
+			...(options.sessionLog ? { sessionLog: options.sessionLog } : {}),
 			...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
 			tools: options.tools ?? new ToolRegistry(),
 			...(options.toolResultGuardrails !== undefined
@@ -306,7 +317,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				: {}),
 			messages,
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: options.model,
 				...(options.sandbox ? { sandbox: options.sandbox } : {}),
 				maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
@@ -344,9 +355,47 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 	)
 
 	return {
-		output: run.result,
-		structuredOutput: run.structuredOutput,
-		run,
+		output: turn.result,
+		structuredOutput: turn.structuredOutput,
+		turn,
 		identity,
+	}
+}
+
+/**
+ * Where the turn is written and which project it belongs to.
+ *
+ * - A session held in memory with no `paths`: nothing on disk, and a fresh
+ *   project id unless the caller named one.
+ * - Otherwise the project the working directory stands for, found or minted
+ *   once by `ensureProject` under the given `paths.home` (or `NAMZU_HOME`),
+ *   so every turn in one directory shares a Project and its log sits beside
+ *   that project's `project.json`.
+ *
+ * A caller that passes both `paths` and a `projectId` chose both, and nothing
+ * is read. One that passes `paths` alone must name the working directory's
+ * slug: a layout pointing at a different project than the directory is
+ * refused rather than filing the turn under a project it does not belong to.
+ */
+async function resolveLayout(
+	options: Pick<RunAgentOptions, 'paths' | 'sessionLog' | 'projectId'>,
+	workingDirectory: string,
+): Promise<{ readonly paths?: SessionPaths; readonly projectId: ProjectId }> {
+	if (options.sessionLog instanceof InMemorySessionLog && options.paths === undefined) {
+		return { projectId: options.projectId ?? generateProjectId() }
+	}
+	if (options.paths && options.projectId) {
+		return { paths: options.paths, projectId: options.projectId }
+	}
+	const home = options.paths?.home ?? resolveNamzuHome()
+	const project = await ensureProject({ home, cwd: workingDirectory })
+	if (options.paths && options.paths.slug !== project.slug) {
+		throw new Error(
+			`runAgent: paths name project "${options.paths.slug}", but ${project.cwd} is project "${project.slug}". Pass projectId to file the turn under paths of your own.`,
+		)
+	}
+	return {
+		paths: options.paths ?? new SessionPaths({ home, slug: project.slug }),
+		projectId: project.projectId,
 	}
 }

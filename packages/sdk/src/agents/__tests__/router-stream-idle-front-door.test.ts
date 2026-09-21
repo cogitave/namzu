@@ -9,10 +9,10 @@ import type {
 	BaseAgentConfig,
 	BaseAgentResult,
 } from '../../types/agent/index.js'
-import type { RunId, TenantId } from '../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../../types/provider/index.js'
-import type { RunEvent } from '../../types/run/index.js'
+import type { SessionEvent } from '../../types/session/events.js'
 import { RouterAgent } from '../RouterAgent.js'
 
 class AbortAwareRoutingStall implements LLMProvider {
@@ -90,7 +90,8 @@ function recordingDelegate() {
 			calls += 1
 			receivedConfig = config
 			return {
-				runId: '778feb11-9cb6-4200-9178-eb7f6f94f975' as RunId,
+				sessionId: (config.sessionId ?? '778feb11-9cb6-4200-9178-eb7f6f94f975') as SessionId,
+				turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId,
 				status: 'completed',
 				stopReason: 'end_turn',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -239,7 +240,7 @@ describe('RouterAgent owns the liveness of its routing model call', () => {
 		await router.cancel('user')
 
 		await expect(withinSafety(running)).rejects.toMatchObject({
-			name: 'RunCancelled',
+			name: 'TurnCancelled',
 			cancelCause: 'user',
 		})
 		expect(delegate.calls()).toBe(0)
@@ -251,7 +252,7 @@ describe('RouterAgent owns the liveness of its routing model call', () => {
 		const provider = new AbortAwareRoutingStall()
 		const delegate = recordingDelegate()
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const router = new RouterAgent({
 			id: 'invalid-router',
 			name: 'Invalid Router',

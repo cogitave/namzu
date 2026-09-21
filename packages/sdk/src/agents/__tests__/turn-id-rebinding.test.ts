@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NAMZU } from '../../constants/telemetry/index.js'
+import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	AgentInput,
 	AgentMetadata,
@@ -29,15 +29,16 @@ function capturingLogger(): { logger: Logger; records: CapturedRecord[] } {
 class TestAgent extends AbstractAgent<BaseAgentConfig, BaseAgentResult> {
 	readonly type = 'reactive' as const
 
-	async run(_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> {
-		const runId = this.createRunId()
-		this.bindRun(runId)
-		this.log.info('run started')
-		return this.createEmptyResult(runId, Date.now())
+	async run(_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> {
+		const sessionId = this.resolveSessionId(config.sessionId)
+		const turnId = this.createTurnId()
+		this.bindTurn(sessionId, turnId)
+		this.log.info('turn started')
+		return this.createEmptyResult(sessionId, turnId, Date.now())
 	}
 
-	getCurrentRunId() {
-		return this.currentRunId
+	getCurrentTurnId() {
+		return this.currentTurnId
 	}
 }
 
@@ -58,8 +59,8 @@ function metadata(): AgentMetadata {
 	}
 }
 
-describe('AbstractAgent — per-invocation run-id rebinding', () => {
-	it('carries the SECOND run’s id on records from the second run, never the first — a constructor-time binding fails this', async () => {
+describe('AbstractAgent — per-invocation turn-id rebinding', () => {
+	it('carries the SECOND turn’s id on records from the second turn, never the first — a constructor-time binding fails this', async () => {
 		const { logger, records } = capturingLogger()
 		const agent = new TestAgent(metadata(), logger)
 
@@ -67,24 +68,30 @@ describe('AbstractAgent — per-invocation run-id rebinding', () => {
 		const config: BaseAgentConfig = { model: 'test-model', tokenBudget: 1000, timeoutMs: 1000 }
 
 		const first = await agent.run(input, config)
-		expect(agent.getCurrentRunId()).toBe(first.runId)
+		expect(agent.getCurrentTurnId()).toBe(first.turnId)
 
 		const second = await agent.run(input, config)
-		expect(agent.getCurrentRunId()).toBe(second.runId)
-		expect(first.runId).not.toBe(second.runId)
+		expect(agent.getCurrentTurnId()).toBe(second.turnId)
+		expect(first.turnId).not.toBe(second.turnId)
 
-		const runStartedRecords = records.filter((r) => r.message === 'run started')
-		expect(runStartedRecords).toHaveLength(2)
+		const turnStartedRecords = records.filter((r) => r.message === 'turn started')
+		expect(turnStartedRecords).toHaveLength(2)
 
-		const firstRunRecords = runStartedRecords.filter((r) => r.bound[NAMZU.RUN_ID] === first.runId)
-		const secondRunRecords = runStartedRecords.filter((r) => r.bound[NAMZU.RUN_ID] === second.runId)
+		const firstTurnRecords = turnStartedRecords.filter(
+			(r) => r.bound[NAMZU.TURN_ID] === first.turnId,
+		)
+		const secondTurnRecords = turnStartedRecords.filter(
+			(r) => r.bound[NAMZU.TURN_ID] === second.turnId,
+		)
 
-		expect(firstRunRecords).toHaveLength(1)
-		expect(secondRunRecords).toHaveLength(1)
+		expect(firstTurnRecords).toHaveLength(1)
+		expect(secondTurnRecords).toHaveLength(1)
+		// The session travels with the turn, under the conventional key.
+		expect(firstTurnRecords[0]?.bound[GENAI.CONVERSATION_ID]).toBe(first.sessionId)
 		// The bug this test exists to catch: a constructor-time binding gives
-		// every record — first run AND second — the run id (or lack of one)
-		// that was live when `new TestAgent(...)` ran, so the second run's own
-		// record would still carry the FIRST run's id here.
-		expect(secondRunRecords[0]?.bound[NAMZU.RUN_ID]).not.toBe(first.runId)
+		// every record — first turn AND second — the id (or lack of one) that
+		// was live when `new TestAgent(...)` ran, so the second turn's own
+		// record would still carry the FIRST turn's id here.
+		expect(secondTurnRecords[0]?.bound[NAMZU.TURN_ID]).not.toBe(first.turnId)
 	})
 })

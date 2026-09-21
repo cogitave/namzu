@@ -5,15 +5,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { collectChatCompletion } from '../../provider/collect-chat-completion.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { TokenBudget } from '../../run/token-budget.js'
+import { SessionTokenBudget } from '../../store/budget/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
 import type { Agent } from '../../types/agent/core.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import { PipelineAgent } from '../PipelineAgent.js'
 import { RouterAgent } from '../RouterAgent.js'
@@ -42,25 +42,35 @@ describe('agent budget authority', () => {
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 		}
-		const runId = generateRunId()
+		const turnId = generateTurnId()
 		const budget = await resolveAgentBudget(
 			{ ...input, workingDirectory },
 			{ ...config, ...scope },
-			runId,
+			{ sessionId: scope.sessionId, turnId },
 		)
-		expect(budget.binding?.scope).toEqual({ ...scope, runId })
+		// Keyed by the root turn: its own ledger, persisted beside the session.
+		expect(budget.binding).toMatchObject({ rootSessionId: scope.sessionId, rootTurnId: turnId })
 		const child = budget.reserve(400)
-		const childRunId = generateRunId()
+		const childTurn = { sessionId: generateSessionId(), turnId: generateTurnId() }
 		expect(
-			await resolveAgentBudget(input, { ...config, budget: child, parentRunId: runId }, childRunId),
+			await resolveAgentBudget(
+				input,
+				{ ...config, budget: child, parentSessionId: scope.sessionId },
+				childTurn,
+			),
 		).toBe(child)
-		expect(child.runId).toBe(childRunId)
+		expect(child.turn).toEqual(childTurn)
+		expect(child.scope).toEqual({ rootSessionId: scope.sessionId, rootTurnId: turnId })
 		await budget.flush()
 	})
 
 	it('refuses a delegated config that would create a fresh allowance', async () => {
 		await expect(
-			resolveAgentBudget(input, { ...config, parentRunId: generateRunId() }, generateRunId()),
+			resolveAgentBudget(
+				input,
+				{ ...config, parentSessionId: generateSessionId() },
+				{ sessionId: generateSessionId(), turnId: generateTurnId() },
+			),
 		).rejects.toThrow('inherited token budget')
 	})
 
@@ -79,7 +89,7 @@ describe('agent budget authority', () => {
 							context.provider!.chatStream({ model: 'mock', messages: [] }),
 						)
 						const child = context.budget.reserve(100)
-						child.bindRun(generateRunId())
+						child.bindTurn(generateSessionId(), generateTurnId())
 						child.settle(30)
 						return 'done'
 					},
@@ -108,7 +118,8 @@ describe('agent budget authority', () => {
 			async run(_input, childConfig) {
 				received = childConfig
 				return {
-					runId: generateRunId(),
+					sessionId: childConfig.sessionId ?? generateSessionId(),
+					turnId: generateTurnId(),
 					status: 'completed',
 					usage: {
 						...EMPTY_TOKEN_USAGE,
@@ -141,7 +152,9 @@ describe('agent budget authority', () => {
 			routes: [{ agentId: 'worker', agent: worker, description: 'worker' }],
 		})
 		expect(received?.budget?.limit).toBe(700)
-		expect(received?.parentRunId).toBe(result.runId)
+		// The delegate runs this session's turn; it is not a child session.
+		expect(received?.sessionId).toBe(result.sessionId)
+		expect(received?.parentSessionId).toBeUndefined()
 		expect(result.usage.totalTokens).toBe(300)
 		expect(result.cost).toMatchObject({ totalCost: 0, unpricedTokens: 300 })
 		expect(result.delegateResult.cost.totalCost).toBe(0.5)
@@ -151,12 +164,15 @@ describe('agent budget authority', () => {
 })
 
 it('narrows an inherited composite subtree to its explicit numeric cap', async () => {
-	const root = TokenBudget.create(1_000, generateRunId())
+	const root = SessionTokenBudget.create(1_000, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	})
 	const child = root.reserve(500)
 	const resolved = await resolveAgentBudget(
 		input,
 		{ ...config, tokenBudget: 200, budget: child },
-		generateRunId(),
+		{ sessionId: generateSessionId(), turnId: generateTurnId() },
 	)
 	expect(resolved.limit).toBe(200)
 	expect(root.remaining).toBe(800)

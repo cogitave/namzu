@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { RunCancelled, cancelCauseOf } from '../../types/run/cancel-cause.js'
+import { TurnCancelled, cancelCauseOf } from '../../types/session/cancel-cause.js'
 import { abortReasonText } from '../../utils/abort.js'
 
 /**
@@ -25,7 +25,7 @@ describe('an abort reason that carries a cause', () => {
 		// noise `abortReasonText` exists to suppress — and it must still be
 		// recoverable by something asking for it directly.
 		const controller = new AbortController()
-		controller.abort(new RunCancelled('parent'))
+		controller.abort(new TurnCancelled('parent'))
 
 		expect(abortReasonText(controller.signal.reason)).toBeUndefined()
 		expect(cancelCauseOf(controller.signal.reason)).toBe('parent')
@@ -51,8 +51,8 @@ describe('an abort reason that carries a cause', () => {
 		// Two copies of the package defeat `instanceof` and nothing announces
 		// it — the answer this codebase already settled on for provider
 		// errors. A structural twin from another copy must still be read.
-		const fromAnotherCopy = Object.assign(new Error('run cancelled by budget'), {
-			name: 'RunCancelled',
+		const fromAnotherCopy = Object.assign(new Error('turn cancelled by budget'), {
+			name: 'TurnCancelled',
 			cancelCause: 'budget' as const,
 		})
 
@@ -63,7 +63,7 @@ describe('an abort reason that carries a cause', () => {
 		// `Error.cause` already exists and means "the error this one
 		// wrapped". Reusing that name would put two unrelated meanings on one
 		// property and change what anything reading `err.cause` gets.
-		const cancelled = new RunCancelled('hook')
+		const cancelled = new TurnCancelled('hook')
 
 		expect(cancelled.cancelCause).toBe('hook')
 		expect(cancelled.cause).toBeUndefined()

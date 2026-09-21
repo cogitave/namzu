@@ -2,7 +2,6 @@ import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
-import { resolveRunStorage } from '../runtime/query/stores-held-in-memory.js'
 import { CompletionInbox } from '../scheduler/completion-inbox.js'
 import { LocalTaskScheduler } from '../scheduler/local.js'
 import { ASK_USER_QUESTION_TOOL_NAME, buildCoordinatorTools } from '../tools/coordinator/index.js'
@@ -15,14 +14,15 @@ import type {
 } from '../types/agent/index.js'
 import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId, TurnId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
-import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
+import type { SessionEventListener } from '../types/session/events.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 import { resolveAgentBudget } from './budget.js'
+import { childSessionStorage } from './storage.js'
 
 /**
  * Build the authoritative per-task ledger from the gateway's task handles.
@@ -42,13 +42,14 @@ import { resolveAgentBudget } from './budget.js'
  */
 export function synthesizeTaskResults(
 	taskHandles: readonly TaskHandle[],
-	runId: RunId,
+	turn: { readonly sessionId: SessionId; readonly turnId: TurnId },
 	now: number = Date.now(),
 ): AgentTaskResult[] {
 	return taskHandles.map((handle, index) => ({
 		agentId: handle.agentId,
 		result: handle.result ?? {
-			runId,
+			sessionId: turn.sessionId,
+			turnId: turn.turnId,
 			status: 'failed' as const,
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -87,16 +88,16 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 	/**
 	 * One run at a time per instance.
 	 *
-	 * `abortController` and `currentRunId` are instance state, so two
+	 * `abortController` and `currentSessionId` are instance state, so two
 	 * overlapping runs share one abort controller — cancelling either kills
-	 * both — and the second clobbers the first's run id, so a later
-	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * both — and the second clobbers the first's session, so a later
+	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
 	 */
 	async run(
 		input: AgentInput,
 		config: SupervisorAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<SupervisorAgentResult> {
 		return await this.underIdempotencyKey(config.idempotencyKey, () =>
 			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
@@ -106,18 +107,17 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 	private async runExclusive(
 		input: AgentInput,
 		config: SupervisorAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<SupervisorAgentResult> {
 		const startTime = Date.now()
-		const runId = this.createRunId()
-		this.bindRun(runId, config.logger)
-
 		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 			throw new Error(
 				'SupervisorAgent requires sessionId, topicId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
 		const sessionId = config.sessionId
+		const turnId = this.createTurnId()
+		this.bindTurn(sessionId, turnId, config.logger)
 		const topicId = config.topicId
 		const projectId = config.projectId
 		const tenantId = config.tenantId
@@ -136,18 +136,13 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const budget = await resolveAgentBudget(
 			input,
 			{ ...config, budget: config.budget ?? configuredScheduler?.budget },
-			runId,
+			{ sessionId, turnId },
 		)
 		if (configuredScheduler && configuredScheduler.budget !== budget) {
 			throw new Error('Injected task scheduler must share the supervisor token budget authority')
 		}
 
-		const childStorage = resolveRunStorage({
-			runStore: config.runStore,
-			pathBuilder: config.pathBuilder,
-			checkpointStore: config.checkpointStore,
-			runId,
-		}).children
+		const childStorage = childSessionStorage(config)
 
 		let gateway: TaskScheduler
 		if (configuredScheduler) {
@@ -165,7 +160,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					: undefined
 
 			const taskContext: AgentTaskContext = {
-				parentRunId: runId,
+				parentSessionId: sessionId,
+				parentTurnId: turnId,
 				parentAgentId: this.metadata.id,
 				parentAbortController: this.abortController,
 				// This context describes the CURRENT supervisor. AgentManager owns
@@ -193,8 +189,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				projectId,
 				parentActor,
 				// A supervisor held in memory delegates to workers held in
-				// memory; without this each worker wrote a disk tree under
-				// `defaultStateRoot()` its supervisor never asked for.
+				// memory; without this each worker wrote a disk log under
+				// `NAMZU_HOME` its supervisor never asked for.
 				...(childStorage ? { childStorage } : {}),
 			}
 			// The only hop between the config and the gateway's policy. Omit it
@@ -251,7 +247,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// has had to go and delete before.
 				allowDelegation: config.allowDelegation,
 				taskStore: input.taskStore,
-				runId,
+				sessionId,
+				turnId,
 				getPlanManager: () => planManagerRef,
 				// A human-question tool belongs only to the root agent. The handler
 				// itself still reaches `drainQuery` below: delegated REVIEW-tier
@@ -331,7 +328,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				this.metadata.id,
 			)
 
-			const run = await drainQuery(
+			const turn = await drainQuery(
 				{
 					systemPrompt: config.systemPrompt,
 					skills: config.skills,
@@ -344,7 +341,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					...(config.attachmentResolveTimeoutMs !== undefined
 						? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
 						: {}),
-					runConfig: {
+					turnConfig: {
 						model: config.model,
 						tokenBudget: config.tokenBudget,
 						timeoutMs: config.timeoutMs,
@@ -384,8 +381,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					topicId,
 					projectId,
 					tenantId,
-					runId,
-					parentRunId: config.parentRunId,
+					turnId,
+					...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
+					...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
 					depth: config.depth,
 					contextLevel: 'full',
 					onContextCreated: ({ planManager }) => {
@@ -430,37 +428,38 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					...(config.workingMemoryProvider
 						? { workingMemoryProvider: config.workingMemoryProvider }
 						: {}),
-					...(config.pathBuilder ? { pathBuilder: config.pathBuilder } : {}),
-					...(config.runStore ? { runStore: config.runStore } : {}),
+					...(config.paths ? { paths: config.paths } : {}),
+					...(config.sessionLog ? { sessionLog: config.sessionLog } : {}),
 					...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
 				},
 				listener,
 			)
 
 			const taskHandles = gateway.listTasks()
-			const taskResults = synthesizeTaskResults(taskHandles, runId)
+			const taskResults = synthesizeTaskResults(taskHandles, { sessionId, turnId })
 
 			const completedTasks = countCompletedTasks(taskResults)
 
 			return {
-				runId: run.id,
-				status: run.status === 'completed' ? 'completed' : 'failed',
-				stopReason: run.stopReason,
-				usage: run.tokenUsage,
+				sessionId,
+				turnId: turn.id,
+				status: turn.status === 'completed' ? 'completed' : 'failed',
+				stopReason: turn.stopReason,
+				usage: turn.tokenUsage,
 				budget: budget.summary(),
-				cost: run.costInfo,
-				iterations: run.currentIteration,
+				cost: turn.costInfo,
+				iterations: turn.currentIteration,
 				durationMs: Date.now() - startTime,
-				messages: run.messages,
-				result: run.result,
+				messages: turn.messages,
+				result: turn.result,
 				// `BaseAgentResult.structuredOutput` names "an archetype's result
 				// literal did not copy it" as a defect it was written to close.
 				// This literal still did not copy it, so the same defect was live
 				// in the one archetype nobody checked: the value would have been
 				// produced, recorded on the run, serialized into `result`, and
 				// absent from the type a supervisor host actually reads.
-				structuredOutput: run.structuredOutput,
-				lastError: run.lastError,
+				structuredOutput: turn.structuredOutput,
+				lastError: turn.lastError,
 				taskResults,
 				completedTasks,
 				totalTasks: taskResults.length,

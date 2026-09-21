@@ -1,13 +1,13 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
-import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
-import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../store/run/memory.js'
+import { SessionPaths, slugForCwd } from '../../session/paths.js'
+import { DiskSessionLog, InMemorySessionLog } from '../../store/session-log/index.js'
 import { getBuiltinTools } from '../../tools/builtins/index.js'
+import { generateSessionId } from '../../utils/id.js'
 import { runAgent } from '../runAgent.js'
 
 const roots: string[] = []
@@ -16,7 +16,7 @@ afterEach(async () => {
 })
 
 it.each([false, true])(
-	'keeps run state outside the tool workspace (injected stores: %s)',
+	'keeps session state outside the tool workspace (in memory: %s)',
 	async (memory) => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-entry-storage-'))
 		roots.push(root)
@@ -25,9 +25,10 @@ it.each([false, true])(
 		await writeFile(join(cwd, 'note.txt'), 'Current source.')
 		const tools = new ToolRegistry()
 		tools.register(getBuiltinTools().filter((t) => t.name === 'read'))
-		const pathBuilder = new DefaultPathBuilder(join(root, 'private-state'))
-		const runStore = memory ? new InMemoryRunStore() : undefined
-		const checkpointStore = memory ? new InMemoryCheckpointStore() : undefined
+		const home = join(root, 'home')
+		const paths = new SessionPaths({ home, slug: slugForCwd(await realpath(cwd)) })
+		const sessionId = generateSessionId()
+		const sessionLog = memory ? new InMemorySessionLog({ sessionId }) : undefined
 		const result = await runAgent({
 			provider: new MockLLMProvider({
 				turns: [
@@ -39,31 +40,17 @@ it.each([false, true])(
 			prompt: 'Read note.txt',
 			workingDirectory: cwd,
 			tools,
-			pathBuilder,
-			runStore,
-			checkpointStore,
+			sessionId,
+			...(memory ? { sessionLog } : { paths }),
 		})
 		expect(result.output).toBe('Read the current source.')
-		expect(JSON.stringify(result.run.messages)).toContain('Current source.')
+		expect(JSON.stringify(result.turn.messages)).toContain('Current source.')
 		expect(await readdir(cwd)).toEqual(['note.txt'])
-		if (runStore && checkpointStore) {
-			const snapshot = await runStore.readMessages()
-			if (!('messages' in snapshot)) throw new Error('Expected retained messages.')
-			expect(JSON.stringify(snapshot.messages)).toContain('Current source.')
-			const checkpoints = await checkpointStore.listCheckpoints({
-				...result.identity,
-				runId: result.run.id,
-			})
-			expect(checkpoints.length).toBeGreaterThan(0)
-		} else {
-			const dir = pathBuilder.runDir(
-				result.identity.projectId,
-				result.identity.sessionId,
-				result.run.id,
-			)
-			const files = await readdir(dir)
-			expect(files).toContain('transcript.jsonl')
-			expect(await readFile(join(dir, 'transcript.jsonl'), 'utf8')).toContain('Current source.')
+		// The conversation is the session log, read back through its fold.
+		const log = sessionLog ?? DiskSessionLog.at(paths, { sessionId })
+		expect(JSON.stringify(await log.messages())).toContain('Current source.')
+		if (memory) {
+			expect(await readdir(root)).toEqual(['workspace'])
 		}
 	},
 )

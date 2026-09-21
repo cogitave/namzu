@@ -142,7 +142,7 @@ describe('agent front doors preserve the sandbox teardown bound', () => {
 			}),
 		)
 
-		expect(result.run.status).toBe('completed')
+		expect(result.turn.status).toBe('completed')
 		expect(teardownSignal?.aborted).toBe(true)
 		expect(teardownSignal?.reason).toMatchObject({ name: 'TimeoutError' })
 	})

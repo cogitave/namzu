@@ -15,7 +15,7 @@ import { type TokenUsage, accumulateTokenUsage } from '../types/common/index.js'
 import type { FallbackStrategy } from '../types/decision/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
 import { createSystemMessage, createUserMessage } from '../types/message/index.js'
-import type { RunEventListener } from '../types/run/index.js'
+import type { SessionEventListener } from '../types/session/events.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
@@ -43,16 +43,16 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 	/**
 	 * One run at a time per instance.
 	 *
-	 * `abortController` and `currentRunId` are instance state, so two
+	 * `abortController` and `currentSessionId` are instance state, so two
 	 * overlapping runs share one abort controller — cancelling either kills
-	 * both — and the second clobbers the first's run id, so a later
-	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * both — and the second clobbers the first's session, so a later
+	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
 	 */
 	async run(
 		input: AgentInput,
 		config: RouterAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<RouterAgentResult> {
 		return await this.underIdempotencyKey(config.idempotencyKey, () =>
 			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
@@ -62,22 +62,25 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 	private async runExclusive(
 		input: AgentInput,
 		config: RouterAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<RouterAgentResult> {
-		// Resolve before a run id/event exists, matching query(): malformed
+		// Resolve before a turn id/event exists, matching query(): malformed
 		// liveness policy is a caller config error, not a failed model run.
 		const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
 		const signal = input.signal
 			? AbortSignal.any([input.signal, this.abortController.signal])
 			: this.abortController.signal
 		const startTime = Date.now()
-		const runId = this.createRunId()
-		this.bindRun(runId, config.logger)
-		const budget = await resolveAgentBudget(input, config, runId)
+		const sessionId = this.resolveSessionId(config.sessionId)
+		const turnId = this.createTurnId()
+		this.bindTurn(sessionId, turnId, config.logger)
+		const budget = await resolveAgentBudget(input, config, { sessionId, turnId })
 		const budgetConfig = { ...config, budget }
+		// No lifecycle events of its own. A `turn_*` event names a turn in a
+		// session log, and routing writes none: the delegate below runs the
+		// session's turn and emits its lifecycle, and the listener receives
+		// exactly that turn rather than a synthetic one wrapped around it.
 		try {
-			await this.emitEvent({ type: 'run_started', runId }, listener)
-
 			const decision = await this.route(input, budgetConfig, streamIdleTimeoutMs, signal)
 
 			let targetRoute = config.routes.find((r) => r.agentId === decision.agentId)
@@ -90,18 +93,9 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 				if (!fallback) {
 					const errorMsg = `No route found for "${decision.agentId}"`
 
-					await this.emitEvent(
-						{
-							type: 'run_failed',
-							runId,
-							error: errorMsg,
-							budget: budget.summary(),
-						},
-						listener,
-					)
-
 					return {
-						runId,
+						sessionId,
+						turnId,
 						status: 'failed',
 						stopReason: 'error',
 						usage: budget.ownUsage,
@@ -114,7 +108,8 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 						selectedRoute: decision.agentId,
 						routingDecision: decision,
 						delegateResult: {
-							runId,
+							sessionId,
+							turnId,
 							status: 'failed',
 							usage: { ...EMPTY_TOKEN_USAGE },
 							cost: { ...ZERO_COST },
@@ -148,13 +143,15 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 						...config,
 						budget: childBudget,
 						tokenBudget: allocation,
-						parentRunId: runId,
+						// The same session: the delegate runs this session's turn,
+						// it is not a child session of it.
+						sessionId,
 						depth: (config.depth ?? 0) + 1,
 						invocationState: childInvocationState,
 					},
 					listener,
 				)
-				childBudget.bindRun(delegateResult.runId)
+				childBudget.bindTurn(delegateResult.sessionId, delegateResult.turnId)
 				childBudget.settle(delegateResult.usage.totalTokens)
 			} finally {
 				// A thrown custom delegate supplies no final usage receipt.
@@ -162,18 +159,9 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 				await childBudget.flush()
 			}
 
-			await this.emitEvent(
-				{
-					type: 'run_completed',
-					budget: budget.summary(),
-					runId,
-					result: delegateResult.result ?? '',
-				},
-				listener,
-			)
-
 			return {
-				runId,
+				sessionId,
+				turnId: delegateResult.turnId,
 				status: delegateResult.status,
 				stopReason: delegateResult.stopReason,
 				usage: budget.ownUsage,
@@ -200,11 +188,11 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		streamIdleTimeoutMs: number,
 		signal: AbortSignal,
 	): Promise<RoutingDecision> {
-		// `this.log`, not a fresh `getRootLogger()` child — bound by `bindRun` in
-		// `runExclusive` before this is called, so a routing warning below
-		// carries the SAME `namzu.run.id` as the run it is routing. The old
+		// `this.log`, not a fresh `getRootLogger()` child — bound by `bindTurn`
+		// in `runExclusive` before this is called, so a routing warning below
+		// carries the SAME `namzu.turn.id` as the turn it is routing. The old
 		// independent construction here is the exact bug LOG-10's acceptance
-		// criterion names: a route() log line with no run id at all.
+		// criterion names: a route() log line with no id at all.
 		const log = this.log
 
 		const validAgentIds = config.routes.map((r) => r.agentId)
