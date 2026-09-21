@@ -309,9 +309,11 @@ describe('the spawn context carries the choice', () => {
 				sessionLog: new InMemorySessionLog({ sessionId: h.sessionId }),
 				paths: new SessionPaths({ home: '/tmp/x', slug: '-x' }),
 			}),
-			undefined,
+			// A named layout is on disk, so the children nest under it.
+			{ kind: 'disk', paths: expect.objectContaining({ slug: '-x' }) },
 		],
-		['on disk', () => ({}), undefined],
+		// No log and no layout: the default layout its own log resolves to.
+		['on disk', () => ({}), { kind: 'disk', paths: expect.any(SessionPaths) }],
 	])('%s', async (_label, extra, expected) => {
 		const contexts: AgentTaskContext[] = []
 		await runSupervisor((h) => ({ ...extra(h), agentManager: spyManager(contexts) })).catch(
