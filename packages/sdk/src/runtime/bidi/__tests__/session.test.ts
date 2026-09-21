@@ -536,7 +536,9 @@ describe('a session with no turn boundary', () => {
 		const rest: BidiTurnEvent[] = []
 		for await (const event of run.events()) rest.push(event)
 
-		expect(rest).toEqual([{ type: 'closed', runId: run.runId, reason: 'peer left' }])
+		expect(rest).toEqual([
+			{ type: 'closed', sessionId: run.sessionId, turnId: run.turnId, reason: 'peer left' },
+		])
 		expect(toolSignal?.aborted).toBe(true)
 		expect(closeCalls).toBe(0)
 	})
@@ -766,6 +768,13 @@ describe('a session with no turn boundary', () => {
 		const seen: BidiTurnEvent[] = []
 		for await (const event of run.events()) seen.push(event)
 
-		expect(seen).toEqual([{ type: 'closed', runId: run.runId, reason: 'the far side hung up' }])
+		expect(seen).toEqual([
+			{
+				type: 'closed',
+				sessionId: run.sessionId,
+				turnId: run.turnId,
+				reason: 'the far side hung up',
+			},
+		])
 	})
 })
