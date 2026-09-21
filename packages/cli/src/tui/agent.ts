@@ -215,6 +215,7 @@ import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
+import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
 import type {
 	SubagentActivity,
 	SubagentActivitySource,
@@ -2792,6 +2793,7 @@ export async function createAgentSession(
 						...resumedLimits,
 						maxResponseTokens: 8192,
 						permissionMode: 'auto',
+						pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 					},
 					agentId: 'namzu',
 					agentName: 'namzu',
@@ -4046,6 +4048,8 @@ async function* runTurn({
 				...resolveRunGuards(limits),
 				maxResponseTokens: 8192,
 				permissionMode: 'auto',
+				// The kernel keeps every checkpoint unless told otherwise.
+				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 			},
 			// The operator's gate, if they set one. Omitted rather than passed
 			// as undefined so a run with no gate is byte-identical to the one

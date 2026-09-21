@@ -116,7 +116,8 @@ caps) and one range per edited message.
 checkpoint. It never collects one whose park is unresolved. The default is
 `undefined`: every checkpoint is kept. `BaseAgentConfig.pruneKeepLast` forwards
 it from `ReactiveAgent` and `SupervisorAgent`, which is how a host bounds
-delegated children as well.
+delegated children as well. The CLI sets it for every run it starts; see
+[Project and session state](../cli/project-state.md#runtime-state-growth).
 
 With `pruneKeepLast: 10`, the 50-iteration run above leaves 10 checkpoint
 files, 160,407 bytes, beside logs of 183,939 bytes: 19 files and 1,339,256

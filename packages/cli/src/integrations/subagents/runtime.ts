@@ -75,6 +75,7 @@ import {
 import { resolveRunGuards } from '../../config/run-limits.js'
 import type { RunLimitsConfig } from '../../config/schema.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
+import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
 	MAX_AGENT_PHASE_ORDER,
@@ -1506,6 +1507,7 @@ function buildDefinition(
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				maxIterations: limits.maxIterations,
+				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
 				...(webSearch ? { webSearch } : {}),
 				...(selection?.effort ? { effort: selection.effort } : {}),

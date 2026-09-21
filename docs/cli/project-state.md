@@ -78,6 +78,32 @@ journal and short transactions; readers do not create WAL sidecars.
 The CLI requires Node.js 22.13 or newer for native SQLite. SDK consumers can
 continue using the existing disk or in-memory drivers on Node.js 20.
 
+### Runtime state growth
+
+Every run the CLI starts keeps its newest 10 checkpoints
+(`runConfig.pruneKeepLast`, `packages/cli/src/integrations/state/retention.ts`).
+That includes interactive turns, headless runs, resumed and drained runs, and
+delegated children. The kernel's own default keeps all of them. Nothing in the
+CLI reads an older checkpoint: every resume reads the checkpoint it was handed
+or the newest one. A checkpoint whose approval is still outstanding is never
+pruned, however old. Each checkpoint references the run's single stored
+history instead of copying it; see [Durable run storage](../sdk/run-storage.md).
+
+Measured with `scripts/benchmarks/cli-state-growth.mjs`. It runs the built
+`namzu run` against a local scripted endpoint, and every model turn but the
+last asks for `read` on a different 4 KB file:
+
+| Invocations × tool calls | Files before | Bytes before | Files after | Bytes after |
+|---|---|---|---|---|
+| 3 × 50 | 173 | 29,621,057 | 56 | 5,034,053 |
+| 1 × 200 | 209 | 81,982,921 | 21 | 7,236,819 |
+
+Before, checkpoints were 25,675,207 and 76,337,377 of those bytes. After, a
+run's largest file is its event log, `transcript.jsonl`.
+
+Three invocations in one directory leave one Project, and nothing is written
+under the working directory.
+
 ### Previous storage format
 
 This is a new CLI storage format. Existing `projects/` trees are retained as
