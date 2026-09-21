@@ -11,7 +11,10 @@ every iteration, and `messages.json` copied it once more at settle. A
 113.2 MB to 11.7 MB. With `pruneKeepLast: 10` they leave 1.2 MB and 4.5 MB.
 Lines no record references any more (pruned checkpoints, rewritten pin slots,
 compacted heads) are collected into a new generation once they outweigh the
-live ones.
+live ones. Collection deletes an old generation only after the new one, the
+history directory and every rewritten record have been fsynced, so a power
+loss mid-collection leaves every record pointing at a generation that exists.
+On Windows the directory fsyncs are skipped; the platform refuses them.
 
 **What breaks.**
 

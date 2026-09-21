@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { rename, unlink, writeFile } from 'node:fs/promises'
+import { type FileHandle, open, rename, unlink, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 
 /**
  * Write-then-rename, with a sidecar name no other writer can pick.
@@ -49,6 +50,58 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
 	} catch (err) {
 		await unlink(tempPath).catch(() => undefined)
 		throw err
+	}
+}
+
+/**
+ * Publish `content` atomically AND durably: when this resolves, the new body
+ * and the rename that published it are on stable storage.
+ *
+ * {@link atomicWriteFile} survives a process crash — a reader sees the old
+ * file or the new one — but not a power loss: without an fsync the kernel may
+ * not have written the new body, or the directory entry that names it, when
+ * the machine stops. For a record that is about to become the ONLY thing
+ * pointing at some data (the older copy of which the caller deletes next),
+ * that is the difference between losing an update and losing the record.
+ *
+ * Costs two fsyncs, so it is for rare writes. On Windows, where a directory
+ * cannot be opened for fsync, the directory entry is left to the filesystem;
+ * see {@link syncDirectory}.
+ */
+export async function durableWriteFile(filePath: string, content: string): Promise<void> {
+	const tempPath = temporaryPathFor(filePath)
+	let handle: FileHandle | undefined
+	try {
+		handle = await open(tempPath, 'wx')
+		await handle.writeFile(content, 'utf-8')
+		await handle.sync()
+		await handle.close()
+		handle = undefined
+		await renameWithRetry(tempPath, filePath)
+	} catch (err) {
+		await handle?.close().catch(() => undefined)
+		await unlink(tempPath).catch(() => undefined)
+		throw err
+	}
+	await syncDirectory(dirname(filePath))
+}
+
+/**
+ * Make the entries of `directory` — a rename into it, a file created in it —
+ * survive a power loss.
+ *
+ * A failure is thrown on POSIX: a caller that asked for durability and did not
+ * get it must not go on to delete what the durable copy was meant to replace.
+ * On Windows opening a directory for fsync raises `EPERM` and there is no
+ * other way to ask, so there it does nothing; NTFS journals its metadata.
+ */
+export async function syncDirectory(directory: string): Promise<void> {
+	if (process.platform === 'win32') return
+	const handle = await open(directory, 'r')
+	try {
+		await handle.sync()
+	} finally {
+		await handle.close()
 	}
 }
 

@@ -18,7 +18,7 @@ import type {
 	RunMessageSnapshot,
 	RunStore,
 } from '../../types/run/store.js'
-import { atomicWriteFile } from '../../utils/atomic-write.js'
+import { atomicWriteFile, durableWriteFile } from '../../utils/atomic-write.js'
 import { awaitWithAbort } from '../../utils/await-with-abort.js'
 import { asCheckpointId, asRunId, isEntityId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
@@ -1116,7 +1116,7 @@ function checkpointRoot({ path, file, stored, header }: CheckpointFile): RunHist
 			ref: stored.history,
 			order: header.createdAt,
 			// The stamp and every other field are carried over as they were.
-			rewrite: (history) => atomicWriteFile(path, JSON.stringify({ ...stored, history })),
+			rewrite: (history) => durableWriteFile(path, JSON.stringify({ ...stored, history })),
 		},
 	]
 }
@@ -1139,7 +1139,7 @@ async function snapshotRoot(runDir: string): Promise<RunHistoryRoot[]> {
 			// The settled history is the newest thing the run wrote.
 			order: Number.MAX_SAFE_INTEGER,
 			rewrite: (history) =>
-				atomicWriteFile(path, JSON.stringify({ ...snapshot, history }, null, 2)),
+				durableWriteFile(path, JSON.stringify({ ...snapshot, history }, null, 2)),
 		},
 	]
 }

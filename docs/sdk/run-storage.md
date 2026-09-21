@@ -165,10 +165,23 @@ and 256 KiB, it copies the referenced lines into generation `g + 1` (fsynced),
 rewrites each record's reference (the digest is unchanged: the same bytes in
 the same order), and only then deletes the older generations. The logs stay
 within about twice the history that is still referenced, and the copying
-costs a constant per byte written. A crash at any step leaves every record
-pointing at a generation that still exists, and the next collection finishes
-the job. A record whose history cannot be resolved stops the collection
-before anything is written, so damage is never collected around.
+costs a constant per byte written. A record whose history cannot be resolved
+stops the collection before anything is written, so damage is never
+collected around.
+
+A crash at any step, a process crash or a power loss alike, leaves every
+record pointing at a generation that still exists, and the next collection
+finishes the job. Nothing is deleted until what replaces it is on stable
+storage: the new generation's files are fsynced, then the history directory
+that names them; each record is rewritten through `durableWriteFile`
+(`packages/sdk/src/utils/atomic-write.ts`), which fsyncs the file and then
+its directory; only then are the older generations unlinked. The unlinks are
+not synced, so a power loss right after them can bring an old generation
+back, which costs space until the next collection and nothing else. On
+Windows the directory fsyncs are skipped because the platform refuses them,
+and the directory entries rest on NTFS's own metadata journal. A disk or
+filesystem that acknowledges an fsync it did not perform defeats all of
+this, and nothing here can detect it.
 
 ### Concurrency
 

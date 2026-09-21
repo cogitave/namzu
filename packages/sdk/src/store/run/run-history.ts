@@ -12,7 +12,7 @@ import {
 } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { Message } from '../../types/message/index.js'
-import { temporaryPathFor } from '../../utils/atomic-write.js'
+import { syncDirectory, temporaryPathFor } from '../../utils/atomic-write.js'
 
 /**
  * One run's message history, stored once.
@@ -562,7 +562,13 @@ export interface RunHistoryRoot {
 	readonly ref: RunHistoryRef
 	/** Oldest first; the order the records were written in, as near as known. */
 	readonly order: number
-	/** Publish the record again with `ref` in place of its current reference. */
+	/**
+	 * Publish the record again with `ref` in place of its current reference,
+	 * durably: resolve only once the new record and the directory entry that
+	 * names it are on stable storage (see `durableWriteFile`). Compaction
+	 * deletes the generations the old reference pointed at as soon as every
+	 * rewrite has resolved.
+	 */
 	rewrite(ref: RunHistoryRef): Promise<void>
 }
 
@@ -625,9 +631,22 @@ function referencedBytes(roots: readonly RunHistoryRoot[]): number {
  * ones and `minReclaimBytes`. Otherwise: copies the referenced lines into a
  * new generation (laid out the way the writer would have laid them out,
  * replaying the records oldest first), repoints each record at it, and only
- * then deletes the older generations. A crash at any step leaves every
- * record pointing at a generation that still exists; the next compaction
- * collects whatever the crash left.
+ * then deletes the older generations.
+ *
+ * What survives a crash, a process crash or a power loss alike: every record
+ * points at a generation that still exists, and the next compaction collects
+ * whatever the crash left. That holds across a power loss because nothing is
+ * deleted until everything it is replaced by is on stable storage — the new
+ * generation's files are fsynced, then the history directory that names them;
+ * each record is rewritten through an fsynced file and an fsynced directory;
+ * only then are the older generations unlinked. A crash before the unlinks
+ * leaves some records on the old generation and some on the new, both
+ * present. The unlinks themselves are not synced: a power loss after them
+ * can bring an old generation's files back, which costs space until the next
+ * compaction and nothing else. On Windows the directory syncs are skipped
+ * (the platform refuses them) and the directory entries rest on NTFS's own
+ * metadata journal. A filesystem or disk that acknowledges an fsync it has
+ * not performed is outside what any of this can detect.
  *
  * A record whose history cannot be resolved stops the compaction before
  * anything is written. Collecting around damage could delete the only bytes
@@ -696,6 +715,8 @@ export async function compactRunHistoryLocked(
 		}
 		await rename(temporary, target)
 	}
+	// The renames that name the new generation, before any record points at it.
+	await syncDirectory(dir)
 
 	for (const { root, keys } of resolved) {
 		await root.rewrite({
