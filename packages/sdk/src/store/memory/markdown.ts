@@ -676,7 +676,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 
 	/**
 	 * The index a prompt carries: one line per active memory someone chose to
-	 * keep — never a record the runtime derived from a run — operator
+	 * keep — never a record the runtime derived from a turn — operator
 	 * `feedback` and `user` memories first, capped at `maxLines` (default 200)
 	 * with a note pointing to search for the rest. Rendered from the memory
 	 * files under the lock, so it is current even when a file was edited by

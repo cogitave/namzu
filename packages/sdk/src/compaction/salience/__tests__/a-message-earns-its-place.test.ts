@@ -51,7 +51,7 @@ const chatter = (i: number): Message[] => [
 
 describe('tokenize', () => {
 	it('opens paths, identifiers and dotted keys so a part can find the whole', () => {
-		const tokens = tokenize('read src/store.mjs and call removeTodo; log namzu.run.id')
+		const tokens = tokenize('read src/store.mjs and call removeTodo; log namzu.turn.id')
 		expect(tokens).toEqual(
 			expect.arrayContaining([
 				'src/store.mjs',
@@ -61,8 +61,8 @@ describe('tokenize', () => {
 				'removetodo',
 				'remove',
 				'todo',
-				'namzu.run.id',
-				'run',
+				'namzu.turn.id',
+				'turn',
 				'id',
 			]),
 		)

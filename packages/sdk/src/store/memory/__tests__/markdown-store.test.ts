@@ -282,16 +282,16 @@ describe('the generated MEMORY.md index', () => {
 			title: 'Fix the flaky test',
 			summary: 'Decisions: retry once',
 			content: '# Fix the flaky test',
-			tags: ['run-memory'],
-			metadata: { source: 'run-memory', runId: 'run_1' },
+			tags: ['session-memory'],
+			metadata: { source: 'session-memory', sessionId: 'session_1', turnId: 'turn_1' },
 		})
 		await new Promise((resolve) => setTimeout(resolve, 5))
 		const consolidated = await store.create({
 			title: 'Learned: fix the flaky test',
-			summary: '1 decision from run run_1.',
+			summary: '1 decision from turn turn_1 of session session_1.',
 			content: 'retry once',
 			tags: ['learning'],
-			metadata: { kind: 'consolidation', runId: 'run_1' },
+			metadata: { kind: 'consolidation', sessionId: 'session_1', turnId: 'turn_1' },
 		})
 		expect(await readFile(join(directory, MEMORY_INDEX_FILE), 'utf8')).toBe(before)
 		expect(await store.readIndex()).toEqual({
@@ -568,8 +568,8 @@ describe('importRecord', () => {
 			title: 'Old record',
 			summary: 'From the JSON store',
 			content: 'body',
-			tags: ['run-memory'],
-			metadata: { runId: 'r1' },
+			tags: ['session-memory'],
+			metadata: { turnId: 't1' },
 		})
 		await disk.update(entry.id, { status: 'archived' })
 		const record = await disk.getRecord(entry.id)
@@ -584,7 +584,7 @@ describe('importRecord', () => {
 			status: 'archived',
 			createdAt: record.entry.createdAt,
 			updatedAt: record.entry.updatedAt,
-			tags: ['run-memory'],
+			tags: ['session-memory'],
 		})
 		expect(imported?.content).toEqual(record.content)
 	})

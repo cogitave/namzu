@@ -6,7 +6,7 @@
  * nothing and `removeTodo` as another; the model, asked about `store`,
  * is looking at both. So a path splits on its separators, a `camelCase`
  * or `snake_case` identifier splits into its words AND keeps its whole
- * form, and a dotted attribute key (`namzu.run.id`) yields both the key
+ * form, and a dotted attribute key (`namzu.turn.id`) yields both the key
  * and its parts. Everything is lower-cased; nothing is stemmed, because
  * a stemmer that turns `tests` into `test` also turns `testing` into it,
  * and the false matches cost more than the missed ones in a corpus this

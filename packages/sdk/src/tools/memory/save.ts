@@ -38,7 +38,11 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 					...(name !== undefined ? { name } : {}),
 					...(description !== undefined ? { description } : {}),
 					...(type !== undefined ? { type } : {}),
-					metadata: { source: AGENT_MEMORY_SOURCE, runId: context.runId },
+					metadata: {
+						source: AGENT_MEMORY_SOURCE,
+						sessionId: context.sessionId,
+						turnId: context.turnId,
+					},
 				})
 
 				return {

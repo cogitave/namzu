@@ -71,9 +71,9 @@ function tier(record: MemoryRecord): number {
 
 /**
  * Render the index of the active, named records a person or the model chose
- * to keep. A record the runtime derived — a run promoter's or
- * consolidation's account of a run — is left out: it is written after almost
- * every run, and an index that changed with it would change the system prompt
+ * to keep. A record the runtime derived — a session memory promoter's or
+ * consolidation's account of a turn — is left out: it is written after almost
+ * every turn, and an index that changed with it would change the system prompt
  * nearly every turn.
  *
  * Ordered by {@link tier}, then by name, so an unchanged set of memories
@@ -82,8 +82,8 @@ function tier(record: MemoryRecord): number {
  * and `reference` memories before any operator `feedback` or `user` one.
  *
  * `derived: true` renders the other half instead: the active, named records
- * the runtime derived, newest first, for an operator inspecting what runs
- * recorded. That listing is not for a prompt; it changes with every run.
+ * the runtime derived, newest first, for an operator inspecting what turns
+ * recorded. That listing is not for a prompt; it changes with every turn.
  */
 export function renderMemoryIndex(
 	records: readonly MemoryRecord[],

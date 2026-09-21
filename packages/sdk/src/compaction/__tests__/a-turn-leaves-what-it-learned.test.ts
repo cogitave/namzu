@@ -1,18 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
 import { CompactionConfigSchema } from '../../config/runtime.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { CONSOLIDATION_TAG, consolidationEntry } from '../consolidation.js'
 import { WorkingStateManager } from '../manager.js'
 
 /**
- * Episodic memory dies with the run; consolidation writes down the part a
- * later run can use — decisions, discoveries, failures — and nothing else.
+ * Episodic memory dies with the turn; consolidation writes down the part a
+ * later turn can use — decisions, discoveries, failures — and nothing else.
  */
 
 describe('consolidationEntry', () => {
-	const meta = { runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e', at: 1_700_000_000_000 }
+	const sessionId = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
+	const turnId = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
+	const meta = { sessionId, turnId, at: 1_700_000_000_000 }
 
-	it('is null for a run that learned nothing', () => {
+	it('is null for a turn that learned nothing', () => {
 		const manager = new WorkingStateManager(CompactionConfigSchema.parse({}))
 		manager.setTask('rename a variable')
 		manager.trackFile('src/a.ts', { type: 'read', summary: 'read it' })
@@ -33,11 +36,12 @@ describe('consolidationEntry', () => {
 		if (!entry) return
 		expect(entry.title).toBe('Learned: Fix the slug bug')
 		expect(entry.summary).toBe(
-			'1 decision, 1 discovery, 1 failure from run 37ddff8e-e13f-4e57-937f-d048fa323f5e.',
+			`1 decision, 1 discovery, 1 failure from turn ${turnId} of session ${sessionId}.`,
 		)
 		expect(entry.tags).toEqual([
 			CONSOLIDATION_TAG,
-			'run:37ddff8e-e13f-4e57-937f-d048fa323f5e',
+			`session:${sessionId}`,
+			`turn:${turnId}`,
 			`knowledge:${entry.metadata?.knowledgeDigest}`,
 		])
 		expect(entry.metadata?.knowledgeDigest).toMatch(/^[0-9a-f]{64}$/)
@@ -49,7 +53,8 @@ describe('consolidationEntry', () => {
 		expect(entry.content).not.toContain('README.md')
 		expect(entry.content).not.toContain('keep the CLI flags')
 		expect(entry.metadata).toMatchObject({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+			sessionId,
+			turnId,
 			kind: 'consolidation',
 		})
 	})
