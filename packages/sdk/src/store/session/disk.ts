@@ -9,9 +9,18 @@
  *     project.json
  *     sessions/{sessionId}/
  *       session.json
- *       messages.jsonl
+ *       summary.json
  *       subsessions/{subSessionId}/
  *         subsession.json
+ *
+ * It holds the session ENTITIES (status, actor, ownership version,
+ * sub-session edges, summaries) and nothing of the conversation. A session's
+ * messages are records in its session log (`SessionLog`,
+ * `~/.namzu/projects/<slug>/<session-id>.jsonl`), read through
+ * `foldSessionMessages` and written only by the turn recorder under the
+ * session lease; listing turns and children across sessions is the
+ * `SessionIndex`. This store no longer writes `messages.jsonl`, and one left
+ * behind by an older build is never read.
  *
  * Tenant scoping is enforced through the JSON payload (`tenantId` field on
  * every record) rather than the path layout; cross-tenant reads reject with
@@ -22,7 +31,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { appendFile, mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
 	ProjectRootPathTakenError,
@@ -31,12 +40,10 @@ import {
 	TenantIsolationError,
 } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
-import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
-import type { Message } from '../../types/message/index.js'
+import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../../types/session/ids.js'
-import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -57,7 +64,6 @@ import {
 	asSessionId,
 	asSubSessionId,
 	asTopicId,
-	generateMessageId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
@@ -68,12 +74,7 @@ import {
 	DiskRevisionRecordStore,
 	type RevisionedRecordLocation,
 } from '../kv/revision-record-store.js'
-// `migrate` and `stamp` are imported directly for the append-only
-// `messages.jsonl` path ALONE: each line there is a whole record carrying
-// its own stamp, because a log is written by many builds over its lifetime
-// and its lines can legitimately differ in version. Every RECORD read and
-// write goes through the `records` primitive below instead.
-import { defineSchema, migrate, stamp } from '../schema.js'
+import { defineSchema } from '../schema.js'
 import { canonicalizePath, rootPathIndexKey } from './canonical-path.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
@@ -92,31 +93,11 @@ const SCHEMA = defineSchema({
 	migrations: {
 		1: migrateSessionStoreThreadIdToTopicId,
 		2: migrateSessionStoreTopicIdPrefix,
-		3: migrateSessionStoreMessageRecordKind,
+		// v3 → v4 tagged the lines of `messages.jsonl`, which this store no
+		// longer reads; for every record it still reads the step is identity.
+		3: (record) => record,
 	},
 })
-
-/**
- * v3 → v4: distinguish ordinary message appends from atomic replacements.
- *
- * The schema migrator runs over every record kind in this store, so the
- * predicate names the fields unique to a message-log line and leaves project,
- * session, sub-session and summary records byte-for-byte alone.
- */
-export function migrateSessionStoreMessageRecordKind(
-	record: Record<string, unknown>,
-): Record<string, unknown> {
-	if (
-		record.recordKind !== undefined ||
-		typeof record.id !== 'string' ||
-		typeof record.sessionId !== 'string' ||
-		!('message' in record) ||
-		typeof record.at !== 'string'
-	) {
-		return record
-	}
-	return { ...record, recordKind: 'message' }
-}
 
 /**
  * Read, write and list, through the one implementation.
@@ -128,12 +109,7 @@ export function migrateSessionStoreMessageRecordKind(
  * partially and written back with the difference gone, a listing needs a
  * stable order), and every one fixed here had to be remembered into the
  * other three.
- *
- * Deliberately NOT converted: the append-only session event log and
- * `messages.jsonl`. Those are log-shaped, not record-shaped — each line is
- * a whole record and append IS the write-safety primitive — so forcing them
- * through a record store would be a worse fit than the duplication it
- * removes.
+
  */
 const records = new DiskRecordStore<unknown>(SCHEMA)
 
@@ -178,11 +154,10 @@ export function migrateSessionStoreTopicIdPrefix(
  * with this as its data migration.
  *
  * One migration function runs over every kind this schema stamps —
- * project.json, session.json, subsession.json, summary.json, and each
- * `messages.jsonl` line — via the single shared `readJson` / `migrate`
- * call. Only `PersistedSession` ever carried `threadId`; an unconditional
- * rewrite here would stamp `topicId: undefined` onto the other three kinds
- * and onto every message line ever written. Exported, not module-private,
+ * project.json, session.json, subsession.json and summary.json — via the
+ * single shared `readJson` / `migrate` call. Only `PersistedSession` ever
+ * carried `threadId`; an unconditional rewrite here would stamp
+ * `topicId: undefined` onto the other kinds. Exported, not module-private,
  * so that guarantee is unit-testable directly against the function rather
  * than only observable through whichever deserializer happens to forward
  * an extra field today (most of them don't — they map named fields, which
@@ -253,35 +228,6 @@ interface PersistedSubSession {
 	archivedAt?: string
 	updatedAt: string
 }
-
-interface PersistedMessageLine {
-	recordKind: 'message'
-	id: MessageId
-	sessionId: SessionId
-	tenantId: TenantId
-	message: Message
-	at: string
-}
-
-/**
- * One atomic projection change inside the append-only message log.
- *
- * Writing the replacement as several ordinary lines would expose a prefix if
- * the process died between appends. One line is the transaction boundary: a
- * reader sees the old conversation or the complete compacted one.
- */
-interface PersistedMessageReplacementLine {
-	recordKind: 'replacement'
-	sessionId: SessionId
-	tenantId: TenantId
-	messages: readonly {
-		readonly id: MessageId
-		readonly message: Message
-		readonly at: string
-	}[]
-}
-
-type PersistedMessageRecord = PersistedMessageLine | PersistedMessageReplacementLine
 
 interface PersistedSummary {
 	id: SummaryId
@@ -871,120 +817,6 @@ export class DiskSessionStore implements SessionStore {
 		this.subSessionIndex.delete(subSessionId)
 	}
 
-	// Messages ----------------------------------------------------------------
-
-	async appendMessage(
-		sessionId: SessionId,
-		message: Message,
-		tenantId: TenantId,
-	): Promise<MessageId> {
-		const located = await this.locateSession(sessionId)
-		if (!located) throw new Error(`Session ${sessionId} not found`)
-
-		const session = await records.read<PersistedSession>(join(located.path, 'session.json'))
-		if (!session) throw new Error(`Session ${sessionId} not found on disk`)
-		this.assertTenant(session.tenantId, tenantId, `session(${sessionId})`)
-
-		const id = generateMessageId()
-		const entry: PersistedMessageLine = {
-			recordKind: 'message',
-			id,
-			sessionId,
-			tenantId,
-			message,
-			at: new Date().toISOString(),
-		}
-		// Each line is a whole record, so each line carries its own stamp: an
-		// append-only log is written by many builds over its lifetime and its
-		// lines can legitimately differ in version.
-		await appendFile(
-			join(located.path, 'messages.jsonl'),
-			`${JSON.stringify(stamp(SCHEMA, entry))}\n`,
-			'utf-8',
-		)
-		return id
-	}
-
-	async replaceMessages(
-		sessionId: SessionId,
-		messages: readonly Message[],
-		tenantId: TenantId,
-	): Promise<void> {
-		const located = await this.locateSession(sessionId)
-		if (!located) throw new Error(`Session ${sessionId} not found`)
-
-		const session = await records.read<PersistedSession>(join(located.path, 'session.json'))
-		if (!session) throw new Error(`Session ${sessionId} not found on disk`)
-		this.assertTenant(session.tenantId, tenantId, `session(${sessionId})`)
-
-		const at = new Date().toISOString()
-		const entry: PersistedMessageReplacementLine = {
-			recordKind: 'replacement',
-			sessionId,
-			tenantId,
-			messages: messages.map((message) => ({ id: generateMessageId(), message, at })),
-		}
-		// One append, however many projected messages. If the process dies before
-		// this line lands, readers see the old projection; after it lands, they
-		// see the whole replacement. There is no prefix state to mistake for a
-		// successful compaction.
-		await appendFile(
-			join(located.path, 'messages.jsonl'),
-			`${JSON.stringify(stamp(SCHEMA, entry))}\n`,
-			'utf-8',
-		)
-	}
-
-	async loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]> {
-		const rows = await this.loadSessionMessages(sessionId, tenantId)
-		return rows.map((r) => r.message)
-	}
-
-	async loadSessionMessages(
-		sessionId: SessionId,
-		tenantId: TenantId,
-	): Promise<readonly SessionMessage[]> {
-		const located = await this.locateSession(sessionId)
-		if (!located) return []
-
-		const session = await records.read<PersistedSession>(join(located.path, 'session.json'))
-		if (!session) return []
-		this.assertTenant(session.tenantId, tenantId, `session(${sessionId})`)
-
-		const path = join(located.path, 'messages.jsonl')
-		let raw: string
-		try {
-			raw = await readFile(path, 'utf-8')
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return []
-			throw err
-		}
-		const lines = raw.split('\n').filter((l) => l.length > 0)
-		let projected: SessionMessage[] = []
-		for (const line of lines) {
-			const persisted = migrate<PersistedMessageRecord>(SCHEMA, JSON.parse(line))
-			if (persisted.recordKind === 'replacement') {
-				projected = persisted.messages.map((entry) => ({
-					id: entry.id,
-					sessionId: persisted.sessionId,
-					tenantId: persisted.tenantId,
-					message: entry.message,
-					at: new Date(entry.at),
-				}))
-				continue
-			}
-			projected.push({
-				id: persisted.id,
-				sessionId: persisted.sessionId,
-				tenantId: persisted.tenantId,
-				message: persisted.message,
-				at: new Date(persisted.at),
-			})
-		}
-		return projected
-	}
-
 	// Linkage -----------------------------------------------------------------
 
 	async getChildren(sessionId: SessionId, tenantId: TenantId): Promise<readonly SubSession[]> {
@@ -1352,12 +1184,3 @@ function deserializeSummary(s: PersistedSummary): SessionSummaryRef {
 		materializedBy: 'kernel',
 	}
 }
-
-// FS helpers -----------------------------------------------------------------
-
-// Note: messages are append-only `messages.jsonl` (not write-tmp-rename).
-// Append is the write-safety primitive for log-structured files; each
-// line is a whole record. This matches pattern doc §13.4 persistence
-// (`messages.json[l]` as append-only event log).
-
-export type { SessionMessage } from '../../types/session/messages.js'
