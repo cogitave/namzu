@@ -62,9 +62,79 @@ export const ALLOWLIST = new Set([
 	"resetRuntimeMetrics",
 ]);
 
+/**
+ * More verb-sense names, outside the SDK list above. Each one names running a
+ * process or a command, not a unit of work with an id:
+ *
+ * - the `namzu run` command and the functions that run the CLI and doctor
+ *   (`parseRunFlags`, `RunFlags`, `RunCliOptions`, `RunDoctorOptions`);
+ * - `LiveSession.run()`'s options (`LiveRunOptions`);
+ * - `docker run` argv and whether a guest can run node (the sandbox names);
+ * - a workflow step's `run:` body (`stepRunBody`);
+ * - Apple's `CFRunLoop`.
+ */
+export const VERB_SENSE = new Set([
+	"parseRunFlags",
+	"RunFlags",
+	"RunCliOptions",
+	"RunDoctorOptions",
+	"LiveRunOptions",
+	"buildDockerRunArgs",
+	"renderEgressProxyRunArgs",
+	"DockerRunArgvInput",
+	"DockerRun",
+	"guestCanRunNode",
+	"stepRunBody",
+	"CFRunLoop",
+]);
+
+/**
+ * AG-UI's own vocabulary. An AG-UI run is a namzu turn (spec §5.1): the
+ * adapter echoes the client's `runId` verbatim and records it as
+ * `origin.externalTurnId`, so these names stay, but only where AG-UI is the
+ * subject: the adapter package and the page that documents it.
+ */
+const AG_UI_NAMES = new Set([
+	"RunAgentInput",
+	"RunAgentInputSchema",
+	"runId",
+	"AGUIRunContext",
+	"AGUIRunOptions",
+	"AGUIRunUI",
+	"AGUIRunUIOptions",
+	"onRunFailed",
+	"onRunErrorEvent",
+	"onRunFinishedEvent",
+]);
+const AG_UI_PATHS = [/^packages\/ag-ui\//, /^docs\/sdk\/ag-ui\.md$/];
+
+/**
+ * Hits that name the old concept on purpose, one file at a time: code that
+ * refuses a run-era document by its run fields, and tests that assert a run
+ * name is absent or refused. They go when W10 deletes this script.
+ */
+export const INTENTIONAL = new Map([
+	// parseTurnState refuses a RunState by its `runId` and names it.
+	["packages/sdk/src/types/session/turn-state.ts", new Set(["RunState", "runId"])],
+	["packages/sdk/src/runtime/query/__tests__/durable-run-state.test.ts", new Set(["RunState", "runId"])],
+	// A session record never carries the live-only `runId`; the schema refuses it.
+	["packages/sdk/src/types/session/records.ts", new Set(["runId"])],
+	// The fixtures pin that run-era type names and a `runId` field are refused.
+	[
+		"packages/sdk/src/session/__tests__/session-log-fixtures.test.ts",
+		new Set(["run_started", "run_completed", "run_failed", "run_paused", "run_resuming", "runId"]),
+	],
+	// Negative assertions: an SSE frame has no `run_id`, a turn span no `namzu.run.*`.
+	["packages/sdk/src/bridge/sse/mapper.test.ts", new Set(["run_id"])],
+	["packages/sdk/src/telemetry/__tests__/a-turn-span-names-its-session.test.ts", new Set(["namzu.run."])],
+]);
+
 /** `Runtime*` names are the verb sense by rule, not one by one. */
-function allowed(match) {
-	return ALLOWLIST.has(match) || /^Runtime[A-Z]?/.test(match);
+function allowed(match, file) {
+	if (ALLOWLIST.has(match) || VERB_SENSE.has(match) || /^Runtime[A-Z]?/.test(match)) return true;
+	if (file === undefined) return false;
+	if (AG_UI_NAMES.has(match) && AG_UI_PATHS.some((path) => path.test(file))) return true;
+	return INTENTIONAL.get(file)?.has(match) ?? false;
 }
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage", ".turbo", "research", ".namzu"]);
@@ -114,14 +184,18 @@ function* scanRoots(root) {
 	yield* walk(join(root, "tools"));
 }
 
-/** Every hit in one text, as `{ line, column, match }`. */
-export function findRunNouns(text) {
+/**
+ * Every hit in one text, as `{ line, column, match }`. `file` is the
+ * repo-relative path with forward slashes; the per-file exemptions apply only
+ * when it is given.
+ */
+export function findRunNouns(text, file) {
 	const hits = [];
 	const lines = text.split("\n");
 	for (let index = 0; index < lines.length; index += 1) {
 		const line = lines[index];
 		for (const found of line.matchAll(RUN_NOUN_PATTERN)) {
-			if (!allowed(found[0])) {
+			if (!allowed(found[0], file)) {
 				hits.push({ line: index + 1, column: (found.index ?? 0) + 1, match: found[0] });
 			}
 		}
@@ -135,7 +209,7 @@ export function checkRunNouns(root = repoRoot) {
 	for (const path of scanRoots(root)) {
 		const shown = relative(root, path).split(sep).join("/");
 		if (shown === self.split(sep).join("/")) continue;
-		const hits = findRunNouns(readFileSync(path, "utf8"));
+		const hits = findRunNouns(readFileSync(path, "utf8"), shown);
 		if (hits.length > 0) report.push({ file: shown, hits });
 	}
 	return report;
