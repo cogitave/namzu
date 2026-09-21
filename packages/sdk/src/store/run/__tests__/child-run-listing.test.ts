@@ -166,4 +166,34 @@ describe('the deprecated run catalogue', () => {
 			},
 		])
 	})
+
+	it('still returns what an earlier version catalogued, with the run record winning', async () => {
+		const base = await baseDir()
+		const parent = new RunDiskStore({ baseDir: base, logger: LOG })
+		await parent.initRun(PARENT)
+		// Catalogued at settle, then resumed: only the run record saw the resume.
+		await parent.addToIndex(run(PARENT))
+		await parent.writeRunMeta(run(PARENT, { status: 'failed', endedAt: 3_000 } as Partial<Run>))
+		// Catalogued and its directory lost its run.json.
+		const damaged = new RunDiskStore({ baseDir: base, logger: LOG })
+		await damaged.initRun(SIBLING)
+		await damaged.addToIndex(run(SIBLING, { startedAt: 500 } as Partial<Run>))
+		await writeFile(join(base, SIBLING, 'run.json'), '{"id":', 'utf-8')
+		// A run from before the UUID id format, known only to the catalogue.
+		const legacy = new RunDiskStore({ baseDir: base, logger: LOG })
+		await legacy.addToIndex(run('run_legacy', { startedAt: 100 } as Partial<Run>))
+
+		const listed = await RunDiskStore.listRuns(base)
+		expect(listed.map((row) => [row.id, row.status, row.endedAt])).toEqual([
+			['run_legacy', 'completed', 2_000],
+			[SIBLING, 'completed', 2_000],
+			[PARENT, 'failed', 3_000],
+		])
+	})
+
+	it('refuses a catalogue it cannot read rather than listing fewer runs', async () => {
+		const base = await baseDir()
+		await writeFile(join(base, 'index.json'), '[{"id":', 'utf-8')
+		await expect(RunDiskStore.listRuns(base)).rejects.toThrow()
+	})
 })

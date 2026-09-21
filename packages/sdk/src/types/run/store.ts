@@ -323,8 +323,9 @@ export interface RunStore {
 	 *
 	 * @deprecated The kernel no longer calls it: the disk store's catalogue
 	 *   (`index.json`) repeated what every run's `run.json` already records,
-	 *   and `RunDiskStore.listRuns` now reads those instead. Removed in a
-	 *   later major.
+	 *   and `RunDiskStore.listRuns` now reads those, falling back to a
+	 *   catalogue an earlier version left only for runs no run record
+	 *   describes. Removed in a later major.
 	 */
 	addToIndex?(run: Run): Promise<void>
 }

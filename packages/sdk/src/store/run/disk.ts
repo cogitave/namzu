@@ -545,18 +545,18 @@ export class RunDiskStore implements RunStore {
 			endedAt?: number
 		}>
 	> {
-		// Read from each run's `run.json` rather than from `index.json`. The
-		// catalogue repeated those fields in a second file that was rewritten
-		// whole at every settle; the kernel stopped writing it, and the rows
-		// are the same ones it held. Top-level runs only, as before.
-		let names: string[]
-		try {
-			names = await readdir(baseDir)
-		} catch (err) {
-			if (isFileNotFound(err) || isNotADirectory(err)) return []
-			throw err
-		}
-		const rows: {
+		// Two sources, so every row it used to return still comes back.
+		//
+		// Each run's `run.json` is authoritative, and it is the only source for
+		// a run started since the kernel stopped writing `index.json`. The
+		// catalogue, when one is still on disk from an earlier version, is read
+		// too: it is the only record of a run whose directory name is not a run
+		// id (ids before the UUID format) or whose `run.json` is missing or
+		// damaged, and dropping those would be listing fewer runs than before
+		// with nothing to say so. Where both describe a run, `run.json` wins —
+		// the catalogue was last written at that run's settle and a later
+		// resume updates only the run record. Top-level runs only, as before.
+		type Row = {
 			id: string
 			agentId?: string
 			agentName: string
@@ -566,7 +566,36 @@ export class RunDiskStore implements RunStore {
 			endedAt?: number
 			iterations?: number
 			totalTokens?: number
-		}[] = []
+		}
+		const rows = new Map<string, Row>()
+		let catalogue: string
+		try {
+			catalogue = await readFile(join(baseDir, 'index.json'), 'utf-8')
+		} catch (err) {
+			if (!isFileNotFound(err) && !isNotADirectory(err)) throw err
+			catalogue = ''
+		}
+		if (catalogue !== '') {
+			// A damaged catalogue throws, as it always did: returning the rows it
+			// could not read as absent would be the silent loss this reads it to
+			// avoid.
+			const entries: unknown = migrate(SCHEMA, JSON.parse(catalogue))
+			if (!Array.isArray(entries)) {
+				throw new Error(`Invalid run catalogue in ${join(baseDir, 'index.json')}`)
+			}
+			for (const entry of entries) {
+				const row = asRecord(entry)
+				if (row && typeof row.id === 'string') rows.set(row.id, row as unknown as Row)
+			}
+		}
+
+		let names: string[]
+		try {
+			names = await readdir(baseDir)
+		} catch (err) {
+			if (!isFileNotFound(err) && !isNotADirectory(err)) throw err
+			names = []
+		}
 		for (const name of names) {
 			if (!isEntityId(name, 'run')) continue
 			let meta: Record<string, unknown> | undefined
@@ -580,8 +609,9 @@ export class RunDiskStore implements RunStore {
 			const metadata = asRecord(meta.metadata)
 			const config = asRecord(metadata?.config)
 			const usage = asRecord(meta.tokenUsage)
-			rows.push({
-				id: typeof meta.id === 'string' ? meta.id : name,
+			const id = typeof meta.id === 'string' ? meta.id : name
+			rows.set(id, {
+				id,
 				...(typeof metadata?.agentId === 'string' ? { agentId: metadata.agentId } : {}),
 				agentName: typeof metadata?.agentName === 'string' ? metadata.agentName : '',
 				...(typeof config?.model === 'string' ? { model: config.model } : {}),
@@ -592,7 +622,9 @@ export class RunDiskStore implements RunStore {
 				...(typeof usage?.totalTokens === 'number' ? { totalTokens: usage.totalTokens } : {}),
 			})
 		}
-		return rows.sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
+		return [...rows.values()].sort(
+			(a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0) || a.id.localeCompare(b.id),
+		)
 	}
 
 	/**
@@ -676,9 +708,10 @@ export class RunDiskStore implements RunStore {
 	}
 
 	/**
-	 * @deprecated The kernel no longer calls it, and {@link RunDiskStore.listRuns}
-	 *   no longer reads the file it maintains: `index.json` repeated fields
-	 *   every run's `run.json` already holds. Removed in a later major.
+	 * @deprecated The kernel no longer calls it: `index.json` repeated fields
+	 *   every run's `run.json` already holds. {@link RunDiskStore.listRuns}
+	 *   reads each `run.json`, and reads a catalogue left by an earlier version
+	 *   only for the runs no run record describes. Removed in a later major.
 	 */
 	async addToIndex(run: Run): Promise<void> {
 		if (run.parentRunId) return

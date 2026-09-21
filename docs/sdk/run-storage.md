@@ -88,9 +88,15 @@ times, iterations and tokens. Every field was already in that run's
 kernel no longer writes it (`RunPersistence.persist` no longer calls
 `RunStore.addToIndex`). Its one reader, the deprecated
 `RunDiskStore.listRuns`, now reads the same rows from each run's `run.json`,
-so it keeps working, including for runs written before the change. Nothing
-in the kernel or the CLI read the file. `RunStore.addToIndex` and
-`RunDiskStore.addToIndex` are deprecated and still work when called directly.
+and also reads an `index.json` an earlier version left, for the runs no
+readable `run.json` describes: one whose directory name predates the UUID run
+id, or whose `run.json` is missing or damaged. Where both describe a run the
+`run.json` row wins, since a resume after the catalogue's last write updates
+only the run record. So it returns every row it returned before, including
+for runs written before the change; a catalogue that is not readable JSON is
+refused, as it always was. Nothing in the kernel or the CLI read the file.
+`RunStore.addToIndex` and `RunDiskStore.addToIndex` are deprecated and still
+work when called directly.
 
 ## One stored history
 

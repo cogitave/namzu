@@ -36,8 +36,11 @@ files directly should read through `RunDiskStore`, `DiskCheckpointStore` or
 
 **What does not.** Schema 1 and 2 checkpoints and v1 `messages.json` read
 exactly as before. A damaged or missing log is refused, as a damaged inline
-record was. `RunDiskStore.listRuns` (deprecated) returns the same rows, now
-read from each run's `run.json`, including for runs written before this
-version. `RunStore.addToIndex` and `RunDiskStore.addToIndex` are deprecated
+record was. `RunDiskStore.listRuns` (deprecated) returns the same rows,
+including for runs written before this version: it reads each run's
+`run.json`, and also an `index.json` an earlier version left, for the runs no
+readable `run.json` describes (a directory named with a pre-UUID id, or a
+missing or damaged `run.json`). Where both describe a run the `run.json` row
+wins. An `index.json` that is not readable JSON is refused, as before. `RunStore.addToIndex` and `RunDiskStore.addToIndex` are deprecated
 and still work when called. Each checkpoint of a listing has message objects
 of its own. Checkpoint files are compact JSON.
