@@ -2,6 +2,7 @@
 
 ## 2026-09-22
 
+- **Update** [AG-UI clients](sdk/ag-ui.md): `AGUITurnUI` (was `AGUIRunUI`); `AGUITurnContext`, `AGUITurnOptions` and `AGUITurnUIOptions` replace the other three run-named exports.
 - **Update** [The session index](sdk/sqlite-sessions.md): a host resolves a caller-side id with `resolveExternalSession`, and an A2A `contextId` with `resolveA2AContext`, both now exported from `@namzu/sdk`.
 
 ## 2026-09-21

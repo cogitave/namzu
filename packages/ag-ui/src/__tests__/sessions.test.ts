@@ -37,7 +37,7 @@ vi.mock('@namzu/sdk', () => ({
 }))
 
 const { AGUIAdapter } = await import('../adapter.js')
-type Context = import('../adapter.js').AGUIRunContext
+type Context = import('../adapter.js').AGUITurnContext
 
 const SESSION = '0199b3a0-0000-7000-8000-0000000000f1' as SessionId
 const TURN = '0199b3a0-0000-7000-8000-0000000000f2' as TurnId

@@ -18,7 +18,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { AGUIAdapter, type AGUIRunUI, toNamzuMessages } from '../index.js'
+import { AGUIAdapter, type AGUITurnUI, toNamzuMessages } from '../index.js'
 
 const directories: string[] = []
 
@@ -97,7 +97,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 	it('replaces stale browser history before streaming and keeps model admission explicit', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'Fresh answer', chunkSize: 2 }] })
-		let retainedUI: AGUIRunUI | undefined
+		let retainedUI: AGUITurnUI | undefined
 		const display = [
 			{ id: 'authorized-user', role: 'user' as const, content: 'Host-approved display history' },
 		]
@@ -715,7 +715,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 	it('revokes the UI handle when an unread response request is aborted', async () => {
 		const caller = new AbortController()
 		const provider = new MockLLMProvider({ turns: [{ text: 'must not start' }] })
-		let runUI: AGUIRunUI | undefined
+		let runUI: AGUITurnUI | undefined
 		const adapter = new AGUIAdapter({
 			createQuery: ({ input, signal, ui }) => {
 				runUI = ui

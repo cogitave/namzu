@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { AGUIAdapter, type AGUIRunContext } from '../adapter.js'
+import { AGUIAdapter, type AGUITurnContext } from '../adapter.js'
 import { AGUIRequestError } from '../errors.js'
 import { toNamzuMessages } from '../messages.js'
 
@@ -23,7 +23,7 @@ const request = (body: unknown = input, headers: Record<string, string> = {}) =>
 describe('AG-UI HTTP admission', () => {
 	it('returns 422 when host message admission rejects client history', async () => {
 		const onError = vi.fn()
-		const createQuery = vi.fn(({ input: received }: AGUIRunContext) => {
+		const createQuery = vi.fn(({ input: received }: AGUITurnContext) => {
 			toNamzuMessages(received.messages)
 			throw new Error('invalid history must not reach query creation')
 		})

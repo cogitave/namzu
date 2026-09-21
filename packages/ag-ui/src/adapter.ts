@@ -14,7 +14,7 @@ import {
 } from '@namzu/sdk'
 import { AGUIRequestError } from './errors.js'
 import { AGUIEventMapper } from './events.js'
-import { AGUIRunUI, type AGUIRunUIOptions, positiveLimit } from './ui.js'
+import { AGUITurnUI, type AGUITurnUIOptions, positiveLimit } from './ui.js'
 
 /**
  * The namzu session an AG-UI `threadId` names.
@@ -32,11 +32,11 @@ export interface AGUISessionResolution {
 	readonly created: boolean
 }
 
-export interface AGUIRunContext {
+export interface AGUITurnContext {
 	/** Validated wire input. It remains untrusted application data. */
 	readonly input: RunAgentInput
 	readonly signal: AbortSignal
-	readonly ui: AGUIRunUI
+	readonly ui: AGUITurnUI
 	/** HTTP request headers remain available to the host's authentication/scope resolver. */
 	readonly request?: Request
 	/**
@@ -47,9 +47,9 @@ export interface AGUIRunContext {
 	readonly session?: AGUISessionResolution
 }
 
-export type AGUIQueryFactory = (context: AGUIRunContext) => QueryParams | Promise<QueryParams>
+export type AGUIQueryFactory = (context: AGUITurnContext) => QueryParams | Promise<QueryParams>
 
-export interface AGUIAdapterOptions extends AGUIRunUIOptions {
+export interface AGUIAdapterOptions extends AGUITurnUIOptions {
 	/** Resolve authorized scope, tools and admitted history on the host. */
 	readonly createQuery: AGUIQueryFactory
 	/** Request JSON byte limit, including streamed/chunked bodies. Defaults to 4 MiB. */
@@ -72,14 +72,14 @@ export interface AGUIAdapterOptions extends AGUIRunUIOptions {
  */
 type TurnQueryParams = QueryParams & { origin?: Origin }
 
-export interface AGUIRunOptions {
+export interface AGUITurnOptions {
 	readonly signal?: AbortSignal
 }
 
 interface PreparedRequest {
 	readonly input: RunAgentInput
 	readonly params: TurnQueryParams
-	readonly ui: AGUIRunUI
+	readonly ui: AGUITurnUI
 	readonly controller: AbortController
 	readonly signal: AbortSignal
 	readonly detach: () => void
@@ -97,7 +97,7 @@ export class AGUIAdapter {
 		positiveLimit(options.maxPendingEvents, 128, 'maxPendingEvents')
 	}
 
-	async *run(input: RunAgentInput, options: AGUIRunOptions = {}): AsyncGenerator<BaseEvent> {
+	async *run(input: RunAgentInput, options: AGUITurnOptions = {}): AsyncGenerator<BaseEvent> {
 		const prepared = await this.prepare(input, options.signal)
 		yield* this.events(prepared)
 	}
@@ -194,9 +194,9 @@ export class AGUIAdapter {
 		const signal = externalSignal
 			? AbortSignal.any([externalSignal, controller.signal])
 			: controller.signal
-		let ui: AGUIRunUI
+		let ui: AGUITurnUI
 		try {
-			ui = new AGUIRunUI(input.state, this.options)
+			ui = new AGUITurnUI(input.state, this.options)
 		} catch {
 			throw new AGUIRequestError('Initial state must be JSON within maxEventBytes.', 422)
 		}

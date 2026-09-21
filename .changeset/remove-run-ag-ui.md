@@ -23,5 +23,11 @@ run to a new turn in it. The client's `runId` is recorded as the turn's
 session's folded transcript, so it shows the answer after any guardrail or
 review rewrite, never the raw text.
 
-**What to do.** Upgrade `@namzu/sdk` and `@namzu/ag-ui` together, and rename
-any client code that matched the old error codes or custom event name.
+**Renamed exports.** `AGUIRunContext`, `AGUIRunOptions`, `AGUIRunUI` and
+`AGUIRunUIOptions` are `AGUITurnContext`, `AGUITurnOptions`, `AGUITurnUI` and
+`AGUITurnUIOptions`, with the same shapes. The AG-UI protocol's own names
+(`RunAgentInput`, `onRunFailed` and the other callbacks) are unchanged.
+
+**What to do.** Upgrade `@namzu/sdk` and `@namzu/ag-ui` together, rename
+imports of the four types above, and rename any client code that matched the
+old error codes or custom event name.

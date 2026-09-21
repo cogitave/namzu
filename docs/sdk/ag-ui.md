@@ -22,7 +22,7 @@ Node.js 20+ ESM application. The adapter pins `@ag-ui/core` and
 ## Resolve scope and admit history
 
 `new AGUIAdapter({ createQuery })` takes an `AGUIQueryFactory`. Its context
-contains `input: RunAgentInput`, `signal: AbortSignal`, `ui: AGUIRunUI`, and
+contains `input: RunAgentInput`, `signal: AbortSignal`, `ui: AGUITurnUI`, and
 `request?: Request`. The HTTP handler supplies `request`; `run(input)` does
 not. The factory returns `QueryParams` or a promise of them.
 
@@ -157,9 +157,9 @@ adapter sends `MESSAGES_SNAPSHOT` after `RUN_STARTED` and before native query
 events. It does not echo incoming history automatically.
 
 ```ts
-import type { AGUIMessage, AGUIRunUI } from '@namzu/ag-ui'
+import type { AGUIMessage, AGUITurnUI } from '@namzu/ag-ui'
 
-export function reconcileDisplay(ui: AGUIRunUI, authorized: readonly AGUIMessage[]) {
+export function reconcileDisplay(ui: AGUITurnUI, authorized: readonly AGUIMessage[]) {
   ui.setInitialMessages(authorized)
 }
 ```
@@ -186,16 +186,16 @@ remain separate work.
 
 ## Publish state and application events
 
-Each factory invocation receives its own `AGUIRunUI`, initialized with a
+Each factory invocation receives its own `AGUITurnUI`, initialized with a
 detached copy of the request state. Capture it in backend tools or
 callbacks created for that request. `state` returns another detached copy;
 mutating that copy publishes nothing.
 
 ```ts
-import { type AGUIRunUI } from '@namzu/ag-ui'
+import { type AGUITurnUI } from '@namzu/ag-ui'
 
 export async function reportIndexing(
-  ui: AGUIRunUI,
+  ui: AGUITurnUI,
   reindex: () => Promise<number>,
 ): Promise<number> {
   ui.setState({ status: 'running', completed: 0 })

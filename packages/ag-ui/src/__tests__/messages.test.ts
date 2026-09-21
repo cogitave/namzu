@@ -10,7 +10,7 @@ import {
 import { describe, expect, it } from 'vitest'
 import { AGUIRequestError } from '../errors.js'
 import { fromNamzuMessages, toNamzuMessages } from '../messages.js'
-import { AGUIRunUI } from '../ui.js'
+import { AGUITurnUI } from '../ui.js'
 
 const parse = (input: unknown): Message => MessageSchema.parse(input)
 const call = (id = 'call:1', args = '{ "city": "Paris" }') => ({
@@ -301,7 +301,7 @@ describe('display history from a namzu session', () => {
 			reason: 'guardrail_rewritten',
 		})
 
-		const ui = new AGUIRunUI(null)
+		const ui = new AGUITurnUI(null)
 		ui.setInitialMessages(fromNamzuMessages(await log.messages()))
 		const [snapshot] = ui.drain()
 
