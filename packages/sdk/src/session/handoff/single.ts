@@ -42,7 +42,7 @@ import { HandoffLockRejected, HandoffVersionConflict } from './version.js'
  * The flow injects the resolver so Phase 4 stays decoupled from Phase 6's
  * Run persistence refactor. Production wires the real Run store; tests stub.
  */
-export interface RunStatusResolver {
+export interface TurnStatusResolver {
 	/**
 	 * Returns the reason the session has a non-terminal Run, or `null` when
 	 * all Runs are terminal and the lock is allowed.
@@ -66,7 +66,7 @@ interface SingleHandoffBaseDeps {
 	 * here answered `null` for every session, which is a check that cannot
 	 * fail dressed as a check that ran.
 	 */
-	runStatus: RunStatusResolver
+	runStatus: TurnStatusResolver
 }
 
 /** Dependencies for a single-recipient handoff. */

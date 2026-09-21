@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * `allowed-tools` as a restriction rather than as advice.
@@ -19,7 +22,7 @@ import { ToolExecutor } from '../executor.js'
  * alongside the skill it loaded.
  */
 
-const RUN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as RunId
+const RUN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -65,8 +68,9 @@ function executorWith(
 ): ToolExecutor {
 	return new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools: recordingRegistry(seen),
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -74,7 +78,7 @@ function executorWith(
 			...(allowedTools ? { allowedTools } : {}),
 		},
 		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
-		async (_e: RunEvent) => {},
+		async (_e: SessionEventDraft) => {},
 		makeLogger(),
 	)
 }

@@ -65,7 +65,7 @@ async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
@@ -73,7 +73,7 @@ async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
 			retry: false,
 		},
 		(event) => {
-			if (event.type === 'run_failed') failure = (event as { failure?: Failure }).failure
+			if (event.type === 'turn_failed') failure = (event as { failure?: Failure }).failure
 		},
 	).catch(() => undefined)
 

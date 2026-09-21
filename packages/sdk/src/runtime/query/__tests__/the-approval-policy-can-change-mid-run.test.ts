@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { ApprovalPolicy, RunApprovalPolicy } from '../../../types/hitl/policy.js'
-import type { RunId } from '../../../types/ids/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
-import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from '../approval-policy.js'
+import type { ApprovalPolicy, SessionApprovalPolicy } from '../../../types/hitl/policy.js'
+import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
+import { AUTO_APPROVE_POLICY_NAME, createSessionApprovalPolicy } from '../approval-policy.js'
 
 /**
  * Who answers when the run asks a human, as a value rather than a closure.
@@ -18,20 +18,20 @@ import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from '../approval-p
  * the state this event exists to prevent.
  */
 
-const RUN = '961b5a8f-6c8e-4ac6-a1a6-6110b14cfd70' as RunId
+const RUN = '961b5a8f-6c8e-4ac6-a1a6-6110b14cfd70' as TurnId
 
 const policy = (name: string): ApprovalPolicy => ({
 	name,
 	handler: async () => ({ action: 'continue' }),
 })
 
-function box(initial: ApprovalPolicy): { policy: RunApprovalPolicy; events: RunEvent[] } {
-	const events: RunEvent[] = []
-	const runApprovalPolicy = createRunApprovalPolicy({
-		runId: RUN,
+function box(initial: ApprovalPolicy): { policy: SessionApprovalPolicy; events: SessionEvent[] } {
+	const events: SessionEvent[] = []
+	const runApprovalPolicy = createSessionApprovalPolicy({
+		turnId: RUN,
 		initial,
 		emit: async (event) => {
-			events.push(event)
+			events.push(event as SessionEvent)
 		},
 	})
 	return { policy: runApprovalPolicy, events }
@@ -85,7 +85,7 @@ describe('a change is recorded, and recorded first', () => {
 		expect(events).toHaveLength(1)
 		expect(events[0]).toMatchObject({
 			type: 'approval_policy_changed',
-			runId: RUN,
+			turnId: RUN,
 			from: 'operator-tui',
 			to: 'auto-approve',
 			reason: 'operator stepped away',
@@ -97,8 +97,8 @@ describe('a change is recorded, and recorded first', () => {
 		// permitting them — exactly backwards for the one question this event
 		// is kept to answer.
 		let nameWhenRecorded: string | undefined
-		const runPolicy = createRunApprovalPolicy({
-			runId: RUN,
+		const runPolicy = createSessionApprovalPolicy({
+			turnId: RUN,
 			initial: policy('operator-tui'),
 			emit: async () => {
 				nameWhenRecorded = runPolicy.current.name

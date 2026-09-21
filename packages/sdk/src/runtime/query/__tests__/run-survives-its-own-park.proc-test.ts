@@ -92,7 +92,7 @@ drainQuery({
   agentName: 'A',
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],
   workingDirectory: process.argv[4],
-  runConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 4, maxResponseTokens: 128 },
+  turnConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 4, maxResponseTokens: 128 },
   sessionId: randomUUID(), topicId: randomUUID(), projectId: randomUUID(), tenantId: randomUUID(),
 }, (e) => { last = e.type }).then(
   (run) => console.log('RESULT ' + JSON.stringify({ status: run.status, stop: run.stopReason, last })),
@@ -124,6 +124,6 @@ describe('a run outlives its own HITL park', () => {
 		// The run reached its own end rather than the process reaching it first.
 		expect(out, `the run did not complete:\n${out}`).toContain('RESULT ')
 		expect(out).toContain('"status":"completed"')
-		expect(out).toContain('"last":"run_completed"')
+		expect(out).toContain('"last":"turn_completed"')
 	}, 90_000)
 })

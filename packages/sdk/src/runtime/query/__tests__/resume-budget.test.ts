@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import type { SessionId } from '../../../types/ids/index.js'
 import { GuardCoordinator } from '../guard.js'
 
 /**
- * Budgets belong to the RUN, not to the process hosting it.
+ * Budgets belong to the TURN, not to the process hosting it.
  *
  * A run checkpointed at $4.80 of a $5 cap used to come back with a brand-new
  * $5 and a brand-new timeout clock, because the resume path replayed messages
@@ -17,12 +19,12 @@ function runMgrAt(opts: {
 	totalTokens?: number
 	totalCost?: number
 	iteration?: number
-}): RunPersistence {
+}): TurnRecorder {
 	return {
 		tokenUsage: { totalTokens: opts.totalTokens ?? 0 },
 		costInfo: { totalCost: opts.totalCost ?? 0 },
 		currentIteration: opts.iteration ?? 0,
-	} as unknown as RunPersistence
+	} as unknown as TurnRecorder
 }
 
 const live = new AbortController().signal
@@ -89,16 +91,15 @@ describe('GuardCoordinator — elapsed time survives a resume', () => {
 	})
 })
 
-describe('RunPersistence.restoreUsage', () => {
+describe('TurnRecorder.restoreUsage', () => {
 	it('replaces the counters rather than adding to them', async () => {
-		const { RunPersistence } = await import('../../../manager/run/persistence.js')
-		const mgr = new RunPersistence({
-			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+		const { TurnRecorder } = await import('../../../manager/session/turn-recorder.js')
+		const mgr = new TurnRecorder({
+			turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 			agentId: 'a',
 			agentName: 'A',
-			runConfig: {},
+			turnConfig: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
 			providerId: 'mock',
-			outputDir: '/tmp',
 			log: {
 				info: vi.fn(),
 				warn: vi.fn(),
@@ -112,10 +113,13 @@ describe('RunPersistence.restoreUsage', () => {
 					child: vi.fn(),
 				})),
 			},
-			sessionId: 's',
+			sessionId: 'c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f',
 			topicId: 't',
 			projectId: 'p',
 			tenantId: 'tn',
+			sessionLog: new InMemorySessionLog({
+				sessionId: 'c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f' as SessionId,
+			}),
 		} as any)
 
 		// `mock` is in no rate card, which is the point here: this case is about

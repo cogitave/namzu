@@ -2,7 +2,7 @@ import { getEventListeners } from 'node:events'
 import { describe, expect, it } from 'vitest'
 
 import { runExperiment } from '../experiment.js'
-import type { EvalRun } from '../types.js'
+import type { EvalTurn } from '../types.js'
 
 /**
  * `executeCase` was a bare await, so a `run` closure that never settled
@@ -16,7 +16,7 @@ import type { EvalRun } from '../types.js'
  * the suite's to absorb silently.
  */
 
-const emptyRun = (): EvalRun => ({
+const emptyRun = (): EvalTurn => ({
 	output: 'ok',
 	steps: [],
 	toolCalls: [],
@@ -25,7 +25,7 @@ const emptyRun = (): EvalRun => ({
 	durationMs: 0,
 })
 
-const never = () => new Promise<EvalRun>(() => {})
+const never = () => new Promise<EvalTurn>(() => {})
 
 const scorer = {
 	name: 'always-one',

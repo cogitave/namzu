@@ -1,16 +1,17 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
+import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { secretRedactionGuardrail } from '../guardrail-presets.js'
 import { drainQuery } from '../index.js'
 
@@ -23,11 +24,16 @@ import { drainQuery } from '../index.js'
  * consumes.
  *
  * Since LOG-14: a guardrail BLOCK is also a first-class 'refused' entry in
- * the audit trail, not merely the `guardrail_triggered` RunEvent a host
+ * the audit trail, not merely the `guardrail_triggered` SessionEvent a host
  * happens to be subscribed to when it fires.
  */
 
 const workdirs: string[] = []
+const SESSION = '423aea7e-9557-49e3-8c9e-665e12b79391' as SessionId
+
+function sessionLog(): InMemorySessionLog {
+	return new InMemorySessionLog({ sessionId: SESSION })
+}
 
 afterEach(async () => {
 	await removeTempDirs(workdirs)
@@ -38,19 +44,19 @@ async function run(opts: {
 	responseText: string
 	inputGuardrails?: Parameters<typeof drainQuery>[0]['inputGuardrails']
 	outputGuardrails?: Parameters<typeof drainQuery>[0]['outputGuardrails']
-	runStore?: Parameters<typeof drainQuery>[0]['runStore']
+	sessionLog?: InMemorySessionLog
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-guardrail-'))
 	workdirs.push(workingDirectory)
 
 	const provider = new MockLLMProvider({ turns: [{ text: opts.responseText }] })
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 
 	const result = await drainQuery(
 		{
 			provider,
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -61,13 +67,13 @@ async function run(opts: {
 			agentName: 'Guarded Agent',
 			messages: [createUserMessage('what is the deploy key?')],
 			workingDirectory,
-			sessionId: '423aea7e-9557-49e3-8c9e-665e12b79391' as SessionId,
+			sessionId: SESSION,
 			topicId: '26de5705-2f61-4c2a-8f64-39ff8f8587bb' as TopicId,
 			projectId: 'a9382cd4-7476-42e1-bd76-7353d47a3907' as ProjectId,
 			tenantId: '108babb0-2135-4a4a-87c4-a7f9a81dfaf7' as TenantId,
 			...(opts.inputGuardrails ? { inputGuardrails: opts.inputGuardrails } : {}),
 			...(opts.outputGuardrails ? { outputGuardrails: opts.outputGuardrails } : {}),
-			...(opts.runStore ? { runStore: opts.runStore } : {}),
+			...(opts.sessionLog ? { sessionLog: opts.sessionLog } : {}),
 		},
 		(event) => {
 			events.push(event)
@@ -101,22 +107,24 @@ describe('input guardrails through query()', () => {
 		// abandoned-consumer path found the run unsettled and settled it — a
 		// branch that exists for runs whose consumer walked away, carrying a
 		// run whose consumer was still reading.
-		const runStore = new InMemoryRunStore()
-		const writes = vi.spyOn(runStore, 'writeRunMeta')
+		const log = sessionLog()
 
 		const { result } = await run({
 			responseText: 'should never be produced',
 			inputGuardrails: [
 				{ name: 'no-secrets-asked', check: () => ({ action: 'block', reason: 'asked for a key' }) },
 			],
-			runStore,
+			sessionLog: log,
 		})
 
 		expect(result.status).toBe('completed')
 		expect(result.stopReason).toBe('input_guardrail')
-		// `init()` and this run's own settle, and no third write from anywhere.
-		expect(writes.mock.calls.length).toBe(2)
-		expect(runStore.snapshot().meta?.stopReason).toBe('input_guardrail')
+		// This turn's own settle, and no second terminal record from anywhere.
+		const terminal = (await log.readAll()).entries
+			.map((entry) => entry.record)
+			.filter((record) => record.type === 'turn_completed')
+		expect(terminal).toHaveLength(1)
+		expect(terminal[0]).toMatchObject({ stopReason: 'input_guardrail' })
 	})
 
 	it('is inert when nothing objects', async () => {
@@ -184,7 +192,7 @@ describe('output guardrails through query()', () => {
 		})
 
 		const streamed = events
-			.filter((e): e is Extract<RunEvent, { type: 'text_delta' }> => e.type === 'text_delta')
+			.filter((e): e is Extract<SessionEvent, { type: 'text_delta' }> => e.type === 'text_delta')
 			.map((e) => e.text)
 			.join('')
 
@@ -197,18 +205,18 @@ describe('output guardrails through query()', () => {
 
 describe('guardrail blocks are audited (LOG-14)', () => {
 	it('an input guardrail block records a refused AuditEvent', async () => {
-		const runStore = new InMemoryRunStore()
+		const log = sessionLog()
 		const { result } = await run({
 			responseText: 'should never be produced',
 			inputGuardrails: [
 				{ name: 'no-secrets-asked', check: () => ({ action: 'block', reason: 'asked for a key' }) },
 			],
-			runStore,
+			sessionLog: log,
 		})
 
 		expect(result.stopReason).toBe('input_guardrail')
 
-		const trail = await runStore.readAuditEvents()
+		const trail = await readAuditTrail(log)
 		const refusal = trail.find((e) => e.outcome === 'refused')
 		expect(refusal).toMatchObject({
 			what: { action: 'guardrail:input', resource: 'no-secrets-asked' },
@@ -217,16 +225,16 @@ describe('guardrail blocks are audited (LOG-14)', () => {
 	})
 
 	it('an output guardrail block records a refused AuditEvent', async () => {
-		const runStore = new InMemoryRunStore()
+		const log = sessionLog()
 		const { result } = await run({
 			responseText: 'AKIAIOSFODNN7EXAMPLE',
 			outputGuardrails: [secretRedactionGuardrail({ onMatch: 'block' })],
-			runStore,
+			sessionLog: log,
 		})
 
 		expect(result.stopReason).toBe('output_guardrail')
 
-		const trail = await runStore.readAuditEvents()
+		const trail = await readAuditTrail(log)
 		const refusal = trail.find((e) => e.outcome === 'refused')
 		expect(refusal).toMatchObject({
 			what: { action: 'guardrail:output', resource: 'secret-redaction' },

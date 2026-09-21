@@ -71,7 +71,7 @@ it.each(['enabled', 'opt-out', 'disabled', 'unconfigured'] as const)(
 			agentName: 'Context test',
 			messages: [{ role: 'user', content: 'Observe the file three times' }],
 			workingDirectory: cwd,
-			runConfig: { model: 'mock', timeoutMs: 20000, tokenBudget: 100000, maxIterations: 4 },
+			turnConfig: { model: 'mock', timeoutMs: 20000, tokenBudget: 100000, maxIterations: 4 },
 			...(mode === 'unconfigured'
 				? {}
 				: {

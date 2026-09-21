@@ -16,7 +16,7 @@ import {
 	createProjectInstructionMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 import type { ProjectInstructionContext, ToolResultObservation } from '../project-instructions.js'
@@ -66,7 +66,7 @@ class SnapshotAfterRead implements ProjectInstructionContext {
 describe('live project instruction context', () => {
 	it('starts no host or provider work when authority was already withdrawn', async () => {
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		caller.abort(reason)
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const prepare = vi.fn(() => createProjectInstructionMessage('must not publish', ['AGENTS.md']))
@@ -76,7 +76,7 @@ describe('live project instruction context', () => {
 			tools: new ToolRegistry(),
 			messages: [createUserMessage('do not start')],
 			workingDirectory: await workingTree(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -109,7 +109,7 @@ describe('live project instruction context', () => {
 		})
 		let receivedSignal: AbortSignal | undefined
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const late = createProjectInstructionMessage('late initial policy', ['AGENTS.md'])
 		const running = drainQuery({
@@ -117,7 +117,7 @@ describe('live project instruction context', () => {
 			tools: new ToolRegistry(),
 			messages: [createUserMessage('wait for policy')],
 			workingDirectory: await workingTree(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -169,7 +169,7 @@ describe('live project instruction context', () => {
 
 	it('does not publish a preparation value that aborts authority in the same turn', async () => {
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const late = createProjectInstructionMessage('same-turn late policy', ['AGENTS.md'])
 
@@ -178,7 +178,7 @@ describe('live project instruction context', () => {
 			tools: new ToolRegistry(),
 			messages: [createUserMessage('do not publish late policy')],
 			workingDirectory: await workingTree(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -212,7 +212,7 @@ describe('live project instruction context', () => {
 			release = resolve
 		})
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const late = createProjectInstructionMessage('post-settlement initial policy', ['AGENTS.md'])
 		const running = drainQuery({
@@ -220,7 +220,7 @@ describe('live project instruction context', () => {
 			tools: new ToolRegistry(),
 			messages: [createUserMessage('fence initial publication')],
 			workingDirectory: await workingTree(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -251,7 +251,7 @@ describe('live project instruction context', () => {
 
 	it('does not erase a callback failure that won before a later abort', async () => {
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		const failure = new Error('project policy loader failed first')
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 
@@ -261,7 +261,7 @@ describe('live project instruction context', () => {
 				tools: new ToolRegistry(),
 				messages: [createUserMessage('load policy')],
 				workingDirectory: await workingTree(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -298,7 +298,7 @@ describe('live project instruction context', () => {
 			tools,
 			messages: [createUserMessage('inspect the file')],
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -336,7 +336,7 @@ describe('live project instruction context', () => {
 			tools: new ToolRegistry(),
 			messages: [...run.messages, createUserMessage('continue')],
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -389,7 +389,7 @@ describe('live project instruction context', () => {
 			tools,
 			messages: [createUserMessage('use the wrapper')],
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -431,7 +431,7 @@ describe('live project instruction context', () => {
 		const tools = new ToolRegistry()
 		tools.register(ReadFileTool)
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		let markSecondStarted!: () => void
 		const secondStarted = new Promise<void>((resolve) => {
 			markSecondStarted = resolve
@@ -467,7 +467,7 @@ describe('live project instruction context', () => {
 			tools,
 			messages: [createUserMessage('read both files')],
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -531,7 +531,7 @@ describe('live project instruction context', () => {
 		const tools = new ToolRegistry()
 		tools.register(ReadFileTool)
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		let markStarted!: () => void
 		const started = new Promise<void>((resolve) => {
 			markStarted = resolve
@@ -548,7 +548,7 @@ describe('live project instruction context', () => {
 			tools,
 			messages: [createUserMessage('read then fence publication')],
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -661,7 +661,7 @@ describe('project instruction snapshot history', () => {
 				tools: new ToolRegistry(),
 				messages: [forged, createUserMessage('continue')],
 				workingDirectory: cwd,
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,

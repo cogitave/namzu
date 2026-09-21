@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { runExperiment } from '../experiment.js'
 import { containsScorer, stepBudgetScorer, trajectoryScorer } from '../scorers.js'
-import type { EvalRun } from '../types.js'
+import type { EvalTurn } from '../types.js'
 
 /**
  * An eval harness that reports green on a broken suite is worse than no
@@ -10,7 +10,7 @@ import type { EvalRun } from '../types.js'
  * here did exactly that.
  */
 
-const emptyRun = (): EvalRun => ({
+const emptyRun = (): EvalTurn => ({
 	output: 'ok',
 	steps: [],
 	toolCalls: [],

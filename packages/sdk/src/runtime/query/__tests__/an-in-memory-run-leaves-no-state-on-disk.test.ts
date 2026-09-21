@@ -8,13 +8,12 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
-import { defaultStateRoot } from '../../../session/workspace/state-root.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { resolveNamzuHome } from '../../../session/home.js'
+import { SessionPaths, slugForCwd } from '../../../session/paths.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId } from '../../../types/ids/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -22,17 +21,18 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
-import { heldRunState } from '../stores-held-in-memory.js'
+import { heldSessionState } from '../session-storage.js'
+import { checkpointStoreFor, turnCheckpoints } from './support/session.js'
 
 /**
- * A run whose run store is in memory, with no path builder, writes nothing
- * under `defaultStateRoot()`.
+ * A turn whose session log is in memory, with no `paths`, writes nothing to
+ * disk: its checkpoints and its token ledger stay beside the log.
  *
- * The run's evidence stayed in memory while its token ledger, its checkpoints
- * and their message history went to disk in the per-user state directory —
- * one tree per run, with no retention, in a place the host never named. The
- * packed `@namzu/live` fixture in `verify-consumer-install.sh` left one in the
- * operator's `~/.local/state/namzu` on every CI run.
+ * The run's evidence once stayed in memory while its token ledger, its
+ * checkpoints and their message history went to disk in the per-user state
+ * directory — one tree per run, with no retention, in a place the host never
+ * named. The packed `@namzu/live` fixture in `verify-consumer-install.sh` left
+ * one in the operator's home on every CI run.
  */
 
 registerMock()
@@ -61,9 +61,9 @@ function tools(): ToolRegistry {
 	return registry
 }
 
-function params(projectId: ReturnType<typeof generateProjectId>, workingDirectory: string) {
+function params(workingDirectory: string, sessionId: SessionId = generateSessionId()) {
 	return {
-		// A tool call, so the run writes an iteration checkpoint as well as its ledger.
+		// A tool call, so the turn writes an iteration checkpoint as well as its ledger.
 		provider: new MockLLMProvider({
 			turns: [
 				{
@@ -78,189 +78,134 @@ function params(projectId: ReturnType<typeof generateProjectId>, workingDirector
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'go' }],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,
 			maxIterations: 4,
 			permissionMode: 'auto' as const,
 		},
-		projectId,
-		sessionId: generateSessionId(),
+		projectId: generateProjectId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-		runStore: new InMemoryRunStore(),
+		sessionLog: new InMemorySessionLog({ sessionId }),
 	}
 }
 
-it('keeps the ledger and checkpoints in memory when the run store is', async () => {
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
+/** Whether anything was written for the working directory's project under `NAMZU_HOME`. */
+function projectOnDisk(workingDirectory: string): boolean {
+	return existsSync(join(resolveNamzuHome(), 'projects', slugForCwd(workingDirectory)))
+}
 
-	const run = await drainQuery(params(projectId, workingDirectory))
+async function workdir(): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
+	dirs.push(dir)
+	return dir
+}
 
-	expect(run.status).toBe('completed')
+const pauseAtCheckpoint =
+	(seen: { checkpointId?: CheckpointId }) =>
+	async (request: {
+		type: string
+		checkpointId?: CheckpointId
+	}) => {
+		if (request.type !== 'iteration_checkpoint') return { action: 'continue' as const }
+		seen.checkpointId = request.checkpointId
+		return { action: 'pause' as const, reason: 'restart fixture' }
+	}
+
+it('keeps the ledger and checkpoints in memory when the log is', async () => {
+	const workingDirectory = await workdir()
+	const base = params(workingDirectory)
+
+	const turn = await drainQuery(base)
+
+	expect(turn.status).toBe('completed')
 	expect(await readdir(workingDirectory)).toEqual([])
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
+	expect(projectOnDisk(workingDirectory)).toBe(false)
+	expect(await turnCheckpoints({ ...base, turnId: turn.id })).not.toHaveLength(0)
 })
 
-it('still writes to disk when the host names a path builder', async () => {
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	const root = await mkdtemp(join(tmpdir(), 'namzu-named-root-'))
-	dirs.push(workingDirectory, root)
-	const projectId = generateProjectId()
+it('still writes to disk when the host names the paths', async () => {
+	const workingDirectory = await workdir()
+	const home = await mkdtemp(join(tmpdir(), 'namzu-named-home-'))
+	dirs.push(home)
+	const paths = new SessionPaths({ home, slug: 'named-project' })
+	const { sessionLog: _held, ...base } = params(workingDirectory)
 
-	const run = await drainQuery({
-		...params(projectId, workingDirectory),
-		pathBuilder: new DefaultPathBuilder(root),
+	const turn = await drainQuery({ ...base, paths })
+
+	expect(turn.status).toBe('completed')
+	expect(existsSync(paths.sessionLog({ sessionId: base.sessionId }))).toBe(true)
+	expect(existsSync(paths.checkpoints({ sessionId: base.sessionId }))).toBe(true)
+	expect(projectOnDisk(workingDirectory)).toBe(false)
+})
+
+it('resumes in the same process from what the same log holds', async () => {
+	const workingDirectory = await workdir()
+	const base = params(workingDirectory)
+	const seen: { checkpointId?: CheckpointId } = {}
+
+	const paused = await drainQuery({ ...base, resumeHandler: pauseAtCheckpoint(seen) })
+	expect(paused.stopReason).toBe('paused')
+	if (!seen.checkpointId) throw new Error('Expected an iteration checkpoint')
+
+	// Same log: its checkpoints and its ledger are still beside it.
+	const resumed = await drainQuery({
+		...base,
+		turnId: paused.id,
+		messages: [],
+		resumeFromCheckpoint: seen.checkpointId,
 	})
-
-	expect(run.status).toBe('completed')
-	expect(existsSync(join(root, 'projects', projectId))).toBe(true)
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
+	expect(resumed.status).toBe('completed')
+	expect(projectOnDisk(workingDirectory)).toBe(false)
 })
 
-it('resumes in the same process from what the same run store holds', async () => {
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
-	const base = params(projectId, workingDirectory)
-	let checkpointId: CheckpointId | undefined
+it('keeps the ledger beside an in-memory log when the host passed its own checkpoint store', async () => {
+	// The ledger lives beside the log. A resume through another instance of
+	// the same log and the same checkpoint store finds both; nothing goes to
+	// disk.
+	const workingDirectory = await workdir()
+	const base = params(workingDirectory)
+	const checkpointStore = checkpointStoreFor(base.sessionLog)
+	const seen: { checkpointId?: CheckpointId } = {}
 
 	const paused = await drainQuery({
 		...base,
-		resumeHandler: async (request) => {
-			if (request.type !== 'iteration_checkpoint') return { action: 'continue' }
-			checkpointId = request.checkpointId
-			return { action: 'pause', reason: 'restart fixture' }
-		},
+		checkpointStore,
+		resumeHandler: pauseAtCheckpoint(seen),
 	})
 	expect(paused.stopReason).toBe('paused')
-	if (!checkpointId) throw new Error('Expected an iteration checkpoint')
+	if (!seen.checkpointId) throw new Error('Expected an iteration checkpoint')
+	expect(projectOnDisk(workingDirectory)).toBe(false)
+	const ledger = await heldSessionState(base.sessionLog)?.tokenBudgets.load({
+		rootSessionId: base.sessionId,
+		rootTurnId: paused.id,
+	})
+	expect(ledger).not.toBeNull()
 
-	// Same run store instance: its checkpoints and its ledger are still there.
+	const reopened = new InMemorySessionLog({
+		sessionId: base.sessionId,
+		medium: base.sessionLog.medium,
+		leases: base.sessionLog.leaseStore,
+		spills: base.sessionLog.spillStore,
+	})
 	const resumed = await drainQuery({
 		...base,
-		runId: paused.id,
+		sessionLog: reopened,
+		checkpointStore,
+		turnId: paused.id,
 		messages: [],
-		resumeFromCheckpoint: checkpointId,
+		resumeFromCheckpoint: seen.checkpointId,
 	})
 	expect(resumed.status).toBe('completed')
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
+	expect(projectOnDisk(workingDirectory)).toBe(false)
 })
 
-it('keeps the ledger beside an in-memory checkpoint store the host passed', async () => {
-	// The ledger lives where the checkpoints live. A resume with a fresh run
-	// store and the same checkpoint store finds both; nothing goes to disk.
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
-	const checkpointStore = new InMemoryCheckpointStore()
-	const base = { ...params(projectId, workingDirectory), checkpointStore }
-	let checkpointId: CheckpointId | undefined
-
-	const paused = await drainQuery({
-		...base,
-		resumeHandler: async (request) => {
-			if (request.type !== 'iteration_checkpoint') return { action: 'continue' }
-			checkpointId = request.checkpointId
-			return { action: 'pause', reason: 'restart fixture' }
-		},
-	})
-	expect(paused.stopReason).toBe('paused')
-	if (!checkpointId) throw new Error('Expected an iteration checkpoint')
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
-	expect(await checkpointStore.tokenBudgets.load({ ...base, runId: paused.id })).not.toBeNull()
-
-	const resumed = await drainQuery({
-		...base,
-		runStore: new InMemoryRunStore(),
-		runId: paused.id,
-		messages: [],
-		resumeFromCheckpoint: checkpointId,
-	})
-	expect(resumed.status).toBe('completed')
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
-})
-
-it('holds one run of state when one run store is reused for many runs', async () => {
-	// A long-lived host reusing one InMemoryRunStore: each run's checkpoints and
-	// ledger are released when the store is used for the next run, the way its
-	// evidence is, instead of accumulating one set per run for the process's life.
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
-	const base = params(projectId, workingDirectory)
-	const runStore = base.runStore
-	const runIds: RunId[] = []
-
-	for (let i = 0; i < 10; i++) {
-		const run = await drainQuery({
-			...params(projectId, workingDirectory),
-			...scopeOf(base),
-			runStore,
-		})
-		expect(run.status).toBe('completed')
-		runIds.push(run.id)
-	}
-
-	const heldNow = heldRunState(runStore)
-	expect(heldNow?.runId).toBe(runIds.at(-1))
-	const checkpoints = heldNow?.checkpoints
-	if (!checkpoints) throw new Error('Expected the current run to be held')
-	for (const runId of runIds.slice(0, -1)) {
-		expect(await checkpoints.listCheckpoints({ ...scopeOf(base), runId })).toEqual([])
-		expect(await checkpoints.tokenBudgets.load({ ...scopeOf(base), runId })).toBeNull()
-	}
-	const current = { ...scopeOf(base), runId: runIds.at(-1) as RunId }
-	expect((await checkpoints.listCheckpoints(current)).length).toBeGreaterThan(0)
-	expect(await checkpoints.tokenBudgets.load(current)).not.toBeNull()
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
-})
-
-it('no longer resumes a run the reused run store has moved past', async () => {
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
-	const base = params(projectId, workingDirectory)
-	let checkpointId: CheckpointId | undefined
-
-	const first = await drainQuery({
-		...base,
-		resumeHandler: async (request) => {
-			if (request.type !== 'iteration_checkpoint') return { action: 'continue' }
-			checkpointId = request.checkpointId
-			return { action: 'pause', reason: 'restart fixture' }
-		},
-	})
-	if (!checkpointId) throw new Error('Expected an iteration checkpoint')
-	const second = await drainQuery({
-		...params(projectId, workingDirectory),
-		...scopeOf(base),
-		runStore: base.runStore,
-	})
-	expect(second.status).toBe('completed')
-
-	// Rebinding released the first run's checkpoints, exactly as it released
-	// its evidence. A host that wants to come back to a run keeps its run
-	// store for it, or names a checkpoint store.
-	await expect(
-		drainQuery({
-			...base,
-			provider: params(projectId, workingDirectory).provider,
-			runId: first.id,
-			messages: [],
-			resumeFromCheckpoint: checkpointId,
-		}),
-	).rejects.toThrow('missing checkpoint')
-})
-
-it("bounds the current run's checkpoints by retention, as on disk", async () => {
-	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-run-'))
-	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
-	const base = params(projectId, workingDirectory)
+it("bounds the turn's checkpoints by retention, as on disk", async () => {
+	const workingDirectory = await workdir()
+	const base = params(workingDirectory)
 	const provider = new MockLLMProvider({
 		turns: [
 			{ toolCalls: [{ name: 'echo', args: { value: 'a' } }], finishReason: 'tool_calls' as const },
@@ -270,23 +215,12 @@ it("bounds the current run's checkpoints by retention, as on disk", async () => 
 		],
 	})
 
-	const run = await drainQuery({
+	const turn = await drainQuery({
 		...base,
 		provider,
-		runConfig: { ...base.runConfig, maxIterations: 6, pruneKeepLast: 1 },
+		turnConfig: { ...base.turnConfig, maxIterations: 6, pruneKeepLast: 1 },
 	})
 
-	expect(run.status).toBe('completed')
-	const checkpoints = heldRunState(base.runStore)?.checkpoints
-	if (!checkpoints) throw new Error('Expected the run to be held')
-	expect(await checkpoints.listCheckpoints({ ...scopeOf(base), runId: run.id })).toHaveLength(1)
+	expect(turn.status).toBe('completed')
+	expect(await turnCheckpoints({ ...base, turnId: turn.id })).toHaveLength(1)
 })
-
-function scopeOf(base: ReturnType<typeof params>) {
-	return {
-		tenantId: base.tenantId,
-		projectId: base.projectId,
-		sessionId: base.sessionId,
-		topicId: base.topicId,
-	}
-}

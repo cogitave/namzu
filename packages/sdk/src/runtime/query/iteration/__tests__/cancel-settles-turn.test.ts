@@ -2,12 +2,13 @@ import { type Attributes, type Meter, metrics } from '@opentelemetry/api'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resetRuntimeMetrics } from '../../../../telemetry/metrics.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../../types/provider/index.js'
 import type { LLMProvider } from '../../../../types/provider/interface.js'
-import { RunCancelled } from '../../../../types/run/cancel-cause.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import { TurnCancelled } from '../../../../types/session/cancel-cause.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import type { Logger } from '../../../../utils/logger.js'
+import type { SessionEventDraft } from '../../events.js'
 import { streamProviderTurn } from '../stream-turn.js'
 
 /**
@@ -22,7 +23,7 @@ import { streamProviderTurn } from '../stream-turn.js'
  * that skipped it, which is the opposite of what its frequency deserves.
  */
 
-const RUN_ID = '99cb3afe-b8f6-4a9b-9f17-e906b5edc175' as RunId
+const RUN_ID = '99cb3afe-b8f6-4a9b-9f17-e906b5edc175' as TurnId
 
 interface Written {
 	instrument: string
@@ -88,7 +89,7 @@ function stallingProvider(controller: AbortController, reason: unknown): LLMProv
 }
 
 async function runCancelled(): Promise<{
-	events: RunEvent[]
+	events: SessionEvent[]
 	written: Written[]
 	rejection: unknown
 	reason: unknown
@@ -97,8 +98,8 @@ async function runCancelled(): Promise<{
 	captureMetrics(written)
 
 	const controller = new AbortController()
-	const events: RunEvent[] = []
-	const reason = new RunCancelled('user')
+	const events: SessionEvent[] = []
+	const reason = new TurnCancelled('user')
 	const params = {
 		model: 'cancel-model',
 		messages: [{ role: 'user' as const, content: 'hi' }],
@@ -108,8 +109,8 @@ async function runCancelled(): Promise<{
 	const iterator = streamProviderTurn(
 		stallingProvider(controller, reason),
 		params,
-		async (e: RunEvent) => {
-			events.push(e)
+		async (e: SessionEventDraft) => {
+			events.push(e as SessionEvent)
 		},
 		function* () {},
 		RUN_ID,
@@ -169,12 +170,12 @@ describe('a turn cancelled mid-stream', () => {
 				}
 			},
 		}
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const turn = streamProviderTurn(
 			provider,
 			{ model: 'mock', messages: [], signal: controller.signal },
 			async (event) => {
-				events.push(event)
+				events.push(event as SessionEvent)
 			},
 			function* () {},
 			RUN_ID,

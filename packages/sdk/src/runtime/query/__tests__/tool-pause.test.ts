@@ -17,6 +17,8 @@ import { drainQuery } from '../index.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
 import { createToolPause, isPauseForCall, pauseId } from '../tool-pause.js'
 
+const SESSION_ID = generateSessionId()
+
 /**
  * The pause machinery is durable and excellent, and it was reachable from
  * exactly four kernel-owned points: the plan gate, the tool-review gate,
@@ -48,7 +50,8 @@ describe('a pause raised from inside a tool', () => {
 		const record = vi.fn(async () => '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as never)
 		const resolve = vi.fn(async () => {})
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async (r) =>
 				ANSWER(r.type === 'user_question' ? r.question.questionId : '', 'staging'),
@@ -76,7 +79,8 @@ describe('a pause raised from inside a tool', () => {
 		const name = 'confirm production: eu/west'
 		const requests: HITLDecisionRequest[] = []
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId,
 			parkHandler: async (park) => {
 				requests.push(park)
@@ -100,7 +104,8 @@ describe('a pause raised from inside a tool', () => {
 
 	it('refuses an answer addressed to a different pause', async () => {
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ANSWER('call_1:some_other_pause', 'production'),
 		})
@@ -113,7 +118,8 @@ describe('a pause raised from inside a tool', () => {
 
 	it('reports an unanswered pause as its own outcome, never as consent', async () => {
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ({ action: 'continue' }),
 		})
@@ -125,7 +131,8 @@ describe('a pause raised from inside a tool', () => {
 
 	it('reports an abort separately from silence', async () => {
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ({ action: 'abort', reason: 'stop' }),
 		})
@@ -135,7 +142,8 @@ describe('a pause raised from inside a tool', () => {
 
 	it('drops a selection the tool never offered', async () => {
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ANSWER('call_1:target_environment', 'delete_everything'),
 		})
@@ -153,7 +161,8 @@ describe('a pause raised from inside a tool', () => {
 
 		const parkHandler = vi.fn(async () => ({ action: 'continue' }) as HITLResumeDecision)
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler,
 			recorder: { record, resolve: async () => {} },
@@ -172,7 +181,8 @@ describe('a pause raised from inside a tool', () => {
 		// the built-in question tool has: the await works, only the
 		// cross-process handoff is missing.
 		const pause = createToolPause({
-			runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			sessionId: SESSION_ID,
+			turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 			toolUseId: 'call_1',
 			parkHandler: async () => ANSWER('call_1:target_environment', 'staging'),
 			recorder: new QuestionParkBinding(),
@@ -275,7 +285,7 @@ describe('the seam a tool author is handed', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'deploy it' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 3 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 3 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),

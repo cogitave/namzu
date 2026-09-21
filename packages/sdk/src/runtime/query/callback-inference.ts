@@ -2,7 +2,10 @@ import { z } from 'zod'
 import { StreamTextAccumulator } from '../../provider/stream-text.js'
 import { type TokenUsage, mergeTokenUsage } from '../../types/common/index.js'
 import { createSystemMessage, createUserMessage } from '../../types/message/index.js'
-import type { PreparationTextRequest, PreparationTextResult } from '../../types/run/prepare-step.js'
+import type {
+	PreparationTextRequest,
+	PreparationTextResult,
+} from '../../types/session/prepare-step.js'
 import type { IterationContext } from './iteration/phases/context.js'
 
 const requestSchema = z
@@ -72,7 +75,7 @@ export function createCallbackInference(
 					providerRoute: route(),
 					messages: [createSystemMessage(input.system), createUserMessage(input.prompt)],
 					maxTokens: input.maxTokens,
-					...(ctx.runConfig.effort ? { effort: ctx.runConfig.effort } : {}),
+					...(ctx.turnConfig.effort ? { effort: ctx.turnConfig.effort } : {}),
 					signal,
 				})) {
 					if (chunk.usage) usage = usage ? mergeTokenUsage(usage, chunk.usage) : { ...chunk.usage }
@@ -90,7 +93,7 @@ export function createCallbackInference(
 				if (invalidOutput) throw new Error(invalidOutput)
 				return { text: text.text, usage, servedBy: route() }
 			} finally {
-				if (usage) ctx.runMgr.accumulateUsage(usage, route())
+				if (usage) ctx.recorder.accumulateUsage(usage, route())
 			}
 		},
 	}

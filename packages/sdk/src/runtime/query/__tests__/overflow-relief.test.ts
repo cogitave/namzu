@@ -65,7 +65,7 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 	return drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,
 			tokenBudget: 500_000,

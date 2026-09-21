@@ -56,7 +56,7 @@ async function runWithSteer(steerDuringTool?: string) {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,

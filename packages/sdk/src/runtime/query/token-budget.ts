@@ -1,52 +1,35 @@
-import { join } from 'node:path'
-import type { TokenBudget } from '../../run/token-budget.js'
-import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
-import { defaultStateRoot } from '../../session/workspace/state-root.js'
-import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
-import { openTokenBudget } from '../../store/run/token-budget-disk.js'
-import type { IterationCheckpoint } from '../../types/hitl/index.js'
-import type { RunId } from '../../types/ids/index.js'
-import type { RunState } from '../../types/run/state.js'
-import { validateTokenBudgetBinding } from '../../types/run/token-budget-store.js'
+import {
+	type SessionTokenBudget,
+	type SessionTokenBudgetStore,
+	openSessionTokenBudget,
+} from '../../store/budget/index.js'
+import type { TurnId } from '../../types/ids/index.js'
+import type { TurnBudgetBinding } from '../../types/session/turn.js'
+import { asSessionId, asTurnId } from '../../utils/id.js'
 import type { QueryParams } from './index.js'
-import { resolveRunStorage } from './stores-held-in-memory.js'
 
-/** Resolve one authority before any model request or recovered tool dispatch. */
+/** The ledger reference a checkpoint (or a selected resume state) carries. */
+export interface SavedBudgetReference {
+	readonly binding?: TurnBudgetBinding
+	readonly accountId?: string
+}
+
+/**
+ * Resolve one ledger authority before any model request or recovered tool
+ * dispatch.
+ *
+ * The ledger is keyed by `(rootSessionId, rootTurnId)`: a root turn opens its
+ * own ledger with its own limit; a child session's turns bind to the key of
+ * the root turn that spawned them (they are handed that account); a resumed
+ * paused turn reuses its key. A limit that changes between two turns of one
+ * session is therefore two ledgers, never a mismatch.
+ */
 export async function resolveQueryBudget(
 	params: QueryParams,
-	runId: RunId,
-	selected?: RunState,
-): Promise<TokenBudget> {
-	let saved: Pick<IterationCheckpoint, 'budgetBinding' | 'budgetAccountId'> | undefined = selected
-	// Checkpoints and ledger resolved together: the ledger lives where the
-	// run's checkpoints live, so a resume that finds one finds the other.
-	const storage = resolveRunStorage({
-		runStore: params.runStore,
-		pathBuilder: params.pathBuilder,
-		checkpointStore: params.checkpointStore,
-		tokenBudgetStore: params.tokenBudgetStore,
-		runId,
-	})
-	if (params.resumeFromCheckpoint && !saved) {
-		const paths = params.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
-		const scope = {
-			tenantId: params.tenantId,
-			projectId: params.projectId,
-			sessionId: params.sessionId,
-			runId,
-			parentRunId: params.parentRunId,
-		}
-		const store =
-			storage.checkpoints ??
-			new DiskCheckpointStore(
-				{
-					baseDir: join(paths.sessionDir(params.projectId, params.sessionId), 'runs'),
-				},
-				scope,
-			)
-		saved = (await store.readCheckpoint(scope, params.resumeFromCheckpoint)) ?? undefined
-		if (!saved) throw new Error('Cannot restore a token budget from a missing checkpoint.')
-	}
+	turnId: TurnId,
+	store: SessionTokenBudgetStore,
+	saved?: SavedBudgetReference,
+): Promise<SessionTokenBudget> {
 	const schedulerBudget = params.taskScheduler?.budget
 	if (params.taskScheduler && !schedulerBudget) {
 		throw new Error('A task scheduler must expose its shared token budget account.')
@@ -55,82 +38,56 @@ export async function resolveQueryBudget(
 		throw new Error('Query and task scheduler must share the same token budget account.')
 	}
 	const provided = params.budget ?? schedulerBudget
-	const binding =
-		saved?.budgetBinding === undefined ? undefined : validateTokenBudgetBinding(saved.budgetBinding)
-	if (
-		binding &&
-		saved?.budgetAccountId !== undefined &&
-		saved.budgetAccountId !== binding.accountId
-	) {
+	const binding = saved?.binding === undefined ? undefined : validateBinding(saved.binding)
+	if (binding && saved?.accountId !== undefined && saved.accountId !== binding.accountId) {
 		throw new Error('Checkpoint token budget account references disagree.')
 	}
-	if (
-		binding &&
-		(binding.scope.tenantId !== params.tenantId || binding.scope.projectId !== params.projectId)
-	) {
-		throw new Error('Checkpoint token budget belongs to a different tenant or project.')
-	}
-	if (binding && binding.scope.runId === runId && binding.scope.sessionId !== params.sessionId) {
-		throw new Error('Checkpoint token budget belongs to a different root session.')
-	}
 	if (provided) {
-		const providedBinding = provided.binding
-		if (
-			providedBinding &&
-			(providedBinding.scope.tenantId !== params.tenantId ||
-				providedBinding.scope.projectId !== params.projectId ||
-				(providedBinding.scope.runId === runId &&
-					providedBinding.scope.sessionId !== params.sessionId))
-		) {
-			throw new Error('Supplied token budget belongs to a different root scope.')
-		}
-		if (saved?.budgetAccountId && saved.budgetAccountId !== provided.accountId) {
+		if (saved?.accountId && saved.accountId !== provided.accountId) {
 			throw new Error('Resume requires the original token budget account.')
 		}
 		if (
 			binding &&
-			(binding.accountId !== provided.accountId || binding.scope.runId !== provided.rootRunId)
+			(binding.accountId !== provided.accountId ||
+				binding.rootSessionId !== provided.scope.rootSessionId ||
+				binding.rootTurnId !== provided.scope.rootTurnId)
 		) {
 			throw new Error('Checkpoint and supplied token budget authority disagree.')
 		}
-		if (
-			binding &&
-			(!providedBinding ||
-				binding.scope.tenantId !== providedBinding.scope.tenantId ||
-				binding.scope.projectId !== providedBinding.scope.projectId ||
-				binding.scope.sessionId !== providedBinding.scope.sessionId ||
-				binding.scope.runId !== providedBinding.scope.runId)
-		) {
-			throw new Error('Checkpoint and supplied token budget root scopes disagree.')
-		}
-		provided.bindRun(runId)
-		narrowToRunLimit(provided, params.runConfig.tokenBudget)
+		provided.bindTurn(params.sessionId, turnId)
+		narrowToTurnLimit(provided, params.turnConfig.tokenBudget)
 		return provided
 	}
-	if (saved?.budgetAccountId && !binding) {
+	if (saved?.accountId && !binding) {
 		throw new Error(
 			'This checkpoint used an in-memory token budget. Supply its current authoritative budget to resume.',
 		)
 	}
-	const budget = await openTokenBudget({
-		store: storage.tokenBudget,
-		pathBuilder: params.pathBuilder,
-		workingDirectory: params.workingDirectory,
-		scope: binding?.scope ?? {
-			tenantId: params.tenantId,
-			projectId: params.projectId,
-			sessionId: params.sessionId,
-			runId,
-		},
-		limit: binding && binding.scope.runId !== runId ? undefined : params.runConfig.tokenBudget,
-		accountId: binding?.accountId,
-		requireExisting: binding !== undefined,
+	const ownRoot = binding === undefined || binding.rootTurnId === turnId
+	const budget = await openSessionTokenBudget({
+		store,
+		scope: binding
+			? { rootSessionId: binding.rootSessionId, rootTurnId: binding.rootTurnId }
+			: { rootSessionId: params.sessionId, rootTurnId: turnId },
+		...(ownRoot ? { limit: params.turnConfig.tokenBudget } : {}),
+		...(binding ? { accountId: binding.accountId, requireExisting: true } : {}),
 	})
-	budget.bindRun(runId)
-	narrowToRunLimit(budget, params.runConfig.tokenBudget)
+	budget.bindTurn(params.sessionId, turnId)
+	narrowToTurnLimit(budget, params.turnConfig.tokenBudget)
 	return budget
 }
 
-function narrowToRunLimit(budget: TokenBudget, limit: number): void {
+function validateBinding(binding: TurnBudgetBinding): TurnBudgetBinding {
+	if (typeof binding.accountId !== 'string' || binding.accountId.length === 0) {
+		throw new Error('Checkpoint token budget binding has no account.')
+	}
+	return {
+		rootSessionId: asSessionId(binding.rootSessionId),
+		rootTurnId: asTurnId(binding.rootTurnId),
+		accountId: binding.accountId,
+	}
+}
+
+function narrowToTurnLimit(budget: SessionTokenBudget, limit: number): void {
 	if (limit > 0 && (budget.limit === 0 || limit < budget.limit)) budget.narrow(limit)
 }

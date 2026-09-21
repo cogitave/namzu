@@ -14,9 +14,9 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 class AbortAwareAdvisorProvider implements LLMProvider {
@@ -76,7 +76,7 @@ function params(
 	return {
 		provider: main,
 		tools: tools(),
-		runConfig: {
+		turnConfig: {
 			model: 'main-model',
 			timeoutMs: 5_000,
 			streamIdleTimeoutMs: idleTimeoutMs,
@@ -137,7 +137,7 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 		})
 		const advisor = new AbortAwareAdvisorProvider()
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const safety = setTimeout(
 			() => caller.abort(new Error('test safety bound: advisor watchdog did not settle')),
 			1_000,
@@ -159,9 +159,9 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 				kind: 'network',
 				providerId: advisor.id,
 			})
-			expect(events.some((event) => event.type === 'run_failed')).toBe(false)
-			expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
-				type: 'run_completed',
+			expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
+			expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+				type: 'turn_completed',
 				stopReason: 'token_budget',
 			})
 			expect(caller.signal.aborted).toBe(false)
@@ -177,7 +177,7 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 		})
 		const advisor = new AbortAwareAdvisorProvider()
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const running = drainQuery(params(main, advisor, await workdir(), caller, 0), (event) => {
 			events.push(event)
 		})
@@ -203,8 +203,8 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 		expect(advisor.transportSignals).toHaveLength(1)
 		expect(advisor.transportSignals[0]?.aborted).toBe(true)
 		expect(advisor.transportSignals[0]?.reason).toBe(stop)
-		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
+		expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+			type: 'turn_completed',
 			stopReason: 'cancelled',
 		})
 	})
@@ -213,9 +213,9 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 		const main = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
 		const advisor = new AbortAwareAdvisorProvider()
 		const caller = new AbortController()
-		const stop = new RunCancelled('user')
+		const stop = new TurnCancelled('user')
 		caller.abort(stop)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(params(main, advisor, await workdir(), caller, 10), (event) => {
 			events.push(event)
@@ -225,8 +225,8 @@ describe('query-owned advisors inherit the run stream boundary', () => {
 		expect(run.stopReason).toBe('cancelled')
 		expect(main.requests).toHaveLength(0)
 		expect(advisor.transportSignals).toHaveLength(0)
-		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
+		expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+			type: 'turn_completed',
 			stopReason: 'cancelled',
 			cancelCause: 'user',
 		})

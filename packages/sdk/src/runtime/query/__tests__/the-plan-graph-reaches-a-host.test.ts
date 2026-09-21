@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { RunPersistence } from '../../../manager/run/persistence.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { TurnRecorder } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { EventTranslator } from '../events.js'
 
 /**
@@ -17,7 +17,8 @@ import { EventTranslator } from '../events.js'
  * smallest change that lets a host draw the plan the model has in mind.
  */
 
-const RUN = 'b20a3380-db4f-47a7-b446-d48bcbbbdfef' as RunId
+const TURN = 'b20a3380-db4f-47a7-b446-d48bcbbbdfef' as TurnId
+const SESSION = '661ca27b-88d4-4c9c-9c61-a2f296ac9aae' as SessionId
 
 const LOG = {
 	info: vi.fn(),
@@ -28,9 +29,9 @@ const LOG = {
 }
 
 /**
- * The real `RunPersistence`, over the in-memory run store.
+ * The real `TurnRecorder`, over an in-memory session log.
  *
- * This was a hand-written object with an `id` and a stub `getRunStore`, and it
+ * This was a hand-written object with an `id` and a stub store getter, and it
  * kept growing a member behind the emitter: first a store, because `emitEvent`
  * appends and a fake without one produced an unhandled rejection AFTER the
  * assertions passed — green tests, non-zero exit; then the event-sequence
@@ -38,32 +39,32 @@ const LOG = {
  * is the shape the rule about fixtures unlike production names. Using the real
  * class ends that: the next member the emitter reaches for is simply there.
  */
-function persistence(): RunPersistence {
-	return new RunPersistence({
-		runId: RUN,
+function persistence(): TurnRecorder {
+	return new TurnRecorder({
+		turnId: TURN,
 		agentId: 'a',
 		agentName: 'A',
-		runConfig: {},
+		turnConfig: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
 		providerId: 'mock',
-		// Nothing may be written: the injected store is not a filesystem.
-		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
-		sessionId: '661ca27b-88d4-4c9c-9c61-a2f296ac9aae',
+		sessionId: SESSION,
 		topicId: 'bcc64cd7-b81a-4dff-a633-203f1a03a837',
 		projectId: 'b0f376f8-52af-4302-bf4f-d7bcf3cf34c3',
 		tenantId: 'a8bb2035-b5d5-4866-815b-a67fc7085cc6',
-		runStore: new InMemoryRunStore(),
+		// Nothing may be written to disk: the log is held in memory.
+		sessionLog: new InMemorySessionLog({ sessionId: SESSION }),
 		// biome-ignore lint/suspicious/noExplicitAny: branded id types are not
 		// what this test is about; the wiring is.
 	} as any)
 }
 
-async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promise<RunEvent[]> {
+async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promise<SessionEvent[]> {
 	const store = new InMemoryTaskStore()
-	const runMgr = persistence()
-	await runMgr.init()
-	const emitter = new EventTranslator(runMgr)
-	const stop = emitter.wireTaskStore(store, RUN)
+	const recorder = persistence()
+	await recorder.open({ session: { cwd: '/tmp' } })
+	await recorder.begin()
+	const emitter = new EventTranslator(recorder)
+	const stop = emitter.wireTaskStore(store, SESSION)
 
 	await body(store)
 	// The store's listeners are async; let them settle before draining.
@@ -73,14 +74,18 @@ async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promi
 	return [...emitter.drainPending()]
 }
 
-type Created = Extract<RunEvent, { type: 'task_created' }>
-type Updated = Extract<RunEvent, { type: 'task_updated' }>
+type Created = Extract<SessionEvent, { type: 'task_created' }>
+type Updated = Extract<SessionEvent, { type: 'task_updated' }>
 
 describe('a host can see what a unit waits on', () => {
 	it('carries the edges once a dependency exists', async () => {
 		const events = await capture(async (store) => {
-			const gather = await store.create({ runId: RUN, subject: 'gather' })
-			const summarise = await store.create({ runId: RUN, subject: 'summarise' })
+			const gather = await store.create({ sessionId: SESSION, turnId: TURN, subject: 'gather' })
+			const summarise = await store.create({
+				sessionId: SESSION,
+				turnId: TURN,
+				subject: 'summarise',
+			})
 			await store.block(gather.id, summarise.id)
 		})
 
@@ -97,7 +102,7 @@ describe('a host can see what a unit waits on', () => {
 		// "this unit has no dependencies" from "this emitter predates the
 		// field" — an empty array asserts the first about both.
 		const events = await capture(async (store) => {
-			await store.create({ runId: RUN, subject: 'standalone' })
+			await store.create({ sessionId: SESSION, turnId: TURN, subject: 'standalone' })
 		})
 
 		const created = events.find((e): e is Created => e.type === 'task_created')

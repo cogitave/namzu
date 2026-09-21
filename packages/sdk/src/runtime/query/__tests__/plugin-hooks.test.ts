@@ -5,7 +5,7 @@ import { applyLifecycleHookResults } from '../plugin-hooks.js'
 describe('applyLifecycleHookResults', () => {
 	it('returns silently when all results are continue', () => {
 		const results: PluginHookResult[] = [{ action: 'continue' }, { action: 'continue' }]
-		expect(() => applyLifecycleHookResults('run_start', results)).not.toThrow()
+		expect(() => applyLifecycleHookResults('turn_start', results)).not.toThrow()
 	})
 
 	it('throws when a result is error', () => {

@@ -88,7 +88,7 @@ async function run(options: {
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			maxIterations: options.maxIterations,
 			tokenBudget: 200_000,

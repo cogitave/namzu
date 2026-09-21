@@ -1,6 +1,6 @@
-import type { RunPersistence } from '../../manager/run/persistence.js'
-import { buildLimitConfig, checkLimitsDetailed } from '../../run/LimitChecker.js'
-import type { LimitCheckerConfig, StopReason } from '../../types/run/index.js'
+import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
+import { buildLimitConfig, checkLimitsDetailed } from '../../turn/LimitChecker.js'
+import type { LimitCheckerConfig, StopReason } from '../../types/session/index.js'
 
 export interface GuardConfig {
 	tokenBudget: number
@@ -101,18 +101,18 @@ export class GuardCoordinator {
 		return Math.max(0, this.limitConfig.timeoutMs - (Date.now() - this.startTime))
 	}
 
-	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
+	beforeIteration(recorder: TurnRecorder, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,
-			totalTokens: runMgr.tokenUsage.totalTokens,
-			totalCost: runMgr.costInfo.totalCost,
-			unpricedTokens: runMgr.costInfo.unpricedTokens,
-			currentIteration: runMgr.currentIteration,
+			totalTokens: recorder.tokenUsage.totalTokens,
+			totalCost: recorder.costInfo.totalCost,
+			unpricedTokens: recorder.costInfo.unpricedTokens,
+			currentIteration: recorder.currentIteration,
 			startTime: this.startTime,
 		}
 
 		const limitResult = checkLimitsDetailed(this.limitConfig, limitState)
-		if (!abortSignal.aborted && runMgr.budget && runMgr.budget.remaining <= 0) {
+		if (!abortSignal.aborted && recorder.budget && recorder.budget.remaining <= 0) {
 			return {
 				shouldStop: true,
 				forceFinalize: false,

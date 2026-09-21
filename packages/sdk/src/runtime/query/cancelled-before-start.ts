@@ -1,46 +1,45 @@
-import type { RunPersistence } from '../../manager/run/persistence.js'
-import { GENAI, NAMZU, agentRunSpanName, parentContext } from '../../telemetry/attributes.js'
+import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
+import { GENAI, NAMZU, agentTurnSpanName, parentContext } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
-import { createSystemMessage } from '../../types/message/index.js'
-import type { FencingToken } from '../../types/run/checkpoint-store.js'
-import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
-import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
-import type { Run, RunEvent } from '../../types/run/index.js'
+import type { MessageId } from '../../types/ids/index.js'
+import { type Message, createSystemMessage } from '../../types/message/index.js'
+import type { SessionEvent, Turn } from '../../types/session/index.js'
+import {
+	type SessionLogCursor,
+	type SessionLogReplay,
+	resolveSessionLogReplay,
+} from '../../types/session/log-cursor.js'
+import { SESSION_EVENT_TYPES, type SessionRecord } from '../../types/session/records.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { QueryParams } from './index.js'
-import type { PreparedRun } from './prepare-run.js'
+import type { PreparedTurn } from './prepare-turn.js'
 import { ResultAssembler } from './result.js'
 
 /**
- * The run that was cancelled before it started.
+ * The turn that was cancelled before it started.
  *
- * Attachment materialization happens before `RunContext` exists, and a
- * cancellation observed there still belongs to a run: it must be recorded,
- * classified and reported like any other, without any of the authority-bearing
- * work — prompt contributions, host callbacks, tools, plugins, sandbox,
- * guardrails, advisors, providers — that a run which is allowed to proceed
- * would do next.
- *
- * An `async function*` rather than a plain async function, and reached with
- * `yield*`, because this path still emits and drains: the events it produces
- * must occupy exactly the positions in the stream they occupied when the code
- * lived inline, and only delegation preserves every yield point.
+ * Attachment materialization happens before the turn's context exists, and
+ * a cancellation observed there still belongs to a turn: it is recorded and
+ * reported like any other, without any of the authority-bearing work —
+ * prompt contributions, host callbacks, tools, plugins, sandbox, guardrails,
+ * advisors, providers — that a turn which is allowed to proceed would do next.
  */
 export async function* settlePreStartCancellation(
 	params: QueryParams,
-	prepared: PreparedRun,
-): AsyncGenerator<RunEvent, Run> {
+	prepared: PreparedTurn,
+): AsyncGenerator<SessionEvent, Turn> {
 	const {
 		ctx,
-		runConfig,
+		turnConfig,
 		eventTranslator,
 		executeUserInterruptHooks,
 		selectedResumeState,
 		queuedForThisRun,
 		initialMessages,
+		historyIds,
 	} = prepared
 
-	// Attachment materialization happens before RunContext exists. Once it
+	// Attachment materialization happens before TurnContext exists. Once it
 	// observes cancellation, do only the work required to leave an honest
 	// durable run: initialize the record, retain the unresolved references,
 	// and settle through the ordinary cancellation classifier. Prompt
@@ -60,7 +59,7 @@ export async function* settlePreStartCancellation(
 
 	const cancelledPrompt = params.systemPrompt ?? ''
 	const cancelledAssembler = new ResultAssembler({
-		runMgr: ctx.runMgr,
+		recorder: ctx.recorder,
 		planManager: ctx.planManager,
 		activityStore: ctx.activityStore,
 		log: ctx.log,
@@ -69,61 +68,55 @@ export async function* settlePreStartCancellation(
 		signal: ctx.abortController.signal,
 	})
 	const rootSpan = getTracer().startSpan(
-		agentRunSpanName(params.agentName),
+		agentTurnSpanName(params.agentName),
 		{},
 		parentContext(params.parentSpan ?? selectedResumeState?.traceContext),
 	)
 	rootSpan.setAttributes({
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.turnId,
 		[GENAI.AGENT_NAME]: params.agentName,
 		[GENAI.AGENT_ID]: params.agentId,
-		[GENAI.REQUEST_MODEL]: runConfig.model,
+		[GENAI.REQUEST_MODEL]: turnConfig.model,
 		[GENAI.SYSTEM]: params.provider.id,
 	})
 
+	const push = (message: Message, ids: ReadonlyMap<Message, MessageId>): void => {
+		const messageId = ids.get(message)
+		ctx.recorder.pushMessage(message, messageId ? { messageId } : {})
+	}
 	try {
-		await ctx.runMgr.init()
 		if (selectedResumeState) {
-			ctx.runMgr.restoreUsage(
+			ctx.recorder.restoreUsage(
 				selectedResumeState.tokenUsage,
 				selectedResumeState.costInfo,
 				selectedResumeState.currentIteration,
 			)
-			for (const message of selectedResumeState.messages) ctx.runMgr.pushMessage(message)
-			for (const queued of queuedForThisRun) ctx.runMgr.pushMessage(queued)
+			const restoredIds = selectedResumeState.messageIds ?? new Map<Message, MessageId>()
+			for (const message of selectedResumeState.messages) push(message, restoredIds)
 		} else if (params.continuationMode) {
-			for (const message of initialMessages) ctx.runMgr.pushMessage(message)
+			for (const message of initialMessages) push(message, historyIds)
 		} else {
-			ctx.runMgr.pushMessage(createSystemMessage(cancelledPrompt, 'cache'))
-			for (const message of initialMessages) ctx.runMgr.pushMessage(message)
+			ctx.recorder.pushMessage(createSystemMessage(cancelledPrompt, 'cache'), { transient: true })
+			for (const message of initialMessages) push(message, historyIds)
 		}
 		if (params.eventCursor) {
-			yield* catchUpFromCursor(
-				ctx.runMgr,
-				params.eventCursor,
-				params.onEventReplay,
-				params.claimFence,
-				(error) => {
-					ctx.log.warn('Replay observer failed after attachment cancellation', {
-						'exception.message': toErrorMessage(error),
-					})
-				},
-			)
-		}
-		if (selectedResumeState) {
-			await eventTranslator.emitEvent({
-				type: 'run_resuming',
-				runId: ctx.runId,
-				fromCheckpointId: selectedResumeState.checkpointId,
+			yield* catchUpFromCursor(ctx.recorder, params.eventCursor, params.onEventReplay, (error) => {
+				ctx.log.warn('Replay observer failed after attachment cancellation', {
+					'exception.message': toErrorMessage(error),
+				})
 			})
-			yield* eventTranslator.drainPending()
 		}
-		ctx.runMgr.markRunning()
-		await eventTranslator.emitEvent({
-			type: 'run_started',
-			runId: ctx.runId,
-			systemPrompt: cancelledPrompt,
-		})
+		ctx.recorder.markRunning()
+		if (selectedResumeState) {
+			await eventTranslator.resumeTurn(selectedResumeState.checkpointId)
+			for (const queued of queuedForThisRun) ctx.recorder.pushMessage(queued)
+		} else {
+			await eventTranslator.beginTurn({
+				systemPrompt: cancelledPrompt,
+				...(params.origin ? { origin: params.origin } : {}),
+				...(params.abandonInterrupted ? { abandonInterrupted: true } : {}),
+			})
+		}
 		yield* eventTranslator.drainPending()
 		ctx.abortController.signal.throwIfAborted()
 	} catch (error) {
@@ -150,33 +143,33 @@ export async function* settlePreStartCancellation(
  * Yields NOTHING on a refusal. A partial catch-up is the failure this exists to
  * prevent: a consumer that receives some of the gap folds it into its state and
  * cannot tell the state is wrong, where one that receives an explicit
- * `unavailable` re-derives from the transcript and is right. The run continues
+ * `unavailable` re-derives from the log and is right. The turn continues
  * either way — a stale cursor belongs to the client, and must not be able to
  * stop the work.
+ *
+ * What is yielded is the live events the missed records stand for; the
+ * record-only types (messages, checkpoints, decisions) are in the log and not
+ * on the stream.
  */
 export async function* catchUpFromCursor(
-	runMgr: RunPersistence,
-	cursor: RunEventCursor,
-	onEventReplay: ((replay: RunEventReplay) => void) | undefined,
-	generation: FencingToken | undefined,
+	recorder: TurnRecorder,
+	cursor: SessionLogCursor,
+	onEventReplay: ((replay: SessionLogReplay) => void) | undefined,
 	onReplayObserverError: (error: unknown) => void,
-): AsyncGenerator<RunEvent, void> {
-	const missed = await runMgr.getRunStore().readEvents({ sinceSeq: cursor.sinceSeq })
-	const replay = resolveRunEventReplay(
-		cursor,
-		{
-			lastSeq: runMgr.lastEventSeq,
-			...(generation !== undefined ? { generation } : {}),
-		},
-		missed,
-	)
+): AsyncGenerator<SessionEvent, void> {
+	const head = await recorder.log.head()
+	const missed: SessionRecord[] = []
+	if (head && cursor.sinceSeq < head.pointer.seq) {
+		for await (const { record } of recorder.log.read()) {
+			if (record.seq > cursor.sinceSeq) missed.push(record)
+		}
+	}
+	const replay = resolveSessionLogReplay(cursor, head, missed)
 
 	if (onEventReplay) {
 		try {
-			// A callback typed `void` may still be implemented with `async` in
-			// TypeScript. Observe that runtime Promise so a late rejection cannot
-			// become process-wide, but never await host code here: replay delivery
-			// and an already-cancelled run must not inherit observer liveness.
+			// Observe a Promise an `async` observer may return, without
+			// awaiting host code here.
 			const settlement = onEventReplay(replay)
 			void Promise.resolve(settlement).catch(onReplayObserverError)
 		} catch (error) {
@@ -185,5 +178,25 @@ export async function* catchUpFromCursor(
 	}
 
 	if (replay.status !== 'replayed') return
-	for (const event of replay.events) yield event
+	for (const record of replay.records) {
+		const event = liveEventOfRecord(record)
+		if (event) yield event
+	}
+}
+
+const LIVE_TYPES: ReadonlySet<string> = new Set(SESSION_EVENT_TYPES)
+
+/** The live event a persisted-event record stands for; `undefined` for a record-only type. */
+export function liveEventOfRecord(record: SessionRecord): SessionEvent | undefined {
+	if (!LIVE_TYPES.has(record.type)) return undefined
+	const {
+		v: _v,
+		id: _id,
+		ts: _ts,
+		prev: _prev,
+		prevText: _prevText,
+		gen,
+		...payload
+	} = record as SessionRecord & { prevText?: unknown }
+	return { ...payload, generation: gen } as unknown as SessionEvent
 }

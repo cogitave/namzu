@@ -150,7 +150,7 @@ async function run(opts: {
 			agentName: 'Test Agent',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,

@@ -1,5 +1,5 @@
 import type { HITLDecisionRequest } from '../../../../types/hitl/index.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import {
 	type IterationContext,
 	type PhaseSignal,
@@ -7,16 +7,18 @@ import {
 	handleHITLDecision,
 } from './context.js'
 
-export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEvent, PhaseSignal> {
+export async function* runPlanGate(
+	ctx: IterationContext,
+): AsyncGenerator<SessionEvent, PhaseSignal> {
 	if (!ctx.planManager.active || ctx.planManager.active.status !== 'ready') {
 		return 'continue'
 	}
 
-	const planCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, 0)
+	const planCheckpoint = await ctx.checkpointMgr.create(ctx.recorder, 0)
 
 	await ctx.emitEvent({
 		type: 'checkpoint_created',
-		runId: ctx.runMgr.id,
+		turnId: ctx.recorder.turnId,
 		checkpointId: planCheckpoint.id,
 		iteration: 0,
 	})
@@ -25,7 +27,8 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	const plan = ctx.planManager.active
 	const request: HITLDecisionRequest = {
 		type: 'plan_approval',
-		runId: ctx.runMgr.id,
+		sessionId: ctx.recorder.sessionId,
+		turnId: ctx.recorder.turnId,
 		checkpointId: planCheckpoint.id,
 		plan: {
 			planId: plan.id,

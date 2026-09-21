@@ -1,5 +1,6 @@
-import type { RunId } from '../../types/ids/index.js'
-import type { RunEvent } from '../../types/run/index.js'
+import type { TurnId } from '../../types/ids/index.js'
+import type { SessionRecord } from '../../types/session/records.js'
+import type { SessionEventDraft } from './events.js'
 
 export function assertMaxToolCalls(limit: number | undefined): void {
 	if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
@@ -7,7 +8,7 @@ export function assertMaxToolCalls(limit: number | undefined): void {
 	}
 }
 
-/** A run-owned admission ledger; durability belongs to the run's event store. */
+/** A turn-owned admission ledger; durability belongs to the session log. */
 export class ToolCallBudget {
 	private used = 0
 	private initialized?: Promise<void>
@@ -16,22 +17,21 @@ export class ToolCallBudget {
 
 	constructor(
 		private readonly limit: number,
-		private readonly runId: RunId,
-		private readonly emit: (event: RunEvent) => Promise<void>,
-		private readonly read?: () => Promise<readonly RunEvent[]>,
+		private readonly turnId: TurnId,
+		private readonly emit: (event: SessionEventDraft) => Promise<void>,
+		private readonly read?: () => Promise<readonly SessionRecord[]>,
 	) {
 		assertMaxToolCalls(limit)
 	}
 
 	private async initialize(): Promise<void> {
-		const events = (await this.read?.()) ?? []
-		if (events.length > 100_000) throw new Error('Tool-call budget recovery exceeds 100000 events.')
+		// The session log is read strictly (every record chained to the one
+		// before it), so it is complete; this turn's records are the ledger.
+		const events = ((await this.read?.()) ?? []).filter((record) => record.turnId === this.turnId)
+		if (events.length > 100_000)
+			throw new Error('Tool-call budget recovery exceeds 100000 records.')
 		let initialized = false
-		let expectedSeq = 0
 		for (const event of events) {
-			// A replayed transcript must be complete and belong to this run.
-			if (event.runId !== this.runId || event.seq !== ++expectedSeq)
-				throw new Error('Tool-call budget recovery requires a complete run event log.')
 			if (event.type === 'tool_calls_admitted') {
 				if (
 					!Number.isSafeInteger(event.count) ||
@@ -58,7 +58,7 @@ export class ToolCallBudget {
 		if (!initialized) {
 			await this.emit({
 				type: 'tool_calls_admitted',
-				runId: this.runId,
+				turnId: this.turnId,
 				kind: 'initialize',
 				count: 0,
 				used: 0,
@@ -94,7 +94,7 @@ export class ToolCallBudget {
 			try {
 				await this.emit({
 					type: 'tool_calls_admitted',
-					runId: this.runId,
+					turnId: this.turnId,
 					kind,
 					count,
 					used,

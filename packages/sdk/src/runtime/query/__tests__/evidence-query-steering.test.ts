@@ -6,8 +6,8 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { createEvidenceQueryResolver } from '../../../run/evidence-query.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { createEvidenceQueryResolver } from '../../../turn/evidence-query.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
@@ -75,7 +75,7 @@ it('keeps the current subject when tool-result steering repeats an older questio
 				await resolve(context, context.latestUserMessage.content)
 			return undefined
 		},
-		runConfig: { model: 'scripted', maxIterations: 3, tokenBudget: 1000, timeoutMs: 5000 },
+		turnConfig: { model: 'scripted', maxIterations: 3, tokenBudget: 1000, timeoutMs: 5000 },
 	})
 	expect(run.stopReason, run.lastError).toBe('end_turn')
 	expect(provider.requests).toHaveLength(3)

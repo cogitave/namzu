@@ -254,12 +254,9 @@ async function main() {
 				TMP: temporaryRoot,
 				TEMP: temporaryRoot,
 				[TEST_ROOT_ENV]: ownedRoot,
-				// Product code with no path builder writes under
-				// `defaultStateRoot()`, which is the user's state directory.
-				// Tests must never write there; point it into the owned root,
-				// at the path the old `<cwd>/.namzu` default used.
-				NAMZU_STATE_DIR: join(ownedRoot, ".namzu"),
-				// Likewise the session layout: never the user's `~/.namzu`.
+				// Product code given no session storage writes under
+				// `NAMZU_HOME` (`~/.namzu` otherwise). Tests must never write
+				// into the user's home: point it into the owned root.
 				NAMZU_HOME: namzuHome,
 			};
 			delete childEnvironment[WORKER_VERIFIED_ENV];

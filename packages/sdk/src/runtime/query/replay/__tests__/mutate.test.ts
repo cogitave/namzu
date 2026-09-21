@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCallId } from '../../../../types/ids/index.js'
 import type { AssistantMessage, Message, ToolMessage } from '../../../../types/message/index.js'
-import { type Mutation, MutationNotApplicableError } from '../../../../types/run/replay.js'
+import { type Mutation, MutationNotApplicableError } from '../../../../types/session/fork.js'
 import { applyMutations } from '../mutate.js'
 
 function assistantWithCalls(toolCallIds: string[]): AssistantMessage {

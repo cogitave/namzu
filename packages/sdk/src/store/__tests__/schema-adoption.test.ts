@@ -63,22 +63,6 @@ describe('what lands on disk', () => {
 		// session carries that current stamp even though its own shape is unchanged.
 		expect(raw.schemaVersion).toBe(4)
 	})
-
-	it('stamps every line of the append-only message log', async () => {
-		const { projectId, sessionId } = await seed()
-		await store.appendMessage(sessionId, createUserMessage('one'), TENANT)
-		await store.appendMessage(sessionId, createUserMessage('two'), TENANT)
-
-		const log = await readFile(
-			join(rootDir, 'projects', projectId, 'sessions', sessionId, 'messages.jsonl'),
-			'utf-8',
-		)
-		const lines = log.split('\n').filter((l) => l.length > 0)
-		expect(lines).toHaveLength(2)
-		// An append-only log is written by many builds over its lifetime, so
-		// its lines can legitimately differ in version — each carries its own.
-		for (const line of lines) expect(JSON.parse(line).schemaVersion).toBe(4)
-	})
 })
 
 describe('what comes back off disk', () => {
@@ -105,28 +89,6 @@ describe('what comes back off disk', () => {
 		// Reading it would drop the unknown field, and the next write would
 		// destroy it. A refusal is recoverable by upgrading.
 		await expect(store.getSession(sessionId, TENANT)).rejects.toThrow(/schema version 99/)
-	})
-
-	it('refuses a message line from the future rather than skipping it', async () => {
-		const { projectId, sessionId } = await seed()
-		await store.appendMessage(sessionId, createUserMessage('fine'), TENANT)
-
-		const path = join(rootDir, 'projects', projectId, 'sessions', sessionId, 'messages.jsonl')
-		const line = JSON.parse((await readFile(path, 'utf-8')).trim())
-		await writeFile(path, `${JSON.stringify({ ...line, schemaVersion: 42 })}\n`, 'utf-8')
-
-		// Silently dropping a message the build cannot read would hand the
-		// model a conversation with a hole in it.
-		await expect(store.loadMessages(sessionId, TENANT)).rejects.toThrow(/schema version 42/)
-	})
-
-	it('still round-trips a normal write and read', async () => {
-		const { sessionId } = await seed()
-		await store.appendMessage(sessionId, createUserMessage('hello'), TENANT)
-		await store.appendMessage(sessionId, createUserMessage('world'), TENANT)
-
-		const loaded = await store.loadMessages(sessionId, TENANT)
-		expect(loaded.map((m) => m.content)).toEqual(['hello', 'world'])
 	})
 })
 

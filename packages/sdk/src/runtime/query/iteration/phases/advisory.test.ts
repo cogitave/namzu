@@ -3,7 +3,7 @@
  *
  *   This file pins the live mutation boundary that `src/advisory/*` tests
  *   intentionally do NOT cover: the advisory phase IS where advisories
- *   inject user messages into the run via `ctx.runMgr.pushMessage(...)`
+ *   inject user messages into the run via `ctx.recorder.pushMessage(...)`
  *  . A regression that drops the `pushMessage` call — silently
  *   dropping all advisor output — would pass `src/advisory` tests,
  *   typecheck, and lint. This file is the only thing that catches it.
@@ -21,7 +21,7 @@
  *     - Calls `executor.consult(advisor, request, callCtx)` exactly once.
  *     - Calls `evaluator.recordFiring(trigger.id, iteration)`.
  *     - Calls `advisoryCtx.recordCall(...)` with the full call record.
- *     - Calls `runMgr.pushMessage(createUserMessage(wrapped))` exactly
+ *     - Calls `recorder.pushMessage(createUserMessage(wrapped))` exactly
  *       once.
  *     - The wrapped message includes `<advisory-result advisor="..."
  *       trigger="...">` + the advice text + closing tag.
@@ -50,7 +50,7 @@ import type {
 	AdvisoryTrigger,
 	TriggerEvaluationState,
 } from '../../../../types/advisory/index.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import { createToolMessage, createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { Logger } from '../../../../utils/logger.js'
@@ -145,13 +145,13 @@ function makeCtx(options: MockCtxOptions = {}): {
 
 	const ctx = {
 		advisoryCtx: options.advisoryCtx,
-		runConfig: { tokenBudget: 100_000, costLimitUsd: undefined },
+		turnConfig: { tokenBudget: 100_000, costLimitUsd: undefined },
 		tools: {
 			get: vi.fn(() => undefined),
 			toLLMTools: vi.fn(() => []),
 		},
-		runMgr: {
-			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+		recorder: {
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 			messages: [],
 			// An advisory call is a billed model call on the run's budget;
 			// the phase now reports it so the guard can see it.
@@ -436,8 +436,8 @@ function signalFixture(condition: AdvisoryTrigger['condition']) {
 	const { ctx: advisoryCtx, mocks } = makeAdvisoryCtx({ advisor })
 	mocks.evaluate.mockImplementation((state) => evaluator.evaluate(state))
 	const { ctx: base } = makeCtx({ advisoryCtx })
-	Object.assign(base.runConfig, { model: 'test-model', tokenBudget: 1_000_000 })
-	Object.assign(base.runMgr, { lastPromptTokens: 10_000, lastPromptMessageCount: 0 })
+	Object.assign(base.turnConfig, { model: 'test-model', tokenBudget: 1_000_000 })
+	Object.assign(base.recorder, { lastPromptTokens: 10_000, lastPromptMessageCount: 0 })
 	const ctx: IterationContext = { ...base, providerContextWindow: 100_000 }
 	return { ctx, mocks }
 }
@@ -468,7 +468,7 @@ describe('advisory signals describe current context and the current tool batch',
 	})
 	it('does not confuse high cumulative spend with a nearly empty context', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
-		ctx.runMgr.tokenUsage.totalTokens = 950_000
+		ctx.recorder.tokenUsage.totalTokens = 950_000
 		await runAdvisoryPhase(ctx, 10, response)
 		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(10)
 		expect(mocks.consult).not.toHaveBeenCalled()
@@ -476,8 +476,8 @@ describe('advisory signals describe current context and the current tool batch',
 
 	it('triggers on a full context despite a small share of the spend budget being used', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
-		Object.assign(ctx.runMgr, { lastPromptTokens: 85_000 })
-		ctx.runMgr.tokenUsage.totalTokens = 85_000
+		Object.assign(ctx.recorder, { lastPromptTokens: 85_000 })
+		ctx.recorder.tokenUsage.totalTokens = 85_000
 		await runAdvisoryPhase(ctx, 1, response)
 		expect(mocks.evaluate.mock.calls[0]?.[0].contextWindowPercent).toBe(85)
 		expect(mocks.consult).toHaveBeenCalledTimes(1)
@@ -485,7 +485,7 @@ describe('advisory signals describe current context and the current tool batch',
 
 	it('honors the explicit context-window override before the provider window', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
-		Object.assign(ctx.runMgr, { lastPromptTokens: 90_000 })
+		Object.assign(ctx.recorder, { lastPromptTokens: 90_000 })
 		await runAdvisoryPhase(
 			{ ...ctx, compactionConfig: CompactionConfigSchema.parse({ contextWindowTokens: 200_000 }) },
 			1,
@@ -497,8 +497,8 @@ describe('advisory signals describe current context and the current tool batch',
 
 	it('counts results appended beyond the provider prompt watermark with an unlimited spend budget', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_context_percent', threshold: 80 })
-		Object.assign(ctx.runConfig, { tokenBudget: 0 })
-		Object.assign(ctx.runMgr, {
+		Object.assign(ctx.turnConfig, { tokenBudget: 0 })
+		Object.assign(ctx.recorder, {
 			lastPromptTokens: 1000,
 			lastPromptMessageCount: 1,
 			messages: [
@@ -514,7 +514,7 @@ describe('advisory signals describe current context and the current tool batch',
 	it('does not resurrect an older failure after a successful batch, including reused call IDs', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_error' })
 		const current = toolBatch('same-id')
-		Object.assign(ctx.runMgr, {
+		Object.assign(ctx.recorder, {
 			messages: [
 				toolBatch('same-id').message,
 				createToolMessage('Error: old unresolved-looking text', 'same-id', true),
@@ -534,7 +534,7 @@ describe('advisory signals describe current context and the current tool batch',
 	it('preserves every failed receipt in a mixed batch instead of letting the last success mask it', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_error', categories: ['permission'] })
 		const current = toolBatch('first', 'second', 'third')
-		Object.assign(ctx.runMgr, {
+		Object.assign(ctx.recorder, {
 			messages: [
 				current.message,
 				createToolMessage([{ type: 'text', text: 'permission denied' }], 'first', true),
@@ -550,7 +550,7 @@ describe('advisory signals describe current context and the current tool batch',
 	it('does not classify unmarked text as a failed tool receipt', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_error' })
 		const current = toolBatch('current')
-		Object.assign(ctx.runMgr, {
+		Object.assign(ctx.recorder, {
 			messages: [current.message, createToolMessage('Error: an example in a document', 'current')],
 		})
 		await runAdvisoryPhase(ctx, 1, current)
@@ -561,7 +561,7 @@ describe('advisory signals describe current context and the current tool batch',
 	it('retains the failure signal when a failed receipt has no readable body', async () => {
 		const { ctx, mocks } = signalFixture({ type: 'on_error' })
 		const current = toolBatch('current')
-		Object.assign(ctx.runMgr, {
+		Object.assign(ctx.recorder, {
 			messages: [current.message, createToolMessage('', 'current', true)],
 		})
 		await runAdvisoryPhase(ctx, 1, current)

@@ -6,7 +6,7 @@ import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js
 import { isClearedToolResult } from '../../../../compaction/tool-result-editing.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { Message } from '../../../../types/message/index.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../utils/log/create-logger.js'
 import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
@@ -43,16 +43,16 @@ function context(
 		{ role: 'user', content: 'current task' },
 		{ role: 'assistant', content: 'working' },
 	]
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const invalidate = vi.fn()
 	const ctx = {
-		runConfig: { model: 'mock', tokenBudget: 0 },
+		turnConfig: { model: 'mock', tokenBudget: 0 },
 		compactionConfig: config,
 		workingStateManager: manager,
 		tools: { toLLMTools: () => [] },
 		log: NOOP_LOGGER,
 		abortController: new AbortController(),
-		runMgr: {
+		recorder: {
 			id: '38adc63f-8628-4f78-8554-036c8d7a57a0',
 			currentIteration: 1,
 			messages,
@@ -60,7 +60,7 @@ function context(
 			lastPromptMessageCount: messages.length,
 			clearLastPromptTokens: invalidate,
 		},
-		emitEvent: async (event: RunEvent) => {
+		emitEvent: async (event: SessionEvent) => {
 			events.push(event)
 		},
 	} as unknown as IterationContext

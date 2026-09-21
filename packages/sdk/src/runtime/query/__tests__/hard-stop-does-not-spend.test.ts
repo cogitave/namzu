@@ -10,7 +10,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { AgentRunConfig, RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent, TurnConfig } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -27,7 +27,7 @@ afterEach(async () => {
 
 async function run(
 	turns: MockTurn[],
-	limits: Partial<AgentRunConfig>,
+	limits: Partial<TurnConfig>,
 	controls: Pick<
 		QueryParams,
 		| 'reviewAnswer'
@@ -60,7 +60,7 @@ async function run(
 		inputSchema: z.object({}),
 		execute: async () => ({ success: true, output: 'Observed work remains available.' }),
 	})
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const result = await drainQuery(
 		{
 			...controls,
@@ -68,7 +68,7 @@ async function run(
 			tools,
 			retry: false,
 			pricing: { inputCostPer1M: 1, outputCostPer1M: 1 },
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 30_000,
 				tokenBudget: 10_000,
@@ -201,7 +201,7 @@ describe('a hard stop starts no closing model request', () => {
 			),
 		).toBe(true)
 		expect(events).toContainEqual(
-			expect.objectContaining({ type: 'run_completed', stopReason: reason }),
+			expect.objectContaining({ type: 'turn_completed', stopReason: reason }),
 		)
 	})
 
@@ -223,7 +223,7 @@ describe('a hard stop starts no closing model request', () => {
 			expect(result.stopReason).toBe(reason)
 			expect(result.tokenUsage.totalTokens).toBe(200)
 			expect(events).toContainEqual(
-				expect.objectContaining({ type: 'run_completed', stopReason: reason }),
+				expect.objectContaining({ type: 'turn_completed', stopReason: reason }),
 			)
 		},
 	)
@@ -288,7 +288,7 @@ describe('a forced prose summary preserves the reason it bypassed review', () =>
 		expect(result.result).toBe(summary.text)
 		expect(result.stopReason).toBe(reason)
 		expect(events).toContainEqual(
-			expect.objectContaining({ type: 'run_completed', stopReason: reason }),
+			expect.objectContaining({ type: 'turn_completed', stopReason: reason }),
 		)
 	})
 

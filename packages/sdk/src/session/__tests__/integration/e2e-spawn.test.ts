@@ -1,6 +1,6 @@
-import { TokenBudget } from '../../../run/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 /**
  * End-to-end SubSession spawn flow.
  *
@@ -34,10 +34,10 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { RunId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
@@ -65,8 +65,9 @@ function buildAgent(id: string): Agent<BaseAgentConfig, BaseAgentResult> {
 			description: id,
 			capabilities,
 		},
-		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
-			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+		run: async (_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> => ({
+			sessionId: config.sessionId as SessionId,
+			turnId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as TurnId,
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -139,17 +140,21 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			threadManager,
 		})
 
-		const capturedEvents: RunEvent[] = []
-		const listener = (event: RunEvent): void => {
+		const capturedEvents: SessionEvent[] = []
+		const listener = (event: SessionEvent): void => {
 			capturedEvents.push(event)
 		}
 
 		const taskContext: AgentTaskContext = {
-			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
+			parentSessionId: parentSession.id,
+			parentTurnId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budget: TokenBudget.create(100_000, budgetRunId()),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: generateSessionId(),
+				rootTurnId: generateTurnId(),
+			}),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parentSession.id,
@@ -173,28 +178,23 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const eventTypes = capturedEvents.map((e) => e.type)
 		expect(eventTypes).toEqual([
 			'agent_pending',
-			'subsession_spawned',
-			'subsession_idled',
+			'child_session_spawned',
+			'child_session_idled',
 			'agent_completed',
 		])
 
-		const spawned = capturedEvents.find((e) => e.type === 'subsession_spawned')
-		const idled = capturedEvents.find((e) => e.type === 'subsession_idled')
+		const spawned = capturedEvents.find((e) => e.type === 'child_session_spawned')
+		const idled = capturedEvents.find((e) => e.type === 'child_session_idled')
 		expect(spawned).toBeDefined()
 		expect(idled).toBeDefined()
 
-		// --- Lineage + schemaVersion invariants ---
-		if (spawned && 'lineage' in spawned && 'schemaVersion' in spawned) {
-			expect(spawned.lineage.parentSessionId).toBe(parentSession.id)
-			expect(spawned.lineage.rootSessionId).toBe(parentSession.id)
-			expect(spawned.lineage.depth).toBe(1)
-			expect(spawned.schemaVersion).toBe(3)
-		}
-		if (idled && 'lineage' in idled && 'schemaVersion' in idled) {
-			expect(idled.lineage.rootSessionId).toBe(parentSession.id)
-			expect(idled.lineage.depth).toBe(1)
-			expect(idled.schemaVersion).toBe(3)
-		}
+		// --- Lineage invariants ---
+		expect(spawned?.lineage).toMatchObject({
+			parentSessionId: parentSession.id,
+			rootSessionId: parentSession.id,
+			depth: 1,
+		})
+		expect(idled?.lineage).toMatchObject({ rootSessionId: parentSession.id, depth: 1 })
 
 		// --- Summary materialized by kernel ---
 		const spawnRecord = manager.getSpawnRecord(task.taskId)
@@ -277,11 +277,15 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 				parentActor: userActor,
 			},
 			{
-				parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
+				parentSessionId: parentSession.id,
+				parentTurnId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
 				parentAgentId: 'supervisor',
 				parentAbortController: new AbortController(),
 				depth: 0,
-				budget: TokenBudget.create(10_000, budgetRunId()),
+				budget: SessionTokenBudget.create(10_000, {
+					rootSessionId: generateSessionId(),
+					rootTurnId: generateTurnId(),
+				}),
 				tenantId: tenant,
 				topicId: thread.id,
 				sessionId: parentSession.id,

@@ -33,14 +33,14 @@ import {
 } from '../../../types/message/index.js'
 import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { AnswerReview, AnswerReviewContext } from '../../../types/run/answer-review.js'
+import type { AnswerReview, AnswerReviewContext } from '../../../types/session/answer-review.js'
 import type {
-	RunEvent,
+	SessionEvent,
 	StepFailure,
 	StepProvenance,
 	StepResult,
 	StopReason,
-} from '../../../types/run/index.js'
+} from '../../../types/session/index.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
@@ -136,13 +136,13 @@ export class IterationOrchestrator {
 		| import('../../../advisory/executor.js').AdvisoryTurnContext
 		| undefined {
 		const turn = this.advisoryTurn
-		if (!turn || turn.iteration !== this.ctx.runMgr.currentIteration) return undefined
-		const start = this.ctx.runMgr.messages.indexOf(turn.response)
+		if (!turn || turn.iteration !== this.ctx.recorder.currentIteration) return undefined
+		const start = this.ctx.recorder.messages.indexOf(turn.response)
 		if (start < 0) return undefined
 		return {
 			iteration: turn.iteration,
 			requestMessages: turn.requestMessages,
-			subsequentMessages: this.ctx.runMgr.messages.slice(start),
+			subsequentMessages: this.ctx.recorder.messages.slice(start),
 		}
 	}
 	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
@@ -266,7 +266,7 @@ export class IterationOrchestrator {
 			})
 			await this.ctx.emitEvent({
 				type: 'capability_warning',
-				runId: this.ctx.runMgr.id,
+				turnId: this.ctx.recorder.turnId,
 				capability,
 				contentSource: 'tool-result',
 				providerId: this.ctx.provider.id,
@@ -289,9 +289,9 @@ export class IterationOrchestrator {
 		this.ctx = { ...this.ctx, rootSpan: span }
 	}
 
-	async *runLoop(): AsyncGenerator<RunEvent> {
-		const { runConfig, runMgr } = this.ctx
-		const { model } = runConfig
+	async *runLoop(): AsyncGenerator<SessionEvent> {
+		const { turnConfig, recorder } = this.ctx
+		const { model } = turnConfig
 		const tracer = getTracer()
 		// Resume hydration happens after construction, before the loop starts.
 		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
@@ -299,7 +299,7 @@ export class IterationOrchestrator {
 		this.structuredReviewAttempts = this.ctx.checkpointMgr.restoredStructuredReviewAttempts ?? 0
 		this.nativeStructuredAttempts = this.ctx.checkpointMgr.restoredNativeStructuredAttempts ?? 0
 		if (!this.latestUserMessage) {
-			for (const message of runMgr.messages) this.rememberUserMessage(message, false)
+			for (const message of recorder.messages) this.rememberUserMessage(message, false)
 		}
 		// The restored field can outlive the historical message it describes.
 		// Only known post-checkpoint arrivals may supersede it, never an old
@@ -332,22 +332,22 @@ export class IterationOrchestrator {
 		try {
 			while (true) {
 				if (this.ctx.abortController.signal.aborted) {
-					runMgr.setStopReason('cancelled')
-					runMgr.markCancelled()
+					recorder.setStopReason('cancelled')
+					recorder.markCancelled()
 					break
 				}
 				if (
 					this.ctx.structuredOutput?.mode === 'native' &&
 					this.nativeStructuredAttempts > this.structuredOutputRetryLimit()
 				) {
-					runMgr.setStopReason('structured_output_failed')
+					recorder.setStopReason('structured_output_failed')
 					break
 				}
 				if (
 					this.ctx.reviewAnswer &&
 					this.answerReviewAttempts > (this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT)
 				) {
-					runMgr.setStopReason('answer_rejected')
+					recorder.setStopReason('answer_rejected')
 					break
 				}
 				if (
@@ -355,7 +355,7 @@ export class IterationOrchestrator {
 					this.structuredReviewAttempts >
 						(this.ctx.structuredOutput.maxReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT)
 				) {
-					runMgr.setStopReason('answer_rejected')
+					recorder.setStopReason('answer_rejected')
 					break
 				}
 				// Read AND clear, in that order, in this one place.
@@ -372,30 +372,33 @@ export class IterationOrchestrator {
 				const stopWasDeferredForOutstandingWork = this.stopDeferredForOutstandingWork
 				this.stopDeferredForOutstandingWork = false
 
-				const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
+				const guardResult = this.ctx.guard.beforeIteration(
+					recorder,
+					this.ctx.abortController.signal,
+				)
 
 				if (guardResult.shouldStop) {
 					if (guardResult.isCancelled) {
 						this.ctx.log.info('Run cancelled by signal', {
-							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.TURN_ID]: recorder.turnId,
 						})
-						runMgr.setStopReason('cancelled')
-						runMgr.markCancelled()
+						recorder.setStopReason('cancelled')
+						recorder.markCancelled()
 						break
 					}
 
 					const stopReason = guardResult.stopReason ?? 'end_turn'
 					this.ctx.log.info('Guard enforcing stop', {
-						[NAMZU.RUN_ID]: runMgr.id,
+						[NAMZU.TURN_ID]: recorder.turnId,
 						'namzu.runtime.stop_reason': stopReason,
-						[NAMZU.ITERATION]: runMgr.currentIteration,
-						'namzu.runtime.input_tokens': runMgr.tokenUsage.promptTokens,
-						'namzu.runtime.output_tokens': runMgr.tokenUsage.completionTokens,
+						[NAMZU.ITERATION]: recorder.currentIteration,
+						'namzu.runtime.input_tokens': recorder.tokenUsage.promptTokens,
+						'namzu.runtime.output_tokens': recorder.tokenUsage.completionTokens,
 					})
 					// A hard stop has no budget left for another model request.
 					// Closing prose is requested at the warning threshold while
 					// headroom remains; the completed work is already in history.
-					runMgr.setStopReason(stopReason)
+					recorder.setStopReason(stopReason)
 					break
 				}
 
@@ -404,13 +407,13 @@ export class IterationOrchestrator {
 				// and so can only speak after the step it disliked has already
 				// run and been paid for; this is the seam a host with a live
 				// rate limit or a revoked tenant actually needs.
-				const veto = await beforeStep(this.stepShaping(), runMgr.currentIteration + 1)
+				const veto = await beforeStep(this.stepShaping(), recorder.currentIteration + 1)
 				// The hook may settle because its run signal was aborted. Stop
 				// before interpreting that settlement as a policy refusal or
 				// counting an iteration that will never reach the provider.
 				if (this.ctx.abortController.signal.aborted) {
-					runMgr.setStopReason('cancelled')
-					runMgr.markCancelled()
+					recorder.setStopReason('cancelled')
+					recorder.markCancelled()
 					break
 				}
 				if (veto) {
@@ -418,23 +421,23 @@ export class IterationOrchestrator {
 					// the frozen inventory LOG-22 exists to drain; a new call site
 					// has no reason to join it.
 					this.ctx.log.info('Step refused by beforeStep', {
-						[NAMZU.RUN_ID]: runMgr.id,
-						[NAMZU.ITERATION]: runMgr.currentIteration + 1,
+						[NAMZU.TURN_ID]: recorder.turnId,
+						[NAMZU.ITERATION]: recorder.currentIteration + 1,
 						'namzu.step.veto_reason': veto.reason,
 					})
-					runMgr.setLastError(`beforeStep refused the next step: ${veto.reason}`)
-					runMgr.setStopReason('step_refused')
+					recorder.setLastError(`beforeStep refused the next step: ${veto.reason}`)
+					recorder.setStopReason('step_refused')
 					break
 				}
 
 				const forceFinalize = guardResult.forceFinalize
-				const iterationNum = runMgr.incrementIteration()
+				const iterationNum = recorder.incrementIteration()
 				this.ctx.log.debug('Iteration started', {
-					[NAMZU.RUN_ID]: runMgr.id,
+					[NAMZU.TURN_ID]: recorder.turnId,
 					[NAMZU.ITERATION]: iterationNum,
 					[GENAI.REQUEST_MODEL]: model,
 					'namzu.runtime.force_finalize': forceFinalize,
-					'namzu.runtime.message_count': runMgr.messages.length,
+					'namzu.runtime.message_count': recorder.messages.length,
 				})
 
 				const iterationActivity = this.ctx.activityStore.create({
@@ -472,8 +475,8 @@ export class IterationOrchestrator {
 				// where they always did, so compaction and the working-memory
 				// refresh stay outside a successful step's window.
 				let stepStartedAt = Date.now()
-				let usageBefore: TokenUsage = { ...runMgr.tokenUsage }
-				let costBefore: CostInfo = { ...runMgr.costInfo }
+				let usageBefore: TokenUsage = { ...recorder.tokenUsage }
+				let costBefore: CostInfo = { ...recorder.costInfo }
 				let stepModel = model
 				let stepMessageId: MessageId | undefined
 				let stepResponse: ChatCompletionResponse | undefined
@@ -489,13 +492,13 @@ export class IterationOrchestrator {
 
 					iterSpan.setAttributes({
 						[NAMZU.ITERATION]: iterationNum,
-						[NAMZU.RUN_ID]: runMgr.id,
+						[NAMZU.TURN_ID]: recorder.turnId,
 						[GENAI.REQUEST_MODEL]: model,
 					})
 
 					await this.ctx.emitEvent({
 						type: 'iteration_started',
-						runId: runMgr.id,
+						turnId: recorder.turnId,
 						iteration: iterationNum,
 					})
 					yield* this.ctx.drainPending()
@@ -504,7 +507,8 @@ export class IterationOrchestrator {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'iteration_start',
 							{
-								runId: runMgr.id,
+								sessionId: recorder.sessionId,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								signal: this.ctx.abortController.signal,
 							},
@@ -537,8 +541,8 @@ export class IterationOrchestrator {
 					const contextModelBeforePreparation = this.ctx.contextModel ?? model
 					const step = await prepareStep(this.stepShaping(), iterationNum)
 					// Preparation inference belongs to the run, not the main-model step.
-					usageBefore = { ...runMgr.tokenUsage }
-					costBefore = { ...runMgr.costInfo }
+					usageBefore = { ...recorder.tokenUsage }
+					costBefore = { ...recorder.costInfo }
 					stepModel = step.model ?? model
 					await selectContextModel(this.stepShaping(), stepModel)
 					// Preserve post-compaction preparation/recall semantics. A changed
@@ -573,12 +577,12 @@ export class IterationOrchestrator {
 								'limit-finalization',
 							)
 						: undefined
-					const baseMessages = runMgr.messages
+					const baseMessages = recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto
 					// the run's history: it applies to this step only, and pushing
 					// it would accumulate one stale instruction per iteration.
-					// Copy before it crosses the provider boundary. `runMgr.messages`
+					// Copy before it crosses the provider boundary. `recorder.messages`
 					// is the LIVE run array, and the loop pushes onto it after the
 					// call returns — so a driver that retains what it was handed
 					// (to log it, cache it, or replay it on retry) watched its own
@@ -646,7 +650,8 @@ export class IterationOrchestrator {
 					if (step.context) requestHistory.push(stepContextMessage(step.context))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
-						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+						this.ctx.turnConfig.maxRequestRichContentBytes ??
+							DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
 					appendWorkContext(this.stepShaping(), messages, iterationNum, step)
 					if (closingDirective) messages.push(closingDirective)
@@ -689,7 +694,7 @@ export class IterationOrchestrator {
 						this.lastEnvelopeKey = envelopeKey
 						await this.ctx.emitEvent?.({
 							type: 'request_envelope',
-							runId: runMgr.id,
+							turnId: recorder.turnId,
 							iteration: iterationNum,
 							...envelope,
 							toolNames: Object.freeze([...envelope.toolNames]),
@@ -710,7 +715,8 @@ export class IterationOrchestrator {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'pre_llm_call',
 							{
-								runId: runMgr.id,
+								sessionId: recorder.sessionId,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								signal: this.ctx.abortController.signal,
 								// Built inside the guard: a run with no plugins installed
@@ -723,8 +729,8 @@ export class IterationOrchestrator {
 									// one would edit the history the run is about to send.
 									messages: Object.freeze(messages.map((m) => Object.freeze({ ...m }))),
 									toolNames: Object.freeze(llmTools.map((t) => t.function.name)),
-									temperature: step.temperature ?? runConfig.temperature,
-									maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
+									temperature: step.temperature ?? turnConfig.temperature,
+									maxTokens: step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 								}),
 							},
 							this.ctx.emitEvent,
@@ -796,12 +802,14 @@ export class IterationOrchestrator {
 									: llmTools.length > 0
 										? step.toolChoice
 										: undefined,
-							temperature: step.temperature ?? runConfig.temperature,
-							maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
+							temperature: step.temperature ?? turnConfig.temperature,
+							maxTokens: step.maxResponseTokens ?? turnConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
-							...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
-							...(runConfig.effort ? { effort: runConfig.effort } : {}),
-							...(!forceFinalize && runConfig.webSearch ? { webSearch: runConfig.webSearch } : {}),
+							...(turnConfig.thinking ? { thinking: turnConfig.thinking } : {}),
+							...(turnConfig.effort ? { effort: turnConfig.effort } : {}),
+							...(!forceFinalize && turnConfig.webSearch
+								? { webSearch: turnConfig.webSearch }
+								: {}),
 							// Thread the run abort into the model call so a Stop tears the
 							// in-flight turn down (provider passes it to fetch; the consumer
 							// also races it). Inert when never aborted.
@@ -809,7 +817,7 @@ export class IterationOrchestrator {
 						},
 						this.ctx.emitEvent,
 						this.ctx.drainPending,
-						runMgr.id,
+						recorder.turnId,
 						iterationNum,
 						forceFinalize,
 						this.ctx.log,
@@ -862,7 +870,7 @@ export class IterationOrchestrator {
 					// always-zero cost: the rate lookup happens per turn,
 					// against who actually answered, rather than against one
 					// table the run was constructed with.
-					runMgr.recordTurnUsage(response.usage, {
+					recorder.recordTurnUsage(response.usage, {
 						providerId: servedBy.providerId,
 						model: servedBy.model,
 					})
@@ -875,7 +883,8 @@ export class IterationOrchestrator {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'post_llm_call',
 							{
-								runId: runMgr.id,
+								sessionId: recorder.sessionId,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								signal: this.ctx.abortController.signal,
 								response: Object.freeze({
@@ -894,7 +903,7 @@ export class IterationOrchestrator {
 					}
 
 					this.ctx.log.debug('LLM response received', {
-						[NAMZU.RUN_ID]: runMgr.id,
+						[NAMZU.TURN_ID]: recorder.turnId,
 						[NAMZU.ITERATION]: iterationNum,
 						'namzu.runtime.finish_reason': response.finishReason,
 						'namzu.runtime.has_content':
@@ -902,8 +911,8 @@ export class IterationOrchestrator {
 						'namzu.runtime.tool_call_count': response.message.toolCalls?.length ?? 0,
 						[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
 						[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
-						'namzu.usage.total_tokens': runMgr.tokenUsage.totalTokens,
-						'namzu.runtime.total_cost': runMgr.costInfo.totalCost,
+						'namzu.usage.total_tokens': recorder.tokenUsage.totalTokens,
+						'namzu.runtime.total_cost': recorder.costInfo.totalCost,
 					})
 
 					// The context figures ride with the spend figures because a
@@ -931,10 +940,10 @@ export class IterationOrchestrator {
 
 					await this.ctx.emitEvent({
 						type: 'token_usage_updated',
-						runId: runMgr.id,
-						usage: runMgr.tokenUsage,
-						budget: runMgr.budget?.summary(),
-						cost: runMgr.costInfo,
+						turnId: recorder.turnId,
+						usage: recorder.tokenUsage,
+						budget: recorder.budget?.summary(),
+						cost: recorder.costInfo,
 						...contextFigures,
 					})
 
@@ -959,7 +968,7 @@ export class IterationOrchestrator {
 						},
 						response.message.textParts,
 					)
-					runMgr.pushMessage(assistantMsg)
+					recorder.pushMessage(assistantMsg)
 					if (this.ctx.advisoryCtx && requestMessages) {
 						this.advisoryTurn = { iteration: iterationNum, requestMessages, response: assistantMsg }
 					}
@@ -1018,7 +1027,7 @@ export class IterationOrchestrator {
 							this.ctx.log.warn(
 								'LLM ended turn with agent tasks still running — ending run without waiting (orphan tasks have no delivery path)',
 								{
-									[NAMZU.RUN_ID]: runMgr.id,
+									[NAMZU.TURN_ID]: recorder.turnId,
 									[NAMZU.ITERATION]: iterationNum,
 								},
 							)
@@ -1095,16 +1104,16 @@ export class IterationOrchestrator {
 								)
 							else {
 								this.nativeStructuredAttempts++
-								runMgr.pushMessage(
+								recorder.pushMessage(
 									createRuntimeContextMessage(
 										'Return a complete JSON value matching the supplied response schema. Do not continue a partial JSON fragment.',
 										'structured-output',
 									),
 								)
-								const checkpoint = await this.ctx.checkpointMgr.create(runMgr, iterationNum)
+								const checkpoint = await this.ctx.checkpointMgr.create(recorder, iterationNum)
 								await this.ctx.emitEvent({
 									type: 'checkpoint_created',
-									runId: runMgr.id,
+									turnId: recorder.turnId,
 									checkpointId: checkpoint.id,
 									iteration: iterationNum,
 								})
@@ -1115,14 +1124,14 @@ export class IterationOrchestrator {
 							}
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
-								runId: runMgr.id,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								hasToolCalls: false,
 							})
 							yield* this.ctx.drainPending()
 							if (this.ctx.abortController.signal.aborted || outcome === 'cancelled') {
-								runMgr.setStopReason('cancelled')
-								runMgr.markCancelled()
+								recorder.setStopReason('cancelled')
+								recorder.markCancelled()
 								break
 							}
 							if (outcome === 'accepted') {
@@ -1134,16 +1143,16 @@ export class IterationOrchestrator {
 									if (changed || inbound > 0) continue
 								}
 								if (this.ctx.abortController.signal.aborted) {
-									runMgr.setStopReason('cancelled')
-									runMgr.markCancelled()
+									recorder.setStopReason('cancelled')
+									recorder.markCancelled()
 									break
 								}
 								this.publishStructuredOutput()
-								runMgr.setStopReason('end_turn')
+								recorder.setStopReason('end_turn')
 								break
 							}
 							if (outcome === 'exhausted') {
-								runMgr.setStopReason(
+								recorder.setStopReason(
 									candidate.success ? 'answer_rejected' : 'structured_output_failed',
 								)
 								break
@@ -1175,16 +1184,16 @@ export class IterationOrchestrator {
 						//   - max_iterations bounds the loop in any case.
 						if (!forceFinalize && response.finishReason === 'length' && hasContent) {
 							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
-								[NAMZU.RUN_ID]: runMgr.id,
+								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,
 								[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
 							})
-							runMgr.pushMessage(
+							recorder.pushMessage(
 								createRuntimeContextMessage(AUTO_CONTINUATION_USER_MESSAGE, 'auto-continuation'),
 							)
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
-								runId: runMgr.id,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								hasToolCalls: false,
 							})
@@ -1202,23 +1211,23 @@ export class IterationOrchestrator {
 							const limit = this.structuredOutputRetryLimit()
 							if (attempt > limit) {
 								this.ctx.log.warn('Structured output not produced within its retries', {
-									[NAMZU.RUN_ID]: runMgr.id,
+									[NAMZU.TURN_ID]: recorder.turnId,
 									'namzu.runtime.attempts': attempt - 1,
 								})
-								runMgr.setStopReason('structured_output_failed')
+								recorder.setStopReason('structured_output_failed')
 								break
 							}
 							this.ctx.log.info('Re-prompting for structured output', {
-								[NAMZU.RUN_ID]: runMgr.id,
+								[NAMZU.TURN_ID]: recorder.turnId,
 								'namzu.retry.attempt': attempt,
 								'namzu.runtime.limit': limit,
 							})
-							runMgr.pushMessage(
+							recorder.pushMessage(
 								createRuntimeContextMessage(STRUCTURED_OUTPUT_REPROMPT, 'structured-output'),
 							)
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
-								runId: runMgr.id,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								hasToolCalls: false,
 							})
@@ -1246,45 +1255,45 @@ export class IterationOrchestrator {
 								stepModel,
 							)
 							if (this.ctx.abortController.signal.aborted) {
-								runMgr.setStopReason('cancelled')
-								runMgr.markCancelled()
+								recorder.setStopReason('cancelled')
+								recorder.markCancelled()
 								break
 							}
 							if (review && !review.accept) {
 								const attempt = ++this.answerReviewAttempts
-								runMgr.pushMessage(createRuntimeContextMessage(review.feedback, 'answer-review'))
+								recorder.pushMessage(createRuntimeContextMessage(review.feedback, 'answer-review'))
 								// Commit the consumed allowance with its feedback before another
 								// request, including exhaustion. Compaction cannot reset this quota.
-								const checkpoint = await this.ctx.checkpointMgr.create(runMgr, iterationNum)
+								const checkpoint = await this.ctx.checkpointMgr.create(recorder, iterationNum)
 								await this.ctx.emitEvent({
 									type: 'checkpoint_created',
-									runId: runMgr.id,
+									turnId: recorder.turnId,
 									checkpointId: checkpoint.id,
 									iteration: iterationNum,
 								})
 								if (this.ctx.abortController.signal.aborted) {
-									runMgr.setStopReason('cancelled')
-									runMgr.markCancelled()
+									recorder.setStopReason('cancelled')
+									recorder.markCancelled()
 									break
 								}
 								const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
 								if (attempt > limit) {
 									this.ctx.log.warn('Answer rejected more times than the run allows', {
-										[NAMZU.RUN_ID]: runMgr.id,
+										[NAMZU.TURN_ID]: recorder.turnId,
 										'namzu.runtime.attempts': attempt - 1,
 										'namzu.runtime.limit': limit,
 									})
-									runMgr.setStopReason('answer_rejected')
+									recorder.setStopReason('answer_rejected')
 									break
 								}
 								this.ctx.log.info('Answer rejected — returning it to the model', {
-									[NAMZU.RUN_ID]: runMgr.id,
+									[NAMZU.TURN_ID]: recorder.turnId,
 									'namzu.retry.attempt': attempt,
 									'namzu.runtime.limit': limit,
 								})
 								await this.ctx.emitEvent({
 									type: 'iteration_completed',
-									runId: runMgr.id,
+									turnId: recorder.turnId,
 									iteration: iterationNum,
 									hasToolCalls: false,
 								})
@@ -1320,7 +1329,7 @@ export class IterationOrchestrator {
 						if (!forceFinalize && this.deliverInbound() > 0) {
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
-								runId: runMgr.id,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								hasToolCalls: false,
 							})
@@ -1345,7 +1354,7 @@ export class IterationOrchestrator {
 
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
-							runId: runMgr.id,
+							turnId: recorder.turnId,
 							iteration: iterationNum,
 							hasToolCalls: false,
 						})
@@ -1355,8 +1364,8 @@ export class IterationOrchestrator {
 						// otherwise the just-produced answer is recorded as a clean
 						// completion. Mirrors the between-iteration cancel at :511.
 						if (this.ctx.abortController.signal.aborted) {
-							runMgr.setStopReason('cancelled')
-							runMgr.markCancelled()
+							recorder.setStopReason('cancelled')
+							recorder.markCancelled()
 							break
 						}
 						// The host's stop predicate, if the previous turn deferred it
@@ -1370,7 +1379,7 @@ export class IterationOrchestrator {
 						// also settle as `end_turn`, and there the deferred predicate
 						// is not why the run ended: those decided the answer
 						// themselves.
-						runMgr.setStopReason(
+						recorder.setStopReason(
 							closingStopReason ??
 								(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn'),
 						)
@@ -1424,34 +1433,34 @@ export class IterationOrchestrator {
 					) {
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
-							runId: runMgr.id,
+							turnId: recorder.turnId,
 							iteration: iterationNum,
 							hasToolCalls: true,
 						})
 						yield* this.ctx.drainPending()
 						if (this.ctx.abortController.signal.aborted) {
-							runMgr.setStopReason('cancelled')
-							runMgr.markCancelled()
+							recorder.setStopReason('cancelled')
+							recorder.markCancelled()
 							break
 						}
 						if (structuredOutcome === 'retry') continue
-						runMgr.setStopReason(
+						recorder.setStopReason(
 							structuredOutcome === 'cancelled' ? 'cancelled' : 'answer_rejected',
 						)
-						if (structuredOutcome === 'cancelled') runMgr.markCancelled()
+						if (structuredOutcome === 'cancelled') recorder.markCancelled()
 						break
 					}
 					if (structuredOutcome === 'accepted') {
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
-							runId: runMgr.id,
+							turnId: recorder.turnId,
 							iteration: iterationNum,
 							hasToolCalls: true,
 						})
 						yield* this.ctx.drainPending()
 						if (this.ctx.abortController.signal.aborted) {
-							runMgr.setStopReason('cancelled')
-							runMgr.markCancelled()
+							recorder.setStopReason('cancelled')
+							recorder.markCancelled()
 							break
 						}
 						if (!forceFinalize) {
@@ -1461,16 +1470,16 @@ export class IterationOrchestrator {
 							if (inbound > 0 || this.latestUserMessage !== operatorInputAtDispatch) continue
 						}
 						if (this.ctx.abortController.signal.aborted) {
-							runMgr.setStopReason('cancelled')
-							runMgr.markCancelled()
+							recorder.setStopReason('cancelled')
+							recorder.markCancelled()
 							break
 						}
 						this.ctx.log.info('Structured output produced — ending run', {
-							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 						})
 						this.publishStructuredOutput()
-						runMgr.setStopReason('end_turn')
+						recorder.setStopReason('end_turn')
 						break
 					}
 
@@ -1484,15 +1493,15 @@ export class IterationOrchestrator {
 					const settled = this.terminalToolOutput(reviewOutcome.results, response)
 					if (settled !== undefined) {
 						this.ctx.log.info('Terminal tool produced the answer — ending run', {
-							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 							[GENAI.TOOL_NAME]: settled.toolName,
 						})
-						runMgr.setResult(settled.output)
-						runMgr.setStopReason('end_turn')
+						recorder.setResult(settled.output, 'review')
+						recorder.setStopReason('end_turn')
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
-							runId: runMgr.id,
+							turnId: recorder.turnId,
 							iteration: iterationNum,
 							hasToolCalls: true,
 						})
@@ -1543,13 +1552,13 @@ export class IterationOrchestrator {
 						}
 
 						this.ctx.log.info('Stop condition met', {
-							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 						})
-						runMgr.setStopReason('stop_condition')
+						recorder.setStopReason('stop_condition')
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
-							runId: runMgr.id,
+							turnId: recorder.turnId,
 							iteration: iterationNum,
 							hasToolCalls: true,
 						})
@@ -1584,11 +1593,11 @@ export class IterationOrchestrator {
 					const unheard = this.ctx.completionInbox?.drain() ?? []
 					if (unheard.length > 0) {
 						this.ctx.log.info('Delivering unawaited task completions', {
-							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 							'namzu.runtime.tasks': unheard.map((h) => h.taskId),
 						})
-						runMgr.pushMessage(
+						recorder.pushMessage(
 							createRuntimeContextMessage(formatCompletionNotification(unheard), 'task-completion'),
 						)
 					}
@@ -1605,7 +1614,8 @@ export class IterationOrchestrator {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'iteration_end',
 							{
-								runId: runMgr.id,
+								sessionId: recorder.sessionId,
+								turnId: recorder.turnId,
 								iteration: iterationNum,
 								signal: this.ctx.abortController.signal,
 							},
@@ -1617,7 +1627,7 @@ export class IterationOrchestrator {
 
 					await this.ctx.emitEvent({
 						type: 'iteration_completed',
-						runId: runMgr.id,
+						turnId: recorder.turnId,
 						iteration: iterationNum,
 						hasToolCalls: true,
 					})
@@ -1663,7 +1673,7 @@ export class IterationOrchestrator {
 					// followed it reaches the caller as the run's error.
 					if (this.steps.at(-1)?.stepNumber === iterationNum) {
 						this.ctx.log.warn('Iteration failed after its step was already recorded', {
-							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 							'exception.message': toErrorMessage(err),
 						})
@@ -1701,8 +1711,8 @@ export class IterationOrchestrator {
 					// and re-throwing. The run then returns cleanly with a
 					// 'cancelled' stop reason instead of propagating an error.
 					if (cancelled) {
-						runMgr.setStopReason('cancelled')
-						runMgr.markCancelled()
+						recorder.setStopReason('cancelled')
+						recorder.markCancelled()
 						break
 					}
 
@@ -1727,7 +1737,7 @@ export class IterationOrchestrator {
 						const shed = await relieveOverflow(this.ctx)
 						if (shed) {
 							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
-								[NAMZU.RUN_ID]: runMgr.id,
+								[NAMZU.TURN_ID]: recorder.turnId,
 								[NAMZU.ITERATION]: iterationNum,
 							})
 							if (iterationActivity) {
@@ -1819,7 +1829,7 @@ export class IterationOrchestrator {
 	private deliverInbound(): number {
 		const queued = this.ctx.inboundMessages?.() ?? []
 		for (const message of queued) {
-			this.ctx.runMgr.pushMessage(message)
+			this.ctx.recorder.pushMessage(message)
 			this.rememberUserMessage(message)
 		}
 
@@ -1829,7 +1839,7 @@ export class IterationOrchestrator {
 		const stranded = this.ctx.steering?.drain()
 		if (stranded) {
 			const message = createRuntimeContextMessage(formatSteeringNote(stranded), 'steering')
-			this.ctx.runMgr.pushMessage(message)
+			this.ctx.recorder.pushMessage(message)
 			this.rememberUserMessage(createRuntimeContextMessage(stranded, 'steering'))
 		}
 
@@ -1861,7 +1871,7 @@ export class IterationOrchestrator {
 		 */
 		unfinished?: { finishReason: 'error' | 'cancelled'; failure?: StepFailure }
 	}): void {
-		const { runMgr } = this.ctx
+		const { recorder } = this.ctx
 		const toolCalls = input.response?.message.toolCalls ?? []
 		const byId = new Map(input.toolResults.map((r) => [r.toolCallId, r]))
 
@@ -1902,10 +1912,10 @@ export class IterationOrchestrator {
 			// tool execution did not end in `tool_calls`.
 			finishReason: input.unfinished?.finishReason ?? input.response?.finishReason ?? 'error',
 			...(input.unfinished?.failure ? { failure: input.unfinished.failure } : {}),
-			usage: subtractUsage(runMgr.tokenUsage, input.usageBefore),
+			usage: subtractUsage(recorder.tokenUsage, input.usageBefore),
 			costDelta: {
-				...runMgr.costInfo,
-				totalCost: round6(runMgr.costInfo.totalCost - input.costBefore.totalCost),
+				...recorder.costInfo,
+				totalCost: round6(recorder.costInfo.totalCost - input.costBefore.totalCost),
 			},
 			startedAt: input.startedAt,
 			durationMs: Date.now() - input.startedAt,
@@ -1928,7 +1938,7 @@ export class IterationOrchestrator {
 			this.ctx.onStepFinish?.(step)
 		} catch (err) {
 			this.ctx.log.warn('onStepFinish threw while recording a failed step', {
-				[NAMZU.RUN_ID]: runMgr.id,
+				[NAMZU.TURN_ID]: recorder.turnId,
 				'namzu.runtime.step': input.stepNumber,
 				'exception.message': toErrorMessage(err),
 			})
@@ -1974,7 +1984,7 @@ export class IterationOrchestrator {
 		const callCount = response.message.toolCalls?.length ?? 0
 		if (callCount > 1) {
 			this.ctx.log.info('Terminal tool shared its turn — relaying instead of settling', {
-				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
 				[GENAI.TOOL_NAME]: terminal[0]?.toolName,
 				'namzu.runtime.calls_in_turn': callCount,
 			})
@@ -1984,7 +1994,7 @@ export class IterationOrchestrator {
 		const hit = terminal[0]
 		if (!hit || hit.isError) {
 			this.ctx.log.info('Terminal tool failed — returning the error to the model', {
-				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
 				[GENAI.TOOL_NAME]: hit?.toolName,
 			})
 			return undefined
@@ -2050,7 +2060,7 @@ export class IterationOrchestrator {
 		const callCount = response.message.toolCalls?.length ?? 0
 		if (callCount > 1) {
 			this.ctx.log.info('Structured output shared its turn — relaying instead of settling', {
-				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
 				'namzu.runtime.calls_in_turn': callCount,
 			})
 			return 'absent'
@@ -2072,7 +2082,7 @@ export class IterationOrchestrator {
 	}
 
 	private publishStructuredOutput(): void {
-		this.ctx.runMgr.setStructuredOutput(this.pendingStructuredOutput)
+		this.ctx.recorder.setStructuredOutput(this.pendingStructuredOutput)
 		this.structuredOutputDone = true
 	}
 
@@ -2098,10 +2108,11 @@ export class IterationOrchestrator {
 					Promise.resolve().then(() => {
 						signal.throwIfAborted()
 						return reviewer(structuredClone(parsed), {
-							runId: this.ctx.runMgr.id,
-							iteration: this.ctx.runMgr.currentIteration,
+							sessionId: this.ctx.recorder.sessionId,
+							turnId: this.ctx.recorder.turnId,
+							iteration: this.ctx.recorder.currentIteration,
 							signal,
-							messages: this.ctx.runMgr.messages,
+							messages: this.ctx.recorder.messages,
 							...reviewRequest,
 							generateText: inference.generateText,
 						})
@@ -2122,18 +2133,20 @@ export class IterationOrchestrator {
 				if (typeof verdict.feedback !== 'string' || verdict.feedback.trim().length === 0)
 					throw new Error('Structured reviewer rejection requires feedback')
 				this.structuredReviewAttempts++
-				this.ctx.runMgr.pushMessage(createRuntimeContextMessage(verdict.feedback, 'answer-review'))
+				this.ctx.recorder.pushMessage(
+					createRuntimeContextMessage(verdict.feedback, 'answer-review'),
+				)
 				// Persist both the feedback and its consumed allowance before the
 				// next request. This checkpoint is not an approval/park boundary.
 				const checkpoint = await this.ctx.checkpointMgr.create(
-					this.ctx.runMgr,
-					this.ctx.runMgr.currentIteration,
+					this.ctx.recorder,
+					this.ctx.recorder.currentIteration,
 				)
 				await this.ctx.emitEvent({
 					type: 'checkpoint_created',
-					runId: this.ctx.runMgr.id,
+					turnId: this.ctx.recorder.turnId,
 					checkpointId: checkpoint.id,
-					iteration: this.ctx.runMgr.currentIteration,
+					iteration: this.ctx.recorder.currentIteration,
 				})
 				if (signal.aborted) return 'cancelled'
 				return this.structuredReviewAttempts >
@@ -2166,10 +2179,11 @@ export class IterationOrchestrator {
 				Promise.resolve().then(() => {
 					signal.throwIfAborted()
 					return reviewer(answer, {
-						runId: this.ctx.runMgr.id,
-						iteration: this.ctx.runMgr.currentIteration,
+						sessionId: this.ctx.recorder.sessionId,
+						turnId: this.ctx.recorder.turnId,
+						iteration: this.ctx.recorder.currentIteration,
 						signal,
-						messages: this.ctx.runMgr.messages,
+						messages: this.ctx.recorder.messages,
 						...reviewRequest,
 						generateText: inference.generateText,
 					})
@@ -2200,14 +2214,14 @@ export class IterationOrchestrator {
 			return await stopWhen({
 				steps: this.steps,
 				latestStep,
-				totalUsage: this.ctx.runMgr.tokenUsage,
-				totalCost: this.ctx.runMgr.costInfo,
+				totalUsage: this.ctx.recorder.tokenUsage,
+				totalCost: this.ctx.recorder.costInfo,
 			})
 		} catch (err) {
 			// A throwing predicate must not kill a run that is otherwise
 			// healthy; failing open keeps the existing budgets in charge.
 			this.ctx.log.error('Stop condition threw — continuing the run', {
-				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
 				'exception.message': toErrorMessage(err),
 			})
 			return false
@@ -2222,14 +2236,14 @@ export class IterationOrchestrator {
 	}
 
 	private async acceptProviderRejectedImage(identity: RequestImageIdentity): Promise<void> {
-		const repaired = markProviderRejectedImage(this.ctx.runMgr.messages, identity)
+		const repaired = markProviderRejectedImage(this.ctx.recorder.messages, identity)
 		if (repaired.count === 0) {
 			throw new Error('Provider-rejected image recovery could not find its durable source image')
 		}
-		this.ctx.runMgr.replaceMessages(repaired.messages)
+		this.ctx.recorder.replaceMessages(repaired.messages)
 		await this.ctx.emitEvent?.({
 			type: 'message_history_repaired',
-			runId: this.ctx.runMgr.id,
+			turnId: this.ctx.recorder.turnId,
 			source: 'provider-rejected-image',
 			duplicateToolResultsRemoved: 0,
 			orphanedToolResultsRemoved: 0,
@@ -2244,7 +2258,7 @@ export class IterationOrchestrator {
 	): Promise<StopReason | undefined> {
 		if (this.ctx.structuredOutput?.mode === 'native') return 'structured_output_failed'
 
-		const lastAssistant = [...this.ctx.runMgr.messages]
+		const lastAssistant = [...this.ctx.recorder.messages]
 			.reverse()
 			.find((m) => m.role === 'assistant')
 
@@ -2258,7 +2272,7 @@ export class IterationOrchestrator {
 		// is another billed request, so it must pass the same hard limits as
 		// the next normal iteration and preserve their unfinished stop reason.
 		const guardResult = this.ctx.guard.beforeIteration(
-			this.ctx.runMgr,
+			this.ctx.recorder,
 			this.ctx.abortController.signal,
 		)
 		if (guardResult.shouldStop) return guardResult.stopReason
@@ -2270,14 +2284,14 @@ export class IterationOrchestrator {
 		try {
 			// The working-memory slot leaves the system run exactly as it does
 			// for a normal step, and for the same cache reason.
-			const workingMemory = splitWorkingMemoryForRequest(this.ctx.runMgr.messages)
+			const workingMemory = splitWorkingMemoryForRequest(this.ctx.recorder.messages)
 			const finalHistory = [
 				...workingMemory.history,
 				...(workingMemory.context ? [workingMemory.context] : []),
 			]
 			const finalMessages = projectRequestRichContent(
 				this.projectObservations(finalHistory),
-				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
+				this.ctx.turnConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 			)
 			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			// The closing directive is the last thing the model reads: after
@@ -2311,14 +2325,14 @@ export class IterationOrchestrator {
 				tools: finalTools.length > 0 ? finalTools : undefined,
 				...(finalEnforced ? { enforceToolInputSchema: finalEnforced } : {}),
 				toolChoice: finalTools.length > 0 ? 'none' : undefined,
-				temperature: this.ctx.runConfig.temperature,
-				maxTokens: this.ctx.runConfig.maxResponseTokens,
+				temperature: this.ctx.turnConfig.temperature,
+				maxTokens: this.ctx.turnConfig.maxResponseTokens,
 				cacheControl: { type: 'auto' },
-				...(this.ctx.runConfig.thinking ? { thinking: this.ctx.runConfig.thinking } : {}),
+				...(this.ctx.turnConfig.thinking ? { thinking: this.ctx.turnConfig.thinking } : {}),
 				// This turn is a hand-maintained duplicate of the one above, which
 				// is exactly the shape a field goes missing from — so it is tested
 				// separately rather than assumed to have been kept in step.
-				...(this.ctx.runConfig.effort ? { effort: this.ctx.runConfig.effort } : {}),
+				...(this.ctx.turnConfig.effort ? { effort: this.ctx.turnConfig.effort } : {}),
 				// Cancellable too: a Stop during the closing summary must not
 				// stream to completion.
 				signal: this.ctx.abortController.signal,
@@ -2335,7 +2349,7 @@ export class IterationOrchestrator {
 				model: servingMember.model ?? model,
 				chainIndex: servingMember.index,
 			}
-			this.ctx.runMgr.accumulateUsage(response.usage, {
+			this.ctx.recorder.accumulateUsage(response.usage, {
 				providerId: servedBy.providerId,
 				model: servedBy.model,
 			})
@@ -2354,19 +2368,19 @@ export class IterationOrchestrator {
 				},
 				response.message.textParts,
 			)
-			this.ctx.runMgr.pushMessage(assistantMsg)
+			this.ctx.recorder.pushMessage(assistantMsg)
 
 			const finalMessageId = generateMessageId()
 			await this.ctx.emitEvent({
 				type: 'message_started',
-				runId: this.ctx.runMgr.id,
-				iteration: this.ctx.runMgr.currentIteration,
+				turnId: this.ctx.recorder.turnId,
+				iteration: this.ctx.recorder.currentIteration,
 				messageId: finalMessageId,
 			})
 			await this.ctx.emitEvent({
 				type: 'message_completed',
-				runId: this.ctx.runMgr.id,
-				iteration: this.ctx.runMgr.currentIteration,
+				turnId: this.ctx.recorder.turnId,
+				iteration: this.ctx.recorder.currentIteration,
 				messageId: finalMessageId,
 				stopReason: 'forced_finalize',
 				usage: response.usage,

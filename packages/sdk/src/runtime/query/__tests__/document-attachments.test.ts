@@ -5,7 +5,7 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import type { MessageAttachment } from '../../../types/message/index.js'
 import type { ChatCompletionParams, ProviderCapabilities } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -47,7 +47,7 @@ function runWith(opts: {
 	capabilities?: ProviderCapabilities
 	strict?: boolean
 }) {
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const provider = new MockLLMProvider({
 		turns: [{ text: 'read it' }],
 		...(opts.capabilities ? { capabilities: opts.capabilities } : {}),
@@ -67,7 +67,7 @@ function runWith(opts: {
 				},
 			],
 			workingDirectory: process.cwd(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				tokenBudget: 100_000,
 				timeoutMs: 30_000,
@@ -121,7 +121,7 @@ describe('a user message that carries a document', () => {
 			(event) => event.type === 'capability_warning' && event.capability === 'documents',
 		)
 		const terminalIndex = events.findIndex(
-			(event) => event.type === 'run_completed' || event.type === 'run_failed',
+			(event) => event.type === 'turn_completed' || event.type === 'turn_failed',
 		)
 		expect(warningIndex, 'the document mismatch existed only in the logger').toBeGreaterThan(-1)
 		expect(terminalIndex, 'the fixture never reached a terminal run event').toBeGreaterThan(-1)

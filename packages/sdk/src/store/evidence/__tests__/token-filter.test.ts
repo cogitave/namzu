@@ -6,9 +6,6 @@ import fc from 'fast-check'
 import { afterEach, expect, it } from 'vitest'
 import { applyToolOutputBudget } from '../../../runtime/query/tool-output-budget.js'
 import { evidenceTokenEntries } from '../../../utils/evidence-tokens.js'
-import { asRunId } from '../../../utils/id.js'
-import { RunDiskStore } from '../../run/disk.js'
-import { createDiskRunTextEvidenceSource } from '../disk.js'
 import {
 	EVIDENCE_CHUNK_BYTES,
 	digest,
@@ -20,7 +17,8 @@ import {
 } from '../format.js'
 import { RECORD_BYTES } from '../io.js'
 import { passageMatcher } from '../passages.js'
-import type { RunTextEvidenceSource } from '../types.js'
+import type { SessionTextEvidenceSource } from '../types.js'
+import { evidenceSession } from './support/session-log.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -123,32 +121,16 @@ async function fixture(
 ) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-token-filter-'))
 	roots.push(root)
-	const scope = {
-		tenantId: randomUUID(),
-		projectId: randomUUID(),
-		sessionId: randomUUID(),
-		runId: asRunId(randomUUID()),
-	}
-	const store = new RunDiskStore({ baseDir: root })
-	const runDir = await store.initRun(scope.runId)
-	await writeFile(
-		join(runDir, 'run.json'),
-		JSON.stringify({
-			id: scope.runId,
-			status: mode === 'closed' ? 'completed' : 'running',
-			metadata: { scope },
-		}),
-	)
+	const session = await evidenceSession(root)
 	const sourceText = `${' '.repeat((filterStyle === 'normal' ? 80 : 2) * EVIDENCE_CHUNK_BYTES - 3)}oRcHiD original receipt ${randomUUID()} ${' '.repeat(EVIDENCE_CHUNK_BYTES)}`
-	const spillDir = join(runDir, 'tool-output')
 	const retained = applyToolOutputBudget({
 		toolName: 'read',
 		toolUseId: 'original',
 		output: sourceText,
 		maxChars: 1000,
-		spillDir,
+		spillDir: session.spillDir,
 	})
-	const path = join(spillDir, `${digest('original')}.txt`)
+	const path = join(session.spillDir, `${digest('original')}.txt`)
 	let integrity = retained.spillIntegrity
 	if (filterStyle !== 'normal') {
 		const manifest = JSON.parse(await readFile(`${path}.manifest.json`, 'utf8'))
@@ -163,11 +145,8 @@ async function fixture(
 		await writeFile(`${path}.manifest.json`, raw)
 		integrity = digest(raw)
 	}
-	await store.appendEvent({ type: 'run_started', runId: scope.runId, seq: 1 })
-	await store.appendEvent({
+	await session.append({
 		type: 'tool_completed',
-		runId: scope.runId,
-		seq: 2,
 		toolName: 'read',
 		toolUseId: 'original',
 		result: retained.output,
@@ -175,20 +154,12 @@ async function fixture(
 		outputTruncated: true,
 		outputSpillIntegrity: integrity,
 	})
-	const source =
-		mode === 'live'
-			? (await store.captureTextEvidence(scope, 1024 * 1024))!
-			: createDiskRunTextEvidenceSource({
-					scope,
-					runDir,
-					indexDir: join(root, 'index'),
-					maxReadBytes: 1024 * 1024,
-					...(mode === 'snapshot' ? { consistency: 'snapshot' as const } : {}),
-				})
+	if (mode === 'closed') await session.close()
+	const source = await session.textSource(mode, { maxReadBytes: 1024 * 1024 })
 	return { source, sourceText, path }
 }
 
-async function search(source: RunTextEvidenceSource) {
+async function search(source: SessionTextEvidenceSource) {
 	let cursor: string | undefined
 	const matches = []
 	const unavailable = []

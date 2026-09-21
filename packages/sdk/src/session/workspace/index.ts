@@ -1,6 +1,6 @@
 // Sub-barrel for the workspace module (Convention #4).
 // Shape types live under `types/workspace/`; runtime machinery (drivers,
-// registry, path-builder, git-worktree) lives in sibling files under
+// registry, git-worktree, shared session workspace) lives in sibling files under
 // `session/workspace/`.
 
 export type {
@@ -17,17 +17,13 @@ export type {
 	WorkspaceInspection,
 } from './driver.js'
 
-export { DefaultPathBuilder } from './path-builder.js'
-export { defaultStateRoot } from './state-root.js'
-export type { PathBuilder } from './path-builder.js'
-
 export { WorkspaceBackendRegistry } from './registry.js'
 
 export { GitWorktreeDriver, parseWorktreeList } from './git-worktree.js'
 export type { ExecFile, ExecFileResult, GitWorktreeDriverConfig } from './git-worktree.js'
 
-export { SharedRunWorkspace } from './shared-run.js'
+export { SharedSessionWorkspace } from './shared-session.js'
 export type {
-	RegisterSharedRunPlanInput,
-	SharedRunWorkspaceConfig,
-} from './shared-run.js'
+	RegisterSharedSessionPlanInput,
+	SharedSessionWorkspaceConfig,
+} from './shared-session.js'

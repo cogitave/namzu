@@ -1,13 +1,13 @@
 import type {
 	ApprovalPolicy,
 	ApprovalPolicyChange,
-	RunApprovalPolicy,
+	SessionApprovalPolicy,
 } from '../../types/hitl/policy.js'
-import type { RunId } from '../../types/ids/index.js'
-import type { RunEvent } from '../../types/run/index.js'
+import type { TurnId } from '../../types/ids/index.js'
+import type { SessionEventDraft } from './events.js'
 
 /**
- * The run's approval policy, as a box the run reads through.
+ * The turn's approval policy, as a box the turn reads through.
  *
  * Every call site that used to close over `params.resumeHandler` reads
  * `.current.handler` instead, which is the entire mechanism: a closure
@@ -20,15 +20,15 @@ import type { RunEvent } from '../../types/run/index.js'
 /** A policy that says yes to everything, named so a log can say so. */
 export const AUTO_APPROVE_POLICY_NAME = 'auto-approve'
 
-export interface CreateRunApprovalPolicyOptions {
-	readonly runId: RunId
+export interface CreateSessionApprovalPolicyOptions {
+	readonly turnId: TurnId
 	readonly initial: ApprovalPolicy
-	readonly emit: (event: RunEvent) => Promise<void>
+	readonly emit: (event: SessionEventDraft) => Promise<void>
 }
 
-export function createRunApprovalPolicy(
-	options: CreateRunApprovalPolicyOptions,
-): RunApprovalPolicy {
+export function createSessionApprovalPolicy(
+	options: CreateSessionApprovalPolicyOptions,
+): SessionApprovalPolicy {
 	let current = options.initial
 	let unannounced: ApprovalPolicyChange | undefined
 	return {
@@ -54,7 +54,7 @@ export function createRunApprovalPolicy(
 			// answer.
 			await options.emit({
 				type: 'approval_policy_changed',
-				runId: options.runId,
+				turnId: options.turnId,
 				from,
 				to: policy.name,
 				reason,

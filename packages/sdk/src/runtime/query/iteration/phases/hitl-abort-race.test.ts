@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { fixtureId } from '../../../../test-support/ids.js'
 import type { HITLResumeDecision } from '../../../../types/hitl/index.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import { type IterationContext, awaitDecisionOrAbort } from './context.js'
 
 /**
@@ -19,13 +19,14 @@ function ctxWith(opts: {
 	return {
 		abortController: opts.controller,
 		resumeHandler: opts.resumeHandler,
-		runMgr: { id: 'b076643e-3ff2-4dc9-a900-cd70719be051' as RunId },
+		recorder: { id: 'b076643e-3ff2-4dc9-a900-cd70719be051' as TurnId },
 	} as unknown as IterationContext
 }
 
 const REVIEW_REQUEST = {
 	type: 'tool_review' as const,
-	runId: 'b076643e-3ff2-4dc9-a900-cd70719be051' as RunId,
+	sessionId: fixtureId.session('1'),
+	turnId: 'b076643e-3ff2-4dc9-a900-cd70719be051' as TurnId,
 	checkpointId: fixtureId.checkpoint('1'),
 	toolCalls: [],
 }

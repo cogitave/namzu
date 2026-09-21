@@ -114,7 +114,7 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...opts.turns, { text: 'done' }] }),
 		tools: tools(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -144,7 +144,7 @@ async function runWithProvider(opts: {
 	const result = await drainQuery({
 		provider,
 		tools: opts.toolRegistry ?? tools(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 10 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],

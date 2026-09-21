@@ -8,16 +8,19 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import { isEphemeralEvent } from '../../../types/run/events.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { isEphemeralEvent } from '../../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
 import { ToolExecutor } from '../executor.js'
 import { drainQuery } from '../index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * A tool may run for the full per-tool deadline — two minutes by default —
@@ -44,13 +47,13 @@ function reportingTool(report: (ctx: ToolContext) => void): ToolDefinition {
 	} as unknown as ToolDefinition
 }
 
-async function run(tool: ToolDefinition, observe?: (event: RunEvent) => void | Promise<void>) {
+async function run(tool: ToolDefinition, observe?: (event: SessionEvent) => void | Promise<void>) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-progress-'))
 	dirs.push(workingDirectory)
 
 	const tools = new ToolRegistry()
 	tools.register(tool)
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 
 	const result = await drainQuery(
 		{
@@ -58,7 +61,7 @@ async function run(tool: ToolDefinition, observe?: (event: RunEvent) => void | P
 				turns: [{ toolCalls: [{ name: 'build', args: {} }] }, { text: 'done' }],
 			}),
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -92,7 +95,7 @@ describe('a long-running tool can say how far along it is', () => {
 		)
 
 		const progress = events.find(
-			(e): e is Extract<RunEvent, { type: 'tool_progress' }> => e.type === 'tool_progress',
+			(e): e is Extract<SessionEvent, { type: 'tool_progress' }> => e.type === 'tool_progress',
 		)
 		expect(progress).toBeDefined()
 		expect(progress?.message).toBe('compiled 40/120 files')
@@ -112,7 +115,9 @@ describe('a long-running tool can say how far along it is', () => {
 		)
 
 		const fractions = events
-			.filter((e): e is Extract<RunEvent, { type: 'tool_progress' }> => e.type === 'tool_progress')
+			.filter(
+				(e): e is Extract<SessionEvent, { type: 'tool_progress' }> => e.type === 'tool_progress',
+			)
 			.map((e) => e.fraction)
 		expect(fractions).toEqual([1, 0])
 	})
@@ -121,11 +126,12 @@ describe('a long-running tool can say how far along it is', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'tool_progress',
-				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
+				sessionId: '5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+				turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 				toolUseId: 'call_x' as never,
 				toolName: 'build',
 				message: 'x',
-			} as RunEvent),
+			} as SessionEvent),
 		).toBe(true)
 	})
 
@@ -184,7 +190,7 @@ describe('a long-running tool can say how far along it is', () => {
 		releaseFirst()
 		const { events, result } = await pending
 		const progress = events.filter(
-			(event): event is Extract<RunEvent, { type: 'tool_progress' }> =>
+			(event): event is Extract<SessionEvent, { type: 'tool_progress' }> =>
 				event.type === 'tool_progress',
 		)
 		expect(progress).toHaveLength(2)
@@ -217,7 +223,7 @@ describe('a long-running tool can say how far along it is', () => {
 			observeProgress = resolve
 		})
 		const observed: string[] = []
-		const runId = '86614d1a-725e-4184-a360-f91aa452060c' as RunId
+		const turnId = '86614d1a-725e-4184-a360-f91aa452060c' as TurnId
 		const tools = new ToolRegistry()
 		tools.register(
 			reportingTool((ctx) => {
@@ -227,14 +233,15 @@ describe('a long-running tool can say how far along it is', () => {
 		)
 		const executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
-				runId,
+				turnId,
 				workingDirectory: process.cwd(),
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(runId, {
+			new ActivityStore(turnId, {
 				enabled: false,
 				trackToolCalls: false,
 				trackLlmTurns: false,

@@ -11,11 +11,12 @@
  *   node scripts/benchmarks/cli-state-growth.mjs [turns] [iterations] [--json]
  *
  * `turns` is how many `namzu run` invocations to make from the same working
- * directory (headless runs do not write their conversation to the session
- * store, so each is its own conversation); `iterations` is how many tool calls
- * each invocation makes before answering. It reports files and bytes under
- * the application home, how many Projects and Sessions the store holds, and
- * whether anything was written into the working directory.
+ * directory (each headless invocation is its own session); `iterations` is how
+ * many tool calls each invocation makes before answering. It reports files and
+ * bytes under the application home (`projects/<slug>/<session-id>.jsonl`, with
+ * each session's checkpoints, ledgers and tool results beside its log), how
+ * many projects and session logs the invocations produced, and whether
+ * anything was written into the working directory.
  */
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -281,37 +282,31 @@ for (const file of files) {
 	const rel = relative(home, file.path);
 	const parts = rel.split("/");
 	let kind = parts.at(-1);
-	if (rel.includes("/checkpoints/") && kind.endsWith(".json"))
-		kind = "runs/*/checkpoints/*.json";
-	else if (rel.includes("/history/")) kind = "runs/*/history/*.jsonl";
-	else if (rel.includes("/runs/")) kind = `runs/*/${parts.at(-1)}`;
-	else if (parts[0] === "sessions") kind = `sessions/*/${parts.at(-1)}`;
-	else if (parts[0] === "memory") kind = "memory/**";
+	if (parts[0] === "projects" && parts.length === 3 && kind.endsWith(".jsonl"))
+		kind = "projects/*/<session>.jsonl";
+	else if (rel.includes("/checkpoints/")) kind = "projects/*/<session>/checkpoints/*.json";
+	else if (rel.includes("/tool-results/")) kind = "projects/*/<session>/tool-results/*";
+	else if (rel.includes("/budgets/")) kind = "projects/*/<session>/budgets/*.json";
+	else if (parts[0] === "projects" && kind === "project.json") kind = "projects/*/project.json";
+	else if (rel.includes("/memory/")) kind = "projects/*/memory/**";
 	const entry = byKind.get(kind) ?? { files: 0, bytes: 0 };
 	entry.files += 1;
 	entry.bytes += file.bytes;
 	byKind.set(kind, entry);
 }
-// How many Projects the invocations produced: one per working directory is
-// the contract, one per invocation is the defect this measures for.
-let projects = null;
-let sessions = null;
-try {
-	const { DatabaseSync } = await import("node:sqlite");
-	const db = new DatabaseSync(join(home, "state", "sessions.sqlite"), {
-		readOnly: true,
-	});
-	projects = db.prepare("SELECT COUNT(*) AS n FROM projects").get().n;
-	sessions = db.prepare("SELECT COUNT(*) AS n FROM sessions").get().n;
-	db.close();
-} catch {
-	// No store, or no node:sqlite: report the counts as unknown.
-}
-const runDirs = new Set(
+// How many projects the invocations produced: one per working directory is
+// the contract, one per invocation is the defect this measures for. A
+// session is its log: `projects/<slug>/<session-id>.jsonl`.
+const projectDirs = new Set(
 	files
-		.map((f) => relative(home, f.path).match(/^sessions\/[^/]+\/runs\/[0-9a-f-]{36}(?=\/)/)?.[0])
+		.map((f) => relative(home, f.path).match(/^projects\/[^/]+(?=\/)/)?.[0])
 		.filter(Boolean),
 );
+const projects = projectDirs.size;
+const sessionLogs = files.filter((f) =>
+	/^projects\/[^/]+\/[0-9a-f-]{36}\.jsonl$/.test(relative(home, f.path)),
+);
+const sessions = sessionLogs.length;
 const report = {
 	turns,
 	iterationsPerTurn: iterations,
@@ -323,7 +318,7 @@ const report = {
 	},
 	projects,
 	sessions,
-	runDirectories: runDirs.size,
+	sessionLogBytes: sessionLogs.reduce((n, f) => n + f.bytes, 0),
 	workingDirectoryDotNamzu: existsSync(join(work, ".namzu")),
 	byKind: Object.fromEntries(
 		[...byKind.entries()].sort((a, b) => b[1].bytes - a[1].bytes),
@@ -338,7 +333,7 @@ else {
 		`NAMZU_HOME: ${report.home.files} files, ${report.home.bytes} bytes; <cwd>/.namzu written: ${report.workingDirectoryDotNamzu}`,
 	);
 	console.log(
-		`projects: ${projects ?? "unknown"}, sessions: ${sessions ?? "unknown"}, run directories: ${runDirs.size}`,
+		`projects: ${projects}, sessions: ${sessions} (${report.sessionLogBytes} bytes of session logs)`,
 	);
 	for (const [kind, v] of Object.entries(report.byKind))
 		console.log(

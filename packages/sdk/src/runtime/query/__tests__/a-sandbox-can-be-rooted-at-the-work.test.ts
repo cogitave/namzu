@@ -19,7 +19,7 @@ import { drainQuery } from '../index.js'
  * `SandboxCreateConfig.workingDirectory` existed, the local provider ignored
  * it, and the kernel never set it: `drainQuery` built the sandbox from three
  * timeout/limit fields and dropped the run's own `cwd`. So a consumer
- * configuring a sandbox through `runConfig.sandbox` always got a temp
+ * configuring a sandbox through `turnConfig.sandbox` always got a temp
  * directory, whatever the run was working on.
  *
  * The direct SDK default stays ephemeral. Changing that would be a major and
@@ -71,7 +71,7 @@ async function run(opts: {
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
 		sandboxProvider: provider,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,
@@ -93,7 +93,7 @@ async function run(opts: {
 
 describe('what a sandbox is rooted at', () => {
 	it('names no directory when a raw config omits the key', async () => {
-		// The direct-SDK path: `drainQuery` reads `runConfig.sandbox` as the
+		// The direct-SDK path: `drainQuery` reads `turnConfig.sandbox` as the
 		// caller passed it, so an absent key is ephemeral by the comparison,
 		// not by the schema. Flipping the schema default does NOT change this
 		// — checked, and it is why the next test exists rather than this one
@@ -156,7 +156,7 @@ describe('what a sandbox is rooted at', () => {
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools: new ToolRegistry(),
 			sandboxProvider: provider,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -185,7 +185,7 @@ describe('what a sandbox is rooted at', () => {
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools: new ToolRegistry(),
 			sandboxProvider: provider,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,

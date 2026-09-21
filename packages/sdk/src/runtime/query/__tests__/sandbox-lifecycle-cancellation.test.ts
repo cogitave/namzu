@@ -8,15 +8,15 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type {
 	Sandbox,
 	SandboxCreateConfig,
 	SandboxDestroyOptions,
 	SandboxProvider,
 } from '../../../types/sandbox/index.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 const workdirs: string[] = []
@@ -77,7 +77,7 @@ async function params(input: {
 		...(input.teardownTimeoutMs !== undefined
 			? { sandboxTeardownTimeoutMs: input.teardownTimeoutMs }
 			: {}),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: input.runTimeoutMs ?? 20_000,
 			tokenBudget: 100_000,
@@ -142,7 +142,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		}
 		const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
 		const caller = new AbortController()
-		const reason = new RunCancelled('user')
+		const reason = new TurnCancelled('user')
 		caller.abort(reason)
 
 		const run = await drainQuery(
@@ -176,7 +176,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 			} satisfies SandboxProvider
 			const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
 			const caller = new AbortController()
-			const events: RunEvent[] = []
+			const events: SessionEvent[] = []
 			const pending = drainQuery(
 				await params({
 					provider: model,
@@ -190,7 +190,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 			)
 
 			await started
-			const reason = new RunCancelled('user')
+			const reason = new TurnCancelled('user')
 			caller.abort(reason)
 			const run = await within(pending, 'held sandbox create pinned drainQuery')
 
@@ -204,8 +204,8 @@ describe('sandbox lifecycle belongs to the run', () => {
 			expect(model.requests).toHaveLength(0)
 			expect(events.some((event) => event.type === 'sandbox_created')).toBe(false)
 			expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
-			expect(events.find((event) => event.type === 'run_completed')).toMatchObject({
-				type: 'run_completed',
+			expect(events.find((event) => event.type === 'turn_completed')).toMatchObject({
+				type: 'turn_completed',
 				cancelCause: 'user',
 			})
 		},
@@ -240,7 +240,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		)
 
 		await started
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		const run = await within(pending, 'transport AbortError replaced run cancellation')
 
 		expect(run.status).toBe('cancelled')
@@ -266,7 +266,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 			create,
 		} satisfies SandboxProvider
 		const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const pending = drainQuery(
 			await params({ provider: model, sandboxProvider, runTimeoutMs: 100 }),
 			(event) => {
@@ -286,8 +286,8 @@ describe('sandbox lifecycle belongs to the run', () => {
 		expect(model.requests).toHaveLength(0)
 		expect(events.some((event) => event.type === 'sandbox_created')).toBe(false)
 		expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
-		expect(events.find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
+		expect(events.find((event) => event.type === 'turn_completed')).toMatchObject({
+			type: 'turn_completed',
 			stopReason: 'timeout',
 		})
 	})
@@ -318,7 +318,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		}
 		const caller = new AbortController()
 		const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const pending = drainQuery(
 			await params({ provider: model, sandboxProvider, signal: caller.signal }),
 			(event) => {
@@ -327,7 +327,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		)
 
 		await started
-		caller.abort(new RunCancelled('user'))
+		caller.abort(new TurnCancelled('user'))
 		await within(pending, 'cancelled run did not settle before late allocation')
 		allocation.resolve(sandbox)
 		await within(destroyed, 'late sandbox handle was not released')
@@ -352,12 +352,12 @@ describe('sandbox lifecycle belongs to the run', () => {
 					// biome-ignore lint/suspicious/noThenProperty: a custom thenable creates the exact settlement/publication microtask boundary under test
 					then(resolve: (value: Sandbox) => void) {
 						resolve(sandbox)
-						queueMicrotask(() => caller.abort(new RunCancelled('user')))
+						queueMicrotask(() => caller.abort(new TurnCancelled('user')))
 					},
 				}) as Promise<Sandbox>,
 		}
 		const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const pending = drainQuery(
 			await params({ provider: model, sandboxProvider, signal: caller.signal }),
 			(event) => {
@@ -387,7 +387,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 			create: async () => boundary(destroy),
 		}
 		const model = new MockLLMProvider({ turns: [{ text: 'done' }] })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const run = await within(
 			drainQuery(
 				await params({
@@ -410,7 +410,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		expect(destroySignal?.aborted).toBe(true)
 		expect(destroySignal?.reason).toMatchObject({ name: 'TimeoutError' })
 		expect(events.some((event) => event.type === 'sandbox_created')).toBe(true)
-		expect(events.some((event) => event.type === 'run_completed')).toBe(true)
+		expect(events.some((event) => event.type === 'turn_completed')).toBe(true)
 		expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
 	})
 
@@ -425,7 +425,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 			environment: 'basic',
 			create: async () => boundary(destroy),
 		}
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			await params({
@@ -443,9 +443,9 @@ describe('sandbox lifecycle belongs to the run', () => {
 		expect(destroySignal).toBeDefined()
 		expect(destroySignal?.aborted).toBe(false)
 		expect(events.filter((event) => event.type === 'sandbox_destroyed')).toHaveLength(1)
-		expect(events.map((event) => event.type)).toContain('run_completed')
+		expect(events.map((event) => event.type)).toContain('turn_completed')
 		expect(events.findIndex((event) => event.type === 'sandbox_destroyed')).toBeGreaterThan(
-			events.findIndex((event) => event.type === 'run_completed'),
+			events.findIndex((event) => event.type === 'turn_completed'),
 		)
 	})
 

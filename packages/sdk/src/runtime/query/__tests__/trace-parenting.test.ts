@@ -76,7 +76,7 @@ async function runOnce(parentSpan?: Span) {
 	await drainQuery({
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,

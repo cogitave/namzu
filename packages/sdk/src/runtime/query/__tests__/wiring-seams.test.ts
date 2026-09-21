@@ -7,9 +7,8 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -17,6 +16,7 @@ import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { RepairToolCall } from '../../../types/tool/repair.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
+import { resolveSessionStorage } from '../session-storage.js'
 
 /**
  * Four defects that every unit test in this repo missed for the same
@@ -64,7 +64,7 @@ function baseParams(opts: {
 		provider: opts.provider,
 		tools: opts.tools,
 		...(opts.resumeHandler ? { resumeHandler: opts.resumeHandler } : {}),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
@@ -181,20 +181,19 @@ describe('a post_tool_use retry works on a tool that did not opt into retries', 
 describe('a cross-process resume clears the park it acted on', () => {
 	it('stops reporting pending once the approved batch has run', async () => {
 		// The bug: `applyPendingResume` executed the batch and returned. The
-		// checkpoint kept `pending` with no `resolvedAt`, so an approval
-		// queue built on `findPendingCheckpoint` re-served a destructive call
-		// that had already run — the exact failure recording the park exists
-		// to prevent.
+		// park stayed outstanding, so an approval queue built on
+		// `findPendingCheckpoint` re-served a destructive call that had
+		// already run — the exact failure recording the park exists to
+		// prevent. Both halves run on the session's log on disk.
 		const dir = await workdir()
 		const calls: string[] = []
 		const tools = new ToolRegistry()
 		tools.register(countingTool('delete_row', calls))
-		const store = new DiskCheckpointStore({ baseDir: join(dir, 'runs') })
 		const scope = {
 			tenantId: '36da1973-021d-40d5-9a72-7ba4084729de' as TenantId,
 			projectId: '8e2b818f-eb63-4f6e-a416-18b311dcb61c' as ProjectId,
 			sessionId: '45546fa4-d7b9-4223-b1ba-d95fcb6b7bd4' as SessionId,
-			runId: 'f4706708-3549-4ae3-91ee-0d85d85fcc3a' as RunId,
+			turnId: 'f4706708-3549-4ae3-91ee-0d85d85fcc3a' as TurnId,
 		}
 
 		const pauseOnReview: ResumeHandler = (request) =>
@@ -213,12 +212,15 @@ describe('a cross-process resume clears the park it acted on', () => {
 				}),
 				resumeHandler: pauseOnReview,
 			}),
-			checkpointStore: store,
-			runId: scope.runId,
+			turnId: scope.turnId,
 			messages: [createUserMessage('delete row 9')],
 		})
 
-		const pending = await findPendingCheckpoint(store, { ...scope, runId: parked.id })
+		const { log } = await resolveSessionStorage({
+			sessionId: scope.sessionId,
+			workingDirectory: dir,
+		})
+		const pending = await findPendingCheckpoint(log, { turnId: parked.id })
 		expect(pending).not.toBeNull()
 
 		await drainQuery({
@@ -228,16 +230,15 @@ describe('a cross-process resume clears the park it acted on', () => {
 				provider: new MockLLMProvider({ turns: [{ text: 'gone' }] }),
 				resumeHandler: pauseOnReview,
 			}),
-			checkpointStore: store,
-			runId: scope.runId,
+			turnId: scope.turnId,
 			messages: [],
-			resumeFromCheckpoint: pending?.id,
+			resumeFromCheckpoint: pending?.checkpointId,
 			pendingDecision: { action: 'approve_tools' },
 		})
 
 		expect(calls).toEqual(['delete_row:9'])
 		// The queue must not offer this decision again.
-		expect(await findPendingCheckpoint(store, { ...scope, runId: parked.id })).toBeNull()
+		expect(await findPendingCheckpoint(log, { turnId: parked.id })).toBeNull()
 	})
 })
 

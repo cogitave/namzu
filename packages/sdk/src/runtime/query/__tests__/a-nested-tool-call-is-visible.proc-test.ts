@@ -9,17 +9,21 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type {
 	RequestToolPause,
 	ToolContext,
 	ToolRegistryContract,
 	ToolResult,
 } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * A tool call a PROGRAM made, visible in the run's own stream.
@@ -33,7 +37,7 @@ import { ToolExecutor } from '../executor.js'
  * Process-level: the program runs in a real worker thread.
  */
 
-const RUN_ID = '46e8ada9-5274-4684-97e3-5231c5873d07' as RunId
+const RUN_ID = '46e8ada9-5274-4684-97e3-5231c5873d07' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -104,16 +108,17 @@ async function runProgram(
 	code: string,
 	tools: string[],
 	options: ProgramHarnessOptions = {},
-): Promise<RunEvent[]> {
-	const emitted: RunEvent[] = []
+): Promise<SessionEvent[]> {
+	const emitted: SessionEvent[] = []
 	const executor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools: registryWith(
 				buildRunCodeTool({ timeoutMs: options.runCodeTimeoutMs ?? 5_000 }),
 				tools,
 				options,
 			),
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -131,8 +136,8 @@ async function runProgram(
 			trackToolCalls: true,
 			trackLlmTurns: true,
 		}),
-		async (e: RunEvent) => {
-			emitted.push(e)
+		async (e: SessionEventDraft) => {
+			emitted.push(e as SessionEvent)
 		},
 		makeLogger(),
 	)
@@ -159,7 +164,7 @@ async function runProgram(
 	return emitted
 }
 
-const nested = (events: RunEvent[], type: string) =>
+const nested = (events: SessionEvent[], type: string) =>
 	events.filter((e) => e.type === type && (e as { via?: unknown }).via !== undefined)
 
 describe('a tool call a program made reaches the event stream', () => {
@@ -263,7 +268,7 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 			},
 		})
 		const start = nested(events, 'tool_executing')[0] as Extract<
-			RunEvent,
+			SessionEvent,
 			{ type: 'tool_executing' }
 		>
 
@@ -310,7 +315,7 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 			},
 		})
 		const starts = nested(events, 'tool_executing') as Extract<
-			RunEvent,
+			SessionEvent,
 			{ type: 'tool_executing' }
 		>[]
 		const chain = starts.find((event) => event.toolName === 'chain')
@@ -331,7 +336,7 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 			childExecute: async () => ({ success: true, output: huge }),
 		})
 		const done = nested(events, 'tool_completed')[0] as Extract<
-			RunEvent,
+			SessionEvent,
 			{ type: 'tool_completed' }
 		>
 
@@ -356,7 +361,7 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 			},
 		)
 		const done = nested(events, 'tool_completed')[0] as Extract<
-			RunEvent,
+			SessionEvent,
 			{ type: 'tool_completed' }
 		>
 
@@ -376,7 +381,7 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 				childExecute: async () => ({ success: true, output }),
 			})
 			const done = nested(events, 'tool_completed')[0] as Extract<
-				RunEvent,
+				SessionEvent,
 				{ type: 'tool_completed' }
 			>
 			expect(done.result.length).toBeLessThanOrEqual(4_000)
@@ -401,7 +406,7 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 			},
 		})
 		const childDone = nested(events, 'tool_completed')[0] as Extract<
-			RunEvent,
+			SessionEvent,
 			{ type: 'tool_completed' }
 		>
 
@@ -443,10 +448,11 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 
 describe('a nested failure is reported as one', () => {
 	it('marks it as an error rather than a quiet success', async () => {
-		const emitted: RunEvent[] = []
+		const emitted: SessionEvent[] = []
 		const runCode = buildRunCodeTool({ timeoutMs: 5_000 })
 		const executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools: {
 					register: vi.fn(),
 					unregister: vi.fn(),
@@ -459,7 +465,7 @@ describe('a nested failure is reported as one', () => {
 					listNames: vi.fn(() => []),
 					getAvailability: vi.fn(),
 				} as unknown as ToolRegistryContract,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -470,8 +476,8 @@ describe('a nested failure is reported as one', () => {
 				trackToolCalls: true,
 				trackLlmTurns: true,
 			}),
-			async (e: RunEvent) => {
-				emitted.push(e)
+			async (e: SessionEventDraft) => {
+				emitted.push(e as SessionEvent)
 			},
 			makeLogger(),
 		)

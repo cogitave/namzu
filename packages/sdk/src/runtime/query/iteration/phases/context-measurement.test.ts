@@ -22,7 +22,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -81,13 +81,13 @@ function makeCtx(opts: {
 	const log = makeLogger()
 
 	const ctx = {
-		runConfig: { tokenBudget: 0 },
+		turnConfig: { tokenBudget: 0 },
 		compactionConfig: config,
 		workingStateManager: manager,
 		log,
 		tools: { toLLMTools: () => opts.tools ?? [] },
-		runMgr: {
-			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+		recorder: {
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 			currentIteration: 3,
 			messages: opts.messages,
 			lastPromptTokens: opts.lastPromptTokens,

@@ -19,7 +19,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -188,7 +188,7 @@ async function runWith(inbox: CompletionInbox | undefined): Promise<{
 		agentName: 'Test Agent',
 		messages: [createUserMessage('delegate and report')],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
@@ -367,7 +367,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			messages: [createUserMessage('delegate and report')],
 			workingDirectory,
 			...(options.stopWhen ? { stopWhen: () => true } : {}),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -438,14 +438,14 @@ describe('a run that ends some other way still hands over what finished', () => 
 				waitForInbound: async (signal) => {
 					held = true
 					expect(inbox.outstandingTaskIds).toContain('tsk_still_running')
-					caller.abort(new RunCancelled('user'))
+					caller.abort(new TurnCancelled('user'))
 					expect(signal.aborted).toBe(true)
 				},
 				agentId: 'agent_test',
 				agentName: 'Test Agent',
 				messages: [createUserMessage('delegate and report')],
 				workingDirectory,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -522,7 +522,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			messages: [createUserMessage('go')],
 			workingDirectory,
 			stopWhen: () => true,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -639,7 +639,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			messages: [createUserMessage('go')],
 			workingDirectory,
 			stopWhen: () => ++asked === 1,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -697,7 +697,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			agentName: 'Test Agent',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,

@@ -1,16 +1,14 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { RunDiskStore } from '../../../store/run/disk.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionLog } from '../../../store/session-log/index.js'
+import type { CheckpointId } from '../../../types/hitl/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { RestoredCheckpoint } from '../checkpoint.js'
 import { planCrashResume, recoverCompletedCalls } from '../resume-pending.js'
+import { type CheckpointedSession, sessionWithCheckpoint } from './support/session.js'
 
 /**
  * A fan-out that crashes part-way through must not re-run the workers that
@@ -21,7 +19,7 @@ import { planCrashResume, recoverCompletedCalls } from '../resume-pending.js'
  * mechanism rather than a delegation-specific one. Delegation here is
  * blocking: the tool awaits its worker and returns that worker's output as
  * its own `tool_result`. So a delegation is an ordinary tool call, its
- * completion is recorded as an ordinary `tool_completed`, and the
+ * completion is recorded as an ordinary `tool_completed` record, and the
  * crash-resume path that answers already-executed tool calls from the
  * transcript answers delegations too.
  *
@@ -30,7 +28,7 @@ import { planCrashResume, recoverCompletedCalls } from '../resume-pending.js'
  * blocking, they fail — which is exactly when somebody needs to know.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -60,44 +58,41 @@ const fanOut = (): Message[] => [
 ]
 
 describe('a fan-out interrupted part-way through', () => {
-	let dir: string
-	let store: RunDiskStore
+	let session: CheckpointedSession
 
 	beforeEach(async () => {
-		dir = await mkdtemp(join(tmpdir(), 'namzu-fanout-'))
-		store = new RunDiskStore({ baseDir: dir })
-		await store.initRun(RID)
+		session = await sessionWithCheckpoint({ turnId: RID, messages: fanOut() })
 	})
 
-	afterEach(async () => {
-		await removeTempDirAsync(dir)
-	})
-
+	/** The workers' completions, recorded in the turn as the process ran them. */
 	const recordCompletions = async (ids: readonly string[]) => {
-		const lines = ids.map((id, index) =>
-			JSON.stringify({
+		for (const id of ids) {
+			await session.log.append(session.lease, {
 				type: 'tool_completed',
-				runId: RID,
-				seq: index + 2,
+				turnId: RID,
 				toolUseId: id,
 				toolName: 'create_task',
 				result: `${id} finished its work`,
 				isError: false,
-			}),
-		)
-		await writeFile(
-			join(dir, RID, 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'run_started', runId: RID, seq: 1 })}\n${lines.join('\n')}\n`,
-			'utf-8',
-		)
+			} as Parameters<SessionLog['append']>[1])
+		}
 	}
+
+	/** The recorder side recovery reads: the turn's log. */
+	const recorder = () => ({ log: session.log, turnId: RID, flush: async () => {} }) as never
+
+	const restored = (): RestoredCheckpoint =>
+		({
+			id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
+			messages: fanOut(),
+			messageIds: new Map(),
+		}) as unknown as RestoredCheckpoint
 
 	it('recovers the workers that already finished', async () => {
 		await recordCompletions(['w1', 'w2', 'w3'])
 
-		const runMgr = { id: RID, getRunStore: () => store } as never
 		const recovered = await recoverCompletedCalls(
-			runMgr,
+			recorder(),
 			(fanOut()[1] as { toolCalls: { id: string }[] }).toolCalls as never,
 			makeLogger(),
 		)
@@ -111,14 +106,7 @@ describe('a fan-out interrupted part-way through', () => {
 	it('takes over the turn rather than letting the model re-decide', async () => {
 		// The ordinary repair strips the assistant turn and lets the model
 		// re-issue every delegation — which is precisely the second run.
-		const plan = planCrashResume(
-			{
-				id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
-				messages: fanOut(),
-			} as IterationCheckpoint,
-			new Map([['w1', {}]]),
-			makeLogger(),
-		)
+		const plan = planCrashResume(restored(), new Map([['w1', {}]]), makeLogger())
 
 		expect(plan).not.toBeNull()
 		expect(plan?.response.message.toolCalls).toHaveLength(5)
@@ -127,10 +115,7 @@ describe('a fan-out interrupted part-way through', () => {
 	it('names the workers that will actually run', async () => {
 		const log = makeLogger()
 		planCrashResume(
-			{
-				id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
-				messages: fanOut(),
-			} as IterationCheckpoint,
+			restored(),
 			new Map([
 				['w1', {}],
 				['w2', {}],
@@ -149,24 +134,14 @@ describe('a fan-out interrupted part-way through', () => {
 	it('leaves an untouched fan-out to the ordinary repair', async () => {
 		// Nothing dispatched yet means nothing to protect, and re-deciding
 		// costs only a round trip.
-		expect(
-			planCrashResume(
-				{
-					id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
-					messages: fanOut(),
-				} as IterationCheckpoint,
-				new Map(),
-				makeLogger(),
-			),
-		).toBeNull()
+		expect(planCrashResume(restored(), new Map(), makeLogger())).toBeNull()
 	})
 
 	it('does not confuse a worker id with one from an earlier turn', async () => {
 		await recordCompletions(['from-an-older-turn'])
 
-		const runMgr = { id: RID, getRunStore: () => store } as never
 		const recovered = await recoverCompletedCalls(
-			runMgr,
+			recorder(),
 			(fanOut()[1] as { toolCalls: { id: string }[] }).toolCalls as never,
 			makeLogger(),
 		)

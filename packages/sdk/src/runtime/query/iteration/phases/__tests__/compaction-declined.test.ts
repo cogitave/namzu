@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { ContextReduction } from '../../../../../compaction/reducer.js'
 import type { Message } from '../../../../../types/message/index.js'
-import type { RunEvent } from '../../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../../../utils/log/create-logger.js'
 import { runCompactionCheck } from '../compaction.js'
 import type { IterationContext } from '../context.js'
@@ -26,16 +26,16 @@ const user = (content: string): Message => ({ role: 'user', content, timestamp: 
 
 function context(reducer: IterationContext['contextReducer']): {
 	ctx: IterationContext
-	events: RunEvent[]
+	events: SessionEvent[]
 	messages: Message[]
 } {
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	// Enough messages that the trigger fires against the tiny window below.
 	const messages: Message[] = Array.from({ length: 12 }, (_, i) => user(`m${i} ${'x'.repeat(400)}`))
 
 	const ctx = {
-		runMgr: { id: 'b55333a6-c5c4-4dc3-b002-b2cfad381d41', messages, currentIteration: 3 },
-		runConfig: { model: 'mock-model' },
+		recorder: { id: 'b55333a6-c5c4-4dc3-b002-b2cfad381d41', messages, currentIteration: 3 },
+		turnConfig: { model: 'mock-model' },
 		compactionConfig: {
 			strategy: 'custom',
 			triggerThreshold: 0.1,
@@ -44,7 +44,7 @@ function context(reducer: IterationContext['contextReducer']): {
 		},
 		contextReducer: reducer,
 		log: NOOP_LOGGER,
-		emitEvent: async (event: RunEvent) => {
+		emitEvent: async (event: SessionEvent) => {
 			events.push(event)
 		},
 	} as unknown as IterationContext
@@ -53,9 +53,9 @@ function context(reducer: IterationContext['contextReducer']): {
 }
 
 const failure = (
-	events: RunEvent[],
-): Extract<RunEvent, { type: 'compaction_failed' }> | undefined =>
-	events.find((e): e is Extract<RunEvent, { type: 'compaction_failed' }> => {
+	events: SessionEvent[],
+): Extract<SessionEvent, { type: 'compaction_failed' }> | undefined =>
+	events.find((e): e is Extract<SessionEvent, { type: 'compaction_failed' }> => {
 		return e.type === 'compaction_failed'
 	})
 

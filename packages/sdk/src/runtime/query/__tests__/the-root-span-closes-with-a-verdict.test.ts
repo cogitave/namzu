@@ -15,7 +15,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { GENAI, NAMZU, agentRunSpanName } from '../../../telemetry/attributes.js'
+import { GENAI, NAMZU, agentTurnSpanName } from '../../../telemetry/attributes.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import {
@@ -34,7 +34,7 @@ import { type QueryParams, drainQuery } from '../index.js'
  * once on one cancellation path; `trace-parenting.test.ts` records the
  * parents spans are started with and stubs `setStatus` out; the only
  * `setStatus` assertion in the suite drives `ResultAssembler.handleError`
- * against a hand-built `runMgr`. So the attributes and the verdict the loop
+ * against a hand-built `recorder`. So the attributes and the verdict the loop
  * puts on the ROOT of a live run — the numbers a dashboard reads and the
  * status that decides whether the run lands in an error panel — were
  * unobserved.
@@ -177,7 +177,7 @@ async function runOnce(signal?: AbortSignal): Promise<{
 			denyDangerousPatterns: false,
 			logDecisions: false,
 		},
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -186,7 +186,7 @@ async function runOnce(signal?: AbortSignal): Promise<{
 		},
 	} as unknown as QueryParams)
 
-	const root = spans.filter((span) => span.written.name === agentRunSpanName('Root span agent'))
+	const root = spans.filter((span) => span.written.name === agentTurnSpanName('Root span agent'))
 	if (root.length !== 1) {
 		throw new Error(`expected exactly one root span, got ${root.length}`)
 	}
@@ -197,7 +197,7 @@ describe('the root span of a run that answered', () => {
 	it('records the terminal attributes a dashboard reads', async () => {
 		const { root } = await runOnce()
 
-		expect(root.written.attributes[NAMZU.RUN_STATUS]).toBe('end_turn')
+		expect(root.written.attributes[NAMZU.TURN_STATUS]).toBe('end_turn')
 		expect(root.written.attributes[NAMZU.ITERATION]).toBeGreaterThan(0)
 		expect(root.written.attributes[GENAI.USAGE_INPUT_TOKENS]).toBe(31)
 		expect(root.written.attributes[GENAI.USAGE_OUTPUT_TOKENS]).toBe(12)
@@ -241,7 +241,7 @@ describe('the root span of a run that failed', () => {
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			resumeHandler: autoApproveHandler,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -251,10 +251,10 @@ describe('the root span of a run that failed', () => {
 		} as unknown as QueryParams)
 
 		const root = spans.find(
-			(span) => span.written.name === agentRunSpanName('Root span agent'),
+			(span) => span.written.name === agentTurnSpanName('Root span agent'),
 		) as Span & { written: WrittenSpan }
 		expect(root).toBeDefined()
-		expect(root.written.attributes[NAMZU.RUN_STATUS]).toBe('error')
+		expect(root.written.attributes[NAMZU.TURN_STATUS]).toBe('error')
 		expect(root.written.status?.code).toBe(SpanStatusCode.ERROR)
 		expect(root.written.exceptions).toBeGreaterThan(0)
 		expect(root.written.ended).toBe(1)

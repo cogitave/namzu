@@ -16,7 +16,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -55,13 +55,13 @@ function makeCtx(messages: Message[]): { ctx: IterationContext; log: Logger } {
 	const log = makeLogger()
 
 	const ctx = {
-		runConfig: { tokenBudget: 0 },
+		turnConfig: { tokenBudget: 0 },
 		compactionConfig: config,
 		workingStateManager: manager,
 		log,
 		tools: { toLLMTools: () => [] },
-		runMgr: {
-			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+		recorder: {
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 			currentIteration: 6,
 			messages,
 			lastPromptTokens: undefined,
@@ -102,7 +102,7 @@ describe('a forced pass on a context the estimate thinks is fine', () => {
 		// The estimate said the context was comfortable — the provider had
 		// just said otherwise. Compaction, not the estimate, gets to decide
 		// whether a forced pass is done.
-		expect(ctx.runMgr.messages.length).toBeLessThan(before)
+		expect(ctx.recorder.messages.length).toBeLessThan(before)
 	})
 
 	it('reports relief when it actually shed something substantial', async () => {
@@ -122,7 +122,9 @@ describe('what counts as relief', () => {
 		}
 		const { ctx } = makeCtx(messages)
 		expect(await relieveOverflow(ctx)).toBe(true)
-		expect(ctx.runMgr.messages.some((m) => m.role === 'user' && m.attachments?.length)).toBe(false)
+		expect(ctx.recorder.messages.some((m) => m.role === 'user' && m.attachments?.length)).toBe(
+			false,
+		)
 	})
 
 	it('refuses when there is nothing at all to shed', async () => {
@@ -158,7 +160,7 @@ describe('what counts as relief', () => {
 		const { ctx } = makeCtx(messages)
 		const relieved = await relieveOverflow(ctx)
 
-		const after = ctx.runMgr.messages.reduce(
+		const after = ctx.recorder.messages.reduce(
 			(sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0),
 			0,
 		)

@@ -68,7 +68,7 @@ describe('advisory context after actual tool execution', () => {
 				tools,
 				workingDirectory,
 				retry: false,
-				runConfig: { model: 'mock', maxIterations: 5, timeoutMs: 5000, tokenBudget: 10000 },
+				turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 5000, tokenBudget: 10000 },
 				tenantId: generateTenantId(),
 				projectId: generateProjectId(),
 				sessionId: generateSessionId(),

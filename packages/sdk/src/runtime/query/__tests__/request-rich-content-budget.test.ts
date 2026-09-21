@@ -16,7 +16,7 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { Message, ToolMessage, UserMessage } from '../../../types/message/index.js'
-import type { AgentRunConfig } from '../../../types/run/index.js'
+import type { TurnConfig } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -49,7 +49,7 @@ async function run(opts: {
 	provider: MockLLMProvider
 	tools?: ToolRegistry
 	messages: Message[]
-	runConfig?: Partial<AgentRunConfig>
+	turnConfig?: Partial<TurnConfig>
 	pluginManager?: PluginLifecycleManager
 }) {
 	return drainQuery({
@@ -59,12 +59,12 @@ async function run(opts: {
 		agentName: 'Rich request agent',
 		messages: opts.messages,
 		workingDirectory: await workdir(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
 			maxIterations: 4,
-			...opts.runConfig,
+			...opts.turnConfig,
 		},
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
@@ -246,7 +246,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 			provider,
 			tools,
 			messages: [{ role: 'user', content: 'capture twice' }],
-			runConfig: { maxRequestRichContentBytes: 10 },
+			turnConfig: { maxRequestRichContentBytes: 10 },
 			pluginManager: {
 				executeHooks: async (event: PluginHookEvent, ctx: PluginHookContext) => {
 					if (event === 'pre_llm_call' && ctx.request) requests.push(ctx.request)
@@ -329,7 +329,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		const settled = await run({
 			provider,
 			messages,
-			runConfig: { maxRequestRichContentBytes: 6 },
+			turnConfig: { maxRequestRichContentBytes: 6 },
 			pluginManager,
 		})
 
@@ -357,7 +357,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		const settled = await run({
 			provider,
 			messages: [{ role: 'user', content: 'finish', attachments: [image] }],
-			runConfig: { maxIterations: 2, maxRequestRichContentBytes: 1 },
+			turnConfig: { maxIterations: 2, maxRequestRichContentBytes: 1 },
 		})
 
 		expect(provider.requests).toHaveLength(2)
@@ -382,7 +382,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		await run({
 			provider,
 			messages: [{ role: 'user', content: 'look', attachments: [image] }],
-			runConfig: { maxRequestRichContentBytes: 0 },
+			turnConfig: { maxRequestRichContentBytes: 0 },
 		})
 
 		const sent = provider.requests[0]?.messages.find(
@@ -413,7 +413,7 @@ describe('the budget is resolved before a run can spend anything', () => {
 						],
 					},
 				],
-				runConfig: { maxRequestRichContentBytes: 1 },
+				turnConfig: { maxRequestRichContentBytes: 1 },
 			}),
 		).rejects.toThrow(/attachment store/i)
 		expect(provider.requests).toHaveLength(0)
@@ -430,7 +430,7 @@ describe('the budget is resolved before a run can spend anything', () => {
 				run({
 					provider,
 					messages: [{ role: 'user', content: 'go' }],
-					runConfig: { maxRequestRichContentBytes },
+					turnConfig: { maxRequestRichContentBytes },
 				}),
 			).rejects.toThrow(/maxRequestRichContentBytes must be a safe integer/)
 			expect(provider.requests).toHaveLength(0)

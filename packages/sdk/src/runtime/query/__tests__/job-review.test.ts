@@ -8,10 +8,10 @@ import type { PermissionMode } from '../../../types/permission/index.js'
 import type { BackgroundJobRegistryRef, ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
@@ -24,14 +24,16 @@ function registry() {
 }
 
 function context(permissionMode: PermissionMode): ToolContext {
-	const runId = generateRunId()
+	const turnId = generateTurnId()
+	const sessionId = generateSessionId()
 	return {
-		runId,
+		sessionId,
+		turnId,
 		workingDirectory: process.cwd(),
 		abortSignal: new AbortController().signal,
 		env: {},
 		log: () => {},
-		permissionContext: { mode: permissionMode, runId, workingDirectory: process.cwd() },
+		permissionContext: { mode: permissionMode, sessionId, turnId, workingDirectory: process.cwd() },
 		backgroundJobs: {
 			start: vi.fn(),
 			get: vi.fn(),
@@ -91,7 +93,7 @@ async function run(
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runConfig: { model: 'mock', maxIterations: 3, tokenBudget: 10_000, timeoutMs: 5_000 },
+		turnConfig: { model: 'mock', maxIterations: 3, tokenBudget: 10_000, timeoutMs: 5_000 },
 		backgroundJobs: new BackgroundJobRegistry(),
 		authorizationGate: {
 			enabled: true,

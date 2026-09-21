@@ -11,8 +11,8 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { query } from '../index.js'
 
 /**
@@ -59,12 +59,12 @@ describe('a run under the salience strategy', () => {
 	it('clears low-salience results at the soft target and never summarises below the trigger', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-salience-'))
 		dirs.push(workingDirectory)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const turns = Array.from({ length: 8 }, (_, i) => dump(i))
 		for await (const event of query({
 			provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
 			tools: tools(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 500_000, maxIterations: 12 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 500_000, maxIterations: 12 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('dump everything, then tell me about dump 7')],
@@ -94,6 +94,6 @@ describe('a run under the salience strategy', () => {
 		)
 		expect(Math.max(...contexts)).toBeLessThan(8_000 * 0.7)
 		expect(events.some((e) => e.type === 'compaction_completed')).toBe(false)
-		expect(events.some((e) => e.type === 'run_completed')).toBe(true)
+		expect(events.some((e) => e.type === 'turn_completed')).toBe(true)
 	})
 })

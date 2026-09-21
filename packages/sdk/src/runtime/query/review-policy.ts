@@ -25,7 +25,7 @@ import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
 
 export type ReviewMode =
@@ -144,8 +144,10 @@ export function batchNeedsReview(
 
 /** The batch a person is asked about. */
 export interface ToolReviewRequest {
-	/** Originating run, preserved by createReviewHandler for host attribution. */
-	readonly runId?: RunId
+	/** Originating session, preserved by createReviewHandler for host attribution. */
+	readonly sessionId?: SessionId
+	/** Originating turn, preserved by createReviewHandler for host attribution. */
+	readonly turnId?: TurnId
 	readonly toolCalls: readonly ToolCallSummary[]
 }
 
@@ -212,7 +214,8 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			return { action: 'approve_tools' }
 		}
 		const answer = await prompt({
-			runId: request.runId,
+			sessionId: request.sessionId,
+			turnId: request.turnId,
 			toolCalls: request.toolCalls,
 		})
 		switch (answer.kind) {
@@ -232,7 +235,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 
 /**
  * The mode as an `ApprovalPolicy`, named after itself so a durable log can
- * say which one approved a call. Swap it on a run's `RunApprovalPolicy`
+ * say which one approved a call. Swap it on a run's `SessionApprovalPolicy`
  * to change mode without ending the run.
  */
 export function createReviewPolicy(options: ReviewPolicyOptions = {}): ApprovalPolicy {

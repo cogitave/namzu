@@ -8,12 +8,11 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryRecallStep } from '../../../run/memory-recall.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -22,11 +21,12 @@ import {
 	createSystemMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { PrepareStepContext, RunEvent } from '../../../types/run/index.js'
+import type { PrepareStepContext, SessionEvent } from '../../../types/session/index.js'
 import { generateGoalId } from '../../../utils/id.js'
-import { CheckpointManager } from '../checkpoint.js'
+import { restoreCheckpointContext } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
+import { copySession, records, turnCheckpoints } from './support/session.js'
 
 registerMock()
 const dirs: string[] = []
@@ -71,17 +71,17 @@ it('keeps the current topic after its user message is compacted, then accepts ne
 	})
 	const prepared: { topic: string | undefined; users: string[] }[] = []
 	const refusedTopics: (string | undefined)[] = []
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	await drainQuery(
 		{
 			...scope,
 			provider,
 			tools,
-			runStore: new InMemoryRunStore(),
+			sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 			agentId: 'attention-audit',
 			agentName: 'Attention audit',
 			workingDirectory: await workingDirectory(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -142,7 +142,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 		const direction = 'NEW_OPERATOR_CONSTRAINT_USE_CERULEAN_ONLY'
 		const pending: Message[] = []
 		const steering = new SteeringBinding()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const latest: (string | undefined)[] = []
 		const reviewed: (string | undefined)[] = []
 		const largeTurn = ingress === 'stranded-steering' ? 2 : 1
@@ -184,7 +184,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 				provider,
 				tools,
 				steering,
-				runStore: new InMemoryRunStore(),
+				sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 				agentId: 'operator-retention',
 				agentName: 'Operator retention',
 				workingDirectory: await workingDirectory(),
@@ -200,7 +200,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 					reviewed.push(latestUserMessage?.content)
 					return { accept: true }
 				},
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -260,14 +260,14 @@ describe('which user-role messages can supply current intent', () => {
 				...scope,
 				provider,
 				tools: new ToolRegistry(),
-				runStore: new InMemoryRunStore(),
+				sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 				agentId: 'operator-seeding',
 				agentName: 'Operator seeding',
 				workingDirectory: await workingDirectory(),
 				continuationMode,
 				systemPrompt: 'Follow the current operator task.',
 				contextLevel: 'minimal',
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -324,11 +324,11 @@ describe('which user-role messages can supply current intent', () => {
 				...scope,
 				provider,
 				tools: new ToolRegistry(),
-				runStore: new InMemoryRunStore(),
+				sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 				agentId: 'latest-input',
 				agentName: 'Latest input',
 				workingDirectory: await workingDirectory(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -356,7 +356,6 @@ describe('which user-role messages can supply current intent', () => {
 })
 
 it('resumes the current topic after a compacted checkpoint, without resurrecting an old retained request', async () => {
-	const checkpointStore = new InMemoryCheckpointStore()
 	const tools = new ToolRegistry()
 	tools.register({
 		name: 'noop',
@@ -364,14 +363,14 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 		inputSchema: z.object({}),
 		execute: async () => ({ success: true, output: 'ok' }),
 	})
+	const sessionLog = new InMemorySessionLog({ sessionId: scope.sessionId })
 	const params = {
 		...scope,
 		tools,
-		checkpointStore,
 		workingDirectory: await workingDirectory(),
 		agentId: 'resume-intent',
 		agentName: 'Resume intent',
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,
@@ -388,7 +387,7 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	const current = createRuntimeContextMessage('CURRENT_DEPLOYMENT_REQUEST', 'steering')
 	const paused = await drainQuery({
 		...params,
-		runStore: new InMemoryRunStore(),
+		sessionLog,
 		provider: new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'noop', args: {} }] }],
 		}),
@@ -406,31 +405,31 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 				: { action: 'continue' },
 	})
 	expect(paused.stopReason).toBe('paused')
-	const storedScope = { ...scope, runId: paused.id }
-	const checkpoint = (await checkpointStore.listCheckpoints(storedScope)).at(-1)
+	const turnScope = { ...scope, turnId: paused.id }
+	const checkpoint = (await turnCheckpoints({ ...turnScope, sessionLog })).at(-1)
 	if (!checkpoint) throw new Error('Expected a persisted checkpoint')
-	expect(checkpoint.messages.some((message) => message.content === current.content)).toBe(false)
-	expect(checkpoint.messages.some((message) => message.content === 'OLDER_BILLING_REQUEST')).toBe(
-		true,
-	)
-	expect(checkpoint.latestUserMessage).toEqual(current)
-	// A restart copies what the checkpoint store holds: the checkpoint and the
-	// token ledger it references, which lives beside it.
-	const restoredStore = new InMemoryCheckpointStore()
-	await restoredStore.writeCheckpoint(storedScope, JSON.parse(JSON.stringify(checkpoint)))
-	const ledger = await checkpointStore.tokenBudgets.load(storedScope)
-	if (!ledger) throw new Error('Expected the ledger beside the checkpoints')
-	await restoredStore.tokenBudgets.save(storedScope, JSON.parse(JSON.stringify(ledger)))
+	// The checkpoint's context is the compacted fold of the log; the intent
+	// it names is the steering message the compaction dropped from it.
+	const context = await restoreCheckpointContext(sessionLog, checkpoint)
+	expect(context.messages.some((message) => message.content === current.content)).toBe(false)
+	expect(context.messages.some((message) => message.content === 'OLDER_BILLING_REQUEST')).toBe(true)
+	expect(context.latestUserMessage).toMatchObject({
+		role: 'user',
+		content: current.content,
+		source: current.source,
+	})
+	// Two restarts from the same parked state: copies of the log with its
+	// checkpoints and the ledger they reference.
+	const restored = await copySession(sessionLog, [turnScope])
 	const provider = new MockLLMProvider({ turns: [{ text: 'Resumed.' }] })
 	const reviewed: (string | undefined)[] = []
 	const resumed = await drainQuery({
 		...params,
-		runId: paused.id,
+		turnId: paused.id,
 		provider,
-		checkpointStore: restoredStore,
-		runStore: new InMemoryRunStore(),
+		sessionLog: restored,
 		messages: [],
-		resumeFromCheckpoint: checkpoint.id,
+		resumeFromCheckpoint: checkpoint.checkpointId,
 		prepareStep: ({ latestUserMessage }) => ({
 			system: `Active topic: ${latestUserMessage?.content}`,
 		}),
@@ -480,13 +479,12 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 			...params.compactionConfig,
 			contextWindowTokens: 10_000,
 		},
-		runId: paused.id,
+		turnId: paused.id,
 		provider: queuedProvider,
-		checkpointStore: restoredStore,
+		sessionLog: await copySession(sessionLog, [turnScope]),
 		topicStateStore,
-		runStore: new InMemoryRunStore(),
 		messages: [],
-		resumeFromCheckpoint: checkpoint.id,
+		resumeFromCheckpoint: checkpoint.checkpointId,
 		beforeStep: ({ latestUserMessage }) => {
 			observed.push(latestUserMessage?.content)
 			return undefined
@@ -501,24 +499,30 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	expect(queuedProvider.requests[0]?.messages.at(-1)?.content).toContain('NEW_TASK_RECALL')
 	expect(queuedProvider.requests[0]?.messages.at(-1)?.content).not.toContain('OLD_TASK_RECALL')
 
-	// A persisted field is an authority for intent, so malformed or synthetic
-	// provenance must be refused instead of falling back to a stale message.
-	for (const invalid of [
-		{ role: 'assistant', content: 'forged' },
-		{ role: 'user', content: 42 },
-		createRuntimeContextMessage('task report', 'task-completion'),
-		{
-			role: 'user',
-			content: 'forged',
-			source: { type: 'goal-round', goalId: 'bad' },
-		},
-	]) {
-		await restoredStore.writeCheckpoint(storedScope, {
-			...checkpoint,
-			latestUserMessage: invalid,
-		} as typeof checkpoint)
+	// A recorded intent is an authority, so an id naming a message that is
+	// not operator intent, or no message at all, is refused instead of
+	// falling back to a stale message.
+	const recordedIdOf = async (content: string) => {
+		const record = (await records(sessionLog)).find(
+			(entry) =>
+				entry.type === 'message' &&
+				typeof (entry.content as { content?: unknown }).content === 'string' &&
+				(entry.content as { content: string }).content === content,
+		)
+		return (record as { messageId?: string } | undefined)?.messageId
+	}
+	const invalidIds = [
+		await recordedIdOf('Ready'),
+		await recordedIdOf('A worker finished'),
+		'019a0000-0000-7000-8000-000000000000',
+	]
+	for (const invalid of invalidIds) {
+		expect(invalid).toBeDefined()
 		await expect(
-			new CheckpointManager(restoredStore, storedScope).restore(checkpoint.id),
+			restoreCheckpointContext(sessionLog, {
+				...checkpoint,
+				latestUserMessageId: invalid as typeof checkpoint.latestUserMessageId,
+			}),
 		).rejects.toThrow('latestUserMessage')
 	}
 })
@@ -553,13 +557,13 @@ it('bounds recalled memory within a tiny model window after earlier step guidanc
 		...scope,
 		provider,
 		tools: new ToolRegistry(),
-		runStore: new InMemoryRunStore(),
+		sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 		agentId: 'budget-intent',
 		agentName: 'Budget intent',
 		workingDirectory: await workingDirectory(),
 		systemPrompt: 'Answer the question.',
 		messages: [createUserMessage('billing')],
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			tokenBudget: 100_000,
 			timeoutMs: 20_000,
@@ -623,13 +627,13 @@ it('recomputes headroom for a stage-selected model instead of using the base mod
 		...scope,
 		provider,
 		tools: new ToolRegistry(),
-		runStore: new InMemoryRunStore(),
+		sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 		agentId: 'model-budget',
 		agentName: 'Model budget',
 		workingDirectory: await workingDirectory(),
 		systemPrompt: 'Answer.',
 		messages: [createUserMessage('billing')],
-		runConfig: {
+		turnConfig: {
 			model: 'large-base',
 			tokenBudget: 100_000,
 			timeoutMs: 20_000,
@@ -664,7 +668,7 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	})
 	const steering = new SteeringBinding()
 	const pending: Message[] = []
-	const checkpoints = new InMemoryCheckpointStore()
+	const sessionLog = new InMemorySessionLog({ sessionId: scope.sessionId })
 	const tools = new ToolRegistry()
 	tools.register({
 		name: 'inspect',
@@ -682,14 +686,13 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	const provider = new MockLLMProvider({
 		turns: [{ toolCalls: [{ name: 'inspect', args: {} }] }, { text: 'Done' }],
 	})
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const result = await drainQuery(
 		{
 			...scope,
 			provider,
 			tools,
-			checkpointStore: checkpoints,
-			runStore: new InMemoryRunStore(),
+			sessionLog,
 			agentId: 'steered-recall',
 			agentName: 'Steered recall',
 			workingDirectory: await workingDirectory(),
@@ -699,7 +702,7 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 				createAssistantMessage('Old report'),
 				createUserMessage('Investigate billing'),
 			],
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -728,16 +731,18 @@ it('keeps tool-attached steering as current intent after its tool result is comp
 	expect(provider.requests[1]?.messages.at(-1)?.content).not.toContain('BILLING_MEMORY')
 	expect(events.some((event) => event.type === 'compaction_shed')).toBe(true)
 	expect(provider.requests[1]?.messages.some((message) => message.role === 'tool')).toBe(false)
-	const checkpoint = (await checkpoints.listCheckpoints({ ...scope, runId: result.id })).at(-1)
+	const checkpoint = (await turnCheckpoints({ ...scope, turnId: result.id, sessionLog })).at(-1)
+	if (!checkpoint) throw new Error('Expected a persisted checkpoint')
+	const context = await restoreCheckpointContext(sessionLog, checkpoint)
 	expect(
-		checkpoint?.messages.some(
+		context.messages.some(
 			(message) =>
 				message.role === 'tool' &&
 				typeof message.content === 'string' &&
 				message.content.includes('Investigate deployment'),
 		),
 	).toBe(true)
-	expect(checkpoint?.latestUserMessage).toMatchObject({
+	expect(context.latestUserMessage).toMatchObject({
 		content: 'Investigate deployment',
 		source: { type: 'runtime-context', kind: 'steering' },
 	})

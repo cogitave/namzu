@@ -4,17 +4,20 @@ import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolExecutor } from '../../runtime/query/executor.js'
 import { IterationOrchestrator } from '../../runtime/query/iteration/index.js'
 import { ActivityStore } from '../../store/activity/memory.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { TurnId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { Run } from '../../types/run/entity.js'
-import type { RunEvent } from '../../types/run/index.js'
-import { hasToolCall } from '../../types/run/step.js'
+import type { SessionEvent } from '../../types/session/index.js'
+import { hasToolCall } from '../../types/session/step.js'
+import type { Turn } from '../../types/session/turn.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import { generateSessionId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { runExperiment } from '../experiment.js'
-import { evalRunFromRun } from '../from-run.js'
+import { evalTurnFromTurn } from '../from-turn.js'
 import { completionScorer, trajectoryScorer } from '../scorers.js'
 import type { EvalCase } from '../types.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The harness against the REAL loop, driven by the scriptable mock.
@@ -27,15 +30,15 @@ import type { EvalCase } from '../types.js'
  * loop cannot be driven at all).
  */
 
-const RUN_ID = '19214193-f128-49d9-8644-0970a4ebb8eb' as RunId
+const RUN_ID = '19214193-f128-49d9-8644-0970a4ebb8eb' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-/** Drive the loop with a scripted model and return the finished `Run`. */
-async function driveAgent(turns: unknown[]): Promise<Run> {
+/** Drive the loop with a scripted model and return the finished `Turn`. */
+async function driveAgent(turns: unknown[]): Promise<Turn> {
 	const messages: Message[] = []
 	let iteration = 0
 	let stopReason: string | undefined
@@ -63,7 +66,7 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 		trackLlmTurns: false,
 	})
 
-	const runMgr = {
+	const recorder = {
 		id: RUN_ID,
 		messages,
 		tokenUsage: {
@@ -100,13 +103,14 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: new MockLLMProvider({ turns: turns as never }),
-		runConfig: { model: 'mock', maxIterations: 10 },
+		turnConfig: { model: 'mock', maxIterations: 10 },
 		tools,
-		runMgr,
+		recorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -120,7 +124,7 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
 			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
@@ -146,15 +150,15 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 		id: RUN_ID,
 		status: 'completed',
 		messages,
-		tokenUsage: runMgr.tokenUsage,
-		costInfo: runMgr.costInfo,
+		tokenUsage: recorder.tokenUsage,
+		costInfo: recorder.costInfo,
 		currentIteration: iteration,
 		startedAt: Date.now() - 10,
 		endedAt: Date.now(),
 		steps: orchestrator.getSteps(),
 		...(stopReason ? { stopReason } : {}),
 		result: 'done',
-	} as unknown as Run
+	} as unknown as Turn
 }
 
 /** The trajectory a healthy agent takes for this task. */
@@ -173,9 +177,9 @@ const HEALTHY = [
 ]
 
 describe('the harness scores a real run', () => {
-	it('projects a finished Run into the shape scorers consume', async () => {
+	it('projects a finished Turn into the shape scorers consume', async () => {
 		const run = await driveAgent(HEALTHY)
-		const projected = evalRunFromRun(run)
+		const projected = evalTurnFromTurn(run)
 
 		expect(projected.toolCalls).toEqual(['read', 'edit', 'finish'])
 		expect(projected.steps).toHaveLength(3)
@@ -187,7 +191,7 @@ describe('the harness scores a real run', () => {
 			name: 'file-editing',
 			cases: GOLDEN,
 			scorers: [trajectoryScorer(), completionScorer(['stop_condition'])],
-			run: async () => evalRunFromRun(await driveAgent(HEALTHY)),
+			run: async () => evalTurnFromTurn(await driveAgent(HEALTHY)),
 		})
 
 		expect(report.mean).toBe(1)
@@ -206,7 +210,7 @@ describe('the harness catches a behavior regression', () => {
 			name: 'file-editing',
 			cases: GOLDEN,
 			scorers: [trajectoryScorer()],
-			run: async () => evalRunFromRun(await driveAgent(regressed)),
+			run: async () => evalTurnFromTurn(await driveAgent(regressed)),
 		})
 
 		expect(report.mean).toBeLessThan(1)
@@ -230,7 +234,7 @@ describe('the harness catches a behavior regression', () => {
 			name: 'file-editing',
 			cases: GOLDEN,
 			scorers: [trajectoryScorer()],
-			run: async () => evalRunFromRun(await driveAgent(wasteful)),
+			run: async () => evalTurnFromTurn(await driveAgent(wasteful)),
 		})
 
 		expect(report.mean).toBeLessThan(1)
@@ -245,7 +249,7 @@ describe('the harness catches a behavior regression', () => {
 				name: 'x',
 				cases: GOLDEN,
 				scorers: [trajectoryScorer()],
-				run: async () => evalRunFromRun(await driveAgent(turns)),
+				run: async () => evalTurnFromTurn(await driveAgent(turns)),
 			})
 			return report.mean
 		}

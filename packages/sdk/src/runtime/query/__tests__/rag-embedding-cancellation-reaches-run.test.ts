@@ -89,7 +89,7 @@ describe('RAG embedding cancellation reaches a real run', () => {
 		const pending = drainQuery({
 			provider,
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,

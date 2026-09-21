@@ -184,7 +184,7 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 		id: 'provider.model_not_found',
 		when: (facts) => facts.code === 'not_found' || facts.status === 404,
 		message: 'The provider does not recognise the model or endpoint requested.',
-		hint: "Check `runConfig.model` against the provider's current model list — a model id that was valid can be retired, and a deployment-scoped provider needs the deployment name rather than the base model name.",
+		hint: "Check `turnConfig.model` against the provider's current model list — a model id that was valid can be retired, and a deployment-scoped provider needs the deployment name rather than the base model name.",
 	},
 	{
 		id: 'provider.content_filter',

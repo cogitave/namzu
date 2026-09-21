@@ -5,7 +5,7 @@ import {
 	type ToolCall,
 	createToolMessage,
 } from '../../../types/message/index.js'
-import { type Mutation, MutationNotApplicableError } from '../../../types/run/replay.js'
+import { type Mutation, MutationNotApplicableError } from '../../../types/session/fork.js'
 
 /**
  * Returns the tool calls on the most recent assistant message that do not

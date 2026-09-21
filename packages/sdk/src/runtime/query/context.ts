@@ -1,67 +1,48 @@
 import { join } from 'node:path'
 import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import { PlanManager } from '../../manager/plan/lifecycle.js'
-import { RunPersistence } from '../../manager/run/persistence.js'
-import type { TokenBudget } from '../../run/token-budget.js'
-import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
-import { defaultStateRoot } from '../../session/workspace/state-root.js'
+import { TurnRecorder } from '../../manager/session/turn-recorder.js'
 import { ActivityStore } from '../../store/activity/memory.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
+import { SPILL_DIR } from '../../store/session-log/index.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
-import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
-import type { Message } from '../../types/message/index.js'
+import type { SessionId, TenantId, TurnId } from '../../types/ids/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
-import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
-import type { AgentRunConfig } from '../../types/run/index.js'
-import type { RunStore } from '../../types/run/store.js'
+import type { TurnConfig } from '../../types/session/config.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
-import { generateRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { resolveRunStorage } from './stores-held-in-memory.js'
+import type { SessionStorage } from './session-storage.js'
 
 /**
- * Config accepted by {@link RunContextFactory.build}. `sessionId`,
- * `topicId`, `projectId`, and `tenantId` are required — runs carry the full
- * five-layer scope (Tenant → Project → Topic → Session → Run) per
- * Convention #17.
- *
- * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
- * constructed against `defaultStateRoot()`.
- *
+ * Config accepted by {@link TurnContextFactory.build}. `sessionId`,
+ * `topicId`, `projectId`, and `tenantId` are required — a turn carries the
+ * full scope (Tenant → Project → Topic → Session → Turn).
  */
-export interface RunContextConfig {
-	budget?: TokenBudget
+export interface TurnContextConfig {
+	budget?: SessionTokenBudget
 	/**
-	 * The mode this conversation was left in, when the run config names none.
-	 *
-	 * Read from the Topic's state record by `query()`. An explicit
-	 * `RunConfig.permissionMode` outranks it, which is what keeps every
-	 * existing caller byte-identical.
+	 * The mode this conversation was left in, when the turn config names none.
+	 * An explicit `TurnConfig.permissionMode` outranks it.
 	 */
 	topicPermissionMode?: PermissionMode
 
 	/**
-	 * The live mode box, when the caller wants to hold it too.
-	 *
-	 * Supplied rather than created here so whoever builds the coordinator
-	 * tools — which is not this function — can flip the mode from an
-	 * approval hook and have the executor see it. Without a shared handle
-	 * the approval could persist the change and the RUNNING run would go on
-	 * refusing writes, which is the confusing half-state this whole task
-	 * exists to remove.
+	 * The live mode box, when the caller wants to hold it too, so whoever
+	 * builds the coordinator tools can flip the mode from an approval hook and
+	 * have the executor see it within the same turn.
 	 */
 	permissionModeRef?: { current: PermissionMode }
 
 	agentId: string
 	agentName: string
-	runConfig: AgentRunConfig
+	turnConfig: TurnConfig
 	provider: LLMProvider
 	workingDirectory?: string
 	pricing?: ModelPricing
 	enableActivityTracking?: boolean
-	messages: Message[]
 	signal?: AbortSignal
 
 	sessionId: SessionId
@@ -69,96 +50,76 @@ export interface RunContextConfig {
 	projectId: ProjectId
 	tenantId: TenantId
 
-	pathBuilder?: PathBuilder
+	/** Where the session's log, checkpoints and ledger live. */
+	storage: SessionStorage
 
-	/**
-	 * Optional checkpoint persistence override, threaded through to
-	 * {@link RunPersistence}. Absent ⇒ disk default under the run's
-	 * output directory.
-	 */
-	checkpointStore?: CheckpointStore
-	runStore?: RunStore
+	turnId: TurnId
 
-	runId?: RunId
-
-	parentRunId?: RunId
+	parentSessionId?: SessionId
+	parentTurnId?: TurnId
 
 	depth?: number
 
 	/**
-	 * A pre-built, already-correlated logger — what {@link RunContextFactory.buildLogger} returns. When present, `build` uses this instead of constructing its own, which is what lets a caller hand the SAME logger to `withProviderRetry`/`withProviderFallback` (themselves inputs to `build` — see `runtime/query/index.ts`) and to the `RunContext` this config becomes, rather than each reaching for its own child of `getRootLogger()` and losing the guarantee that a retry warning and the run it retried for share one `namzu.run.id`. Absent means what it always meant: `build` derives its own via `buildLogger`.
+	 * A pre-built, already-correlated logger — what
+	 * {@link TurnContextFactory.buildLogger} returns — so the provider retry
+	 * and fallback wrappers and the turn share one `namzu.turn.id`.
 	 */
 	log?: Logger
 }
 
-/** Result of {@link RunContextFactory.build}. */
-export interface RunContext {
-	runId: RunId
+/** Result of {@link TurnContextFactory.build}. */
+export interface TurnContext {
+	turnId: TurnId
 	sessionId: SessionId
 	topicId: TopicId
 	projectId: ProjectId
 	tenantId: TenantId
-	runMgr: RunPersistence
+	recorder: TurnRecorder
+	storage: SessionStorage
 	activityStore: ActivityStore
 	planManager: PlanManager
 	abortController: AbortController
 	cwd: string
-	outputDir: string
+	/** Where oversized tool output is spilled (`<session-id>/tool-results/`); absent for an in-memory session. */
+	toolResultsDir: string | undefined
 	/**
-	 * The mode RIGHT NOW, not the one this run started in.
-	 *
-	 * A box rather than a value, because an approval inside a run can change
-	 * it and the executor reads through the same box — see
-	 * `ToolExecutorConfig.permissionMode`. The run used to freeze it at
-	 * start, so leaving plan mode meant ending the run.
+	 * The mode RIGHT NOW, not the one this turn started in: an approval inside
+	 * a turn can change it and the executor reads through the same box.
 	 */
 	permissionMode: { current: PermissionMode }
 	log: Logger
 	trackingConfig: ActivityTrackingConfig
 }
 
-export class RunContextFactory {
+export class TurnContextFactory {
 	/**
-	 * The run's one correlated logger, built once and handed to every
-	 * consumer that used to construct its own. Split out of `build` because
-	 * `build` is not the first thing in `query()` that needs a logger: the
-	 * provider retry and fallback wrappers (`runtime/query/index.ts`) are
-	 * THEMSELVES inputs to `build` (`resilientProvider`), so a caller has to
-	 * be able to get a correlated logger BEFORE `build` runs, not after —
-	 * the reordering the design's own boundary table found does not
-	 * type-check when attempted the other way round.
+	 * The turn's one correlated logger, built once and handed to every
+	 * consumer: the provider retry and fallback wrappers are themselves inputs
+	 * to `build`, so the logger has to exist before `build` runs.
 	 *
-	 * `runId` is a REQUIRED field here, not the `config.runId ??
-	 * generateRunId()` fallback `build` still does for its own direct
-	 * callers below. The whole reason to extract this is that the SAME id
-	 * ends up bound on the log and stamped onto the `RunContext` it is
-	 * later attached to — generating it twice, once here and once in
-	 * `build`, would silently hand the log and the run two different ids.
-	 * The caller (`query()`) resolves the id once and passes it to both
-	 * this and `build`.
-	 *
-	 * The base logger comes from `resolveLogger`, not `getRootLogger`
-	 * directly — the fallback-to-the-process-default read now lives there
-	 * instead of duplicated at every site that used to reach for the global
-	 * on its own. A host that set `runConfig.logger` gets ITS OWN logger as
-	 * the base `.child()` is called on, so every record this run's retry
-	 * and fallback wrappers write still reaches the host's destination:
-	 * `buildLogger` layers correlation on top, it does not replace the
-	 * source.
+	 * The base logger comes from `resolveLogger`, so a host that set
+	 * `turnConfig.logger` gets its own logger as the base `.child()` is called
+	 * on: correlation is layered on top, the source is not replaced.
 	 */
 	static buildLogger(
 		config: Pick<
-			RunContextConfig,
-			'agentName' | 'runConfig' | 'sessionId' | 'topicId' | 'projectId' | 'tenantId' | 'parentRunId'
-		> & {
-			runId: RunId
-		},
+			TurnContextConfig,
+			| 'agentName'
+			| 'turnConfig'
+			| 'sessionId'
+			| 'topicId'
+			| 'projectId'
+			| 'tenantId'
+			| 'parentSessionId'
+			| 'turnId'
+		>,
 	): Logger {
-		return resolveLogger(config.runConfig.logger).child({
+		return resolveLogger(config.turnConfig.logger).child({
 			[SCOPE_ATTRIBUTE]: 'runtime/query',
 			[GENAI.AGENT_NAME]: config.agentName,
-			[NAMZU.RUN_ID]: config.runId,
-			...(config.parentRunId ? { [NAMZU.RUN_PARENT_ID]: config.parentRunId } : {}),
+			[NAMZU.TURN_ID]: config.turnId,
+			...(config.parentSessionId ? { [NAMZU.SESSION_PARENT_ID]: config.parentSessionId } : {}),
 			[NAMZU.SESSION_ID]: config.sessionId,
 			[NAMZU.THREAD_ID]: config.topicId,
 			[NAMZU.PROJECT_ID]: config.projectId,
@@ -166,26 +127,12 @@ export class RunContextFactory {
 		})
 	}
 
-	static build(config: RunContextConfig): RunContext {
+	static build(config: TurnContextConfig): TurnContext {
 		const abortController = new AbortController()
 		if (config.signal) {
-			// Forward the caller's REASON, not just the fact of the abort.
-			//
-			// This used to be a bare `abort()`. Every word a host attached to
-			// its stop — a deadline name, a budget, an operator's message —
-			// died one frame above the executor, so the most a tool result
-			// could say was "was cancelled". A run that ends for a nameable
-			// reason is a run someone can debug; this is the frame where the
-			// name was being thrown away.
-			//
-			// `createChildAbortController` already does exactly this, but it
-			// takes an AbortController and what arrives here is a bare
-			// AbortSignal, so the reason is forwarded by hand rather than by
-			// reaching for a helper that does not fit.
-			// AbortSignal does not replay an event that happened before a
-			// listener was installed. Mirror that state synchronously or a caller
-			// that withdrew authority before `query()` began receives a live run
-			// controller, allowing provider and tool work to start anyway.
+			// Forward the caller's REASON, not just the fact of the abort, and
+			// mirror an abort that already happened: AbortSignal does not replay
+			// an event that fired before the listener was installed.
 			if (config.signal.aborted) {
 				abortController.abort(config.signal.reason)
 			} else {
@@ -198,70 +145,58 @@ export class RunContextFactory {
 		}
 
 		const cwd = config.workingDirectory ?? process.cwd()
-		// An explicit `RunConfig.permissionMode` still wins — this is the
-		// no-behaviour-change guarantee for every existing caller. The topic
-		// record supplies the mode only when the run config names none, and
-		// `resolveTopicPermissionMode` in `query()` is what reads it.
-		const seeded = config.runConfig.permissionMode ?? config.topicPermissionMode ?? 'auto'
+		// An explicit `TurnConfig.permissionMode` still wins; the topic record
+		// supplies the mode only when the turn config names none.
+		const seeded = config.turnConfig.permissionMode ?? config.topicPermissionMode ?? 'auto'
 		const permissionMode = config.permissionModeRef ?? { current: seeded }
-		// Seeded even when supplied: the caller creates the box before it can
-		// know what the run config or the topic record say, so leaving its
-		// initial value in place would ignore both.
 		permissionMode.current = seeded
-		const runId = config.runId ?? generateRunId()
 
-		// Never `<cwd>/.namzu`: generated state does not belong in the directory
-		// the agent works in. See `defaultStateRoot`.
-		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
-		const outputDir = pathBuilder.sessionDir(config.projectId, config.sessionId)
-		const runsDir = join(outputDir, 'runs')
+		const log = config.log ?? TurnContextFactory.buildLogger(config)
 
-		const log = config.log ?? RunContextFactory.buildLogger({ ...config, runId })
-
-		const runMgr = new RunPersistence({
-			runId,
+		const recorder = new TurnRecorder({
+			turnId: config.turnId,
 			budget: config.budget,
 			agentId: config.agentId,
 			agentName: config.agentName,
-			runConfig: config.runConfig,
+			turnConfig: config.turnConfig,
 			providerId: config.provider.id,
-			outputDir: runsDir,
 			pricing: config.pricing,
 			log,
 			sessionId: config.sessionId,
 			topicId: config.topicId,
 			tenantId: config.tenantId,
 			projectId: config.projectId,
-			parentRunId: config.parentRunId,
-			depth: config.depth,
-			checkpointStore: resolveRunStorage({
-				runStore: config.runStore,
-				pathBuilder: config.pathBuilder,
-				checkpointStore: config.checkpointStore,
-				runId,
-			}).checkpoints,
-			runStore: config.runStore,
+			...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
+			...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
+			...(config.depth !== undefined ? { depth: config.depth } : {}),
+			sessionLog: config.storage.log,
+			checkpointStore: config.storage.checkpoints,
 		})
 
 		const trackingConfig = resolveActivityTracking(
 			permissionMode.current,
 			config.enableActivityTracking,
 		)
-		const activityStore = new ActivityStore(runId, trackingConfig)
-		const planManager = new PlanManager(runId)
+		const activityStore = new ActivityStore(config.turnId, trackingConfig)
+		const planManager = new PlanManager({ sessionId: config.sessionId, turnId: config.turnId })
+		const toolResultsDir =
+			config.storage.sessionDir === undefined
+				? undefined
+				: join(config.storage.sessionDir, SPILL_DIR)
 
 		return {
-			runId,
+			turnId: config.turnId,
 			sessionId: config.sessionId,
 			topicId: config.topicId,
 			projectId: config.projectId,
 			tenantId: config.tenantId,
-			runMgr,
+			recorder,
+			storage: config.storage,
 			activityStore,
 			planManager,
 			abortController,
 			cwd,
-			outputDir,
+			toolResultsDir,
 			permissionMode,
 			log,
 			trackingConfig,

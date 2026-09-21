@@ -47,7 +47,7 @@ export async function runInputGuardrails(
 		const verdict = await safely(() => check(ctx), nameOf({ name }, index), log)
 		if (verdict.action === 'block') {
 			log.warn('Input guardrail blocked the run', {
-				[NAMZU.RUN_ID]: ctx.runId,
+				[NAMZU.TURN_ID]: ctx.turnId,
 				'namzu.guardrail.name': nameOf({ name }, index),
 				'namzu.runtime.reason': verdict.reason,
 			})
@@ -58,7 +58,7 @@ export async function runInputGuardrails(
 		// different (and worse) feature than refusing it.
 		if (verdict.action === 'rewrite') {
 			log.warn('Input guardrail returned `rewrite`, which is not supported on input — ignoring', {
-				[NAMZU.RUN_ID]: ctx.runId,
+				[NAMZU.TURN_ID]: ctx.turnId,
 				'namzu.guardrail.name': nameOf({ name }, index),
 			})
 		}
@@ -100,7 +100,7 @@ export async function runOutputGuardrails(
 
 		if (verdict.action === 'block') {
 			log.warn('Output guardrail blocked the result', {
-				[NAMZU.RUN_ID]: ctx.runId,
+				[NAMZU.TURN_ID]: ctx.turnId,
 				'namzu.guardrail.name': nameOf({ name }, index),
 				'namzu.runtime.reason': verdict.reason,
 			})
@@ -109,7 +109,7 @@ export async function runOutputGuardrails(
 
 		if (verdict.action === 'rewrite') {
 			log.info('Output guardrail rewrote the result', {
-				[NAMZU.RUN_ID]: ctx.runId,
+				[NAMZU.TURN_ID]: ctx.turnId,
 				'namzu.guardrail.name': nameOf({ name }, index),
 				'namzu.runtime.reason': verdict.reason,
 			})

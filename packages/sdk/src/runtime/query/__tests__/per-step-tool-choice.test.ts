@@ -53,7 +53,7 @@ async function baseParams(provider: MockLLMProvider, tools: ToolRegistry) {
 	return {
 		provider,
 		tools,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,

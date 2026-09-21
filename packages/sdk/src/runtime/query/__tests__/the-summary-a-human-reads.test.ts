@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import type { CheckpointSummary } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import {
 	createAssistantMessage,
 	createToolMessage,
@@ -27,9 +27,9 @@ interface StubState {
 	currentIteration: number
 }
 
-function runMgrStub(state: Partial<StubState>): RunPersistence {
+function runMgrStub(state: Partial<StubState>): TurnRecorder {
 	return {
-		id: 'e5f5c1c4-4b2a-4f8b-8f7b-7e7a1c2d3e4f' as RunId,
+		id: 'e5f5c1c4-4b2a-4f8b-8f7b-7e7a1c2d3e4f' as TurnId,
 		messages: [],
 		tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
 		costInfo: {
@@ -42,12 +42,12 @@ function runMgrStub(state: Partial<StubState>): RunPersistence {
 		currentIteration: 1,
 		getSession: () => ({ startedAt: Date.now() }),
 		...state,
-	} as unknown as RunPersistence
+	} as unknown as TurnRecorder
 }
 
 describe('the summary a run hands a human', () => {
 	it('counts the messages and names the iteration it was taken at', () => {
-		const runMgr = runMgrStub({
+		const recorder = runMgrStub({
 			messages: [
 				createUserMessage('do the thing'),
 				createAssistantMessage('starting'),
@@ -55,7 +55,7 @@ describe('the summary a run hands a human', () => {
 			],
 		})
 
-		const summary = CheckpointManager.buildSummary(runMgr, 4)
+		const summary = CheckpointManager.buildSummary(recorder, 4)
 
 		expect(summary.iteration).toBe(4)
 		expect(summary.messageCount).toBe(3)
@@ -67,7 +67,7 @@ describe('the summary a run hands a human', () => {
 		// and nothing else. A card built from "the last assistant message"
 		// arrives blank exactly when a human is being asked to approve
 		// something, which is the worst possible moment to show them nothing.
-		const runMgr = runMgrStub({
+		const recorder = runMgrStub({
 			messages: [
 				createUserMessage('do the thing'),
 				createAssistantMessage('here is what I found so far'),
@@ -82,7 +82,7 @@ describe('the summary a run hands a human', () => {
 			],
 		})
 
-		const summary = CheckpointManager.buildSummary(runMgr, 2)
+		const summary = CheckpointManager.buildSummary(recorder, 2)
 
 		expect(summary.lastAssistantMessage).toBe('here is what I found so far')
 		expect(summary.messageCount).toBe(4)
@@ -91,9 +91,9 @@ describe('the summary a run hands a human', () => {
 	it('leaves the message undefined when the model has not spoken yet', () => {
 		// `undefined`, not `''` and not the word "null": a card with no
 		// assistant text must render as absent rather than as an empty quote.
-		const runMgr = runMgrStub({ messages: [createUserMessage('do the thing')] })
+		const recorder = runMgrStub({ messages: [createUserMessage('do the thing')] })
 
-		const summary = CheckpointManager.buildSummary(runMgr, 1)
+		const summary = CheckpointManager.buildSummary(recorder, 1)
 
 		expect(summary.lastAssistantMessage).toBeUndefined()
 	})
@@ -102,7 +102,7 @@ describe('the summary a run hands a human', () => {
 		// The summary is a record of the moment the park was taken. Holding
 		// the live object would have the numbers on the human's card keep
 		// moving while they read it.
-		const runMgr = runMgrStub({
+		const recorder = runMgrStub({
 			messages: [createUserMessage('go')],
 			tokenUsage: { promptTokens: 1_200, completionTokens: 340, totalTokens: 1_540 },
 			costInfo: {
@@ -113,9 +113,9 @@ describe('the summary a run hands a human', () => {
 				unpricedTokens: 0,
 			},
 		})
-		const live = (runMgr as unknown as StubState).tokenUsage
+		const live = (recorder as unknown as StubState).tokenUsage
 
-		const summary: CheckpointSummary = CheckpointManager.buildSummary(runMgr, 3)
+		const summary: CheckpointSummary = CheckpointManager.buildSummary(recorder, 3)
 		live.promptTokens = 99_999
 
 		expect(summary.tokenUsage.promptTokens).toBe(1_200)
@@ -124,7 +124,7 @@ describe('the summary a run hands a human', () => {
 	})
 
 	it('ignores a non-assistant tail when picking the last thing said', () => {
-		const runMgr = runMgrStub({
+		const recorder = runMgrStub({
 			messages: [
 				createUserMessage('go'),
 				createAssistantMessage('the answer'),
@@ -132,6 +132,6 @@ describe('the summary a run hands a human', () => {
 			],
 		})
 
-		expect(CheckpointManager.buildSummary(runMgr, 1).lastAssistantMessage).toBe('the answer')
+		expect(CheckpointManager.buildSummary(recorder, 1).lastAssistantMessage).toBe('the answer')
 	})
 })

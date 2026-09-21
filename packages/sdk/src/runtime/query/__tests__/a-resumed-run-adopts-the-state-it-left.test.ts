@@ -8,20 +8,22 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { HITLDecisionRequest, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
+import { readParks } from '../checkpoint.js'
 import { type QueryParams, drainQuery } from '../index.js'
-import { type ResumeRunParams, resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
+import { heldCheckpointStore, turnCheckpoints } from './support/session.js'
 
 /**
  * Compaction's working state is the run's own record of what it was doing —
@@ -36,12 +38,12 @@ import type { RunStateScope } from '../run-state.js'
  * the resume is silently gone. The run keeps working; it just forgets.
  *
  * Both ends are asserted here through a real paused run and a real
- * `resumeRun`, because a hand-built manager proves the restore helper works
+ * `resumeSession`, because a hand-built manager proves the restore helper works
  * and nothing about whether anything calls it.
  */
 
-const SCOPE: RunStateScope = {
-	runId: fixtureId.run('working-state-adopt'),
+const SCOPE: TurnStateScope = {
+	turnId: fixtureId.turn('working-state-adopt'),
 	tenantId: generateTenantId(),
 	projectId: generateProjectId(),
 	sessionId: generateSessionId(),
@@ -112,19 +114,23 @@ const gate = {
 	logDecisions: false,
 }
 
-/** Run until the cadence pauses, and return the checkpoint it wrote. */
-async function runUntilPaused(store: InMemoryCheckpointStore, workingDirectory: string) {
+/**
+ * Run until the cadence pauses. Returns the session log and the checkpoint
+ * the park names.
+ */
+async function runUntilPaused(workingDirectory: string) {
+	const sessionLog = new InMemorySessionLog({ sessionId: SCOPE.sessionId })
 	await drainQuery(
 		{
 			provider: toolTurns(),
 			tools: echoRegistry(),
-			checkpointStore: store,
+			sessionLog,
 			compactionConfig: COMPACTION,
 			agentId: 'agent_working_state',
 			agentName: 'Working state agent',
 			messages: [{ role: 'user', content: TASK }],
 			workingDirectory,
-			runId: SCOPE.runId,
+			turnId: SCOPE.turnId,
 			tenantId: SCOPE.tenantId,
 			projectId: SCOPE.projectId,
 			sessionId: SCOPE.sessionId,
@@ -134,22 +140,23 @@ async function runUntilPaused(store: InMemoryCheckpointStore, workingDirectory: 
 				request.type === 'iteration_checkpoint'
 					? { action: 'pause', reason: 'stop here for a moment' }
 					: { action: 'continue' },
-			runConfig: RUN_CONFIG,
+			turnConfig: RUN_CONFIG,
 		} as unknown as QueryParams,
-		(_event: RunEvent) => {},
+		(_event: SessionEvent) => {},
 	)
+	const store = await heldCheckpointStore(sessionLog)
+	const parks = await readParks(sessionLog, { turnId: SCOPE.turnId })
+	const parked = await Promise.all(parks.map((park) => store.read({ ...SCOPE }, park.checkpointId)))
+	return { sessionLog, store, parks, parked }
 }
 
 describe('the working state a checkpoint snapshots', () => {
 	it('records the operator task the run was given', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-working-state-'))
 		dirs.push(workingDirectory)
-		const store = new InMemoryCheckpointStore()
+		const { parks, parked: paused } = await runUntilPaused(workingDirectory)
 
-		await runUntilPaused(store, workingDirectory)
-
-		const checkpoints = await store.listCheckpoints(SCOPE)
-		const paused = checkpoints.filter((cp) => cp.pending) as IterationCheckpoint[]
+		expect(parks).toHaveLength(1)
 		expect(paused).toHaveLength(1)
 		// The write side of the pair, and the premise for the case below: a
 		// checkpoint that carried nothing could not be adopted by anybody.
@@ -161,16 +168,13 @@ describe('a resumed run', () => {
 	it('carries the working state forward into the checkpoints it writes', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-working-state-'))
 		dirs.push(workingDirectory)
-		const store = new InMemoryCheckpointStore()
+		const { sessionLog, store, parked: before } = await runUntilPaused(workingDirectory)
+		const parked = before[0]
+		if (!parked) throw new Error('no parked checkpoint')
 
-		await runUntilPaused(store, workingDirectory)
-		const before = (await store.listCheckpoints(SCOPE)).filter(
-			(cp) => cp.pending,
-		) as IterationCheckpoint[]
-		const parked = before[0] as IterationCheckpoint
-
-		const resumed = await resumeRun({
+		const resumed = await resumeSession({
 			scope: SCOPE,
+			sessionLog,
 			checkpointStore: store,
 			sessionId: SCOPE.sessionId,
 			topicId: SCOPE.topicId,
@@ -184,8 +188,8 @@ describe('a resumed run', () => {
 			agentName: 'Working state agent',
 			workingDirectory,
 			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+			turnConfig: RUN_CONFIG,
+		} as unknown as ResumeSessionParams)
 
 		expect(resumed.resumed).toBe(true)
 		if (!resumed.resumed) return
@@ -193,17 +197,17 @@ describe('a resumed run', () => {
 		// A checkpoint the RESUMED run wrote, not the one it came back
 		// through. Its working state comes from the live manager, so it says
 		// exactly whether the manager was given the earlier state.
-		const after = (await store.listCheckpoints(SCOPE)).filter(
-			(cp) => cp.id !== parked.id,
-		) as IterationCheckpoint[]
+		const after = (await turnCheckpoints({ ...SCOPE, sessionLog })).filter(
+			(cp) => cp.checkpointId !== parked.checkpointId,
+		)
 		expect(after.length).toBeGreaterThan(0)
-		const newest = after[after.length - 1] as IterationCheckpoint
+		const newest = after[after.length - 1]
 
 		// Delete the adoption block and this is `''`: the resumed run gets a
 		// fresh manager, the task it was working on is gone, and the next
 		// compaction replaces the run's own summary with one that only covers
 		// what happened after the restart.
-		expect(newest.workingState?.task).toBe(TASK)
+		expect(newest?.workingState?.task).toBe(TASK)
 	})
 
 	it('does not re-seed the state from a message, which only a fresh run does', async () => {
@@ -212,19 +216,16 @@ describe('a resumed run', () => {
 		// come from `extractFromUserMessage`.
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-working-state-'))
 		dirs.push(workingDirectory)
-		const store = new InMemoryCheckpointStore()
-
-		await runUntilPaused(store, workingDirectory)
-		const parked = (
-			(await store.listCheckpoints(SCOPE)).filter((cp) => cp.pending) as IterationCheckpoint[]
-		)[0] as IterationCheckpoint
+		const { sessionLog, store, parked: paused } = await runUntilPaused(workingDirectory)
+		const parked = paused[0]
 		// What the resumed run will be handed, asserted so the case below
 		// cannot pass by the checkpoint having secretly carried a task the
 		// resumed run re-derived.
-		expect(parked.workingState?.task).toBe(TASK)
+		expect(parked?.workingState?.task).toBe(TASK)
 
-		const resumed = await resumeRun({
+		const resumed = await resumeSession({
 			scope: SCOPE,
+			sessionLog,
 			checkpointStore: store,
 			sessionId: SCOPE.sessionId,
 			topicId: SCOPE.topicId,
@@ -238,17 +239,17 @@ describe('a resumed run', () => {
 			agentName: 'Working state agent',
 			workingDirectory,
 			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+			turnConfig: RUN_CONFIG,
+		} as unknown as ResumeSessionParams)
 
 		expect(resumed.resumed).toBe(true)
 		if (!resumed.resumed) return
-		// The same claim from the other side: `resumeRun` forces `messages: []`,
+		// The same claim from the other side: `resumeSession` forces `messages: []`,
 		// so no seeding pass ran, and the task above survived on the state
 		// alone.
 		expect(resumed.state.messages.some((m) => m.content === TASK)).toBe(true)
 
-		const newest = (await store.listCheckpoints(SCOPE)).at(-1) as IterationCheckpoint
-		expect(newest.workingState?.task).toBe(TASK)
+		const newest = (await turnCheckpoints({ ...SCOPE, sessionLog })).at(-1)
+		expect(newest?.workingState?.task).toBe(TASK)
 	})
 })

@@ -7,66 +7,75 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import {
+	type CheckpointScope,
+	type CheckpointWriteReceipt,
+	InMemorySessionCheckpointStore,
+} from '../../../store/checkpoint/index.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { CheckpointId } from '../../../types/ids/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { CheckpointId, SessionId } from '../../../types/ids/index.js'
+import type { Checkpoint } from '../../../types/session/checkpoint.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
+import { checkpointLogView } from '../session-storage.js'
 
 /**
- * `runConfig.checkpointEvery` and `runConfig.pruneKeepLast` are read by the
+ * `turnConfig.checkpointEvery` and `turnConfig.pruneKeepLast` are read by the
  * iteration-checkpoint phase, and only by it.
  *
  * The existing coverage drives that phase with a hand-built
- * `IterationContext` — which proves the phase honours a `runConfig` object
- * somebody constructed, not that a host's `runConfig` ever becomes one. The
+ * `IterationContext` — which proves the phase honours a `turnConfig` object
+ * somebody constructed, not that a host's `turnConfig` ever becomes one. The
  * only `query()`-level test that touches checkpoints uses the default
  * cadence, so both knobs could be dropped on the way from `QueryParams` to
  * the phase and every test would still pass.
  */
 
-class RecordingCheckpointStore implements CheckpointStore {
-	private readonly rows = new Map<string, IterationCheckpoint>()
+/** The session's checkpoint store, counting the documents it holds. */
+class RecordingCheckpointStore extends InMemorySessionCheckpointStore {
+	private readonly held = new Set<CheckpointId>()
+	readonly scopes: CheckpointScope[] = []
 
-	private key(scope: CheckpointRunScope, checkpointId: CheckpointId): string {
-		return [scope.tenantId, scope.projectId, scope.sessionId, scope.runId, checkpointId].join('/')
+	override async write(
+		scope: CheckpointScope,
+		checkpoint: Checkpoint,
+	): Promise<CheckpointWriteReceipt> {
+		this.scopes.push(scope)
+		const receipt = await super.write(scope, checkpoint)
+		this.held.add(checkpoint.checkpointId)
+		return receipt
 	}
 
-	async writeCheckpoint(scope: CheckpointRunScope, checkpoint: IterationCheckpoint): Promise<void> {
-		this.rows.set(this.key(scope, checkpoint.id), checkpoint)
+	override async delete(scope: CheckpointScope, checkpointId: CheckpointId): Promise<void> {
+		await super.delete(scope, checkpointId)
+		this.held.delete(checkpointId)
 	}
 
-	async readCheckpoint(
-		scope: CheckpointRunScope,
-		checkpointId: CheckpointId,
-	): Promise<IterationCheckpoint | null> {
-		return this.rows.get(this.key(scope, checkpointId)) ?? null
-	}
-
-	async listCheckpoints(scope: CheckpointRunScope): Promise<IterationCheckpoint[]> {
-		const prefix = `${[scope.tenantId, scope.projectId, scope.sessionId, scope.runId].join('/')}/`
-		return [...this.rows.entries()]
-			.filter(([key]) => key.startsWith(prefix))
-			.map(([, checkpoint]) => checkpoint)
-			.sort((a, b) => a.createdAt - b.createdAt)
-	}
-
-	async deleteCheckpoint(scope: CheckpointRunScope, checkpointId: CheckpointId): Promise<void> {
-		this.rows.delete(this.key(scope, checkpointId))
+	override async prune(scope: CheckpointScope, keepLast: number): Promise<CheckpointId[]> {
+		const removed = await super.prune(scope, keepLast)
+		for (const id of removed) this.held.delete(id)
+		return removed
 	}
 
 	size(): number {
-		return this.rows.size
+		return this.held.size
 	}
+}
+
+/** A session held in memory, with the recording store beside its log. */
+function session(sessionId: SessionId = generateSessionId()) {
+	const sessionLog = new InMemorySessionLog({ sessionId })
+	const store = new RecordingCheckpointStore({ log: checkpointLogView(sessionLog) })
+	return { sessionId, sessionLog, store }
 }
 
 const dirs: string[] = []
@@ -107,30 +116,31 @@ function threeToolTurns(): MockLLMProvider {
 	})
 }
 
-async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
-	events: RunEvent[]
+async function runThreeIterations(turnConfig: Record<string, unknown>): Promise<{
+	events: SessionEvent[]
 	store: RecordingCheckpointStore
-	runId: ReturnType<typeof generateRunId>
+	turnId: ReturnType<typeof generateTurnId>
 }> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-cadence-'))
 	dirs.push(dir)
-	const store = new RecordingCheckpointStore()
-	const events: RunEvent[] = []
-	const runId = generateRunId()
+	const { sessionId, sessionLog, store } = session()
+	const events: SessionEvent[] = []
+	const turnId = generateTurnId()
 
 	await drainQuery(
 		{
 			provider: threeToolTurns(),
 			tools: echoRegistry(),
+			sessionLog,
 			checkpointStore: store,
 			agentId: 'agent_cadence',
 			agentName: 'Cadence agent',
 			messages: [{ role: 'user', content: 'work' }],
 			workingDirectory: dir,
-			runId,
+			turnId,
 			tenantId: generateTenantId(),
 			projectId: generateProjectId(),
-			sessionId: generateSessionId(),
+			sessionId,
 			topicId: generateTopicId(),
 			resumeHandler: autoApproveHandler,
 			authorizationGate: {
@@ -140,13 +150,13 @@ async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
 				maxIterations: 6,
 				maxResponseTokens: 256,
-				...runConfig,
+				...turnConfig,
 			},
 		} as unknown as QueryParams,
 		(event) => {
@@ -154,13 +164,13 @@ async function runThreeIterations(runConfig: Record<string, unknown>): Promise<{
 		},
 	)
 
-	return { events, store, runId }
+	return { events, store, turnId }
 }
 
-const createdIterations = (events: readonly RunEvent[]): number[] =>
+const createdIterations = (events: readonly SessionEvent[]): number[] =>
 	events
 		.filter((event) => event.type === 'checkpoint_created')
-		.map((event) => (event as Extract<RunEvent, { type: 'checkpoint_created' }>).iteration)
+		.map((event) => (event as Extract<SessionEvent, { type: 'checkpoint_created' }>).iteration)
 
 describe('the checkpoint cadence a host configures', () => {
 	it('defaults to a checkpoint on every tool iteration', async () => {
@@ -202,30 +212,25 @@ describe('the checkpoint cadence a host configures', () => {
 })
 
 describe('a resume can still see the scope the cadence wrote under', () => {
-	it('writes every checkpoint under the run attribution the query was given', async () => {
+	it('writes every checkpoint under the turn attribution the query was given', async () => {
 		const dir = await mkdtemp(join(tmpdir(), 'namzu-cadence-scope-'))
 		dirs.push(dir)
-		const store = new RecordingCheckpointStore()
-		const seen: CheckpointRunScope[] = []
-		const original = store.writeCheckpoint.bind(store)
-		store.writeCheckpoint = async (scope, checkpoint) => {
-			seen.push(scope)
-			await original(scope, checkpoint)
-		}
-		const runId = generateRunId()
+		const { sessionId, sessionLog, store } = session()
+		const seen = store.scopes
+		const turnId = generateTurnId()
 		const tenantId = generateTenantId()
 		const projectId = generateProjectId()
-		const sessionId = generateSessionId()
 
 		await drainQuery({
 			provider: threeToolTurns(),
 			tools: echoRegistry(),
+			sessionLog,
 			checkpointStore: store,
 			agentId: 'agent_cadence',
 			agentName: 'Cadence agent',
 			messages: [{ role: 'user', content: 'work' }],
 			workingDirectory: dir,
-			runId,
+			turnId,
 			tenantId,
 			projectId,
 			sessionId,
@@ -238,7 +243,7 @@ describe('a resume can still see the scope the cadence wrote under', () => {
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -251,7 +256,7 @@ describe('a resume can still see the scope the cadence wrote under', () => {
 		expect(
 			seen.every(
 				(scope) =>
-					scope.runId === runId &&
+					scope.turnId === turnId &&
 					scope.tenantId === tenantId &&
 					scope.projectId === projectId &&
 					scope.sessionId === sessionId,

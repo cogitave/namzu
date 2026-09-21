@@ -1,5 +1,5 @@
 import type { HITLResumeDecision, ResumeHandler, UserQuestionData } from '../../types/hitl/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { RequestToolPause, ToolPauseRequest } from '../../types/tool/index.js'
 import { generateCheckpointId } from '../../utils/id.js'
 import type { PendingAnswers, QuestionParkRecorder } from './question-park.js'
@@ -71,7 +71,8 @@ export const isPauseForCall = (pause: string, callId: string): boolean =>
 	pause === callId || pause.startsWith(`${callId}:`)
 
 interface ToolPauseDeps {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	readonly toolUseId: string
 	readonly parkHandler: ResumeHandler
 	readonly recorder?: QuestionParkRecorder
@@ -120,7 +121,8 @@ export function createToolPause(deps: ToolPauseDeps): RequestToolPause {
 			carried ??
 			(await deps.parkHandler({
 				type: 'user_question',
-				runId: deps.runId,
+				sessionId: deps.sessionId,
+				turnId: deps.turnId,
 				// The question retains its correlation id; provider ids and pause
 				// names need not be safe components of a checkpoint storage key.
 				checkpointId: parkedAt ?? generateCheckpointId(),

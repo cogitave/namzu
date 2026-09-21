@@ -1,17 +1,18 @@
 /**
- * How much durable state one run leaves behind, measured through the real
+ * How much durable state one turn leaves behind, measured through the real
  * disk stores.
  *
- * Offline and deterministic: a scripted provider drives an N-iteration run in
+ * Offline and deterministic: a scripted provider drives an N-iteration turn in
  * which every iteration calls a tool that returns a few kilobytes of output and
  * pins a working-state fact, which is the shape of an agentic session (and of
  * the ARC batches whose checkpoints filled a disk). Nothing is mocked below the
- * provider: the run goes through `drainQuery`, `RunPersistence`,
- * `RunDiskStore` and `DiskCheckpointStore` exactly as a host's would.
+ * provider: the turn goes through `drainQuery`, the turn recorder, the
+ * session's `DiskSessionLog` and its `DiskSessionCheckpointStore` exactly as
+ * a host's would, under a `SessionPaths` home of its own.
  *
  *   node scripts/benchmarks/runtime-state-growth.mjs [iterations] [--keep N] [--json]
  *
- * `--keep N` passes `runConfig.pruneKeepLast`, which is what the CLI sets.
+ * `--keep N` passes `turnConfig.pruneKeepLast`, which is what the CLI sets.
  * Reads the BUILT SDK (`packages/sdk/dist`), so run `pnpm -r build` first.
  */
 import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
@@ -21,8 +22,8 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import {
 	CompactionConfigSchema,
-	DefaultPathBuilder,
 	MockLLMProvider,
+	SessionPaths,
 	ToolRegistry,
 	drainQuery,
 	registerMock,
@@ -46,6 +47,10 @@ const root = await mkdtemp(join(tmpdir(), "namzu-state-growth-"));
 const work = join(root, "work");
 const stateRoot = join(root, "state");
 await mkdir(work, { recursive: true });
+await mkdir(stateRoot, { recursive: true });
+// The layout under test: `<home>/projects/<slug>/<session-id>.jsonl`, with
+// the session's checkpoints, ledgers and tool results beside it.
+const paths = new SessionPaths({ home: stateRoot, slug: "bench" });
 
 const tools = new ToolRegistry();
 tools.register({
@@ -80,15 +85,15 @@ const ids = {
 };
 
 const started = Date.now();
-const run = await drainQuery({
+const turn = await drainQuery({
 	provider: new MockLLMProvider({ turns }),
 	tools,
 	agentId: "bench",
 	agentName: "Bench",
 	messages: [{ role: "user", content: "Inspect every region." }],
 	workingDirectory: work,
-	pathBuilder: new DefaultPathBuilder(stateRoot),
-	runConfig: {
+	paths,
+	turnConfig: {
 		model: "mock",
 		timeoutMs: 600_000,
 		tokenBudget: 100_000_000,
@@ -114,13 +119,15 @@ const files = await walk(stateRoot);
 const byKind = new Map();
 for (const file of files) {
 	const rel = relative(stateRoot, file.path);
-	const kind = rel.includes("/checkpoints/")
-		? rel.endsWith(".json")
+	const kind = rel.endsWith(`${ids.sessionId}.jsonl`)
+		? "<session>.jsonl"
+		: rel.includes("/checkpoints/")
 			? "checkpoints/*.json"
-			: `checkpoints/${rel.split("/checkpoints/")[1]}`
-		: rel.includes("/history/")
-			? "history/*.jsonl"
-			: rel.split("/").at(-1);
+			: rel.includes("/tool-results/")
+				? "tool-results/*"
+				: rel.includes("/budgets/")
+					? "budgets/*.json"
+					: rel.split("/").at(-1);
 	const entry = byKind.get(kind) ?? { files: 0, bytes: 0 };
 	entry.files += 1;
 	entry.bytes += file.bytes;
@@ -132,18 +139,18 @@ const checkpointFiles = files.filter(
 const report = {
 	iterations,
 	keep: keep ?? null,
-	status: run.status,
-	messages: run.messages.length,
+	status: turn.status,
+	messages: turn.messages.length,
 	elapsedMs,
 	totals: {
 		files: files.length,
 		bytes: files.reduce((n, f) => n + f.bytes, 0),
 	},
-	// The run's one message record, which checkpoints and messages.json reference.
-	history: {
-		files: files.filter((f) => f.path.includes("/history/")).length,
+	// The session's one log: every message and event, which checkpoints name by seq.
+	log: {
+		files: files.filter((f) => f.path.endsWith(`${ids.sessionId}.jsonl`)).length,
 		bytes: files
-			.filter((f) => f.path.includes("/history/"))
+			.filter((f) => f.path.endsWith(`${ids.sessionId}.jsonl`))
 			.reduce((n, f) => n + f.bytes, 0),
 	},
 	checkpoints: {
@@ -167,9 +174,7 @@ else {
 	console.log(
 		`checkpoints: ${report.checkpoints.count} files, ${report.checkpoints.bytes} bytes (largest ${report.checkpoints.largest})`,
 	);
-	console.log(
-		`history log: ${report.history.files} files, ${report.history.bytes} bytes`,
-	);
+	console.log(`session log: ${report.log.files} files, ${report.log.bytes} bytes`);
 	for (const [kind, v] of Object.entries(report.byKind))
 		console.log(
 			`  ${kind.padEnd(28)} ${String(v.files).padStart(4)} files ${String(v.bytes).padStart(10)} bytes`,

@@ -84,7 +84,7 @@ describe('MCP rich-result provenance reaches the provider', () => {
 		const run = await drainQuery({
 			provider,
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -167,7 +167,7 @@ describe('MCP rich-result provenance reaches the provider', () => {
 		const run = await drainQuery({
 			provider,
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,

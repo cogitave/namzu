@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
+import type { SessionEventDraft } from '../events.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -21,7 +22,7 @@ import { ResultAssembler } from '../result.js'
  * settle and the signal were missing.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 const CP = '198e213b-0e39-40d2-8484-2d6e8cc9d83f' as CheckpointId
 
 function makeLogger() {
@@ -38,33 +39,50 @@ function makeLogger() {
 }
 
 async function settle(err: unknown, resumeFrom?: CheckpointId) {
-	const emitted: RunEvent[] = []
-	const pending: RunEvent[] = []
+	const emitted: SessionEvent[] = []
+	const pending: SessionEvent[] = []
 	const marks: string[] = []
 	const spanStatus: number[] = []
 
 	const assembler = new ResultAssembler({
-		runMgr: {
-			id: RID,
+		recorder: {
+			turnId: RID,
+			isActive: true,
+			settlement: (status: string) => ({
+				status,
+				iterations: 1,
+				usage: {
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+				durationMs: 0,
+				resultSource: 'model',
+				abandonedTaskIds: [],
+				abandonedJobIds: [],
+			}),
 			currentIteration: 4,
 			stopReason: undefined,
 			markFailed: () => marks.push('failed'),
 			setStopReason: (reason: string) => marks.push(`stop:${reason}`),
 			setLastError: () => marks.push('lastError'),
-			getRun: () => ({ id: RID }) as unknown as Run,
+			getTurn: () => ({ id: RID }) as unknown as Turn,
 			// LOG-14: `handleError` now calls `recordAudit` on the run_failed
 			// path. The `describe('a failure that pausing would not help', ...)`
 			// tests below reach it; the `describe('a transient failure with
 			// somewhere to resume from', ...)` tests take the earlier `paused`
 			// return and never touch this.
 			recordAudit: async () => undefined as never,
-		} as unknown as RunPersistence,
+		} as unknown as TurnRecorder,
 		planManager: { isActive: false, failPlan: () => marks.push('planFailed') } as never,
 		activityStore: { enabled: false } as never,
 		log: makeLogger() as never,
-		emitEvent: async (event: RunEvent) => {
-			emitted.push(event)
-			pending.push(event)
+		emitEvent: async (event: SessionEventDraft) => {
+			emitted.push(event as SessionEvent)
+			pending.push(event as SessionEvent)
 		},
 		drainPending: function* () {
 			while (pending.length > 0) {
@@ -98,7 +116,7 @@ describe('a transient failure with somewhere to resume from', () => {
 	it('settles paused, not failed', async () => {
 		const { emitted, marks } = await settle(transient(), CP)
 
-		expect(emitted.map((e) => e.type)).toEqual(['run_paused'])
+		expect(emitted.map((e) => e.type)).toEqual(['turn_paused'])
 		expect(marks).toContain('stop:paused')
 		expect(marks).not.toContain('failed')
 	})
@@ -106,7 +124,7 @@ describe('a transient failure with somewhere to resume from', () => {
 	it('names the checkpoint a host should resume from', async () => {
 		const { emitted } = await settle(transient(), CP)
 		const paused = emitted[0]
-		expect(paused?.type === 'run_paused' && paused.checkpointId).toBe(CP)
+		expect(paused?.type === 'turn_paused' && paused.checkpointId).toBe(CP)
 	})
 
 	it('leaves the span OK, so it does not land in an error dashboard', async () => {
@@ -133,7 +151,7 @@ describe('a transient failure with somewhere to resume from', () => {
 		const paused = emitted[0]
 
 		expect(paused).toMatchObject({
-			type: 'run_paused',
+			type: 'turn_paused',
 			checkpointId: CP,
 			failure: {
 				code: 'provider_error',
@@ -157,7 +175,7 @@ describe('a failure that pausing would not help', () => {
 		// Pausing on a bad API key would invite a resume that cannot work.
 		const { emitted, marks } = await settle(permanent(), CP)
 
-		expect(emitted.map((e) => e.type)).toEqual(['run_failed'])
+		expect(emitted.map((e) => e.type)).toEqual(['turn_failed'])
 		expect(marks).toContain('failed')
 	})
 
@@ -165,7 +183,7 @@ describe('a failure that pausing would not help', () => {
 		// Pausing with nowhere to resume from is a run that can never be
 		// picked up again — strictly worse than reporting the failure.
 		const { emitted } = await settle(transient(), undefined)
-		expect(emitted.map((e) => e.type)).toEqual(['run_failed'])
+		expect(emitted.map((e) => e.type)).toEqual(['turn_failed'])
 	})
 
 	it('still fails on a namzu error that is not retryable', async () => {
@@ -173,12 +191,12 @@ describe('a failure that pausing would not help', () => {
 			new NamzuError({ code: 'invalid_config', message: 'no model' }),
 			CP,
 		)
-		expect(emitted.map((e) => e.type)).toEqual(['run_failed'])
+		expect(emitted.map((e) => e.type)).toEqual(['turn_failed'])
 	})
 
 	it('carries the explanation on the failure it does report', async () => {
 		const { emitted } = await settle(permanent(), CP)
 		const failed = emitted[0]
-		expect(failed?.type === 'run_failed' && failed.explanation?.id).toBe('provider.auth')
+		expect(failed?.type === 'turn_failed' && failed.explanation?.id).toBe('provider.auth')
 	})
 })

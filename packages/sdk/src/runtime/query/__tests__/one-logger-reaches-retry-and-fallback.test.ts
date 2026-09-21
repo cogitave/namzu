@@ -5,15 +5,15 @@
  * Before this, `runtime/query/index.ts` read `getRootLogger()` three
  * separate times inside `query()` — once inline for the boot-time
  * migration, once for `withProviderRetry`, once for `withProviderFallback`
- * — plus a fourth read buried inside `RunContextFactory.build` for the
+ * — plus a fourth read buried inside `TurnContextFactory.build` for the
  * run's own child logger. Four calls that happened to describe the same
  * run and carried four separate chances to disagree, on the highest-
- * frequency uncorrelated log path in the kernel. `RunContextFactory
+ * frequency uncorrelated log path in the kernel. `TurnContextFactory
  * .buildLogger` exists so there is exactly one call, and this file is the
  * falsifiable half of that claim: it does not read log CONTENT (see
  * `retry-and-fallback-carry-the-runs-id.test.ts` for that) — it reads
  * IDENTITY, the property a content assertion cannot see. `withProviderRetry`,
- * `withProviderFallback` and `RunContextFactory.build` are three
+ * `withProviderFallback` and `TurnContextFactory.build` are three
  * independent consumers; each getting a logger that logs the same fields
  * is not the same guarantee as each getting the SAME object, and only the
  * second one is what LOG-07's acceptance criteria actually asked for.
@@ -45,9 +45,9 @@ const retryLogs: (Logger | undefined)[] = []
 const fallbackLogs: (Logger | undefined)[] = []
 /** Every production idle-wrapper construction, including its shipped default. */
 const idleOptions: Array<{ log: Logger | undefined; idleTimeoutMs: number }> = []
-/** Every `config.log` a `RunContextFactory.build` call received — one per query(). */
+/** Every `config.log` a `TurnContextFactory.build` call received — one per query(). */
 const buildLogs: (Logger | undefined)[] = []
-/** How many times `RunContextFactory.buildLogger` actually ran. */
+/** How many times `TurnContextFactory.buildLogger` actually ran. */
 let buildLoggerCalls = 0
 
 vi.mock('../../../provider/retry.js', async (importOriginal) => {
@@ -96,18 +96,18 @@ vi.mock('../context.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../context.js')>()
 	return {
 		...actual,
-		RunContextFactory: {
+		TurnContextFactory: {
 			buildLogger: (
-				...args: Parameters<typeof actual.RunContextFactory.buildLogger>
-			): ReturnType<typeof actual.RunContextFactory.buildLogger> => {
+				...args: Parameters<typeof actual.TurnContextFactory.buildLogger>
+			): ReturnType<typeof actual.TurnContextFactory.buildLogger> => {
 				buildLoggerCalls++
-				return actual.RunContextFactory.buildLogger(...args)
+				return actual.TurnContextFactory.buildLogger(...args)
 			},
 			build: (
-				...args: Parameters<typeof actual.RunContextFactory.build>
-			): ReturnType<typeof actual.RunContextFactory.build> => {
+				...args: Parameters<typeof actual.TurnContextFactory.build>
+			): ReturnType<typeof actual.TurnContextFactory.build> => {
 				buildLogs.push(args[0].log)
-				return actual.RunContextFactory.build(...args)
+				return actual.TurnContextFactory.build(...args)
 			},
 		},
 	}
@@ -159,7 +159,7 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 			tools: new ToolRegistry(),
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },
-			runConfig: {
+			turnConfig: {
 				model: 'primary-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,

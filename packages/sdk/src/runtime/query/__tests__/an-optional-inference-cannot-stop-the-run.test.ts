@@ -6,7 +6,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider } from '../../../types/provider/index.js'
-import type { PrepareStepChain } from '../../../types/run/prepare-step.js'
+import type { PrepareStepChain } from '../../../types/session/prepare-step.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -79,7 +79,7 @@ async function run(prepareStep: PrepareStepChain, provider: LLMProvider) {
 		agentName: 'Preparation',
 		workingDirectory,
 		messages: [createUserMessage('PRIVATE operator context, not an auxiliary input')],
-		runConfig: {
+		turnConfig: {
 			model: 'main-model',
 			tokenBudget: 1_000,
 			maxIterations: 2,

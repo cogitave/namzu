@@ -11,7 +11,7 @@ import type { IterationContext } from './context.js'
 
 function countToolCalls(ctx: IterationContext): number {
 	let count = 0
-	for (const msg of ctx.runMgr.messages) {
+	for (const msg of ctx.recorder.messages) {
 		if (msg.role === 'assistant' && msg.toolCalls) {
 			count += msg.toolCalls.length
 		}
@@ -25,9 +25,9 @@ function estimateContextWindowPercent(ctx: IterationContext): number {
 }
 
 function computeCostBudgetPercent(ctx: IterationContext): number | undefined {
-	const limit = ctx.runConfig.costLimitUsd
+	const limit = ctx.turnConfig.costLimitUsd
 	if (limit === undefined || limit <= 0) return undefined
-	return (ctx.runMgr.costInfo.totalCost / limit) * 100
+	return (ctx.recorder.costInfo.totalCost / limit) * 100
 }
 
 function extractLastToolCategory(
@@ -56,7 +56,7 @@ export async function runAdvisoryPhase(
 	const budgetCheck = advisoryCtx.checkBudget()
 	if (!budgetCheck.allowed) {
 		ctx.log.debug('Advisory budget exhausted, skipping advisory phase', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.reason': budgetCheck.reason,
 		})
 		return
@@ -65,9 +65,9 @@ export async function runAdvisoryPhase(
 	const evalState: TriggerEvaluationState = {
 		iteration: iterationNum,
 		totalToolCalls: countToolCalls(ctx),
-		totalTokens: ctx.runMgr.tokenUsage.totalTokens,
+		totalTokens: ctx.recorder.tokenUsage.totalTokens,
 		contextWindowPercent: estimateContextWindowPercent(ctx),
-		totalCostUsd: ctx.runMgr.costInfo.totalCost,
+		totalCostUsd: ctx.recorder.costInfo.totalCost,
 		costBudgetPercent: computeCostBudgetPercent(ctx),
 		lastError: extractCurrentToolErrors(ctx, response),
 		lastToolCategory: extractLastToolCategory(ctx, response),
@@ -83,7 +83,7 @@ export async function runAdvisoryPhase(
 	const advisor = advisoryCtx.registry.resolve(trigger.advisorId)
 	if (!advisor) {
 		ctx.log.warn('Advisory trigger fired but advisor not found', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.trigger_id': trigger.id,
 			'namzu.advisory.id': trigger.advisorId,
 		})
@@ -106,7 +106,7 @@ export async function runAdvisoryPhase(
 
 	try {
 		const executionResult = await advisoryCtx.executor.consult(advisor, request, {
-			messages: ctx.runMgr.messages,
+			messages: ctx.recorder.messages,
 			...(turn ? { turn } : {}),
 			workingStateSummary,
 			toolCatalog: ctx.tools.toLLMTools(ctx.allowedTools),
@@ -117,7 +117,7 @@ export async function runAdvisoryPhase(
 
 		// An advisory call is a real model call on the run's dime. It was
 		// recorded into `callHistory` for reporting but never reached
-		// `runMgr.tokenUsage`, so the guard could not see it: a run with
+		// `recorder.tokenUsage`, so the guard could not see it: a run with
 		// `tokenBudget: 200_000` and an `on_error` trigger could send well
 		// past 200k and never trip `token_budget`. The usage is already in
 		// hand — this just tells the accountant about it.
@@ -126,7 +126,7 @@ export async function runAdvisoryPhase(
 		// whoever is serving the main loop would price one vendor's work at
 		// another's card — which is the class of quiet wrongness the whole
 		// catalogue exists to remove, and it would be invisible here.
-		ctx.runMgr.accumulateUsage(executionResult.usage, {
+		ctx.recorder.accumulateUsage(executionResult.usage, {
 			providerId: advisor.provider.id,
 			model: advisor.model,
 		})
@@ -172,10 +172,10 @@ export async function runAdvisoryPhase(
 
 		sections.push('</advisory-result>')
 
-		ctx.runMgr.pushMessage(createRuntimeContextMessage(sections.join('\n'), 'advisory'))
+		ctx.recorder.pushMessage(createRuntimeContextMessage(sections.join('\n'), 'advisory'))
 
 		ctx.log.info('Advisory phase completed', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			[NAMZU.ITERATION]: iterationNum,
 			'namzu.runtime.trigger_id': trigger.id,
 			'namzu.advisory.id': advisor.id,
@@ -184,7 +184,7 @@ export async function runAdvisoryPhase(
 		})
 	} catch (err) {
 		ctx.log.warn('Advisory phase failed', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			[NAMZU.ITERATION]: iterationNum,
 			'namzu.runtime.trigger_id': trigger.id,
 			'namzu.advisory.id': advisor.id,
@@ -199,7 +199,7 @@ function extractCurrentToolErrors(
 ): string | undefined {
 	const calls = new Map(response.message.toolCalls?.map((call) => [call.id, call.function.name]))
 	if (calls.size === 0) return undefined
-	const messages = ctx.runMgr.messages
+	const messages = ctx.recorder.messages
 	const errors: string[] = []
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]

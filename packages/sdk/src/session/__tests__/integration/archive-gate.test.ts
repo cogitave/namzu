@@ -1,5 +1,5 @@
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 /**
  * Integration — Topic archive gate enforced at session-creation ingress
  * sites (Phase 2.6).
@@ -18,7 +18,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { TopicManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
-import type { AgentId, RunId, UserId } from '../../../types/ids/index.js'
+import type { AgentId, TurnId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import { TopicArchivedError } from '../../errors.js'
@@ -294,11 +294,15 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 					parentActor: childActor,
 				},
 				{
-					parentRunId: 'ee48db20-02e3-4052-81db-22d9cf93ed4f' as RunId,
+					parentSessionId: session.id,
+					parentTurnId: 'ee48db20-02e3-4052-81db-22d9cf93ed4f' as TurnId,
 					parentAgentId: 'supervisor',
 					parentAbortController: new AbortController(),
 					depth: 0,
-					budget: TokenBudget.create(10_000, budgetRunId()),
+					budget: SessionTokenBudget.create(10_000, {
+						rootSessionId: generateSessionId(),
+						rootTurnId: generateTurnId(),
+					}),
 					tenantId: DEFAULT_TENANT,
 					topicId: topic.id,
 					sessionId: session.id,

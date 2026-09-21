@@ -31,8 +31,8 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { AgentRunConfig } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { TurnConfig } from '../../../types/session/index.js'
 import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { drainQuery } from '../index.js'
@@ -53,7 +53,7 @@ function failing(id: string, status: number): LLMProvider & { calls: number } {
 	} as unknown as LLMProvider & { calls: number }
 }
 
-function baseRunConfig(): AgentRunConfig {
+function baseRunConfig(): TurnConfig {
 	return {
 		model: 'primary-model',
 		timeoutMs: 5_000,
@@ -66,7 +66,7 @@ function baseRunConfig(): AgentRunConfig {
 function baseParams(workingDirectory: string) {
 	return {
 		tools: new ToolRegistry(),
-		runConfig: baseRunConfig(),
+		turnConfig: baseRunConfig(),
 		agentId: 'agent_correlated',
 		agentName: 'Correlated Agent',
 		workingDirectory,
@@ -120,7 +120,7 @@ describe('retry and fallback records are correlated to the run that produced the
 			// logger from `buildLogger`, which derives from this key — and
 			// since LOG-20 an absent key means NOOP, so without it the
 			// `wrapperLogs` array below is empty and the loop is vacuous.
-			runConfig: { ...params.runConfig, logger: hostLogger(sink) },
+			turnConfig: { ...params.turnConfig, logger: hostLogger(sink) },
 			provider: primary,
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			messages: [createUserMessage('hello')],
@@ -134,11 +134,11 @@ describe('retry and fallback records are correlated to the run that produced the
 		// claims to before trusting the loop that reads them.
 		expect(wrapperLogs.length).toBeGreaterThan(0)
 		for (const record of wrapperLogs) {
-			expect(record.attributes[NAMZU.RUN_ID]).toBe(run.id)
+			expect(record.attributes[NAMZU.TURN_ID]).toBe(run.id)
 		}
 	})
 
-	it('a host-supplied runConfig.logger is what buildLogger derives from, not the process root', async () => {
+	it('a host-supplied turnConfig.logger is what buildLogger derives from, not the process root', async () => {
 		const primary = failing('primary', 429)
 		const fallback = new MockLLMProvider({ turns: [{ text: 'the fallback answered' }] })
 
@@ -162,7 +162,7 @@ describe('retry and fallback records are correlated to the run that produced the
 
 		const run = await drainQuery({
 			...params,
-			runConfig: { ...params.runConfig, logger: marker },
+			turnConfig: { ...params.turnConfig, logger: marker },
 			provider: primary,
 			fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 			messages: [createUserMessage('hello')],
@@ -173,7 +173,7 @@ describe('retry and fallback records are correlated to the run that produced the
 		const wrapperLogs = wrapperRecords(markerRecords)
 		expect(wrapperLogs.length).toBeGreaterThan(0)
 		for (const record of wrapperLogs) {
-			expect(record.attributes[NAMZU.RUN_ID]).toBe(run.id)
+			expect(record.attributes[NAMZU.TURN_ID]).toBe(run.id)
 		}
 		expect(wrapperRecords(rootRecords)).toHaveLength(0)
 	})

@@ -2,25 +2,27 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import {
 	STRUCTURED_OUTPUT_TOOL_NAME,
 	createStructuredOutputTool,
 } from '../../../tools/builtins/structuredOutput.js'
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * Both leaf pieces shipped and neither was reachable.
@@ -32,7 +34,7 @@ import { IterationOrchestrator } from '../iteration/index.js'
  * mismatch surfaced as a ZodError AFTER the run had paid for itself.
  */
 
-const RUN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as RunId
+const RUN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as TurnId
 
 const SCHEMA = z.object({
 	verdict: z.enum(['pass', 'fail']),
@@ -98,7 +100,7 @@ function harness(opts: {
 
 	const maxIterations = opts.maxIterations ?? 8
 
-	const runMgr = {
+	const recorder = {
 		id: RUN_ID,
 		messages,
 		tokenUsage: {
@@ -137,13 +139,14 @@ function harness(opts: {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: opts.provider,
-		runConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
+		turnConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
 		tools,
-		runMgr: runMgr as unknown as RunPersistence,
+		recorder: recorder as unknown as TurnRecorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
-				runId: RUN_ID,
+				turnId: RUN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -157,11 +160,10 @@ function harness(opts: {
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
-			create: async () =>
-				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
+			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as never,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		planManager: { active: null } as unknown as PlanManager,

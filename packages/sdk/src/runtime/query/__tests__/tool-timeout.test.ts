@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { DEFAULT_TOOL_TIMEOUT_MS, ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * `ToolContext.abortSignal` was produced by the executor and consumed by
@@ -15,7 +18,7 @@ import { DEFAULT_TOOL_TIMEOUT_MS, ToolExecutor } from '../executor.js'
  * existed at all: `bash` defaulted to one hour, MCP stdio to forever.
  */
 
-const RUN_ID = 'a1210bd5-9811-41e1-bbcb-6c63b91947e3' as RunId
+const RUN_ID = 'a1210bd5-9811-41e1-bbcb-6c63b91947e3' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -91,8 +94,9 @@ function harness(opts: {
 
 	const exec = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
-			runId: RUN_ID,
+			turnId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},

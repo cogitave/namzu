@@ -454,7 +454,7 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 			agentId: 'ledger',
 			agentName: 'ledger',
 			workingDirectory: workdir,
-			runConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10_000, tokenBudget: 100_000 },
+			turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 10_000, tokenBudget: 100_000 },
 			sessionId: fixtureId.session('ledger-replay'),
 			topicId: fixtureId.topic('ledger-replay'),
 			projectId: fixtureId.project('ledger-replay'),
@@ -493,7 +493,7 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 
 	function context(workingDirectory: string, tracker: ReturnType<typeof createFileReadTracker>) {
 		return {
-			runId: fixtureId.run('ledger-keys'),
+			turnId: fixtureId.turn('ledger-keys'),
 			workingDirectory,
 			abortSignal: new AbortController().signal,
 			env: {},

@@ -1,20 +1,20 @@
 import { isDeepStrictEqual } from 'node:util'
 
-import type { RunPersistence } from '../../manager/run/persistence.js'
-import { ToolExecutionCollector } from '../../store/run/tool-executions.js'
+import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
 import type {
 	CheckpointId,
 	HITLDecisionRequest,
 	HITLResumeDecision,
-	IterationCheckpoint,
 	ToolCallSummary,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage, Message, ToolCall } from '../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
-import type { ToolExecutionSnapshot } from '../../types/run/store.js'
+import type { ToolExecutionSnapshot } from '../../types/session/tool-execution.js'
 import type { Logger } from '../../utils/logger.js'
+import type { RestoredCheckpoint } from './checkpoint.js'
 import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
 import { PendingAnswers } from './question-park.js'
+import { readToolExecutions } from './tool-executions.js'
 import { isPauseForCall } from './tool-pause.js'
 
 /**
@@ -81,7 +81,7 @@ export interface PendingResumePlan {
  * here and says so rather than pretending.
  */
 export function planPendingResume(
-	checkpoint: IterationCheckpoint,
+	checkpoint: RestoredCheckpoint,
 	decision: HITLResumeDecision,
 	log: Logger,
 ): PendingResumePlan | null {
@@ -301,7 +301,7 @@ export function answersParkOf(
  * on.
  */
 function planQuestionResume(
-	checkpoint: IterationCheckpoint,
+	checkpoint: RestoredCheckpoint,
 	decision: HITLResumeDecision,
 	questionId: string,
 	log: Logger,
@@ -355,7 +355,7 @@ function planQuestionResume(
  * outcome, not executed again. An untouched batch uses ordinary history repair.
  */
 export function planCrashResume(
-	checkpoint: IterationCheckpoint,
+	checkpoint: RestoredCheckpoint,
 	completed: ReadonlyMap<string, unknown>,
 	log: Logger,
 ): PendingResumePlan | null {
@@ -404,7 +404,7 @@ export function planCrashResume(
  */
 export async function applyPendingResume(
 	plan: PendingResumePlan,
-	runMgr: RunPersistence,
+	recorder: TurnRecorder,
 	executor: ToolExecutor,
 	prior?: PriorToolResults,
 ): Promise<void> {
@@ -440,7 +440,7 @@ export async function applyPendingResume(
 				const reason =
 					'The tool input changed after its durable review; the earlier approval cannot be reused.'
 				denials.set(call.id, reason)
-				await runMgr.recordAudit({
+				await recorder.recordAudit({
 					what: { action: 'tool_call', tool: call.name },
 					outcome: 'refused',
 					reason,
@@ -464,7 +464,7 @@ export async function applyPendingResume(
 
 		if (reason) {
 			denials.set(call.id, reason)
-			await runMgr.recordAudit({
+			await recorder.recordAudit({
 				what: { action: 'tool_call', tool: call.name },
 				outcome: 'refused',
 				reason,
@@ -472,10 +472,10 @@ export async function applyPendingResume(
 		}
 	}
 
-	runMgr.pushMessage(plan.assistant)
+	recorder.pushMessage(plan.assistant)
 	const batch = await executor.executeBatch(plan.response, denials, prior, preparedBatch)
 	for (const msg of batch.messages) {
-		runMgr.pushMessage(msg)
+		recorder.pushMessage(msg)
 	}
 }
 
@@ -495,7 +495,7 @@ function modifiedCallIds(decision: HITLResumeDecision): ReadonlySet<string> {
  * replay; an explicitly answered durable question may re-enter its own tool.
  */
 export async function recoverCompletedCalls(
-	runMgr: RunPersistence,
+	recorder: TurnRecorder,
 	toolCalls: readonly ToolCall[],
 	log: Logger,
 	options: { answers?: PendingAnswers; signal?: AbortSignal } = {},
@@ -503,23 +503,13 @@ export async function recoverCompletedCalls(
 	const recovered = new Map<string, { result: string; isError: boolean }>()
 	let snapshot: ToolExecutionSnapshot | undefined
 	try {
-		const store = runMgr.getRunStore()
-		if (store.readToolExecutions) {
-			snapshot = await store.readToolExecutions(
-				toolCalls.map((call) => call.id),
-				options.signal,
-			)
-		} else {
-			const collector = new ToolExecutionCollector(
-				runMgr.id,
-				toolCalls.map((call) => call.id),
-			)
-			for (const event of await store.readEvents({ integrity: 'strict' })) {
-				options.signal?.throwIfAborted()
-				collector.accept(event)
-			}
-			snapshot = collector.finish()
-		}
+		await recorder.flush()
+		snapshot = await readToolExecutions(
+			recorder.log,
+			recorder.turnId,
+			toolCalls.map((call) => call.id),
+			options.signal,
+		)
 	} catch (error) {
 		if (options.signal?.aborted) throw error
 		log.warn('Could not read the transcript to recover completed tool calls', {

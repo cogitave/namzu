@@ -9,13 +9,13 @@ import type {
 	PluginHookEvent,
 	PluginHookResult,
 } from '../../../types/plugin/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -45,12 +45,15 @@ async function run(
 	seen: Seen[],
 	options: {
 		answer?: (event: PluginHookEvent) => PluginHookResult[]
-		parentRunId?: ReturnType<typeof generateRunId>
+		parent?: {
+			readonly sessionId: ReturnType<typeof generateSessionId>
+			readonly turnId: ReturnType<typeof generateTurnId>
+		}
 		contextWindowTokens?: number
 		prompt?: string
 	} = {},
 ) {
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const sessionId = generateSessionId()
 	const result = await drainQuery(
 		{
@@ -64,7 +67,7 @@ async function run(
 			agentName: 'A',
 			messages: [{ role: 'user', content: options.prompt ?? 'what is the answer' }],
 			workingDirectory: process.cwd(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				tokenBudget: 100_000,
 				timeoutMs: 30_000,
@@ -77,7 +80,9 @@ async function run(
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			pluginManager: manager(seen, options.answer),
-			...(options.parentRunId ? { parentRunId: options.parentRunId } : {}),
+			...(options.parent
+				? { parentSessionId: options.parent.sessionId, parentTurnId: options.parent.turnId }
+				: {}),
 			...(options.contextWindowTokens
 				? {
 						compactionConfig: CompactionConfigSchema.parse({
@@ -103,7 +108,7 @@ describe('the prompt, before the model sees it', () => {
 		expect(ctx?.prompt).toBe('deploy the thing')
 		expect(ctx?.sessionId).toBe(sessionId)
 		const order = seen.map((s) => s.event)
-		expect(order.indexOf('user_prompt_submit')).toBeLessThan(order.indexOf('run_start'))
+		expect(order.indexOf('user_prompt_submit')).toBeLessThan(order.indexOf('turn_start'))
 	})
 
 	it('carries what the hook added into the system prompt', async () => {
@@ -112,8 +117,8 @@ describe('the prompt, before the model sees it', () => {
 			answer: (event) =>
 				event === 'user_prompt_submit' ? [{ action: 'annotate', text: 'branch: feat/x' }] : [],
 		})
-		const started = events.find((e) => e.type === 'run_started')
-		expect(started?.type === 'run_started' ? started.systemPrompt : '').toContain('branch: feat/x')
+		const started = events.find((e) => e.type === 'turn_started')
+		expect(started?.type === 'turn_started' ? started.systemPrompt : '').toContain('branch: feat/x')
 	})
 
 	it('ends the run, failed and naming the reason, when the hook refuses the prompt', async () => {
@@ -124,18 +129,19 @@ describe('the prompt, before the model sees it', () => {
 		})
 		expect(result.status).toBe('failed')
 		expect(JSON.stringify(result)).toContain('Prompt blocked by hook: not on main')
-		expect(seen.map((s) => s.event)).not.toContain('run_start')
+		expect(seen.map((s) => s.event)).not.toContain('turn_start')
 	})
 })
 
 describe('a delegated run ending', () => {
-	it('fires subagent_stop with the parent, after its own run_end', async () => {
+	it('fires subagent_stop with the parent, after its own turn_end', async () => {
 		const seen: Seen[] = []
-		const parentRunId = generateRunId()
-		await run(seen, { parentRunId })
+		const parent = { sessionId: generateSessionId(), turnId: generateTurnId() }
+		await run(seen, { parent })
 		const order = seen.map((s) => s.event)
-		expect(order.indexOf('subagent_stop')).toBeGreaterThan(order.indexOf('run_end'))
-		expect(pick(seen, 'subagent_stop')?.parentRunId).toBe(parentRunId)
+		expect(order.indexOf('subagent_stop')).toBeGreaterThan(order.indexOf('turn_end'))
+		expect(pick(seen, 'subagent_stop')?.parentSessionId).toBe(parent.sessionId)
+		expect(pick(seen, 'subagent_stop')?.parentTurnId).toBe(parent.turnId)
 	})
 
 	it('is not a root run', async () => {

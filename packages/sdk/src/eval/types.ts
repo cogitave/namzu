@@ -1,4 +1,4 @@
-import type { StepResult } from '../types/run/step.js'
+import type { StepResult } from '../types/session/step.js'
 import type { ScoreUncertainty } from './uncertainty.js'
 
 /**
@@ -22,7 +22,7 @@ export interface EvalCase<TInput = unknown> {
 }
 
 /** What actually happened, handed to every scorer. */
-export interface EvalRun {
+export interface EvalTurn {
 	/** Final assistant text, when the run produced one. */
 	output: string | null
 	/** Schema-validated final output, when `structuredOutput` was requested. */
@@ -104,7 +104,7 @@ export interface Scorer {
 	 * scorer may ignore it; a scorer that owns I/O should carry it to that
 	 * transport so timed-out work is stopped rather than merely abandoned.
 	 */
-	score(run: EvalRun, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
+	score(run: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
 	/** See {@link ScorerSeverity}. Default `soft`. */
 	severity?: ScorerSeverity
 	/**
@@ -128,7 +128,7 @@ export type CaseStatus = 'passed' | 'failed' | 'inconclusive'
 
 export interface CaseResult {
 	case: string
-	run: EvalRun
+	run: EvalTurn
 	scores: Record<string, Score>
 	/** Mean of this case's AVAILABLE scores. Zero when none were. */
 	mean: number

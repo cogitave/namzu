@@ -9,8 +9,8 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { BashTool } from '../../../tools/builtins/bash.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { Run } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { Turn } from '../../../types/session/index.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'
 
@@ -62,7 +62,7 @@ async function runStartingAJob(
 	backgroundJobs: BackgroundJobRegistry,
 	command: string,
 	responseDelayMs = 0,
-): Promise<Run | { error: unknown }> {
+): Promise<Turn | { error: unknown }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-runjobs-'))
 	dirs.push(workingDirectory)
 
@@ -88,7 +88,7 @@ async function runStartingAJob(
 	return await drainQuery({
 		provider,
 		tools,
-		runConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('start the watcher')],
@@ -105,7 +105,7 @@ describe('a run takes its background jobs with it', () => {
 	it('leaves nothing of its own running', async () => {
 		const registry = new BackgroundJobRegistry()
 
-		const run = (await runStartingAJob(registry, 'sleep 30')) as Run
+		const run = (await runStartingAJob(registry, 'sleep 30')) as Turn
 
 		// Nothing is left under this run's id — and the id is real, so a
 		// vacuously-empty list is not what is being asserted.
@@ -124,7 +124,7 @@ describe('a run takes its background jobs with it', () => {
 		// Without this synchronization the run can finish before the spawned
 		// shell gets scheduled; `Number('')` then produces the valid-looking PID
 		// zero and `kill(0, 0)` probes this test process's own group.
-		const run = (await runStartingAJob(registry, 'sleep 30 & echo $!; wait', 100)) as Run
+		const run = (await runStartingAJob(registry, 'sleep 30 & echo $!; wait', 100)) as Turn
 		const job = registry.list(run.id)[0]
 		if (!job) throw new Error('the run started no job')
 		const printed = registry.read(job.id).chunk.trim().split('\n')[0]
@@ -169,7 +169,7 @@ describe('a run takes its background jobs with it', () => {
 				] as never,
 			}),
 			tools,
-			runConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 200_000, maxIterations: 4 },
 			agentId: 'a',
 			agentName: 'A',
 			messages: [createUserMessage('start the watcher')],

@@ -78,7 +78,7 @@ describe('the tool-retry backoff a caller sets reaches the executor', () => {
 		return drainQuery({
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'run-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,

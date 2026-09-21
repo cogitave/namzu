@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryPromoter } from '../../../run/memory-promoter.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { createMemoryPromoter } from '../../../turn/memory-promoter.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
-import type { RunMemoryCandidate } from '../../../types/run/memory-promotion.js'
-import { memoryCandidateFor } from '../../../types/run/memory-promotion.js'
+import type { SessionMemoryCandidate } from '../../../types/session/memory-promotion.js'
+import { memoryCandidateFor } from '../../../types/session/memory-promotion.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -28,7 +28,7 @@ import { drainQuery } from '../index.js'
 registerMock()
 
 function run(opts: {
-	promoteMemory?: (candidate: RunMemoryCandidate) => void | Promise<void>
+	promoteMemory?: (candidate: SessionMemoryCandidate) => void | Promise<void>
 	failing?: boolean
 	compaction?: boolean
 }) {
@@ -41,7 +41,7 @@ function run(opts: {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'ship the invoice job' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -59,10 +59,11 @@ describe('what a finished run leaves behind', () => {
 		await run({ promoteMemory: promote })
 
 		expect(promote).toHaveBeenCalledTimes(1)
-		const candidate = promote.mock.calls[0]?.[0] as RunMemoryCandidate
-		expect(candidate.runId).toMatch(
+		const candidate = promote.mock.calls[0]?.[0] as SessionMemoryCandidate
+		expect(candidate.turnId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
+		expect(candidate.sessionId).toMatch(/^[0-9a-f]{8}-/)
 		expect(candidate.task).toContain('invoice')
 	})
 
@@ -179,7 +180,11 @@ describe('whether there is anything to offer', () => {
 		// Inventing an empty candidate would ask a host to store a record of
 		// nothing.
 		expect(
-			memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, undefined),
+			memoryCandidateFor(
+				'5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+				'37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+				undefined,
+			),
 		).toBeUndefined()
 	})
 
@@ -194,9 +199,13 @@ describe('whether there is anything to offer', () => {
 			files: new Map([['src/a.ts', {}]]),
 			evicted: { decisions: 2 },
 		}
-		const candidate = memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, {
-			getState: () => state,
-		})
+		const candidate = memoryCandidateFor(
+			'5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			{
+				getState: () => state,
+			},
+		)
 
 		expect(candidate?.files).toEqual(['src/a.ts'])
 		expect(candidate?.userRequirements).toEqual(['never bill twice'])

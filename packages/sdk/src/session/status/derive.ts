@@ -26,12 +26,12 @@
  * `failed` when every Run ended that way.
  */
 
-import type { RunStatus } from '../../types/run/status.js'
 import type { Session, SessionStatus } from '../../types/session/entity.js'
+import type { TurnStatus } from '../../types/session/turn.js'
 
 export function deriveStatus(
 	session: Session,
-	runs: readonly { status: RunStatus }[],
+	runs: readonly { status: TurnStatus }[],
 ): SessionStatus {
 	// Session-level overrides — these states do not fan in from Run status.
 	if (session.status === 'locked') return 'locked'

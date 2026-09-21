@@ -109,7 +109,7 @@ async function run(reported: 'stop' | 'tool_calls') {
 		provider: provider(reported),
 		tools,
 		messages: [createUserMessage('echo hi')],
-		runConfig: {
+		turnConfig: {
 			model: 'scripted-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -184,7 +184,7 @@ describe('a provider that says stop while asking for a tool', () => {
 			},
 			tools,
 			messages: [createUserMessage('hi')],
-			runConfig: {
+			turnConfig: {
 				model: 'plain-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,

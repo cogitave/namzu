@@ -106,7 +106,7 @@ export interface CostInfo {
 	 * knows what this run cost". Reporting the second as zero is the defect the
 	 * price catalogue was added to fix, one level down: a total that is always
 	 * zero and a total that is zero because it is unknown look identical, and
-	 * `runConfig.costLimitUsd` is enforced against both.
+	 * `turnConfig.costLimitUsd` is enforced against both.
 	 *
 	 * - `totalCost: 0, unpricedTokens: 0` — the run genuinely cost nothing
 	 *   (local inference bills per token exactly never).

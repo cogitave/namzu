@@ -7,7 +7,7 @@
  * fast).
  */
 
-import type { RunId, SessionId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 
 /**
  * Raised when a handoff's CAS write finds {@link Session.ownerVersion} has
@@ -48,10 +48,14 @@ export class HandoffLockRejected extends Error {
 	readonly details: {
 		sessionId: SessionId
 		reason: HandoffLockRejectedReason
-		runId?: RunId
+		runId?: TurnId
 	}
 
-	constructor(details: { sessionId: SessionId; reason: HandoffLockRejectedReason; runId?: RunId }) {
+	constructor(details: {
+		sessionId: SessionId
+		reason: HandoffLockRejectedReason
+		runId?: TurnId
+	}) {
 		super(`Handoff lock rejected on ${details.sessionId}: ${details.reason}`)
 		this.name = 'HandoffLockRejected'
 		this.details = details

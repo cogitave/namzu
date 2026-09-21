@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
@@ -11,8 +11,7 @@ import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { createResidentStepContributions } from '../../../prompt/resident-step.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { createDiskRunEvidenceSource } from '../../../store/evidence/disk.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
+import { createSessionEvidenceSource } from '../../../store/evidence/disk.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { buildResidentToolEvidenceTools } from '../../../tools/resident-tool-evidence.js'
 import {
@@ -20,8 +19,10 @@ import {
 	createAssistantMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import { drainQuery } from '../index.js'
+import { resolveSessionStorage } from '../session-storage.js'
+import { records } from './support/session.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -37,11 +38,9 @@ it.each(['structured', 'sliding-window'] as const)(
 			tenantId: fixtureId.tenant(strategy),
 			projectId: fixtureId.project(strategy),
 			sessionId: fixtureId.session(`seed-${strategy}`),
-			runId: fixtureId.run(`seed-${strategy}`),
+			turnId: fixtureId.turn(`seed-${strategy}`),
 		}
 		const topicId = fixtureId.topic(strategy)
-		const indexDir = join(root, 'index')
-		await mkdir(indexDir)
 		const agenda = new DiskResidentAgenda(join(root, 'agenda'), {
 			tenantId: scope.tenantId,
 			agentKey: 'receipt',
@@ -66,19 +65,17 @@ it.each(['structured', 'sliding-window'] as const)(
 				return { success: true, output }
 			},
 		})
-		const store = new RunDiskStore({ baseDir: join(root, 'runs') })
 		const common = {
 			workingDirectory: root,
 			agentId: 'receipt',
 			agentName: 'Receipt test',
 			topicId,
 			systemPrompt: 'Follow the authorized objective.',
-			runConfig: { model: 'mock', maxIterations: 6, timeoutMs: 20_000, tokenBudget: 200_000 },
+			turnConfig: { model: 'mock', maxIterations: 6, timeoutMs: 20_000, tokenBudget: 200_000 },
 		}
 		const first = await drainQuery({
 			...common,
 			...scope,
-			runStore: store,
 			tools,
 			provider: new MockLLMProvider({
 				turns: [
@@ -95,13 +92,15 @@ it.each(['structured', 'sliding-window'] as const)(
 			3,
 		)
 		const revision = (await agenda.read())!.revision
-		const runDir = store.getRunDir()!
-		const transcript = await readFile(join(runDir, 'transcript.jsonl'), 'utf8')
-		const completed = transcript
-			.trim()
-			.split('\n')
-			.map((line) => JSON.parse(line))
-			.find((event) => event.type === 'tool_completed')
+		// The session's log on disk, under NAMZU_HOME for the working directory.
+		const storage = await resolveSessionStorage({
+			sessionId: scope.sessionId,
+			workingDirectory: root,
+		})
+		const logPath = (storage.log as { file?: string }).file as string
+		const completed = (await records(storage.log)).find(
+			(record) => record.type === 'tool_completed',
+		) as unknown as { isError: boolean; result: string; outputSpillIntegrity?: string }
 		expect(completed.isError, completed.result).toBe(false)
 		expect(effects).toBe(1)
 		expect(completed.outputSpillIntegrity).toMatch(/^[a-f0-9]{64}$/)
@@ -112,9 +111,9 @@ it.each(['structured', 'sliding-window'] as const)(
 				agentKey: 'receipt',
 			}).history(settled, revision),
 			projectId: scope.projectId,
-			resolveRun: async (entry) => {
+			resolveTurn: async (entry) => {
 				expect(entry.claimId).toBe(claim.claimId)
-				return createDiskRunEvidenceSource({ scope, runDir, indexDir })
+				return createSessionEvidenceSource({ scope, logPath })
 			},
 		})
 		// Obtain the deterministic test script's address through the public search API.
@@ -162,14 +161,14 @@ it.each(['structured', 'sliding-window'] as const)(
 				createAssistantMessage('old reasoning '.repeat(700)),
 			)
 		messages.push(createUserMessage('Recover the original receipt. Do not mint another.'))
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const result = await drainQuery(
 			{
 				...common,
 				tenantId: scope.tenantId,
 				projectId: scope.projectId,
 				sessionId: fixtureId.session(`read-${strategy}`),
-				runId: fixtureId.run(`read-${strategy}`),
+				turnId: fixtureId.turn(`read-${strategy}`),
 				provider,
 				tools: reader,
 				messages,
