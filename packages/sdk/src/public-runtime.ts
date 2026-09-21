@@ -1129,7 +1129,11 @@ export {
 	scoreMessages,
 } from './compaction/salience/index.js'
 export { DEFAULT_SOFT_TARGET, planSalienceWorkingSet } from './compaction/plan.js'
-export { CONSOLIDATION_TAG, consolidationEntry } from './compaction/consolidation.js'
+export {
+	CONSOLIDATION_TAG,
+	consolidationEntry,
+	isConsolidated,
+} from './compaction/consolidation.js'
 // The sibling state-bearing system message. A host that carries a Run's
 // conversation into a fresh query must distinguish this ledger from the fresh
 // identity/environment prompt floor without copying its private header string.

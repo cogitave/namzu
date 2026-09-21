@@ -358,12 +358,20 @@ claims. `maxPerCategory` defaults to 20. Summaries carry actual claims; the full
 record also carries extraction omissions and files touched when present.
 
 Promoted records carry the `run-memory` tag, source run, a digest of the selected
-claim sections, and `verification: 'unverified'`. The promoter trims claims and
+claim sections, `type: 'project'`, and `verification: 'unverified'`. The promoter trims claims and
 removes exact duplicates within a category. If the same ordered claim sections
 already exist with matching tags and digest, it skips saving them again, even
 when the prior record is archived. That lookup followed by creation is
 best-effort deduplication, not a cross-process uniqueness guarantee. Paraphrases,
 reordered claims and contradictions are not reconciled automatically.
+
+Consolidation (`consolidateInto`) deduplicates the same way. `consolidationEntry`
+adds a `knowledge:<digest>` tag and `metadata.knowledgeDigest`, computed over the
+run's decisions, discoveries and failures — not its run id or task — plus
+`type: 'project'`. Before writing, the runtime asks `isConsolidated(store, entry)`
+and skips the write, with no `memory_consolidated` event, when a consolidation
+with that digest already exists, archived included. The same best-effort caveat
+applies.
 
 The CLI uses promotion by default. Its explicit `compaction.consolidate` option
 selects consolidation into the same store instead of running both writers.

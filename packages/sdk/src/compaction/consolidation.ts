@@ -14,7 +14,12 @@
  * lesson. Pure: the caller writes the entry, this only says what it is.
  */
 
-import type { CreateMemoryParams } from '../types/memory/index.js'
+import {
+	KNOWLEDGE_TAG_PREFIX,
+	holdsKnowledgeDigest,
+	knowledgeDigest,
+} from '../store/memory/digest.js'
+import type { CreateMemoryParams, MemoryStore } from '../types/memory/index.js'
 import type { WorkingState } from './types.js'
 
 export const CONSOLIDATION_TAG = 'learning'
@@ -30,6 +35,27 @@ const MAX_TASK_IN_TITLE = 72
 function head(text: string, max: number): string {
 	const line = text.split('\n')[0]?.trim() ?? ''
 	return line.length <= max ? line : `${line.slice(0, max - 1)}…`
+}
+
+/**
+ * Whether `store` already holds a consolidation of exactly this knowledge.
+ *
+ * {@link consolidationEntry} is pure and cannot ask; the caller asks this
+ * before writing, the way the promoter does, so a run that learned what an
+ * earlier run already recorded — archived included — writes nothing.
+ */
+export async function isConsolidated(
+	store: MemoryStore,
+	entry: CreateMemoryParams,
+): Promise<boolean> {
+	const digest = entry.metadata?.knowledgeDigest
+	if (typeof digest !== 'string') return false
+	return holdsKnowledgeDigest(
+		store,
+		[CONSOLIDATION_TAG],
+		digest,
+		(metadata) => metadata?.kind === 'consolidation',
+	)
 }
 
 /**
@@ -68,12 +94,21 @@ export function consolidationEntry(
 			: '',
 		failures.length ? `${failures.length} failure${failures.length === 1 ? '' : 's'}` : '',
 	].filter((part) => part.length > 0)
+	// What was learned, not which run learned it: two runs reaching the same
+	// decisions, discoveries and failures consolidate to one record.
+	const digest = knowledgeDigest({ decisions, discoveries, failures })
 	return {
 		title: task ? `Learned: ${head(task, MAX_TASK_IN_TITLE)}` : `Learned in run ${meta.runId}`,
 		summary: `${counts.join(', ')} from run ${meta.runId}.`,
 		content,
 		format: 'markdown',
-		tags: [CONSOLIDATION_TAG, `run:${meta.runId}`],
-		metadata: { runId: meta.runId, consolidatedAt: meta.at, kind: 'consolidation' },
+		type: 'project',
+		tags: [CONSOLIDATION_TAG, `run:${meta.runId}`, `${KNOWLEDGE_TAG_PREFIX}${digest}`],
+		metadata: {
+			runId: meta.runId,
+			consolidatedAt: meta.at,
+			kind: 'consolidation',
+			knowledgeDigest: digest,
+		},
 	}
 }

@@ -4,7 +4,11 @@
  * This deterministic filter does not verify truth or reconcile paraphrases.
  */
 
-import { createHash } from 'node:crypto'
+import {
+	KNOWLEDGE_TAG_PREFIX,
+	holdsKnowledgeDigest,
+	knowledgeDigest,
+} from '../store/memory/digest.js'
 import type { MemoryStore } from '../types/memory/index.js'
 import type { PromoteMemory, RunMemoryCandidate } from '../types/run/memory-promotion.js'
 
@@ -113,25 +117,27 @@ export function createMemoryPromoter(options: MemoryPromoterOptions): PromoteMem
 		// of rows describing runs that discovered nothing is a store whose
 		// search results are mostly noise, and the model reads that store.
 		if (sections.length === 0) return
-		const digest = createHash('sha256').update(JSON.stringify(sections)).digest('hex')
-		const knowledgeTag = `knowledge:${digest}`
+		const digest = knowledgeDigest(sections)
+		const knowledgeTag = `${KNOWLEDGE_TAG_PREFIX}${digest}`
 		// A prior exact claim, including one deliberately archived, need not be
 		// saved again. This is not a cross-process uniqueness guarantee: the
 		// store's individual operations are atomic, not this read/create pair.
-		const existing = await options.store.list({
-			tags: [...tags, knowledgeTag],
-		})
-		for (const entry of existing.entries) {
-			const full = await options.store.get(entry.id)
-			if (full?.metadata?.source === RUN_MEMORY_TAG && full.metadata.knowledgeDigest === digest)
-				return
-		}
+		if (
+			await holdsKnowledgeDigest(
+				options.store,
+				tags,
+				digest,
+				(metadata) => metadata?.source === RUN_MEMORY_TAG,
+			)
+		)
+			return
 
 		await options.store.create({
 			title: candidate.task.trim() || `Run ${candidate.runId}`,
 			summary: summarize(sections),
 			content: render(candidate, sections),
 			tags: [...tags, knowledgeTag],
+			type: 'project',
 			format: 'markdown',
 			// The run id, so a record can be traced back to the run that formed
 			// it. Evidence rather than decoration: without it a surprising

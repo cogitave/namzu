@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
+import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { CreateMemoryParams, MemoryStore } from '../../../types/memory/index.js'
@@ -125,6 +126,24 @@ describe('a run writes down what it learned', () => {
 		})
 		const order = events.map((e) => e.type)
 		expect(order.indexOf('memory_consolidated')).toBeLessThan(order.indexOf('run_completed'))
+	})
+
+	it('writes the same knowledge once, even after it was archived', async () => {
+		const memory = new InMemoryMemoryStore()
+		const first = await run(memory)
+		expect(first.some((e) => e.type === 'memory_consolidated')).toBe(true)
+		const [saved] = (await memory.list()).entries
+		expect(saved?.type).toBe('project')
+		expect(saved?.tags.some((tag) => tag.startsWith('knowledge:'))).toBe(true)
+
+		const second = await run(memory)
+		expect(second.some((e) => e.type === 'memory_consolidated')).toBe(false)
+		expect(second.some((e) => e.type === 'run_completed')).toBe(true)
+		expect((await memory.list()).totalCount).toBe(1)
+
+		await memory.update(saved?.id as never, { status: 'archived' })
+		await run(memory)
+		expect((await memory.list()).totalCount).toBe(1)
 	})
 
 	it('never fails the run when the store does', async () => {
