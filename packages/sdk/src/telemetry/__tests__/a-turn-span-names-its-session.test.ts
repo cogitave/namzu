@@ -2,12 +2,14 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { InMemorySessionLog } from '../../store/session-log/memory.js'
 import { fixtureId } from '../../test-support/ids.js'
+import { defineTool } from '../../tools/defineTool.js'
 import type { SessionId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import { agentTurnSpanName } from '../attributes.js'
@@ -144,5 +146,61 @@ describe('the root span of a turn', () => {
 		expect(root?.attributes['gen_ai.conversation.id']).toBe(fixtureId.session('turnspan-child'))
 		expect(root?.attributes['namzu.session.parent_id']).toBe(parent)
 		expect(root?.attributes).not.toHaveProperty('namzu.run.parent_id')
+	})
+})
+
+describe('every span of a turn', () => {
+	it('names the conversation and the turn: root, iteration, chat and tool', async () => {
+		const sessionId = fixtureId.session('turnspan-all')
+		const dir = await mkdtemp(join(tmpdir(), 'namzu-turnspan-'))
+		workdirs.push(dir)
+		const tools = new ToolRegistry()
+		tools.register(
+			defineTool({
+				name: 'echo',
+				description: 'echo',
+				inputSchema: z.object({}),
+				category: 'custom',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async () => ({ success: true, output: 'ok' }),
+			}),
+		)
+		const turn = await drainQuery({
+			provider: new MockLLMProvider({
+				turns: [
+					{ toolCalls: [{ id: 'call_1', name: 'echo', args: {} }], finishReason: 'tool_calls' },
+					{ text: 'done' },
+				],
+			}),
+			tools,
+			turnConfig: {
+				model: 'mock-model',
+				timeoutMs: 30_000,
+				tokenBudget: 100_000,
+				maxIterations: 3,
+				maxResponseTokens: 256,
+			},
+			agentId: 'agent_turnspan',
+			agentName: AGENT,
+			workingDirectory: dir,
+			sessionId,
+			sessionLog: new InMemorySessionLog({ sessionId }),
+			topicId: fixtureId.topic('turnspan'),
+			projectId: fixtureId.project('turnspan'),
+			tenantId: fixtureId.tenant('turnspan'),
+			messages: [createUserMessage('go')],
+		})
+
+		const kinds = new Set(spans.map((span) => span.name.split(' ')[0]))
+		expect(kinds).toEqual(
+			new Set(['namzu.agent.turn', 'namzu.agent.iteration', 'chat', 'namzu.tool.execute']),
+		)
+		for (const span of spans) {
+			expect(span.attributes['gen_ai.conversation.id'], span.name).toBe(sessionId)
+			expect(span.attributes['namzu.turn.id'], span.name).toBe(turn.id)
+		}
 	})
 })

@@ -492,6 +492,7 @@ export class IterationOrchestrator {
 
 					iterSpan.setAttributes({
 						[NAMZU.ITERATION]: iterationNum,
+						[GENAI.CONVERSATION_ID]: recorder.sessionId,
 						[NAMZU.TURN_ID]: recorder.turnId,
 						[GENAI.REQUEST_MODEL]: model,
 					})
@@ -829,6 +830,7 @@ export class IterationOrchestrator {
 						Boolean(
 							this.ctx.reviewAnswer || this.ctx.structuredOutput?.review || this.ctx.advisoryCtx,
 						),
+						recorder.sessionId,
 					)
 					stepResponse = response
 					const reviewRequest: ReviewRequest = {

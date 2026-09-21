@@ -167,6 +167,8 @@ export async function* streamProviderTurn(
 		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
 	},
 	captureRequest = false,
+	/** The session the turn belongs to, named on the chat span as `gen_ai.conversation.id`. */
+	sessionId?: import('../../../types/ids/index.js').SessionId,
 ): AsyncGenerator<SessionEvent, StreamingTurnResult> {
 	assertNativeStructuredOutputSupported(provider, params)
 	assertHostedWebSearchSupported(provider, params)
@@ -180,6 +182,8 @@ export async function* streamProviderTurn(
 	chatSpan.setAttributes({
 		[GENAI.OPERATION_NAME]: 'chat',
 		[GENAI.REQUEST_MODEL]: params.model,
+		...(sessionId !== undefined ? { [GENAI.CONVERSATION_ID]: sessionId } : {}),
+		[NAMZU.TURN_ID]: turnId,
 		...(params.temperature !== undefined
 			? { [GENAI.REQUEST_TEMPERATURE]: params.temperature }
 			: {}),

@@ -555,6 +555,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					[GENAI.TOOL_NAME]: toolName,
 					[GENAI.TOOL_TYPE]: 'function',
 					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
+					...toolSpanIdentity(context),
 					[NAMZU.TOOL_SUCCESS]: false,
 					[NAMZU.TOOL_ERROR]: toErrorMessage(err),
 				})
@@ -601,6 +602,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					[GENAI.TOOL_NAME]: toolName,
 					[GENAI.TOOL_TYPE]: 'function',
 					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
+					...toolSpanIdentity(context),
 				})
 
 				const availability = this.getAvailability(toolName)
@@ -915,5 +917,16 @@ function describeRequiredInput(schema: { _def?: unknown }): string {
 		return `Required: ${lines.join(', ')}.`
 	} catch {
 		return 'Could not introspect required parameters.'
+	}
+}
+
+/**
+ * The session and turn a tool span belongs to. A host calling a tool
+ * directly may pass a context without them, so each is set only when present.
+ */
+function toolSpanIdentity(context: ToolContext): Record<string, string> {
+	return {
+		...(context.sessionId ? { [GENAI.CONVERSATION_ID]: context.sessionId } : {}),
+		...(context.turnId ? { [NAMZU.TURN_ID]: context.turnId } : {}),
 	}
 }
