@@ -120,9 +120,10 @@ export interface IterationContext {
 	/**
 	 * Contributions that report state changing DURING the run.
 	 *
-	 * Rendered into the ephemeral trailing message once per iteration, never
-	 * into the system prompt — see `PromptPlacement`'s note on why `turn` is
-	 * a third thing rather than a looser `dynamic`.
+	 * Rendered once per iteration, never into the system prompt: `turn`
+	 * into the ephemeral trailing system message, `context` into the
+	 * request-only context channel after the history — see
+	 * `PromptPlacement`'s notes on both.
 	 */
 	readonly promptContributions?: PromptContributionRegistry
 

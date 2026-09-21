@@ -17,6 +17,99 @@ import {
 import { attributionHeaders } from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
+/**
+ * Models whose upstream caches only where the request places an explicit
+ * `cache_control` breakpoint. OpenRouter's prompt-caching page
+ * (openrouter.ai/docs/features/prompt-caching) lists Anthropic Claude, Google
+ * Gemini ("only the last breakpoint" is used) and Alibaba Qwen ("requires
+ * explicit `cache_control`"); OpenAI, DeepSeek, Grok, Moonshot, Groq and Z.AI
+ * cache automatically and are sent no marker, so their messages keep the
+ * plain string shape they have always had.
+ */
+function takesExplicitBreakpoints(model: string): boolean {
+	const id = model.replace(/^~/, '').toLowerCase()
+	return id.startsWith('anthropic/') || id.startsWith('google/gemini') || id.startsWith('qwen/')
+}
+
+/**
+ * Request-only context the runtime appends after the conversation: a
+ * runtime-context user message of kind `step-context`. It changes from one
+ * request to the next, so a breakpoint after it caches a prefix no later
+ * request repeats. The same test as the Anthropic driver's.
+ */
+function isRequestOnlyContext(msg: ChatCompletionParams['messages'][number]): boolean {
+	return (
+		msg.role === 'user' &&
+		msg.source?.type === 'runtime-context' &&
+		msg.source.kind === 'step-context'
+	)
+}
+
+const EPHEMERAL = { type: 'ephemeral' } as const
+
+/**
+ * Put a breakpoint on a formatted message's last content part, turning a
+ * string into a one-part array to carry it. Answers false when the message
+ * has no content to carry one — an assistant turn holding only tool calls.
+ *
+ * Always INSIDE a content part: a top-level `cache_control` on a `tool`
+ * message is not accepted by OpenRouter, while one inside its content part
+ * is (NousResearch/hermes-agent#57845, verified against
+ * `anthropic/claude-haiku-4.5`).
+ */
+function markLastPart(message: { content?: unknown }): boolean {
+	const content = message.content
+	if (typeof content === 'string') {
+		if (content.length === 0) return false
+		message.content = [{ type: 'text', text: content, cache_control: EPHEMERAL }]
+		return true
+	}
+	if (Array.isArray(content) && content.length > 0) {
+		const last = content[content.length - 1]
+		if (last === null || typeof last !== 'object') return false
+		// A copy: the array is the caller's own message content.
+		message.content = [...content.slice(0, -1), { ...last, cache_control: EPHEMERAL }]
+		return true
+	}
+	return false
+}
+
+/**
+ * Explicit breakpoints for the runtime's cache request: one after the last
+ * static system message, one on the last non-system message before
+ * request-only context. Two of the four Anthropic allows.
+ *
+ * This replaces a top-level `cache_control: { type: 'auto' }`. OpenRouter
+ * defines the top-level field with `{ type: 'ephemeral' }` only, and applies
+ * it "to the last cacheable block" — which, with request-only context at the
+ * tail, is the context itself, so the cached prefix would never be read
+ * again.
+ *
+ * System messages are passed over when walking back: the runtime places a
+ * step's preamble (host `step.system`, step skills, the policy notice,
+ * `turn` contributions) as a system message directly before the context,
+ * and its text changes from step to step, so a marker there would end the
+ * prefix on bytes the next request does not repeat.
+ */
+function applyCacheBreakpoints(
+	source: ChatCompletionParams['messages'],
+	formatted: { content?: unknown }[],
+): void {
+	let lastStatic = -1
+	let historyEnd = source.length
+	for (const [i, msg] of source.entries()) {
+		if (msg.role === 'system' && msg.cacheHint === 'cache') lastStatic = i
+		if (historyEnd === source.length && isRequestOnlyContext(msg)) historyEnd = i
+	}
+	const staticMessage = lastStatic >= 0 ? formatted[lastStatic] : undefined
+	if (staticMessage) markLastPart(staticMessage)
+	for (let i = historyEnd - 1; i > lastStatic; i--) {
+		if (source[i]?.role === 'system') continue
+		const message = formatted[i]
+		if (message && markLastPart(message)) return
+	}
+}
+
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
 
 /**
@@ -289,8 +382,8 @@ export class OpenRouterProvider implements LLMProvider {
 		if (params.repetitionPenalty !== undefined) body.repetition_penalty = params.repetitionPenalty
 		if (params.stop) body.stop = params.stop
 
-		if (params.cacheControl) {
-			body.cache_control = params.cacheControl
+		if (params.cacheControl && takesExplicitBreakpoints(params.model)) {
+			applyCacheBreakpoints(params.messages, body.messages as { content?: unknown }[])
 		}
 
 		// Refused, not dropped, when this wire cannot carry the level asked

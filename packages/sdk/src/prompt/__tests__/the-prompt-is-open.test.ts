@@ -475,6 +475,31 @@ describe('the prompt cache notices when the contributors change', () => {
 		expect(turnRenders).toBe(0)
 	})
 
+	it('keeps the whole system prompt when only a context contributor arrives', () => {
+		// `context` is request-only: it never reaches the system prompt the
+		// cache assembles, and its renderer belongs to the iteration loop.
+		let contextRenders = 0
+		const c = cache()
+		const base = new PromptContributionRegistry()
+		base.register(contribution('s', 'STATIC TEXT'))
+		const first = c.getSystemPromptSegmented(cacheInput(base))
+
+		const withContext = new PromptContributionRegistry()
+		withContext.register(contribution('s', 'STATIC TEXT'))
+		withContext.register({
+			id: 'c',
+			placement: 'context',
+			render: () => {
+				contextRenders++
+				return 'CONTEXT TEXT'
+			},
+		})
+		const second = c.getSystemPromptSegmented(cacheInput(withContext))
+
+		expect(second).toEqual(first)
+		expect(contextRenders).toBe(0)
+	})
+
 	it('DOES rebuild the static segment when a static contributor arrives', () => {
 		const c = cache()
 		const first = c.getSystemPromptSegmented(cacheInput())

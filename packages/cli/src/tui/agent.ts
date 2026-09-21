@@ -3077,8 +3077,12 @@ export async function createAgentSession(
 							additionalDirectories: [...directories],
 						})
 						// The repository as it stood when THIS turn began, through the
-						// SDK's `turn` placement — the ephemeral trailing message that is
-						// never cached and never enters history. FIRST iteration only:
+						// SDK's `context` placement — request-only context after the
+						// history that never enters it. An observation, not an
+						// instruction: under `turn` it rode a system message the
+						// Anthropic driver hoists ahead of the conversation, so every
+						// new send's changed snapshot re-read the whole history
+						// uncached. FIRST iteration only:
 						// later iterations work from state the model itself changed, and
 						// `git status` is the honest source for that. A registry per
 						// turn, closed over this turn's snapshot, rather than one
@@ -3088,7 +3092,7 @@ export async function createAgentSession(
 						const promptContributions = new PromptContributionRegistry()
 						promptContributions.register({
 							id: 'namzu.turn-snapshot',
-							placement: 'turn',
+							placement: 'context',
 							render: ({ iteration }) => (iteration === 1 ? turnSnapshotPrompt : null),
 						})
 						// The citation rules that come with the web tools, only when the

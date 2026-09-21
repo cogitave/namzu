@@ -384,9 +384,13 @@ function buildModelPrompt(
 ): LanguageModelV3Prompt {
 	const prompt: LanguageModelV3Prompt = []
 	const toolNames = new Map<string, string>()
+	let lastStatic = -1
+	let historyEnd: number | undefined
 	for (const [index, message] of params.messages.entries()) {
+		if (isRequestOnlyContext(message)) historyEnd ??= prompt.length
 		switch (message.role) {
 			case 'system':
+				if (message.cacheHint === 'cache') lastStatic = prompt.length
 				prompt.push({ role: 'system', content: message.content })
 				break
 			case 'user':
@@ -432,7 +436,54 @@ function buildModelPrompt(
 			}
 		}
 	}
+	if (protocol === 'messages' && params.cacheControl)
+		applyCacheBreakpoints(prompt, lastStatic, historyEnd ?? prompt.length)
 	return prompt
+}
+
+/**
+ * Request-only context the runtime appends after the conversation: a
+ * runtime-context user message of kind `step-context`. It changes from one
+ * request to the next. The same test as the Anthropic driver's.
+ */
+function isRequestOnlyContext(message: Message): boolean {
+	return (
+		message.role === 'user' &&
+		message.source?.type === 'runtime-context' &&
+		message.source.kind === 'step-context'
+	)
+}
+
+const BREAKPOINT = { anthropic: { cacheControl: { type: 'ephemeral' } } } as const
+
+/**
+ * Messages-protocol cache breakpoints, block-level: after the last static
+ * system message, and on the last non-system message before request-only
+ * context. The native adapter turns a message's `providerOptions` into
+ * `cache_control` on that message's last content block.
+ *
+ * Replaces the request-level `cacheControl` option, which the adapter sends
+ * as a top-level `cache_control` — Anthropic's automatic caching, which
+ * "applies the cache breakpoint to the last cacheable block"
+ * (platform.claude.com/docs/en/build-with-claude/prompt-caching). With
+ * request-only context at the tail that block is the context, which the
+ * next request replaces, so no later request read the cached history.
+ * System messages are passed over when walking back: a trailing system
+ * message is a step's guidance, which changes from step to step as well.
+ */
+function applyCacheBreakpoints(
+	prompt: LanguageModelV3Prompt,
+	lastStatic: number,
+	historyEnd: number,
+): void {
+	const staticMessage = lastStatic >= 0 ? prompt[lastStatic] : undefined
+	if (staticMessage) staticMessage.providerOptions = { ...BREAKPOINT }
+	for (let i = historyEnd - 1; i > lastStatic; i--) {
+		const message = prompt[i]
+		if (!message || message.role === 'system' || message.content.length === 0) continue
+		message.providerOptions = { ...BREAKPOINT }
+		return
+	}
 }
 
 export function toModelPrompt(

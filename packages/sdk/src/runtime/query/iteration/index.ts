@@ -74,7 +74,7 @@ import {
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
-import { refreshWorkingMemory } from './phases/working-memory.js'
+import { refreshWorkingMemory, splitWorkingMemoryForRequest } from './phases/working-memory.js'
 import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
 import {
 	type StepShaping,
@@ -564,15 +564,16 @@ export class IterationOrchestrator {
 					const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
 					stepModel = step.model ?? model
 
-					const baseMessages = forceFinalize
-						? [
-								...runMgr.messages,
-								createRuntimeContextMessage(
-									`[SYSTEM] You are approaching your resource limits. ${CLOSING_RESPONSE_GUIDANCE}`,
-									'limit-finalization',
-								),
-							]
-						: runMgr.messages
+					// The closing directive is appended LAST, after every piece of
+					// request-only context below, so it is the final thing the model
+					// reads on a forced-final step.
+					const closingDirective = forceFinalize
+						? createRuntimeContextMessage(
+								`[SYSTEM] You are approaching your resource limits. ${CLOSING_RESPONSE_GUIDANCE}`,
+								'limit-finalization',
+							)
+						: undefined
+					const baseMessages = runMgr.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto
 					// the run's history: it applies to this step only, and pushing
@@ -618,18 +619,37 @@ export class IterationOrchestrator {
 							iteration: iterationNum,
 						}) ?? []
 
+					// Request-only context: observations that need no system
+					// authority and change from request to request. They ride
+					// runtime-context messages of kind `step-context` after the
+					// history, which every driver keeps there and a caching driver
+					// ends its breakpoint before — so a changed pin or a new turn
+					// snapshot costs its own tokens, not a re-read of the history.
+					// The working-memory slot keeps its place in the run's history
+					// (compaction preserves it there) and leaves the request's
+					// system run here.
+					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
+					const contextSections =
+						this.ctx.promptContributions?.render('context', {
+							iteration: iterationNum,
+						}) ?? []
+
 					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
 						.filter(Boolean)
 						.join('\n\n')
 					const requestHistory = stepPreamble
-						? [...baseMessages, createSystemMessage(stepPreamble)]
-						: [...baseMessages]
+						? [...workingMemory.history, createSystemMessage(stepPreamble)]
+						: [...workingMemory.history]
+					if (workingMemory.context) requestHistory.push(workingMemory.context)
+					if (contextSections.length > 0)
+						requestHistory.push(stepContextMessage(contextSections.join('\n\n')))
 					if (step.context) requestHistory.push(stepContextMessage(step.context))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
 					appendWorkContext(this.stepShaping(), messages, iterationNum, step)
+					if (closingDirective) messages.push(closingDirective)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()
 
@@ -2248,18 +2268,26 @@ export class IterationOrchestrator {
 		})
 
 		try {
+			// The working-memory slot leaves the system run exactly as it does
+			// for a normal step, and for the same cache reason.
+			const workingMemory = splitWorkingMemoryForRequest(this.ctx.runMgr.messages)
 			const finalHistory = [
-				...this.ctx.runMgr.messages,
-				createRuntimeContextMessage(
-					`[SYSTEM] Run is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,
-					'limit-finalization',
-				),
+				...workingMemory.history,
+				...(workingMemory.context ? [workingMemory.context] : []),
 			]
 			const finalMessages = projectRequestRichContent(
 				this.projectObservations(finalHistory),
 				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 			)
 			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
+			// The closing directive is the last thing the model reads: after
+			// the working memory and any work context above.
+			finalMessages.push(
+				createRuntimeContextMessage(
+					`[SYSTEM] Run is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,
+					'limit-finalization',
+				),
+			)
 			await this.reportUnsupportedToolResults(finalMessages)
 
 			// Same cache discipline as the forced-final iteration: keep the

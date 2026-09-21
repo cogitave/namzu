@@ -83,15 +83,38 @@ function extractSystemBlocks(
 }
 
 /**
+ * Request-only context the runtime appends after the conversation: a
+ * runtime-context user message of kind `step-context` (the working-memory
+ * slot, a `context` prompt contribution, `PrepareStepResult.context`). It
+ * changes from one request to the next and is never part of the history
+ * the next request repeats.
+ *
+ * The same test as the Anthropic driver's `toAnthropicMessages`. Kept local
+ * rather than imported from `@namzu/sdk`: a new SDK export would raise this
+ * package's `@namzu/sdk` peer floor, while the fields it reads have been on
+ * `Message` since before that floor.
+ */
+function isRequestOnlyContext(msg: ChatCompletionParams['messages'][number]): boolean {
+	return (
+		msg.role === 'user' &&
+		msg.source?.type === 'runtime-context' &&
+		msg.source.kind === 'step-context'
+	)
+}
+
+/**
  * The final cache point: after the last content block of the last
- * non-empty message.
+ * non-empty message BEFORE the request-only context, or of the last
+ * message when there is none.
  *
  * An iteration only appends messages, so caching the whole conversation
  * prefix here is what makes the NEXT turn read its history at cache rates
- * — which on a long run is the largest single cost lever available.
+ * — which on a long run is the largest single cost lever available. A
+ * point after the request-only context would put text the next request
+ * replaces inside the cached prefix, so every read would miss.
  */
-function applyMessageCachePoint(messages: BedrockMessage[]): void {
-	for (let i = messages.length - 1; i >= 0; i--) {
+function applyMessageCachePoint(messages: BedrockMessage[], cacheEnd: number): void {
+	for (let i = cacheEnd - 1; i >= 0; i--) {
 		const content = messages[i]?.content
 		if (content && content.length > 0) {
 			content.push(CACHE_POINT)
@@ -100,12 +123,43 @@ function applyMessageCachePoint(messages: BedrockMessage[]): void {
 	}
 }
 
+/**
+ * Consecutive messages of one role folded into one, content in order.
+ *
+ * Converse requires the conversation to alternate between `user` and
+ * `assistant` and rejects a request that does not. The runtime sends two
+ * user turns in a row routinely: tool results followed by request-only
+ * context, or two context messages. Concatenating their blocks keeps every
+ * block, its order, and a cache point already placed among them.
+ */
+function mergeConsecutiveRoles(messages: BedrockMessage[]): BedrockMessage[] {
+	const out: BedrockMessage[] = []
+	for (const msg of messages) {
+		const prev = out[out.length - 1]
+		if (prev && prev.role === msg.role) {
+			prev.content = [...(prev.content ?? []), ...(msg.content ?? [])]
+			continue
+		}
+		out.push({ ...msg, content: [...(msg.content ?? [])] })
+	}
+	return out
+}
+
 function toBedrockRole(role: string): ConversationRole {
 	return role === 'assistant' ? 'assistant' : 'user'
 }
 
-export function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockMessage[] {
+/**
+ * The conversation in Converse's shape: roles alternating, and — when
+ * `cachePoint` is set — a cache point ending the history, before the
+ * request-only context.
+ */
+export function toBedrockMessages(
+	messages: ChatCompletionParams['messages'],
+	options: { cachePoint?: boolean } = {},
+): BedrockMessage[] {
 	const out: BedrockMessage[] = []
+	let cacheEnd: number | undefined
 
 	let pendingToolResults: ContentBlock[] = []
 
@@ -139,6 +193,7 @@ export function toBedrockMessages(messages: ChatCompletionParams['messages']): B
 		}
 
 		flushToolResults()
+		if (isRequestOnlyContext(msg)) cacheEnd ??= out.length
 
 		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
 			const content: ContentBlock[] = []
@@ -167,7 +222,10 @@ export function toBedrockMessages(messages: ChatCompletionParams['messages']): B
 
 	flushToolResults()
 
-	return out
+	// Placed before the merge, which may fold the context into the last
+	// history message; the point then sits between the two in one message.
+	if (options.cachePoint) applyMessageCachePoint(out, cacheEnd ?? out.length)
+	return mergeConsecutiveRoles(out)
 }
 
 function messagesContainToolBlocks(messages: ChatCompletionParams['messages']): boolean {
@@ -394,7 +452,8 @@ export class BedrockProvider implements LLMProvider {
 
 		// The runtime asks for caching on every iteration by setting
 		// `cacheControl`. Honouring it costs three cache points — tools tail,
-		// static-system tail, last message — and the prompt is assembled
+		// static-system tail, end of the history before any request-only
+		// context — and the prompt is assembled
 		// tools → system → messages, so each later point also covers every
 		// section before it.
 		//
@@ -408,8 +467,7 @@ export class BedrockProvider implements LLMProvider {
 		const cachingEnabled = params.cacheControl !== undefined && isAnthropicServedModel(params.model)
 
 		const system = extractSystemBlocks(params.messages, cachingEnabled)
-		const messages = toBedrockMessages(params.messages)
-		if (cachingEnabled) applyMessageCachePoint(messages)
+		const messages = toBedrockMessages(params.messages, { cachePoint: cachingEnabled })
 		const toolConfig = toBedrockToolConfig(params, cachingEnabled)
 
 		const inferenceConfig: Record<string, unknown> = {}

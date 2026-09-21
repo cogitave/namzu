@@ -1,6 +1,7 @@
 import { renderPins } from '../../../../compaction/serializer.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
-import { createSystemMessage } from '../../../../types/message/index.js'
+import { type Message, createSystemMessage } from '../../../../types/message/index.js'
+import { stepContextMessage } from '../step-context.js'
 import type { IterationContext } from './context.js'
 
 /**
@@ -26,15 +27,60 @@ export function isWorkingMemoryMessage(content: string | null | undefined): bool
 	return typeof content === 'string' && content.startsWith(WORKING_MEMORY_HEADER)
 }
 
+/** Index of the pinned slot inside the leading system run, or -1. */
+function workingMemoryIndex(msgs: readonly Message[]): number {
+	// Bound the search to the LEADING system run (the compaction-preserved
+	// region). A working-memory header appearing later in the transcript (e.g.
+	// echoed by a tool result) must not be mistaken for the pinned slot.
+	for (let i = 0; i < msgs.length; i++) {
+		const m = msgs[i]
+		if (m?.role !== 'system') return -1
+		if (isWorkingMemoryMessage(m.content)) return i
+	}
+	return -1
+}
+
+/**
+ * Split the pinned slot out of a request's history.
+ *
+ * The slot keeps its place in the RUN's history, where compaction preserves
+ * it. The REQUEST carries it as request-only context instead: a runtime
+ * context message of kind `step-context`, after the history, holding the
+ * slot's content verbatim under the same "runtime-generated; not a new user
+ * request" label every other step-context message carries — so the header
+ * begins the message's second line, not its first. The slot changes whenever a pin does, and a
+ * driver that hoists system messages ahead of the conversation (Anthropic
+ * renders tools, then system, then messages) would otherwise invalidate the
+ * cached conversation prefix on every such change. Every driver keeps
+ * request-only context after history, and a caching driver ends its
+ * breakpoint before it.
+ *
+ * Returns the input array unchanged, and no context, when there is no slot.
+ */
+export function splitWorkingMemoryForRequest(messages: readonly Message[]): {
+	readonly history: readonly Message[]
+	readonly context?: Message
+} {
+	const idx = workingMemoryIndex(messages)
+	const slot = idx >= 0 ? messages[idx] : undefined
+	if (!slot || typeof slot.content !== 'string') return { history: messages }
+	return {
+		history: [...messages.slice(0, idx), ...messages.slice(idx + 1)],
+		context: stepContextMessage(slot.content),
+	}
+}
+
 /**
  * Resolve the host's working-memory string and rewrite a single PINNED leading
  * system message in place. Insert-or-replace keyed by {@link WORKING_MEMORY_HEADER};
  * an empty/blank string removes the slot.
  *
  * The slot is an EPHEMERAL system message placed as the LAST leading system
- * message (after the cached static + dynamic system messages), so it never
- * busts the prompt-cache prefix yet still rides inside the compaction-preserved
- * leading-system run (the primacy edge Lost-in-the-Middle / Context-Rot need).
+ * message (after the cached static + dynamic system messages), so it rides
+ * inside the compaction-preserved leading-system run. That is its place in
+ * the run's HISTORY only: a request carries it as request-only context after
+ * the history ({@link splitWorkingMemoryForRequest}), so a changed pin never
+ * busts the cached conversation prefix.
  *
  * Failure-isolated (the `web-search` seam rule): a throwing/slow provider
  * degrades to "no refresh this turn" (keeps the prior slot), never breaks the
@@ -68,20 +114,9 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 
 	const msgs = ctx.runMgr.messages
 
-	// Bound the search to the LEADING system run (the compaction-preserved
-	// region). A working-memory header appearing later in the transcript (e.g.
-	// echoed by a tool result) must not be mistaken for the pinned slot.
 	let leadEnd = 0
 	while (leadEnd < msgs.length && msgs[leadEnd]?.role === 'system') leadEnd++
-
-	let idx = -1
-	for (let i = 0; i < leadEnd; i++) {
-		const m = msgs[i]
-		if (m && m.role === 'system' && isWorkingMemoryMessage(m.content)) {
-			idx = i
-			break
-		}
-	}
+	const idx = workingMemoryIndex(msgs)
 
 	if (!provider && !pinned) {
 		if (!ctx.workingStateManager) return

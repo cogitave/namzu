@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -27,7 +28,15 @@ afterEach(async () => {
 async function run(
 	turns: MockTurn[],
 	limits: Partial<AgentRunConfig>,
-	controls: Pick<QueryParams, 'reviewAnswer' | 'onStepFinish' | 'signal' | 'structuredOutput'> = {},
+	controls: Pick<
+		QueryParams,
+		| 'reviewAnswer'
+		| 'onStepFinish'
+		| 'signal'
+		| 'structuredOutput'
+		| 'workingMemoryProvider'
+		| 'promptContributions'
+	> = {},
 ) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-hard-stop-'))
 	dirs.push(workingDirectory)
@@ -119,6 +128,41 @@ it.each(['warning', 'empty'] as const)(
 			),
 		).toBe(false)
 		expect(result.stopReason).toBe(mode === 'warning' ? 'token_budget' : 'end_turn')
+	},
+)
+
+it.each(['warning', 'empty'] as const)(
+	'puts the closing directive after every piece of request-only context on %s completion',
+	async (mode) => {
+		// Volatile context rides the request's tail: the working-memory slot,
+		// a `context` contribution. The closing directive must still be the
+		// LAST thing the model reads, or a step-context message after it
+		// reframes what should be a final instruction.
+		const contributions = new PromptContributionRegistry()
+		contributions.register({ id: 'obs', placement: 'context', render: () => 'OBSERVATION' })
+		const { provider } = await run(
+			[
+				mode === 'warning'
+					? { ...toolTurn, usage: { promptTokens: 475, completionTokens: 475, totalTokens: 950 } }
+					: { text: '', usage },
+				{ text: 'A partial observation is available; the task is unresolved.', usage },
+			],
+			{ tokenBudget: 1_000 },
+			{ workingMemoryProvider: () => 'HOST LEDGER', promptContributions: contributions },
+		)
+		const messages = provider.requests[1]?.messages ?? []
+		const last = messages[messages.length - 1]
+		if (last?.role !== 'user') throw new Error('the closing request does not end on a user turn')
+		expect(last.source).toEqual({ type: 'runtime-context', kind: 'limit-finalization' })
+		const text = messages.map((m) => (typeof m.content === 'string' ? m.content : ''))
+		const ledgerAt = text.findIndex((t) => t.includes('HOST LEDGER'))
+		expect(ledgerAt).toBeGreaterThanOrEqual(0)
+		expect(ledgerAt).toBeLessThan(messages.length - 1)
+		if (mode === 'warning') {
+			const observationAt = text.findIndex((t) => t.includes('OBSERVATION'))
+			expect(observationAt).toBeGreaterThanOrEqual(0)
+			expect(observationAt).toBeLessThan(messages.length - 1)
+		}
 	},
 )
 

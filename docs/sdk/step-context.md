@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Request-only step context
-description: Separate changing observations from system policy and durable operator intent.
+description: Separate changing observations (step context, the working-memory slot, context contributions) from system policy and durable operator intent, after history where caches keep it.
 resource: packages/sdk/src/types/run/prepare-step.ts
 tags: [sdk, context, providers, runtime]
 ---
@@ -12,6 +12,23 @@ tags: [sdk, context, providers, runtime]
 kernel appends them after the conversation and any step system guidance, in a
 user-role message labelled as runtime-generated context rather than a new user
 request. Its source is `{ type: 'runtime-context', kind: 'step-context' }`.
+
+The same channel carries two kernel observations besides that field, so one
+request can hold several request-only context messages. In order, after the
+history and any step system guidance:
+
+1. **The working-memory slot.** The run's history keeps the slot where it
+   always was, as the last leading system message that compaction preserves.
+   The request does not: the kernel takes it out of the system run and sends
+   it as a runtime-context message of kind `step-context`, under the same
+   runtime-generated label as every other one, the slot verbatim below the
+   label line. See [pinned facts](pinned-facts.md).
+2. **`context` prompt contributions.** A `PromptContribution` whose placement
+   is `context` is rendered before every model request, with the iteration
+   number, and the non-empty results are joined into one labelled
+   `step-context` message. See [the placements](#prompt-placements).
+3. **`PrepareStepResult.context`**, as above.
+4. **Derived work context**, described [below](#derived-work-context).
 
 This is useful for a current context inventory, retrieved data or other changing
 observations that do not require system authority. `system` remains the field
@@ -76,15 +93,69 @@ byte/character offsets and the explicit live traversal limits.
 
 A trailing SDK system message does not necessarily stay behind history on the
 wire. The OpenAI subscription driver collects system text into `instructions`;
-the Anthropic driver collects it into system blocks. A changing inventory in
-that slot changes the instructions before the conversation body. Runtime
-user-role context stays after history through both conversions, leaving their
-system text unchanged when only the inventory changes.
+the Anthropic driver collects it into system blocks. Anthropic renders tools,
+then system, then messages, so a system message whose text changes invalidates
+the cached conversation prefix and the next request re-reads the whole history
+at full price. Runtime user-role context stays after history through both
+conversions, leaving their system text unchanged when only the context changes.
 
-With Anthropic caching enabled, the message cache breakpoint ends before the
-first request-only step context. Pending tool results are flushed into history
-before that boundary is chosen. It does not mark the changing context or text
-after it. Requests without this context retain their previous breakpoint.
+That is why the working-memory slot and `context` contributions use this
+channel. The slot is rewritten whenever a tool pins or unpins a fact, and the
+CLI's turn-start repository snapshot changes on every new send. Both used to
+ride system messages; each change made the Anthropic driver re-read the whole
+history, keeping only the tools and the static system prompt from cache. Now
+each change costs only its own tokens.
+
+With caching enabled, a caching driver ends its message cache breakpoint
+before the first request-only step context. Every request-local piece above is
+a `step-context` message, so the breakpoint falls before all of them. Pending
+tool results are flushed into history before that boundary is chosen. It does
+not mark the changing context or text after it. Requests without this context
+retain their previous breakpoint. Per driver:
+
+| Driver | Where the history breakpoint goes |
+|---|---|
+| Anthropic | `cache_control` on the last block before the first step-context message |
+| Bedrock (Anthropic-served models) | a `cachePoint` block at the same place; consecutive same-role messages are merged, because Converse requires alternating roles and tool results followed by step context are two user turns |
+| OpenRouter (`anthropic/`, `google/gemini`, `qwen/` models) | `cache_control` inside the last content part of the last non-system message before the first step-context message (the step preamble, a system message that changes per step, is passed over), plus one after the static system text; no top-level `cache_control`, which OpenRouter applies to the last block — the context. Models that cache automatically get no marker |
+| Zen, Messages protocol | block-level `cache_control` at the same place and after the static system text, replacing the request-level option that became Anthropic's automatic caching, whose breakpoint lands on the last block |
+
+Step `system` guidance, a step's skills, the one-time approval-policy notice
+and `turn` contributions still share the trailing system message. They carry
+system authority, and a change to any of them still changes the system text a
+driver may hoist ahead of the conversation.
+
+A host that observes requests sees the slot move. The slot is no longer
+among the request's `system` messages, so it is also missing from the
+`request_envelope` event's `systemPrompt` and from a `pre_llm_call` hook's
+system messages. It appears after the history as a user-role message with
+source `{ type: 'runtime-context', kind: 'step-context' }`, whose first line
+is the runtime-generated label and whose remaining lines are the slot,
+starting with the same `[WORKING MEMORY]` header. The run's history,
+checkpoints and compaction are unchanged. The closing request after an empty
+completion moves the slot the same way.
+
+On a closing request — the forced-final step at a resource limit, or the
+request after an empty completion — the `[SYSTEM] ...` closing directive is
+the last message, after every piece of request-only context, so nothing the
+model reads after it reframes the instruction to finish.
+
+### Prompt placements
+
+`PromptPlacement` has four values:
+
+| Placement | Rendered | Delivered as | Authority |
+|---|---|---|---|
+| `static` | once per invocation | the cached system prompt segment | system |
+| `dynamic` | once per invocation | the uncached system prompt segment | system |
+| `turn` | before every request, with `iteration` | the trailing system message | system |
+| `context` | before every request, with `iteration` | one `step-context` message after history | none, an observation |
+
+Choose `context` for an observation the model should read and weigh, such as a
+repository snapshot or a status. Choose `turn` only when the text must carry
+the authority of an instruction, and accept that a changing `turn` section
+invalidates a hoisting driver's cached conversation prefix. Neither is pushed
+onto the run's history.
 
 This preserves a reusable history prefix; it does not guarantee a cache hit or
 reduce total input tokens by itself. Other system contributions, tool schemas,
@@ -94,7 +165,9 @@ host must bound its contribution; the field has no independent size cap. No
 automatic summarization or output eviction is introduced by the context field.
 
 The CLI uses this field for its bounded context inventory. It composes preceding
-context contributions and leaves system contributions untouched. SDK tests check
+context contributions and leaves system contributions untouched. It registers
+its turn-start repository snapshot (`git status` and recent commits, first
+iteration only) under the `context` placement. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;
 the CLI Session test checks actual OpenAI and Anthropic request bodies with
 network transport replaced by a recording fixture.

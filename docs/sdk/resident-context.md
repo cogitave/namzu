@@ -132,8 +132,8 @@ change the authority captured by `history`.
 The query prompt cache validates the rendered static text, not only contribution
 IDs. Replacing a registry, skill body or host contract under an existing name
 cannot silently reuse old instructions. Full-prompt cache validation renders
-once per lookup; it does not skip local rendering on a cache hit. Dynamic and
-turn content do not invalidate the segmented static prefix.
+once per lookup; it does not skip local rendering on a cache hit. Dynamic,
+turn and context content do not invalidate the segmented static prefix.
 
 Both contributions capture text when the factory is called. Later mutation of
 the supplied objects cannot change an admitted invocation's context. Create
@@ -142,7 +142,11 @@ registry. The SDK's `query` renders static and dynamic contributions at invocati
 start and includes both in every iteration. They form the leading system floor
 preserved by compaction. A `turn` contribution is instead rendered before each
 model request and stays outside durable history; reserve it for state that must
-change within an invocation.
+change within an invocation and must carry system authority. A `context`
+contribution is rendered on the same schedule but delivered as
+[request-only step context](step-context.md#prompt-placements) after the
+history, so a change to it leaves the cached conversation prefix intact; use it
+for an observation rather than an instruction.
 
 The saved summary is identified as a report of previous work. Guidance asks the
 model to retain useful evidence and unfinished work, check mutable state when

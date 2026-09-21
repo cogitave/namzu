@@ -26,7 +26,8 @@ export interface PromptContributionContext {
 	/** The tools this turn may call, if the turn was narrowed. */
 	readonly allowedTools?: readonly string[]
 	/**
-	 * Which iteration this is, 1-based — present only for `turn`.
+	 * Which iteration this is, 1-based — present only for `turn` and
+	 * `context`.
 	 *
 	 * Absent for `static` and `dynamic`, and that absence is the type
 	 * saying what the placement means: a contribution that needs to know
@@ -52,7 +53,7 @@ export interface PromptContributionContext {
  * The rule: `static` iff the output depends only on things that cannot
  * change inside one run.
  */
-export type PromptPlacement = 'static' | 'dynamic' | 'turn'
+export type PromptPlacement = 'static' | 'dynamic' | 'turn' | 'context'
 
 /**
  * `turn` is a third thing, not a looser `dynamic`.
@@ -75,6 +76,27 @@ export type PromptPlacement = 'static' | 'dynamic' | 'turn'
  * in tokens, and it lands after the cached prefix so it cannot be cached.
  * The approval-policy notice is the shape to copy — it returns text only
  * when something actually changed, and `null` on every other turn.
+ */
+
+/**
+ * `context` is `turn` without the system authority.
+ *
+ * Rendered on every iteration exactly as `turn` is, but delivered through
+ * the request-only context channel rather than as a system message: a
+ * runtime-context user message of kind `step-context`, after the history,
+ * the same channel `PrepareStepResult.context` and the kernel's working
+ * memory use. Never pushed onto the run's history.
+ *
+ * The difference is where a driver puts it. A driver may hoist every
+ * system message ahead of the conversation — Anthropic renders tools, then
+ * system, then messages — so a `turn` section whose text changes
+ * invalidates the cached conversation prefix and the whole history is
+ * re-read at full price. Request-only context stays after the history on
+ * every driver, and a caching driver ends its breakpoint before it.
+ *
+ * Use `context` for an observation — a repository snapshot, a status the
+ * model should read and weigh. Use `turn` for text that must carry the
+ * authority of an instruction.
  */
 
 export interface PromptContribution {

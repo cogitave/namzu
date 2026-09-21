@@ -17,9 +17,10 @@
  * came back.
  *
  * What this file does NOT prove, because `query` is replaced: that the SDK
- * puts a `turn` contribution into the request on the iteration it names.
- * That hop is the SDK's contract and has its own process-level test,
- * `packages/sdk/src/prompt/__tests__/state-that-changes-during-a-run.proc-test.ts`.
+ * puts a `context` contribution into the request on the iteration it names.
+ * That hop is the SDK's contract and has its own test, which drives the real
+ * query loop: "a context contribution" in
+ * `packages/sdk/src/runtime/query/__tests__/volatile-context-stays-after-history.test.ts`.
  * Here the registry is rendered directly, which proves the CLI registered the
  * right text under the right placement and iteration — the half only the CLI
  * can get wrong.
@@ -191,20 +192,23 @@ describe('the turn-start snapshot', () => {
 		const contributions = call.promptContributions as PromptContributionRegistry | undefined
 		if (!contributions) throw new Error('query() did not receive the prompt contributions')
 
-		const first = contributions.render('turn', { iteration: 1 }).join('\n')
+		const first = contributions.render('context', { iteration: 1 }).join('\n')
 		expect(first, 'the untracked file only `git status` could have named').toContain(
 			`?? ${scratch}`,
 		)
 		expect(first, 'the commit subject only `git log` could have produced').toContain(subject)
-		expect(
-			first,
-			'names and subjects are text somebody wrote, landing in a system message',
-		).toContain('<namzu-untrusted kind="repository-snapshot"')
+		expect(first, 'names and subjects are text somebody wrote, landing in the request').toContain(
+			'<namzu-untrusted kind="repository-snapshot"',
+		)
 
 		expect(
-			contributions.render('turn', { iteration: 2 }),
+			contributions.render('context', { iteration: 2 }),
 			'a later iteration works from state the model changed itself',
 		).toEqual([])
+		expect(
+			contributions.render('turn', { iteration: 1 }).join('\n'),
+			'an observation rides request-only context, not a system message a driver hoists',
+		).not.toContain(subject)
 	})
 
 	it('is not in the cached system prompt', async () => {
@@ -222,7 +226,7 @@ describe('the turn-start snapshot', () => {
 		const call = await drive(plain)
 		const contributions = call.promptContributions as PromptContributionRegistry
 
-		expect(contributions.render('turn', { iteration: 1 })).toEqual([])
+		expect(contributions.render('context', { iteration: 1 })).toEqual([])
 	})
 })
 

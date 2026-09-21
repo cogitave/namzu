@@ -109,7 +109,37 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
+/**
+ * The slot as a REQUEST carries it: request-only context after the history,
+ * never a system message a driver would hoist ahead of the conversation.
+ * Asserting the absence from the system run here means every request these
+ * tests read also proves the placement.
+ */
 function pinnedSlots(messages: readonly Message[]): string[] {
+	expect(
+		messages.some(
+			(message) => message.role === 'system' && isWorkingMemoryMessage(message.content),
+		),
+	).toBe(false)
+	// Labelled like every other step-context message; the slot follows the
+	// label line verbatim.
+	const label = 'Current step context (runtime-generated; not a new user request):\n'
+	return messages.flatMap((message) => {
+		if (
+			message.role !== 'user' ||
+			message.source?.type !== 'runtime-context' ||
+			message.source.kind !== 'step-context' ||
+			typeof message.content !== 'string' ||
+			!message.content.startsWith(label)
+		)
+			return []
+		const slot = message.content.slice(label.length)
+		return isWorkingMemoryMessage(slot) ? [slot] : []
+	})
+}
+
+/** The slot as the RUN's history keeps it: in the leading system run. */
+function historySlots(messages: readonly Message[]): string[] {
 	return messages.flatMap((message) =>
 		message.role === 'system' && isWorkingMemoryMessage(message.content)
 			? [message.content ?? '']
@@ -214,7 +244,7 @@ it('replaces then removes the last pin after checkpoint restoration and compacti
 	if (!deletionCheckpoint) throw new Error('The pin deletion was not checkpointed')
 	// The checkpoint is taken before the next refresh. It still carries the
 	// previous slot but no pins, so deletion must also work on a fresh resume.
-	expect(pinnedSlots(deletionCheckpoint.messages).join('')).toContain('REGION_NEW')
+	expect(historySlots(deletionCheckpoint.messages).join('')).toContain('REGION_NEW')
 	const afterDeletionStore = new InMemoryCheckpointStore()
 	await afterDeletionStore.writeCheckpoint(scope, JSON.parse(JSON.stringify(deletionCheckpoint)))
 	const afterDeletion = new MockLLMProvider({ turns: [{ text: 'Resumed without pins.' }] })

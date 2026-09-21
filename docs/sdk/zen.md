@@ -301,7 +301,11 @@ model supports every setting on it. `repetitionPenalty` is refused;
 on Messages and Responses. Responses also refuses stop sequences. Sampling
 settings that the native adapter would discard for a thinking model are
 refused before the request. Messages requires a schema for JSON output.
-Explicit ephemeral cache control requires Messages. Adapter
+Explicit ephemeral cache control requires Messages. On Messages, a cache
+request places block-level breakpoints — after the static system text, and on
+the last message before request-only [step context](step-context.md) — rather
+than a request-level `cache_control`, which Anthropic's automatic caching would
+put on the changing context at the tail. Adapter
 warnings about unsupported settings become failures instead of successful
 responses that silently ignore requested behavior.
 

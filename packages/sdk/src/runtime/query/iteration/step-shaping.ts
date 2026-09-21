@@ -6,7 +6,6 @@ import { PreparationContextError } from '../../../run/preparation-context-error.
 import {
 	type Message,
 	type UserMessage,
-	createRuntimeContextMessage,
 	createSystemMessage,
 } from '../../../types/message/index.js'
 import type { ToolChoice } from '../../../types/provider/chat.js'
@@ -21,6 +20,7 @@ import { toErrorMessage } from '../../../utils/error.js'
 import { createCallbackInference } from '../callback-inference.js'
 import { measureContext } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
+import { stepContextMessage } from './step-context.js'
 
 /**
  * How the next request is shaped: admission, preparation, and the context
@@ -40,12 +40,7 @@ export interface StepShaping {
 	readonly steps: () => readonly StepResult[]
 }
 
-export function stepContextMessage(content: string) {
-	return createRuntimeContextMessage(
-		`Current step context (runtime-generated; not a new user request):\n${content}`,
-		'step-context',
-	)
-}
+export { stepContextMessage }
 
 /** Derived after request projection; never accumulates in canonical history or replaces operator intent. */
 export function appendWorkContext(

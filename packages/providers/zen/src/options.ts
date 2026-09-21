@@ -177,7 +177,10 @@ export function createCallOptions(
 				...(params.parallelToolCalls !== undefined
 					? { disableParallelToolUse: !params.parallelToolCalls }
 					: {}),
-				...(params.cacheControl ? { cacheControl: { type: 'ephemeral' } } : {}),
+				// Cache breakpoints are block-level, placed by `toModelPrompt`:
+				// a request-level `cacheControl` would become Anthropic's
+				// automatic caching, whose breakpoint lands on the request-only
+				// context at the tail.
 			}
 			break
 		}
