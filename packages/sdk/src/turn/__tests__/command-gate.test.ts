@@ -16,11 +16,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { CommandResult } from '../../types/execution/index.js'
-import type { TurnId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../types/session/answer-review.js'
 import { clipOutput, createCommandGate } from '../command-gate.js'
 
 const CONTEXT: AnswerReviewContext = {
+	sessionId: '5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as SessionId,
 	turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as TurnId,
 	iteration: 1,
 	messages: [],

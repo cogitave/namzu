@@ -9,18 +9,20 @@ import {
 	STRUCTURED_OUTPUT_TOOL_NAME,
 	createStructuredOutputTool,
 } from '../../../tools/builtins/structuredOutput.js'
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * Both leaf pieces shipped and neither was reachable.
@@ -142,6 +144,7 @@ function harness(opts: {
 		recorder: recorder as unknown as TurnRecorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: RUN_ID,
 				workingDirectory: '/tmp',
@@ -160,8 +163,7 @@ function harness(opts: {
 		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
-			create: async () =>
-				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
+			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as never,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		planManager: { active: null } as unknown as PlanManager,

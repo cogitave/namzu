@@ -6,6 +6,7 @@ import { NamzuError } from '../../../types/errors/index.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type { SessionEvent, Turn } from '../../../types/session/index.js'
+import type { SessionEventDraft } from '../events.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -65,9 +66,9 @@ async function failWith(err: unknown): Promise<SessionEvent[]> {
 		planManager: { isActive: false, failPlan: () => {} } as never,
 		activityStore: { enabled: false } as never,
 		log: makeLogger(),
-		emitEvent: async (event: SessionEvent) => {
-			emitted.push(event)
-			pending.push(event)
+		emitEvent: async (event: SessionEventDraft) => {
+			emitted.push(event as SessionEvent)
+			pending.push(event as SessionEvent)
 		},
 		drainPending: function* () {
 			while (pending.length > 0) {
@@ -150,7 +151,7 @@ describe('what the bridges do with it', () => {
 				turnId: RID,
 				error: 'slow down',
 				failure: { code: 'provider_error', message: 'slow down', retryable: true },
-			},
+			} as SessionEvent,
 			'ctx-1',
 		)
 
@@ -161,7 +162,7 @@ describe('what the bridges do with it', () => {
 
 	it('still maps a failure that carries no classification', () => {
 		const event = mapTurnToA2AEvent(
-			{ type: 'turn_failed', sessionId: SESSION, turnId: RID, error: 'boom' },
+			{ type: 'turn_failed', sessionId: SESSION, turnId: RID, error: 'boom' } as SessionEvent,
 			'ctx-1',
 		)
 		expect(event).not.toBeNull()

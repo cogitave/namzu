@@ -34,10 +34,10 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { SessionId, TurnId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
-import type { SessionEvent } from '../../../types/session/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
@@ -188,18 +188,13 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		expect(spawned).toBeDefined()
 		expect(idled).toBeDefined()
 
-		// --- Lineage + schemaVersion invariants ---
-		if (spawned && 'lineage' in spawned && 'schemaVersion' in spawned) {
-			expect(spawned.lineage.parentSessionId).toBe(parentSession.id)
-			expect(spawned.lineage.rootSessionId).toBe(parentSession.id)
-			expect(spawned.lineage.depth).toBe(1)
-			expect(spawned.schemaVersion).toBe(3)
-		}
-		if (idled && 'lineage' in idled && 'schemaVersion' in idled) {
-			expect(idled.lineage.rootSessionId).toBe(parentSession.id)
-			expect(idled.lineage.depth).toBe(1)
-			expect(idled.schemaVersion).toBe(3)
-		}
+		// --- Lineage invariants ---
+		expect(spawned?.lineage).toMatchObject({
+			parentSessionId: parentSession.id,
+			rootSessionId: parentSession.id,
+			depth: 1,
+		})
+		expect(idled?.lineage).toMatchObject({ rootSessionId: parentSession.id, depth: 1 })
 
 		// --- Summary materialized by kernel ---
 		const spawnRecord = manager.getSpawnRecord(task.taskId)

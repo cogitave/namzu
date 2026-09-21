@@ -25,6 +25,8 @@ import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 import { type QueryParams, drainQuery } from '../index.js'
 
+const SESSION_ID = generateSessionId()
+
 /**
  * The invariant is POSITIONAL, not temporal: a batch's `results[i]` and
  * `messages[i]` belong to the call at `toolCalls[i]`, however the calls
@@ -92,6 +94,7 @@ function executorOver(tools: ToolRegistry): ExecutorFixture {
 	const events: SessionEvent[] = []
 	const executor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
 			turnId: mockRunId,
 			workingDirectory: '/tmp',
@@ -101,7 +104,7 @@ function executorOver(tools: ToolRegistry): ExecutorFixture {
 		},
 		new ActivityStore(mockRunId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (event) => {
-			events.push(event)
+			events.push(event as SessionEvent)
 		},
 		makeLogger(),
 	)
@@ -499,7 +502,7 @@ describe('a real run that asked for two tools at once', () => {
 				resumeHandler: autoApproveHandler,
 			} as unknown as QueryParams,
 			(event) => {
-				events.push(event)
+				events.push(event as SessionEvent)
 			},
 		)
 		return { events, run }

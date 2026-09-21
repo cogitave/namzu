@@ -8,6 +8,7 @@ import type { LLMProvider } from '../../../../types/provider/interface.js'
 import { TurnCancelled } from '../../../../types/session/cancel-cause.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import type { Logger } from '../../../../utils/logger.js'
+import type { SessionEventDraft } from '../../events.js'
 import { streamProviderTurn } from '../stream-turn.js'
 
 /**
@@ -108,8 +109,8 @@ async function runCancelled(): Promise<{
 	const iterator = streamProviderTurn(
 		stallingProvider(controller, reason),
 		params,
-		async (e: SessionEvent) => {
-			events.push(e)
+		async (e: SessionEventDraft) => {
+			events.push(e as SessionEvent)
 		},
 		function* () {},
 		RUN_ID,
@@ -174,7 +175,7 @@ describe('a turn cancelled mid-stream', () => {
 			provider,
 			{ model: 'mock', messages: [], signal: controller.signal },
 			async (event) => {
-				events.push(event)
+				events.push(event as SessionEvent)
 			},
 			function* () {},
 			RUN_ID,

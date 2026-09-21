@@ -4,7 +4,7 @@ import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../../provider/index.js'
 import { ToolRegistry } from '../../../../registry/index.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../../../../types/hitl/index.js'
-import type { Run, SessionEvent } from '../../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -41,7 +41,7 @@ interface ParkedPlanRun {
 	/** Resolves the moment the host is asked to approve the plan. */
 	parked: Promise<void>
 	/** Resolves with the run's terminal value, or 'hung' if it never settles. */
-	settled: Promise<Run | 'hung'>
+	settled: Promise<Turn | 'hung'>
 	events: SessionEvent[]
 	requests: HITLDecisionRequest[]
 	abort: () => void
@@ -85,7 +85,7 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 		},
 	})
 
-	const settled = (async (): Promise<Run | 'hung'> => {
+	const settled = (async (): Promise<Turn | 'hung'> => {
 		// A manual drain rather than `for await`, because the run's terminal
 		// value is the thing under test and `for await` discards it.
 		const iterator = generator[Symbol.asyncIterator]()
@@ -122,8 +122,8 @@ describe('a Stop while the run is parked on plan approval', () => {
 
 		const outcome = await run.settled
 		expect(outcome).not.toBe('hung')
-		expect((outcome as Run).status).toBe('cancelled')
-		expect((outcome as Run).stopReason).toBe('cancelled')
+		expect((outcome as Turn).status).toBe('cancelled')
+		expect((outcome as Turn).stopReason).toBe('cancelled')
 	})
 
 	it('reports the cancellation on the event stream', async () => {

@@ -8,13 +8,13 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { Run, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -52,7 +52,7 @@ describe('query shares one allowance with descendant model work', () => {
 				{ text: 'must not make this request', usage: usage(50) },
 			],
 		})
-		let child: Run | undefined
+		let child: Turn | undefined
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'delegate',

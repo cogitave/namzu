@@ -19,10 +19,10 @@ import {
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
+import { readParks } from '../checkpoint.js'
 import { type QueryParams, drainQuery } from '../index.js'
 import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
 import type { TurnStateScope } from '../turn-state.js'
-import { readParks } from '../checkpoint.js'
 import { heldCheckpointStore, turnCheckpoints } from './support/session.js'
 
 /**
@@ -207,7 +207,7 @@ describe('a resumed run', () => {
 		// fresh manager, the task it was working on is gone, and the next
 		// compaction replaces the run's own summary with one that only covers
 		// what happened after the restart.
-		expect(newest.workingState?.task).toBe(TASK)
+		expect(newest?.workingState?.task).toBe(TASK)
 	})
 
 	it('does not re-seed the state from a message, which only a fresh run does', async () => {

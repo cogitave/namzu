@@ -53,7 +53,7 @@ async function execute(output: string, hook?: PluginHookResult) {
 		},
 		new ActivityStore(turnId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (event) => {
-			events.push(event)
+			events.push(event as SessionEvent)
 		},
 		{ ...stub, child: () => stub } as never,
 	)

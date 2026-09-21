@@ -8,16 +8,19 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import { isEphemeralEvent } from '../../../types/session/events.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
 import { ToolExecutor } from '../executor.js'
 import { drainQuery } from '../index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * A tool may run for the full per-tool deadline — two minutes by default —
@@ -123,6 +126,7 @@ describe('a long-running tool can say how far along it is', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'tool_progress',
+				sessionId: '5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
 				turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
 				toolUseId: 'call_x' as never,
 				toolName: 'build',
@@ -229,6 +233,7 @@ describe('a long-running tool can say how far along it is', () => {
 		)
 		const executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId,
 				workingDirectory: process.cwd(),

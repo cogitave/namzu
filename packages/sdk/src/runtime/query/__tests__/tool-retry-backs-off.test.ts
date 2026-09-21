@@ -21,12 +21,13 @@ import { z } from 'zod'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
 
+const SESSION_ID = '9d3c4b2a-1e0f-4a8b-9c7d-6e5f4a3b2c1d' as SessionId
 const RUN_ID = 'd0d972d3-5ea3-4825-a3c7-04d73b15efb3' as TurnId
 
 function makeLogger(): Logger {
@@ -64,6 +65,7 @@ function makeExecutor(registry: ToolRegistry, extra: Partial<ToolExecutorConfig>
 			env: {},
 			abortSignal: new AbortController().signal,
 			...extra,
+			sessionId: extra.sessionId ?? SESSION_ID,
 		},
 		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		() => Promise.resolve(),

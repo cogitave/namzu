@@ -4,18 +4,20 @@ import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent, StepResult } from '../../../types/session/index.js'
 import { hasToolCall, stepCountIs } from '../../../types/session/step.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * End-to-end for the loop's new halt seam, driven through the scriptable
@@ -89,6 +91,7 @@ function buildCtx(opts: {
 
 	const toolExecutor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
 			turnId: RUN_ID,
 			workingDirectory: '/tmp',
@@ -150,8 +153,7 @@ function buildCtx(opts: {
 		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
-			create: async () =>
-				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
+			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as never,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		// No plan gate in these cases; the loop consults it before iterating.

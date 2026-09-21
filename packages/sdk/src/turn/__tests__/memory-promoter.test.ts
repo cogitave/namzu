@@ -11,12 +11,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryMemoryStore } from '../../store/memory/memory.js'
-import type { TurnId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { SessionMemoryCandidate } from '../../types/session/memory-promotion.js'
 import { SESSION_MEMORY_TAG, createMemoryPromoter } from '../memory-promoter.js'
 
 function candidate(over: Partial<SessionMemoryCandidate> = {}): SessionMemoryCandidate {
 	return {
+		sessionId: '2a8c5d0e-4f61-4b7a-9c3d-1e2f3a4b5c6d' as SessionId,
 		turnId: 'e88daa46-7351-4bf1-ba52-19112767bf4a' as TurnId,
 		task: 'ship the invoice job',
 		decisions: [],

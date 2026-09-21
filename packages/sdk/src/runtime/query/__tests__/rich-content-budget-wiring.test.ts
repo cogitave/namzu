@@ -8,9 +8,12 @@ import { ActivityStore } from '../../../store/activity/memory.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { SPILL_MARKER } from '../tool-output-budget.js'
 import { ToolingBootstrap } from '../tooling.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The rich-content budget was declared on the executor's own config and read
@@ -69,6 +72,7 @@ function bootstrapReturning(
 
 	return ToolingBootstrap.init(
 		{
+			sessionId: SESSION_ID,
 			tools,
 			...(maxToolOutputChars !== undefined ? { maxToolOutputChars } : {}),
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),

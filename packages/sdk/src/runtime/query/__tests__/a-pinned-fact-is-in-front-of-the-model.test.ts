@@ -29,12 +29,12 @@ import {
 } from '../../../utils/id.js'
 import { restoreCheckpointContext } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
-import { resumeSession } from '../resume-session.js'
-import { heldCheckpointStore, memorySession, turnScope } from './support/session.js'
 import {
 	WORKING_MEMORY_HEADER,
 	isWorkingMemoryMessage,
 } from '../iteration/phases/working-memory.js'
+import { resumeSession } from '../resume-session.js'
+import { heldCheckpointStore, memorySession, turnScope } from './support/session.js'
 
 /**
  * A pin exists to be seen. After a tool pins a fact, the next request the
@@ -255,6 +255,7 @@ it('replaces then removes the last pin across a resume from a checkpoint and a c
 		checkpointStore: store,
 		provider: afterDeletion,
 		pendingDecision: { action: 'continue' },
+		resumeHandler: async () => ({ action: 'continue' as const }),
 	})
 	expect(pinnedSlots(afterDeletion.requests[0]?.messages ?? [])).toEqual([])
 })

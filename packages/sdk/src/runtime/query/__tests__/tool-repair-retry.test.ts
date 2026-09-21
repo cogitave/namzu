@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import type { RepairToolCall } from '../../../types/tool/repair.js'
@@ -19,6 +19,7 @@ import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
  * also had to decide on its own that retrying was worth it.
  */
 
+const SESSION_ID = '9d3c4b2a-1e0f-4a8b-9c7d-6e5f4a3b2c1d' as SessionId
 const RUN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as TurnId
 
 function makeLogger(): Logger {
@@ -65,6 +66,7 @@ function makeExecutor(
 			// suite's runtime re-proving it slowly.
 			toolRetryBackoff: { initialDelayMs: 0, maxDelayMs: 0 },
 			...extra,
+			sessionId: extra.sessionId ?? SESSION_ID,
 		},
 		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		() => Promise.resolve(),

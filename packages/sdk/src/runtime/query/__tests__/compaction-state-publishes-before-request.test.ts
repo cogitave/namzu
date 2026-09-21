@@ -15,7 +15,7 @@ import {
 	createUserMessage,
 } from '../../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider } from '../../../types/provider/index.js'
-import type { Run, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import { query } from '../index.js'
 
 /**
@@ -144,7 +144,7 @@ async function runUntilCompactionSnapshot(options: {
 			}
 		}
 	} finally {
-		await iterator.return(undefined as unknown as Run)
+		await iterator.return(undefined as unknown as Turn)
 	}
 }
 

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { PluginId } from '../../../types/ids/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
@@ -13,16 +14,15 @@ import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { type LogContext, type Logger, resolveLogger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 import { drainQuery } from '../index.js'
 import { readToolExecutions } from '../tool-executions.js'
-import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 
 describe('cancellation after a tool returned its receipt', () => {
 	it('persists the completed call in a cancelled real query without leaking its unreviewed output', async () => {
@@ -91,7 +91,7 @@ describe('cancellation after a tool returned its receipt', () => {
 			isError: false,
 			result: expect.stringContaining('reported success'),
 		})
-		expect(record?.result).toContain('withheld')
+		expect(record && 'result' in record ? record.result : undefined).toContain('withheld')
 		const history = (await readFoldedHistory(sessionLog)).map((entry) => entry.message)
 		expect(history.filter((message) => message.role === 'tool')).toHaveLength(1)
 		expect(JSON.stringify(history)).not.toContain('private receipt')
@@ -174,7 +174,7 @@ describe('cancellation after a tool returned its receipt', () => {
 				},
 				new ActivityStore(turnId, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 				async (event) => {
-					events.push(event)
+					events.push(event as SessionEvent)
 				},
 				log,
 			)

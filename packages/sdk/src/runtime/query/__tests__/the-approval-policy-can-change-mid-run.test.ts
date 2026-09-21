@@ -31,7 +31,7 @@ function box(initial: ApprovalPolicy): { policy: SessionApprovalPolicy; events: 
 		turnId: RUN,
 		initial,
 		emit: async (event) => {
-			events.push(event)
+			events.push(event as SessionEvent)
 		},
 	})
 	return { policy: runApprovalPolicy, events }

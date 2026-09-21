@@ -5,8 +5,11 @@ import { type HITLResumeDecision, autoApproveHandler } from '../../../../types/h
 import type { CheckpointId, TurnId } from '../../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
+import { generateSessionId } from '../../../../utils/id.js'
 import { type IterationContext, handleHITLDecision } from './context.js'
 import { runToolReview } from './tool-review.js'
+
+const SESSION_ID = generateSessionId()
 
 async function drainGenerator<TReturn>(
 	gen: AsyncGenerator<SessionEvent, TReturn>,
@@ -23,6 +26,7 @@ async function drainGenerator<TReturn>(
 describe('autoApproveHandler user_question case', () => {
 	it('returns the non-fabricating no-answer sentinel with the questionId echoed', async () => {
 		const decision = await autoApproveHandler({
+			sessionId: SESSION_ID,
 			type: 'user_question',
 			turnId: 'e89e74c8-b1f2-4caf-89eb-847ade430f35' as TurnId,
 			checkpointId: 'd2394164-7c98-46c0-b260-fa0c6a8223c3' as CheckpointId,

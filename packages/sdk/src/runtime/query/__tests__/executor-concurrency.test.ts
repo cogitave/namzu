@@ -5,10 +5,13 @@ import { ActivityStore } from '../../../store/activity/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
@@ -48,7 +51,7 @@ function twoCallResponse(name: string, a: object, b: object, prefix = 'c'): Chat
 
 describe('ToolExecutor — concurrencySafe batching', () => {
 	let activityStore: ActivityStore
-	let emitEvent: (e: SessionEvent) => Promise<void>
+	let emitEvent: (e: SessionEventDraft) => Promise<void>
 
 	beforeEach(() => {
 		activityStore = new ActivityStore(mockRunId, {
@@ -81,6 +84,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 
 		const exec = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: mockRunId,
 				workingDirectory: '/tmp',
@@ -119,6 +123,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 
 		const exec = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: mockRunId,
 				workingDirectory: '/tmp',
@@ -150,6 +155,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 		} as unknown as ToolRegistryContract
 		const exec = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: mockRunId,
 				workingDirectory: '/tmp',
@@ -180,6 +186,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 
 		const reusedProviderCallId = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: 'aa8782b2-efc4-4132-a29a-7cc3eb639864' as TurnId,
 				workingDirectory: '/tmp',
@@ -220,6 +227,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 		} as unknown as ToolRegistryContract
 		const executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: mockRunId,
 				workingDirectory: '/tmp',
@@ -404,6 +412,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 		expect(tools.get('read')?.executionBarrier).toBeUndefined()
 		const executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: mockRunId,
 				workingDirectory: '/tmp',

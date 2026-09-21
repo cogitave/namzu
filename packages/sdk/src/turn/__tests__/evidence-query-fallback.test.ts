@@ -3,9 +3,9 @@ import { createAssistantMessage, createUserMessage } from '../../types/message/i
 import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import {
 	type EvidenceRecallBatch,
@@ -25,6 +25,7 @@ function fixture(maxChars = 6000) {
 		.fn<NonNullable<PrepareStepContext['generateText']>>()
 		.mockRejectedValue(new Error('PRIVATE_INVALID_PLAN'))
 	const context: PrepareStepContext = {
+		sessionId: scope.sessionId,
 		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
@@ -40,7 +41,7 @@ function fixture(maxChars = 6000) {
 	const batch: EvidenceRecallBatch = {
 		candidates: [
 			{
-				scope: { ...scope, runId: generateTurnId() },
+				scope: { ...scope, turnId: generateTurnId() },
 				seq: 2,
 				part: 0,
 				source: 'tool_completed',

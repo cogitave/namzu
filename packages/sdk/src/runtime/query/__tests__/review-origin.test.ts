@@ -1,11 +1,13 @@
 import { expect, it } from 'vitest'
 
-import { generateCheckpointId, generateTurnId } from '../../../utils/id.js'
+import { generateCheckpointId, generateSessionId, generateTurnId } from '../../../utils/id.js'
 import {
 	type ToolReviewAnswer,
 	type ToolReviewRequest,
 	createReviewHandler,
 } from '../review-policy.js'
+
+const SESSION_ID = generateSessionId()
 
 it('preserves each originating run when identical child reviews overlap', async () => {
 	const seen: ToolReviewRequest[] = []
@@ -27,6 +29,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 	]
 	const pending = turnIds.map((turnId) =>
 		handler({
+			sessionId: SESSION_ID,
 			type: 'tool_review',
 			turnId,
 			checkpointId: generateCheckpointId(),

@@ -3,10 +3,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * `allowed-tools` as a restriction rather than as advice.
@@ -65,6 +68,7 @@ function executorWith(
 ): ToolExecutor {
 	return new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools: recordingRegistry(seen),
 			turnId: RUN_ID,
 			workingDirectory: '/tmp',
@@ -74,7 +78,7 @@ function executorWith(
 			...(allowedTools ? { allowedTools } : {}),
 		},
 		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
-		async (_e: SessionEvent) => {},
+		async (_e: SessionEventDraft) => {},
 		makeLogger(),
 	)
 }

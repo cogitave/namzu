@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { LocalExecutionContext } from '../../execution/local.js'
 import type { CommandResult } from '../../types/execution/index.js'
-import { generateTurnId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { createCommandGate } from '../command-gate.js'
+
+const SESSION_ID = generateSessionId()
 
 describe.skipIf(process.platform === 'win32')(
 	'verification owns the actual process outcome',
@@ -21,7 +23,12 @@ describe.skipIf(process.platform === 'win32')(
 					return receipt
 				},
 			})
-			const verdict = await gate('done', { turnId: generateTurnId(), iteration: 1, messages: [] })
+			const verdict = await gate('done', {
+				sessionId: SESSION_ID,
+				turnId: generateTurnId(),
+				iteration: 1,
+				messages: [],
+			})
 			expect(receipt?.exitCode).toBe(0)
 			expect(receipt?.termination).toMatchObject({ origin: 'timeout', admitted: true })
 			expect(verdict.accept).toBe(false)

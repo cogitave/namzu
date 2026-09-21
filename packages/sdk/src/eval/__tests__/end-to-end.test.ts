@@ -6,15 +6,18 @@ import { IterationOrchestrator } from '../../runtime/query/iteration/index.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import type { TurnId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { Run } from '../../types/session/turn.js'
 import type { SessionEvent } from '../../types/session/index.js'
 import { hasToolCall } from '../../types/session/step.js'
+import type { Turn } from '../../types/session/turn.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import { generateSessionId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { runExperiment } from '../experiment.js'
 import { evalTurnFromTurn } from '../from-turn.js'
 import { completionScorer, trajectoryScorer } from '../scorers.js'
 import type { EvalCase } from '../types.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The harness against the REAL loop, driven by the scriptable mock.
@@ -34,8 +37,8 @@ function makeLogger(): Logger {
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-/** Drive the loop with a scripted model and return the finished `Run`. */
-async function driveAgent(turns: unknown[]): Promise<Run> {
+/** Drive the loop with a scripted model and return the finished `Turn`. */
+async function driveAgent(turns: unknown[]): Promise<Turn> {
 	const messages: Message[] = []
 	let iteration = 0
 	let stopReason: string | undefined
@@ -105,6 +108,7 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 		recorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: RUN_ID,
 				workingDirectory: '/tmp',
@@ -154,7 +158,7 @@ async function driveAgent(turns: unknown[]): Promise<Run> {
 		steps: orchestrator.getSteps(),
 		...(stopReason ? { stopReason } : {}),
 		result: 'done',
-	} as unknown as Run
+	} as unknown as Turn
 }
 
 /** The trajectory a healthy agent takes for this task. */
@@ -173,7 +177,7 @@ const HEALTHY = [
 ]
 
 describe('the harness scores a real run', () => {
-	it('projects a finished Run into the shape scorers consume', async () => {
+	it('projects a finished Turn into the shape scorers consume', async () => {
 		const run = await driveAgent(HEALTHY)
 		const projected = evalTurnFromTurn(run)
 

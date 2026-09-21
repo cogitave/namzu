@@ -18,8 +18,12 @@ import type {
 	ToolRegistryContract,
 	ToolResult,
 } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * A tool call a PROGRAM made, visible in the run's own stream.
@@ -108,6 +112,7 @@ async function runProgram(
 	const emitted: SessionEvent[] = []
 	const executor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools: registryWith(
 				buildRunCodeTool({ timeoutMs: options.runCodeTimeoutMs ?? 5_000 }),
 				tools,
@@ -131,8 +136,8 @@ async function runProgram(
 			trackToolCalls: true,
 			trackLlmTurns: true,
 		}),
-		async (e: SessionEvent) => {
-			emitted.push(e)
+		async (e: SessionEventDraft) => {
+			emitted.push(e as SessionEvent)
 		},
 		makeLogger(),
 	)
@@ -447,6 +452,7 @@ describe('a nested failure is reported as one', () => {
 		const runCode = buildRunCodeTool({ timeoutMs: 5_000 })
 		const executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools: {
 					register: vi.fn(),
 					unregister: vi.fn(),
@@ -470,8 +476,8 @@ describe('a nested failure is reported as one', () => {
 				trackToolCalls: true,
 				trackLlmTurns: true,
 			}),
-			async (e: SessionEvent) => {
-				emitted.push(e)
+			async (e: SessionEventDraft) => {
+				emitted.push(e as SessionEvent)
 			},
 			makeLogger(),
 		)

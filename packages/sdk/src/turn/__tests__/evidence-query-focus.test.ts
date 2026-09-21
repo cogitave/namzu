@@ -3,9 +3,9 @@ import { createUserMessage } from '../../types/message/index.js'
 import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import { buildEvidenceQueryInput, validateEvidenceQueryResolution } from '../evidence-query.js'
 import {
@@ -13,6 +13,8 @@ import {
 	type EvidenceRecallRequest,
 	createEvidenceRecallStep,
 } from '../evidence-recall.js'
+
+const SESSION_ID = generateSessionId()
 
 const history = [
 	{ position: 0, role: 'user', text: 'Inspect DELTA tracking code.', truncated: false },
@@ -42,6 +44,7 @@ function plan(query = current, focus = ['SIGMA']) {
 function context(query = current, raw = plan(query)): PrepareStepContext {
 	const latestUserMessage = createUserMessage(query)
 	return {
+		sessionId: SESSION_ID,
 		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
@@ -63,7 +66,7 @@ function context(query = current, raw = plan(query)): PrepareStepContext {
 }
 function candidate(excerpt: string): EvidenceRecallCandidate {
 	return {
-		scope: { ...scope, runId: generateTurnId() },
+		scope: { ...scope, turnId: generateTurnId() },
 		seq: 2,
 		part: 0,
 		source: 'tool_completed',

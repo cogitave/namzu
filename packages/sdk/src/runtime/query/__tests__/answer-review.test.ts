@@ -3,19 +3,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createCommandGate } from '../../../turn/command-gate.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { createCommandGate } from '../../../turn/command-gate.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { AnswerReview, ReviewAnswer } from '../../../types/session/answer-review.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { TEST_SCOPE, heldCheckpointStore, sessionWithCheckpoint } from './support/session.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The halt predicate is only consulted after tools have run, so there was
@@ -108,6 +110,7 @@ describe('judging the answer a run is about to settle with', () => {
 			['Everything passed.'],
 			(answer) =>
 				gate(answer, {
+					sessionId: SESSION_ID,
 					turnId: generateTurnId(),
 					iteration: 1,
 					messages: [],

@@ -1,6 +1,6 @@
 import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { generateSessionId, generateTurnId } from '../../../utils/id.js'
+import { generateSessionId } from '../../../utils/id.js'
 /**
  * Shared test fixtures for the Task 10 integration coverage matrix.
  *
@@ -32,7 +32,7 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { AgentId, TurnId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { AgentId, SessionId, TenantId, TurnId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session } from '../../../types/session/entity.js'
@@ -44,6 +44,8 @@ import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import type { ExecFile, ExecFileResult } from '../../workspace/git-worktree.js'
 import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
+
+const SESSION_ID = generateSessionId()
 
 export const DEFAULT_TENANT = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 export const OTHER_TENANT = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
@@ -118,6 +120,7 @@ export function buildAgent(
 			capabilities: BASE_CAPABILITIES,
 		},
 		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
+			sessionId: SESSION_ID,
 			turnId: fixtureUuid(`run_${id}_result`) as TurnId,
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE },

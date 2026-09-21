@@ -8,9 +8,9 @@ import type { Message } from '../../types/message/index.js'
 import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import {
 	type EvidenceRecallBatch,
@@ -19,6 +19,8 @@ import {
 	type EvidenceRecallRequest,
 	createEvidenceRecallStep,
 } from '../evidence-recall.js'
+
+const SESSION_ID = generateSessionId()
 
 const scope = {
 	tenantId: generateTenantId(),
@@ -42,6 +44,7 @@ const candidate = (
 })
 function context(query = 'DELTA tracking code'): PrepareStepContext {
 	return {
+		sessionId: SESSION_ID,
 		turnId: generateTurnId(),
 		stepNumber: 1,
 		messages: [createUserMessage(query)],

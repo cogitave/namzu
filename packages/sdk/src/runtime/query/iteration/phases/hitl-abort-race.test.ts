@@ -25,6 +25,7 @@ function ctxWith(opts: {
 
 const REVIEW_REQUEST = {
 	type: 'tool_review' as const,
+	sessionId: fixtureId.session('1'),
 	turnId: 'b076643e-3ff2-4dc9-a900-cd70719be051' as TurnId,
 	checkpointId: fixtureId.checkpoint('1'),
 	toolCalls: [],

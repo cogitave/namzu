@@ -9,14 +9,15 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { InMemorySessionLog, type SessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { SessionRecord } from '../../../types/session/records.js'
-import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolContext, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
 import { query } from '../index.js'
 import { ToolCallBudget } from '../tool-call-budget.js'
@@ -85,15 +86,15 @@ function harness(
 	options: {
 		signal?: AbortSignal
 		events?: Ledger
-		emit?: (event: SessionEvent) => Promise<void>
+		emit?: (event: SessionEventDraft) => Promise<void>
 		read?: () => Promise<readonly SessionRecord[]>
 	} = {},
 ) {
 	const events: Ledger = options.events ?? [{ type: 'turn_started', turnId, seq: 1 } as never]
 	const emit =
 		options.emit ??
-		(async (event: SessionEvent) => {
-			events.push({ ...event, seq: events.length + 1 })
+		(async (event: SessionEventDraft) => {
+			events.push({ ...event, seq: events.length + 1 } as never)
 		})
 	const log = {
 		info: vi.fn(),
@@ -219,7 +220,7 @@ describe('cumulative tool-call admission', () => {
 			signal: controller.signal,
 			events,
 			emit: async (event) => {
-				events.push({ ...event, seq: events.length + 1 })
+				events.push({ ...event, seq: events.length + 1 } as never)
 				if (event.type === 'tool_calls_admitted' && event.kind === 'batch')
 					controller.abort(new Error('cancel after reservation'))
 			},
@@ -313,9 +314,17 @@ describe('cumulative tool-call admission', () => {
 
 	it('reads a durable ledger after restart and does not recharge completed-call recovery', async () => {
 		const session = await sessionWithCheckpoint({ turnId, sessionId })
-		const emit = async (event: SessionEvent) => {
-			const { seq: _seq, generation: _generation, sessionId: _session, ...draft } = event as never
-			await session.log.append(session.lease, draft as Parameters<SessionLog['append']>[1])
+		const emit = async (event: SessionEventDraft) => {
+			const {
+				seq: _seq,
+				generation: _generation,
+				sessionId: _session,
+				...draft
+			} = event as Record<string, unknown>
+			await session.log.append(
+				session.lease,
+				draft as unknown as Parameters<SessionLog['append']>[1],
+			)
 		}
 		const readFrom = (log: SessionLog) => async () =>
 			(await log.readAll({ mode: 'strict' })).entries.map((entry) => entry.record)
@@ -387,7 +396,7 @@ describe('cumulative tool-call admission', () => {
 			tenantId: '1e8f97a6-c551-4a9a-83b0-dc8de7a5174b' as TenantId,
 			resumeHandler: async () => ({ action: 'continue' }),
 		}))
-			events.push(event)
+			events.push(event as SessionEvent)
 		expect(run).toHaveBeenCalledTimes(1)
 		expect(events.some((event) => event.type === 'turn_completed')).toBe(true)
 		expect(events.filter((event) => event.type === 'tool_completed' && event.isError)).toHaveLength(

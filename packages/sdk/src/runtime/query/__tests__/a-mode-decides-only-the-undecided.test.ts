@@ -11,6 +11,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { HITLDecisionRequest, ToolCallSummary } from '../../../types/hitl/index.js'
 import type { CheckpointId, TurnId } from '../../../types/ids/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import {
 	PLAN_MODE_REFUSAL,
 	STRICT_MODE_REFUSAL,
@@ -19,6 +20,8 @@ import {
 	createReviewPolicy,
 	isReviewExempt,
 } from '../review-policy.js'
+
+const SESSION_ID = generateSessionId()
 
 const call = (name: string, extra: Partial<ToolCallSummary> = {}): ToolCallSummary => ({
 	id: `call_${name}`,
@@ -29,6 +32,7 @@ const call = (name: string, extra: Partial<ToolCallSummary> = {}): ToolCallSumma
 })
 
 const review = (...toolCalls: ToolCallSummary[]): HITLDecisionRequest => ({
+	sessionId: SESSION_ID,
 	type: 'tool_review',
 	turnId: 'f8223c92-2ebb-4961-8f5c-51dffd77693e' as TurnId,
 	checkpointId: '82267e66-99cd-4ee0-8a15-b8108f6fce73' as CheckpointId,

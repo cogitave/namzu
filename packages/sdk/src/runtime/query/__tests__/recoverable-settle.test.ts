@@ -7,6 +7,7 @@ import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type { SessionEvent, Turn } from '../../../types/session/index.js'
+import type { SessionEventDraft } from '../events.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -79,9 +80,9 @@ async function settle(err: unknown, resumeFrom?: CheckpointId) {
 		planManager: { isActive: false, failPlan: () => marks.push('planFailed') } as never,
 		activityStore: { enabled: false } as never,
 		log: makeLogger() as never,
-		emitEvent: async (event: SessionEvent) => {
-			emitted.push(event)
-			pending.push(event)
+		emitEvent: async (event: SessionEventDraft) => {
+			emitted.push(event as SessionEvent)
+			pending.push(event as SessionEvent)
 		},
 		drainPending: function* () {
 			while (pending.length > 0) {

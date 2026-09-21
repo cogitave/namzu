@@ -4,8 +4,11 @@ import { ActivityStore } from '../../../store/activity/memory.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { DEFAULT_TOOL_TIMEOUT_MS, ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * `ToolContext.abortSignal` was produced by the executor and consumed by
@@ -91,6 +94,7 @@ function harness(opts: {
 
 	const exec = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
 			turnId: RUN_ID,
 			workingDirectory: '/tmp',

@@ -6,8 +6,12 @@ import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The probe-veto branch was the only result-producing branch in the
@@ -75,6 +79,7 @@ describe('a tool call a probe vetoed', () => {
 
 		executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools: makeToolRegistry(),
 				turnId: RUN_ID,
 				workingDirectory: '/tmp',
@@ -83,8 +88,8 @@ describe('a tool call a probe vetoed', () => {
 				abortSignal: new AbortController().signal,
 			},
 			new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
-			async (e: SessionEvent) => {
-				emitted.push(e)
+			async (e: SessionEventDraft) => {
+				emitted.push(e as SessionEvent)
 			},
 			makeLogger(),
 			probes,
@@ -125,6 +130,7 @@ describe('a tool call a probe vetoed', () => {
 		const probes = createProbeRegistry()
 		const allowed = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools: makeToolRegistry(),
 				turnId: RUN_ID,
 				workingDirectory: '/tmp',

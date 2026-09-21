@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
@@ -13,13 +14,12 @@ import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { resolveLogger } from '../../../utils/logger.js'
-import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { ToolExecutor } from '../executor.js'
 import { drainQuery } from '../index.js'
 
@@ -139,7 +139,7 @@ describe('a batch whose per-call work throws', () => {
 			},
 			new ActivityStore(turnId, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 			async (event) => {
-				events.push(event)
+				events.push(event as SessionEvent)
 				// The transcript write behind a pre-tool hook. It fails for the
 				// FIRST call, which is the throw; if the batch survived that, the
 				// two behind it would run and be recorded.

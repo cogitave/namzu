@@ -8,7 +8,10 @@ import { EditTool } from '../../../tools/builtins/edit.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import type { Message } from '../../../types/message/index.js'
 import type { FileReadTracker, ToolContext } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import { describeVisibleFileEvidence } from '../file-evidence-context.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * `editChain` and `recordEdit` are optional on the interface, and a host that
@@ -42,7 +45,8 @@ function olderTracker(): FileReadTracker & { calls: string[] } {
 
 function contextIn(cwd: string, tracker: FileReadTracker, toolUseId: string): ToolContext {
 	return {
-		turnId: '5b1d3b6a-59f7-4f4b-9d4f-7f8f8a0d2a11' as ToolContext['runId'],
+		sessionId: SESSION_ID,
+		turnId: '5b1d3b6a-59f7-4f4b-9d4f-7f8f8a0d2a11' as ToolContext['turnId'],
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},

@@ -9,10 +9,13 @@ import type { TurnId } from '../../../../types/ids/index.js'
 import type { Message } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
+import { generateSessionId } from '../../../../utils/id.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { ToolExecutor } from '../../executor.js'
 import type { IterationContext } from './context.js'
 import { runToolReview } from './tool-review.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * Regression suite for the tool-review invariant:
@@ -133,6 +136,7 @@ function harness(opts: {
 
 	const toolExecutor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
 			turnId: RUN_ID,
 			workingDirectory: '/tmp',

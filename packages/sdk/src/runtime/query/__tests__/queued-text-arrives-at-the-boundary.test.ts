@@ -15,9 +15,11 @@ import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { type Message, createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
-import { generateTurnId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * Two public APIs could accept text and never deliver it.
@@ -160,6 +162,7 @@ describe('text queued between turns arrives at the next one', () => {
 							createdAt: 1,
 							completedAt: 2,
 							result: {
+								sessionId: SESSION_ID,
 								turnId: generateTurnId(),
 								status: 'completed',
 								result: 'ACTUAL WORKER FINDINGS',

@@ -12,7 +12,10 @@ import type { TurnId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { SessionEvent } from '../types/session/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
+import { generateSessionId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The loop driven the way the SHIPPED CLI drives it, with a human who says
@@ -130,6 +133,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		recorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
 				turnId: RUN_ID,
 				workingDirectory: '/tmp',

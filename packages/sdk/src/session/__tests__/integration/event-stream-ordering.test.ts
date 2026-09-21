@@ -65,16 +65,9 @@ describe('Integration — event stream ordering + lineage', () => {
 		expect(spawned).toBeDefined()
 		expect(idled).toBeDefined()
 
-		if (spawned && 'lineage' in spawned) {
-			expect(spawned.lineage.parentSessionId).toBe(session.id)
-			expect(spawned.lineage.rootSessionId).toBe(session.id)
-			expect(spawned.lineage.depth).toBe(1)
-		}
-		if (idled && 'lineage' in idled) {
-			expect(idled.lineage.parentSessionId).toBe(session.id)
-			expect(idled.lineage.rootSessionId).toBe(session.id)
-			expect(idled.lineage.depth).toBe(1)
-		}
+		const lineage = { parentSessionId: session.id, rootSessionId: session.id, depth: 1 }
+		expect(spawned?.lineage).toMatchObject(lineage)
+		expect(idled?.lineage).toMatchObject(lineage)
 	})
 
 	it('3-deep delegation: rootSessionId identical across tree; depth ascends 1→2→3', async () => {
@@ -342,7 +335,7 @@ describe('Integration — event stream ordering + lineage', () => {
 				await listener?.({
 					type: 'turn_started',
 					turnId: '2dfdb2e2-390f-47fd-9213-65d80ee062af' as TurnId,
-				})
+				} as SessionEvent)
 				return {
 					sessionId: config.sessionId as SessionId,
 					turnId: '2dfdb2e2-390f-47fd-9213-65d80ee062af' as TurnId,

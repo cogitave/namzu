@@ -4,8 +4,11 @@ import { ActivityStore } from '../../../store/activity/memory.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The seam between what a tool RETURNS and what reaches the provider.
@@ -57,6 +60,7 @@ function executorReturning(result: ToolResult, maxToolOutputChars?: number): Too
 
 	return new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
 			turnId: RUN_ID,
 			workingDirectory: '/tmp',

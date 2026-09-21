@@ -5,6 +5,7 @@ import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import { isEphemeralEvent } from '../../../types/session/events.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { streamProviderTurn } from '../iteration/stream-turn.js'
 
 /**
@@ -37,9 +38,9 @@ function providerOf(chunks: StreamChunk[]): LLMProvider {
 async function run(chunks: StreamChunk[]) {
 	const events: SessionEvent[] = []
 	const pending: SessionEvent[] = []
-	const emitEvent = async (e: SessionEvent) => {
-		events.push(e)
-		pending.push(e)
+	const emitEvent = async (e: SessionEventDraft) => {
+		events.push(e as SessionEvent)
+		pending.push(e as SessionEvent)
 	}
 	const drainPending = function* (): Generator<SessionEvent> {
 		while (pending.length > 0) {
@@ -93,7 +94,7 @@ describe('reasoning blocks survive the stream', () => {
 			provider,
 			{ model: 'm', messages: [], signal: caller.signal },
 			async (event) => {
-				events.push(event)
+				events.push(event as SessionEvent)
 			},
 			function* () {},
 			RUN_ID,

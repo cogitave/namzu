@@ -8,9 +8,9 @@ import type { Message } from '../../types/message/index.js'
 import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import {
 	buildEvidenceQueryInput,
@@ -18,6 +18,8 @@ import {
 	validateEvidenceQueryResolution,
 } from '../evidence-query.js'
 import { type EvidenceRecallRequest, createEvidenceRecallStep } from '../evidence-recall.js'
+
+const SESSION_ID = generateSessionId()
 
 const question = 'Az önce baktığın kaydın iki kimliğini aynen yazar mısın?'
 const history = [
@@ -55,6 +57,7 @@ function context(
 ): PrepareStepContext & { generateText: ReturnType<typeof vi.fn> } {
 	const current = createUserMessage(question)
 	return {
+		sessionId: SESSION_ID,
 		turnId: generateTurnId(),
 		stepNumber: 1,
 		steps: [],
