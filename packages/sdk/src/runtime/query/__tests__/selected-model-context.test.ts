@@ -9,7 +9,7 @@ import { estimateMessagesTokens } from '../../../compaction/token-estimate.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
@@ -66,7 +66,7 @@ async function setup(base: string, selected: string, turns = 1) {
 			provider,
 			tools,
 			workingDirectory,
-			runStore: new InMemoryRunStore(),
+			sessionLog: new InMemorySessionLog({ sessionId: fixtureId.session('selected-context') }),
 			agentId: 'context-audit',
 			agentName: 'Context audit',
 			turnConfig: { model: base, timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 4 },

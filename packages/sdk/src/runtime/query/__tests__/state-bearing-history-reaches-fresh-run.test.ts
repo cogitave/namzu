@@ -7,7 +7,8 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { buildCompactionMessage } from '../../../compaction/summary.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import {
 	type Message,
@@ -81,7 +82,7 @@ function textOf(messages: readonly Message[]): string {
 describe('state-bearing history reaches a fresh run', () => {
 	it('keeps a prior compaction summary through overflow relief and the verified snapshot', async () => {
 		const provider = new OverflowOnceProvider()
-		const store = new InMemoryRunStore()
+		const sessionLog = new InMemorySessionLog({ sessionId: fixtureId.session('state_history') })
 		const oldFact = 'ONLY_THE_PRIOR_COMPACTION_KNOWS_THIS_FACT'
 		const stalePrompt = 'STALE_SYSTEM_PROMPT_MUST_NOT_RETURN'
 		const messages = [
@@ -95,7 +96,7 @@ describe('state-bearing history reaches a fresh run', () => {
 		const result = await drainQuery({
 			provider,
 			tools: new ToolRegistry(),
-			runStore: store,
+			sessionLog,
 			retry: false,
 			compactionConfig: config,
 			turnConfig: {
@@ -121,14 +122,11 @@ describe('state-bearing history reaches a fresh run', () => {
 		expect(textOf(provider.prompts[0] ?? [])).not.toContain(stalePrompt)
 		expect(result.result).toBe('answered after compaction')
 
-		const snapshot = await store.readMessages()
-		const events = await store.readEvents()
-		expect(snapshot.kind).toBe('available')
-		if (snapshot.kind !== 'available') return
-		expect(snapshot.throughEventSeq).toBe(events.at(-1)?.seq)
-		expect(textOf(snapshot.messages)).toContain(oldFact)
+		// The session log's fold is what the next turn starts from.
+		const history = (await readFoldedHistory(sessionLog)).map((entry) => entry.message)
+		expect(textOf(history)).toContain(oldFact)
 		expect(
-			snapshot.messages.find(
+			history.find(
 				(message) => typeof message.content === 'string' && message.content.includes(oldFact),
 			)?.retain,
 		).toBe(true)

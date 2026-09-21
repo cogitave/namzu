@@ -4,7 +4,8 @@ import { z } from 'zod'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
@@ -34,15 +35,19 @@ const gate: AuthorizationGateConfig = {
 	logDecisions: false,
 }
 
+function memoryLog(): InMemorySessionLog {
+	return new InMemorySessionLog({ sessionId: generateSessionId() })
+}
+
 function params(
 	provider: MockLLMProvider,
 	tools: ToolRegistryContract,
-	runStore: InMemoryRunStore,
+	sessionLog: InMemorySessionLog,
 ) {
 	return {
 		provider,
 		tools,
-		runStore,
+		sessionLog,
 		agentId: 'prepared-authorization-agent',
 		agentName: 'Prepared Authorization Agent',
 		messages: [{ role: 'user' as const, content: 'run it' }],
@@ -54,7 +59,7 @@ function params(
 			maxIterations: 4,
 		},
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId: sessionLog.sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		authorizationGate: gate,
@@ -107,7 +112,7 @@ describe('prepared tool authorization', () => {
 
 		const run = await drainQuery(
 			{
-				...params(provider, tools, new InMemoryRunStore()),
+				...params(provider, tools, memoryLog()),
 				authorizationGate: { ...gate, rules: [], denyDangerousPatterns: false },
 				pluginManager,
 				resumeHandler: review,
@@ -137,7 +142,7 @@ describe('prepared tool authorization', () => {
 	it('authorizes the schema-transformed value the tool would actually execute', async () => {
 		const executions: string[] = []
 		const events: SessionEvent[] = []
-		const runStore = new InMemoryRunStore()
+		const sessionLog = memoryLog()
 		const tools = new ToolRegistry()
 		tools.register(
 			defineTool({
@@ -163,7 +168,7 @@ describe('prepared tool authorization', () => {
 			}),
 		)
 
-		await drainQuery(params(provider(), tools, runStore), (event) => {
+		await drainQuery(params(provider(), tools, sessionLog), (event) => {
 			events.push(event)
 		})
 
@@ -183,7 +188,7 @@ describe('prepared tool authorization', () => {
 				result: expect.stringMatching(/authorization gate/i),
 			}),
 		)
-		expect(await runStore.readAuditEvents()).toContainEqual(
+		expect(await readAuditTrail(sessionLog)).toContainEqual(
 			expect.objectContaining({
 				what: { action: 'tool_call', tool: 'shell' },
 				outcome: 'refused',
@@ -217,7 +222,7 @@ describe('prepared tool authorization', () => {
 		} as unknown as PluginLifecycleManager
 
 		await drainQuery({
-			...params(provider(), tools, new InMemoryRunStore()),
+			...params(provider(), tools, memoryLog()),
 			pluginManager,
 		})
 
@@ -265,7 +270,7 @@ describe('prepared tool authorization', () => {
 		}
 
 		await drainQuery({
-			...params(provider(), tools, new InMemoryRunStore()),
+			...params(provider(), tools, memoryLog()),
 			authorizationGate: allow,
 			toolRetryBackoff: { initialDelayMs: 0, maxDelayMs: 0 },
 		})
@@ -305,7 +310,7 @@ describe('prepared tool authorization', () => {
 		}
 
 		await drainQuery({
-			...params(provider(), tools, new InMemoryRunStore()),
+			...params(provider(), tools, memoryLog()),
 			authorizationGate: reviewGate,
 			resumeHandler: async (pending) => {
 				request = pending
@@ -353,7 +358,7 @@ describe('prepared tool authorization', () => {
 
 		await drainQuery(
 			{
-				...params(provider(), legacy, new InMemoryRunStore()),
+				...params(provider(), legacy, memoryLog()),
 				authorizationGate: allow,
 			},
 			(event) => {
@@ -409,7 +414,7 @@ describe('prepared tool authorization', () => {
 		}
 
 		await drainQuery({
-			...params(provider(), tools, new InMemoryRunStore()),
+			...params(provider(), tools, memoryLog()),
 			authorizationGate: allow,
 			pluginManager,
 		})

@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { TokenBudget } from '../../../turn/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Run, SessionEvent } from '../../../types/session/index.js'
 import {
@@ -32,14 +32,17 @@ describe('query shares one allowance with descendant model work', () => {
 	it('stops the parent on total tree spend while preserving its own usage separately', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-tree-budget-'))
 		dirs.push(workingDirectory)
-		const runId = generateTurnId()
-		const budget = TokenBudget.create(1_000, runId)
+		const turnId = generateTurnId()
 		const scope = {
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 		}
+		const budget = SessionTokenBudget.create(1_000, {
+			rootSessionId: scope.sessionId,
+			rootTurnId: turnId,
+		})
 		const childProvider = new MockLLMProvider({
 			turns: [{ text: 'child done', usage: usage(200) }],
 		})
@@ -63,7 +66,8 @@ describe('query shares one allowance with descendant model work', () => {
 					...scope,
 					sessionId: generateSessionId(),
 					turnId: generateTurnId(),
-					parentRunId: runId,
+					parentSessionId: scope.sessionId,
+					parentTurnId: turnId,
 					budget: childBudget,
 					provider: childProvider,
 					tools: new ToolRegistry(),
@@ -116,8 +120,12 @@ describe('query shares one allowance with descendant model work', () => {
 	it('accounts for completed usage even when the event consumer throws', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-tree-budget-failure-'))
 		dirs.push(workingDirectory)
-		const runId = generateTurnId()
-		const budget = TokenBudget.create(1_000, runId)
+		const turnId = generateTurnId()
+		const sessionId = generateSessionId()
+		const budget = SessionTokenBudget.create(1_000, {
+			rootSessionId: sessionId,
+			rootTurnId: turnId,
+		})
 		const provider = new MockLLMProvider({ turns: [{ text: 'done', usage: usage(300) }] })
 		const result = drainQuery(
 			{
@@ -128,7 +136,7 @@ describe('query shares one allowance with descendant model work', () => {
 				retry: false,
 				workingDirectory,
 				projectId: generateProjectId(),
-				sessionId: generateSessionId(),
+				sessionId,
 				topicId: generateTopicId(),
 				tenantId: generateTenantId(),
 				agentId: 'one',

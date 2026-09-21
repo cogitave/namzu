@@ -8,8 +8,8 @@ import {
 	createJsonClaimVerifier,
 } from '../json-claim-verifier.js'
 
-const runId = generateTurnId()
-const context = { runId, iteration: 2 }
+const turnId = generateTurnId()
+const context = { turnId, iteration: 2 }
 const requirement = { id: 'version', source: 'manifest', pointer: '/version' }
 function observation(
 	source: string,
@@ -77,7 +77,7 @@ describe('explicit claims require current source evidence', () => {
 
 	it.each([
 		{ scope: 'other tenant' },
-		{ runId: generateTurnId() },
+		{ turnId: generateTurnId() },
 		{ iteration: 99 },
 		{ requestId: 'old receipt' },
 		{ source: 'foreign document' },
@@ -113,7 +113,7 @@ describe('explicit claims require current source evidence', () => {
 			(
 				await verifier({ observe }).verify(
 					{ version: '3.0.0' },
-					{ ...context, runId: generateTurnId() },
+					{ ...context, turnId: generateTurnId() },
 				)
 			).accept,
 		).toBe(false)

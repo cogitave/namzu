@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import { TokenBudget } from '../../../turn/token-budget.js'
-import { generateTurnId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -31,7 +31,10 @@ function orphanTaskGateway(): TaskScheduler {
 		createdAt: Date.now(),
 	}
 	return {
-		budget: TokenBudget.create(200_000, generateTurnId()).reserve(100_000),
+		budget: SessionTokenBudget.create(200_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		}).reserve(100_000),
 		createTask: async () => handle,
 		waitForTask: () => new Promise<TaskHandle>(() => {}),
 		continueTask: async () => {},

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget, type TokenBudgetSnapshot } from '../../../turn/token-budget.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { SessionTokenBudget, type SessionTokenBudgetSnapshot } from '../../../store/budget/index.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
@@ -17,13 +16,18 @@ import { drainQuery } from '../index.js'
 describe('caller cancellation with the stream idle watchdog disabled', () => {
 	it('returns a cancelled run with persisted partial spend while the provider remains blocked', async () => {
 		const caller = new AbortController()
-		const runId = generateTurnId()
-		let saved: TokenBudgetSnapshot | undefined
-		const budget = TokenBudget.create(1_000, runId, {
-			save: async (snapshot) => {
-				saved = snapshot
+		const turnId = generateTurnId()
+		const sessionId = generateSessionId()
+		let saved: SessionTokenBudgetSnapshot | undefined
+		const budget = SessionTokenBudget.create(
+			1_000,
+			{ rootSessionId: sessionId, rootTurnId: turnId },
+			{
+				save: async (snapshot) => {
+					saved = snapshot
+				},
 			},
-		})
+		)
 		let enter!: () => void
 		const entered = new Promise<void>((resolve) => {
 			enter = resolve
@@ -66,10 +70,9 @@ describe('caller cancellation with the stream idle watchdog disabled', () => {
 				provider,
 				budget,
 				tools: new ToolRegistry(),
-				runStore: new InMemoryRunStore(),
-				checkpointStore: new InMemoryCheckpointStore(),
+				sessionLog: new InMemorySessionLog({ sessionId }),
 				projectId: generateProjectId(),
-				sessionId: generateSessionId(),
+				sessionId,
 				topicId: generateTopicId(),
 				tenantId: generateTenantId(),
 				workingDirectory: process.cwd(),

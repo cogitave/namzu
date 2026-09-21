@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../turn/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import {
 	generateProjectId,
@@ -30,8 +30,9 @@ const usage = (tokens: number) => ({
 async function fixture() {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-advisory-ledger-'))
 	directories.push(workingDirectory)
-	const runId = generateTurnId()
-	const budget = TokenBudget.create(1_000, runId)
+	const turnId = generateTurnId()
+	const sessionId = generateSessionId()
+	const budget = SessionTokenBudget.create(1_000, { rootSessionId: sessionId, rootTurnId: turnId })
 	const tools = new ToolRegistry()
 	tools.register({
 		name: 'echo',
@@ -45,7 +46,7 @@ async function fixture() {
 		budget,
 		tools,
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
 		agentId: 'advisory-budget',

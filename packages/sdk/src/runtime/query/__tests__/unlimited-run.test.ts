@@ -5,11 +5,11 @@ import { afterEach, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { RuntimeConfigSchema } from '../../../config/runtime.js'
-import { RunConfigSchema } from '../../../contracts/schemas.js'
+import { TurnConfigSchema } from '../../../contracts/session/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { checkLimitsDetailed } from '../../../turn/LimitChecker.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { GuardCoordinator } from '../guard.js'
@@ -52,7 +52,7 @@ it.each([
 		projectId: fixtureId.project('unlimited-run'),
 		topicId: fixtureId.topic('unlimited-run'),
 		sessionId: fixtureId.session('unlimited-run'),
-		runStore: new InMemoryRunStore(),
+		sessionLog: new InMemorySessionLog({ sessionId: fixtureId.session('unlimited-run') }),
 		turnConfig: {
 			model: 'mock',
 			timeoutMs: 0,
@@ -111,5 +111,5 @@ it('configuration schemas accept unlimited without changing omitted defaults', (
 		maxIterations: 200,
 		timeoutMs: 600_000,
 	})
-	expect(RunConfigSchema.parse({ timeoutMs: 0 })).toEqual({ timeoutMs: 0 })
+	expect(TurnConfigSchema.parse({ timeoutMs: 0 })).toEqual({ timeoutMs: 0 })
 })

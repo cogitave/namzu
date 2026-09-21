@@ -8,7 +8,6 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
@@ -482,7 +481,6 @@ describe('a real run that asked for two tools at once', () => {
 			{
 				provider,
 				tools,
-				runStore: new InMemoryRunStore(),
 				agentId: 'agent_tool_order',
 				agentName: 'Tool order agent',
 				messages: [{ role: 'user', content: 'go' }],
@@ -522,17 +520,17 @@ describe('a real run that asked for two tools at once', () => {
 		expect(roles.slice(assistantAt)).toEqual(['assistant', 'tool', 'tool', 'assistant'])
 	})
 
-	it('numbers every durable event with no gap while the batch interleaves', async () => {
-		// `EventTranslator` holds the sequence under a lock, and the docblock
-		// on the lock names "a batch of parallel tools" as one of the
-		// interleavers it exists for. The existing test for that drives
-		// twenty synthetic `iteration_started` emits; this one drives the
-		// production interleaver through a real run.
+	it('numbers every durable event in log order while the batch interleaves', async () => {
+		// `EventTranslator` appends under a lock, and the docblock on the lock
+		// names "a batch of parallel tools" as one of the interleavers it
+		// exists for. This drives the production interleaver through a real
+		// run. An event's number is its record's `seq` in the session log,
+		// which also holds message records, so the numbers climb with gaps.
 		const { events } = await runBoth()
 
 		const numbered = events.filter((event) => event.seq !== undefined).map((e) => e.seq as number)
 		expect(numbered.length).toBeGreaterThan(10)
-		expect(numbered).toEqual(numbered.map((_, i) => i + 1))
+		expect(numbered).toEqual([...numbered].sort((a, b) => a - b))
 		// A duplicated number is worse than a missing one — a consumer asking
 		// for everything above N is handed part of the run it already had.
 		expect(new Set(numbered).size).toBe(numbered.length)

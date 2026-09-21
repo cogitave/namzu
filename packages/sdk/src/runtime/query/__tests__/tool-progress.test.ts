@@ -219,7 +219,7 @@ describe('a long-running tool can say how far along it is', () => {
 			observeProgress = resolve
 		})
 		const observed: string[] = []
-		const runId = '86614d1a-725e-4184-a360-f91aa452060c' as TurnId
+		const turnId = '86614d1a-725e-4184-a360-f91aa452060c' as TurnId
 		const tools = new ToolRegistry()
 		tools.register(
 			reportingTool((ctx) => {
@@ -236,7 +236,7 @@ describe('a long-running tool can say how far along it is', () => {
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(runId, {
+			new ActivityStore(turnId, {
 				enabled: false,
 				trackToolCalls: false,
 				trackLlmTurns: false,

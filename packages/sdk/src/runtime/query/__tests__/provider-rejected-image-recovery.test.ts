@@ -6,8 +6,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../turn/token-budget.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	createAssistantMessage,
@@ -152,14 +153,16 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 			createUserMessage('continue'),
 		]
 		const provider = new RejectsOneImageProvider()
-		const runStore = new InMemoryRunStore()
+		const sessionLog = new InMemorySessionLog({
+			sessionId: '8cc31c7e-5ab1-4dc8-a9aa-c74344665a48' as SessionId,
+		})
 		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
 				provider,
 				tools: new ToolRegistry(),
-				runStore,
+				sessionLog,
 				retry: { maxRetries: 0 },
 				turnConfig: {
 					model: 'vision-model',
@@ -193,10 +196,9 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		const durable = JSON.stringify(run.messages)
 		expect(durable.match(new RegExp(image.data, 'g'))).toHaveLength(2)
 		expect(durable.match(/provider-rejected/g)).toHaveLength(2)
-		const persisted = await runStore.readMessages()
-		expect(persisted.kind).toBe('available')
-		if (persisted.kind !== 'available') return
-		expect(persisted.messages).toEqual(run.messages)
+		const persisted = (await readFoldedHistory(sessionLog)).map((entry) => entry.message)
+		// The system prompt is rebuilt each turn and never recorded.
+		expect(persisted).toEqual(run.messages.filter((message) => message.role !== 'system'))
 
 		const repairIndex = events.findIndex(
 			(event) =>
@@ -407,8 +409,11 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 	it('issues no image-recovery request when the inherited token account is exhausted', async () => {
 		const provider = new RejectsOneImageProvider()
 		const events: SessionEvent[] = []
-		const runId = generateTurnId()
-		const budget = TokenBudget.create(100_000, runId)
+		const turnId = generateTurnId()
+		const budget = SessionTokenBudget.create(100_000, {
+			rootSessionId: '08c41f56-bc30-41a2-8fc2-a61ce52af0ea' as SessionId,
+			rootTurnId: turnId,
+		})
 		budget.recordUsage({ ...ZERO_USAGE, promptTokens: 100_000, totalTokens: 100_000 })
 		const run = await drainQuery(
 			{

@@ -16,7 +16,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 			return new Promise((done) => resolve.push(done))
 		},
 	})
-	const runIds = [generateTurnId(), generateTurnId()]
+	const turnIds = [generateTurnId(), generateTurnId()]
 	const calls = [
 		{
 			id: 'same-call',
@@ -25,7 +25,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 			isDestructive: false,
 		},
 	]
-	const pending = runIds.map((runId) =>
+	const pending = turnIds.map((turnId) =>
 		handler({
 			type: 'tool_review',
 			turnId,
@@ -33,7 +33,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 			toolCalls: calls,
 		}),
 	)
-	expect(seen.map((request) => request.runId)).toEqual(runIds)
+	expect(seen.map((request) => request.turnId)).toEqual(turnIds)
 	resolve[1]?.({ kind: 'reject', feedback: 'second only' })
 	resolve[0]?.({ kind: 'approve' })
 	expect(await Promise.all(pending)).toEqual([
