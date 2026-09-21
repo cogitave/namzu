@@ -37,7 +37,7 @@ The hook is optional: without it, these helpers still only return a projection;
 they do not promise an archive. Automatic in-run compaction separately retains
 removed messages through `compaction_shed` when `recordShedHistory` is enabled.
 
-`RunEvent`'s `compaction_shed.reason` and the `RunQuery` `ShedPass.reason` now
+`SessionEvent`'s `compaction_shed.reason` and the `SessionQuery` `ShedPass.reason` now
 also admit `manual`. Consumers with exhaustive reason handling must add that
 case. It identifies a host-requested pass, not a provider rejection or threshold.
 Its timestamp dates the archive copy, not the original user's submission.

@@ -32,7 +32,7 @@ Changing, inserting or removing the managed working-memory message invalidates
 that prefix measurement. An unchanged slot keeps the provider measurement.
 
 A model selected by `prepareStep` uses its own provider-reported window (cached
-per model for the run), then the model table/default when unavailable. An explicit
+per model for the turn), then the model table/default when unavailable. An explicit
 configured window still takes precedence. Changing model invalidates the previous
 tokenizer measurement and triggers another compaction check before the request.
 Telemetry, advisory pressure and overflow recovery use that selected window.
@@ -83,7 +83,7 @@ action. Recovering an observation and replaying its action are different operati
 
 When `recordShedHistory` is enabled, the runtime archives original messages before
 publishing a clear, narration stub or summary. Hosts can recover them through
-`RunQuery.shedHistory()` and `fullTranscript()`, including clear-only passes.
+`SessionQuery.shedHistory()` and `fullTranscript()`, including clear-only passes.
 This archive is separate from an artifact path available to the model; it does
 not automatically provide a model-facing history search tool. An archival failure
 prevents the edit from replacing live history. Disabling recording forfeits this

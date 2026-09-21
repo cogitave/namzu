@@ -2,14 +2,14 @@
 type: Reference
 title: Answer verification
 description: Command-backed answer review, interrupted checks, cancellation and the distinction between settled and verified work.
-resource: packages/sdk/src/run/command-gate.ts
+resource: packages/sdk/src/turn/command-gate.ts
 tags: [sdk, harness, verification]
 status: stable
 ---
 
 # Answer verification
 
-A settled run and a verified objective are different facts. `Run.status` describes
+A settled turn and a verified objective are different facts. `Turn.status` describes
 execution; `stopReason` records why it stopped. A model's closing answer is a claim,
 and passing tests establish only the behavior those tests cover. Acceptance checks
 should be independently derived from the task's requirements and current state.
@@ -80,7 +80,7 @@ semantics, including numeric rounding and last-key-wins for duplicate object key
 Numeric checks apply to parsed values, not the number's original spelling; use
 string-valued quantities when lexical decimal precision matters.
 
-The host creates one verifier for a specific authorization `scope` and `runId`,
+The host creates one verifier for a specific authorization `scope` and `turnId`,
 then calls `verify(claims, reviewContext)` from its existing answer or structured
 reviewer. Claims must contain exactly the configured IDs. The host still owns
 answer parsing and decides which dispositions require these checks. Reuse the
@@ -118,12 +118,12 @@ in its authoritative host. Streamed candidate text is not undone by later reject
 See [resident CLI verification](../cli/resident-work.md#configured-claim-verification)
 for a concrete adapter and command.
 
-## Run-owned review inference
+## Turn-owned review inference
 
 The built-in loop also supplies optional `AnswerReviewContext.generateText` to
 prose and structured reviewers. It shares `PreparationTextRequest` and
 `PreparationTextResult` with [bounded preparation inference](step-context.md#bounded-preparation-inference).
-It permits one tool-free call per review callback, on the run's metered
+It permits one tool-free call per review callback, on the turn's metered
 provider/retry/fallback chain, using the selected step model and run effort.
 Supplying a reviewer alone makes no auxiliary request; the callback must call
 and await the capability. A later correction receives a fresh capability.
@@ -132,7 +132,7 @@ Only the callback's explicit `system` and `prompt` strings are sent. Candidate,
 request snapshot, conversation, tools, native output schema and private reasoning
 are not attached automatically. Together the strings are limited to 12,000
 UTF-16 units. `maxTokens` defaults to 256 and is capped at 1,024. Returned visible
-text is limited to 8,192 units. A local signal may shorten the run/callback
+text is limited to 8,192 units. A local signal may shorten the turn/callback
 lifetime. These are input, output and admission bounds, not a guaranteed provider
 billing ceiling.
 
@@ -140,14 +140,14 @@ billing ceiling.
 reason [bounded preparation inference](step-context.md#bounded-preparation-inference)
 states: an auxiliary request that ends without its usage receipt leaves the shared
 ledger unresolved, and an unresolved request admits nothing further, so a deadline
-that fired in normal use ended the run instead of the call. The call is bounded by
-the provider's request timeout and by the run's cancellation.
+that fired in normal use ended the turn instead of the call. The call is bounded by
+the provider's request timeout and by the turn's cancellation.
 
 The callback's completion, error or cancellation revokes the capability.
 Await every admitted call before returning a verdict. Invalid tool-bearing or
 oversized output is drained for usage without executing tools; missing usage or
 cancellation can leave an unresolved receipt, which remains in the shared budget.
-Auxiliary usage and cost belong to the run, but do not alter the candidate's
+Auxiliary usage and cost belong to the turn, but do not alter the candidate's
 main-step usage or provenance. A review fallback may serve later requests; it
 does not relabel the candidate that was already produced. No auxiliary messages
 or invocation capability are saved as conversation history or checkpoint state.
@@ -160,12 +160,12 @@ acceptance specification, or an expansion of which settlement paths invoke revie
 
 The [CLI Session experiment](../../research/conversation-evidence/review-inference-results.md)
 separates authenticated archive access, a bounded model judgment, the correction
-request and the run's combined budget receipt.
+request and the turn's combined budget receipt.
 
 ## Verdicts and correction
 
 Verdicts must explicitly return a boolean `accept`. Rejections require nonempty
-string feedback. A thrown error or malformed verdict fails the run; it neither
+string feedback. A thrown error or malformed verdict fails the turn; it neither
 accepts an unverified answer nor consumes model calls by repeatedly retrying a
 broken verifier. This changes the former exception-as-acceptance behavior.
 Hosts deliberately choosing that behavior must catch errors in their callback
@@ -207,7 +207,7 @@ Every command must finish with exit zero and no termination receipt. A process
 that handles a timeout or cancellation by exiting zero has not completed the
 verification. Executor exceptions become rejection feedback, so an unavailable
 verifier cannot become an accepted answer through the generic hook's exception
-path. If cancellation arrives during review, the run remains cancelled.
+path. If cancellation arrives during review, the turn remains cancelled.
 
 After a normal failed check, a workspace fingerprint can avoid an identical retry.
 An unavailable or throwing fingerprint means the command may run again; it never

@@ -21,12 +21,12 @@ import {
   createResidentEvidenceRecallStep,
   type ResidentState,
   type ResidentToolEvidenceSource,
-  type RunEvidenceScope,
+  type SessionEvidenceScope,
 } from '@namzu/sdk'
 
 declare const state: ResidentState
 declare const source: ResidentToolEvidenceSource
-declare const scope: RunEvidenceScope
+declare const scope: SessionEvidenceScope
 const prepareStep = createResidentEvidenceRecallStep({ state, source, scope })
 ```
 
@@ -34,7 +34,7 @@ The host supplies the admitted `state`, the current executor's four-field
 `scope` and a [resident tool source](retained-tool-evidence.md). The state must
 be running with a claim and match the source's tenant, resident key and pursuit;
 the current project must agree. The source captures an agenda revision. That
-boundary is never advanced by preparation. Calls from another run and changes
+boundary is never advanced by preparation. Calls from another turn and changes
 to the source's scope are refused. The host still owns admission, executor
 lifetime and source integrity; this function cannot authenticate arbitrary
 custom callback I/O.

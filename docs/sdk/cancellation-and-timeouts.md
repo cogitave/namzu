@@ -1,7 +1,7 @@
 ---
 type: Design
 title: Cancellation and timeouts
-description: Findings and open composition options for provider-request cancellation, the whole-run timeout gap, and the two idle-timeout mechanisms — verified against the current branch.
+description: Findings and open composition options for provider-request cancellation, the whole-turn timeout gap, and the two idle-timeout mechanisms — verified against the source before the session/turn cutover.
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [sdk, provider, cancellation, timeout, retry, fallback]
 status: draft
@@ -11,18 +11,25 @@ generated: { by: process:claude-code, at: 2026-09-18T00:00:00Z }
 # Cancellation and timeouts
 
 This page records findings and options, not a committed design. Every claim
-below was checked against this branch's source at the line cited; where an
-earlier internal review disagreed with itself, this page says which reading
-the code actually supports and why. Nothing here has shipped or been decided.
+below was checked against the source at the line cited; where an earlier
+internal review disagreed with itself, this page says which reading the code
+actually supports and why. Nothing here has shipped or been decided.
+
+The citations were taken on 2026-09-18, before the kernel's run became a turn
+of a session. File and symbol names have since been updated to their new
+spellings (`TurnContext`, `TurnConfig`, `prepare-turn.ts`,
+`types/session/config.ts`); line numbers have not been re-derived and are
+approximate. The findings are about the provider-call path, which the cutover
+renamed but did not change.
 
 ## Today's three layers, briefly
 
-A run's cancellation and timeout behavior is built from three independent
+A turn's cancellation and timeout behavior is built from three independent
 mechanisms, composed in sequence:
 
 - **Per-call `AbortSignal`.** `ChatCompletionParams.signal` is optional and
   inert when unset (`packages/sdk/src/types/provider/chat.ts:62`).
-- **Run-level `AbortController`.** `RunContext` owns one controller per run
+- **Turn-level `AbortController`.** `TurnContext` owns one controller per turn
   and fuses a caller-supplied `config.signal` into it one-directionally — a
   caller abort propagates in, never out
   (`packages/sdk/src/runtime/query/context.ts:167-196`). The turn loop races
@@ -36,11 +43,11 @@ mechanisms, composed in sequence:
   and re-arming a timer on every chunk; it is unwrapped entirely when
   `idleTimeoutMs <= 0`.
 
-`AgentRunConfig.timeoutMs` is a fourth, separate concept: a whole-run
+`TurnConfig.timeoutMs` is a fourth, separate concept: a whole-turn
 wall-clock budget. The adjacent `streamIdleTimeoutMs` field's doc comment
 contrasts itself against it, saying plainly that `timeoutMs` "is checked
 between agent iterations and cannot settle a provider iterator whose pending
-`next()` never returns" (`packages/sdk/src/types/run/config.ts:17-18`), and
+`next()` never returns" (`packages/sdk/src/types/session/config.ts:17-18`), and
 the only two call sites that enforce it —
 `packages/sdk/src/runtime/query/iteration/index.ts:375` and `:2240` — are
 both between-iteration checks in `GuardCoordinator.beforeIteration`
@@ -66,11 +73,11 @@ const withRecovery = (provider: LLMProvider): LLMProvider => {
   const metered = withTokenBudget(withIdleBound, budget)
   return params.retry === false ? metered : withProviderRetry(metered, { config, log, canRetry })
 }
-// packages/sdk/src/runtime/query/prepare-run.ts:370-383 — withRecovery
+// packages/sdk/src/runtime/query/prepare-turn.ts:370-383 — withRecovery
 const resilientProvider = withProviderFallback(
   chain.map((member) => ({ ...member, provider: withRecovery(member.provider) })),
   { log, canFallback, onSwap },
-) // packages/sdk/src/runtime/query/prepare-run.ts:394-410 — resilientProvider
+) // packages/sdk/src/runtime/query/prepare-turn.ts:394-410 — resilientProvider
 ```
 
 Both `withProviderRetry` and `withProviderFallback` special-case one kind of
@@ -113,20 +120,20 @@ over to the next provider (`packages/sdk/src/provider/fallback.ts:426`).
 Net effect: a deadline cut composed inside `withRecovery`, exactly where the
 idle watchdog sits, earns the failed member a fresh retry attempt and/or a
 fresh backup provider — each free to run for a further stretch of wall-clock
-time. A wall-clock deadline meant to bound a run's duration would make some
-runs overrun `timeoutMs` by *more* than today's one-turn overrun, not less.
+time. A wall-clock deadline meant to bound a turn's duration would make some
+turns overrun `timeoutMs` by *more* than today's one-turn overrun, not less.
 
 Two shapes avoid this, and neither is exotic in this codebase:
 
-- **Abort the run's own `AbortController`.** Reuse the Stop path exactly —
-  the run already settles as `cancelled` with partial spend persisted while
+- **Abort the turn's own `AbortController`.** Reuse the Stop path exactly —
+  the turn already settles as `cancelled` with partial spend persisted while
   the provider remains blocked, per the existing kernel-level test
   (`packages/sdk/src/runtime/query/__tests__/cancelled-provider-receipts.test.ts:17-18`).
   A deadline cut would need a distinct stop reason so an operator can tell
   "the model stopped it" apart from "the clock did," but the settlement,
   persistence and retry/fallback bypass are already correct because
   `isAbortError` and `params.signal?.aborted` both already short-circuit on
-  an aborted run signal.
+  an aborted turn signal.
 - **Compose the deadline outside `resilientProvider`.** Wrap the whole
   recovered chain once, after `withProviderFallback` returns, so retry and
   fallback never see the cut at all — they only see whatever the wrapped
@@ -145,8 +152,8 @@ turn short. The kernel already had to learn this once for the idle watchdog:
 the ordering comment above `withRecovery` states it directly — "The idle
 layer cannot sit outside retry, because its timer would then count a
 legitimate backoff as provider silence. This order is not a preference."
-(`packages/sdk/src/runtime/query/prepare-run.ts:344-363`, with the quoted
-sentence at `prepare-run.ts:355-358`). A wall-clock deadline decorator has the
+(`packages/sdk/src/runtime/query/prepare-turn.ts:344-363`, with the quoted
+sentence at `prepare-turn.ts:355-358`). A wall-clock deadline decorator has the
 same failure mode in reverse if it sits *inside* retry: a backoff sleep
 between attempts would burn down a budget meant to bound provider work, not
 the kernel's own waiting. This is a constraint on the eventual composition,
@@ -156,7 +163,7 @@ against it explicitly.
 ## 3. Deriving a per-call deadline is not novel
 
 The part of a "kernel-enforced deadline" that sounds hardest — turning
-"wall-clock time left in the run" into a bounded, fusable signal — already
+"wall-clock time left in the turn" into a bounded, fusable signal — already
 has two working precedents in this exact codebase:
 
 - `GuardCoordinator.remainingUntilTimeoutMs()` returns
@@ -168,7 +175,7 @@ has two working precedents in this exact codebase:
   Node's 32-bit timer ceiling, arms a private `AbortController`, and fuses it
   with the caller's signal via `AbortSignal.any` before racing a
   context-window lookup against it
-  (`packages/sdk/src/runtime/query/prepare-run.ts:191-223`).
+  (`packages/sdk/src/runtime/query/prepare-turn.ts:191-223`).
 
 The open work in point 1 is composition order relative to retry and
 fallback, not how to read a deadline or build a fused signal from it.
@@ -180,8 +187,8 @@ they are not one object reused three ways:
 
 - **Primary turns.** `resilientProvider` — the full
   idle → token-budget → retry chain, wrapped again in fallback — is what
-  becomes `ctx.provider`: passed into `RunContext` at
-  `packages/sdk/src/runtime/query/prepare-run.ts:565` and into
+  becomes `ctx.provider`: passed into `TurnContext` at
+  `packages/sdk/src/runtime/query/prepare-turn.ts:565` and into
   `IterationOrchestrator` at
   `packages/sdk/src/runtime/query/index.ts:1362`.
 - **Callback inference** (`preparation`/`review` phases) reads `ctx.provider`
@@ -225,7 +232,7 @@ rest of this page describes:
 
 This surface has a documented, previously-shipped regression of exactly this
 page's failure class: "the RAG tool dropped [the per-tool abort signal]
-before `KnowledgeBase.query`... A stopped run therefore detached after its
+before `KnowledgeBase.query`... A stopped turn therefore detached after its
 own wait bound while the owned embedding request kept running," fixed and
 pinned by
 `packages/sdk/src/runtime/query/__tests__/rag-embedding-cancellation-reaches-run.test.ts:17-23`.
@@ -260,7 +267,7 @@ opts?.signal` (`agent.ts:3896`) and passes it into the `query({ ...,
 signal })` call (`agent.ts:3903`, `signal` field at `agent.ts:3970`). A full
 CLI turn therefore composes at least three `AbortSignal` layers before any
 provider driver sees one: CLI session-lifetime-plus-caller fusion → SDK
-`RunContext.abortController` fusion with `config.signal` → the per-call
+`TurnContext.abortController` fusion with `config.signal` → the per-call
 `ChatCompletionParams.signal`. A fix scoped only to `packages/sdk` would miss
 whatever this layer contributes to a duration or double-cancel symptom, so
 it should be opened directly rather than inferred from SDK-side evidence.
@@ -287,7 +294,7 @@ for this symptom.
   independently from the request timeout."
   (`packages/providers/anthropic/src/types.ts:24-29`, field at `types.ts:29`).
 
-Setting `AgentRunConfig.streamIdleTimeoutMs` does not touch the Anthropic
+Setting `TurnConfig.streamIdleTimeoutMs` does not touch the Anthropic
 driver's own knob, and vice versa; nothing in `docs/` names either config
 surface today (see point 9). Open question this page does not resolve:
 retire the driver-local watchdog now that the kernel-level one exists for
@@ -312,8 +319,8 @@ nothing today asserts reader cleanup uniformly across drivers.
 
 ## 9. This page is the first documentation of the model
 
-`streamIdleTimeoutMs` is a public `AgentRunConfig` key
-(`packages/sdk/src/types/run/config.ts:22`) with no dedicated `docs/` page
+`streamIdleTimeoutMs` is a public `TurnConfig` key
+(`packages/sdk/src/types/session/config.ts:22`) with no dedicated `docs/` page
 describing the cancellation/timeout model before this one; the only prior
 mention anywhere in `docs/` is one line in
 `docs/sdk/native-structured-output.md:113`. This page is a first step, not a
@@ -321,10 +328,10 @@ replacement for a real reference page once the composition question in
 point 1 is settled.
 
 The open decision this page surfaces but does not make: if a stream-aware
-whole-run `timeoutMs` ships, should it cut a stalled turn by default, or only
+whole-turn `timeoutMs` ships, should it cut a stalled turn by default, or only
 when explicitly opted into? Under this repo's SemVer rule (bump intent is a
 claim about the consumer, not about effort), making it the default is
-`major` — a run that previously overran its deadline by one turn's length
+`major` — a turn that previously overran its deadline by one turn's length
 now gets cut mid-turn, which is a backward-incompatible behavior change for
 any caller relying on that overrun. Shipping it behind a new, unset-by-default
 config key is `minor`.

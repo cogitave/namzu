@@ -28,7 +28,7 @@ controls; the host remains responsible for that coverage.
 
 | Field | Meaning |
 | --- | --- |
-| `runId` | UUID of the retained execution, canonicalized to lowercase. |
+| `turnId` | UUID of the retained execution, canonicalized to lowercase. |
 | `taskKey` | Stable task identity including input and source revision. Retries of the same task keep this key. |
 | `skillName` | Guidance slot that could improve this task family. |
 | `baselineRevision` | `hashResidentSkill` of the guidance used, or `none`. |
@@ -46,7 +46,7 @@ task under identical evaluator and baseline conditions.
 
 Identity is scoped to tenant, project, resident, run, evaluator and skill.
 Reinserting identical content is idempotent; conflicting content is refused.
-Regrading a run uses a new evaluator revision and preserves the earlier judgement.
+Regrading a turn uses a new evaluator revision and preserves the earlier judgement.
 Original execution transcripts and usage accounting remain in their existing stores.
 
 ## Selection and admission
@@ -65,7 +65,7 @@ async function improveOnce(
   // host.evaluators names the authorized skill/evaluator pairs.
   // The current installed baseline is read from host.agenda.
   const { observation, cycle } = await runStoredResidentLearningFromObservations(store, host)
-  return { selectedRun: observation?.runId ?? null, outcome: cycle?.status ?? 'idle' }
+  return { selectedTurn: observation?.turnId ?? null, outcome: cycle?.status ?? 'idle' }
 }
 ```
 
@@ -93,7 +93,7 @@ SQLite transaction, before any model call.
 
 One attempt is retained per task, skill, evaluator and baseline in the resident
 scope. An interrupted, rejected or ambiguous experiment retains that claim.
-Restarting a process or recording another run of the same task does not silently
+Restarting a process or recording another turn of the same task does not silently
 repeat it. A new source/input revision is a new task; a changed evaluation
 contract is a new evaluator revision. Neither label should be changed just to
 retry a failed experiment. Unfinished work requires inspection and explicit host

@@ -13,21 +13,21 @@ For on-demand learned guidance, use `createResidentStepContext(options)`. Mount
 **both** its `tools` and `contributions` on the admitted run. It accepts
 `ResidentStepContextOptions`: the options below plus a required synchronous
 `authorizeLearningRead(context): boolean` callback. Only `true` authorizes a read;
-the host checks the run identity and that admission is still active. The bundle
+the host checks the turn identity and that admission is still active. The bundle
 does not enforce a tenant boundary without that host check.
 
 ```ts
 import {
   createResidentStepContext, PromptContributionRegistry, ToolRegistry,
-  type ResidentStepPromptOptions, type RunId,
+  type ResidentStepPromptOptions, type TurnId,
 } from '@namzu/sdk'
 
 export function contextForAdmission(
-  options: ResidentStepPromptOptions, runId: RunId, isActive: () => boolean,
+  options: ResidentStepPromptOptions, turnId: TurnId, isActive: () => boolean,
 ) {
   const bundle = createResidentStepContext({
     ...options,
-    authorizeLearningRead: context => context.runId === runId && isActive(),
+    authorizeLearningRead: context => context.turnId === turnId && isActive(),
   })
   const tools = new ToolRegistry()
   for (const tool of bundle.tools) tools.register(tool)
@@ -50,7 +50,7 @@ Only task guidance appears in this catalogue. Learned
 names through `read_resident_skill` does not disclose their bodies. A learning
 host explicitly projects them into its explorer instead.
 
-Create a fresh bundle for each admission and keep its tools out of other runs.
+Create a fresh bundle for each admission and keep its tools out of other turns.
 Selection is not persisted. Descriptions are limited to 160 Unicode code points
 each (16 skills maximum); full descriptions are retained in the read result.
 Selected bodies use the remaining part of the existing 12,000-character learning
