@@ -143,6 +143,56 @@ describe('a parent turn records its children', () => {
 		expect(tail[2]).toMatchObject({ ...ended, turnId: recorder.turnId })
 	})
 
+	it('records a child that idles once the turn has queued its end outside that turn', async () => {
+		// The manager announces a child's idle on its own schedule. When the
+		// parent's closing record is already queued, the idle and the ended
+		// record land after it, so they must not name the turn: the log
+		// refuses a record naming a turn that is no longer active.
+		const parentLog = new InMemorySessionLog({ sessionId: SESSION })
+		const recorder = await begunTurn(parentLog)
+		const childId = generateSessionId()
+		const childLog = await settledChild(childId)
+		await recorder.recordChildSessionEvent(spawned(childId, recorder.turnId))
+
+		const failed = recorder.appendEvent({
+			type: 'turn_failed',
+			sessionId: SESSION,
+			turnId: recorder.turnId,
+			error: 'cancelled by the parent',
+			settlement: {
+				status: 'failed',
+				iterations: 1,
+				usage: { ...EMPTY_TOKEN_USAGE },
+				cost: { ...ZERO_COST },
+				durationMs: 1,
+				resultSource: 'model',
+				abandonedTaskIds: [],
+				abandonedJobIds: [],
+			},
+		} as never)
+		const idled = recorder.recordChildSessionEvent(
+			{
+				type: 'child_session_idled',
+				sessionId: SESSION,
+				turnId: recorder.turnId,
+				childSessionId: childId,
+			},
+			childLog,
+		)
+		await failed
+		await idled
+		await recorder.flush()
+
+		const tail = (await parentLog.readAll()).entries.map((entry) => entry.record).slice(-3)
+		expect(tail.map((record) => record.type)).toEqual([
+			'turn_failed',
+			'child_session_idled',
+			'child_session_ended',
+		])
+		expect(tail[1]).not.toHaveProperty('turnId')
+		expect(tail[2]).not.toHaveProperty('turnId')
+	})
+
 	it("leaves another session's children out of this log", async () => {
 		const parentLog = new InMemorySessionLog({ sessionId: SESSION })
 		const recorder = await begunTurn(parentLog)

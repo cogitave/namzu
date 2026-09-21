@@ -184,6 +184,13 @@ export class TurnRecorder {
 	readonly #config: TurnRecorderConfig
 	readonly #turn: Turn
 	#phase: Phase = 'new'
+	/**
+	 * The segment's closing record (`turn_paused`, `turn_completed`,
+	 * `turn_failed`) is queued. `#phase` moves only once it has landed; from
+	 * the moment it is queued, nothing else may be queued under the turn's id,
+	 * because it would land after the turn has ended.
+	 */
+	#ending = false
 	#lease: SessionLease | undefined
 	#ownsLease = false
 	/** The recorder gave its lease up: it is no longer the session's writer. */
@@ -740,16 +747,29 @@ export class TurnRecorder {
 		const turnBound = TURN_BOUND_EVENT_TYPES.has(event.type)
 		if (this.#phase === 'closed' && turnBound) return undefined
 		if (this.#phase === 'paused' && turnBound) return undefined
-		const draft = eventDraft(event, this.#phase === 'active' ? this.turnId : undefined)
+		if (this.#ending && turnBound) return undefined
 		if (event.type === 'turn_completed') {
 			this.#syncMessages()
 			await this.#replaceAnswerIfOverridden()
 		}
+		const draft = eventDraft(event, this.#turnOpen() ? this.turnId : undefined)
 		this.#syncMessages()
+		if (
+			event.type === 'turn_paused' ||
+			event.type === 'turn_completed' ||
+			event.type === 'turn_failed'
+		) {
+			this.#ending = true
+		}
 		const entry = await this.#enqueue(() => this.#append(draft))
 		if (event.type === 'turn_paused') this.#phase = 'paused'
 		if (event.type === 'turn_completed' || event.type === 'turn_failed') this.#phase = 'closed'
 		return entry
+	}
+
+	/** The turn is active and its closing record is not yet queued. */
+	#turnOpen(): boolean {
+		return this.#phase === 'active' && !this.#ending
 	}
 
 	/**
@@ -775,7 +795,7 @@ export class TurnRecorder {
 	): Promise<SessionLogEntry | undefined> {
 		if (event.sessionId !== this.sessionId || this.#released) return Promise.resolve(undefined)
 		if (this.#phase === 'new' || this.#phase === 'open') return Promise.resolve(undefined)
-		const spawningTurnOpen = this.#phase === 'active' && event.turnId === this.turnId
+		const spawningTurnOpen = this.#turnOpen() && event.turnId === this.turnId
 		if (event.type === 'child_session_spawned') {
 			// Belongs to the turn that spawned it, and only while that turn is open.
 			if (!spawningTurnOpen) return Promise.resolve(undefined)
