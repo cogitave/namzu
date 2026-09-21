@@ -137,7 +137,7 @@ upstream has moved.
 Tests use the real provider adapters with local HTTP/SSE fixtures, including
 tool continuations, signatures, cancellation and error classification.
 An SDK kernel test executes a registered tool and feeds its result into the
-next model request before completing the run.
+next model request before completing the turn.
 On 2026-09-08, live text inference on `muse-spark-1.3-contributor-free`
 succeeded without an account key through installed OpenCode and Namzu's
 driver. A live Namzu `run-stream` call with low effort and production tools

@@ -241,11 +241,11 @@ The main task and explicit archive tools remain available. The previous operator
 query is never used just because literal retrieval was empty.
 
 One plan promise is cached for the same turn and operator-message identity, also
-keyed by question text. New runs or steering input invalidate it. A failed plan
+keyed by question text. New turns or steering input invalidate it. A failed plan
 is not retried on every iteration. Evidence bytes are still retrieved and
 revalidated on every pass. This cache is local to the hook, not durable memory.
 The planning call permits at most 512 output tokens and ten seconds, sharing the
-run's provider chain, token ledger and cancellation. Those tokens count toward
+turn's provider chain, token ledger and cancellation. Those tokens count toward
 the turn; the subsequent retrieval deadline is separate. These are bounded
 preparation costs, not free retrieval or a hard provider billing ceiling.
 

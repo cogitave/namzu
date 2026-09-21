@@ -131,7 +131,7 @@ test next-request visibility after compaction and measure saved repeated work
 against extra prompt tokens before enabling a blanket reminder.
 
 **External workflow engines are an optional integration gap.** Namzu already
-has fenced claims, injectable run/checkpoint stores and completed-call recovery.
+has fenced claims, injectable session-log and checkpoint stores and completed-call recovery.
 Pydantic additionally ships integrations such as
 [Temporal durability](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/durable_exec/temporal/_durability.py#L103).
 Namzu hosts currently own worker orchestration. Acceptance for such an adapter

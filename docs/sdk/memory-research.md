@@ -2,7 +2,7 @@
 type: Explanation
 title: Memory retrieval research
 description: Research and code comparison behind recall admission and the next memory retrieval experiments.
-resource: packages/sdk/src/run/memory-recall.ts
+resource: packages/sdk/src/turn/memory-recall.ts
 tags: [sdk, memory, research, retrieval]
 ---
 

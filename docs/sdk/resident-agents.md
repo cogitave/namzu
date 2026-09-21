@@ -392,8 +392,9 @@ them; missing receipts cannot be reconstructed from an assistant answer.
 
 Identity joins and duplicate checks compare UUIDs independently of hexadecimal
 letter case, while preserving the supplied admission identifiers for resolver
-lookups. Duplicate-run detection covers receipts resolved in this inspection.
-Hosts combining pages must join settlements and deduplicate claim/run identities
+lookups. Duplicate-turn detection (`receiptStatus: 'duplicate-turn'`) covers
+receipts resolved in this inspection. Hosts combining pages must join
+settlements and deduplicate claim/turn identities
 over the combined range; per-page scalar totals alone are not sufficient. Read
 the activity source for settlements whose admissions occurred on an earlier
 page: an inspection report attaches settlements only to its own admissions.

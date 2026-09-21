@@ -296,7 +296,7 @@ policy, not independent proof that an objective succeeded. Configure relevant
 gates when the task has executable acceptance criteria.
 
 Each attempted claim gets `attempts/<claimId>/start.json` linking it to the actual
-Session/Run IDs, cwd and provider/model. `finish.json` records the callback's
+session and turn IDs (`sessionId`, `turnId`), cwd and provider/model. `finish.json` records the callback's
 outcome, decision, reported usage, errors and `cleanup: confirmed|unconfirmed`.
 Failed session construction or cleanup retains managed runner ownership because
 resource drainage could not be established. These receipts omit raw provider

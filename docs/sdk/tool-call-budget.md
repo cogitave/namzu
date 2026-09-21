@@ -34,7 +34,7 @@ their bodies start retain their slots. This bounds admissions rather than
 claiming every reservation produced an external side effect. Provider requests,
 argument repair, review hooks and background work after its launch are separate
 resources; a launched background job consumes its tool call, not a slot per
-process action. Delegated runs have independent budgets; this is not a shared
+process action. Child sessions have independent budgets; this is not a shared
 agent-tree allowance.
 
 ## Durable accounting and recovery

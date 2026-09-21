@@ -88,8 +88,8 @@ path and resumes only if that change succeeds, including in Windows PowerShell
 5.1. Users exiting from Git Bash can run the labelled command in PowerShell.
 
 `/config` (also available as `/settings`) shows Model, Reasoning effort and
-Permissions and Run limits with their effective values, and opens the corresponding controls.
-Run limits defaults to unlimited tokens, model turns and duration. Enter a value
+Permissions and Turn limits with their effective values, and opens the corresponding controls.
+Turn limits defaults to unlimited tokens, model turns and duration. Enter a value
 for any row; `0` or `unlimited` removes its cap. `/config limits` opens it directly,
 and `/config limits unlimited` removes all three caps for future turns in this
 TUI session. Running work keeps its captured limits and measured usage. See
