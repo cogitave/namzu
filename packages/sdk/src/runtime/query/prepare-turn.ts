@@ -793,11 +793,13 @@ async function savedBudgetReference(
 	storage: SessionStorage,
 	selected: SelectedResumeState | undefined,
 ): Promise<SavedBudgetReference | undefined> {
-	if (selected) {
-		return selected.budgetBinding
-			? { binding: selected.budgetBinding, accountId: selected.budgetBinding.accountId }
-			: undefined
+	if (selected?.budgetBinding) {
+		return { binding: selected.budgetBinding, accountId: selected.budgetBinding.accountId }
 	}
+	// A selected state carries only a durable binding. An account held in
+	// memory is named by the checkpoint document alone, and a resume must
+	// still see it, so the host is asked for that authority rather than
+	// handed a fresh ledger.
 	if (!params.resumeFromCheckpoint) return undefined
 	const checkpoint = await storage.checkpoints.read(
 		{

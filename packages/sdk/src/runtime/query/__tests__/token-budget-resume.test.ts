@@ -5,25 +5,22 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { TokenBudget } from '../../../turn/token-budget.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { DiskTokenBudgetStore, openTokenBudget } from '../../../store/run/token-budget-disk.js'
-import type { TokenUsage } from '../../../types/common/index.js'
-import { type IterationCheckpoint, autoApproveHandler } from '../../../types/hitl/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
-import type { TokenBudgetScope } from '../../../types/session/token-budget-store.js'
-import { ZERO_COST } from '../../../utils/cost.js'
 import {
-	generateCheckpointId,
-	generateProjectId,
-	generateTurnId,
-	generateSessionId,
-	generateTenantId,
-	generateTopicId,
-} from '../../../utils/id.js'
+	InMemorySessionTokenBudgetStore,
+	SessionTokenBudget,
+	type SessionTokenBudgetScope,
+	openSessionTokenBudget,
+} from '../../../store/budget/index.js'
+import type { TokenUsage } from '../../../types/common/index.js'
+import { autoApproveHandler } from '../../../types/hitl/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
+import { createUserMessage } from '../../../types/message/index.js'
+import type { Checkpoint } from '../../../types/session/checkpoint.js'
+import { generateCheckpointId, generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
-import type { TurnStateScope } from '../turn-state.js'
 import { resolveQueryBudget } from '../token-budget.js'
+import type { TurnStateScope } from '../turn-state.js'
+import { type CheckpointedSession, TEST_SCOPE, sessionWithCheckpoint } from './support/session.js'
 
 const directories: string[] = []
 afterEach(async () => {
@@ -40,81 +37,101 @@ function usage(tokens: number): TokenUsage {
 	}
 }
 
+/**
+ * A root turn's ledger (keyed by its session and turn) in a store that
+ * outlives the process, and the resume parameters for that turn.
+ */
 async function fixture(limit = 1_000) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-ledger-resume-'))
 	directories.push(workingDirectory)
-	const rootScope: TokenBudgetScope = {
-		tenantId: generateTenantId(),
-		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
-		turnId: generateTurnId(),
-	}
-	const store = new DiskTokenBudgetStore({ baseDir: join(workingDirectory, 'ledgers') })
-	const root = await openTokenBudget({ store, scope: rootScope, limit })
-	const scope: TurnStateScope = { ...rootScope, topicId: generateTopicId() }
-	const checkpointStore = new InMemoryCheckpointStore()
+	const sessionId = generateSessionId()
+	const turnId = generateTurnId()
+	const rootScope: SessionTokenBudgetScope = { rootSessionId: sessionId, rootTurnId: turnId }
+	const store = new InMemorySessionTokenBudgetStore()
+	const root = await openSessionTokenBudget({ store, scope: rootScope, limit })
+	const scope: TurnStateScope = { ...TEST_SCOPE, sessionId, turnId }
 	const provider = new MockLLMProvider({ turns: [{ text: 'continued', usage: usage(50) }] })
-	const params: ResumeSessionParams = {
+	const base = {
 		...scope,
-		scope,
 		provider,
 		tools: new ToolRegistry(),
 		resumeHandler: autoApproveHandler,
-		checkpointStore,
-		tokenBudgetStore: new DiskTokenBudgetStore({ baseDir: join(workingDirectory, 'ledgers') }),
+		tokenBudgetStore: store,
 		workingDirectory,
-		retry: false,
+		retry: false as const,
 		agentId: 'resume-budget',
 		agentName: 'Resume budget',
 		turnConfig: { model: 'mock', timeoutMs: 30_000, tokenBudget: 1_000, maxIterations: 4 },
 	}
-	return { workingDirectory, rootScope, root, store, scope, checkpointStore, provider, params }
+	return { workingDirectory, rootScope, root, store, scope, provider, base }
 }
 
-function checkpoint(
-	budget: TokenBudget,
-	scope: TurnStateScope,
+/**
+ * The interrupted turn: its log with a committed checkpoint that says
+ * `tokens` were spent and names `budget`'s account.
+ */
+function interrupted(
+	budget: SessionTokenBudget,
+	scope: { readonly sessionId: SessionId; readonly turnId: TurnId },
 	tokens: number,
-): IterationCheckpoint {
-	return {
-		id: generateCheckpointId(),
-		turnId: scope.runId,
-		iteration: 1,
+	document: Partial<Checkpoint> = {},
+): Promise<CheckpointedSession> {
+	return sessionWithCheckpoint({
+		sessionId: scope.sessionId,
+		turnId: scope.turnId,
 		messages: [createUserMessage('Continue the saved work.')],
-		tokenUsage: usage(tokens),
-		costInfo: { ...ZERO_COST },
-		guardState: { iterationCount: 1, elapsedMs: 1 },
-		createdAt: Date.now(),
-		budgetBinding: budget.binding,
-		budgetAccountId: budget.accountId,
+		document: {
+			iteration: 1,
+			tokenUsage: usage(tokens),
+			guards: { iteration: 1, elapsedMs: 1 },
+			budget: {
+				...(budget.binding ? { binding: budget.binding } : {}),
+				accountId: budget.accountId,
+			},
+			...document,
+		},
+		release: true,
+	})
+}
+
+function resumeParams(
+	f: Awaited<ReturnType<typeof fixture>>,
+	session: CheckpointedSession,
+	scope: TurnStateScope = f.scope,
+): ResumeSessionParams {
+	return {
+		...f.base,
+		...scope,
+		scope,
+		sessionLog: session.log,
+		checkpointStore: session.store,
 	}
 }
 
 describe('checkpoint resume keeps the latest token authority', () => {
-	it('reopens an unlimited run after long elapsed time without losing measured spend', async () => {
+	it('reopens an unlimited turn after long elapsed time without losing measured spend', async () => {
 		const f = await fixture(0)
 		f.root.recordUsage(usage(300_000))
 		await f.root.flush()
-		await f.checkpointStore.writeCheckpoint(f.scope, {
-			...checkpoint(f.root, f.scope, 300_000),
+		const session = await interrupted(f.root, f.scope, 300_000, {
 			iteration: 500,
-			guardState: { iterationCount: 500, elapsedMs: 24 * 60 * 60 * 1000 },
+			guards: { iteration: 500, elapsedMs: 24 * 60 * 60 * 1000 },
 		})
 		const outcome = await resumeSession({
-			...f.params,
+			...resumeParams(f, session),
 			turnConfig: { model: 'mock', tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
 		})
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
-		expect(outcome.run.stopReason).toBe('end_turn')
+		expect(outcome.turn.stopReason).toBe('end_turn')
 		expect(f.provider.requests).toHaveLength(1)
-		expect(outcome.run.budget).toMatchObject({
+		expect(outcome.turn.budget).toMatchObject({
 			limit: 0,
 			ownTokens: 300_050,
 			treeTokens: 300_050,
 			remainingTokens: null,
 		})
-		const reopened = await openTokenBudget({
+		const reopened = await openSessionTokenBudget({
 			store: f.store,
 			scope: f.rootScope,
 			requireExisting: true,
@@ -125,21 +142,23 @@ describe('checkpoint resume keeps the latest token authority', () => {
 			remainingTokens: null,
 		})
 	})
-	it('applies a narrower run cap to a supplied root authority', async () => {
+
+	it('applies a narrower turn cap to a supplied root authority', async () => {
 		const f = await fixture()
 		const resolved = await resolveQueryBudget(
 			{
-				...f.params,
+				...f.base,
 				budget: f.root,
 				messages: [],
-				turnConfig: { ...f.params.turnConfig, tokenBudget: 100 },
+				turnConfig: { ...f.base.turnConfig, tokenBudget: 100 },
 			},
-			f.scope.runId,
+			f.scope.turnId,
+			f.store,
 		)
 		await resolved.flush()
 		expect(resolved).toBe(f.root)
 		expect(resolved.limit).toBe(100)
-		const reopened = await openTokenBudget({
+		const reopened = await openSessionTokenBudget({
 			store: f.store,
 			scope: f.rootScope,
 			requireExisting: true,
@@ -147,23 +166,23 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		expect(reopened.limit).toBe(100)
 	})
 
-	it('restores old root messages without rolling back newer parent or child spending', async () => {
+	it('restores the checkpoint without rolling back newer parent or child spending', async () => {
 		const f = await fixture()
 		f.root.recordUsage(usage(100))
-		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(f.root, f.scope, 100))
+		const session = await interrupted(f.root, f.scope, 100)
 		f.root.recordUsage(usage(300))
 		const child = f.root.reserve(400)
-		child.bindRun(generateTurnId())
+		child.bindTurn(generateSessionId(), generateTurnId())
 		child.recordUsage(usage(200))
 		child.settle()
 		await f.root.flush()
-		const outcome = await resumeSession(f.params)
+		const outcome = await resumeSession(resumeParams(f, session))
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
 		expect(f.provider.requests).toHaveLength(1)
-		expect(outcome.run.tokenUsage.totalTokens).toBe(350)
-		expect(outcome.run.budget?.treeTokens).toBe(550)
-		const reopened = await openTokenBudget({
+		expect(outcome.turn.tokenUsage.totalTokens).toBe(350)
+		expect(outcome.turn.budget?.treeTokens).toBe(550)
+		const reopened = await openSessionTokenBudget({
 			store: f.store,
 			scope: f.rootScope,
 			requireExisting: true,
@@ -176,28 +195,27 @@ describe('checkpoint resume keeps the latest token authority', () => {
 		const f = await fixture()
 		f.root.recordUsage(usage(200))
 		const child = f.root.reserve(400)
-		const childScope = {
+		const childScope: TurnStateScope = {
 			...f.scope,
 			sessionId: generateSessionId(),
 			turnId: generateTurnId(),
-			parentRunId: f.rootScope.runId,
+			parentSessionId: f.scope.sessionId,
+			parentTurnId: f.scope.turnId,
 		}
-		child.bindRun(childScope.runId)
+		child.bindTurn(childScope.sessionId, childScope.turnId)
 		child.recordUsage(usage(100))
-		await f.checkpointStore.writeCheckpoint(childScope, checkpoint(child, childScope, 100))
+		const session = await interrupted(child, childScope, 100)
 		child.recordUsage(usage(250))
 		await f.root.flush()
 		const outcome = await resumeSession({
-			...f.params,
-			...childScope,
-			scope: childScope,
-			turnConfig: { ...f.params.turnConfig, tokenBudget: 400 },
+			...resumeParams(f, session, childScope),
+			turnConfig: { ...f.base.turnConfig, tokenBudget: 400 },
 		})
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
 		expect(f.provider.requests).toHaveLength(1)
-		expect(outcome.run.tokenUsage.totalTokens).toBe(300)
-		const reopened = await openTokenBudget({
+		expect(outcome.turn.tokenUsage.totalTokens).toBe(300)
+		const reopened = await openSessionTokenBudget({
 			store: f.store,
 			scope: f.rootScope,
 			requireExisting: true,
@@ -208,51 +226,56 @@ describe('checkpoint resume keeps the latest token authority', () => {
 
 	it('makes no provider call when newer durable spending already exhausts the root', async () => {
 		const f = await fixture()
-		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(f.root, f.scope, 100))
+		const session = await interrupted(f.root, f.scope, 100)
 		f.root.recordUsage(usage(1_000))
 		await f.root.flush()
-		const outcome = await resumeSession(f.params)
+		const outcome = await resumeSession(resumeParams(f, session))
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
 		expect(f.provider.requests).toHaveLength(0)
-		expect(outcome.run.stopReason).toBe('token_budget')
-		expect(outcome.run.tokenUsage.totalTokens).toBe(1_000)
+		expect(outcome.turn.stopReason).toBe('token_budget')
+		expect(outcome.turn.tokenUsage.totalTokens).toBe(1_000)
 	})
 
 	it('requires current authority for a checkpoint made with an in-memory account', async () => {
 		const f = await fixture()
-		const current = TokenBudget.create(1_000, f.scope.runId)
+		const current = SessionTokenBudget.create(1_000, f.rootScope)
 		current.recordUsage(usage(150))
-		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(current, f.scope, 100))
-		await expect(resumeSession(f.params)).rejects.toThrow('current authoritative budget')
+		const session = await interrupted(current, f.scope, 100)
+		await expect(resumeSession(resumeParams(f, session))).rejects.toThrow(
+			'current authoritative budget',
+		)
 		expect(f.provider.requests).toHaveLength(0)
-		const result = await resumeSession({ ...f.params, budget: current })
+		// The refusal left the turn as it was: resumable once the host hands
+		// the authority over.
+		const result = await resumeSession({ ...resumeParams(f, session), budget: current })
 		expect(result.resumed).toBe(true)
 		expect(current.ownTokens).toBe(200)
 	})
 
-	it('refuses copied account identity from a different root scope before spending', async () => {
+	it('refuses a supplied account from a different root before spending', async () => {
 		const f = await fixture()
-		await f.checkpointStore.writeCheckpoint(f.scope, checkpoint(f.root, f.scope, 0))
-		const copied = TokenBudget.restore(f.root.snapshot(), {
-			scope: { ...f.rootScope, sessionId: generateSessionId() },
-			save: async () => {},
+		const session = await interrupted(f.root, f.scope, 0)
+		const other = SessionTokenBudget.create(1_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
 		})
-		await expect(resumeSession({ ...f.params, budget: copied })).rejects.toThrow('root scope')
+		await expect(resumeSession({ ...resumeParams(f, session), budget: other })).rejects.toThrow()
 		expect(f.provider.requests).toHaveLength(0)
 	})
 
 	it('does not create a ledger while resolving a missing checkpoint', async () => {
 		const f = await fixture()
-		const runId = generateTurnId()
-		const queryParams = {
-			...f.params,
-			turnId,
-			messages: [],
-			resumeFromCheckpoint: generateCheckpointId(),
-		}
-		await expect(resolveQueryBudget(queryParams, runId)).rejects.toThrow('missing checkpoint')
-		expect(await f.store.load({ ...f.rootScope, runId })).toBeNull()
+		const session = await interrupted(f.root, f.scope, 0)
+		const fresh: TurnStateScope = { ...f.scope, turnId: generateTurnId() }
+		const outcome = await resumeSession({
+			...resumeParams(f, session, fresh),
+			checkpointId: generateCheckpointId(),
+		})
+		expect(outcome).toEqual({ resumed: false, reason: 'no-checkpoint' })
+		expect(
+			await f.store.load({ rootSessionId: fresh.sessionId, rootTurnId: fresh.turnId }),
+		).toBeNull()
 		expect(f.provider.requests).toHaveLength(0)
 	})
 })
