@@ -308,6 +308,103 @@ describe('ensureSandboxSeed', () => {
 		).rejects.toMatchObject({ code: 'drift' })
 	})
 
+	it('refuses a changed ref that a deeper clone carries in its history', async () => {
+		// depth 2 fetches the tag v0 at the older commit along with main.
+		git(join(remotes, 'app.git'), 'tag', 'v0', firstCommit)
+		const onRef = (ref: string): SandboxSeed => ({
+			name: 'dev',
+			repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref, depth: 2 }],
+		})
+		const sandbox = fakeSandbox(remotes)
+		await ensureSandboxSeed(sandbox, onRef('main'), { root })
+		expect(git(join(root, 'app'), 'rev-parse', 'refs/tags/v0')).toBe(firstCommit)
+
+		await expect(ensureSandboxSeed(sandbox, onRef('v0'), { root })).rejects.toMatchObject({
+			code: 'drift',
+			repository: 'app',
+			message: expect.stringMatching(/app does not hold the seed's ref/),
+		})
+		expect(readFileSync(join(root, 'app', 'README'), 'utf8')).toBe('app two\n')
+		const marker = JSON.parse(readFileSync(join(root, '.namzu/seed/dev.json'), 'utf8'))
+		expect(marker).toMatchObject({ commits: { app: secondCommit }, refs: { app: 'main' } })
+	})
+
+	it.each([
+		['behind the checkout', 'second', 'old'],
+		['ahead of the checkout', 'first', 'main'],
+	] as const)(
+		'refuses a ref %s after a pinned commit, whose full clone has every branch',
+		async (_, pin, ref) => {
+			git(join(remotes, 'app.git'), 'branch', 'old', firstCommit)
+			const commit = pin === 'first' ? firstCommit : secondCommit
+			const sandbox = fakeSandbox(remotes)
+			await ensureSandboxSeed(
+				sandbox,
+				{ name: 'dev', repositories: [{ name: 'app', url: 'https://seed.test/app.git', commit }] },
+				{ root },
+			)
+			const onRef: SandboxSeed = {
+				name: 'dev',
+				repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref }],
+			}
+			await expect(ensureSandboxSeed(sandbox, onRef, { root })).rejects.toMatchObject({
+				code: 'drift',
+				repository: 'app',
+			})
+			const reported = await ensureSandboxSeed(sandbox, onRef, { root, onDrift: 'report' })
+			expect(reported.repositories).toEqual([{ name: 'app', status: 'drifted', commit }])
+			// The pin's record is not written under the new ref.
+			const marker = JSON.parse(readFileSync(join(root, '.namzu/seed/dev.json'), 'utf8'))
+			expect(marker.commits).toEqual({})
+			expect(git(join(root, 'app'), 'rev-parse', 'HEAD')).toBe(commit)
+		},
+	)
+
+	it('does not let a dropped pin stand in for the default branch', async () => {
+		const sandbox = fakeSandbox(remotes)
+		await ensureSandboxSeed(
+			sandbox,
+			{
+				name: 'dev',
+				repositories: [{ name: 'app', url: 'https://seed.test/app.git', commit: firstCommit }],
+			},
+			{ root },
+		)
+		const marker = JSON.parse(readFileSync(join(root, '.namzu/seed/dev.json'), 'utf8'))
+		expect(marker.refs).toEqual({ app: ':commit' })
+		// The default branch is main at the second commit; HEAD is the pin.
+		await expect(ensureSandboxSeed(sandbox, seed, { root })).rejects.toMatchObject({
+			code: 'drift',
+			repository: 'app',
+		})
+		expect(readFileSync(join(root, 'app', 'README'), 'utf8')).toBe('app one\n')
+	})
+
+	it('holds a seed with no ref and no record to the default branch', async () => {
+		git(join(remotes, 'app.git'), 'branch', 'old', firstCommit)
+		const sandbox = fakeSandbox(remotes)
+		await ensureSandboxSeed(
+			sandbox,
+			{
+				name: 'dev',
+				repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref: 'old' }],
+			},
+			{ root },
+		)
+		// Dropping the ref: a checkout of 'old' is not the default branch.
+		await expect(ensureSandboxSeed(sandbox, seed, { root })).rejects.toMatchObject({
+			code: 'drift',
+			repository: 'app',
+		})
+		// A default clone with its marker gone is found through origin/HEAD.
+		rmSync(join(root, 'app'), { recursive: true, force: true })
+		rmSync(join(root, '.namzu/seed/dev.json'))
+		await ensureSandboxSeed(sandbox, seed, { root })
+		rmSync(join(root, '.namzu/seed/dev.json'))
+		const again = await ensureSandboxSeed(sandbox, seed, { root })
+		expect(again.repositories[0]).toEqual({ name: 'app', status: 'present', commit: secondCommit })
+	})
+
 	it('refuses drift by default, changing nothing, and reports it on request', async () => {
 		const foreign = join(root, 'app')
 		git(work, 'clone', '--quiet', join(remotes, 'lib.git'), foreign)

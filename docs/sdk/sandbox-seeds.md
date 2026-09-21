@@ -69,19 +69,29 @@ absent.
    repository, its `remote.origin.url` is the seed's URL, and the pinned
    `commit` (or the commit a `ref` resolved to when it was cloned) is an
    ancestor of its HEAD. The recorded commit counts only when it was recorded
-   under the `ref` the seed names now. When it was not (the `ref` changed, or
-   there is no marker), the ref itself must be in the repository, as the
-   remote-tracking branch or the tag a clone of it leaves, and on HEAD's line
-   of history.
+   under what the seed names now: the same `ref`, the default branch when it
+   names none, or a pin (the marker records a pinned repository as `:commit`,
+   so dropping the pin never lets the pinned commit stand in for a branch).
+   When it was not (the `ref` changed, a pin was dropped, or there is no
+   marker), the ref itself must be in the repository, as a remote-tracking
+   branch or a tag (`origin/HEAD` for the default branch), and name exactly
+   HEAD. Sharing a line of history with HEAD is not enough: a clone deeper than
+   1 carries the tags in its history, and a pinned commit's full clone carries
+   every remote branch, so the ref is often present without having been
+   checked out. The cost falls on the safe side: with no record under the ref,
+   local commits on top of it are drift too, and so is a `--branch` clone
+   whose `ref` is then removed from the seed, since such a clone has no
+   `origin/HEAD`.
 2. **Drift is refused before anything is cloned** (`code: 'drift'`), so a
    refusal leaves the root as it was. A different origin, a rewritten history,
    a checkout of another branch or tag than the seed's `ref`, or a directory
    that is not a repository are all drift. Changing a seed's `ref` from `main`
-   to `release` therefore refuses on a disk cloned from `main` (a shallow clone
-   has no `release`) instead of reporting the old checkout `present`; remove
-   the directory to have the next call clone the new ref. A `ref` the checkout
-   already holds, such as naming `main` for a clone of the default branch
-   `main`, is accepted and recorded. With
+   to `release` therefore refuses on a disk cloned from `main`, whether or not
+   the clone carries `release`, instead of reporting the old checkout
+   `present`; so does changing a pinned `commit` to a `ref`, behind or ahead of
+   the pin. Remove the directory to have the next call clone the new ref. A
+   `ref` whose commit is exactly HEAD, such as naming `main` for a clone of the
+   default branch `main`, is accepted and recorded. With
    `onDrift: 'report'` the repository is reported `drifted` and left alone.
    Nothing is ever deleted or re-cloned.
 3. **Clone what is missing** into `<dir>.namzu-partial-<nonce>`, check out the
@@ -89,7 +99,8 @@ absent.
    `ref` is cloned at depth `depth ?? 1`; a pinned `commit` is cloned with its
    history, and `depth` beside it is refused.
 4. **Write the marker** `<root>/.namzu/seed/<name>.json` (the seed's digest,
-   the commit each repository resolved to and the `ref` it resolved from) to a
+   the commit each repository resolved to and what it resolved from: the
+   `ref`, `''` for the default branch, `:commit` for a pin) to a
    temporary file named by a random nonce of this call and move it into place.
    The name is not the shell's PID: sandboxes sharing one disk often run the
    step as the same PID, each in its own PID namespace.
@@ -115,7 +126,8 @@ for the largest repository, since a clone is one `exec`.
 The marker lives in guest-writable storage, so an agent can forge it. It is
 never the reason a repository is skipped: step 1 runs on every call whatever
 the marker says, and the marker only supplies the commit a `ref` resolved to,
-used only for the `ref` it was recorded under.
+used only for the `ref` it was recorded under. A forged record is still
+checked: its commit must be an ancestor of HEAD.
 A marker value that is not a full commit id is ignored rather than passed to
 git, where it could be read as an option.
 
@@ -152,8 +164,12 @@ clone still in progress survives it.
 a real `sh` and `git` on local bare repositories, with no network: a fresh
 clone, a second call that only checks, an added repository, a pinned commit
 and a rewritten history under it, a changed `ref` refused as drift with the
-old checkout kept, a `ref` the checkout already holds accepted, a tag found in
-the repository with no marker, drift refused and reported with nothing
+old checkout kept (including a tag that a depth-2 clone carries in its
+history, and a branch behind or ahead of a pinned commit whose full clone has
+every branch), a dropped pin refused against the default branch, a dropped
+`ref` refused and a markerless default clone found through `origin/HEAD`, a
+`ref` whose commit is HEAD accepted, a tag found in the repository with no
+marker, drift refused and reported with nothing
 changed, a directory that is not a repository, a forged marker (a missing
 repository is still cloned; a foreign commit is drift; a non-commit value never
 reaches git), a stale partial swept while a fresh one survives, two concurrent

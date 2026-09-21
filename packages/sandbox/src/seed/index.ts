@@ -23,12 +23,20 @@
  * than passed to git.
  *
  * A CHANGED `ref` IS NOT THE SAME SEED. The recorded commit is used only when
- * it was recorded under the `ref` the seed names now. Otherwise the check looks
- * in the repository itself: the ref must exist there (as a remote-tracking
- * branch or a tag, which is what a clone of it leaves) and lie on HEAD's line
- * of history. A checkout of another branch or tag fails that, and is drift
- * like any other, so a seed whose `ref` moved never reports the old checkout as
- * `present`. A digest match is never a reason to skip a check either.
+ * it was recorded under what the seed names now: the same `ref`, the default
+ * branch for none, or a pin (a pin's record never stands in for a `ref` or the
+ * default branch once the pin is dropped). Otherwise the check looks in the
+ * repository itself: the ref must exist there (as a remote-tracking branch or
+ * a tag; `refs/remotes/origin/HEAD` for the default branch) and name exactly
+ * HEAD. Sharing a line of history with HEAD is not enough, because the ref is
+ * often there without having been checked out: a clone deeper than 1 carries
+ * the tags in its history, and a pinned commit's full clone carries every
+ * remote branch. So a checkout of another branch, tag or commit is drift like
+ * any other, and a seed whose `ref` moved never reports the old checkout as
+ * `present`. The cost is on the safe side: with no record under the ref, local
+ * commits on top of it, or a `--branch` clone whose `ref` is then dropped
+ * (such a clone has no `origin/HEAD`), are drift too. A digest match is never
+ * a reason to skip a check either.
  *
  * NO CREDENTIAL ENTERS THE GUEST. URLs with a user name or password, `ssh://`
  * and `git@host:path` are refused, since each would put a secret or a private
@@ -64,8 +72,8 @@ export interface SandboxSeedRepository {
 	readonly url: string
 	/**
 	 * A branch or tag. Resolved once, when cloned, and the commit recorded with
-	 * the ref. Changing it later is drift unless the checkout on disk already
-	 * holds that ref on its line of history (see the module doc).
+	 * the ref. Changing it later is drift unless HEAD on disk is exactly the
+	 * commit the new ref names in the repository (see the module doc).
 	 */
 	readonly ref?: string
 	/** A full commit id to pin. Wins over `ref`, and is checked on every call. */
@@ -157,9 +165,29 @@ const PATH_SEGMENT = /^[A-Za-z0-9._-]+$/
 const DRIFT_STATES: ReadonlyMap<string, string> = new Map([
 	['origin', 'has a different origin URL'],
 	['history', 'no longer contains its pinned or recorded commit'],
-	['ref', "does not hold the seed's ref; it is a checkout of another branch or tag"],
+	[
+		'ref',
+		"does not hold the seed's ref (the default branch when it names none): with no record under that ref, HEAD must be exactly the commit the ref names in the repository, and it is another branch, tag or commit",
+	],
 	['occupied', 'is a directory that is not a git repository'],
 ])
+
+/**
+ * What CHECK looks up for a seed that names no `ref` and has no record: the
+ * remote's default branch, as `refs/remotes/origin/HEAD` (which a clone with
+ * no `--branch` leaves). It starts with ':', which no `ref` the seed accepts
+ * can, so it never collides with a branch or tag name.
+ */
+const DEFAULT_BRANCH = ':default'
+
+/**
+ * The marker's `refs` entry for a repository: what its recorded commit was
+ * resolved from. A pinned repository records `:commit`, so dropping the pin
+ * never lets the pinned commit stand in for the default branch or a `ref`.
+ */
+function recordedFrom(repo: SandboxSeedRepository): string {
+	return repo.commit !== undefined ? ':commit' : (repo.ref ?? '')
+}
 
 /** How old a partial clone must be before a later call removes it. */
 const STALE_PARTIAL_MINUTES = 60
@@ -355,9 +383,12 @@ rm -rf "$probe"
 `
 
 // Arguments, per repository: dir, url, expected commit ('' for none), ref to
-// find in the repository when there is no expected commit ('' for none).
-// Prints '<state> <head>', and for 'present' the commit it held HEAD to ('-'
-// for none).
+// find in the repository when there is no expected commit ('' for none,
+// DEFAULT_BRANCH for the remote's default branch). A ref found that way must
+// be exactly HEAD: sharing a line of history with HEAD is not holding it, since
+// a clone deeper than 1 carries the tags in its history and a pinned commit's
+// full clone carries every remote branch. Prints '<state> <head>', and for
+// 'present' the commit it held HEAD to ('-' for none).
 const CHECK = `
 while [ "$#" -ge 4 ]; do
 	dir=$1; url=$2; want=$3; ref=$4; shift 4
@@ -367,13 +398,14 @@ while [ "$#" -ge 4 ]; do
 	head=$(git -C "$dir" rev-parse --verify --quiet HEAD 2>/dev/null || printf -- '-')
 	if [ "$origin" != "$url" ]; then printf 'origin %s\\n' "$head"; continue; fi
 	if [ -z "$want" ] && [ -n "$ref" ]; then
-		tip=$(git -C "$dir" rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" 2>/dev/null ||
-			git -C "$dir" rev-parse --verify --quiet "refs/tags/$ref^{commit}" 2>/dev/null || true)
-		if [ -z "$tip" ]; then printf 'ref %s\\n' "$head"; continue; fi
-		if git -C "$dir" merge-base --is-ancestor "$tip" HEAD 2>/dev/null; then want=$tip
-		elif git -C "$dir" merge-base --is-ancestor HEAD "$tip" 2>/dev/null; then want=$head
-		else printf 'history %s\\n' "$head"; continue
+		if [ "$ref" = "${DEFAULT_BRANCH}" ]; then
+			tip=$(git -C "$dir" rev-parse --verify --quiet "refs/remotes/origin/HEAD^{commit}" 2>/dev/null || true)
+		else
+			tip=$(git -C "$dir" rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" 2>/dev/null ||
+				git -C "$dir" rev-parse --verify --quiet "refs/tags/$ref^{commit}" 2>/dev/null || true)
 		fi
+		if [ -z "$tip" ] || [ "$tip" != "$head" ]; then printf 'ref %s\\n' "$head"; continue; fi
+		want=$tip
 	elif [ -n "$want" ] && ! git -C "$dir" merge-base --is-ancestor "$want" HEAD 2>/dev/null; then
 		printf 'history %s\\n' "$head"; continue
 	fi
@@ -416,7 +448,7 @@ done
 
 interface Marker {
 	readonly commits: Readonly<Record<string, string>>
-	/** The `ref` each commit was recorded under, `''` for the default branch. */
+	/** What each commit was resolved from: the `ref`, `''` for the default branch, `:commit` for a pin. */
 	readonly refs: Readonly<Record<string, string>>
 }
 
@@ -440,7 +472,7 @@ function readMarker(raw: string, seed: SandboxSeed): Map<string, string> {
 	for (const repo of seed.repositories) {
 		const value = (recorded as Record<string, unknown>)[repo.name]
 		const ref = (refs as Record<string, unknown>)[repo.name]
-		if (ref !== (repo.ref ?? '')) continue
+		if (ref !== recordedFrom(repo)) continue
 		// Guest-writable: a value that is not a commit id is ignored rather
 		// than handed to git, where it could be read as an option.
 		if (typeof value === 'string' && COMMIT_ID.test(value)) commits.set(repo.name, value)
@@ -448,9 +480,12 @@ function readMarker(raw: string, seed: SandboxSeed): Map<string, string> {
 	return commits
 }
 
-/** The ref CHECK looks for in the repository: none when a commit is pinned or recorded. */
+/**
+ * The ref CHECK looks for in the repository: none when a commit is pinned or
+ * recorded, otherwise the seed's `ref` or, with none, the default branch.
+ */
 function refToFind(repo: SandboxSeedRepository, want: string): string {
-	return want === '' ? (repo.ref ?? '') : ''
+	return want === '' ? (repo.ref ?? DEFAULT_BRANCH) : ''
 }
 
 function joinPath(root: string, dir: string): string {
@@ -574,7 +609,7 @@ export async function ensureSandboxSeed(
 	const refs: Record<string, string> = {}
 	const record = (repo: SandboxSeedRepository, commit: string): void => {
 		commits[repo.name] = commit
-		refs[repo.name] = repo.ref ?? ''
+		refs[repo.name] = recordedFrom(repo)
 	}
 	for (const [index, repo] of defined.repositories.entries()) {
 		const state = states[index] as { state: string; head: string; held: string | undefined }
