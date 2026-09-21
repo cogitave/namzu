@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { advanceObjective, driveObjective } from '../../../manager/topic/objective.js'
 import { TenantIsolationError } from '../../../session/errors.js'
-import type { TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import type { TopicId } from '../../../types/session/ids.js'
 import {
 	type ObjectiveRoundVerdict,
@@ -22,7 +22,7 @@ import {
 } from '../objective.js'
 
 /**
- * Work that outlives one run.
+ * Work that outlives one turn.
  *
  * Nothing in this kernel survived a single `query()` call, so a host wanting
  * "keep going until X is done, stop if it stalls, let a human pause it"
@@ -200,6 +200,25 @@ describe.each([
 		await expect(
 			store.setPhase(created.id, TENANT, 'active', { revision: finished.revision }),
 		).rejects.toThrow(/complete/)
+	})
+
+	it('records the turn that settled a round, and refuses half of one', async () => {
+		const store = await make()
+		const created = await seed(store)
+		const sessionId = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
+		const turnId = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5c' as TurnId
+
+		await expect(
+			store.settleRound(created.id, TENANT, { turnId }, { revision: created.revision }),
+		).rejects.toThrow(/both sessionId and turnId, or neither/)
+		const settled = await store.settleRound(
+			created.id,
+			TENANT,
+			{ sessionId, turnId },
+			{ revision: created.revision },
+		)
+
+		expect(settled.lastTurn).toEqual({ sessionId, turnId })
 	})
 
 	it('drops the blocked reason when it goes active again', async () => {

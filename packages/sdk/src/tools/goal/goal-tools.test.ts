@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { InMemorySessionGoalStore } from '../../store/goal/index.js'
 import { InMemorySessionStore } from '../../store/session/memory.js'
 import type { GoalRoundAuthority } from '../../types/goal/index.js'
-import type { RunId, TenantId } from '../../types/ids/index.js'
+import type { TenantId, TurnId } from '../../types/ids/index.js'
 import type { SessionStore } from '../../types/session/store.js'
 import type { ToolContext, ToolDefinition } from '../../types/tool/index.js'
-import { asRunId, generateTenantId, generateTopicId } from '../../utils/id.js'
+import { asTurnId, generateSessionId, generateTenantId, generateTopicId } from '../../utils/id.js'
 import { SESSION_GOAL_TOOL_NAMES, buildSessionGoalTools } from './index.js'
 
 async function fixture(maxGoalRounds = 8): Promise<{
@@ -36,9 +36,10 @@ async function fixture(maxGoalRounds = 8): Promise<{
 	}
 }
 
-function context(runId: RunId): ToolContext {
+function context(turnId: TurnId): ToolContext {
 	return {
-		runId,
+		sessionId: generateSessionId(),
+		turnId,
 		workingDirectory: process.cwd(),
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -53,15 +54,15 @@ function named(tools: readonly ToolDefinition[], name: string): ToolDefinition {
 }
 
 describe('session goal tools', () => {
-	it('publish the fixed capability names and read only through exact run authority', async () => {
+	it('publish the fixed capability names and read only through exact turn authority', async () => {
 		const { store, authority } = await fixture()
-		const admittedRun = asRunId('1a7b0544-7f44-488d-95a2-2c1ed8f184f4')
-		const tools = buildSessionGoalTools(store, (runId) =>
-			runId === admittedRun ? authority : undefined,
+		const admittedTurn = asTurnId('1a7b0544-7f44-488d-95a2-2c1ed8f184f4')
+		const tools = buildSessionGoalTools(store, (turnId) =>
+			turnId === admittedTurn ? authority : undefined,
 		)
 		expect(tools.map((tool) => tool.name)).toEqual(SESSION_GOAL_TOOL_NAMES)
 
-		const read = await named(tools, 'get_goal').execute({}, context(admittedRun))
+		const read = await named(tools, 'get_goal').execute({}, context(admittedTurn))
 		expect(read).toMatchObject({
 			success: true,
 			data: { objective: 'finish the verified work', roundsAdmitted: 1 },
@@ -69,26 +70,26 @@ describe('session goal tools', () => {
 
 		const refused = await named(tools, 'get_goal').execute(
 			{},
-			context(asRunId('7e5f1e51-1520-4a24-98e1-798e053348c0')),
+			context(asTurnId('7e5f1e51-1520-4a24-98e1-798e053348c0')),
 		)
 		expect(refused).toMatchObject({ success: false, output: '' })
 		expect(refused.error).toContain('no admitted goal-round authority')
 	})
 
-	it('lets the admitted run complete only its exact current goal revision', async () => {
+	it('lets the admitted turn complete only its exact current goal revision', async () => {
 		const { store, authority } = await fixture()
-		const runId = asRunId('788ec053-0e67-46f4-9b78-913bf2fda00c')
+		const turnId = asTurnId('788ec053-0e67-46f4-9b78-913bf2fda00c')
 		const update = named(
 			buildSessionGoalTools(store, () => authority),
 			'update_goal',
 		)
 
-		const result = await update.execute({ status: 'complete' }, context(runId))
+		const result = await update.execute({ status: 'complete' }, context(turnId))
 		expect(result).toMatchObject({
 			success: true,
 			data: { phase: 'complete', revision: authority.revision + 1 },
 		})
-		const replay = await update.execute({ status: 'complete' }, context(runId))
+		const replay = await update.execute({ status: 'complete' }, context(turnId))
 		expect(replay.success).toBe(false)
 		expect(replay.error).toContain('Stale goal')
 	})
@@ -101,7 +102,7 @@ describe('session goal tools', () => {
 		)
 		const result = await update.execute(
 			{ status: 'blocked', reasonCode: 'same-condition', reason: 'The same check failed.' },
-			context(asRunId('6e12a707-4334-4017-bf16-14ed9097ce63')),
+			context(asTurnId('6e12a707-4334-4017-bf16-14ed9097ce63')),
 		)
 
 		expect(result.success).toBe(false)
@@ -123,7 +124,7 @@ describe('session goal tools', () => {
 
 		const result = await update.execute(
 			{ status: 'blocked', reasonCode: 'same-condition', reason: 'The same check failed.' },
-			context(asRunId('085e1cd4-b66d-4d9e-8bdb-fdf6bab261d2')),
+			context(asTurnId('085e1cd4-b66d-4d9e-8bdb-fdf6bab261d2')),
 		)
 		expect(result).toMatchObject({
 			success: true,
