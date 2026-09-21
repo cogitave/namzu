@@ -4,7 +4,7 @@ title: namzu drain
 description: One bounded pass that continues the parked turns another process left behind — how it finds them, takes each session's lease, what it refuses to resume past, its flags and its exit codes.
 resource: packages/cli/src/commands/drain.ts
 tags: [cli, headless, durability, sessions]
-status: draft
+status: stable
 generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
 ---
 
@@ -83,8 +83,8 @@ released. Each failure and each unreleased lease is also named on stderr.
 | Code | Meaning |
 |---|---|
 | 0 | Every turn it took was continued. |
-| 1 | A turn failed or was cancelled after resuming, or the pass could not run (no provider, state unavailable). Entering the resumed loop alone does not count as success. |
-| 64 | An argument was wrong. |
+| 1 | A turn failed or was cancelled after resuming, or the pass could not run: no provider, or state under `--store` that could not be read (an unreadable directory, an index that would not open). Entering the resumed loop alone does not count as success. |
+| 64 | An argument was wrong, including a scope the store does not hold: a `--store` with no `projects/` directory, a session the index does not know, a session under another project or tenant, or a child session. |
 | 77 | The folder has not been trusted. |
 
 ## Before upgrading from an older CLI

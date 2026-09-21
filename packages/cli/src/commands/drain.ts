@@ -42,7 +42,7 @@ import {
 } from '@namzu/sdk'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
-import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { EXIT_FAIL, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { readSessionStart } from '../integrations/resident/session-log-reads.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
@@ -50,6 +50,11 @@ import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions } from '../permissions/rules.js'
 import { applyProviderFlags, resolveWorkingDirectory } from './run-flags.js'
 import type { CommandDef } from './types.js'
+
+/** The drain flags name a scope the store does not hold: an argument error, exit 64. */
+class DrainScopeError extends Error {
+	override readonly name = 'DrainScopeError'
+}
 
 /** Lease length when the operator names none. Long enough for a real turn. */
 const DEFAULT_TTL_MS = 600_000
@@ -441,18 +446,18 @@ export const drainCommand: CommandDef = {
 		let topicId: TopicId
 		let pendingDecisionTurns: Set<TurnId>
 		try {
-			if (!isNamzuHome(home)) throw new Error(`${home} holds no projects/ directory`)
+			if (!isNamzuHome(home)) throw new DrainScopeError(`${home} holds no projects/ directory`)
 			// The index is derived from the logs; opening it brings it up to date.
 			const index = await openSessionIndex({ home })
 			try {
 				const indexed = await index.getSession(scope.sessionId)
 				if (!indexed || indexed.projectId !== scope.projectId) {
-					throw new Error(
+					throw new DrainScopeError(
 						`Session ${scope.sessionId} is not persisted under Project ${scope.projectId}`,
 					)
 				}
 				if (indexed.depth > 0) {
-					throw new Error(
+					throw new DrainScopeError(
 						`Session ${scope.sessionId} is a child session; drain its root session ${indexed.rootId}`,
 					)
 				}
@@ -467,12 +472,12 @@ export const drainCommand: CommandDef = {
 					opened.projectId !== scope.projectId ||
 					opened.tenantId !== scope.tenantId
 				) {
-					throw new Error(
+					throw new DrainScopeError(
 						`Session ${scope.sessionId} was not opened under Tenant ${scope.tenantId} and Project ${scope.projectId}`,
 					)
 				}
 				if (!opened.topicId) {
-					throw new Error(`Session ${scope.sessionId} records no topic to continue under`)
+					throw new DrainScopeError(`Session ${scope.sessionId} records no topic to continue under`)
 				}
 				topicId = opened.topicId
 				log = DiskSessionLog.at(paths, { sessionId: scope.sessionId })
@@ -488,7 +493,10 @@ export const drainCommand: CommandDef = {
 			ctx.formatter.error({
 				message: `cannot resolve the drain session: ${errorText(error)}`,
 			})
-			return EXIT_USAGE
+			// The flags named something that is not there (no namzu home, an
+			// unknown or child session, a scope mismatch): the caller's to fix.
+			// Anything else is state that could not be read, which is exit 1.
+			return error instanceof DrainScopeError ? EXIT_USAGE : EXIT_FAIL
 		}
 
 		const session = await createAgentSession(prefs, probe.detected, {

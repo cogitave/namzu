@@ -303,6 +303,21 @@ describe('the session is checked before a provider is built', () => {
 		expect(spies.claimSession).not.toHaveBeenCalled()
 		expect(spies.closeIndex).toHaveBeenCalled()
 	})
+
+	it('exits 1 when the state under --store cannot be read', async () => {
+		// Not an argument the caller got wrong: the index read failed. The
+		// docs row for 1 names "state unavailable".
+		spies.getSession.mockRejectedValueOnce(
+			Object.assign(new Error("EACCES: permission denied, scandir 'projects/-w'"), {
+				code: 'EACCES',
+			}),
+		)
+		const { ctx, errors } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(1)
+		expect(errors.join(' ')).toContain('EACCES')
+		expect(spies.createAgentSession).not.toHaveBeenCalled()
+		expect(spies.claimSession).not.toHaveBeenCalled()
+	})
 })
 
 describe('the drain is actually reached', () => {

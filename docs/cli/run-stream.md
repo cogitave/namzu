@@ -4,7 +4,7 @@ title: namzu run-stream
 description: The headless streaming one-shot for host UIs — one NDJSON event per line on stdout, the session and turn ids it reports, how --session binds history, the one-active-turn refusal, and what each exit code means.
 resource: packages/cli/src/commands/run-stream.ts
 tags: [cli, headless, streaming, ndjson, sessions]
-status: draft
+status: stable
 generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
 ---
 

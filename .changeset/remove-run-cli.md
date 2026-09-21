@@ -60,10 +60,17 @@ memory and resident state written by 26.x are **not read** by this version.
   environment carries `NAMZU_TURN_ID` (not `NAMZU_RUN_ID`). `session_id` and
   `NAMZU_SESSION_ID` are always set. `session_start` and `session_end` hooks
   receive no turn id: the CLI no longer invents one for them.
-- **`namzu drain`** keeps its flags and exit codes (0, 1, 64, 77). It finds
-  parked turns through the session index, takes each session's lease, and
-  continues the same turn from its checkpoint; a turn whose session lease
-  another worker holds is skipped and reported.
+- **`namzu drain`** keeps its flag names and exit codes (0, 1, 64, 77), but
+  `--store` means something else: it was the `runs/` directory a checkpoint
+  store wrote to, and it is now the namzu home (`NAMZU_HOME`, `~/.namzu` by
+  default) whose `projects/` hold the session logs. A `--store` without a
+  `projects/` directory is refused with 64, so a wrapper that still passes its
+  old `runs/` path must pass the home instead. A scope the store does not hold
+  (an unknown session, one under another project or tenant, a child session)
+  is also 64; state that cannot be read is 1. It finds parked turns through
+  the session index, takes each session's lease, and continues the same turn
+  from its checkpoint; a turn whose session lease another worker holds is
+  skipped and reported.
 - **Delegation history is not carried over.** The history block and
   `/agents` read finished child sessions from their logs; children recorded by
   26.x do not appear.
