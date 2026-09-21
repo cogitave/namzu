@@ -21,7 +21,7 @@ describe.skipIf(process.platform === 'win32')(
 					return receipt
 				},
 			})
-			const verdict = await gate('done', { runId: generateTurnId(), iteration: 1, messages: [] })
+			const verdict = await gate('done', { turnId: generateTurnId(), iteration: 1, messages: [] })
 			expect(receipt?.exitCode).toBe(0)
 			expect(receipt?.termination).toMatchObject({ origin: 'timeout', admitted: true })
 			expect(verdict.accept).toBe(false)
