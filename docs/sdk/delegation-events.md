@@ -1,28 +1,31 @@
 ---
 type: Reference
 title: Delegation events
-description: What the kernel says when a run delegates — the fields agent_pending carries, which of them a host may act on, and which are captions for a screen.
-resource: packages/sdk/src/types/run/events.ts
-tags: [sdk, agents, events, bridge]
+description: What the kernel says when a turn delegates to a child session — the fields agent_pending carries, which of them a host may act on, which are captions for a screen, and what the parent and child logs keep.
+resource: packages/sdk/src/types/session/events.ts
+tags: [sdk, agents, events, bridge, sessions]
 status: stable
 generated: { by: human:bahadirarda, at: 2026-09-16T00:00:00Z }
 ---
 
 # Delegation events
 
-A run that delegates work reports each delegation on its own listener.
+A turn that delegates work reports each delegation on its own listener. A
+delegated agent runs in a **child session** of its own.
+
 `agent_pending` arrives first, when the child has been created and QUEUED —
 before admission, which is what its name and the absent start mean. A child
 announced this way has not begun: it waits for a slot under the delegation
 capacity limit, for as long as that takes, which is why the CLI shows it as
-`Queued` until the child's own `run_started` arrives. Exactly one of
+`Queued` until the child's own `turn_started` arrives. Exactly one of
 `agent_completed`, `agent_failed` or `agent_canceled` follows when it settles.
 
-`subsession_spawned` reaches the same listener when the child is admitted and
-given its own sub-session — immediately after `agent_pending` for a child that
-never had to wait. A parent's listener also receives the child's own run
-events, each numbered in the child's run log, so a consumer keeps one cursor
-per `runId`.
+`child_session_spawned` reaches the same listener when the child is admitted
+and given its session — immediately after `agent_pending` for a child that
+never had to wait. A parent's listener also receives the child's own session
+events. Each carries the child's `sessionId` and a `lineage` whose `depth` is
+above zero, and each is numbered in the child's own log, so a consumer keeps
+one cursor per `sessionId` and can filter children out by `lineage.depth`.
 
 `agent_pending` is the only delegation event that carries identity beyond the
 task, and it arrives before the child has produced anything — before it has
@@ -33,7 +36,7 @@ therefore rides that event.
 
 | Field | Always | Means |
 | --- | --- | --- |
-| `runId` | yes | the PARENT run, which is whose listener this arrived on |
+| `sessionId`, `turnId` | yes | the PARENT session and the turn that delegated, which is whose listener this arrived on |
 | `taskId` | yes | the delegated task, the id every later `agent_*` event repeats |
 | `parentAgentId`, `childAgentId` | yes | who delegated, and to which agent definition |
 | `depth` | yes | how far below the root session this child sits |
@@ -50,7 +53,7 @@ dependencies, barriers, or serial execution.
 Nothing in the kernel reads them back. Admission, capacity, ordering and
 concurrency are decided by the scheduler; a child naming the same `phase` as
 another child is not thereby sequenced after it, made to wait for it, or joined
-to it in any way a run can observe. `phaseOrder` orders a list on a screen and
+to it in any way a turn can observe. `phaseOrder` orders a list on a screen and
 orders nothing that runs.
 
 `planId` and `planStepId` are the opposite kind of field and sit beside them for
@@ -67,67 +70,39 @@ Every field is optional and absent by default. A host that groups nothing sends
 nothing, and a consumer written before these fields existed reads exactly the
 event it read before.
 
-## Delegation events are not persisted
+## What the logs keep
 
-Reach is not durability, and these events buy only the first.
+The durable record of a delegation is in the [session logs](session-log.md),
+not in the listener's stream.
 
-The agent manager hands every delegation lifecycle event straight to a host's
-listener without passing it through the run's event translator, so none of them
-enters any run's log — not the parent's and not the child's. That is what the
-absent `seq` on these variants means: `seq` is a claim that the event is *in* a
-log, and a delegation event has no such claim to make. `RunEvent`'s own `seq`
-documentation lists these events as one of the three reasons a number is
-missing.
+- **The parent's log** records `child_session_spawned` when the child is
+  admitted: the child's session id, the tool call that spawned it, its kind and
+  description, the relative path of its log, and — when the host supplied a
+  workflow — a `batch` of `{ batchId, name, phase? }`. It records
+  `child_session_ended` when the child settles: its status, stop reason, usage,
+  cost and the id of its answer message. So the workflow and phase **do**
+  survive a restart; `phaseDetail` and `phaseOrder`, which are hints for one
+  screen, do not.
+- **The child's own log** is `<parent-session-id>/subagents/<child-id>.jsonl`,
+  beside `<child-id>.meta.json`, which names the parent session, the parent
+  turn, the root session, depth, the spawning tool call, agent type,
+  description and status. A child's own children nest the same way. The meta
+  file is a convenience: the child's log wins on any disagreement.
 
-So a label on `agent_pending` is written nowhere by the kernel, and the grouping
-does not survive a restart of the host that chose it. A host that wants it to
-outlive its process records it from the listener, into whatever store it already
-keeps; nothing here does that for it. Note too that `agent_pending` carries the
-**parent's** `runId`, so even a host that does persist the event is filing it
-under the parent rather than the child.
+Reading them back needs no directory walk. `SessionIndex.listChildren(parent)`
+returns a `ChildSessionSummary` per child — its session, the parent turn and
+tool call, kind, description, `batch`, status (`running` until the parent
+records the end), stop reason, tokens, cost and times — with the child's own
+indexed session once its log has been read. `SessionIndex.batches()` groups
+them by `batch`. Both come from the index, which is rebuilt from the logs, so
+they are read-only and never create, move or prune anything.
 
-## What a child does leave behind
+The child's log holds the child's own turns: `turn_started`, every complete
+message, tool calls and their results, token usage and `turn_completed` or
+`turn_failed`. Streaming deltas never enter any log.
 
-The events are not persisted; the child's own run is. A delegated child gets a
-`RunStore` like any other run, and the built-in `RunDiskStore` writes it under
-its parent:
-
-```
-<baseDir>/<parent run id>/children/<child run id>/
-    transcript.jsonl   run.json   messages.json   audit.jsonl   report.md
-```
-
-`RunDiskStore.addToIndex` returns early for any run carrying a `parentRunId`, so
-none of this appears in the browsable `index.json` catalogue — a delegated child
-is not a conversation anyone resumes, and listing one there would offer to
-continue work whose parent turn is over. That guard is deliberate and stays.
-
-`RunDiskStore.listChildren(baseDir, parentRunId)` is the sibling read for
-callers that want the evidence anyway. It walks the `children/` directory,
-reads each `run.json`, and returns a `DelegatedChildRun` per child — the run id,
-the directory, and whatever the file recorded of `agentId`, `agentName`,
-`metadata.config.model`, `status`, `startedAt`, `endedAt`,
-`tokenUsage.totalTokens` and `depth`. Every one of those is optional: `run.json`
-is written on a run's terminal path, so a child killed before it got there
-leaves a transcript worth reading and a record that never recorded an ending,
-and an absent field means "the file did not say" rather than zero.
-
-Three properties a caller can rely on. It is **read-only** — binding a
-`RunDiskStore` to a run creates that run's directory, which is why this is a
-static walk and not a bound method, and nothing here writes, moves or prunes.
-It is **tolerant** — a child directory with no `run.json`, or one whose
-`run.json` is not readable JSON, is skipped rather than reported with invented
-fields or raised as an error. And it is **ordered by `startedAt`, oldest
-first**, which is the order the parent launched them; a child with no recorded
-start sorts first, because there is no later moment to claim for it.
-
-`listRuns` is unchanged. This is an additional read, not a fix to the catalogue.
-
-Because delegation events are not in the child's log, what a reader recovers
-from `transcript.jsonl` is the child's own run: `run_started`, tool calls and
-their results, token usage, the completed messages and `run_completed`. The
-`agent_pending` that named the child's `workflow` and `phase` is not there, and
-neither are the streaming deltas, which never enter a run's log at all.
+A child session is not a conversation anyone resumes: `listSessions({
+rootsOnly: true })` leaves it out, and it is reached through its parent.
 
 ## Supplying them
 
