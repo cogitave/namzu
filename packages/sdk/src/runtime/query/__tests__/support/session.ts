@@ -62,6 +62,16 @@ export async function recordTypes(log: SessionLog): Promise<string[]> {
 	return (await records(log)).map((record) => record.type)
 }
 
+/** The terminal records (`turn_completed`, `turn_failed`) of a session log, oldest first. */
+export async function terminalRecords(
+	log: SessionLog,
+): Promise<Extract<SessionRecord, { type: 'turn_completed' | 'turn_failed' }>[]> {
+	return (await records(log)).filter(
+		(record): record is Extract<SessionRecord, { type: 'turn_completed' | 'turn_failed' }> =>
+			record.type === 'turn_completed' || record.type === 'turn_failed',
+	)
+}
+
 /** The live event types a listener received, in order. */
 export function eventTypes(events: readonly SessionEvent[]): string[] {
 	return events.map((event) => event.type)

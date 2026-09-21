@@ -9,8 +9,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
 import { resetRuntimeMetrics } from '../../../telemetry/metrics.js'
 import { fixtureId } from '../../../test-support/ids.js'
@@ -27,6 +26,8 @@ import {
 import { type QueryParams, drainQuery } from '../index.js'
 import { QuestionParkBinding } from '../question-park.js'
 import type { TurnStateScope } from '../turn-state.js'
+import { readParks } from '../checkpoint.js'
+import { turnCheckpoints } from './support/session.js'
 
 /**
  * Everything a run borrows is released in its `finally`, and four of those
@@ -42,11 +43,12 @@ import type { TurnStateScope } from '../turn-state.js'
  * keeps a settled run as the process's crash target; a task-store listener
  * left attached writes `task_created` into a run that has ended; a run whose
  * duration is never recorded is missing from the one metric that answers
- * "how long do these take, and how do they end".
+ * "how long do these take, and how do they end". (A turn now installs no
+ * process handler at all: the session log is durable as it is written.)
  */
 
 const SCOPE: TurnStateScope = {
-	turnId: fixtureId.run('cleanup'),
+	turnId: fixtureId.turn('cleanup'),
 	tenantId: generateTenantId(),
 	projectId: generateProjectId(),
 	sessionId: generateSessionId(),
@@ -92,11 +94,12 @@ async function baseParams(overrides: Record<string, unknown>): Promise<QueryPara
 		agentName: 'Cleanup agent',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: await dirWith('namzu-cleanup-work-'),
-		turnId: SCOPE.runId,
+		turnId: SCOPE.turnId,
 		tenantId: SCOPE.tenantId,
 		projectId: SCOPE.projectId,
 		sessionId: SCOPE.sessionId,
 		topicId: SCOPE.topicId,
+		sessionLog: new InMemorySessionLog({ sessionId: SCOPE.sessionId }),
 		resumeHandler: autoApproveHandler,
 		turnConfig: {
 			model: 'mock-model',
@@ -144,17 +147,11 @@ afterEach(() => {
 	resetRuntimeMetrics()
 })
 
-describe('the crash-save handlers a run installs', () => {
-	it('are gone once the run has settled', async () => {
+describe('the process handlers a run leaves behind', () => {
+	it('are none once the run has settled', async () => {
 		const before = process.listenerCount('SIGTERM')
 
-		await drainQuery(
-			await baseParams({
-				runStore: new RunDiskStore({ baseDir: await dirWith('namzu-cleanup-') }),
-				// Opt-in, and the only way this manager is ever constructed.
-				emergencySave: true,
-			}),
-		)
+		await drainQuery(await baseParams({}))
 
 		// A handler left installed suppresses Node's default termination and
 		// keeps a settled, `WeakRef`'d run as the process's crash target for
@@ -180,7 +177,6 @@ describe('the task-store listener a run attaches', () => {
 
 		await drainQuery(
 			await baseParams({
-				runStore: new RunDiskStore({ baseDir: await dirWith('namzu-cleanup-tasks-') }),
 				taskStore: store,
 			}),
 		)
@@ -188,7 +184,11 @@ describe('the task-store listener a run attaches', () => {
 		const before = seen.length
 		// A task created AFTER the run settles, by a tool or a host that
 		// outlived it. The run must not hear about it.
-		await store.create({ runId: SCOPE.runId, subject: 'work raised after the run ended' })
+		await store.create({
+			sessionId: SCOPE.sessionId,
+			turnId: SCOPE.turnId,
+			subject: 'work raised after the run ended',
+		})
 		await new Promise<void>((resolve) => setImmediate(resolve))
 
 		expect(seen.length).toBe(before)
@@ -197,19 +197,21 @@ describe('the task-store listener a run attaches', () => {
 
 describe('the question channel a run binds', () => {
 	it('cannot take a later question into a run that has ended', async () => {
-		const store = new InMemoryCheckpointStore()
+		const sessionLog = new InMemorySessionLog({ sessionId: SCOPE.sessionId })
 		// One binding, shared the way a long-lived tool registry shares one:
 		// the tool that asks is built before the run exists and outlives it.
 		const parks = new QuestionParkBinding()
 
 		await drainQuery(
 			await baseParams({
-				checkpointStore: store,
+				sessionLog,
 				questionParks: parks,
 			}),
 		)
 
-		const before = (await store.listCheckpoints(SCOPE)).length
+		const turn = { ...SCOPE, sessionLog }
+		const before = (await turnCheckpoints(turn)).length
+		const parksBefore = (await readParks(sessionLog)).length
 		const question: UserQuestionData = {
 			questionId: 'call_after_the_run',
 			question: 'anybody there?',
@@ -220,11 +222,12 @@ describe('the question channel a run binds', () => {
 		const recorded: CheckpointId | null = await parks.record(question)
 
 		// Unbound, the recorder returns `null` and writes nothing — the tool
-		// that asked is still served in-process, and the finished run's store
-		// is left alone. Without the `unbind` this writes a park into a run
+		// that asked is still served in-process, and the finished turn's log
+		// is left alone. Without the `unbind` this writes a park into a turn
 		// nobody is driving, and an approval queue serves it forever.
 		expect(recorded).toBeNull()
-		expect((await store.listCheckpoints(SCOPE)).length).toBe(before)
+		expect((await turnCheckpoints(turn)).length).toBe(before)
+		expect((await readParks(sessionLog)).length).toBe(parksBefore)
 	})
 })
 
@@ -233,11 +236,7 @@ describe('the duration a run records as it settles', () => {
 		const recorded: Recorded[] = []
 		captureMetrics(recorded)
 
-		const run = await drainQuery(
-			await baseParams({
-				runStore: new RunDiskStore({ baseDir: await dirWith('namzu-cleanup-duration-') }),
-			}),
-		)
+		const run = await drainQuery(await baseParams({}))
 
 		const duration = recorded.filter((entry) => entry.instrument === 'namzu.turn.duration')
 		expect(duration).toHaveLength(1)
@@ -255,15 +254,9 @@ describe('the duration a run records as it settles', () => {
 		captureMetrics(recorded)
 		const caller = new AbortController()
 
-		await drainQuery(
-			await baseParams({
-				runStore: new RunDiskStore({ baseDir: await dirWith('namzu-cleanup-duration-') }),
-				signal: caller.signal,
-			}),
-			() => {
-				if (!caller.signal.aborted) caller.abort()
-			},
-		)
+		await drainQuery(await baseParams({ signal: caller.signal }), () => {
+			if (!caller.signal.aborted) caller.abort()
+		})
 
 		const duration = recorded.filter((entry) => entry.instrument === 'namzu.turn.duration')
 		// The negative control for the case above: if the status were a

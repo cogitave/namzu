@@ -15,11 +15,11 @@ import type {
 	AttachmentStore,
 	StoredBytes,
 } from '../../../store/attachment/index.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
+import type { SessionCheckpointStore } from '../../../store/checkpoint/index.js'
+import type { SessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { PluginId, TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { PluginId, SessionId, TenantId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type MessageAttachment,
@@ -27,12 +27,13 @@ import {
 	createUserMessage,
 } from '../../../types/message/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
-import type { CheckpointStore, FencingToken } from '../../../types/session/durable.js'
+import type { FencingToken } from '../../../types/session/durable.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'
 import { resumeSession } from '../resume-session.js'
+import { TEST_SCOPE, records, sessionWithCheckpoint } from './support/session.js'
 
 const dirs: string[] = []
 
@@ -495,42 +496,32 @@ describe('stored attachment resolution belongs to the run', () => {
 
 	it('preserves checkpoint history when a queued attachment is cancelled on resume', async () => {
 		const { started } = recordSpanParents()
-		const ids = identity()
-		const runId = '263718f0-e331-4ff9-be88-29684aa5f2fd' as TurnId
-		const checkpointId = 'ckpt_attachment_cancel_resume' as CheckpointId
-		const scope = { ...ids, runId }
 		const priorUser = createUserMessage('history before the process stopped')
 		const priorAssistant = createAssistantMessage('durable answer before resume')
-		const checkpointStore = new InMemoryCheckpointStore()
-		const checkpoint: IterationCheckpoint = {
-			id: checkpointId,
-			turnId,
-			iteration: 2,
-			messages: [priorUser, priorAssistant],
-			tokenUsage: {
-				promptTokens: 17,
-				completionTokens: 5,
-				totalTokens: 22,
-				cachedTokens: 0,
-				cacheWriteTokens: 0,
-			},
-			costInfo: {
-				inputCostPer1M: 0,
-				outputCostPer1M: 0,
-				totalCost: 0.25,
-				cacheDiscount: 0,
-				unpricedTokens: 0,
-			},
-			guardState: { iterationCount: 2, elapsedMs: 4_000 },
-			traceContext: {
-				traceId: 'a'.repeat(32),
-				spanId: 'b'.repeat(16),
-				traceFlags: 1,
-				isRemote: true,
-			},
-			createdAt: Date.now(),
+		const tokenUsage = {
+			promptTokens: 17,
+			completionTokens: 5,
+			totalTokens: 22,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
 		}
-		await checkpointStore.writeCheckpoint(scope, checkpoint)
+		const traceContext = {
+			traceId: 'a'.repeat(32),
+			spanId: 'b'.repeat(16),
+			traceFlags: 1,
+			isRemote: true,
+		}
+		const session = await sessionWithCheckpoint({
+			messages: [priorUser, priorAssistant],
+			document: {
+				tokenUsage,
+				costInfo: { totalCost: 0.25, cacheDiscount: 0, unpricedTokens: 0 },
+				guards: { iteration: 2, elapsedMs: 4_000 },
+				trace: traceContext,
+			},
+			release: true,
+		})
+		const ids = { ...TEST_SCOPE, sessionId: session.sessionId }
 		const queued = storedDocumentMessage()
 		const topicStateStore = new InMemoryTopicStateStore()
 		await topicStateStore.setQueuedMessages(ids.topicId, ids.tenantId, [queued], { revision: 0 })
@@ -549,12 +540,12 @@ describe('stored attachment resolution belongs to the run', () => {
 				return heldStore
 			},
 		}
-		const runStore = new InMemoryRunStore()
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const caller = new AbortController()
 		const pending = resumeSession({
-			scope,
-			checkpointStore,
+			scope: { ...ids, turnId: session.turnId },
+			sessionLog: session.log,
+			checkpointStore: session.store,
 			provider,
 			tools: new ToolRegistry(),
 			turnConfig: {
@@ -570,7 +561,6 @@ describe('stored attachment resolution belongs to the run', () => {
 			resumeHandler: async () => ({ action: 'continue' }),
 			topicStateStore,
 			attachmentStore,
-			runStore,
 			signal: caller.signal,
 		})
 
@@ -582,62 +572,69 @@ describe('stored attachment resolution belongs to the run', () => {
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
 		expect(provider.requests).toHaveLength(0)
-		expect(outcome.run.status).toBe('cancelled')
-		expect(outcome.run.messages).toContainEqual(priorUser)
-		expect(outcome.run.messages).toContainEqual(priorAssistant)
-		expect(outcome.run.messages).toContainEqual(queued)
-		expect(outcome.run.tokenUsage).toEqual(checkpoint.tokenUsage)
-		const runSpan = started.find((entry) => entry.name.startsWith('namzu.agent.run '))
-		expect(runSpan?.parent?.spanContext()).toMatchObject({
-			traceId: checkpoint.traceContext?.traceId,
-			spanId: checkpoint.traceContext?.spanId,
+		expect(outcome.turn.status).toBe('cancelled')
+		expect(outcome.turn.messages).toContainEqual(priorUser)
+		expect(outcome.turn.messages).toContainEqual(priorAssistant)
+		expect(outcome.turn.messages).toContainEqual(queued)
+		expect(outcome.turn.tokenUsage).toEqual(tokenUsage)
+		const turnSpan = started.find((entry) => entry.name.startsWith('namzu.agent.turn '))
+		expect(turnSpan?.parent?.spanContext()).toMatchObject({
+			traceId: traceContext.traceId,
+			spanId: traceContext.spanId,
 		})
-		const persisted = await runStore.readMessages()
-		expect(persisted.kind).toBe('available')
-		if (persisted.kind !== 'available') return
-		expect(persisted.messages).toContainEqual(priorUser)
-		expect(persisted.messages).toContainEqual(priorAssistant)
-		expect(persisted.messages).toContainEqual(queued)
+		const persisted = (await readFoldedHistory(session.log)).map((entry) => entry.message)
+		expect(persisted).toContainEqual(priorUser)
+		expect(persisted).toContainEqual(priorAssistant)
+		expect(persisted).toContainEqual(queued)
 	})
 
 	it('does not reread the selected checkpoint after resume cancellation', async () => {
-		const ids = identity()
-		const runId = '55814da4-6bf7-4cfd-8d8b-692f88b78ab1' as TurnId
-		const checkpointId = 'ckpt_attachment_cancel_selected' as CheckpointId
-		const scope = { ...ids, runId }
 		const prior = createUserMessage('selected checkpoint history')
-		const checkpoint: IterationCheckpoint = {
-			id: checkpointId,
-			turnId,
-			iteration: 3,
-			messages: [prior],
-			tokenUsage: {
-				promptTokens: 23,
-				completionTokens: 7,
-				totalTokens: 30,
-				cachedTokens: 0,
-				cacheWriteTokens: 0,
-			},
-			costInfo: {
-				inputCostPer1M: 0,
-				outputCostPer1M: 0,
-				totalCost: 0.5,
-				cacheDiscount: 0,
-				unpricedTokens: 0,
-			},
-			guardState: { iterationCount: 3, elapsedMs: 6_000 },
-			createdAt: Date.now(),
+		const tokenUsage = {
+			promptTokens: 23,
+			completionTokens: 7,
+			totalTokens: 30,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
 		}
-		let releaseCheckpointRead!: (value: IterationCheckpoint | null) => void
-		const heldCheckpointRead = new Promise<IterationCheckpoint | null>((resolve) => {
-			releaseCheckpointRead = resolve
+		const session = await sessionWithCheckpoint({
+			messages: [prior],
+			document: {
+				iteration: 3,
+				tokenUsage,
+				costInfo: { totalCost: 0.5, cacheDiscount: 0, unpricedTokens: 0 },
+				guards: { iteration: 3, elapsedMs: 6_000 },
+			},
 		})
-		const readCheckpoint = vi.fn(() => heldCheckpointRead)
-		const checkpointStore: CheckpointStore = {
-			writeCheckpoint: async () => undefined,
-			readCheckpoint,
-			listCheckpoints: async () => [checkpoint],
-			deleteCheckpoint: async () => undefined,
+		const ids = { ...TEST_SCOPE, sessionId: session.sessionId }
+		// The worker still holds the session: every record the resumed turn
+		// writes carries the same fence as what the consumer already saw.
+		const lease = session.lease
+		const cursorSeq = (await session.log.head())?.pointer.seq ?? 0
+		await session.log.append(lease, {
+			type: 'approval_policy_changed',
+			turnId: session.turnId,
+			from: 'historical-policy',
+			to: 'replacement-policy',
+			reason: 'persisted before reconnect',
+		} as Parameters<SessionLog['append']>[1])
+		// Reads of a checkpoint after the selection has been made: a resume
+		// that has already chosen its checkpoint must not go back for it.
+		let selected = false
+		let rereads = 0
+		const checkpointStore: SessionCheckpointStore = {
+			write: (scope, checkpoint) => session.store.write(scope, checkpoint),
+			read: async (scope, id) => {
+				if (selected) rereads++
+				return session.store.read(scope, id)
+			},
+			restore: async (scope, id) => {
+				if (selected) rereads++
+				return session.store.restore(scope, id)
+			},
+			list: (scope) => session.store.list(scope),
+			delete: (scope, id) => session.store.delete(scope, id),
+			prune: (scope, keepLast) => session.store.prune(scope, keepLast),
 		}
 		const queued = storedDocumentMessage()
 		const topicStateStore = new InMemoryTopicStateStore()
@@ -653,26 +650,19 @@ describe('stored attachment resolution belongs to the run', () => {
 		const attachmentStore: AttachmentStore = {
 			put: async () => 'unused',
 			get: () => {
+				selected = true
 				markStoreStarted()
 				return heldStore
 			},
 		}
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
-		const runStore = new InMemoryRunStore()
-		await runStore.initRun(runId)
-		await runStore.appendEvent({
-			type: 'approval_policy_changed',
-			turnId,
-			from: 'historical-policy',
-			to: 'replacement-policy',
-			reason: 'persisted before reconnect',
-			generation: 9 as FencingToken,
-		})
 		const events: SessionEvent[] = []
 		const caller = new AbortController()
 		const pending = resumeSession({
-			scope,
+			scope: { ...ids, turnId: session.turnId },
+			sessionLog: session.log,
 			checkpointStore,
+			lease,
 			provider,
 			tools: new ToolRegistry(),
 			turnConfig: {
@@ -688,9 +678,7 @@ describe('stored attachment resolution belongs to the run', () => {
 			resumeHandler: async () => ({ action: 'continue' }),
 			topicStateStore,
 			attachmentStore,
-			runStore,
-			claimFence: 9 as FencingToken,
-			eventCursor: { sinceSeq: 0, generation: 9 as FencingToken },
+			eventCursor: { sinceSeq: cursorSeq, generation: lease.fence as FencingToken },
 			listener: (event) => {
 				events.push(event)
 			},
@@ -699,7 +687,7 @@ describe('stored attachment resolution belongs to the run', () => {
 
 		await storeStarted
 		caller.abort(new TurnCancelled('user'))
-		const safety = Symbol('resume reread its checkpoint after cancellation')
+		const safety = Symbol('resume stalled after cancellation')
 		let timer: ReturnType<typeof setTimeout> | undefined
 		const result = await Promise.race([
 			pending,
@@ -713,47 +701,39 @@ describe('stored attachment resolution belongs to the run', () => {
 			expect(result).not.toBe(safety)
 		} finally {
 			releaseStore({ data: 'late-pdf', mediaType: 'application/pdf' })
-			releaseCheckpointRead(checkpoint)
 			if (result === safety) await pending
 		}
 		if (result === safety) return
 
-		expect(readCheckpoint).not.toHaveBeenCalled()
+		expect(rereads).toBe(0)
 		expect(provider.requests).toHaveLength(0)
 		expect(result.resumed).toBe(true)
 		if (!result.resumed) return
-		expect(result.run.status).toBe('cancelled')
-		expect(result.run.messages).toContainEqual(prior)
-		expect(result.run.messages).toContainEqual(queued)
-		expect(result.run.tokenUsage).toEqual(checkpoint.tokenUsage)
+		expect(result.turn.status).toBe('cancelled')
+		expect(result.turn.messages).toContainEqual(prior)
+		expect(result.turn.messages).toContainEqual(queued)
+		expect(result.turn.tokenUsage).toEqual(tokenUsage)
 		expect(result.replay?.status).toBe('replayed')
 		if (result.replay?.status === 'replayed') {
-			expect(result.replay.events.map((event) => event.type)).toEqual(['approval_policy_changed'])
+			expect(result.replay.records.map((record) => record.type)).toEqual([
+				'approval_policy_changed',
+			])
 		}
 		expect(events[0]?.type).toBe('approval_policy_changed')
-		const terminalEvents = events.filter((event) =>
+		const lifecycle = events.filter((event) =>
 			['turn_resuming', 'turn_started', 'turn_completed'].includes(event.type),
 		)
-		expect(terminalEvents.map((event) => event.type)).toEqual([
-			'turn_resuming',
-			'turn_started',
-			'turn_completed',
-		])
-		expect(terminalEvents.every((event) => event.generation === 9)).toBe(true)
-		const persistedEvents = await runStore.readEvents()
-		const persistedTerminal = persistedEvents.filter((event) =>
-			['turn_resuming', 'turn_started', 'turn_completed'].includes(event.type),
+		expect(lifecycle.map((event) => event.type)).toEqual(['turn_resuming', 'turn_completed'])
+		expect(lifecycle.every((event) => event.generation === lease.fence)).toBe(true)
+		const recorded = (await records(session.log)).filter((record) =>
+			['turn_resuming', 'turn_completed'].includes(record.type),
 		)
-		expect(persistedTerminal.every((event) => event.generation === 9)).toBe(true)
+		expect(recorded.map((record) => record.type)).toEqual(['turn_resuming', 'turn_completed'])
+		expect(recorded.every((record) => record.gen === lease.fence)).toBe(true)
 	})
 
 	it('keeps cancellation authoritative when replay notification throws', async () => {
 		const { ended } = recordSpanParents()
-		const ids = identity()
-		const runId = '3172238b-3330-4b21-b3e3-28131f3e533f' as TurnId
-		const checkpointId = 'ckpt_attachment_cancel_replay_callback' as CheckpointId
-		const scope = { ...ids, runId }
-		const checkpointStore = new InMemoryCheckpointStore()
 		const checkpointUser = createUserMessage('durable history before reconnect')
 		const checkpointAssistant = createAssistantMessage('durable answer before reconnect')
 		const checkpointUsage = {
@@ -763,34 +743,27 @@ describe('stored attachment resolution belongs to the run', () => {
 			cachedTokens: 0,
 			cacheWriteTokens: 0,
 		}
-		await checkpointStore.writeCheckpoint(scope, {
-			id: checkpointId,
-			turnId,
-			iteration: 1,
+		const session = await sessionWithCheckpoint({
 			messages: [checkpointUser, checkpointAssistant],
-			tokenUsage: checkpointUsage,
-			costInfo: {
-				inputCostPer1M: 0,
-				outputCostPer1M: 0,
-				totalCost: 0,
-				cacheDiscount: 0,
-				unpricedTokens: 0,
+			document: {
+				iteration: 1,
+				tokenUsage: checkpointUsage,
+				guards: { iteration: 1, elapsedMs: 100 },
 			},
-			guardState: { iterationCount: 1, elapsedMs: 100 },
-			createdAt: Date.now(),
 		})
-		const queued = storedDocumentMessage()
-		const topicStateStore = new InMemoryTopicStateStore()
-		await topicStateStore.setQueuedMessages(ids.topicId, ids.tenantId, [queued], { revision: 0 })
-		const runStore = new InMemoryRunStore()
-		await runStore.initRun(runId)
-		await runStore.appendEvent({
+		const ids = { ...TEST_SCOPE, sessionId: session.sessionId }
+		const cursorSeq = (await session.log.head())?.pointer.seq ?? 0
+		await session.log.append(session.lease, {
 			type: 'approval_policy_changed',
-			turnId,
+			turnId: session.turnId,
 			from: 'historical-policy',
 			to: 'replacement-policy',
 			reason: 'persisted before reconnect',
-		})
+		} as Parameters<SessionLog['append']>[1])
+		await session.log.release(session.lease)
+		const queued = storedDocumentMessage()
+		const topicStateStore = new InMemoryTopicStateStore()
+		await topicStateStore.setQueuedMessages(ids.topicId, ids.tenantId, [queued], { revision: 0 })
 		const provider = new MockLLMProvider({ responseText: 'must not run' })
 		const caller = new AbortController()
 		caller.abort(new TurnCancelled('user'))
@@ -808,8 +781,9 @@ describe('stored attachment resolution belongs to the run', () => {
 		const events: SessionEvent[] = []
 
 		const pending = resumeSession({
-			scope,
-			checkpointStore,
+			scope: { ...ids, turnId: session.turnId },
+			sessionLog: session.log,
+			checkpointStore: session.store,
 			provider,
 			tools: new ToolRegistry(),
 			turnConfig: {
@@ -824,8 +798,7 @@ describe('stored attachment resolution belongs to the run', () => {
 			...ids,
 			resumeHandler: async () => ({ action: 'continue' }),
 			topicStateStore,
-			runStore,
-			eventCursor: { sinceSeq: 0 },
+			eventCursor: { sinceSeq: cursorSeq },
 			onEventReplay: () => {
 				replayCallbacks++
 				return heldReplay
@@ -856,33 +829,25 @@ describe('stored attachment resolution belongs to the run', () => {
 		expect(result.resumed).toBe(true)
 		if (!result.resumed) return
 		expect(provider.requests).toHaveLength(0)
-		expect(result.run.status).toBe('cancelled')
-		expect(result.run.stopReason).toBe('cancelled')
+		expect(result.turn.status).toBe('cancelled')
+		expect(result.turn.stopReason).toBe('cancelled')
 		expect(result.replay?.status).toBe('replayed')
-		expect(result.run.messages).toContainEqual(checkpointUser)
-		expect(result.run.messages).toContainEqual(checkpointAssistant)
-		expect(result.run.messages).toContainEqual(queued)
-		expect(result.run.tokenUsage).toEqual(checkpointUsage)
-		const persistedMessages = await runStore.readMessages()
-		expect(persistedMessages.kind).toBe('available')
-		if (persistedMessages.kind === 'available') {
-			expect(persistedMessages.messages).toContainEqual(checkpointUser)
-			expect(persistedMessages.messages).toContainEqual(checkpointAssistant)
-			expect(persistedMessages.messages).toContainEqual(queued)
-		}
-		const persisted = await runStore.readEvents()
-		expect(events.map((event) => event.type)).toEqual([
-			'approval_policy_changed',
-			'turn_resuming',
-			'turn_started',
-			'turn_completed',
-		])
-		expect(persisted.map((event) => event.type)).toEqual([
-			'approval_policy_changed',
-			'turn_resuming',
-			'turn_started',
-			'turn_completed',
-		])
+		expect(result.turn.messages).toContainEqual(checkpointUser)
+		expect(result.turn.messages).toContainEqual(checkpointAssistant)
+		expect(result.turn.messages).toContainEqual(queued)
+		expect(result.turn.tokenUsage).toEqual(checkpointUsage)
+		const persistedMessages = (await readFoldedHistory(session.log)).map((entry) => entry.message)
+		expect(persistedMessages).toContainEqual(checkpointUser)
+		expect(persistedMessages).toContainEqual(checkpointAssistant)
+		expect(persistedMessages).toContainEqual(queued)
+		const lifecycle = ['approval_policy_changed', 'turn_resuming', 'turn_completed']
+		expect(events.map((event) => event.type).filter((type) => lifecycle.includes(type))).toEqual(
+			lifecycle,
+		)
+		const persisted = (await records(session.log)).filter((record) =>
+			lifecycle.includes(record.type),
+		)
+		expect(persisted.map((record) => record.type)).toEqual(lifecycle)
 		expect(persisted).toContainEqual(
 			expect.objectContaining({ type: 'turn_completed', stopReason: 'cancelled' }),
 		)

@@ -1,9 +1,9 @@
 // FLIPPED 2026-09-18, by the commit that fixed what this used to pin.
-// The record a walked-away run leaves behind is now terminal — `cancelled` —
+// The record a walked-away turn leaves behind is now terminal — `cancelled` —
 // where this case used to pin the `idle` row `init()` wrote and nothing
-// rewrote.
+// rewrote. Since the session log, that record is the turn's `turn_completed`.
 
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -21,11 +21,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { agentTurnSpanName } from '../../../telemetry/attributes.js'
 import { resetRuntimeMetrics } from '../../../telemetry/metrics.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import { type TurnExecutionStatus, isTerminalStatus } from '../../../types/common/index.js'
+import { isTerminalStatus } from '../../../types/common/index.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, UserQuestionData } from '../../../types/hitl/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
@@ -37,6 +37,7 @@ import {
 } from '../../../utils/id.js'
 import { type QueryParams, query } from '../index.js'
 import { QuestionParkBinding } from '../question-park.js'
+import { terminalRecords } from './support/session.js'
 
 /**
  * A host that `break`s out of `for await (const event of query(...))` has to
@@ -44,18 +45,18 @@ import { QuestionParkBinding } from '../question-park.js'
  *
  * The generator's `finally` runs — Node calls `return()` on an abandoned
  * async generator — so every resource the run borrowed is released: the
- * crash-save handlers, the job registry's hold on its work, the sandbox, the
- * question channel, the task-store listener, the root span.
+ * job registry's hold on its work, the sandbox, the question channel, the
+ * task-store listener, the root span, the session's writer lease.
  *
- * The DURABLE record is the half that used to be missed. `persist()` is
- * reached from `ResultAssembler.finalize()`, which sits after the `finally`,
- * on the far side of a `yield` nobody pulled — so the store kept whatever
- * `init()` wrote: a non-terminal row for a run that no longer existed. A
- * queue reader saw an active run whose process was gone; a resume had no
- * terminal state to reconcile against; a dashboard counted it as in flight.
- * `query()` now settles that record on the way out of an abandoned
- * generator, marking the run cancelled and persisting it, and writes nothing
- * else — there is no consumer left to emit an event to.
+ * The DURABLE record is the half that used to be missed. The terminal
+ * record is written from `ResultAssembler.finalize()`, which sits after the
+ * `finally`, on the far side of a `yield` nobody pulled — so the log kept a
+ * turn with no verdict for a process that no longer existed. A queue reader
+ * saw an active turn whose process was gone; a resume had no terminal state
+ * to reconcile against; a dashboard counted it as in flight. `query()` now
+ * settles that turn on the way out of an abandoned generator: one
+ * `turn_completed` record, `cancelled`, and nothing on the stream — there is
+ * no consumer left to emit an event to.
  *
  * Both halves are pinned here, which is why this file survived the fix with
  * its assertions flipped rather than replaced: the resources ARE released
@@ -154,11 +155,10 @@ function echoRegistry(): ToolRegistry {
 
 describe('a host that walks away from the generator', () => {
 	it('releases everything the run borrowed, and leaves the record saying cancelled', async () => {
-		const baseDir = await mkdtemp(join(tmpdir(), 'namzu-abandoned-'))
-		dirs.push(baseDir)
+		const sessionId = generateSessionId()
+		const sessionLog = new InMemorySessionLog({ sessionId })
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-abandoned-work-'))
 		dirs.push(workingDirectory)
-		const store = new RunDiskStore({ baseDir })
 		const parks = new QuestionParkBinding()
 		const recorded: Recorded[] = []
 		captureMetrics(recorded)
@@ -177,15 +177,14 @@ describe('a host that walks away from the generator', () => {
 				],
 			}),
 			tools: echoRegistry(),
-			runStore: store,
-			emergencySave: true,
+			sessionLog,
 			questionParks: parks,
 			agentId: 'agent_abandoned',
 			agentName: 'Abandoned agent',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory,
 			projectId: generateProjectId(),
-			sessionId: generateSessionId(),
+			sessionId,
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			resumeHandler: autoApproveHandler,
@@ -217,9 +216,9 @@ describe('a host that walks away from the generator', () => {
 		expect(seen.some((event) => event.type === 'turn_started')).toBe(true)
 		// And it was the FIRST event of the run, so this host walked away after
 		// exactly one pull. That is what makes the assertions below assertions
-		// about abandonment: the `finally` released a run that had not yet
+		// about abandonment: the `finally` released a turn that had not yet
 		// finished an iteration, and the record it left behind is a terminal
-		// row for that run rather than the one `init()` wrote.
+		// record for that turn.
 		expect(pulled).toBe(1)
 
 		// ---- the `finally` ran ----
@@ -228,8 +227,7 @@ describe('a host that walks away from the generator', () => {
 		// The duration metric was recorded, which happens nowhere but the
 		// `finally` — so this is a second, independent proof the block ran.
 		expect(recorded.filter((entry) => entry.instrument === 'namzu.turn.duration')).toHaveLength(1)
-		// The crash-save handlers were removed, so the abandoned run is not
-		// the process's crash target for the rest of its life.
+		// No process-level handler outlives the run.
 		expect(process.listenerCount('SIGTERM')).toBe(sigtermBefore)
 		// And the question channel is unbound, so a tool that outlived the run
 		// cannot write a question into it.
@@ -244,49 +242,29 @@ describe('a host that walks away from the generator', () => {
 		expect(recordedPark).toBeNull()
 
 		// ---- the record WAS updated ----
-		const runDir = store.getRunDir()
-		expect(runDir).not.toBeNull()
-		const meta = JSON.parse(await readFile(join(runDir as string, 'run.json'), 'utf8')) as Record<
-			string,
-			unknown
-		>
-		// `init()` wrote this row before the first model call and nothing else
-		// rewrote it, so it used to say `idle` — which `deriveTurnStatus` reads
-		// back as `queued`, a run waiting to start, for one that no longer
-		// exists. The abandonment now marks the run cancelled and persists it,
-		// so what a host rebuilds from the store is a run that is over.
-		// `cancelled` rather than `failed`: nothing failed, the work was torn
-		// down under a consumer that left, which is the same fact
-		// `markCancelled` already records when an abort tears a run down.
-		expect(meta.status).toBe('cancelled')
-		expect(isTerminalStatus(meta.status as TurnExecutionStatus)).toBe(true)
-		// The verdict carries the moment it was reached...
-		expect(meta.endedAt).toBeGreaterThan(0)
+		// Without the settle the log would hold a turn with no verdict, which
+		// reads as running — or, once its lease lapses, as interrupted — for a
+		// turn that no longer exists. The abandonment settles it `cancelled`
+		// rather than `failed`: nothing failed, the work was torn down under a
+		// consumer that left, which is the same fact an abort records.
+		const terminal = await terminalRecords(sessionLog)
+		expect(terminal).toHaveLength(1)
+		const [record] = terminal
+		expect(record?.type).toBe('turn_completed')
+		expect(record?.settlement.status).toBe('cancelled')
+		expect(isTerminalStatus(record?.settlement.status ?? 'running')).toBe(true)
 		// ...and names no error, because there was none to name.
-		expect(meta.lastError).toBeUndefined()
-		// The row is the one the abandonment wrote, not the one `init()` left:
-		// an `endedAt` exists only on a settled record, which is the precise
-		// thing `idle` could not have carried. It is written from live run
-		// state on the way out, so the loop had still not finished an
-		// iteration — which is what `run_started`, the event that made this
-		// host walk away, says about the run.
-		expect(meta.currentIteration).toBe(0)
-		// The count is pinned rather than dropped, and at the value the
-		// abandonment actually writes. It read 0 before only because the row
-		// was the untouched one `init()` had written; the row is built from
-		// live run state now, so a bare "it is a number" would leave the one
-		// field this fix moved free to drift. Three is what the run had
-		// recorded by the time its consumer left — the same three the
-		// pre-fix row's `messageCount` disagreed with by saying 0.
-		expect(meta.messageCount).toBe(3)
-		// No terminal EVENT was written, and that stays true: there is no
-		// consumer left to receive one, so the stream is untouched and only
-		// the durable record moved.
-		const types = await store.readEvents()
-		expect(types.some((event) => event.type === 'turn_completed')).toBe(false)
-		expect(types.some((event) => event.type === 'turn_failed')).toBe(false)
-		// The span that DID close and the row that WAS written now agree: both
-		// say the run is over, which is the whole of what the fix bought.
+		expect(record && 'error' in record).toBe(false)
+		// It is written from live turn state on the way out, so the loop had
+		// still not finished an iteration — which is what `turn_started`, the
+		// event that made this host walk away, says about the turn.
+		expect(record?.settlement.iterations).toBe(0)
+		// And the session holds no active turn: the next turn may start.
+		expect(await sessionLog.activeTurn()).toBeNull()
+		// The stream is untouched: the host that left was handed nothing more.
+		expect(seen).toHaveLength(1)
+		// The span that DID close and the record that WAS written now agree:
+		// both say the turn is over, which is the whole of what the fix bought.
 		expect(ended()).toBeGreaterThan(0)
 	})
 })

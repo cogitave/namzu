@@ -3,12 +3,11 @@ import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { isTerminalStatus } from '../../../types/common/index.js'
 import { deriveTurnStatus } from '../../../types/session/derive-status.js'
-import type { Run, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateTurnId,
@@ -19,6 +18,7 @@ import {
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { query } from '../index.js'
+import { terminalRecords } from './support/session.js'
 
 /**
  * A consumer that walks away leaves a run that is over, and the durable
@@ -28,9 +28,9 @@ import { query } from '../index.js'
  * — and that call sits after the `try/catch/finally` rather than inside it.
  * `for await (… ) break` and `gen.return()` both run the `finally` (jobs
  * killed, sandbox destroyed, span ended, duration recorded) and both skip
- * everything after it. The run is torn down and the store keeps whatever
- * `init()` wrote, which is not a terminal state, so a host rebuilding its
- * view from the store sees work that is not happening.
+ * everything after it. The run is torn down and the log holds no terminal
+ * record, so a host rebuilding its view from the log sees work that is not
+ * happening.
  *
  * `drainQuery` drains to completion and never abandons, so this is the
  * `for await` surface only.
@@ -41,16 +41,15 @@ registerMock()
 const RUN_CONFIG = { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 }
 
 interface RunUnderTest {
-	generator: AsyncGenerator<SessionEvent, Run>
-	runStore: InMemoryRunStore
-	/** Every durable run-meta write this run performed, wherever it came from. */
-	writes: MockInstance
+	generator: AsyncGenerator<SessionEvent, Turn>
+	sessionLog: InMemorySessionLog
 	/** The teardown the run's `finally` block performs. */
 	killOwner: MockInstance
 }
 
 function startRun(): RunUnderTest {
-	const runStore = new InMemoryRunStore()
+	const sessionId = generateSessionId()
+	const sessionLog = new InMemorySessionLog({ sessionId })
 	const jobs = new BackgroundJobRegistry()
 
 	const tools = new ToolRegistry()
@@ -80,12 +79,11 @@ function startRun(): RunUnderTest {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: process.cwd(),
-		runStore,
-		checkpointStore: new InMemoryCheckpointStore(),
+		sessionLog,
 		backgroundJobs: jobs,
 		turnConfig: RUN_CONFIG,
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		resumeHandler: async () => ({ action: 'continue' }),
@@ -93,8 +91,7 @@ function startRun(): RunUnderTest {
 
 	return {
 		generator,
-		runStore,
-		writes: vi.spyOn(runStore, 'writeRunMeta'),
+		sessionLog,
 		killOwner: vi.spyOn(jobs, 'killOwner'),
 	}
 }
@@ -103,7 +100,7 @@ function startRun(): RunUnderTest {
  * Consume the run until it is genuinely mid-flight, then break.
  *
  * Breaking at `checkpoint_created` is deliberate: by then the run has
- * started, a checkpoint is on disk and the store holds a durable run —
+ * started, a checkpoint is committed and the log holds a running turn —
  * the state a host would find if it looked while the run was working.
  */
 async function abandonMidFlight(): Promise<RunUnderTest> {
@@ -123,8 +120,8 @@ async function abandonMidFlight(): Promise<RunUnderTest> {
 }
 
 /** Drive a run to its terminal value. A manual drain, because `for await`
- * discards the `Run` a settled generator returns. */
-async function drain(run: RunUnderTest): Promise<Run> {
+ * discards the `Turn` a settled generator returns. */
+async function drain(run: RunUnderTest): Promise<Turn> {
 	const iterator = run.generator[Symbol.asyncIterator]()
 	for (;;) {
 		const next = await iterator.next()
@@ -142,22 +139,22 @@ describe('a consumer that abandons the run', () => {
 	it('leaves a terminal record rather than one that says the run is alive', async () => {
 		const run = await abandonMidFlight()
 
-		// `persist()` is what writes this, and before the fix it never ran:
-		// the durable run was the one `init()` wrote — `idle` — which
-		// `deriveTurnStatus` reads back as `queued`, a run waiting to start.
-		const status = run.runStore.snapshot().meta?.status
+		// Without the settle the log would hold a turn with no terminal
+		// record, which reads as running (or, once its lease lapses, as
+		// interrupted) — work waiting to continue.
+		const [terminal] = await terminalRecords(run.sessionLog)
+		const status = terminal?.settlement.status
 		expect(status).toBeDefined()
-		expect(status).not.toBe('running')
 		expect(isTerminalStatus(status ?? 'running')).toBe(true)
+		expect(await run.sessionLog.activeTurn()).toBeNull()
 	})
 
-	it('writes the durable record once for the abandonment and once for init', async () => {
+	it('writes exactly one terminal record for the abandonment', async () => {
 		const run = await abandonMidFlight()
 
-		// `init()` is the first write and the abandonment is the second.
 		// Asserting the number rather than a boolean is what keeps a second
 		// settle from slipping in beside the first.
-		expect(run.writes.mock.calls.length).toBe(2)
+		expect(await terminalRecords(run.sessionLog)).toHaveLength(1)
 	})
 
 	it('leaves a run that completes writing exactly the same number of times', async () => {
@@ -168,7 +165,7 @@ describe('a consumer that abandons the run', () => {
 		const settled = await drain(run)
 
 		expect(settled.status).toBe('completed')
-		expect(run.writes.mock.calls.length).toBe(2)
+		expect(await terminalRecords(run.sessionLog)).toHaveLength(1)
 		expect(run.killOwner).toHaveBeenCalledTimes(1)
 	})
 })
@@ -192,14 +189,13 @@ describe('a consumer that abandons the run', () => {
  */
 describe('a consumer that walks away while a human is being asked', () => {
 	it('leaves the run parked, so the record still reads awaiting_hitl', async () => {
-		const runStore = new InMemoryRunStore()
-		const checkpointStore = new InMemoryCheckpointStore()
 		const scope = {
 			tenantId: generateTenantId(),
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			turnId: generateTurnId(),
 		}
+		const sessionLog = new InMemorySessionLog({ sessionId: scope.sessionId })
 
 		const tools = new ToolRegistry()
 		tools.register(
@@ -225,9 +221,8 @@ describe('a consumer that walks away while a human is being asked', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runStore,
-			checkpointStore,
-			turnId: scope.runId,
+			sessionLog,
+			turnId: scope.turnId,
 			tenantId: scope.tenantId,
 			projectId: scope.projectId,
 			sessionId: scope.sessionId,
@@ -255,15 +250,15 @@ describe('a consumer that walks away while a human is being asked', () => {
 
 		// The question is still open, and still the read an approval queue is
 		// built from.
-		const park = await findPendingCheckpoint(checkpointStore, scope)
-		expect(park?.pending?.request.type).toBe('iteration_checkpoint')
+		const park = await findPendingCheckpoint(sessionLog, { turnId: scope.turnId })
+		expect(park?.pending.request.type).toBe('iteration_checkpoint')
 
-		// So the record must not have been given a verdict. Written as the
-		// projection rather than as a status name, because the projection is
-		// what a host reads and what the fix has to preserve.
-		const status = runStore.snapshot().meta?.status ?? 'running'
-		expect(status).not.toBe('cancelled')
-		expect(isTerminalStatus(status)).toBe(false)
-		expect(deriveTurnStatus({ status, park: park?.pending })).toBe('awaiting_hitl')
+		// So the turn must not have been given a verdict: no terminal record,
+		// and the log still holds it as the session's paused turn. Written
+		// also as the projection, because that is what a host reads and what
+		// the fix has to preserve.
+		expect(await terminalRecords(sessionLog)).toEqual([])
+		expect((await sessionLog.activeTurn())?.state).toBe('paused')
+		expect(deriveTurnStatus({ status: 'running', park: park?.pending })).toBe('awaiting_hitl')
 	})
 })
