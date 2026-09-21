@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Structured memory
-description: Durable records, lexical search, lifecycle tools and bounded optional recall into a model request.
+description: Durable typed records — one Markdown file per memory or JSON — with a generated index, lexical search, lifecycle tools and bounded optional recall into a model request.
 resource: packages/sdk/src/types/memory/index.ts
 tags: [sdk, memory, storage, retrieval]
 status: stable
@@ -18,10 +18,14 @@ through `prepareStep`. The CLI makes those choices for its project scope; its
 ## Store and scope
 
 `InMemoryMemoryStore` keeps records in the current instance.
+`MarkdownMemoryStore({ directory })` keeps one Markdown file per memory in that
+exact directory, with a generated `MEMORY.md` index beside them (see
+[Markdown memory files](#markdown-memory-files)).
 `DiskMemoryStore({ baseDir })` persists them beneath `<baseDir>/memory/`, with
-an index and individual content files. A fresh instance or another cooperating
-process reads the same records when given that directory. Each operation reloads
-the disk index rather than relying on a previous process-local snapshot.
+a JSON index and individual content files. A fresh instance or another
+cooperating process reads the same records when given that directory. Each
+operation of either disk store reloads what is on disk rather than relying on a
+previous process-local snapshot.
 
 The host owns isolation. `MemoryStore` methods do not take a tenant, project or
 session ID, and a metadata tag does not enforce access control. Bind the store
@@ -37,6 +41,27 @@ project's state directory, so separate sessions in that project share records.
 | `update(id, updates)` | Updated index entry, or `undefined` when absent. |
 | `delete(id)` | Whether the record existed and was removed. |
 
+### Typed fields
+
+`MemoryIndexEntry` and `CreateMemoryParams` carry three optional fields:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Unique kebab-case slug (`[a-z0-9]+(-[a-z0-9]+)*`, at most 64 characters, never `memory`). Another memory links to it as `[[name]]`. |
+| `description` | One line saying what the memory is for, used to judge relevance without reading the body. |
+| `type` | `user` (who the operator is), `feedback` (a rule the operator gave, with why), `project` (a fact or decision the code and its history do not already say) or `reference` (where to look). |
+
+Records written before these fields existed have none of them, and all three
+stores read such records unchanged. Every shipped store refuses a `name` another
+record already holds with `MemoryNameConflictError` — a `NamzuError` with code
+`storage_error` whose `existingId` names the holder — so a caller updates that
+record instead of writing a second one. A malformed name, type or multi-line
+description is refused with `invalid_config` before anything is written. Search
+scores a name like the title and a description like the summary.
+`DiskMemoryStore` stores the fields in its JSON index; an older build that
+rewrites that index drops them, because an index whose top level is an array
+carries no version stamp to refuse on.
+
 `UpdateMemoryParams` accepts the optional fields of `CreateMemoryParams` plus
 `status: 'active' | 'archived'`. Omitted fields retain their existing values;
 supplied tags or metadata replace that field. Archiving retains the record for
@@ -51,6 +76,69 @@ caller recheck the current status after a search selected an older entry. It doe
 not reserve that record against a later update or make a sequence of separate
 store calls into one transaction. Custom stores can implement this optional
 method to provide the same snapshot contract.
+
+### Markdown memory files
+
+`MarkdownMemoryStore` writes each memory as `<name>.md`:
+
+```markdown
+---
+name: tests-need-a-built-sdk
+description: The CLI tests import the SDK dist, so build it first
+type: feedback
+status: active
+createdAt: "2026-09-21T09:30:00.000Z"
+updatedAt: "2026-09-21T09:30:00.000Z"
+tags: ["testing"]
+id: 0b6c2a4e-6d0f-4c7e-9a51-3f2d8e1b7c40
+---
+
+Run pnpm -r build before the CLI tests.
+
+Why: the CLI resolves the SDK through its built exports.
+How to apply: after any SDK change, before trusting a CLI failure.
+```
+
+`name`, `description` and `type` are required in a file. `status` defaults to
+`active`; `createdAt` and `updatedAt` default to the file's modification time;
+`id` defaults to a stable id derived from the name, written down at the next
+update. `title`, `summary`, `format` (default `markdown`) and `metadata` appear
+only when they differ from those defaults, so an operator can write a memory
+file by hand with the first three keys and a body. `create` without a `name`
+derives one from the title and suffixes it (`-2`, `-3`) until it is free; with a
+`name`, a taken one is refused as above. Updating `name` renames the file.
+
+The frontmatter reader implements a deliberately small part of YAML: plain
+scalars, double-quoted JSON values (strings, arrays, objects), single-quoted
+strings and block lists. An unknown or repeated key, a block scalar, invalid
+JSON, a name that differs from its file name, two files claiming one id, a
+symlinked or non-regular file, a file over 256 KiB, invalid UTF-8, or a file
+stamped with a newer `schemaVersion` fails the operation with a `storage_error`
+naming the file, rather than presenting a smaller store as complete. Other files
+in the directory — the generated index, a previous `DiskMemoryStore`'s
+`index.json` and `content/` — are ignored.
+
+Files are written by atomic rename with mode `0600`; the directory is created
+`0700`. Operations take the same `operation.lock` as `DiskMemoryStore` (below),
+so the two never interleave on one directory. A rename writes the new file
+before removing the old one: a crash between the two leaves two files claiming
+one id, which the next operation refuses by name.
+
+`MEMORY.md` is regenerated after every write: a header comment, then one line per
+active memory, sorted by name, as `- [name](name.md) — description`, each line
+clipped to 150 characters. It is never read back; editing it has no effect, and
+a hand edit to a memory file reaches it at the next write.
+`readIndex({ maxLines })` renders the same lines from the current files for a
+prompt, capped at `maxLines` (default `MEMORY_INDEX_MAX_LINES`, 200) with a final
+line saying how many more memories exist and to use `search_memory` for them.
+`renderMemoryIndex(entries, { maxLines })` is the same rendering over any
+entries. The host decides where the index goes in its prompt.
+
+`importRecord(record, { type })` brings in a record from another store keeping
+its id, timestamps, status and metadata. It is idempotent by id — a record
+already present is reported `present` — and suffixes a taken name rather than
+failing, so an interrupted migration can simply run again. `getByName(name)`
+returns the record under a name, archived included.
 
 ### Disk coordination and recovery
 
@@ -122,11 +210,17 @@ to make these operations available to the model.
 
 | Tool | Contract |
 | --- | --- |
-| `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns titles, summaries and IDs, with a default limit of 10 and an allowed range of 1–50. |
-| `read_memory` | Reads a complete record by its returned ID. |
-| `save_memory` | Creates a historical claim with a useful title, summary and body. |
-| `update_memory` | Corrects supplied fields or changes status; refuses an empty update. |
+| `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default limit of 10 and an allowed range of 1–50. |
+| `read_memory` | Reads a complete record by its ID or its name. Appends the date it was last updated with its age, the verification notice below when it is not from today, and each `[[name]]` link resolved to an ID and description or reported missing. |
+| `save_memory` | Creates a memory with a title, summary and body, and optionally `name`, `type` and `description`. A taken name returns a failed result naming the existing ID and pointing to `update_memory`. |
+| `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status; refuses an empty update and a name another record holds. |
 | `delete_memory` | Permanently removes a record; declared destructive for the host's tool policy. |
+
+The `save_memory` description tells the model what belongs in a memory: what is
+true now and cannot be worked out from the code, git history or files; for
+`feedback` and `project` memories, the rule first, then a `Why:` line and a
+`How to apply:` line; `[[name]]` links to related memories; and an update
+instead of a duplicate.
 
 Saving through the tool records `metadata.source: 'agent-memory'` and the
 calling `runId`; updates preserve that creation metadata and modify only the
@@ -205,7 +299,14 @@ such as `v2` can still match unrelated records. Explicit memory tools retain
 ordinary broad search and remain available to investigate such cases.
 
 The block labels its contents as untrusted historical claims, includes record
-IDs and update times, and includes a source run when recorded. This framing is
+IDs, names and types when present, update times, and a source run when recorded.
+A description, when present, stands in for the summary. A record last updated
+longer ago than `ageNoticeAfterMs` (default one day) also carries an `age` such
+as `"12 days old"`, and the block then ends with `MEMORY_VERIFY_NOTICE`: memories
+are point-in-time, so a file, function, flag or command one names must be
+verified against the current code before it is relied on. The first aged record
+pays for the notice out of the character budget; a block of fresh records spends
+nothing on it. `now` overrides the clock. This framing is
 not a truth check or a security boundary. Current instructions and fresh evidence
 take precedence, and changeable facts need verification.
 

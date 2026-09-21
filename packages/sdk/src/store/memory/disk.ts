@@ -12,13 +12,20 @@ import type {
 	MemoryStore,
 	UpdateMemoryParams,
 } from '../../types/memory/index.js'
-import { assertMemoryStatus } from '../../types/memory/index.js'
+import { assertMemoryStatus, isMemoryType } from '../../types/memory/index.js'
 import { generateMemoryId, isEntityId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
-import { defineSchema } from '../schema.js'
+import { SCHEMA_VERSION_KEY, defineSchema } from '../schema.js'
 import { InMemoryMemoryIndex, searchMemoryEntries } from './index.js'
+import {
+	MemoryNameConflictError,
+	assertOptionalMemoryFields,
+	isMemoryName,
+	nameHolder,
+	withOptionalFields,
+} from './naming.js'
 import {
 	DEFAULT_MEMORY_LOCK_TIMEOUT_MS,
 	acquireMemoryOperationLock,
@@ -86,6 +93,7 @@ function assertMemoryIndexEntries(value: unknown): asserts value is readonly Mem
 	if (!Array.isArray(value)) invalidIndex('the top-level value must be an array')
 
 	const ids = new Set<string>()
+	const names = new Set<string>()
 	for (const [entryIndex, candidate] of value.entries()) {
 		if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate)) {
 			invalidIndex('each entry must be an object', { entryIndex })
@@ -118,6 +126,23 @@ function assertMemoryIndexEntries(value: unknown): asserts value is readonly Mem
 			if (typeof entry[field] !== 'number' || !Number.isFinite(entry[field])) {
 				invalidIndex(`${field} must be a finite number`, { entryIndex, field })
 			}
+		}
+		// Optional since typed memory; absent on every index written before it.
+		if (entry.name !== undefined) {
+			if (!isMemoryName(entry.name)) {
+				invalidIndex('name must be a kebab-case memory name', { entryIndex, field: 'name' })
+			}
+			if (names.has(entry.name)) invalidIndex('names must be unique', { entryIndex, field: 'name' })
+			names.add(entry.name)
+		}
+		if (entry.description !== undefined && typeof entry.description !== 'string') {
+			invalidIndex('description must be a string', { entryIndex, field: 'description' })
+		}
+		if (entry.type !== undefined && !isMemoryType(entry.type)) {
+			invalidIndex('type must be user, feedback, project or reference', {
+				entryIndex,
+				field: 'type',
+			})
 		}
 	}
 }
@@ -246,7 +271,12 @@ export class DiskMemoryStore implements MemoryStore {
 		const content = await this.records.read(this.contentPath(location, id))
 		if (content === null) invalidContent(id, 'the indexed content record is missing')
 		assertMemoryContent(content, id)
-		return content
+		// The version stamp is the file's, not the record's: leaving it on
+		// handed every reader a `schemaVersion` field MemoryContent does not have.
+		const { [SCHEMA_VERSION_KEY]: _stamp, ...record } = content as MemoryContent & {
+			[SCHEMA_VERSION_KEY]?: unknown
+		}
+		return record
 	}
 
 	private async writeIndex(
@@ -259,19 +289,27 @@ export class DiskMemoryStore implements MemoryStore {
 	async create(
 		params: CreateMemoryParams,
 	): Promise<{ entry: MemoryIndexEntry; content: MemoryContent }> {
+		assertOptionalMemoryFields(params)
 		return this.withAuthoritativeIndex(async (location) => {
+			if (params.name !== undefined) {
+				const holder = nameHolder(this.index.allEntries(), params.name)
+				if (holder) throw new MemoryNameConflictError(params.name, holder.id)
+			}
 			const id = generateMemoryId()
 			const now = Date.now()
 
-			const entry: MemoryIndexEntry = {
-				id,
-				title: params.title,
-				summary: params.summary,
-				tags: params.tags ? [...params.tags] : [],
-				status: 'active',
-				createdAt: now,
-				updatedAt: now,
-			}
+			const entry: MemoryIndexEntry = withOptionalFields(
+				{
+					id,
+					title: params.title,
+					summary: params.summary,
+					tags: params.tags ? [...params.tags] : [],
+					status: 'active',
+					createdAt: now,
+					updatedAt: now,
+				},
+				params,
+			)
 
 			const memoryContent: MemoryContent = {
 				id,
@@ -319,19 +357,27 @@ export class DiskMemoryStore implements MemoryStore {
 
 	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
 		if (updates.status !== undefined) assertMemoryStatus(updates.status)
+		assertOptionalMemoryFields(updates)
 		return this.withAuthoritativeIndex(async (location) => {
 			assertStorageMemoryId(id, (reason) => invalidContent(id, reason, { field: 'id' }))
 			const existing = this.index.getEntry(id)
 			if (!existing) return undefined
-			const existingContent = await this.readContent(location, id)
-			const updated: MemoryIndexEntry = {
-				...existing,
-				title: updates.title ?? existing.title,
-				summary: updates.summary ?? existing.summary,
-				tags: updates.tags ? [...updates.tags] : existing.tags,
-				status: updates.status ?? existing.status,
-				updatedAt: Date.now(),
+			if (updates.name !== undefined) {
+				const holder = nameHolder(this.index.allEntries(), updates.name, id)
+				if (holder) throw new MemoryNameConflictError(updates.name, holder.id)
 			}
+			const existingContent = await this.readContent(location, id)
+			const updated: MemoryIndexEntry = withOptionalFields(
+				{
+					...existing,
+					title: updates.title ?? existing.title,
+					summary: updates.summary ?? existing.summary,
+					tags: updates.tags ? [...updates.tags] : existing.tags,
+					status: updates.status ?? existing.status,
+					updatedAt: Date.now(),
+				},
+				updates,
+			)
 			const updatesContent =
 				updates.content !== undefined ||
 				updates.format !== undefined ||

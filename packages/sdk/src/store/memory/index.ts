@@ -54,8 +54,10 @@ export function searchMemoryEntries(
 			let coverage = 0
 			let score = 0
 			if (query.size > 0) {
-				const title = terms(entry.title)
-				const summary = terms(entry.summary)
+				// A name is a title spelled as a slug and a description is a
+				// summary kept to one line; each scores as the field it stands in for.
+				const title = terms(`${entry.title} ${(entry.name ?? '').replace(/-/g, ' ')}`)
+				const summary = terms(`${entry.summary} ${entry.description ?? ''}`)
 				const body = terms(contentOf(entry.id))
 				for (const term of query) {
 					const weight =

@@ -483,7 +483,18 @@ export {
 	InMemoryMemoryStore,
 	InMemoryStore,
 	InMemoryTaskStore,
+	MEMORY_INDEX_LINE_MAX_CHARS,
+	MEMORY_INDEX_MAX_LINES,
+	MarkdownMemoryStore,
+	MEMORY_VERIFY_NOTICE,
+	MemoryNameConflictError,
+	describeMemoryAge,
+	isMemoryName,
+	memoryIndexLine,
+	memoryLinkNames,
+	renderMemoryIndex,
 	RunDiskStore,
+	slugifyMemoryName,
 } from './store/index.js'
 export type { DiskCheckpointStoreAttribution } from './store/index.js'
 // Enumerating runs above a run id — the read an approval inbox and a park
@@ -1043,7 +1054,12 @@ export { CONNECTOR_SCOPE_ORDER } from './types/connector/scope.js'
 export { RoutingResponseSchema } from './types/decision/index.js'
 export { autoApproveHandler } from './types/hitl/index.js'
 export { deriveChildState } from './types/invocation/index.js'
-export { assertMemoryStatus } from './types/memory/index.js'
+export {
+	MEMORY_TYPES,
+	assertMemoryStatus,
+	assertMemoryType,
+	isMemoryType,
+} from './types/memory/index.js'
 export {
 	createAssistantMessage,
 	selectAssistantText,

@@ -41,10 +41,20 @@ export function temporaryPathFor(filePath: string): string {
  * the store with files that look like records to anything scanning the
  * directory, and the next attempt would not reuse it anyway.
  */
-export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+export async function atomicWriteFile(
+	filePath: string,
+	content: string,
+	options: { readonly mode?: number } = {},
+): Promise<void> {
 	const tempPath = temporaryPathFor(filePath)
 	try {
-		await writeFile(tempPath, content, 'utf-8')
+		// The mode is applied when the sidecar is created, so the published
+		// file never exists with wider permissions, not even for a moment.
+		await writeFile(
+			tempPath,
+			content,
+			options.mode === undefined ? 'utf-8' : { encoding: 'utf-8', mode: options.mode },
+		)
 		await renameWithRetry(tempPath, filePath)
 	} catch (err) {
 		await unlink(tempPath).catch(() => undefined)
