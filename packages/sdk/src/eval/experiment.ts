@@ -2,7 +2,7 @@ import type {
 	CaseResult,
 	CaseStatus,
 	EvalCase,
-	EvalRun,
+	EvalTurn,
 	ExperimentReport,
 	Score,
 	Scorer,
@@ -18,11 +18,11 @@ export interface ExperimentConfig<TInput = unknown> {
 	/** Applied to every case unless the case overrides them. */
 	scorers: readonly Scorer[]
 	/**
-	 * Execute one case. Returning an `EvalRun` rather than driving `query()`
+	 * Execute one case. Returning an `EvalTurn` rather than driving `query()`
 	 * here keeps the harness independent of how you construct a run —
 	 * scripted mock, real provider, or a whole agent behind a facade.
 	 */
-	run: (input: TInput, evalCase: EvalCase<TInput>, signal: AbortSignal) => Promise<EvalRun>
+	run: (input: TInput, evalCase: EvalCase<TInput>, signal: AbortSignal) => Promise<EvalTurn>
 	/**
 	 * Wall-clock deadline for one case, including execution and every
 	 * scorer. Unset means no deadline.
@@ -244,7 +244,7 @@ async function executeCase<TInput>(
 	config: ExperimentConfig<TInput>,
 	evalCase: EvalCase<TInput>,
 	deadline: CaseDeadline,
-): Promise<EvalRun> {
+): Promise<EvalTurn> {
 	const startedAt = Date.now()
 	try {
 		const work = config.run(evalCase.input, evalCase, deadline.signal)
@@ -268,7 +268,7 @@ async function executeCase<TInput>(
 /** A throwing scorer scores zero with the throw as its reason. */
 async function safeScore(
 	scorer: Scorer,
-	run: EvalRun,
+	run: EvalTurn,
 	evalCase: EvalCase,
 	deadline: CaseDeadline,
 ): Promise<Score> {

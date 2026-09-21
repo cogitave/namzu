@@ -30,11 +30,11 @@ export { isCompactionMessage } from '../../../../compaction/summary.js'
 
 /** The selected request model owns the denominator, including overflow recovery. */
 export function activeContextWindow(ctx: IterationContext) {
-	const model = ctx.contextModel ?? ctx.runConfig.model
+	const model = ctx.contextModel ?? ctx.turnConfig.model
 	return resolveContextWindow(
 		ctx.compactionConfig?.contextWindowTokens,
 		model,
-		model === ctx.runConfig.model ? ctx.providerContextWindow : ctx.activeProviderContextWindow,
+		model === ctx.turnConfig.model ? ctx.providerContextWindow : ctx.activeProviderContextWindow,
 	)
 }
 
@@ -89,7 +89,7 @@ function estimateToolCatalogTokens(ctx: IterationContext): number {
 }
 
 function estimateTokens(ctx: IterationContext): number {
-	return estimateMessagesTokens(ctx.runMgr.messages) + estimateToolCatalogTokens(ctx)
+	return estimateMessagesTokens(ctx.recorder.messages) + estimateToolCatalogTokens(ctx)
 }
 
 type ToolResultClearPlan = Extract<CompactionPlan, { kind: 'cleared' }>
@@ -117,10 +117,10 @@ async function emitContextUsageSnapshot(
 ): Promise<void> {
 	await ctx.emitEvent?.({
 		type: 'token_usage_updated',
-		runId: ctx.runMgr.id,
-		usage: { ...ctx.runMgr.tokenUsage },
-		budget: ctx.runMgr.budget?.summary(),
-		cost: { ...ctx.runMgr.costInfo },
+		turnId: ctx.recorder.turnId,
+		usage: { ...ctx.recorder.tokenUsage },
+		budget: ctx.recorder.budget?.summary(),
+		cost: { ...ctx.recorder.costInfo },
 		contextTokens,
 		contextMeasuredBy: 'estimate',
 		contextWindowTokens,
@@ -133,7 +133,7 @@ async function emitToolResultClear(
 	plan: ToolResultClearPlan,
 ): Promise<void> {
 	ctx.log.info('Cleared stale tool results instead of compacting', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.cleared': plan.clearedCount,
 		'namzu.runtime.chars_reclaimed': plan.charsReclaimed,
 		'namzu.runtime.reclaimed_tokens': plan.reclaimedTokens,
@@ -141,8 +141,8 @@ async function emitToolResultClear(
 
 	await ctx.emitEvent?.({
 		type: 'compaction_tool_results_cleared',
-		runId: ctx.runMgr.id,
-		iteration: ctx.runMgr.currentIteration,
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
 		clearedCount: plan.clearedCount,
 		...(plan.stubbedCount !== undefined ? { stubbedCount: plan.stubbedCount } : {}),
 		charsReclaimed: plan.charsReclaimed,
@@ -162,11 +162,11 @@ async function commitToolResultClear(
 	// A shorter replacement also removes evidence. Preserve its original
 	// content in the same archive used by whole-message compaction before
 	// changing the live history or publishing the clear.
-	await recordShed(ctx, [...ctx.runMgr.messages], plan.messages, reason)
-	installMessages(ctx.runMgr.messages, plan.messages)
+	await recordShed(ctx, [...ctx.recorder.messages], plan.messages, reason)
+	installMessages(ctx.recorder.messages, plan.messages)
 	// The provider counted the pre-edit prompt. Leaving that measurement live
 	// makes the next trigger compare the old prompt against the new history.
-	ctx.runMgr.clearLastPromptTokens?.()
+	ctx.recorder.clearLastPromptTokens?.()
 	await emitToolResultClear(ctx, plan)
 	await emitContextUsageSnapshot(ctx, estimateTokens(ctx), contextWindowTokens, windowSource)
 }
@@ -205,10 +205,10 @@ export function measureContext(ctx: IterationContext): {
 	tokens: number
 	source: 'provider' | 'estimate'
 } {
-	const reported = ctx.runMgr.lastPromptTokens
+	const reported = ctx.recorder.lastPromptTokens
 	if (reported !== undefined && reported > 0) {
-		const measuredThrough = ctx.runMgr.lastPromptMessageCount ?? ctx.runMgr.messages.length
-		const appended = ctx.runMgr.messages.slice(measuredThrough)
+		const measuredThrough = ctx.recorder.lastPromptMessageCount ?? ctx.recorder.messages.length
+		const appended = ctx.recorder.messages.slice(measuredThrough)
 		return { tokens: reported + estimateMessagesTokens(appended), source: 'provider' }
 	}
 	return { tokens: estimateTokens(ctx), source: 'estimate' }
@@ -233,14 +233,14 @@ export function measureContext(ctx: IterationContext): {
  *   send the same prompt again, so the caller must not.
  */
 export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
-	const before = ctx.runMgr.messages.length
-	const beforeChars = totalChars(ctx.runMgr.messages)
-	const beforeTokens = estimateMessagesTokens(ctx.runMgr.messages)
+	const before = ctx.recorder.messages.length
+	const beforeChars = totalChars(ctx.recorder.messages)
+	const beforeTokens = estimateMessagesTokens(ctx.recorder.messages)
 
 	await runCompactionCheck(ctx, { force: true })
 
-	const shed = beforeChars - totalChars(ctx.runMgr.messages)
-	const tokensShed = beforeTokens - estimateMessagesTokens(ctx.runMgr.messages)
+	const shed = beforeChars - totalChars(ctx.recorder.messages)
+	const tokensShed = beforeTokens - estimateMessagesTokens(ctx.recorder.messages)
 	// A shed has to be big enough to plausibly change the provider's verdict.
 	// Any positive number used to count, so clearing a single short tool
 	// result reported success, the turn was retried against a prompt that was
@@ -250,7 +250,7 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	const meaningful = Math.max(MIN_RELIEF_TOKENS, beforeTokens * MIN_RELIEF_FRACTION)
 	if (tokensShed < meaningful) {
 		ctx.log.warn('Context overflow with too little left to shed — the prompt is irreducible', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.messages': before,
 			'namzu.runtime.chars_shed': shed,
 			'namzu.runtime.tokens_shed': tokensShed,
@@ -260,9 +260,9 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	}
 
 	ctx.log.info('Relieved a context overflow by compacting', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.messages_before': before,
-		'namzu.runtime.messages_after': ctx.runMgr.messages.length,
+		'namzu.runtime.messages_after': ctx.recorder.messages.length,
 		'namzu.runtime.chars_shed': shed,
 		'namzu.runtime.tokens_shed': tokensShed,
 	})
@@ -314,8 +314,8 @@ async function declined(
 ): Promise<void> {
 	await ctx.emitEvent?.({
 		type: 'compaction_failed',
-		runId: ctx.runMgr.id,
-		iteration: ctx.runMgr.currentIteration,
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
 		cause,
 		messages,
 		...(error !== undefined ? { error } : {}),
@@ -368,7 +368,7 @@ async function applyReducer(
 		windowSource: 'config' | 'provider' | 'model-table' | 'default'
 	},
 ): Promise<void> {
-	const messages = ctx.runMgr.messages
+	const messages = ctx.recorder.messages
 	const before = messages.length
 	const beforeChars = totalChars(messages)
 
@@ -378,7 +378,7 @@ async function applyReducer(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error)
 		ctx.log.warn('Context reducer threw — keeping the full history', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.reason': reduction.reason,
 			'exception.message': message,
 		})
@@ -388,7 +388,7 @@ async function applyReducer(
 
 	if (!next || next.length >= before) {
 		ctx.log.debug('Context reducer shed nothing', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.reason': reduction.reason,
 			'namzu.runtime.messages': before,
 		})
@@ -401,7 +401,7 @@ async function applyReducer(
 	})
 	if (toolPairOutcome.state === 'violated') {
 		ctx.log.warn('Context reducer split a tool pair — refusing its result', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.reason': reduction.reason,
 			'namzu.runtime.hint':
 				'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
@@ -418,10 +418,10 @@ async function applyReducer(
 	// The provider's count described the pre-reduction prompt. Same reasoning
 	// as the structured path: leaving it would have the next trigger check
 	// compare an old size against the new history and reduce again.
-	ctx.runMgr.clearLastPromptTokens?.()
+	ctx.recorder.clearLastPromptTokens?.()
 
 	ctx.log.info('Context reduced', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.reason': reduction.reason,
 		'namzu.runtime.old_message_count': before,
 		'namzu.runtime.new_message_count': messages.length,
@@ -440,8 +440,8 @@ async function applyReducer(
 	const tokensAfter = estimateTokens(ctx)
 	await ctx.emitEvent?.({
 		type: 'compaction_completed',
-		runId: ctx.runMgr.id,
-		iteration: ctx.runMgr.currentIteration,
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
 		messagesBefore: before,
 		messagesAfter: messages.length,
 		tokensBefore: reduction.estimatedTokens,
@@ -489,8 +489,8 @@ async function recordShed(
 
 	await ctx.emitEvent?.({
 		type: 'compaction_shed',
-		runId: ctx.runMgr.id,
-		iteration: ctx.runMgr.currentIteration,
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
 		messages: shed,
 		reason,
 	})
@@ -526,8 +526,9 @@ export async function runCompactionCheck(
 			const results = await ctx.pluginManager.executeHooks(
 				'post_compact',
 				{
-					runId: ctx.runMgr.id,
-					iteration: ctx.runMgr.currentIteration,
+					sessionId: ctx.recorder.sessionId,
+					turnId: ctx.recorder.turnId,
+					iteration: ctx.recorder.currentIteration,
 					compaction: {
 						reason: pass.reason,
 						tokensBefore: pass.tokensBefore,
@@ -555,7 +556,7 @@ async function runCompactionCheckInner(
 	const measured = measureContext(ctx)
 	const estimatedTokens = measured.tokens
 
-	// The divisor is a WINDOW, never `runConfig.tokenBudget`. The old
+	// The divisor is a WINDOW, never `turnConfig.tokenBudget`. The old
 	// fallback compared a live context size against a cumulative spend cap
 	// — dimensionally the wrong quantity, and self-defeating: the guard
 	// force-finalizes at 0.9 x tokenBudget while this needs 0.7 x the same
@@ -584,8 +585,9 @@ async function runCompactionCheckInner(
 		const results = await ctx.pluginManager.executeHooks(
 			'pre_compact',
 			{
-				runId: ctx.runMgr.id,
-				iteration: ctx.runMgr.currentIteration,
+				sessionId: ctx.recorder.sessionId,
+				turnId: ctx.recorder.turnId,
+				iteration: ctx.recorder.currentIteration,
 				compaction: {
 					reason: pass.reason,
 					tokensBefore: estimatedTokens,
@@ -611,11 +613,11 @@ async function runCompactionCheckInner(
 			ctx,
 			reducer,
 			{
-				messages: ctx.runMgr.messages,
+				messages: ctx.recorder.messages,
 				reason: options?.force ? 'overflow' : 'threshold',
 				estimatedTokens,
 				contextWindowTokens: budget,
-				model: ctx.runConfig.model,
+				model: ctx.turnConfig.model,
 				keepRecentMessages: config.keepRecentMessages,
 			},
 			{ measuredBy: measured.source, windowSource: window.source },
@@ -627,7 +629,7 @@ async function runCompactionCheckInner(
 	if (!manager) return
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.context_tokens': estimatedTokens,
 		'namzu.runtime.measured_by': measured.source,
 		'namzu.runtime.window': budget,
@@ -652,7 +654,7 @@ async function runCompactionCheckInner(
 		let openTasks: string[] | undefined
 		if (ctx.taskStore) {
 			try {
-				const tasks = await ctx.taskStore.list({ runId: ctx.runMgr.id })
+				const tasks = await ctx.taskStore.list({ sessionId: ctx.recorder.sessionId })
 				openTasks = tasks
 					.filter((t) => t.status !== 'completed')
 					.map((t) => t.description)
@@ -663,7 +665,7 @@ async function runCompactionCheckInner(
 			}
 		}
 		const working = planSalienceWorkingSet({
-			messages: ctx.runMgr.messages,
+			messages: ctx.recorder.messages,
 			config,
 			contextWindowTokens: budget,
 			estimatedTokens,
@@ -682,7 +684,7 @@ async function runCompactionCheckInner(
 		}
 	}
 	const clearPlan = planCompaction({
-		messages: ctx.runMgr.messages,
+		messages: ctx.recorder.messages,
 		config,
 		contextWindowTokens: budget,
 		estimatedTokens,
@@ -705,7 +707,7 @@ async function runCompactionCheckInner(
 	// succeeds. If that side call stalls, fails or is cancelled, the run keeps
 	// one coherent pre-edit history instead of publishing half a pass.
 	const stagedClear = clearPlan.kind === 'cleared' ? clearPlan : undefined
-	const messages = stagedClear?.messages ?? ctx.runMgr.messages
+	const messages = stagedClear?.messages ?? ctx.recorder.messages
 	const plan = planCompaction({
 		messages,
 		config,
@@ -729,14 +731,14 @@ async function runCompactionCheckInner(
 					break
 				case 'no_safe_cut':
 					ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
-						[NAMZU.RUN_ID]: ctx.runMgr.id,
+						[NAMZU.TURN_ID]: ctx.recorder.turnId,
 						'namzu.runtime.system_messages': messages.filter((m) => m.role === 'system').length,
 						'namzu.runtime.message_count': messages.length,
 					})
 					break
 				case 'too_few_older':
 					ctx.log.debug('Skipping compaction — too few older messages', {
-						[NAMZU.RUN_ID]: ctx.runMgr.id,
+						[NAMZU.TURN_ID]: ctx.recorder.turnId,
 					})
 					break
 				case 'no_system_floor':
@@ -762,15 +764,15 @@ async function runCompactionCheckInner(
 		// the two separately is how they drift — a router that sends compaction
 		// to a cheap model while the bill is written against the expensive one
 		// is a mistake with no symptom.
-		const compactionModel = resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model)
+		const compactionModel = resolveTaskModel('compaction', ctx.taskRouter, ctx.turnConfig.model)
 		compactedContent = await buildVerifiedSummaryWithBoundedProvider(
 			manager,
 			olderMessages as Message[],
 			ctx.provider,
 			config,
 			(usage) =>
-				ctx.runMgr.accumulateUsage(usage, {
-					providerId: ctx.runMgr.servingProviderId,
+				ctx.recorder.accumulateUsage(usage, {
+					providerId: ctx.recorder.servingProviderId,
 					model: compactionModel,
 				}),
 			// The one model call a run makes that the user never asked for. It
@@ -827,12 +829,12 @@ async function runCompactionCheckInner(
 			// Re-pin as the last leading system message, before the summary.
 			newMessages.splice(preservedSystem.length, 0, priorSlot)
 			ctx.log.warn('Re-pinned working-memory slot dropped by compaction', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			})
 		}
 	}
 
-	const live = ctx.runMgr.messages
+	const live = ctx.recorder.messages
 	const oldCount = live.length
 	// Retained history can survive in full while a summary adds another copy
 	// of its facts. Even an unretained span may be smaller than the cumulative
@@ -859,7 +861,7 @@ async function runCompactionCheckInner(
 	// necessarily an estimate. Invalidate the stale reading so the next
 	// trigger check does not compare the old prompt size against the new
 	// context and compact again immediately.
-	ctx.runMgr.clearLastPromptTokens?.()
+	ctx.recorder.clearLastPromptTokens?.()
 	// The clear and the summary were one staged state transition. Publish the
 	// clear first for chronological audit semantics, but only now that both
 	// edits are installed and no verifier can still fail between them.
@@ -871,7 +873,7 @@ async function runCompactionCheckInner(
 	const reachedReset = newEstimate / budget <= config.resetThreshold
 	if (!reachedReset) {
 		ctx.log.warn('Compaction did not reach its reset threshold — context may still be tight', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.after_usage': Math.round((newEstimate / budget) * 100),
 			'namzu.runtime.reset_threshold': Math.round(config.resetThreshold * 100),
 			'namzu.runtime.hint':
@@ -880,7 +882,7 @@ async function runCompactionCheckInner(
 	}
 
 	ctx.log.info('Context compacted', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.old_message_count': oldCount,
 		'namzu.runtime.new_message_count': live.length,
 		'namzu.runtime.removed_messages': oldCount - live.length,
@@ -896,8 +898,8 @@ async function runCompactionCheckInner(
 	// loss so it is observable.
 	await ctx.emitEvent?.({
 		type: 'compaction_completed',
-		runId: ctx.runMgr.id,
-		iteration: ctx.runMgr.currentIteration,
+		turnId: ctx.recorder.turnId,
+		iteration: ctx.recorder.currentIteration,
 		messagesBefore: oldCount,
 		messagesAfter: live.length,
 		tokensBefore: estimatedTokens,

@@ -99,12 +99,12 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 		try {
 			block =
 				(await provider({
-					runId: ctx.runMgr.id,
-					iteration: ctx.runMgr.currentIteration,
+					turnId: ctx.recorder.turnId,
+					iteration: ctx.recorder.currentIteration,
 				})) ?? ''
 		} catch (err) {
 			ctx.log.warn('workingMemoryProvider failed; keeping prior slot', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return
@@ -112,7 +112,7 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 	}
 	if (pinned) block = block.trim() ? `${block.trim()}\n\n${pinned}` : pinned
 
-	const msgs = ctx.runMgr.messages
+	const msgs = ctx.recorder.messages
 
 	let leadEnd = 0
 	while (leadEnd < msgs.length && msgs[leadEnd]?.role === 'system') leadEnd++
@@ -128,7 +128,7 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 		// Empty block ⇒ remove the slot (byte-identical-when-empty).
 		if (idx >= 0) {
 			msgs.splice(idx, 1)
-			ctx.runMgr.clearLastPromptTokens?.()
+			ctx.recorder.clearLastPromptTokens?.()
 		}
 		return
 	}
@@ -145,5 +145,5 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 	}
 	// The old provider reading measured a different prefix, and an insertion
 	// also moves its tail watermark. Re-estimate until the next request reports.
-	ctx.runMgr.clearLastPromptTokens?.()
+	ctx.recorder.clearLastPromptTokens?.()
 }

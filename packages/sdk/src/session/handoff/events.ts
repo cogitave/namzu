@@ -1,7 +1,7 @@
 /**
  * HandoffEventSink — pluggable event sink for Phase 4.
  *
- * Phase 4 does NOT extend `RunEvent` with handoff variants (they land in a
+ * Phase 4 does NOT extend `SessionEvent` with handoff variants (they land in a
  * later phase that wires the full `SessionHierarchyEvent` union referenced
  * by roadmap §1). In the meantime the flow functions invoke this sink so
  * consumers + tests can observe state transitions without a concrete event

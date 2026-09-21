@@ -1,6 +1,7 @@
 import type { WorkingStateSnapshot } from '../../compaction/wire.js'
-import type { RunPersistence } from '../../manager/run/persistence.js'
-import { selectCheckpointsToPrune } from '../../store/run/prune.js'
+import { type TurnRecorder, readFoldedHistory } from '../../manager/session/turn-recorder.js'
+import type { CheckpointScope, SessionCheckpointStore } from '../../store/checkpoint/index.js'
+import type { SessionLog } from '../../store/session-log/index.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
@@ -8,25 +9,14 @@ import type {
 	CheckpointSummary,
 	HITLDecisionRequest,
 	HITLResumeDecision,
-	IterationCheckpoint,
 	PendingDecision,
 } from '../../types/hitl/index.js'
-import type { AssistantMessage, UserMessage } from '../../types/message/index.js'
-import type {
-	CheckpointRunScope,
-	CheckpointStore,
-	FencingToken,
-} from '../../types/run/checkpoint-store.js'
-import type { EmergencySaveData } from '../../types/run/emergency.js'
-import type { CheckpointListEntry } from '../../types/run/replay.js'
-import { ZERO_COST } from '../../utils/cost.js'
-import { buildToolResultHashes } from '../../utils/hash.js'
-import {
-	asCheckpointId,
-	asEmergencySaveId,
-	asGoalId,
-	generateCheckpointId,
-} from '../../utils/id.js'
+import type { MessageId, TurnId } from '../../types/ids/index.js'
+import type { AssistantMessage, Message, UserMessage } from '../../types/message/index.js'
+import { CHECKPOINT_DOCUMENT_VERSION, type Checkpoint } from '../../types/session/checkpoint.js'
+import type { CheckpointListEntry } from '../../types/session/fork.js'
+import type { SessionRecord } from '../../types/session/records.js'
+import { asGoalId, generateCheckpointId } from '../../utils/id.js'
 
 /** Keep intent text/provenance without copying attachment payloads into a second slot. */
 function snapshotUserIntent(value: unknown): UserMessage {
@@ -69,108 +59,132 @@ function snapshotUserIntent(value: unknown): UserMessage {
 	return result
 }
 
+/** A checkpoint the turn just wrote: its id and the document. */
+export interface CreatedCheckpoint {
+	readonly id: CheckpointId
+	readonly document: Checkpoint
+}
+
 /**
- * Projection from a full checkpoint payload to the public listing entry.
- * Exported for the replay `listCheckpoints` entry point, which projects
- * store results without constructing a `CheckpointManager`.
+ * A checkpoint read back for a resume: the document, the context it
+ * restores (the fold of the session log through `throughSeq`), and the
+ * decision it is parked on, if any.
  */
-export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEntry {
+export interface RestoredCheckpoint {
+	readonly id: CheckpointId
+	readonly document: Checkpoint
+	readonly messages: Message[]
+	/** Ids of the restored messages that have records, by message. */
+	readonly messageIds: ReadonlyMap<Message, MessageId>
+	readonly pending?: PendingDecision
+	readonly latestUserMessage?: UserMessage
+}
+
+/** A decision one of a turn's checkpoints was parked on, as the log records it. */
+export interface RecordedPark {
+	readonly decisionId: string
+	readonly turnId: TurnId
+	readonly checkpointId: CheckpointId
+	readonly pending: PendingDecision
+}
+
+/** Projection from a checkpoint document to the public listing entry. */
+export function toCheckpointListEntry(cp: Checkpoint): CheckpointListEntry {
 	return {
-		id: cp.id,
-		runId: cp.runId,
+		id: cp.checkpointId,
+		sessionId: cp.sessionId,
+		turnId: cp.turnId,
 		iteration: cp.iteration,
-		createdAt: cp.createdAt,
-		messageCount: cp.messages.length,
+		createdAt: Date.parse(cp.createdAt),
+		throughSeq: cp.throughSeq,
 	}
 }
 
 /**
- * Project an {@link EmergencySaveData} dump to an {@link IterationCheckpoint}
- * shape so `replay({ fromCheckpoint: 'emergency' })` can consume it through
- * the same restore path as any other checkpoint.
- *
- * The projection is lossy: `costInfo`, `guardState.elapsedMs` and
- * `toolResultHashes` are not captured at emergency-save time. The synthetic
- * checkpoint id is derived deterministically from the emergency save id so
- * re-projecting the same dump yields the same {@link CheckpointId}.
- *
- * ## The cost projection says "unknown", not "zero"
- *
- * `costInfo` used to default to `{ ...ZERO_COST }` beside a `tokenUsage` the
- * dump preserves faithfully — a run that had spent real money coming back as
- * one that had spent nothing. That is the same lie the price catalogue was
- * added to end, arriving through the restore path instead of the accumulation
- * one, and it took `runConfig.costLimitUsd` back to being enforced against a
- * zero with it.
- *
- * It also broke the accumulator downstream. `accumulateCost` decides whether
- * one rate card describes the whole total by asking whether the total is
- * FRESH — zero cost, zero unpriced tokens, no rates — and `ZERO_COST` is
- * exactly that shape. So the first turn after such a resume adopted its own
- * rate card as covering the pre-crash spend too, and reported a number that
- * was confidently wrong while looking like a measured one.
- *
- * Saying instead that the pre-crash tokens are UNPRICED is the true statement,
- * in the vocabulary {@link CostInfo} already has: nobody knows what they cost,
- * because nothing recorded it. It needs no marker of its own to stay correct,
- * and it is not fresh-shaped, so the accumulator does the right thing without
- * being told about this path at all.
- *
- * See ses_005-deterministic-replay design §2 + §5.2.
+ * Every park a session log records, newest last: `decision_requested`, and
+ * whether a `decision_resolved` or `decision_expired` has answered it.
  */
-export function projectEmergencyToCheckpoint(dump: EmergencySaveData): IterationCheckpoint {
-	const emergencyId = asEmergencySaveId(dump.id)
-	// The checkpoint is another view of the same snapshot and retains its key.
-	const checkpointId = asCheckpointId(emergencyId)
-	return {
-		id: checkpointId,
-		runId: dump.runId,
-		// The dump records the run's start, so this projection carries the
-		// same stamp an ordinary checkpoint of that run would — a run whose
-		// only surviving record is an emergency dump still has a real
-		// attribution instant, and dropping it here would put that run in the
-		// "never recorded" bucket for no reason.
-		runCreatedAt: dump.startedAt,
-		iteration: dump.currentIteration,
-		messages: dump.messages,
-		tokenUsage: dump.tokenUsage,
-		budgetBinding: dump.budgetBinding,
-		budgetAccountId: dump.budgetAccountId,
-		costInfo: { ...ZERO_COST, unpricedTokens: dump.tokenUsage.totalTokens },
-		guardState: {
-			iterationCount: dump.currentIteration,
-			elapsedMs: Math.max(0, dump.savedAt - dump.startedAt),
-		},
-		createdAt: dump.savedAt,
+export async function readParks(
+	log: SessionLog,
+	options: { readonly turnId?: TurnId } = {},
+): Promise<RecordedPark[]> {
+	const parks = new Map<
+		string,
+		{
+			decisionId: string
+			turnId: TurnId
+			checkpointId: CheckpointId
+			request: HITLDecisionRequest
+			parkedAt: number
+			deadlineAt?: number
+			resolvedAt?: number
+			decision?: HITLResumeDecision
+		}
+	>()
+	for await (const { record } of log.read({ mode: 'tolerant' })) {
+		const r = record as SessionRecord
+		if (r.type === 'decision_requested') {
+			if (options.turnId !== undefined && r.turnId !== options.turnId) continue
+			parks.set(r.decisionId, {
+				decisionId: r.decisionId,
+				turnId: r.turnId as TurnId,
+				checkpointId: r.checkpointId,
+				request: r.request as unknown as HITLDecisionRequest,
+				parkedAt: Date.parse(r.ts),
+				...(r.deadlineAt !== undefined ? { deadlineAt: Date.parse(r.deadlineAt) } : {}),
+			})
+		} else if (r.type === 'decision_resolved') {
+			const park = parks.get(r.decisionId)
+			if (park) {
+				park.resolvedAt = Date.parse(r.ts)
+				park.decision = r.decision
+			}
+		} else if (r.type === 'decision_expired') {
+			const park = parks.get(r.decisionId)
+			if (park) {
+				park.resolvedAt = Date.parse(r.ts)
+				// The park ended by running out of time, not by a decision. An
+				// `abort` here would read as somebody having refused it.
+				park.decision = {
+					action: 'pause',
+					reason: 'The approval request expired without an answer.',
+				}
+			}
+		}
 	}
+	return [...parks.values()].map((park) => ({
+		decisionId: park.decisionId,
+		turnId: park.turnId,
+		checkpointId: park.checkpointId,
+		pending: {
+			request: park.request,
+			parkedAt: park.parkedAt,
+			...(park.deadlineAt !== undefined ? { deadlineAt: park.deadlineAt } : {}),
+			...(park.resolvedAt !== undefined ? { resolvedAt: park.resolvedAt } : {}),
+			...(park.decision !== undefined ? { decision: park.decision } : {}),
+		},
+	}))
 }
 
 /**
- * The newest checkpoint of a run that is still awaiting a human decision,
- * or `null` when the run is not parked.
+ * The newest park of a session (or of one of its turns) that is still
+ * awaiting a human decision, or `null` when nothing is parked.
  *
- * Standalone (not a `CheckpointManager` method) so a host can ask the
- * question without constructing a run: an approval-queue worker in a
- * different process has a store and a scope, and nothing else.
+ * Standalone so a host can ask the question without constructing a turn: an
+ * approval-queue worker in a different process has the session log and
+ * nothing else. An expired park is not outstanding.
  */
 export async function findPendingCheckpoint(
-	store: CheckpointStore,
-	scope: CheckpointRunScope,
-	options?: { readonly now?: number },
-): Promise<IterationCheckpoint | null> {
-	const all = await store.listCheckpoints(scope)
-	const now = options?.now ?? Date.now()
-	// `listCheckpoints` is contractually ascending by `createdAt`; the
-	// newest outstanding park is the one a human should be answering.
-	for (let i = all.length - 1; i >= 0; i--) {
-		const cp = all[i] as IterationCheckpoint
-		if (!cp.pending || cp.pending.resolvedAt !== undefined) continue
-		// An expired park is not outstanding. Serving it re-presents an
-		// approval whose window has closed, and every queue reader would
-		// keep re-presenting it forever — a redeployed worker leaves a park
-		// nobody will ever answer and nothing in-process can time out.
-		if (isExpiredPark(cp.pending, now)) continue
-		return cp
+	log: SessionLog,
+	options: { readonly turnId?: TurnId; readonly now?: number } = {},
+): Promise<RecordedPark | null> {
+	const parks = await readParks(log, options.turnId ? { turnId: options.turnId } : {})
+	const now = options.now ?? Date.now()
+	for (let i = parks.length - 1; i >= 0; i--) {
+		const park = parks[i] as RecordedPark
+		if (park.pending.resolvedAt !== undefined) continue
+		if (isExpiredPark(park.pending, now)) continue
+		return park
 	}
 	return null
 }
@@ -181,108 +195,65 @@ export function isExpiredPark(pending: PendingDecision, now = Date.now()): boole
 }
 
 /**
- * Every outstanding park in a run, expired ones included, so a host can
- * sweep them.
- *
- * The out-of-process timer stays a host concern — consistent with the same
- * decision made for retention — but a host cannot sweep what it cannot
- * enumerate, and this is the read that makes a sweep a few lines rather
- * than a re-implementation of the store contract.
+ * Every outstanding park of a session whose deadline has passed, so a host
+ * can sweep them (`CheckpointManager.expire`, or `decision_expired` appended
+ * under the session lease).
  */
 export async function listExpiredParks(
-	store: CheckpointStore,
-	scope: CheckpointRunScope,
-	options?: { readonly now?: number },
-): Promise<IterationCheckpoint[]> {
-	const all = await store.listCheckpoints(scope)
-	const now = options?.now ?? Date.now()
-	return all.filter(
-		(cp) => cp.pending && cp.pending.resolvedAt === undefined && isExpiredPark(cp.pending, now),
+	log: SessionLog,
+	options: { readonly turnId?: TurnId; readonly now?: number } = {},
+): Promise<RecordedPark[]> {
+	const parks = await readParks(log, options.turnId ? { turnId: options.turnId } : {})
+	const now = options.now ?? Date.now()
+	return parks.filter(
+		(park) => park.pending.resolvedAt === undefined && isExpiredPark(park.pending, now),
 	)
 }
 
+/** Who answered a decision the turn itself carried out. */
+function resolver(recorder: TurnRecorder) {
+	return {
+		kind: 'system' as const,
+		role: 'sys_approval_policy' as const,
+		tenantId: recorder.tenantId,
+	}
+}
+
+/**
+ * A turn's checkpoints: documents in the session's checkpoint store,
+ * committed by a `checkpoint_written` record, and the parks (`decision_*`
+ * records) that reference them.
+ *
+ * A checkpoint holds no messages. Its context is the fold of the session log
+ * through `throughSeq`; `restore` reads it back from the log and refuses a
+ * checkpoint whose document or covered prefix no longer matches its record.
+ */
 export class CheckpointManager {
-	private store: CheckpointStore
-	private scope: CheckpointRunScope
-	/**
-	 * Compaction's state source, when the run has one.
-	 *
-	 * Every checkpoint snapshots it, so a resumed run can carry forward the
-	 * state its earlier summary was built from. Without that the next
-	 * compaction supersedes that summary with one covering only post-resume
-	 * activity, and the record of everything before the resume is gone.
-	 */
+	private readonly recorder: TurnRecorder
+	private readonly store: SessionCheckpointStore
+	private readonly scope: CheckpointScope
 	private workingStateSource?: () => WorkingStateSnapshot | undefined
 	private latestUserMessageSource?: () => UserMessage | undefined
 	private restoredUserMessage?: UserMessage
+	private restoredUserMessageId?: MessageId
 	private answerReviewAttemptsSource?: () => number
 	private restoredAnswerAttempts = 0
 	private structuredReviewAttemptsSource?: () => number
 	private restoredReviewAttempts = 0
 	private nativeStructuredAttemptsSource?: () => number
 	private restoredNativeAttempts = 0
-
-	/**
-	 * The most recent checkpoint this manager wrote, if any.
-	 *
-	 * A run that fails on a transient error needs to name the state a host
-	 * should resume from. Re-listing the store to find it would be a disk
-	 * read on the failure path, at the moment the run is least able to
-	 * afford one; the id is already in hand.
-	 */
 	private lastCreatedId?: CheckpointId
-
-	/** See {@link setTraceSource}. */
 	private traceSource?: () => SerializedSpanContext | undefined
-
-	/** See {@link setParkTtl}. */
 	private parkTtlMs?: number
-
 	/**
-	 * The claim this run holds, presented on every checkpoint write.
-	 *
-	 * Unset means unfenced, which is correct for a single-writer deployment
-	 * and is what every run did before claims existed. Set it and a write from
-	 * a superseded holding is refused by the store.
-	 *
-	 * This existed nowhere for one release, and the omission was invisible in
-	 * the worst way: the claim, the fence and the refusal were all built and
-	 * tested, and no code path between a run and its store carried the number,
-	 * so every checkpoint a RUN wrote went out unfenced. A capability that is
-	 * complete except for the wire between its halves reads exactly like a
-	 * working one.
+	 * The turn's attribution instant, identical on every checkpoint of the
+	 * turn: adopted from the checkpoint a resume came back through, or minted
+	 * from the turn's own start.
 	 */
-	private claimFence?: FencingToken
+	private turnCreatedAt?: string
 
-	/**
-	 * The run's attribution instant, stamped onto every checkpoint this
-	 * manager writes.
-	 *
-	 * Settled exactly once, by whichever of two things happens first, and
-	 * never reassigned — every write to it below is `??=`, and there are only
-	 * two:
-	 *
-	 *  - `restore` ADOPTS it from the checkpoint a resume came back through.
-	 *    A resumed run is the same run, and its creation is already on the
-	 *    record; a fresh process minting a new one would move the key that
-	 *    exists specifically because it does not move.
-	 *  - `create` MINTS it from the run's own start instant when nothing was
-	 *    adopted, which is the fresh-run case.
-	 *
-	 * Restore runs during run setup, before the first iteration and therefore
-	 * before the first `create`, so the adopt always wins on the resume path
-	 * without either site needing to know which path it is on.
-	 */
-	private runCreatedAt?: number
-
-	/**
-	 * @param store scope-keyed checkpoint persistence. The default query
-	 *   pipeline passes the run's disk-backed store
-	 *   ({@link import('../../store/run/checkpoint-disk.js').DiskCheckpointStore});
-	 *   hosts inject their own via `QueryParams.checkpointStore`.
-	 * @param scope the run every operation of this manager is keyed to.
-	 */
-	constructor(store: CheckpointStore, scope: CheckpointRunScope) {
+	constructor(recorder: TurnRecorder, store: SessionCheckpointStore, scope: CheckpointScope) {
+		this.recorder = recorder
 		this.store = store
 		this.scope = scope
 	}
@@ -323,141 +294,9 @@ export class CheckpointManager {
 		return this.restoredReviewAttempts
 	}
 
-	/**
-	 * The run's root span, so every checkpoint records the trace it was
-	 * taken inside and a resume can join it rather than starting a second,
-	 * unlinked one.
-	 */
+	/** The turn's root span, so every checkpoint records the trace it was taken inside. */
 	setTraceSource(source: () => SerializedSpanContext | undefined): void {
 		this.traceSource = source
-	}
-
-	async create(
-		runMgr: RunPersistence,
-		iteration: number,
-		extra?: {
-			toolResults?: Array<{ toolCallId: string; toolName: string; input: unknown; output: string }>
-			workingState?: WorkingStateSnapshot
-		},
-	): Promise<IterationCheckpoint> {
-		// The run's own start, not `Date.now()`. This is meant to say when the
-		// run was attributed; taking the clock at the first checkpoint would
-		// say when it first became durable, which is a different and later
-		// fact, and naming it after the earlier one would make it wrong in
-		// exactly the way that is hard to notice.
-		this.runCreatedAt ??= runMgr.getSession().startedAt ?? Date.now()
-		const latestUserMessage = this.latestUserMessageSource?.() ?? this.restoredUserMessage
-
-		const checkpoint: IterationCheckpoint = {
-			id: generateCheckpointId(),
-			runId: runMgr.id,
-			runCreatedAt: this.runCreatedAt,
-			iteration,
-			messages: [...runMgr.messages],
-			answerReviewAttempts: this.answerReviewAttemptsSource?.() ?? this.restoredAnswerAttempts,
-			nativeStructuredAttempts:
-				this.nativeStructuredAttemptsSource?.() ?? this.restoredNativeAttempts,
-			structuredReviewAttempts:
-				this.structuredReviewAttemptsSource?.() ?? this.restoredReviewAttempts,
-			...(latestUserMessage ? { latestUserMessage: snapshotUserIntent(latestUserMessage) } : {}),
-			tokenUsage: { ...runMgr.tokenUsage },
-			budgetBinding: runMgr.budget?.binding,
-			budgetAccountId: runMgr.budget?.accountId,
-			costInfo: { ...runMgr.costInfo },
-			guardState: {
-				iterationCount: runMgr.currentIteration,
-				elapsedMs: Date.now() - (runMgr.getSession().startedAt ?? Date.now()),
-			},
-			createdAt: Date.now(),
-			toolResultHashes: extra?.toolResults ? buildToolResultHashes(extra.toolResults) : undefined,
-			workingState: extra?.workingState ?? this.workingStateSource?.(),
-			traceContext: this.traceSource?.(),
-		}
-
-		await runMgr.budget?.flush()
-		await this.store.writeCheckpoint(this.scope, checkpoint, this.claimFence)
-		this.lastCreatedId = checkpoint.id
-		return checkpoint
-	}
-
-	/** See {@link lastCreatedId}. */
-	get lastCheckpointId(): CheckpointId | undefined {
-		return this.lastCreatedId
-	}
-
-	/**
-	 * The trace a checkpoint was taken inside, for parenting a resumed run.
-	 *
-	 * Read separately and BEFORE the run's root span, because a span's
-	 * parent can only be set at creation and the root is minted before the
-	 * restore branch runs.
-	 *
-	 * Never throws. Telemetry continuity is worth a disk read; it is not
-	 * worth failing a resume over, and the restore path immediately after
-	 * will report a genuinely unreadable checkpoint far better than a
-	 * tracing helper could.
-	 */
-	async readTraceContext(checkpointId: CheckpointId): Promise<SerializedSpanContext | undefined> {
-		try {
-			const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
-			return checkpoint?.traceContext
-		} catch {
-			return undefined
-		}
-	}
-
-	/**
-	 * Record that the run parked at `checkpoint` awaiting a human, and
-	 * return the updated checkpoint.
-	 *
-	 * A park used to exist only as a suspended `await`: the checkpoint
-	 * written just before it was indistinguishable from any mid-run
-	 * checkpoint, so a host could not tell from durable state that a
-	 * decision was outstanding — and a process boundary lost the request
-	 * entirely. Writing the request down is what lets an approval queue be
-	 * rebuilt, and what lets a resumed run apply the answer to the exact
-	 * tool calls the human saw.
-	 *
-	 * Called after `create` rather than as an argument to it because the
-	 * request carries the checkpoint's own id.
-	 */
-	async park(
-		checkpoint: IterationCheckpoint,
-		request: HITLDecisionRequest,
-		options?: { readonly ttlMs?: number },
-	): Promise<IterationCheckpoint> {
-		const parkedAt = Date.now()
-		const ttl = options?.ttlMs ?? this.parkTtlMs
-		const parked: IterationCheckpoint = {
-			...checkpoint,
-			pending: {
-				request,
-				parkedAt,
-				// Absolute, so it survives the process that set it. A
-				// duration plus an in-process timer cannot: the worker gets
-				// redeployed and the park becomes immortal.
-				...(ttl !== undefined && ttl > 0 ? { deadlineAt: parkedAt + ttl } : {}),
-			},
-		}
-		await this.store.writeCheckpoint(this.scope, parked, this.claimFence)
-		return parked
-	}
-
-	/**
-	 * Present this claim on every subsequent write. See {@link claimFence}.
-	 *
-	 * A setter rather than a constructor argument because a run is claimed at
-	 * a different moment than it is constructed — a worker draining a queue
-	 * takes the run, then builds the pipeline around it — and because a
-	 * renewal mints a NEW fence mid-run that has to replace the old one.
-	 */
-	setClaimFence(fence: FencingToken | undefined): void {
-		this.claimFence = fence
-	}
-
-	/** The claim currently presented on writes, if any. */
-	get presentedFence(): FencingToken | undefined {
-		return this.claimFence
 	}
 
 	/** Default time-to-live applied to every park this manager records. */
@@ -466,155 +305,261 @@ export class CheckpointManager {
 	}
 
 	/**
-	 * Mark an expired park as no longer outstanding.
-	 *
-	 * Recorded rather than deleted: the checkpoint showing what was asked
-	 * and that nobody answered in time is the evidence an approval gate is
-	 * worth having, and the same reasoning already keeps a resolved
-	 * decision on the record.
+	 * Write a checkpoint of the turn as it stands: every queued record lands
+	 * first, the document names the log's head as `throughSeq`, and a
+	 * `checkpoint_written` record commits it.
 	 */
-	async expire(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
-		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
-		if (!checkpoint?.pending || checkpoint.pending.resolvedAt !== undefined) return null
-
-		const expired: IterationCheckpoint = {
-			...checkpoint,
-			pending: {
-				...checkpoint.pending,
-				resolvedAt: Date.now(),
-				// The park ended by running out of time, not by a decision.
-				// An `abort` here would read as somebody having refused it.
-				decision: { action: 'pause', reason: 'The approval request expired without an answer.' },
+	async create(recorder: TurnRecorder, iteration: number): Promise<CreatedCheckpoint> {
+		const startedAt = recorder.getTurn().startedAt
+		this.turnCreatedAt ??= new Date(startedAt).toISOString()
+		const latestUserMessage = this.latestUserMessageSource?.() ?? this.restoredUserMessage
+		await recorder.budget?.flush()
+		const head = await recorder.head()
+		if (!head) throw new Error('A checkpoint needs a session log with records in it.')
+		const latestUserMessageId = latestUserMessage
+			? this.messageIdOf(recorder, latestUserMessage)
+			: undefined
+		const binding = recorder.budget?.binding
+		const accountId = recorder.budget?.accountId
+		const document: Checkpoint = {
+			v: CHECKPOINT_DOCUMENT_VERSION,
+			kind: 'checkpoint',
+			checkpointId: generateCheckpointId(),
+			sessionId: this.scope.sessionId,
+			turnId: this.scope.turnId,
+			iteration,
+			throughSeq: head.pointer.seq,
+			throughSha256: head.pointer.sha256,
+			tokenUsage: { ...recorder.tokenUsage },
+			costInfo: { ...recorder.costInfo },
+			...(accountId !== undefined
+				? { budget: { ...(binding ? { binding } : {}), accountId } }
+				: {}),
+			guards: {
+				iteration: recorder.currentIteration,
+				elapsedMs: Math.max(0, Date.now() - startedAt),
 			},
+			review: {
+				structuredAttempts: this.structuredReviewAttemptsSource?.() ?? this.restoredReviewAttempts,
+				answerAttempts: this.answerReviewAttemptsSource?.() ?? this.restoredAnswerAttempts,
+				nativeStructuredAttempts:
+					this.nativeStructuredAttemptsSource?.() ?? this.restoredNativeAttempts,
+			},
+			...(latestUserMessageId ? { latestUserMessageId } : {}),
+			...withDefined('workingState', this.workingStateSource?.()),
+			...withDefined('trace', this.traceSource?.()),
+			turnCreatedAt: this.turnCreatedAt,
+			createdAt: new Date().toISOString(),
 		}
-		await this.store.writeCheckpoint(this.scope, expired, this.claimFence)
-		return expired
+		const receipt = await this.store.write(this.scope, document)
+		await recorder.appendRecord({
+			type: 'checkpoint_written',
+			turnId: this.scope.turnId,
+			...receipt,
+		})
+		this.lastCreatedId = document.checkpointId
+		return { id: document.checkpointId, document }
+	}
+
+	/** The id of a message the log holds, when the recorder recorded it. */
+	private messageIdOf(recorder: TurnRecorder, message: Message): MessageId | undefined {
+		if (message === this.restoredUserMessage) return this.restoredUserMessageId
+		return recorder.recordedIdOf(message)
+	}
+
+	/** The most recent checkpoint this manager wrote, if any. */
+	get lastCheckpointId(): CheckpointId | undefined {
+		return this.lastCreatedId
 	}
 
 	/**
-	 * Record the answer, so an outstanding park stops looking outstanding.
-	 *
-	 * The decision is kept rather than erased: a checkpoint that shows both
-	 * what was asked and what was answered is the evidence trail an
-	 * approval gate is worth having. A no-op when the checkpoint is gone
-	 * (pruned) or was never parked.
+	 * The trace a checkpoint was taken inside, for parenting a resumed turn.
+	 * Never throws: telemetry continuity is not worth failing a resume over.
+	 */
+	async readTraceContext(checkpointId: CheckpointId): Promise<SerializedSpanContext | undefined> {
+		try {
+			const checkpoint = await this.store.read(this.scope, checkpointId)
+			return checkpoint?.trace
+		} catch {
+			return undefined
+		}
+	}
+
+	/**
+	 * Record that the turn parked at `checkpoint` awaiting a human: a
+	 * `decision_requested` record naming the checkpoint, with an absolute
+	 * deadline when the turn has a park time-to-live.
+	 */
+	async park(
+		checkpoint: { readonly id: CheckpointId },
+		request: HITLDecisionRequest,
+		options?: { readonly ttlMs?: number },
+	): Promise<PendingDecision> {
+		const parkedAt = Date.now()
+		const ttl = options?.ttlMs ?? this.parkTtlMs
+		const deadlineAt = ttl !== undefined && ttl > 0 ? parkedAt + ttl : undefined
+		await this.recorder.appendRecord({
+			type: 'decision_requested',
+			turnId: this.scope.turnId,
+			decisionId: checkpoint.id,
+			checkpointId: checkpoint.id,
+			request: request as never,
+			...(deadlineAt !== undefined ? { deadlineAt: new Date(deadlineAt).toISOString() } : {}),
+		})
+		return { request, parkedAt, ...(deadlineAt !== undefined ? { deadlineAt } : {}) }
+	}
+
+	/**
+	 * Mark an expired park as no longer outstanding: `decision_expired`. The
+	 * request stays in the log as evidence of what was asked.
+	 */
+	async expire(checkpointId: CheckpointId): Promise<RecordedPark | null> {
+		const park = await this.openPark(checkpointId)
+		if (!park) return null
+		await this.recorder.appendRecord({
+			type: 'decision_expired',
+			turnId: this.scope.turnId,
+			decisionId: park.decisionId,
+		})
+		return park
+	}
+
+	/**
+	 * Record the answer, so an outstanding park stops looking outstanding:
+	 * `decision_resolved`. A no-op when the checkpoint was never parked or the
+	 * park is already answered.
 	 */
 	async unpark(
 		checkpointId: CheckpointId,
 		decision: HITLResumeDecision,
-	): Promise<IterationCheckpoint | null> {
-		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
-		if (!checkpoint?.pending) return null
+	): Promise<RecordedPark | null> {
+		const park = await this.openPark(checkpointId)
+		if (!park) return null
+		await this.recorder.appendRecord({
+			type: 'decision_resolved',
+			turnId: this.scope.turnId,
+			decisionId: park.decisionId,
+			decision,
+			resolvedBy: resolver(this.recorder),
+		})
+		return park
+	}
 
-		const resolved: IterationCheckpoint = {
-			...checkpoint,
-			pending: { ...checkpoint.pending, resolvedAt: Date.now(), decision },
-		}
-		await this.store.writeCheckpoint(this.scope, resolved, this.claimFence)
-		return resolved
+	private async openPark(checkpointId: CheckpointId): Promise<RecordedPark | null> {
+		await this.recorder.flush()
+		const parks = await readParks(this.recorder.log, { turnId: this.scope.turnId })
+		return (
+			parks.find(
+				(park) => park.checkpointId === checkpointId && park.pending.resolvedAt === undefined,
+			) ?? null
+		)
+	}
+
+	/** The turn's outstanding park, if it has one. */
+	async findPending(): Promise<RecordedPark | null> {
+		await this.recorder.flush()
+		return findPendingCheckpoint(this.recorder.log, { turnId: this.scope.turnId })
 	}
 
 	/**
-	 * The run's outstanding park, if it has one — the newest checkpoint
-	 * whose `pending` has no `resolvedAt`.
-	 *
-	 * This is the read a host's approval queue is built from, and it works
-	 * across a process boundary because it consults the store rather than
-	 * in-memory state.
+	 * Read a checkpoint back for a resume. Refused when it is missing, when
+	 * its document no longer matches its record, or when the log prefix it
+	 * covers changed.
 	 */
-	async findPending(): Promise<IterationCheckpoint | null> {
-		return findPendingCheckpoint(this.store, this.scope)
-	}
-
-	async restore(checkpointId: CheckpointId): Promise<IterationCheckpoint> {
-		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
-		if (!checkpoint) {
+	async restore(checkpointId: CheckpointId): Promise<RestoredCheckpoint> {
+		const document = await this.store.restore(this.scope, checkpointId)
+		if (!document) {
 			throw new NamzuError({
 				code: 'not_found',
 				message: `Checkpoint not found: ${checkpointId}`,
-				details: { checkpointId, runId: this.scope.runId },
+				details: { checkpointId, sessionId: this.scope.sessionId, turnId: this.scope.turnId },
 			})
 		}
-
-		// Adopt the run's recorded attribution. A resumed run is the SAME run
-		// under the same id, and its creation is already on the record; a
-		// fresh process minting a new one would step the stamp forward on
-		// every resume, which is the motion it exists to avoid.
-		//
-		// This needs no "is it really my run" guard, and one was written and
-		// removed: `readCheckpoint` is keyed by THIS manager's scope, so the
-		// only checkpoints reachable here are the ones belonging to
-		// `scope.runId`. A replay fork never arrives here at all — it reads
-		// its origin through the SOURCE scope in `prepareReplayState` and
-		// starts a fresh run, so it mints its own stamp rather than claiming
-		// its origin's age. A guard that no input can trip would have read as
-		// protection and been none.
-		this.runCreatedAt ??= checkpoint.runCreatedAt
-		const answerAttempts = checkpoint.answerReviewAttempts ?? 0
-		if (!Number.isSafeInteger(answerAttempts) || answerAttempts < 0)
-			throw new Error('Checkpoint answerReviewAttempts must be a nonnegative safe integer')
-		this.restoredAnswerAttempts = answerAttempts
-		const nativeAttempts = checkpoint.nativeStructuredAttempts ?? 0
-		if (!Number.isSafeInteger(nativeAttempts) || nativeAttempts < 0)
-			throw new Error('Invalid nativeStructuredAttempts in checkpoint')
-		this.restoredNativeAttempts = nativeAttempts
-		const reviewAttempts = checkpoint.structuredReviewAttempts ?? 0
-		if (!Number.isSafeInteger(reviewAttempts) || reviewAttempts < 0)
-			throw new Error('Checkpoint structuredReviewAttempts must be a nonnegative safe integer')
-		this.restoredReviewAttempts = reviewAttempts
-		this.restoredUserMessage =
-			checkpoint.latestUserMessage === undefined
-				? undefined
-				: snapshotUserIntent(checkpoint.latestUserMessage)
-
-		return checkpoint
+		const restored = await restoreCheckpointContext(this.recorder.log, document)
+		this.turnCreatedAt ??= document.turnCreatedAt
+		this.restoredAnswerAttempts = document.review.answerAttempts
+		this.restoredNativeAttempts = document.review.nativeStructuredAttempts
+		this.restoredReviewAttempts = document.review.structuredAttempts
+		this.restoredUserMessage = restored.latestUserMessage
+		this.restoredUserMessageId = restored.latestUserMessage
+			? document.latestUserMessageId
+			: undefined
+		return restored
 	}
 
-	async list(): Promise<IterationCheckpoint[]> {
-		return this.store.listCheckpoints(this.scope)
+	/** The turn's checkpoint documents, oldest first. */
+	async list(): Promise<Checkpoint[]> {
+		return this.store.list(this.scope)
 	}
 
-	/**
-	 * Listing projection used by the public `listCheckpoints` API. Returns
-	 * only the fields a consumer needs to pick a fork point for
-	 * {@link import('./replay/prepare.js').prepareReplayState} — not the
-	 * full checkpoint payload. See ses_005-deterministic-replay design §3.1.
-	 */
+	/** Listing projection used by the public `listCheckpoints` API. */
 	async listEntries(): Promise<CheckpointListEntry[]> {
-		const checkpoints = await this.store.listCheckpoints(this.scope)
-		return checkpoints.map(toCheckpointListEntry)
+		return (await this.list()).map(toCheckpointListEntry)
 	}
 
 	/**
-	 * Collect old checkpoints until `keepLast` newer ones remain.
-	 *
-	 * Growth control, and growth control stops at a park: the newest
-	 * `keepLast` and every unresolved park are kept. The rule is
-	 * {@link selectCheckpointsToPrune}; a store that offers
-	 * `pruneCheckpoints` applies it without listing full checkpoints.
+	 * Collect old checkpoints until `keepLast` newer ones remain, never one an
+	 * open decision references; a `checkpoint_pruned` record names what went.
 	 */
 	async prune(keepLast: number): Promise<void> {
-		if (this.store.pruneCheckpoints) {
-			await this.store.pruneCheckpoints(this.scope, keepLast)
-			return
-		}
-		const all = await this.list()
-		for (const id of selectCheckpointsToPrune(all, keepLast)) {
-			await this.store.deleteCheckpoint(this.scope, id)
+		await this.recorder.flush()
+		const pruned = await this.store.prune(this.scope, keepLast)
+		if (pruned.length > 0) {
+			await this.recorder.appendRecord({
+				type: 'checkpoint_pruned',
+				turnId: this.scope.turnId,
+				checkpointIds: pruned,
+			})
 		}
 	}
 
-	static buildSummary(runMgr: RunPersistence, iteration: number): CheckpointSummary {
-		const lastAssistant = [...runMgr.messages]
+	static buildSummary(recorder: TurnRecorder, iteration: number): CheckpointSummary {
+		const lastAssistant = [...recorder.messages]
 			.reverse()
 			.find((m): m is AssistantMessage => m.role === 'assistant' && m.content !== null)
 
 		return {
 			iteration,
-			messageCount: runMgr.messages.length,
-			tokenUsage: { ...runMgr.tokenUsage },
-			costInfo: { ...runMgr.costInfo },
+			messageCount: recorder.messages.length,
+			tokenUsage: { ...recorder.tokenUsage },
+			costInfo: { ...recorder.costInfo },
 			lastAssistantMessage: lastAssistant?.content ?? undefined,
 		}
 	}
+}
+
+/**
+ * The context a checkpoint restores: the fold of its session log through
+ * `throughSeq`, the decision it is parked on, and the operator intent it
+ * names.
+ */
+export async function restoreCheckpointContext(
+	log: SessionLog,
+	document: Checkpoint,
+): Promise<RestoredCheckpoint> {
+	const history = await readFoldedHistory(log, { throughSeq: document.throughSeq })
+	const messages = history.map((entry) => entry.message)
+	const messageIds = new Map<Message, MessageId>()
+	for (const entry of history) {
+		if (entry.messageId) messageIds.set(entry.message, entry.messageId)
+	}
+	const park = (await readParks(log, { turnId: document.turnId }))
+		.filter((candidate) => candidate.checkpointId === document.checkpointId)
+		.at(-1)
+	const intent =
+		document.latestUserMessageId === undefined
+			? undefined
+			: history.find((entry) => entry.messageId === document.latestUserMessageId)?.message
+	return {
+		id: document.checkpointId,
+		document,
+		messages,
+		messageIds,
+		...(park ? { pending: park.pending } : {}),
+		...(intent ? { latestUserMessage: snapshotUserIntent(intent) } : {}),
+	}
+}
+
+function withDefined<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+	return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 }

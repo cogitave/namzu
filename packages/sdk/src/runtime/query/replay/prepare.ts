@@ -1,169 +1,92 @@
-import { join } from 'node:path'
-import { EmergencySaveManager } from '../../../manager/run/emergency.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { CheckpointScope, SessionCheckpointStore } from '../../../store/checkpoint/index.js'
+import type { SessionLog } from '../../../store/session-log/index.js'
+import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { Message } from '../../../types/message/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
-import type { Mutation, ReplayAttribution } from '../../../types/run/replay.js'
+import type { Checkpoint } from '../../../types/session/checkpoint.js'
+import type { Mutation } from '../../../types/session/fork.js'
+import type { TurnForkOrigin } from '../../../types/session/turn.js'
 import type { Logger } from '../../../utils/logger.js'
-import { projectEmergencyToCheckpoint } from '../checkpoint.js'
-import { requireScope } from './list.js'
+import { restoreCheckpointContext } from '../checkpoint.js'
 import { applyMutations } from './mutate.js'
 
-export type CheckpointSelector = CheckpointId | 'latest' | 'emergency'
+/** Which checkpoint to fork at: an id, or the turn's newest. */
+export type CheckpointSelector = CheckpointId | 'latest'
 
 export interface PrepareReplayInput {
-	/** Directory that contains `<runId>/` for the source run. */
-	baseDir: string
-	/** Source run to fork from. */
-	runId: RunId
+	/** The source session's log: the checkpoint's context is its fold. */
+	readonly sessionLog: SessionLog
+	/** The store the source turn's checkpoints are in. */
+	readonly checkpointStore: SessionCheckpointStore
+	/** The source turn, across the full attribution. */
+	readonly scope: CheckpointScope
 	/** Which checkpoint to fork at. */
-	fromCheckpoint: CheckpointSelector
-	/** Optional mutations applied at the fork point before the caller hands state to `query()`. */
-	mutate?: Mutation[]
-	/**
-	 * Directory that holds emergency dumps. Required only when `fromCheckpoint`
-	 * is `'emergency'`; conventionally sibling of `baseDir` (the `.namzu/emergency`
-	 * folder), but left explicit so callers with non-default layouts can redirect.
-	 */
-	emergencyDir?: string
-	logger?: Logger
-	/**
-	 * Optional store override (host-injected, e.g. Postgres). When set,
-	 * `scope` is required and `baseDir` is ignored for checkpoint reads.
-	 * The `'emergency'` selector still reads the on-disk dump under
-	 * `emergencyDir` — emergency saves are process-local by nature.
-	 */
-	checkpointStore?: CheckpointStore
-	/** Run scope for `checkpointStore`. Required when it is set. */
-	scope?: CheckpointRunScope
+	readonly fromCheckpoint: CheckpointSelector
+	/** Mutations applied at the fork point before the caller hands the state to `query()`. */
+	readonly mutate?: Mutation[]
+	readonly logger?: Logger
 }
 
 export interface PreparedReplayState {
 	/**
-	 * Message history at the fork point, with mutations applied. Seed this
-	 * as the new run's initial messages and pass `sourceCheckpoint.id` as
-	 * `resumeFromCheckpoint` when you call `query()`.
+	 * The context at the fork point, with mutations applied: the fold of the
+	 * source session's log through the checkpoint. Seed a NEW session with it
+	 * (`query({ sessionId: <new>, messages, forkedFrom })`).
 	 */
-	messages: Message[]
-	/** The checkpoint the replay forks from (already projected if emergency). */
-	sourceCheckpoint: IterationCheckpoint
+	readonly messages: Message[]
+	/** The checkpoint the fork starts from. */
+	readonly sourceCheckpoint: Checkpoint
 	/**
-	 * Attribution to stamp on the replay run once it is created. The caller
-	 * sets `Run.replayOf = buildAttribution(prepared, replayedAt)` on the
-	 * new `RunPersistence` before persisting the first time.
+	 * Where the fork comes from. Pass it as `query({ forkedFrom })`: the new
+	 * session's `session_started.forkedFrom` names it, and the returned turn
+	 * carries it.
 	 */
-	attribution: ReplayAttribution
-	/**
-	 * The crash dump the replay forks from, when `fromCheckpoint` was
-	 * `'emergency'`. Pass it to `query({ supersedesEmergencySave })` and the
-	 * dump is removed once the replay run completes: at that point the
-	 * replay's own durable record carries the conversation on, and the dump
-	 * would otherwise stay on disk for good. A replay that fails or pauses
-	 * leaves it.
-	 */
-	emergencySavePath?: string
+	readonly forkedFrom: TurnForkOrigin
+	/** The mutations that were applied. */
+	readonly mutations: readonly Mutation[]
 }
 
 /**
- * Produce the state materials needed to execute a replay run — the mutated
- * message history, the resolved source checkpoint, and the replay
- * attribution record. Pure read; does not touch the run store beyond
- * reading the source run's checkpoint files.
+ * Produce what a fork needs: the context at a checkpoint of a source turn,
+ * with mutations applied, and the origin the new session records. A fork is
+ * always a NEW session; the source session is only read.
  *
- * This is the state-preparation half of the replay primitive. The
- * caller is expected to thread the returned `messages` +
- * `sourceCheckpoint.id` into `query({ resumeFromCheckpoint, messages,
- * ... })` and stamp `Run.replayOf = prepared.attribution` on the resulting
- * run. The end-to-end `replay()` entry that does all of this in one call
- * is a follow-up session (`ReplayEnvironment` shape).
- *
- * See `ses_005-deterministic-replay/design.md` §3.1.
+ * The checkpoint is restored under the same rules a resume uses: its
+ * document must match its `checkpoint_written` record and the log prefix it
+ * covers must be intact.
  */
 export async function prepareReplayState(input: PrepareReplayInput): Promise<PreparedReplayState> {
 	const sourceCheckpoint = await resolveCheckpoint(input)
+	const restored = await restoreCheckpointContext(input.sessionLog, sourceCheckpoint)
 	const mutations = input.mutate ?? []
-	const messages = applyMutations(sourceCheckpoint.messages, mutations)
-
-	const attribution: ReplayAttribution = {
-		sourceRunId: input.runId,
-		fromCheckpointId: sourceCheckpoint.id,
-		mutations,
-		replayedAt: Date.now(),
-	}
-
+	const messages = applyMutations(restored.messages, mutations)
 	return {
 		messages,
 		sourceCheckpoint,
-		attribution,
-		...(input.fromCheckpoint === 'emergency'
-			? {
-					emergencySavePath: emergencySavePath(input.emergencyDir as string, input.runId),
-				}
-			: {}),
+		forkedFrom: {
+			sessionId: sourceCheckpoint.sessionId,
+			turnId: sourceCheckpoint.turnId,
+			checkpointId: sourceCheckpoint.checkpointId,
+		},
+		mutations,
 	}
 }
 
-async function resolveCheckpoint(input: PrepareReplayInput): Promise<IterationCheckpoint> {
-	if (input.fromCheckpoint === 'emergency') {
-		return resolveEmergency(input)
-	}
-
-	const reader = await bindCheckpointReader(input)
-
+async function resolveCheckpoint(input: PrepareReplayInput): Promise<Checkpoint> {
 	if (input.fromCheckpoint === 'latest') {
-		const all = await reader.list()
-		if (all.length === 0) {
-			throw new Error(`No checkpoints found for run ${input.runId} in ${input.baseDir}`)
+		const all = await input.checkpointStore.list(input.scope)
+		const newest = [...all].sort((a, b) => b.iteration - a.iteration)[0]
+		if (!newest) {
+			throw new Error(
+				`No checkpoints found for turn ${input.scope.turnId} of session ${input.scope.sessionId}`,
+			)
 		}
-		return [...all].sort((a, b) => b.iteration - a.iteration)[0] as IterationCheckpoint
+		return (await input.checkpointStore.restore(input.scope, newest.checkpointId)) as Checkpoint
 	}
-
-	const checkpoint = await reader.read(input.fromCheckpoint)
+	const checkpoint = await input.checkpointStore.restore(input.scope, input.fromCheckpoint)
 	if (!checkpoint) {
-		throw new Error(`Checkpoint ${input.fromCheckpoint} not found for run ${input.runId}`)
-	}
-	return checkpoint
-}
-
-interface CheckpointReader {
-	list(): Promise<IterationCheckpoint[]>
-	read(id: CheckpointId): Promise<IterationCheckpoint | null>
-}
-
-async function bindCheckpointReader(input: PrepareReplayInput): Promise<CheckpointReader> {
-	if (input.checkpointStore) {
-		const store = input.checkpointStore
-		const scope = requireScope(input.scope, 'prepareReplayState')
-		return {
-			list: () => store.listCheckpoints(scope),
-			read: (id) => store.readCheckpoint(scope, id),
-		}
-	}
-	const store = new RunDiskStore({ baseDir: input.baseDir, logger: input.logger })
-	await store.initRun(input.runId)
-	return {
-		list: () => store.listCheckpoints(),
-		read: (id) => store.readCheckpoint(id),
-	}
-}
-
-async function resolveEmergency(input: PrepareReplayInput): Promise<IterationCheckpoint> {
-	if (!input.emergencyDir) {
 		throw new Error(
-			"fromCheckpoint: 'emergency' requires an `emergencyDir` — conventionally sibling of baseDir",
+			`Checkpoint ${input.fromCheckpoint} not found for turn ${input.scope.turnId} of session ${input.scope.sessionId}`,
 		)
 	}
-	const path = emergencySavePath(input.emergencyDir, input.runId)
-	try {
-		const dump = EmergencySaveManager.loadSave(path)
-		return projectEmergencyToCheckpoint(dump)
-	} catch (err) {
-		throw new Error(`No emergency dump found for run ${input.runId} at ${path}`, { cause: err })
-	}
-}
-
-function emergencySavePath(emergencyDir: string, runId: string): string {
-	return join(emergencyDir, `${runId}.json`)
+	return checkpoint
 }

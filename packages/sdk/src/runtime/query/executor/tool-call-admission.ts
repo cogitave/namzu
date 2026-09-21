@@ -46,7 +46,8 @@ export async function runPreToolHook(
 	const results = await host.config.pluginManager.executeHooks(
 		'pre_tool_use',
 		{
-			runId: host.config.runId,
+			sessionId: host.config.sessionId,
+			turnId: host.config.turnId,
 			toolName,
 			toolInput: input,
 			signal,
@@ -328,7 +329,7 @@ export async function resolveCall(
 		}
 
 		host.log.info('Repaired a malformed tool call', {
-			[NAMZU.RUN_ID]: host.config.runId,
+			[NAMZU.TURN_ID]: host.config.turnId,
 			[GENAI.TOOL_NAME]: toolName,
 			'namzu.runtime.reason': failure.reason,
 			...(repair.toolName && repair.toolName !== toolName
@@ -358,7 +359,7 @@ export async function repairTruncatedCall(
 	)
 	if (repair) {
 		host.log.info('Repaired a tool call whose input stream was truncated', {
-			[NAMZU.RUN_ID]: host.config.runId,
+			[NAMZU.TURN_ID]: host.config.turnId,
 			[GENAI.TOOL_NAME]: toolName,
 			'namzu.runtime.partial_length': partial.length,
 		})
@@ -443,7 +444,7 @@ async function requestRepair(
 		// failed run: the original error is still a perfectly good answer
 		// to give the model.
 		host.log.error('repairToolCall threw — falling back to the original error', {
-			[NAMZU.RUN_ID]: host.config.runId,
+			[NAMZU.TURN_ID]: host.config.turnId,
 			[GENAI.TOOL_NAME]: toolName,
 			'exception.message': toErrorMessage(err),
 		})

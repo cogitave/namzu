@@ -27,8 +27,8 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
-import type { MessageStopReason } from '../../../types/run/stop-reason.js'
+import type { SessionEvent } from '../../../types/session/index.js'
+import type { MessageStopReason } from '../../../types/session/stop-reason.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { EmitEvent } from '../events.js'
@@ -65,7 +65,7 @@ export interface StreamingTurnResult {
 }
 
 /**
- * Consume a provider's streaming response and emit the v3 RunEvent
+ * Consume a provider's streaming response and emit the v3 SessionEvent
  * lifecycle natively (message_started → text_delta* + tool_input_*
  * → message_completed). Returns the aggregated `ChatCompletionResponse`
  * for downstream code that still expects the legacy shape (assistant
@@ -103,7 +103,7 @@ export interface StreamingTurnResult {
  */
 async function settleCancelledTurn(args: {
 	emitEvent: EmitEvent
-	runId: import('../../../types/ids/index.js').RunId
+	turnId: import('../../../types/ids/index.js').TurnId
 	iteration: number
 	messageId: import('../../../types/ids/index.js').MessageId
 	usage: ChatCompletionResponse['usage']
@@ -127,7 +127,7 @@ async function settleCancelledTurn(args: {
 
 		await args.emitEvent({
 			type: 'message_completed',
-			runId: args.runId,
+			turnId: args.turnId,
 			iteration: args.iteration,
 			messageId: args.messageId,
 			stopReason: 'cancelled',
@@ -144,8 +144,8 @@ export async function* streamProviderTurn(
 	provider: LLMProvider,
 	params: import('../../../types/provider/index.js').ChatCompletionParams,
 	emitEvent: EmitEvent,
-	drainPending: () => Generator<RunEvent>,
-	runId: import('../../../types/ids/index.js').RunId,
+	drainPending: () => Generator<SessionEvent>,
+	turnId: import('../../../types/ids/index.js').TurnId,
 	iteration: number,
 	forceFinalize: boolean,
 	log: Logger,
@@ -167,7 +167,7 @@ export async function* streamProviderTurn(
 		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
 	},
 	captureRequest = false,
-): AsyncGenerator<RunEvent, StreamingTurnResult> {
+): AsyncGenerator<SessionEvent, StreamingTurnResult> {
 	assertNativeStructuredOutputSupported(provider, params)
 	assertHostedWebSearchSupported(provider, params)
 	// The `chat {model}` span the GenAI conventions require. There was none:
@@ -187,7 +187,7 @@ export async function* streamProviderTurn(
 	})
 
 	const messageId = announceAs ?? generateMessageId()
-	await emitEvent({ type: 'message_started', runId, iteration, messageId })
+	await emitEvent({ type: 'message_started', turnId, iteration, messageId })
 	yield* drainPending()
 
 	let id = ''
@@ -306,7 +306,7 @@ export async function* streamProviderTurn(
 			if (chunk.retry) {
 				await emitEvent({
 					type: 'provider_retry',
-					runId,
+					turnId,
 					iteration,
 					attempt: chunk.retry.attempt,
 					maxRetries: chunk.retry.maxRetries,
@@ -327,7 +327,7 @@ export async function* streamProviderTurn(
 			if (chunk.fallback) {
 				await emitEvent({
 					type: 'provider_fallback',
-					runId,
+					turnId,
 					iteration,
 					fromIndex: chunk.fallback.fromIndex,
 					fromProviderId: chunk.fallback.fromProviderId,
@@ -371,7 +371,7 @@ export async function* streamProviderTurn(
 			if (chunk.delta.hostedTool) {
 				await emitEvent({
 					type: 'hosted_tool',
-					runId,
+					turnId,
 					iteration,
 					tool: chunk.delta.hostedTool,
 				})
@@ -387,7 +387,7 @@ export async function* streamProviderTurn(
 					reasoningBuckets.set(reasoning.index, bucket)
 					await emitEvent({
 						type: 'reasoning_started',
-						runId,
+						turnId,
 						iteration,
 						messageId,
 						blockIndex: reasoning.index,
@@ -402,7 +402,7 @@ export async function* streamProviderTurn(
 					bucket.text += reasoning.text
 					await emitEvent({
 						type: 'reasoning_delta',
-						runId,
+						turnId,
 						iteration,
 						messageId,
 						blockIndex: reasoning.index,
@@ -413,7 +413,7 @@ export async function* streamProviderTurn(
 				if (reasoning.done) {
 					await emitEvent({
 						type: 'reasoning_completed',
-						runId,
+						turnId,
 						iteration,
 						messageId,
 						blockIndex: reasoning.index,
@@ -427,7 +427,7 @@ export async function* streamProviderTurn(
 			if (chunk.delta.content) {
 				await emitEvent({
 					type: 'text_delta',
-					runId,
+					turnId,
 					iteration,
 					messageId,
 					text: chunk.delta.content,
@@ -457,7 +457,7 @@ export async function* streamProviderTurn(
 					bucket.started = true
 					await emitEvent({
 						type: 'tool_input_started',
-						runId,
+						turnId,
 						iteration,
 						messageId,
 						toolUseId: bucket.id as ToolUseId,
@@ -470,7 +470,7 @@ export async function* streamProviderTurn(
 				if (fragment) {
 					if (!bucket.id) {
 						log.warn('tool_input_delta arrived before tool id was known; dropping fragment', {
-							[NAMZU.RUN_ID]: runId,
+							[NAMZU.TURN_ID]: turnId,
 							'namzu.runtime.index': tc.index,
 							'namzu.runtime.length': fragment.length,
 						})
@@ -478,7 +478,7 @@ export async function* streamProviderTurn(
 						bucket.argsBuf += fragment
 						await emitEvent({
 							type: 'tool_input_delta',
-							runId,
+							turnId,
 							toolUseId: bucket.id as ToolUseId,
 							partialJson: fragment,
 						})
@@ -498,7 +498,7 @@ export async function* streamProviderTurn(
 					} catch (err) {
 						bucket.inputTruncated = true
 						log.warn('tool input JSON parse failed at content_block_stop', {
-							[NAMZU.RUN_ID]: runId,
+							[NAMZU.TURN_ID]: turnId,
 							'namzu.runtime.tool_use_id': endId,
 							'exception.message': err instanceof Error ? err.message : String(err),
 						})
@@ -506,7 +506,7 @@ export async function* streamProviderTurn(
 					bucket.parsed = parsed
 					await emitEvent({
 						type: 'tool_input_completed',
-						runId,
+						turnId,
 						toolUseId: endId as ToolUseId,
 						input: parsed,
 						...(bucket.inputTruncated ? { inputTruncated: true } : {}),
@@ -538,7 +538,7 @@ export async function* streamProviderTurn(
 			// opposite of what its frequency deserves.
 			await settleCancelledTurn({
 				emitEvent,
-				runId,
+				turnId,
 				iteration,
 				messageId,
 				usage,
@@ -615,7 +615,7 @@ export async function* streamProviderTurn(
 			bucket.inputTruncated = truncated
 			if (truncated) {
 				log.warn('tool input truncated by upstream cutoff (no toolCallEnd, argsBuf unparsable)', {
-					[NAMZU.RUN_ID]: runId,
+					[NAMZU.TURN_ID]: turnId,
 					'namzu.runtime.tool_use_id': bucket.id,
 					[GENAI.TOOL_NAME]: bucket.name,
 					'namzu.runtime.buffer_length': bucket.argsBuf.length,
@@ -623,7 +623,7 @@ export async function* streamProviderTurn(
 			}
 			await emitEvent({
 				type: 'tool_input_completed',
-				runId,
+				turnId,
 				toolUseId: bucket.id as ToolUseId,
 				input: parsed,
 				...(truncated ? { inputTruncated: true } : {}),
@@ -666,7 +666,7 @@ export async function* streamProviderTurn(
 
 	if (recoveredToolInputFromStreamError) {
 		log.warn('provider stream failed after tool input; surfacing tool call to executor', {
-			[NAMZU.RUN_ID]: runId,
+			[NAMZU.TURN_ID]: turnId,
 			[NAMZU.ITERATION]: iteration,
 			'exception.message': streamError,
 			'namzu.runtime.tool_call_count': toolCalls.length,
@@ -681,7 +681,7 @@ export async function* streamProviderTurn(
 
 	await emitEvent({
 		type: 'message_completed',
-		runId,
+		turnId,
 		iteration,
 		messageId,
 		stopReason,

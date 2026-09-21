@@ -5,7 +5,7 @@ import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../../manager/session/turn-recorder.js'
 import type { PromptContributionRegistry } from '../../../../prompt/contributions.js'
 import type { ResolvedProviderCapabilities } from '../../../../provider/capabilities.js'
 import type { ServingMember } from '../../../../provider/fallback.js'
@@ -13,24 +13,20 @@ import type { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskScheduler } from '../../../../types/agent/scheduler.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
-import type {
-	HITLResumeDecision,
-	IterationCheckpoint,
-	ResumeHandler,
-} from '../../../../types/hitl/index.js'
+import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../../../types/router/index.js'
-import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
+import type { ReviewAnswer } from '../../../../types/session/answer-review.js'
 import type {
-	AgentRunConfig,
+	TurnConfig,
 	BeforeStep,
 	PrepareStepChain,
 	PrepareStepContext,
-	RunEvent,
+	SessionEvent,
 	StepResult,
 	StopCondition,
-} from '../../../../types/run/index.js'
+} from '../../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../../types/structured-output/index.js'
 import type { TaskStore } from '../../../../types/task/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
@@ -73,7 +69,7 @@ export interface IterationContext {
 	 * generator — see `parentContext` in `telemetry/attributes.ts`.
 	 */
 	readonly rootSpan?: import('@opentelemetry/api').Span
-	readonly runConfig: AgentRunConfig
+	readonly turnConfig: TurnConfig
 
 	/**
 	 * Caller-supplied halt predicate, evaluated after each step's tools have
@@ -95,12 +91,12 @@ export interface IterationContext {
 	readonly structuredOutput?: StructuredOutputConfig
 	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
-	readonly runMgr: RunPersistence
+	readonly recorder: TurnRecorder
 	readonly toolExecutor: ToolExecutor
 	readonly guard: GuardCoordinator
 	readonly activityStore: ActivityStore
 	readonly emitEvent: EmitEvent
-	readonly drainPending: () => Generator<RunEvent>
+	readonly drainPending: () => Generator<SessionEvent>
 	readonly abortController: AbortController
 	readonly log: Logger
 	readonly resumeHandler: ResumeHandler
@@ -241,7 +237,7 @@ export interface IterationContext {
 
 	/** Host hook that shapes each step before the model call. */
 	readonly prepareStep?: PrepareStepChain
-	readonly captureRunEvidence?: PrepareStepContext['captureRunEvidence']
+	readonly captureSessionEvidence?: PrepareStepContext['captureSessionEvidence']
 	readonly beforeStep?: BeforeStep
 }
 
@@ -271,7 +267,7 @@ export const PARK_RECORD_DELAY_MS = 250
  */
 export async function awaitDecisionDurably(
 	ctx: IterationContext,
-	checkpoint: IterationCheckpoint,
+	checkpoint: { readonly id: CheckpointId },
 	request: Parameters<ResumeHandler>[0],
 ): Promise<HITLResumeDecision> {
 	const delay = ctx.parkRecordDelayMs ?? PARK_RECORD_DELAY_MS
@@ -289,7 +285,7 @@ export async function awaitDecisionDurably(
 			// with it — the in-process await is still perfectly valid, it is
 			// only the cross-process handoff that is lost. Loudly, though.
 			ctx.log.error('Failed to record a HITL park — the run is not resumable across a restart', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.checkpoint.id': checkpoint.id,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
@@ -358,7 +354,7 @@ export async function awaitDecisionDurably(
 		if (recorded) {
 			await ctx.checkpointMgr.unpark(checkpoint.id, decision).catch((err: unknown) => {
 				ctx.log.error('Failed to clear a recorded HITL park', {
-					[NAMZU.RUN_ID]: ctx.runMgr.id,
+					[NAMZU.TURN_ID]: ctx.recorder.turnId,
 					'namzu.checkpoint.id': checkpoint.id,
 					'exception.message': err instanceof Error ? err.message : String(err),
 				})
@@ -386,7 +382,7 @@ export async function awaitDecisionOrAbort(
 ): Promise<HITLResumeDecision> {
 	const signal = ctx.abortController?.signal
 	// No abort signal wired (e.g. a minimal test harness) → behave exactly as a
-	// direct resumeHandler await, no race. In production RunContextFactory always
+	// direct resumeHandler await, no race. In production TurnContextFactory always
 	// provides the controller, so the race below is live.
 	if (!signal) return ctx.resumeHandler(request)
 	const abortDecision: HITLResumeDecision = {
@@ -426,44 +422,44 @@ export async function* handleHITLDecision(
 	ctx: IterationContext,
 	decision: HITLResumeDecision,
 	// `CheckpointId`, not `string`. Both callers already hold one — they pass
-	// `IterationCheckpoint.id` — so the parameter was widened for nothing and
+	// the created checkpoint's `id` — so the parameter was widened for nothing and
 	// the widening is what forced the `as \`cp_${string}\`` cast below. A
 	// narrower parameter costs no caller anything and makes the cast
 	// unnecessary rather than merely shorter.
 	checkpointId: CheckpointId,
 	context: string,
-): AsyncGenerator<RunEvent, PhaseSignal> {
+): AsyncGenerator<SessionEvent, PhaseSignal> {
 	switch (decision.action) {
 		case 'pause': {
 			await ctx.emitEvent({
-				type: 'run_paused',
-				runId: ctx.runMgr.id,
+				type: 'turn_paused',
+				turnId: ctx.recorder.turnId,
 				checkpointId,
 				reason: decision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.runMgr.setStopReason('paused')
+			ctx.recorder.setStopReason('paused')
 			ctx.log.info('Run paused', {
 				'namzu.run.phase': context,
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.reason': decision.reason,
 			})
 			return 'stop'
 		}
 		case 'abort': {
-			ctx.runMgr.setStopReason('cancelled')
-			ctx.runMgr.markCancelled()
+			ctx.recorder.setStopReason('cancelled')
+			ctx.recorder.markCancelled()
 			ctx.log.info('Run aborted', {
 				'namzu.run.phase': context,
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.reason': decision.reason,
 			})
 			return 'stop'
 		}
 		case 'reject_plan': {
-			ctx.runMgr.setStopReason('plan_rejected')
+			ctx.recorder.setStopReason('plan_rejected')
 			ctx.log.info('Plan rejected by user', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.feedback': decision.feedback,
 			})
 			return 'stop'
@@ -473,7 +469,7 @@ export async function* handleHITLDecision(
 				ctx.planManager.approve()
 				ctx.planManager.startExecution()
 			}
-			ctx.log.info('Plan approved by user', { [NAMZU.RUN_ID]: ctx.runMgr.id })
+			ctx.log.info('Plan approved by user', { [NAMZU.TURN_ID]: ctx.recorder.turnId })
 			return 'continue'
 		}
 		case 'continue':

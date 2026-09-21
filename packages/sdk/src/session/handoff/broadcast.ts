@@ -34,7 +34,7 @@ import type { WorkspaceBackendRegistry } from '../workspace/registry.js'
 import type { HandoffAssignment, HandoffOutcome } from './assignment.js'
 import type { CapacityValidator } from './capacity.js'
 import type { HandoffEventSink } from './events.js'
-import type { RunStatusResolver } from './single.js'
+import type { TurnStatusResolver } from './single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from './version.js'
 
 interface BroadcastHandoffBaseDeps {
@@ -46,7 +46,7 @@ interface BroadcastHandoffBaseDeps {
 	 * Required, for the reason `SingleHandoffDeps.runStatus` is: the default
 	 * that used to stand in here reported every session unblocked.
 	 */
-	runStatus: RunStatusResolver
+	runStatus: TurnStatusResolver
 }
 
 /** Dependencies for a multi-recipient handoff. */

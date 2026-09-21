@@ -3,7 +3,6 @@ import type { FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { evidenceRecordedAt } from '../../utils/evidence-time.js'
-import { compactionArchiveSchema, compactionPartPath } from './compaction-archive.js'
 import {
 	EVIDENCE_CHUNK_BYTES,
 	SEARCH_OVERLAP_BYTES,
@@ -11,7 +10,7 @@ import {
 	mayContain,
 	mayContainToken,
 } from './format.js'
-import { type IndexEntry, entrySchema, eventTexts } from './index-page.js'
+import { type IndexEntry, entrySchema, recordTexts } from './index-page.js'
 import {
 	type EvidenceBudget,
 	decode,
@@ -21,7 +20,7 @@ import {
 	stamp,
 	utf8Page,
 } from './io.js'
-import type { RunEvidenceScope, RunTextEvidenceReadResult } from './types.js'
+import type { SessionEvidenceScope, SessionTextEvidenceReadResult } from './types.js'
 
 const integer = z.number().int().nonnegative().safe()
 export const textPointerSchema = entrySchema.pick({
@@ -73,15 +72,14 @@ interface TextRecord {
 	sha256: string
 	seq: number
 	event: Record<string, unknown>
-	parts: ReturnType<typeof eventTexts>
-	archive?: z.infer<typeof compactionArchiveSchema>
+	parts: ReturnType<typeof recordTexts>
 }
 
 /** One authenticated record per operation, never shared between calls or sources. */
 export function createTextSourceReader(
 	handle: FileHandle,
-	runDir: string,
-	runId: string,
+	sessionDir: string,
+	sessionId: string,
 	budget: EvidenceBudget,
 ): (pointer: z.infer<typeof textPointerSchema>, verifiedRecord?: Buffer) => Promise<TextSource> {
 	let saved: TextRecord | undefined
@@ -99,7 +97,7 @@ export function createTextSourceReader(
 			if (raw.length !== pointer.length || digest(raw) !== pointer.sha256)
 				throw new Error('Recorded tool evidence changed.')
 			const event = JSON.parse(decode(raw)) as Record<string, unknown>
-			if (event.runId !== runId || event.seq !== pointer.seq)
+			if (event.sessionId !== sessionId || event.seq !== pointer.seq)
 				throw new Error('Recorded text identity changed.')
 			saved = {
 				offset: pointer.offset,
@@ -107,28 +105,28 @@ export function createTextSourceReader(
 				sha256: pointer.sha256,
 				seq: pointer.seq,
 				event,
-				parts: eventTexts(event),
-				archive:
-					event.type === 'compaction_archive' ? compactionArchiveSchema.parse(event) : undefined,
+				parts: recordTexts(event),
 			}
 		}
-		return sourceText(pointer, runDir, budget, saved)
+		return sourceText(pointer, sessionDir, budget, saved)
 	}
 }
 
 async function sourceText(
 	pointer: z.infer<typeof textPointerSchema>,
-	runDir: string,
+	sessionDir: string,
 	budget: EvidenceBudget,
-	{ event, parts, archive }: TextRecord,
+	{ event, parts }: TextRecord,
 ): Promise<TextSource> {
 	const part = parts[pointer.part]
 	if (!part) throw new Error('Recorded text part is unavailable.')
 	const tool = event.type === 'tool_completed'
-	const archivedPart = archive?.archive.parts[pointer.part]
-	if (archive && !archivedPart) throw new Error('Missing archived text part.')
+	const recordedAt = evidenceRecordedAt(
+		typeof event.ts === 'string' ? Date.parse(event.ts) : undefined,
+	)
 	const entry = entrySchema.parse({
 		...pointer,
+		...(typeof event.turnId === 'string' ? { turnId: event.turnId } : {}),
 		source: part.source,
 		...(tool
 			? {
@@ -139,7 +137,6 @@ async function sourceText(
 				}
 			: { toolName: part.toolName, isError: part.isError }),
 		truncated: tool && event.outputTruncated === true,
-		...(archivedPart ? { spill: archivedPart.manifest } : {}),
 		filter: '',
 	})
 
@@ -147,7 +144,7 @@ async function sourceText(
 		const bytes = Buffer.from(part.text, 'utf8')
 		return {
 			entry,
-			recordedAt: evidenceRecordedAt(event.timestamp),
+			recordedAt,
 			bytes: bytes.length,
 			chars: part.text.length,
 			retained: entry.truncated ? 'preview' : 'full',
@@ -156,13 +153,11 @@ async function sourceText(
 			window: async () => ({ bytes, offset: 0, characterOffset: 0 }),
 		}
 	}
-	// Never follow a model/provider-controlled spill path from the event.
-	let path: string
-	if (archive) path = compactionPartPath(runDir, archive.archive.id, pointer.part)
-	else {
-		if (!entry.toolUseId) throw new Error('Retained output has no tool identity.')
-		path = join(runDir, 'tool-output', `${digest(entry.toolUseId)}.txt`)
-	}
+	// Never follow a model/provider-controlled spill path from the record: the
+	// retained output of a tool call is at `<session-id>/tool-results/`, named
+	// by the digest of its tool-use id.
+	if (!entry.toolUseId) throw new Error('Retained output has no tool identity.')
+	const path = join(sessionDir, 'tool-results', `${digest(entry.toolUseId)}.txt`)
 	const rawManifest = await readSmall(`${path}.manifest.json`, budget)
 	if (digest(rawManifest) !== entry.spill) throw new Error('Retained output manifest changed.')
 	const manifest = manifestSchema.parse(JSON.parse(decode(rawManifest)))
@@ -170,7 +165,7 @@ async function sourceText(
 		throw new Error('Incomplete retained output manifest.')
 	return {
 		entry,
-		recordedAt: evidenceRecordedAt(event.timestamp),
+		recordedAt,
 		bytes: manifest.bytes,
 		chars: manifest.chars,
 		retained: 'full',
@@ -242,10 +237,10 @@ async function sourceText(
 
 export async function readTextPage(
 	source: TextSource,
-	scope: RunEvidenceScope,
+	scope: SessionEvidenceScope,
 	offset: number,
 	budget: EvidenceBudget,
-): Promise<RunTextEvidenceReadResult> {
+): Promise<SessionTextEvidenceReadResult> {
 	const entry = source.entry
 	if (offset > source.bytes) throw new Error('Offset exceeds retained text.')
 	const chunk = entry.spill

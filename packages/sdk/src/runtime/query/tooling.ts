@@ -1,11 +1,11 @@
 import type { AuthorizationGate } from '../../authorization/gate.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
-import type { AuditEventInput } from '../../types/run/audit.js'
-import type { RunEvent } from '../../types/run/index.js'
+import type { AuditEventInput } from '../../types/session/audit.js'
+import type { SessionRecord } from '../../types/session/records.js'
 import type {
 	RequestToolPause,
 	SkillRegistryRef,
@@ -17,12 +17,13 @@ import type { Logger } from '../../utils/logger.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { ToolExecutor } from './executor.js'
 
-export type EmitEvent = (event: RunEvent) => Promise<void>
+import type { EmitEvent } from './events.js'
 
 export interface ToolingBootstrapConfig {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	tools: ToolRegistryContract
-	runId: RunId
+	sessionId: SessionId
+	turnId: TurnId
 	workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
@@ -47,13 +48,13 @@ export interface ToolingBootstrapConfig {
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	maxToolConcurrency?: number
 	maxToolCalls?: number
-	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
+	readToolCallBudgetRecords?: () => Promise<readonly SessionRecord[]>
 	maxToolOutputChars?: number
 	/** See `QueryParams.toolResultGuardrails`. Absent installs the shipped default; a registry's own win. */
 	toolResultGuardrails?: readonly import('../../types/guardrail/index.js').ToolResultGuardrailSpec[]
 	retainedToolPreviewChars?: number
 	maxToolContentBytes?: number
-	captureRunEvidence?: import('../../types/tool/index.js').ToolContext['captureRunEvidence']
+	captureSessionEvidence?: import('../../types/tool/index.js').ToolContext['captureSessionEvidence']
 	toolOutputDir?: string | (() => string | undefined)
 	repairToolCall?: RepairToolCall
 	/** Operator authorization shared with the direct-call review path. */
@@ -75,7 +76,8 @@ export class ToolingBootstrap {
 			{
 				tools: config.tools,
 				...(config.fileReadTracker ? { fileReadTracker: config.fileReadTracker } : {}),
-				runId: config.runId,
+				sessionId: config.sessionId,
+				turnId: config.turnId,
 				workingDirectory: config.workingDirectory,
 				...(config.additionalDirectories?.length
 					? { additionalDirectories: config.additionalDirectories }
@@ -85,7 +87,7 @@ export class ToolingBootstrap {
 				abortSignal: config.abortSignal,
 				allowedTools: config.allowedTools,
 				invocationState: config.invocationState,
-				captureRunEvidence: config.captureRunEvidence,
+				captureSessionEvidence: config.captureSessionEvidence,
 				pluginManager: config.pluginManager,
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.backgroundJobOwner ? { backgroundJobOwner: config.backgroundJobOwner } : {}),
@@ -97,8 +99,8 @@ export class ToolingBootstrap {
 					? { toolRetryBackoff: config.toolRetryBackoff }
 					: {}),
 				...(config.maxToolCalls !== undefined ? { maxToolCalls: config.maxToolCalls } : {}),
-				...(config.readToolCallBudgetEvents
-					? { readToolCallBudgetEvents: config.readToolCallBudgetEvents }
+				...(config.readToolCallBudgetRecords
+					? { readToolCallBudgetRecords: config.readToolCallBudgetRecords }
 					: {}),
 				...(config.maxToolConcurrency !== undefined
 					? { maxToolConcurrency: config.maxToolConcurrency }

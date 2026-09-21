@@ -2,7 +2,7 @@ import { NAMZU } from '../../../constants/telemetry/index.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import { DELEGATION_TIMEOUT_MS } from '../../../tools/coordinator/index.js'
 import { createRuntimeContextMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { readPositiveIntEnv } from '../../../utils/env.js'
 import { formatJobNote } from '../steering.js'
 import type { IterationContext } from './phases/index.js'
@@ -161,7 +161,7 @@ export async function* holdForOutstandingWork(
 	iterationNum: number,
 	hasToolCalls: boolean,
 	deliverInbound: () => number,
-): AsyncGenerator<RunEvent, boolean> {
+): AsyncGenerator<SessionEvent, boolean> {
 	const inbox = ctx.completionInbox?.hasPendingWork ? ctx.completionInbox : undefined
 	const jobs = ctx.awaitedJobs?.hasPendingWork ? ctx.awaitedJobs : undefined
 	if (!inbox && !jobs) return false
@@ -180,7 +180,7 @@ export async function* holdForOutstandingWork(
 	// long this run was waiting anyway.
 	const graceMs = inbox ? settleGraceMs(remainingMs) : awaitedJobGraceMs(remainingMs)
 	ctx.log.info('Holding the run open for outstanding work', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		[NAMZU.ITERATION]: iterationNum,
 		'namzu.runtime.grace_ms': graceMs,
 		'namzu.runtime.awaited_jobs': jobs?.outstandingJobIds ?? [],
@@ -208,7 +208,7 @@ export async function* holdForOutstandingWork(
 
 	const arrived = ctx.completionInbox?.drain() ?? []
 	if (arrived.length > 0) {
-		ctx.runMgr.pushMessage(
+		ctx.recorder.pushMessage(
 			createRuntimeContextMessage(formatCompletionNotification(arrived), 'task-completion'),
 		)
 	}
@@ -217,7 +217,7 @@ export async function* holdForOutstandingWork(
 	if (arrived.length === 0 && !exited && inbound === 0) return false
 	await ctx.emitEvent({
 		type: 'iteration_completed',
-		runId: ctx.runMgr.id,
+		turnId: ctx.recorder.turnId,
 		iteration: iterationNum,
 		hasToolCalls,
 	})
@@ -256,10 +256,10 @@ export function deliverAwaitedJobExits(ctx: IterationContext): boolean {
 	if (!delivered) return false
 
 	ctx.log.info('Delivering a background job exit the run held open for', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.jobs': delivered.exits.map((job) => job.id),
 	})
-	ctx.runMgr.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
+	ctx.recorder.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
 	return true
 }
 
@@ -298,10 +298,10 @@ export function recordAbandonedWork(ctx: IterationContext): void {
 	const abandoned = ctx.completionInbox?.outstandingTaskIds ?? []
 	if (abandoned.length > 0) {
 		ctx.log.warn('Run ended with delegated work still running', {
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
+			[NAMZU.TURN_ID]: ctx.recorder.turnId,
 			'namzu.runtime.tasks': abandoned,
 		})
-		ctx.runMgr.setAbandonedTaskIds(abandoned)
+		ctx.recorder.setAbandonedTaskIds(abandoned)
 	}
 
 	// The same statement for a job the model was waiting on when the grace
@@ -312,10 +312,10 @@ export function recordAbandonedWork(ctx: IterationContext): void {
 	if (abandonedJobs.length === 0) return
 
 	ctx.log.warn('Run ended with an awaited background job still running', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.jobs': abandonedJobs,
 	})
-	ctx.runMgr.setAbandonedJobIds(abandonedJobs)
+	ctx.recorder.setAbandonedJobIds(abandonedJobs)
 }
 
 export function deliverArrivedCompletions(ctx: IterationContext): void {
@@ -324,7 +324,7 @@ export function deliverArrivedCompletions(ctx: IterationContext): void {
 
 	// Fix the run's answer BEFORE appending anything after it.
 	//
-	// `RunPersistence.resolveResult` walks the message tail backwards and
+	// `TurnRecorder.resolveResult` walks the message tail backwards and
 	// stops at the first non-assistant message, and it runs at
 	// `markCompleted` — which is AFTER this. So a notification appended
 	// after the final assistant turn makes the run's own answer
@@ -338,14 +338,14 @@ export function deliverArrivedCompletions(ctx: IterationContext): void {
 	// when there is something to pin: on the cancelled and thrown paths
 	// there may be no answer, and pinning an empty string there would
 	// suppress whatever the error path assembles.
-	const answer = ctx.runMgr.materializeResult()
-	if (answer.length > 0) ctx.runMgr.setResult(answer)
+	const answer = ctx.recorder.materializeResult()
+	if (answer.length > 0) ctx.recorder.setResult(answer, 'outstanding_work')
 
 	ctx.log.info('Delivering task completions the run would have settled over', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.tasks': unheard.map((h) => h.taskId),
 	})
-	ctx.runMgr.pushMessage(
+	ctx.recorder.pushMessage(
 		createRuntimeContextMessage(formatCompletionNotification(unheard), 'task-completion'),
 	)
 }
@@ -375,12 +375,12 @@ export function deliverArrivedJobExits(ctx: IterationContext): void {
 	// Fix the run's answer BEFORE appending anything after it — the same
 	// `resolveResult` tail walk `deliverArrivedCompletions` explains just
 	// above, and the same guard against pinning an empty one.
-	const answer = ctx.runMgr.materializeResult()
-	if (answer.length > 0) ctx.runMgr.setResult(answer)
+	const answer = ctx.recorder.materializeResult()
+	if (answer.length > 0) ctx.recorder.setResult(answer, 'outstanding_work')
 
 	ctx.log.info('Delivering a background job exit the run would have settled over', {
-		[NAMZU.RUN_ID]: ctx.runMgr.id,
+		[NAMZU.TURN_ID]: ctx.recorder.turnId,
 		'namzu.runtime.jobs': delivered.exits.map((job) => job.id),
 	})
-	ctx.runMgr.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
+	ctx.recorder.pushMessage(createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'))
 }

@@ -1,7 +1,7 @@
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import type { LLMProvider } from '../types/provider/interface.js'
-import type { EvalCase, EvalRun, Score, Scorer } from './types.js'
+import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
 /**
  * Grade an open-ended answer with a model.
@@ -150,7 +150,7 @@ function parseVerdict(reply: string, scale: number): Verdict {
 
 function buildPrompt(
 	config: JudgeScorerConfig,
-	run: EvalRun,
+	run: EvalTurn,
 	evalCase: EvalCase,
 	scale: number,
 ): string {
@@ -219,7 +219,7 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 
 	return {
 		name: config.name ?? 'judge',
-		async score(run: EvalRun, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
+		async score(run: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
 			const response = await collectChatCompletion(
 				provider.chatStream({
 					model: config.model,

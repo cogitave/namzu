@@ -27,6 +27,7 @@
 
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
 import type { WorkspaceId } from '../../types/session/ids.js'
+import type { SessionMessage } from '../../types/session/messages.js'
 import type { SessionStore } from '../../types/session/store.js'
 import type {
 	SubSession,
@@ -124,6 +125,15 @@ function isArchivable(status: SubSessionStatus): boolean {
 
 export interface ArchivalManagerDeps {
 	readonly sessionStore: SessionStore
+	/**
+	 * The child session's conversation, read from its session log (the fold
+	 * of its records). The session log is the only store of messages; a
+	 * `SessionStore` holds none.
+	 */
+	readonly readSessionMessages: (
+		sessionId: SessionId,
+		tenantId: TenantId,
+	) => Promise<readonly SessionMessage[]>
 	readonly workspaceRegistry: WorkspaceBackendRegistry
 	/**
 	 * Archive backend. Absent = archival disabled for this manager
@@ -177,12 +187,10 @@ export class ArchivalManager {
 		}
 
 		// 2. Load owning child session bundle (messages + optional summary).
-		// Phase 9 Known Delta #7: uses `loadSessionMessages` for full-fidelity
-		// round-trip (original MessageId + timestamp preserved). Previously
-		// the Phase 8 archivalmanager synthesized `msg_restored_N` IDs from the
-		// payload-only `loadMessages` return — that lossy reshape is gone.
+		// The messages come from the child session's log, with the record ids
+		// and times the log gave them.
 		const childSessionId: SessionId = sub.childSessionId
-		const messages = await this.deps.sessionStore.loadSessionMessages(childSessionId, tenantId)
+		const messages = await this.deps.readSessionMessages(childSessionId, tenantId)
 
 		const summaryRefOrNull = await this.deps.sessionStore.getSummary(childSessionId, tenantId)
 		const summaryRef = summaryRefOrNull ?? undefined

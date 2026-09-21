@@ -1,4 +1,4 @@
-import type { EvalCase, EvalRun, Score, Scorer } from './types.js'
+import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
 /**
  * Longest common subsequence length between two tool sequences.
@@ -42,7 +42,7 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
 export function trajectoryScorer(): Scorer {
 	return {
 		name: 'trajectory',
-		score(run: EvalRun, evalCase: EvalCase): Score {
+		score(run: EvalTurn, evalCase: EvalCase): Score {
 			const expected = evalCase.expectedTools ?? []
 			const actual = run.toolCalls
 
@@ -91,7 +91,7 @@ export function completionScorer(
 		// not, so there is no score between 0 and 1 for a mean to soften.
 		// Averaged in, a hard 0 here is carried by three good fuzzy scores.
 		severity: 'gate',
-		score(run: EvalRun): Score {
+		score(run: EvalTurn): Score {
 			if (run.error) {
 				return { score: 0, reason: `run failed: ${run.error}` }
 			}
@@ -116,7 +116,7 @@ export function completionScorer(
 export function stepBudgetScorer(maxSteps: number): Scorer {
 	return {
 		name: 'step-budget',
-		score(run: EvalRun): Score {
+		score(run: EvalTurn): Score {
 			const used = run.steps.length
 			return {
 				score: used <= maxSteps ? 1 : Math.max(0, maxSteps / used),
@@ -137,7 +137,7 @@ export function containsScorer(...required: string[]): Scorer {
 		// A required fragment is required. Partial credit here reads as
 		// "most of the answer was there", which is not what was asked.
 		severity: 'gate',
-		score(run: EvalRun): Score {
+		score(run: EvalTurn): Score {
 			const text = run.output ?? ''
 			const missing = required.filter((r) => !text.includes(r))
 			return {
@@ -163,7 +163,7 @@ export function containsScorer(...required: string[]): Scorer {
  */
 export function customScorer(
 	name: string,
-	fn: (run: EvalRun, evalCase: EvalCase) => Score | Promise<Score>,
+	fn: (run: EvalTurn, evalCase: EvalCase) => Score | Promise<Score>,
 ): Scorer {
 	return { name, score: fn }
 }

@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 
 import { NamzuError } from '../../types/errors/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import {
 	type Message,
 	type UserMessage,
@@ -11,7 +11,8 @@ import type { ToolResult } from '../../types/tool/index.js'
 
 /** One real registry execution, after retries and its terminal event. */
 export interface ToolResultObservation {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	readonly toolUseId: string
 	readonly toolName: string
 	readonly input: unknown

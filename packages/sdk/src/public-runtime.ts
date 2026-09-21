@@ -972,6 +972,10 @@ export {
 	validatePrevArtifactChain,
 } from './session/intervention/index.js'
 
+// A session's conversation as SessionMessages, read from its log: what an
+// `ArchivalManager` archives for a child session.
+export { readSessionMessages } from './session/messages.js'
+
 export {
 	ArchivalManager,
 	ArchiveNotConfiguredError,

@@ -1,4 +1,4 @@
-import type { SessionLocatorOptions } from '../runtime/query/abandon-turn.js'
+import { type SessionLocatorOptions, locateSessionLog } from '../runtime/query/abandon-turn.js'
 import { NamzuError } from '../types/errors/index.js'
 import type { SessionId } from '../types/ids/index.js'
 import type { FencingToken, LeaseSummary } from '../types/session/durable.js'
@@ -14,10 +14,16 @@ import type { ClaimSessionOptions, SessionLease } from './session-log/index.js'
  * next append is refused.
  */
 export async function claimSession(
-	_sessionId: SessionId,
-	_options: ClaimSessionOptions & Omit<SessionLocatorOptions, 'lease'>,
+	sessionId: SessionId,
+	options: ClaimSessionOptions & Omit<SessionLocatorOptions, 'lease'>,
 ): Promise<SessionLease | null> {
-	throw new Error('train: not yet wired')
+	const { log: given, index, home, ...claim } = options
+	const log = await locateSessionLog(sessionId, {
+		...(given ? { log: given } : {}),
+		...(index ? { index } : {}),
+		...(home ? { home } : {}),
+	})
+	return log.claim(claim)
 }
 
 /**
@@ -25,11 +31,12 @@ export async function claimSession(
  * nothing.
  */
 export async function releaseSession(
-	_sessionId: SessionId,
-	_lease: SessionLease,
-	_options?: Omit<SessionLocatorOptions, 'lease'>,
+	sessionId: SessionId,
+	lease: SessionLease,
+	options: Omit<SessionLocatorOptions, 'lease'> = {},
 ): Promise<void> {
-	throw new Error('train: not yet wired')
+	const log = await locateSessionLog(sessionId, options)
+	await log.release(lease)
 }
 
 /** A lease as a listing reports it, judged against one clock. */
