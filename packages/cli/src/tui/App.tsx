@@ -6153,6 +6153,24 @@ export function App({
 							)
 						}
 						return
+					case 'import-notes': {
+						if (!session?.importCuratedNotes) {
+							pushMessage(
+								'system',
+								'Stored memory is not open yet; /memory import-notes works once a session has started.',
+							)
+							return
+						}
+						void session.importCuratedNotes().then(
+							(report) => pushMessage('system', report),
+							(err: unknown) =>
+								pushMessage(
+									'system',
+									`Notes were not moved: ${err instanceof Error ? err.message : String(err)}`,
+								),
+						)
+						return
+					}
 					case 'show-memory': {
 						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), { cwd: ctx.cwd })
 						const stored = session?.storedMemoryIndex

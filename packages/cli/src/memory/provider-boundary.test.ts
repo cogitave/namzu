@@ -204,13 +204,20 @@ it('keeps automatic recall inside its owning project under the same application 
 	expect(unrelated.system).not.toContain('Retrieved project memory')
 })
 
-it('carries stored memory under its own heading, and moves project notes into it once', async () => {
+it('carries stored memory under its own heading, and moves project notes only when asked', async () => {
 	writeFileSync(join(appHome, 'MEMORY.md'), '- GLOBAL_NOTE\n')
 	const curated = join(cwd, '.namzu', 'MEMORY.md')
-	writeFileSync(curated, '# Team notes\n\nKEEP_THIS_PROSE\n\n- run pnpm test before pushing\n')
+	const original = '# Team notes\n\nKEEP_THIS_PROSE\n\n- run pnpm test before pushing\n'
+	writeFileSync(curated, original)
 	const { session } = await makeSession()
-	expect(session.configNotices.join('\n')).toContain('moved 1 note from')
+	// The launch offers the note and moves nothing: it is still curated text.
+	expect(session.configNotices.join('\n')).toContain('/memory import-notes')
+	expect(readFileSync(curated, 'utf8')).toBe(original)
+	const before = await send(session)
+	expect(before.system).toContain('- run pnpm test before pushing')
+	expect(before.system).not.toContain('## Stored memories (index)')
 
+	expect(await session.importCuratedNotes?.()).toContain('Moved 1 note from')
 	const first = await send(session)
 	expect(first.system).toContain('## Stored memories (index)')
 	expect(first.system).toContain(
@@ -222,9 +229,7 @@ it('carries stored memory under its own heading, and moves project notes into it
 	expect(first.system).not.toContain('Durable memory')
 	// The note moved; the prose and the user-scope file did not.
 	expect(readFileSync(curated, 'utf8')).toBe('# Team notes\n\nKEEP_THIS_PROSE\n')
-	expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toContain(
-		'- run pnpm test before pushing',
-	)
+	expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toBe(original)
 	expect(readFileSync(join(appHome, 'MEMORY.md'), 'utf8')).toBe('- GLOBAL_NOTE\n')
 
 	// A note typed now is a typed file, type project, and is in the next prompt.
@@ -232,18 +237,18 @@ it('carries stored memory under its own heading, and moves project notes into it
 	expect(await session.rememberNote?.(note)).toMatchObject({
 		saved: true,
 		type: 'project',
-		name: 'the-staging-database-is-read-only',
+		name: 'the-staging-database-is-read',
 	})
-	expect((await send(session)).system).toContain('[the-staging-database-is-read-only]')
+	expect((await send(session)).system).toContain('[the-staging-database-is-read]')
 	expect(await session.rememberNote?.(note)).toMatchObject({ saved: false, duplicate: true })
 	expect(await session.rememberNote?.('prefers terse answers', 'user')).toMatchObject({
 		type: 'user',
 	})
 
-	// Once: a bullet written by hand after the move stays curated.
+	// A bullet written by hand after the move stays curated, and is not offered again.
 	appendFileSync(curated, '- HAND_WRITTEN_LATER\n')
 	const later = await makeSession()
-	expect(later.session.configNotices.join('\n')).not.toContain('moved')
+	expect(later.session.configNotices.join('\n')).not.toContain('import-notes')
 	expect(readFileSync(curated, 'utf8')).toContain('- HAND_WRITTEN_LATER')
 	expect((await send(later.session)).system).toContain('HAND_WRITTEN_LATER')
 })

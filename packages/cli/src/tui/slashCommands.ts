@@ -115,6 +115,8 @@ export type SlashAction =
 			memoryType?: MemoryType
 	  }
 	| { kind: 'show-memory' }
+	/** Move the project's curated `#note`-shaped bullets into stored memory. */
+	| { kind: 'import-notes' }
 	| { kind: 'list-skills' }
 	| { kind: 'plugins'; list: boolean; name?: string }
 	| { kind: 'skill-picker' }
@@ -913,10 +915,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/memory [show|list]',
 				'/memory add [--type user|feedback|project|reference] <text>',
 				'/memory --user add <text>',
+				'/memory import-notes',
 			],
 			details: [
 				'Show and list read stored and curated memory. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
+				"import-notes moves the single-line bullets of the project's curated MEMORY.md, the notes #note used to append there, into typed memory files; a heading's list stays, and the file as it was is kept beside it.",
 			],
 		},
 		description:
@@ -928,6 +932,17 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			// Reserve standalone inspection words while retaining multiword facts.
 			if (text.length === 0 || ['show', 'list'].includes(text.toLowerCase())) {
 				return { kind: 'show-memory' }
+			}
+			if (text.toLowerCase() === 'import-notes') {
+				if (user) {
+					return {
+						kind: 'message',
+						role: 'system',
+						content:
+							'import-notes moves project notes; the curated file for all projects stays as it is.',
+					}
+				}
+				return { kind: 'import-notes' }
 			}
 			if (memoryArgs[0]?.toLowerCase() === 'add') {
 				let rest = memoryArgs.slice(1)

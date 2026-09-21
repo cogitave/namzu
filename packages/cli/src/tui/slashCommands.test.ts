@@ -1236,6 +1236,10 @@ describe('/memory', () => {
 		expect(runSlash('/memory add --type opinion x', ctx)).toMatchObject({ kind: 'message' })
 		expect(runSlash('/memory --user add --type user x', ctx)).toMatchObject({ kind: 'message' })
 		expect(runSlash('/memory add --type', ctx)).toMatchObject({ kind: 'message' })
+		expect(runSlash('/memory import-notes', ctx)).toEqual({ kind: 'import-notes' })
+		expect(runSlash('/memory --user import-notes', ctx)).toMatchObject({ kind: 'message' })
+		// A multiword note that merely starts with the word is still a note.
+		expect(runSlash('/memory import-notes are manual', ctx)).toMatchObject({ kind: 'remember' })
 	})
 })
 

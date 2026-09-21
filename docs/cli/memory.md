@@ -117,7 +117,9 @@ appended to the curated project file as before.
 
 Every send and resume puts the index in the system prompt under
 `## Stored memories (index)`: one line per active memory,
-`- [name](name.md) — description`, each at most 150 characters, sorted by name,
+`- [name](name.md) — description`, each at most 150 characters (a note's name
+is its first words, at most 32 characters, so the description keeps most of
+the line), sorted by name,
 at most 200 lines with a final line saying how many more exist and to search for
 them. The section tells the model to read a memory before relying on it, to
 update rather than duplicate, and that memories are point-in-time. The index is
@@ -129,30 +131,37 @@ The model's tools work on the same files. `save_memory` creates a memory (a name
 another memory holds is refused and pointed at `update_memory`),
 `search_memory` finds memories, `read_memory` reads one by ID or name, with its
 age and its `[[name]]` links resolved, `update_memory` corrects or archives
-one, and `delete_memory` removes it. A fresh session in the same project reads
+one by ID or by the name the index shows, and `delete_memory` removes it. A
+memory whose file would exceed 256 KiB, or that contains a NUL character, is
+refused before it is written, so one oversized save cannot stop the store. A fresh session in the same project reads
 the same files.
 
-### Moving the older memory in, once
+### Moving the older memory in
 
-The first launch after upgrading moves what the two older shapes held:
+A JSON store in the stored-memory directory (`index.json` and `content/`, from
+earlier releases) is moved at the first launch after upgrading: imported record
+by record with its ids, timestamps and status, then renamed to
+`index.json.migrated` and `content.migrated`. A record too large for a memory
+file (over 256 KiB) or containing a NUL character is not imported; the launch
+names it and the retired `content.migrated/<id>.json` that still holds it. Any
+other failure leaves the JSON store in place — the store refuses to answer
+rather than answer without those records — and is shown at launch and retried
+at the next. Nothing is imported twice.
 
-- A JSON store in the same directory (`index.json` and `content/`, from earlier
-  releases) is imported record by record with its ids, timestamps and status,
-  then renamed to `index.json.migrated` and `content.migrated`. Until that
-  succeeds, the store refuses to answer rather than answer without those
-  records; a failure is shown at launch and retried at the next.
-- The project's curated `MEMORY.md` gives up its single-line top-level bullets —
-  what `#note` and `/memory add` used to append — as `project` memories. The
-  file as it was is kept beside it as `MEMORY.md.before-typed-memory`, and it is
-  rewritten without those bullets only if nothing appended to it meanwhile.
-  Headings, prose, nested lists and notes that spanned several lines stay where
-  they are. A `migration.json` in the stored-memory directory then records that
-  this was done, so a bullet written into the curated file by hand afterwards
-  stays curated.
-
-Both steps are idempotent: an interrupted launch is finished by the next one,
-and nothing is imported twice. The launch that moved something says so,
-naming the files. `~/.namzu/MEMORY.md` and `USER.md` are never touched.
+The project's curated `MEMORY.md` is not rewritten at launch. Nothing can tell a
+bullet `#note` appended from one you wrote, so when the file holds single-line
+top-level bullets the launch says how many and offers `/memory import-notes`,
+once per curated file (the checkout's file and a subdirectory's own
+`.namzu/MEMORY.md` are offered separately). Until you run it they stay curated
+and reach every turn as before. `/memory import-notes` moves them into
+`project` memories, keeps the file as it was beside it as
+`MEMORY.md.before-typed-memory`, and rewrites it without them only if nothing
+changed it meanwhile. A bullet in a list directly under a Markdown heading
+(`## Conventions` then `- use tabs`) stays, as do prose, nested lists and notes
+that spanned several lines. Running it again moves nothing twice.
+A `migration.json` in the stored-memory directory records, per curated file,
+that it was offered and when it was moved. `~/.namzu/MEMORY.md` and `USER.md`
+are never touched.
 
 Automatic recall is enabled by default. Before each model step, the CLI searches
 active stored memories using terms from the latest operator message, and adds

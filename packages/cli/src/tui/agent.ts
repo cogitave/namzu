@@ -235,7 +235,9 @@ import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import {
 	type TypedNoteResult,
 	composeStoredMemoryPrompt,
+	describeCuratedNotesImport,
 	describeMemoryMigration,
+	importCuratedNotes,
 	migrateMemoryOnce,
 	saveTypedNote,
 } from '../memory/typed.js'
@@ -789,6 +791,11 @@ export interface AgentSession {
 	 * with no store, where notes go to the curated project file as before.
 	 */
 	readonly rememberNote?: (text: string, type?: MemoryType) => Promise<TypedNoteResult>
+	/**
+	 * Move the project's curated `#note`-shaped bullets into stored memory
+	 * (`/memory import-notes`), returning the operator's report.
+	 */
+	readonly importCuratedNotes?: () => Promise<string>
 	/** Every active stored memory's index line, and where the files are; what `/memory` shows. */
 	readonly storedMemoryIndex?: () => Promise<{
 		readonly directory: string
@@ -3063,6 +3070,11 @@ export async function createAgentSession(
 			...memoryMigrationNotices,
 		],
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
+		importCuratedNotes: async () =>
+			describeCuratedNotesImport(
+				await importCuratedNotes({ store: memoryStore, directory: memoryDirectory, cwd }),
+				memoryDirectory,
+			),
 		storedMemoryIndex: async () => ({
 			directory: memoryDirectory,
 			index: await memoryStore.readIndex({ maxLines: Number.POSITIVE_INFINITY }),

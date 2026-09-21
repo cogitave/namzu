@@ -2,11 +2,11 @@
  * Stored memory: the typed, one-file-per-memory store the kernel's memory
  * tools read and write, as the CLI uses it.
  *
- * Three jobs live here. `saveTypedNote` is what `#note` and `/memory add`
+ * Four jobs live here. `saveTypedNote` is what `#note` and `/memory add`
  * write through. `composeStoredMemoryPrompt` turns the store's generated index
  * into the prompt section the model sees every turn. `migrateMemoryOnce`
- * moves what the two older shapes held — the project's curated bullets and
- * the JSON store — into typed files, once.
+ * moves the JSON store into typed files, once, and offers the project's
+ * curated bullets; `importCuratedNotes` moves those when the operator asks.
  *
  * The CURATED files (`USER.md`, `MEMORY.md` in the application home and the
  * project) stay what they were: operator-authored text read into every turn.
@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import {
 	DiskMemoryStore,
 	type MarkdownMemoryStore,
+	MemoryContentRejectedError,
 	MemoryNameConflictError,
 	type MemoryType,
 	type RenderedMemoryIndex,
@@ -112,21 +113,40 @@ export function composeStoredMemoryPrompt(index: RenderedMemoryIndex): string | 
 /** What one launch's migration did, for the operator notice. */
 export interface MemoryMigrationReport {
 	readonly importedRecords: number
-	readonly importedBullets: number
-	/** The curated file the bullets came from, when any moved. */
-	readonly curatedPath?: string
-	/** Where the curated file's text before the move was kept. */
-	readonly backupPath?: string
+	/** JSON records the Markdown store refused (too large, a NUL byte); kept in the retired files. */
+	readonly skippedRecords: readonly string[]
+	/**
+	 * The project's curated file holds bullets that look like old `#note`s,
+	 * offered once per file: nothing moves until the operator runs
+	 * `/memory import-notes`.
+	 */
+	readonly notesOffer?: { readonly path: string; readonly count: number }
 	/** Things that did not happen and why; the migration is retried next launch. */
 	readonly problems: readonly string[]
 }
 
-/** Written once the curated bullets have moved, so later hand-written bullets stay curated. */
+/** What `/memory import-notes` did with the curated file. */
+export interface CuratedNotesImport {
+	readonly path: string
+	readonly moved: number
+	/** Bullets left because they are a heading's list, the operator's own section. */
+	readonly kept: number
+	/** Where the file's text before the move was kept, when anything moved. */
+	readonly backupPath?: string
+}
+
+/** Records per curated file what has been offered and moved, so neither repeats. */
 const MARKER = 'migration.json'
 const BACKUP_SUFFIX = '.before-typed-memory'
 
+interface CuratedFileState {
+	readonly offeredAt?: string
+	readonly movedAt?: string
+	readonly moved?: number
+}
+
 interface MigrationMarker {
-	readonly curatedBullets?: { readonly path: string; readonly at: string; readonly moved: number }
+	readonly curatedFiles?: Readonly<Record<string, CuratedFileState>>
 }
 
 async function readMarker(directory: string): Promise<MigrationMarker> {
@@ -139,6 +159,22 @@ async function readMarker(directory: string): Promise<MigrationMarker> {
 	}
 }
 
+/** Merge `state` into the marker's record for `path`, re-reading it first. */
+async function markCuratedFile(
+	directory: string,
+	path: string,
+	state: CuratedFileState,
+): Promise<void> {
+	const marker = await readMarker(directory).catch(() => ({}) as MigrationMarker)
+	const files = { ...(marker.curatedFiles ?? {}) }
+	files[path] = { ...(files[path] ?? {}), ...state }
+	await writeFile(
+		join(directory, MARKER),
+		`${JSON.stringify({ ...marker, curatedFiles: files }, null, 2)}\n`,
+		{ mode: 0o600 },
+	)
+}
+
 async function exists(path: string): Promise<boolean> {
 	try {
 		await access(path)
@@ -149,7 +185,7 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /** Move `path` aside to `path.migrated`, or a numbered name when that is taken. */
-async function retire(path: string): Promise<void> {
+async function retire(path: string): Promise<string> {
 	let target = `${path}.migrated`
 	for (let n = 2; await exists(target); n++) target = `${path}.migrated-${n}`
 	try {
@@ -158,37 +194,68 @@ async function retire(path: string): Promise<void> {
 		// Another process retired it first.
 		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 	}
+	return target
 }
+
+const HEADING = /^#{1,6}\s/
 
 /**
  * The single-line top-level bullets `appendMemory` wrote, and the text left
- * when they are removed. A bullet followed by a non-bullet, non-blank line is
- * left alone: a note typed over several lines was appended with its later
- * lines unindented, and they cannot be told apart from the operator's prose.
+ * when they are removed.
+ *
+ * `appendMemory` wrote `- <note>` at the end of the file and never a heading,
+ * so what cannot be one of its notes stays:
+ * - a bullet followed by a non-bullet, non-blank line — a note typed over
+ *   several lines was appended with its later lines unindented, and they
+ *   cannot be told apart from the operator's prose;
+ * - a bullet whose list sits directly under a Markdown heading — that list is
+ *   a section the operator wrote (`## Conventions` then `- use tabs`), and
+ *   taking its bullets would leave the heading empty and lose the grouping.
+ *
+ * Nothing here can prove a bullet was a `#note`; the rules only keep what
+ * provably was not. That is why moving is the operator's call, not a launch's.
  */
-export function splitCuratedBullets(text: string): { bullets: string[]; rest: string } {
+export function splitCuratedBullets(text: string): {
+	bullets: string[]
+	rest: string
+	kept: number
+} {
 	const lines = text.split('\n')
 	const bullets: string[] = []
-	const kept: string[] = []
+	const out: string[] = []
+	let kept = 0
+	// The nearest preceding line that is neither blank nor a bullet.
+	let context: 'start' | 'heading' | 'other' = 'start'
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? ''
-		const match = /^- (\S.*)$/.exec(line.replace(/\r$/, ''))
-		const next = (lines[i + 1] ?? '').replace(/\r$/, '')
-		const ends = next.trim() === '' || /^- \S/.test(next)
-		if (match?.[1] && ends) bullets.push(match[1].trim())
-		else kept.push(line)
+		const bare = line.replace(/\r$/, '')
+		const match = /^- (\S.*)$/.exec(bare)
+		if (match?.[1]) {
+			const next = (lines[i + 1] ?? '').replace(/\r$/, '')
+			const ends = next.trim() === '' || /^- \S/.test(next)
+			if (ends && context !== 'heading') {
+				bullets.push(match[1].trim())
+				continue
+			}
+			if (ends) kept++
+			out.push(line)
+			continue
+		}
+		if (bare.trim() !== '' && !/^\s+- /.test(bare))
+			context = HEADING.test(bare) ? 'heading' : 'other'
+		out.push(line)
 	}
-	const rest = kept.join('\n').replace(/\n{3,}/g, '\n\n')
-	return { bullets, rest: rest.trim() ? `${rest.trim()}\n` : '' }
+	const rest = out.join('\n').replace(/\n{3,}/g, '\n\n')
+	return { bullets, rest: rest.trim() ? `${rest.trim()}\n` : '', kept }
 }
 
 /**
  * Create the memory for one curated bullet, false when it already exists.
  *
  * Under the name its text slugs to, first: the store refuses a taken name
- * inside its lock, so two launches moving the same bullet at once write it
- * once, the second finding the first's record by its source digest. A name
- * held by an unrelated memory falls back to a suffixed one.
+ * inside its lock, so two runs moving the same bullet at once write it once,
+ * the second finding the first's record by its source digest. A name held by
+ * an unrelated memory falls back to a suffixed one.
  */
 async function moveBullet(
 	store: MarkdownMemoryStore,
@@ -218,22 +285,22 @@ async function moveBullet(
 }
 
 /**
- * Move what the older memory shapes hold into typed files, once and safely
- * again: every step is idempotent, so a migration interrupted halfway is
- * finished by the next launch.
+ * Move what the JSON store held into typed files, once and safely again, and
+ * say once per curated file whether it holds notes that could move.
  *
  * 1. A JSON store (`index.json` + `content/`) in `directory` is imported
  *    record by record with its ids, timestamps and status, then moved aside
- *    to `index.json.migrated` and `content.migrated`.
- * 2. The project's curated `MEMORY.md` gives up its single-line bullets —
- *    what `#note` and `/memory add` used to append — as `project` memories.
- *    Its text before the move is kept beside it, and the file is rewritten
- *    without them only if nothing appended to it meanwhile. Headings, prose
- *    and multi-line notes stay. A marker then stops later hand-written
- *    bullets from moving: after this launch the file is the operator's again.
- *
- * The user-scope files are not touched: they hold what applies in every
- * project, and this store belongs to one.
+ *    to `index.json.migrated` and `content.migrated`. A record the Markdown
+ *    store refuses to write — over its size limit, or holding a NUL byte —
+ *    is reported and stays in the retired files; stopping on it would leave
+ *    `index.json` in place and the store refusing every operation for good.
+ *    Any other failure leaves the JSON store where it is, to retry next launch.
+ * 2. The project's curated `MEMORY.md` is NOT rewritten. When it holds
+ *    single-line bullets that could be notes `#note` used to append, the
+ *    report offers them — once per file, since the checkout's file and a
+ *    subdirectory's own `.namzu/MEMORY.md` are different files — and
+ *    `/memory import-notes` moves them when the operator asks. Until then
+ *    they stay curated, read into every turn as before.
  */
 export async function migrateMemoryOnce(options: {
 	readonly store: MarkdownMemoryStore
@@ -243,24 +310,40 @@ export async function migrateMemoryOnce(options: {
 }): Promise<MemoryMigrationReport> {
 	const { store, directory, cwd } = options
 	const problems: string[] = []
+	const skippedRecords: string[] = []
 	let importedRecords = 0
-	let importedBullets = 0
-	let curatedPath: string | undefined
-	let backupPath: string | undefined
+	let notesOffer: MemoryMigrationReport['notesOffer']
 
 	const indexPath = join(directory, 'index.json')
 	if (await exists(indexPath)) {
 		try {
 			const disk = new DiskMemoryStore({ baseDir: directory, directory })
 			const { entries } = await disk.list()
+			const refused: { id: string; title: string; reason: string }[] = []
 			for (const entry of entries) {
 				const record = await disk.getRecord(entry.id)
-				if (record && (await store.importRecord(record, { type: 'project' })) === 'imported') {
-					importedRecords++
+				if (!record) continue
+				try {
+					if ((await store.importRecord(record, { type: 'project' })) === 'imported') {
+						importedRecords++
+					}
+				} catch (error) {
+					if (!(error instanceof MemoryContentRejectedError)) throw error
+					refused.push({
+						id: entry.id,
+						title: entry.title,
+						reason: error.message,
+					})
 				}
 			}
 			await retire(indexPath)
-			if (await exists(join(directory, 'content'))) await retire(join(directory, 'content'))
+			const content = join(directory, 'content')
+			const retiredContent = (await exists(content)) ? await retire(content) : content
+			for (const record of refused) {
+				skippedRecords.push(
+					`"${record.title}" (${record.id}) was not moved: ${record.reason} It is kept in ${join(retiredContent, `${record.id}.json`)}.`,
+				)
+			}
 		} catch (error) {
 			problems.push(
 				`The JSON memory store in ${directory} was not migrated: ${error instanceof Error ? error.message : String(error)}`,
@@ -268,69 +351,82 @@ export async function migrateMemoryOnce(options: {
 		}
 	}
 
-	const marker = await readMarker(directory).catch(() => ({}) as MigrationMarker)
-	if (!marker.curatedBullets) {
-		try {
-			const location = projectMemoryLocation(cwd)
+	try {
+		const location = projectMemoryLocation(cwd)
+		const marker = await readMarker(directory)
+		const state = marker.curatedFiles?.[location.path]
+		if (!state?.offeredAt && !state?.movedAt) {
 			const text = readMemoryFile(location)
-			const { bullets, rest } =
-				text === null ? { bullets: [], rest: '' } : splitCuratedBullets(text)
-			if (text !== null && bullets.length > 0) {
-				// Digests of bullets an interrupted earlier launch already moved.
-				const moved = new Set<unknown>()
-				for (const entry of (await store.list({})).entries) {
-					moved.add((await store.get(entry.id))?.metadata?.sourceDigest)
-				}
-				for (const bullet of bullets) {
-					const sourceDigest = digest(bullet)
-					if (moved.has(sourceDigest)) continue
-					if (await moveBullet(store, bullet, sourceDigest, location.path)) importedBullets++
-					moved.add(sourceDigest)
-				}
-				backupPath = `${location.path}${BACKUP_SUFFIX}`
-				writeMemoryBackup(backupPath, text)
-				// A concurrent launch that already rewrote it to the same text has
-				// done this launch's work; anything else is an edit to keep.
-				if (!replaceMemoryFile(location, text, rest) && readMemoryFile(location) !== rest) {
-					throw new Error(
-						`${location.path} changed while its notes were being moved; retrying next launch`,
-					)
-				}
-				curatedPath = location.path
+			const { bullets } = text === null ? { bullets: [] } : splitCuratedBullets(text)
+			if (bullets.length > 0) {
+				notesOffer = { path: location.path, count: bullets.length }
+				await markCuratedFile(directory, location.path, {
+					offeredAt: new Date().toISOString(),
+				})
 			}
-			await writeFile(
-				join(directory, MARKER),
-				`${JSON.stringify(
-					{
-						...marker,
-						curatedBullets: {
-							path: location.path,
-							at: new Date().toISOString(),
-							moved: bullets.length,
-						},
-					},
-					null,
-					2,
-				)}\n`,
-				{ mode: 0o600 },
-			)
-		} catch (error) {
-			problems.push(
-				`Project notes were not moved into stored memory: ${error instanceof Error ? error.message : String(error)}`,
-			)
 		}
+	} catch (error) {
+		problems.push(
+			`Could not check the project's curated memory for notes: ${error instanceof Error ? error.message : String(error)}`,
+		)
 	}
 
 	return {
 		importedRecords,
-		importedBullets,
-		...(curatedPath ? { curatedPath } : {}),
-		...(backupPath && curatedPath ? { backupPath } : {}),
+		skippedRecords,
+		...(notesOffer ? { notesOffer } : {}),
 		problems,
 	}
 }
 
-/** Operator notices for a migration; empty when nothing moved and nothing failed. */
+/**
+ * Move the project's curated `#note`-shaped bullets into typed memory files,
+ * because the operator asked (`/memory import-notes`). Idempotent: a bullet
+ * already moved — by an interrupted earlier run or a concurrent one — is not
+ * moved twice. The file's text before the move is kept beside it, and the
+ * file is rewritten without the moved bullets only if nothing changed it
+ * meanwhile.
+ */
+export async function importCuratedNotes(options: {
+	readonly store: MarkdownMemoryStore
+	readonly directory: string
+	readonly cwd: string
+}): Promise<CuratedNotesImport> {
+	const { store, directory, cwd } = options
+	const location = projectMemoryLocation(cwd)
+	const text = readMemoryFile(location)
+	if (text === null) return { path: location.path, moved: 0, kept: 0 }
+	const { bullets, rest, kept } = splitCuratedBullets(text)
+	if (bullets.length === 0) return { path: location.path, moved: 0, kept }
+	// Digests of bullets an interrupted earlier run already moved.
+	const moved = new Set<unknown>()
+	for (const entry of (await store.list({})).entries) {
+		moved.add((await store.get(entry.id))?.metadata?.sourceDigest)
+	}
+	let count = 0
+	for (const bullet of bullets) {
+		const sourceDigest = digest(bullet)
+		if (moved.has(sourceDigest)) continue
+		if (await moveBullet(store, bullet, sourceDigest, location.path)) count++
+		moved.add(sourceDigest)
+	}
+	const backupPath = `${location.path}${BACKUP_SUFFIX}`
+	writeMemoryBackup(backupPath, text)
+	// A concurrent run that already rewrote it to the same text has done this
+	// run's work; anything else is an edit to keep.
+	if (!replaceMemoryFile(location, text, rest) && readMemoryFile(location) !== rest) {
+		throw new Error(
+			`${location.path} changed while its notes were being moved; the memories were saved, run /memory import-notes again to remove them from the file`,
+		)
+	}
+	await markCuratedFile(directory, location.path, {
+		movedAt: new Date().toISOString(),
+		moved: bullets.length,
+	})
+	return { path: location.path, moved: count, kept, backupPath }
+}
+
+/** Operator notices for a migration; empty when nothing moved, nothing is offered and nothing failed. */
 export function describeMemoryMigration(
 	report: MemoryMigrationReport,
 	directory: string,
@@ -341,13 +437,25 @@ export function describeMemoryMigration(
 			`Stored memory: moved ${report.importedRecords} record${report.importedRecords === 1 ? '' : 's'} from the JSON store into Markdown files in ${directory}.`,
 		)
 	}
-	if (report.importedBullets > 0 && report.curatedPath) {
+	for (const skipped of report.skippedRecords) notices.push(`Stored memory: ${skipped}`)
+	if (report.notesOffer) {
+		const { path, count } = report.notesOffer
 		notices.push(
-			`Stored memory: moved ${report.importedBullets} note${report.importedBullets === 1 ? '' : 's'} from ${report.curatedPath} into typed memory files in ${directory}${
-				report.backupPath ? `; the file as it was is kept at ${report.backupPath}` : ''
-			}. New #note and /memory add notes are saved there too.`,
+			`Stored memory: ${path} has ${count} single-line bullet${count === 1 ? '' : 's'} that may be notes #note saved before notes became typed memory files. They stay curated and still reach every turn. Run /memory import-notes to move them into ${directory} (the file as it was is kept beside it). New #note and /memory add notes are saved there already.`,
 		)
 	}
 	notices.push(...report.problems)
 	return notices
+}
+
+/** The operator's report for `/memory import-notes`. */
+export function describeCuratedNotesImport(result: CuratedNotesImport, directory: string): string {
+	const keptNote =
+		result.kept > 0
+			? ` ${result.kept} bullet${result.kept === 1 ? '' : 's'} under a heading stayed: a heading's list is a section you wrote.`
+			: ''
+	if (!result.backupPath) {
+		return `No single-line notes to move in ${result.path}.${keptNote}`
+	}
+	return `Moved ${result.moved} note${result.moved === 1 ? '' : 's'} from ${result.path} into typed memory files in ${directory}; the file as it was is kept at ${result.backupPath}.${keptNote}`
 }
