@@ -138,8 +138,21 @@ export function formatJobNote(text: string): string {
 	return `\n\n[Background job update]\n${text}`
 }
 
+const STEERING_NOTE_HEADER =
+	'\n\n[Message from the operator, received while this tool was running]\n'
+
 export function formatSteeringNote(text: string): string {
-	return `\n\n[Message from the operator, received while this tool was running]\n${text}`
+	return `${STEERING_NOTE_HEADER}${text}`
+}
+
+/**
+ * The operator guidance the last steering note in a tool result carries, or
+ * `undefined` when the result carries none. The inverse of
+ * {@link formatSteeringNote} applied by {@link attachSteering}.
+ */
+export function readSteeringNote(content: string): string | undefined {
+	const at = content.lastIndexOf(STEERING_NOTE_HEADER)
+	return at < 0 ? undefined : content.slice(at + STEERING_NOTE_HEADER.length)
 }
 
 /**

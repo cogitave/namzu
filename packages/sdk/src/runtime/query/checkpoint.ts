@@ -12,11 +12,17 @@ import type {
 	PendingDecision,
 } from '../../types/hitl/index.js'
 import type { MessageId, TurnId } from '../../types/ids/index.js'
-import type { AssistantMessage, Message, UserMessage } from '../../types/message/index.js'
+import {
+	type AssistantMessage,
+	type Message,
+	type UserMessage,
+	createRuntimeContextMessage,
+} from '../../types/message/index.js'
 import { CHECKPOINT_DOCUMENT_VERSION, type Checkpoint } from '../../types/session/checkpoint.js'
 import type { CheckpointListEntry } from '../../types/session/fork.js'
 import type { SessionRecord } from '../../types/session/records.js'
 import { asGoalId, generateCheckpointId } from '../../utils/id.js'
+import { formatSteeringNote, readSteeringNote } from './steering.js'
 
 /** Keep intent text/provenance without copying attachment payloads into a second slot. */
 function snapshotUserIntent(value: unknown): UserMessage {
@@ -368,10 +374,46 @@ export class CheckpointManager {
 		return { id: document.checkpointId, document }
 	}
 
-	/** The id of a message the log holds, when the recorder recorded it. */
+	/**
+	 * The id of the record that carries a message's text: its own record,
+	 * or — for operator guidance delivered attached to a tool result — the
+	 * record of the tool result that carries it.
+	 */
 	private messageIdOf(recorder: TurnRecorder, message: Message): MessageId | undefined {
 		if (message === this.restoredUserMessage) return this.restoredUserMessageId
-		return recorder.recordedIdOf(message)
+		return recorder.recordedIdOf(message) ?? this.steeringCarrierOf(recorder, message)
+	}
+
+	/** Found once and kept: a compaction may later drop the carrier from the context. */
+	private readonly steeringCarriers = new WeakMap<Message, MessageId>()
+
+	private steeringCarrierOf(recorder: TurnRecorder, message: Message): MessageId | undefined {
+		const known = this.steeringCarriers.get(message)
+		if (known) return known
+		const source = (message as UserMessage).source
+		if (
+			message.role !== 'user' ||
+			typeof message.content !== 'string' ||
+			source?.type !== 'runtime-context' ||
+			source.kind !== 'steering'
+		) {
+			return undefined
+		}
+		const note = formatSteeringNote(message.content)
+		const messages = recorder.messages
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const candidate = messages[i] as Message
+			if (
+				candidate.role === 'tool' &&
+				typeof candidate.content === 'string' &&
+				candidate.content.endsWith(note)
+			) {
+				const id = recorder.recordedIdOf(candidate)
+				if (id) this.steeringCarriers.set(message, id)
+				return id
+			}
+		}
+		return undefined
 	}
 
 	/** The most recent checkpoint this manager wrote, if any. */
@@ -553,18 +595,67 @@ export async function restoreCheckpointContext(
 	const park = (await readParks(log, { turnId: document.turnId }))
 		.filter((candidate) => candidate.checkpointId === document.checkpointId)
 		.at(-1)
+	// The operator intent a checkpoint names survives compaction: when the
+	// fold no longer holds it, its own record (with any replacement) does.
+	const intentId = document.latestUserMessageId
 	const intent =
-		document.latestUserMessageId === undefined
+		intentId === undefined
 			? undefined
-			: history.find((entry) => entry.messageId === document.latestUserMessageId)?.message
+			: (history.find((entry) => entry.messageId === intentId)?.message ??
+				(await readRecordedMessage(log, intentId, document.throughSeq)))
+	if (intentId !== undefined && intent === undefined) {
+		throw new Error(
+			`Checkpoint latestUserMessage names message ${intentId}, which its session log does not hold`,
+		)
+	}
+	// Guidance delivered attached to a tool result: the intent is the note.
+	const guidance =
+		intent?.role === 'tool' && typeof intent.content === 'string'
+			? readSteeringNote(intent.content)
+			: undefined
+	const operatorIntent =
+		guidance !== undefined ? createRuntimeContextMessage(guidance, 'steering') : intent
 	return {
 		id: document.checkpointId,
 		document,
 		messages,
 		messageIds,
 		...(park ? { pending: park.pending } : {}),
-		...(intent ? { latestUserMessage: snapshotUserIntent(intent) } : {}),
+		...(operatorIntent ? { latestUserMessage: snapshotUserIntent(operatorIntent) } : {}),
 	}
+}
+
+/**
+ * A message as its own record left it (with any `message_replaced` applied),
+ * whether or not a compaction has since dropped it from the fold.
+ */
+async function readRecordedMessage(
+	log: SessionLog,
+	messageId: MessageId,
+	throughSeq: number,
+): Promise<Message | undefined> {
+	let found: { content: unknown; spill?: unknown } | undefined
+	for await (const { record } of log.read({ throughSeq })) {
+		const entry = record as SessionRecord & {
+			messageId?: string
+			targetMessageId?: string
+			content?: unknown
+			spill?: unknown
+		}
+		if (
+			(entry.type === 'message' && entry.messageId === messageId) ||
+			(entry.type === 'message_replaced' && entry.targetMessageId === messageId)
+		) {
+			found = { content: entry.content, ...(entry.spill ? { spill: entry.spill } : {}) }
+		}
+	}
+	if (!found) return undefined
+	if (found.spill) {
+		return JSON.parse(
+			await log.readSpill(found.spill as Parameters<SessionLog['readSpill']>[0]),
+		) as Message
+	}
+	return found.content as Message
 }
 
 function withDefined<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {

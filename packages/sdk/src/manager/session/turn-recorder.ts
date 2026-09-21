@@ -191,6 +191,8 @@ export class TurnRecorder {
 	#failure: unknown = undefined
 	#view: ViewEntry[] = []
 	readonly #ids = new Map<Message, MessageId>()
+	/** Every message's record id, kept after a compaction drops it from the fold. */
+	readonly #recorded = new WeakMap<Message, MessageId>()
 	readonly #transient = new WeakSet<Message>()
 	#resultOverridden = false
 	#resultSource: TurnResultSource = 'model'
@@ -790,7 +792,10 @@ export class TurnRecorder {
 		message: Message,
 		options: { readonly messageId?: MessageId; readonly transient?: boolean } = {},
 	): void {
-		if (options.messageId) this.#ids.set(message, options.messageId)
+		if (options.messageId) {
+			this.#ids.set(message, options.messageId)
+			this.#recorded.set(message, options.messageId)
+		}
 		if (options.transient) this.#transient.add(message)
 		this.#turn.messages.push(message)
 		if (options.messageId || options.transient) {
@@ -810,9 +815,13 @@ export class TurnRecorder {
 		this.#syncMessages()
 	}
 
-	/** The id of a message the log holds, or `undefined` when it has no record (yet). */
+	/**
+	 * The id of the record a message was written as, or `undefined` when it
+	 * has no record (yet). A message a compaction has since dropped from the
+	 * fold keeps its id: its record is still in the log.
+	 */
 	recordedIdOf(message: Message): MessageId | undefined {
-		return this.#view.find((entry) => entry.message === message)?.id
+		return this.#view.find((entry) => entry.message === message)?.id ?? this.#recorded.get(message)
 	}
 
 	/** Mark a message as never recorded (the rebuilt system prompt floor). */
@@ -834,6 +843,7 @@ export class TurnRecorder {
 			id = generateMessageId()
 			this.#ids.set(message, id)
 		}
+		this.#recorded.set(message, id)
 		return id
 	}
 
