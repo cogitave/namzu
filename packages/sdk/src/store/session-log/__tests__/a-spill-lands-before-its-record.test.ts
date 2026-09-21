@@ -143,4 +143,78 @@ describe('a spill', () => {
 			spy.mockRestore()
 		}
 	})
+
+	it('spills a large settled answer and a large replacement, each under its own record', async () => {
+		const root = await scratch()
+		const sessionId = generateSessionId()
+		const sessionDir = join(root, sessionId)
+		const file = join(root, `${sessionId}.jsonl`)
+		const log = new DiskSessionLog({ sessionId, file, sessionDir, spillAboveBytes: 1024 })
+		const lease = await log.claim({ holder: 'a', ttlMs: 60_000 })
+		if (lease === null) throw new Error('claim failed')
+		await log.append(lease, {
+			type: 'session_started',
+			projectId: generateProjectId(),
+			cwd: '/w',
+			agent: { id: 'a', name: 'A' },
+		} as SessionRecordDraft)
+		const turnId = generateTurnId()
+		await log.beginTurn(lease, {
+			turnId,
+			userMessageId: generateMessageId(),
+			config: { model: 'm', tokenBudget: 1, timeoutMs: 1 },
+		})
+		const messageId = generateMessageId()
+		await log.append(lease, {
+			type: 'message',
+			turnId,
+			messageId,
+			role: 'assistant',
+			content: { role: 'assistant', content: 'raw answer' },
+		} as SessionRecordDraft)
+		// Two replacements of one message: each must keep its own body.
+		const first = 'r'.repeat(6000)
+		const second = 's'.repeat(7000)
+		const replace = (body: string) =>
+			log.append(lease, {
+				type: 'message_replaced',
+				turnId,
+				targetMessageId: messageId,
+				content: { role: 'assistant', content: body },
+				reason: 'guardrail_rewritten',
+			} as SessionRecordDraft)
+		const r1 = (await replace(first)).record as { spill?: { path: string; sha256: string } }
+		const r2 = (await replace(second)).record as { spill?: { path: string; sha256: string } }
+		expect(r1.spill?.path).not.toBe(r2.spill?.path)
+		expect(await log.readSpill(r1.spill as never)).toContain('r'.repeat(100))
+		expect((await log.messages()).at(-1)).toEqual({ role: 'assistant', content: second })
+
+		const answer = 'a'.repeat(9000)
+		const done = await log.append(lease, {
+			type: 'turn_completed',
+			turnId,
+			result: answer,
+			stopReason: 'end_turn',
+			settlement: {
+				status: 'completed',
+				iterations: 1,
+				usage: {
+					promptTokens: 1,
+					completionTokens: 1,
+					totalTokens: 2,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+				durationMs: 1,
+				resultSource: 'model',
+				abandonedTaskIds: [],
+				abandonedJobIds: [],
+			},
+		} as SessionRecordDraft)
+		const record = done.record as { result: string; resultSpill?: { path: string } }
+		expect(record.result.length).toBeLessThan(answer.length)
+		expect(record.resultSpill).toBeDefined()
+		expect(await log.readSpill(record.resultSpill as never)).toBe(answer)
+	})
 })

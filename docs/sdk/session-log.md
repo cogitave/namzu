@@ -138,7 +138,7 @@ The turn lifecycle events are checked field by field:
 | `turn_started` | `userMessageId`, `systemPrompt?`, `config` (model, token budget, timeout and the other durable limits), `origin?`, `budget?` (`{rootSessionId, rootTurnId, accountId}`) |
 | `turn_paused` | `reason`, `checkpointId`, `failure?`, `providerError?`, `explanation?`, `budget?`. Ends a segment; **not** terminal. |
 | `turn_resuming` | `fromCheckpointId`, `resolvedDecisionId?` |
-| `turn_completed` | `result`, `stopReason?`, `cancelCause?`, `budget?`, `settlement` |
+| `turn_completed` | `result` (a preview when `resultSpill` holds the whole answer), `resultSpill?`, `stopReason?`, `cancelCause?`, `budget?`, `settlement` |
 | `turn_failed` | `error`, `failure?`, `providerError?`, `explanation?`, `budget?`, `settlement` |
 | `child_session_spawned` | `childSessionId`, `toolCallId`, `kind`, `description`, `path` (relative to the session directory), `batch?` (`{batchId, name, phase?}`), `budgetAccountId?` |
 | `child_session_messaged` | `childSessionId`, `messageId`; `turnId` optional (below) |
@@ -167,7 +167,7 @@ session hook, task and sandbox bookkeeping — may omit it.
 | `session_started` | `projectId`, `tenantId?`, `topicId?`, `cwd`, `agent {id, name, type?}`, `parent?` (`{sessionId, turnId, toolCallId, rootSessionId, depth, kind}` for a child session), `forkedFrom?` (`{sessionId, turnId, checkpointId}`), `origin?` |
 | `session_updated` | `title?`, `titleSource?` (`derived`/`named`), `archived?`, `approvalPolicy?`, `externalRefs? {add?, remove?}` |
 | `message` | `messageId`, `role`, `kind?` (`prompt`, `steering`, `auto-continuation`, `context`), `content` (the message), `spill?` |
-| `message_replaced` | `targetMessageId`, `content`, `reason` (`pin-slot`, `guardrail_blocked`, `guardrail_rewritten`, `review`, `outstanding_work`, `structured_output`, `history-repair`) |
+| `message_replaced` | `targetMessageId`, `content`, `reason` (`pin-slot`, `guardrail_blocked`, `guardrail_rewritten`, `review`, `outstanding_work`, `structured_output`, `history-repair`), `spill?` |
 | `checkpoint_written` | `checkpointId`, `iteration`, `throughSeq`, `throughSha256`, `path`, `docSha256` |
 | `checkpoint_pruned` | `checkpointIds` |
 | `decision_requested` | `decisionId`, `checkpointId`, `request` (what the human is shown), `deadlineAt?` |

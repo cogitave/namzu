@@ -551,9 +551,26 @@ export class SessionLogCore implements SessionLog {
 	}
 
 	async #spillIfLarge(candidate: Record<string, unknown>): Promise<Record<string, unknown>> {
-		if (candidate.type !== 'message' && candidate.type !== 'compaction') return candidate
+		const type = candidate.type
+		if (
+			type !== 'message' &&
+			type !== 'message_replaced' &&
+			type !== 'compaction' &&
+			type !== 'turn_completed'
+		)
+			return candidate
 		const size = Buffer.byteLength(`${JSON.stringify(candidate)}\n`, 'utf8')
 		if (size <= this.#spillAbove) return candidate
+		if (type === 'turn_completed') {
+			if (typeof candidate.result !== 'string') return candidate
+			const ref = await this.#spills.write(
+				`record:${String(candidate.id)}`,
+				'message',
+				candidate.result,
+			)
+			const preview = `${candidate.result.slice(0, PREVIEW_CHARS)}\n[… ${ref.bytes} bytes spilled to ${ref.path}]`
+			return { ...candidate, result: preview, resultSpill: ref }
+		}
 		if (candidate.type === 'compaction') {
 			if (!Array.isArray(candidate.summary)) return candidate
 			const ref = await this.#spills.write(
@@ -567,7 +584,9 @@ export class SessionLogCore implements SessionLog {
 		const key =
 			content.role === 'tool' && typeof content.toolCallId === 'string'
 				? content.toolCallId
-				: `message:${String(candidate.messageId)}`
+				: type === 'message_replaced'
+					? `record:${String(candidate.id)}`
+					: `message:${String(candidate.messageId)}`
 		const ref = await this.#spills.write(key, 'message', JSON.stringify(content))
 		const text =
 			typeof content.content === 'string' ? content.content : JSON.stringify(content.content)

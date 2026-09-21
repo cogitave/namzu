@@ -69,7 +69,7 @@ export class SessionMessageFold {
 	 * was in the context when it was applied. Kept for good: a later record of
 	 * the same message must not bring the replaced (raw) content back (§4.4).
 	 */
-	readonly #replacements = new Map<string, { message: Message; seq: number }>()
+	readonly #replacements = new Map<string, { message: Message; seq: number; spill?: SpillRef }>()
 	#spilledSummary: SpilledSummary | undefined
 
 	/** Seq of the last record applied. */
@@ -90,16 +90,19 @@ export class SessionMessageFold {
 				this.#message(record as MessageRecord)
 				return
 			case 'message_replaced': {
+				const spill = (record as { spill?: SpillRef }).spill
 				this.#replacements.set(record.targetMessageId, {
 					message: record.content,
 					seq: record.seq,
+					...(spill === undefined ? {} : { spill }),
 				})
 				const slot = this.#byId.get(record.targetMessageId)
 				if (slot === undefined) return
 				slot.message = record.content
 				slot.replacedAtSeq = record.seq
-				// A replacement is the whole message: a preview's spill no longer applies.
-				slot.spill = undefined
+				// The target's own spill no longer applies; a replacement too large
+				// for its record carries its own.
+				slot.spill = spill
 				return
 			}
 			case 'compaction':
@@ -117,7 +120,13 @@ export class SessionMessageFold {
 			messageId: record.messageId,
 			seq: record.seq,
 			message: replaced?.message ?? record.content,
-			...(record.spill === undefined || replaced !== undefined ? {} : { spill: record.spill }),
+			...(replaced !== undefined
+				? replaced.spill === undefined
+					? {}
+					: { spill: replaced.spill }
+				: record.spill === undefined
+					? {}
+					: { spill: record.spill }),
 			...(replaced === undefined ? {} : { replacedAtSeq: replaced.seq }),
 		}
 		if (existing !== undefined) {
