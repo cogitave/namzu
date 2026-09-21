@@ -20,7 +20,7 @@ explain why they cannot run and are checked again when selected.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and run limits; inspect configuration sources. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and turn limits; inspect configuration sources. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -28,14 +28,15 @@ explain why they cannot run and are checked again when selected.
 | `/exit` | Exit namzu. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy of this conversation, leaving the original where it is. |
-| `/memory` | Show stored memory (the index and, in its own section, what runs recorded) and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. `/memory import-notes` copies the top-level bullets of the project's curated `MEMORY.md` into typed memory files, skipping any already stored, and never changes that file. |
+| `/memory` | Show stored memory (the index and, in its own section, what turns recorded) and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. `/memory import-notes` copies the top-level bullets of the project's curated `MEMORY.md` into typed memory files, skipping any already stored, and never changes that file. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/plugins` | Inspect plugins, enable/disable them for the idle session, and optionally remember their state after restart. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
-| `/resume` | Resume a past conversation in this project. |
+| `/resume` | Resume a past conversation in this project. In a conversation whose last turn is paused or was interrupted, continue that turn under the same turn id. |
+| `/abandon` | Close this conversation's paused or interrupted turn without resuming it, so the next prompt starts a new turn. The turn is recorded as failed with reason `abandoned`; nothing it already did is undone. |
 | `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
 | `/logout` | Remove a Namzu-owned subscription credential: `/logout [claude|codex|all]`. |
-| `/cost` | Show usage and cost for the current or latest run; `/cost details` adds pricing and scope information. |
+| `/cost` | Show usage and cost for the current or latest turn; `/cost details` adds pricing and scope information. |
 | `/jobs` | List background jobs started this session, running and ended. |
 | `/release-notes` | Show what changed in the version that is running: /release-notes [version]. |
 | `/hooks` | List the shell hooks this session runs, by event. |
@@ -53,8 +54,8 @@ explain why they cannot run and are checked again when selected.
 | `/orchestrate` | Toggle orchestrate mode for this session: /orchestrate [on\|off]. A session setting shown beside effort, not a level of it. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
-| `/tasks` | Read tasks from this conversation’s current or latest run. Starting another run or changing conversations clears the previous selection. |
-| `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents runs` lists past and running orchestration runs. |
+| `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
+| `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
 
 ## Command-specific help
 
@@ -92,7 +93,7 @@ Run limits defaults to unlimited tokens, model turns and duration. Enter a value
 for any row; `0` or `unlimited` removes its cap. `/config limits` opens it directly,
 and `/config limits unlimited` removes all three caps for future turns in this
 TUI session. Running work keeps its captured limits and measured usage. See
-[Run limits](run-limits.md) for direct commands and persistent configuration.
+[Turn limits](run-limits.md) for direct commands and persistent configuration.
 Setting sources opens provenance details; `/config sources` opens it directly.
 Web & session opens the bounded `/status` card with the current search backend,
 workspace, model and usage. The status snapshot is rendered as an Ink card with aligned label/value columns,
@@ -186,7 +187,7 @@ is refused while delegated agents or background jobs are still running.
 
 Conversational switches affect only this session; they do not change saved
 defaults for later launches. The `switch_model` tool is available only to
-the main interactive agent, not headless runs or delegated agents.
+the main interactive agent, not headless turns or delegated agents.
 
 `/effort` and `/permissions` affect future turns in the current TUI session.
 The effort choices depend on the selected model and usable fallback models.
@@ -222,14 +223,14 @@ clearing prevents further automatic turns; it does not undo a running tool
 call or interrupt the current turn. Goal reports distinguish the saved status
 from whether automatic continuation is enabled or paused.
 
-`/tasks` reads the actual run task store, including updates made without a
-visible task event. Before a run has supplied a list, it reports that no task
-list is available yet. A run with an empty store reports an empty list.
+`/tasks` reads the session's durable task store, including updates made without
+a visible task event. Before any turn has supplied a list, it reports that no
+task list is available yet. A session with an empty store reports an empty list.
 Switching conversations forgets the selected list without deleting stored
-tasks. The command does not search unrelated historical runs. An embedded
+tasks. The command does not search other sessions. An embedded
 session that does not expose task storage reports that listing is unavailable.
 
-Usage and cost are also scoped to the current or latest run, not the whole
+Usage and cost are also scoped to the current or latest turn, not the whole
 conversation. Own model-call cost is separate from token totals that include
 delegated agents. Unknown prices remain unknown, partly priced usage is a
 lower bound, and measured zero is shown distinctly.
