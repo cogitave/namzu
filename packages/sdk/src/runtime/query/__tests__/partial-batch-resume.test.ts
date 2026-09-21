@@ -1,13 +1,10 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionLog } from '../../../store/session-log/index.js'
+import type { CheckpointId } from '../../../types/hitl/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -15,8 +12,11 @@ import {
 } from '../../../types/message/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { RestoredCheckpoint } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
 import { interruptedToolCalls, planCrashResume } from '../resume-pending.js'
+import { readToolExecutions } from '../tool-executions.js'
+import { type CheckpointedSession, sessionWithCheckpoint } from './support/session.js'
 
 /**
  * A batch's results reach the history only when the WHOLE batch settles,
@@ -26,7 +26,7 @@ import { interruptedToolCalls, planCrashResume } from '../resume-pending.js'
  *
  * Nothing new had to be recorded to fix it. The executor already awaits a
  * `tool_completed` per tool, inline, carrying the id, the name, the result
- * and the error flag, and the transcript already persists it. The record
+ * and the error flag, and the session log already records it. The record
  * was durable all along and simply never read back.
  */
 
@@ -42,11 +42,12 @@ const call = (id: string, name: string) => ({
 	function: { name, arguments: '{}' },
 })
 
-function checkpointWith(messages: Message[]): IterationCheckpoint {
+function checkpointWith(messages: Message[]): RestoredCheckpoint {
 	return {
 		id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 		messages,
-	} as IterationCheckpoint
+		messageIds: new Map(),
+	} as unknown as RestoredCheckpoint
 }
 
 const parkedBatch = (): Message[] => [
@@ -57,31 +58,28 @@ const parkedBatch = (): Message[] => [
 	} as Message,
 ]
 
-describe('reading completed calls back out of the transcript', () => {
-	let dir: string
-	let store: RunDiskStore
+describe('reading completed calls back out of the session log', () => {
+	const TURN = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
+	let session: CheckpointedSession
 
 	beforeEach(async () => {
-		dir = await mkdtemp(join(tmpdir(), 'namzu-resume-'))
-		store = new RunDiskStore({ baseDir: dir })
-		await store.initRun('37ddff8e-e13f-4e57-937f-d048fa323f5e')
+		session = await sessionWithCheckpoint({ turnId: TURN })
 	})
 
-	afterEach(async () => {
-		await removeTempDirAsync(dir)
-	})
-
-	const append = async (lines: unknown[]) => {
-		await writeFile(
-			join(dir, '37ddff8e-e13f-4e57-937f-d048fa323f5e', 'transcript.jsonl'),
-			`${lines.map((l) => JSON.stringify(l)).join('\n')}\n`,
-			'utf-8',
-		)
+	const append = async (drafts: Record<string, unknown>[]) => {
+		for (const draft of drafts) {
+			await session.log.append(session.lease, {
+				turnId: TURN,
+				...draft,
+			} as Parameters<SessionLog['append']>[1])
+		}
 	}
+
+	const read = (ids: readonly string[] = ['t1', 't2']) => readToolExecutions(session.log, TURN, ids)
 
 	it('recovers the calls that finished', async () => {
 		await append([
-			{ type: 'tool_executing', toolUseId: 't1', toolName: 'charge_card' },
+			{ type: 'tool_executing', toolUseId: 't1', toolName: 'charge_card', input: {} },
 			{
 				type: 'tool_completed',
 				toolUseId: 't1',
@@ -91,16 +89,18 @@ describe('reading completed calls back out of the transcript', () => {
 			},
 		])
 
-		const completed = await store.readCompletedTools()
-		expect(completed.get('t1')).toEqual({
+		const { records, complete } = await read()
+		expect(complete).toBe(true)
+		expect(records.get('t1')).toEqual({
 			toolUseId: 't1',
 			toolName: 'charge_card',
+			status: 'completed',
 			result: 'charged',
 			isError: false,
 		})
 		// The one that never finished must NOT be invented — it still has to
 		// run, and claiming otherwise would drop the work silently.
-		expect(completed.has('t2')).toBe(false)
+		expect(records.has('t2')).toBe(false)
 	})
 
 	it('keeps the last result when a tool was retried', async () => {
@@ -115,29 +115,39 @@ describe('reading completed calls back out of the transcript', () => {
 			{ type: 'tool_completed', toolUseId: 't1', toolName: 'fetch', result: 'ok', isError: false },
 		])
 
-		expect((await store.readCompletedTools()).get('t1')?.result).toBe('ok')
+		expect((await read()).records.get('t1')).toMatchObject({ result: 'ok' })
 	})
 
-	it('survives the torn last line a killed process leaves behind', async () => {
-		// This is the ordinary shape of a file that was being appended to
-		// when the process died — which is the exact case being recovered.
-		await writeFile(
-			join(dir, '37ddff8e-e13f-4e57-937f-d048fa323f5e', 'transcript.jsonl'),
-			`${JSON.stringify({ type: 'tool_completed', toolUseId: 't1', toolName: 'a', result: 'r', isError: false })}\n{"type":"tool_com`,
-			'utf-8',
+	it('treats a start with no completion as a call whose outcome is unknown', async () => {
+		// The shape a process killed mid-tool leaves: started, never finished.
+		await append([{ type: 'tool_executing', toolUseId: 't2', toolName: 'send_email', input: {} }])
+
+		expect((await read()).records.get('t2')).toEqual({
+			toolUseId: 't2',
+			toolName: 'send_email',
+			status: 'started',
+		})
+	})
+
+	it('returns nothing when the turn recorded no tool calls', async () => {
+		const { records, complete } = await read()
+		expect(records.size).toBe(0)
+		// Complete: the turn's beginning was read, so absence is proof.
+		expect(complete).toBe(true)
+	})
+
+	it('is not complete for a turn the log never began', async () => {
+		const { complete } = await readToolExecutions(
+			session.log,
+			'4f1b0f65-8a47-4d71-9d7c-8c1f2f0f9a01' as TurnId,
+			['t1'],
 		)
-
-		const completed = await store.readCompletedTools()
-		expect(completed.size).toBe(1)
+		expect(complete).toBe(false)
 	})
 
-	it('returns nothing when the run never wrote a transcript', async () => {
-		expect((await store.readCompletedTools()).size).toBe(0)
-	})
-
-	it('ignores an event missing the fields that identify a call', async () => {
+	it('refuses a completion missing the fields that identify a call', async () => {
 		await append([{ type: 'tool_completed', result: 'orphan', isError: false }])
-		expect((await store.readCompletedTools()).size).toBe(0)
+		await expect(read()).rejects.toThrow(/invalid tool identity/)
 	})
 })
 
@@ -217,6 +227,7 @@ describe('executing a batch that carries recovered results', () => {
 		const executor = new ToolExecutor(
 			{
 				tools,
+				sessionId: 'b8a2f2e1-5f0e-4a8d-9f76-1c2f3e4d5a6b' as SessionId,
 				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 				workingDirectory: tmpdir(),
 				permissionMode: 'auto',

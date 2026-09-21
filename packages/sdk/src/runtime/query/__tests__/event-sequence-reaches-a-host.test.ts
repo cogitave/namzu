@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,25 +8,32 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
-import { fixtureId } from '../../../test-support/ids.js'
+import {
+	InMemorySessionLog,
+	type SessionLease,
+	type SessionLog,
+} from '../../../store/session-log/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/events.js'
 import { isEphemeralEvent } from '../../../types/session/events.js'
-import type { RunStore } from '../../../types/session/tool-execution.js'
+import { PERSISTED_SESSION_EVENT_TYPES } from '../../../types/session/records.js'
+import { generateTurnId } from '../../../utils/id.js'
 import { EventTranslator } from '../events.js'
 import { type QueryParams, drainQuery, query } from '../index.js'
+import { records } from './support/session.js'
 
 /**
  * A cursor is only worth having if it reaches the surface a host actually
- * consumes. `query()` is that surface — it yields the run's events — so these
+ * consumes. `query()` is that surface — it yields the turn's events — so these
  * drive it rather than the translator underneath, and every assertion here is
  * one the wiring can be deleted to break.
  *
  * The property under test is one sentence: **a `seq` on an event is the
- * statement that this event is in the durable log.** Everything else — the
- * catch-up, the verdict, the wire id — is built on it being true.
+ * statement that this event is in the session log, as the record with that
+ * `seq`.** Everything else — the catch-up, the verdict, the wire id — is built
+ * on it being true. The log also holds records that are not events (messages,
+ * checkpoints), so the numbers a host sees climb with gaps.
  */
 
 const LOG = {
@@ -37,8 +44,19 @@ const LOG = {
 	child: vi.fn(() => LOG),
 }
 
+const SESSION = '1b9fa4ed-2300-43ac-9ee1-c641c9ae66d1' as SessionId
+const SCOPE = {
+	sessionId: SESSION,
+	topicId: '07c17470-7e89-4c5e-9680-2d10d92ac22a',
+	projectId: '4dfa889d-312b-4570-a8e3-e1ccd3f2274b',
+	tenantId: '2c8e25c0-8fc7-4427-8e9e-f338d6e51c02',
+}
+
+const EVENT_TYPES: ReadonlySet<string> = new Set(PERSISTED_SESSION_EVENT_TYPES)
+
 const dirs: string[] = []
 afterEach(async () => {
+	vi.restoreAllMocks()
 	await removeTempDirs(dirs)
 })
 
@@ -48,24 +66,30 @@ async function workdir(): Promise<string> {
 	return dir
 }
 
-/** The real class over the injected store — the shape production builds. */
-function persistence(runStore: RunStore, runId: string): TurnRecorder {
+/** The real class over the given log — the shape production builds. */
+function recorderOver(sessionLog: SessionLog, turnId: TurnId = generateTurnId()): TurnRecorder {
 	return new TurnRecorder({
 		turnId,
 		agentId: 'a',
 		agentName: 'A',
-		turnConfig: {},
+		turnConfig: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
 		providerId: 'mock',
-		// The injected store owns its location; this fallback must never be written.
-		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
-		sessionId: '1b9fa4ed-2300-43ac-9ee1-c641c9ae66d1',
-		topicId: '07c17470-7e89-4c5e-9680-2d10d92ac22a',
-		projectId: '4dfa889d-312b-4570-a8e3-e1ccd3f2274b',
-		tenantId: '2c8e25c0-8fc7-4427-8e9e-f338d6e51c02',
-		runStore,
+		...SCOPE,
+		sessionLog,
 		// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
 	} as any)
+}
+
+/** A recorder whose turn has begun, and the translator in front of it. */
+async function begunTurn(sessionLog: SessionLog) {
+	const recorder = recorderOver(sessionLog)
+	await recorder.open({ session: { cwd: '/tmp' } })
+	const emitter = new EventTranslator(recorder)
+	await emitter.beginTurn({})
+	recorder.markRunning()
+	;[...emitter.drainPending()]
+	return { recorder, emitter }
 }
 
 function latch() {
@@ -88,10 +112,10 @@ function registryWithEcho(): ToolRegistry {
 }
 
 /**
- * A run with a tool call in it, so the stream carries more than one lifecycle
- * event and the numbering has something to be wrong about.
+ * A turn with a tool call in it, so the stream carries more than one
+ * lifecycle event and the numbering has something to be wrong about.
  */
-async function params(runStore: RunStore): Promise<QueryParams> {
+async function params(sessionLog: SessionLog): Promise<QueryParams> {
 	return {
 		messages: [createUserMessage('go')],
 		provider: new MockLLMProvider({
@@ -108,11 +132,8 @@ async function params(runStore: RunStore): Promise<QueryParams> {
 		agentId: 'agent_seq',
 		agentName: 'Sequence Agent',
 		workingDirectory: await workdir(),
-		sessionId: '1b9fa4ed-2300-43ac-9ee1-c641c9ae66d1',
-		topicId: '07c17470-7e89-4c5e-9680-2d10d92ac22a',
-		projectId: '4dfa889d-312b-4570-a8e3-e1ccd3f2274b',
-		tenantId: '2c8e25c0-8fc7-4427-8e9e-f338d6e51c02',
-		runStore,
+		...SCOPE,
+		sessionLog,
 		resumeHandler: async () => ({ action: 'continue' as const }),
 	} as unknown as QueryParams
 }
@@ -128,38 +149,33 @@ async function drain(p: QueryParams): Promise<SessionEvent[]> {
 	return seen
 }
 
-describe('a host watching a run gets a cursor with it', () => {
-	it('numbers the events it yields, from one, with no gap', async () => {
-		const store = new InMemoryRunStore()
+const memoryLog = () => new InMemorySessionLog({ sessionId: SESSION })
 
-		const seen = await drain(await params(store))
+describe('a host watching a turn gets a cursor with it', () => {
+	it('numbers the events it yields in log order, never twice', async () => {
+		const seen = await drain(await params(memoryLog()))
 
 		const numbers = seen.filter((e) => e.seq !== undefined).map((e) => e.seq as number)
 		expect(numbers.length).toBeGreaterThan(3)
-		expect(numbers).toEqual(numbers.map((_, i) => i + 1))
+		expect(numbers).toEqual([...numbers].sort((a, b) => a - b))
+		expect(new Set(numbers).size).toBe(numbers.length)
 	})
 
 	it('numbers exactly the events the log holds, and gives them the same numbers', async () => {
-		const store = new InMemoryRunStore()
-
-		const seen = await drain(await params(store))
-		const recorded = await store.readEvents()
+		const sessionLog = memoryLog()
+		const seen = await drain(await params(sessionLog))
+		const recorded = (await records(sessionLog)).filter((record) => EVENT_TYPES.has(record.type))
 
 		// The two halves of the invariant, and both are needed: the same COUNT
 		// would pass if the numbering were shifted, and the same NUMBERS would
 		// pass if the live stream carried an event the log never took.
-		expect(seen.filter((e) => e.seq !== undefined).map((e) => e.seq)).toEqual(
-			recorded.map((e) => e.seq),
-		)
-		expect(seen.filter((e) => e.seq !== undefined).map((e) => e.type)).toEqual(
-			recorded.map((e) => e.type),
-		)
+		const numbered = seen.filter((e) => e.seq !== undefined)
+		expect(numbered.map((e) => e.seq)).toEqual(recorded.map((record) => record.seq))
+		expect(numbered.map((e) => e.type)).toEqual(recorded.map((record) => record.type))
 	})
 
 	it('leaves the events that are never persisted unnumbered', async () => {
-		const store = new InMemoryRunStore()
-
-		const seen = await drain(await params(store))
+		const seen = await drain(await params(memoryLog()))
 
 		// A number on one of these would be a cursor pointing at nothing: the
 		// deltas are excluded from the log by design, so a consumer that advanced
@@ -169,154 +185,128 @@ describe('a host watching a run gets a cursor with it', () => {
 		expect(ephemeralWithSeq).toEqual([])
 	})
 
-	it('carries the claim fence as the generation on every recorded event', async () => {
-		const store = new InMemoryRunStore()
+	it('carries the lease fence as the generation on every recorded event', async () => {
+		const sessionLog = memoryLog()
+		// Two earlier holdings, so the fence this turn writes under is not 1.
+		for (const holder of ['earlier-1', 'earlier-2']) {
+			const earlier = (await sessionLog.claim({ holder, ttlMs: 60_000 })) as SessionLease
+			await sessionLog.release(earlier)
+		}
+		const lease = (await sessionLog.claim({ holder: 'worker', ttlMs: 60_000 })) as SessionLease
 
-		const seen = await drain({ ...(await params(store)), claimFence: 7 } as QueryParams)
+		const seen = await drain({ ...(await params(sessionLog)), lease } as QueryParams)
 
 		const recorded = seen.filter((e) => e.seq !== undefined)
 		expect(recorded.length).toBeGreaterThan(0)
-		// Without this a takeover is invisible: the next holder's log restarts at
-		// 1 and a consumer at 400 is told, truthfully and uselessly, that there
-		// is nothing above it.
-		expect(recorded.every((e) => e.generation === 7)).toBe(true)
-	})
-
-	it('leaves the generation absent on an unclaimed run rather than inventing one', async () => {
-		const store = new InMemoryRunStore()
-
-		const seen = await drain(await params(store))
-
-		expect(seen.every((e) => e.generation === undefined)).toBe(true)
+		// Without this a takeover is invisible: a consumer at 400 is told,
+		// truthfully and uselessly, that there is nothing above it.
+		expect(lease.fence).toBeGreaterThan(1)
+		expect(recorded.every((e) => e.generation === lease.fence)).toBe(true)
 	})
 })
 
 describe('the number is a claim that the event is recoverable', () => {
-	it('withholds it when the durable write fails, and still delivers the event', async () => {
-		const store = new InMemoryRunStore()
-		await store.initRun('e08c38cc-7a59-40b2-8032-31b2b4e3c261')
-		const mgr = persistence(store, 'e08c38cc-7a59-40b2-8032-31b2b4e3c261')
-		await mgr.init()
-		const emitter = new EventTranslator(mgr)
+	it('withholds it when the append fails, and still delivers the event', async () => {
+		const sessionLog = memoryLog()
+		const { emitter, recorder } = await begunTurn(sessionLog)
 
-		vi.spyOn(store, 'appendEvent').mockRejectedValueOnce(new Error('disk full'))
+		vi.spyOn(sessionLog, 'append').mockRejectedValueOnce(new Error('disk full'))
 		await expect(
-			emitter.emitEvent({ type: 'turn_started', runId: fixtureId.run('fail') } as SessionEvent),
+			emitter.emitEvent({ type: 'iteration_started', iteration: 1 } as never),
 		).rejects.toThrow('disk full')
-		// The next event must take the number the failed one did NOT consume.
-		await emitter.emitEvent({
-			type: 'iteration_started',
-			turnId: 'e08c38cc-7a59-40b2-8032-31b2b4e3c261',
-			iteration: 1,
-		} as never)
+		// A log whose append failed is in a state nobody verified: the recorder
+		// takes no further records, so the next event is refused as well.
+		await expect(
+			emitter.emitEvent({ type: 'iteration_started', iteration: 2 } as never),
+		).rejects.toThrow('disk full')
 
 		const drained = [...emitter.drainPending()]
 
 		// Delivered, because losing the news of a failure is worse than
-		// delivering it without a cursor — and unnumbered, because it is not in
-		// the log and a consumer must never advance a cursor onto it.
+		// delivering it without a cursor — and unnumbered, because neither is
+		// in the log and a consumer must never advance a cursor onto them.
 		expect(drained.map((e) => [e.type, e.seq])).toEqual([
-			['turn_started', undefined],
-			['iteration_started', 1],
+			['iteration_started', undefined],
+			['iteration_started', undefined],
 		])
-		expect((await store.readEvents()).map((e) => e.type)).toEqual(['iteration_started'])
+		expect(
+			(await records(sessionLog)).filter((record) => record.type === 'iteration_started'),
+		).toEqual([])
+		expect(recorder.turnId).toBeDefined()
 	})
 })
 
 describe('emits that overlap still get distinct numbers', () => {
 	it('gives twenty concurrent emits twenty consecutive numbers', async () => {
-		const store = new InMemoryRunStore()
-		await store.initRun('849aee55-b85a-4d73-ba09-ab034da1a47b')
-		const mgr = persistence(store, '849aee55-b85a-4d73-ba09-ab034da1a47b')
-		await mgr.init()
-		const emitter = new EventTranslator(mgr)
+		const sessionLog = memoryLog()
+		const { emitter } = await begunTurn(sessionLog)
+		const head = (await sessionLog.head())?.pointer.seq ?? 0
 
 		// Emits genuinely interleave in production — the task store, the plan
 		// manager and a batch of parallel tools all reach this one funnel — and
-		// a store whose write yields is enough to interleave them. Without the
-		// append lock this measured three events holding 15 and two holding 12.
-		const slow = vi
-			.spyOn(store, 'appendEvent')
-			.mockImplementation(async () => new Promise<void>((r) => setTimeout(r, 1)))
+		// a log whose write yields is enough to interleave them.
+		const append = sessionLog.append.bind(sessionLog)
+		vi.spyOn(sessionLog, 'append').mockImplementation(async (lease, draft) => {
+			await new Promise<void>((r) => setTimeout(r, 1))
+			return append(lease, draft)
+		})
 		await Promise.all(
 			Array.from({ length: 20 }, (_, i) =>
-				emitter.emitEvent({
-					type: 'iteration_started',
-					turnId: '849aee55-b85a-4d73-ba09-ab034da1a47b',
-					iteration: i,
-				} as never),
+				emitter.emitEvent({ type: 'iteration_started', iteration: i } as never),
 			),
 		)
-		slow.mockRestore()
 
 		const numbers = [...emitter.drainPending()].map((e) => e.seq)
 
-		expect(numbers).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
-		expect(new Set(numbers).size).toBe(20)
+		expect(numbers).toEqual(Array.from({ length: 20 }, (_, i) => head + 1 + i))
 	})
 })
 
-describe('a live transcript snapshot stays between whole appends', () => {
-	it('cancels a queued capture before a blocked append finishes without entering the store', async () => {
-		const captureTextEvidence = vi.fn(async () => undefined)
-		const store = Object.assign(new InMemoryRunStore(), { captureTextEvidence })
-		const runId = fixtureId.run('cancel-queued-capture')
-		const mgr = persistence(store, runId)
-		await mgr.init()
-		mgr.markRunning()
-		const emitter = new EventTranslator(mgr)
+describe('a live log snapshot stays between whole appends', () => {
+	it('cancels a queued capture before a blocked append finishes without reading the log', async () => {
+		const sessionLog = memoryLog()
+		const { emitter, recorder } = await begunTurn(sessionLog)
 		const entered = latch()
 		const release = latch()
-		const append = store.appendEvent.bind(store)
-		vi.spyOn(store, 'appendEvent').mockImplementationOnce(async (event) => {
+		const append = sessionLog.append.bind(sessionLog)
+		vi.spyOn(sessionLog, 'append').mockImplementationOnce(async (lease, draft) => {
 			entered.resolve()
 			await release.promise
-			await append(event)
+			return append(lease, draft)
 		})
-		const writing = emitter.emitEvent({
-			type: 'iteration_started',
-			turnId,
-			iteration: 1,
-		} as SessionEvent)
+		const head = vi.spyOn(recorder, 'head')
+		const writing = emitter.emitEvent({ type: 'iteration_started', iteration: 1 } as never)
 		await entered.promise
 		const local = new AbortController()
 		const capture = emitter.captureSessionEvidence(undefined, local.signal)
 		local.abort(new Error('cancel queued read'))
 		try {
 			await expect(capture).rejects.toThrow('cancel queued read')
-			expect(captureTextEvidence).not.toHaveBeenCalled()
+			expect(head).not.toHaveBeenCalled()
 		} finally {
 			release.resolve()
 		}
 		await writing
-		await emitter.captureSessionEvidence()
-		expect(captureTextEvidence).toHaveBeenCalledTimes(1)
-		expect((await store.readEvents()).map((e) => e.seq)).toEqual([1])
+		// An in-memory log has no retained text: the capture answers `undefined`.
+		await expect(emitter.captureSessionEvidence()).resolves.toBeUndefined()
+		expect(head).toHaveBeenCalledTimes(1)
 	})
 
-	it('rejects cancelled capture promptly but keeps its lock until an uncooperative store settles', async () => {
+	it('rejects a cancelled capture promptly but keeps its lock until the read settles', async () => {
+		const sessionLog = memoryLog()
+		const { emitter, recorder } = await begunTurn(sessionLog)
 		const entered = latch()
 		const release = latch()
-		const captureTextEvidence = vi.fn(async () => {
+		vi.spyOn(recorder, 'head').mockImplementationOnce(async () => {
 			entered.resolve()
 			await release.promise
 			throw new Error('late backend failure')
 		})
-		const store = Object.assign(new InMemoryRunStore(), { captureTextEvidence })
-		const runId = fixtureId.run('cancel-active-capture')
-		const mgr = persistence(store, runId)
-		await mgr.init()
-		mgr.markRunning()
-		const emitter = new EventTranslator(mgr)
 		const local = new AbortController()
 		const capture = emitter.captureSessionEvidence(undefined, local.signal)
 		await entered.promise
-		const append = vi.spyOn(store, 'appendEvent')
-		const writing = emitter.emitEvent({
-			type: 'iteration_started',
-			turnId,
-			iteration: 1,
-		} as SessionEvent)
+		const append = vi.spyOn(sessionLog, 'append')
+		const writing = emitter.emitEvent({ type: 'iteration_started', iteration: 1 } as never)
 		local.abort(new Error('cancel active read'))
 		try {
 			await expect(capture).rejects.toThrow('cancel active read')
@@ -326,39 +316,33 @@ describe('a live transcript snapshot stays between whole appends', () => {
 		}
 		await writing
 		expect(append).toHaveBeenCalledTimes(1)
-		expect((await store.readEvents()).map((e) => e.seq)).toEqual([1])
 	})
 
-	it('waits for a partial append and holds subsequent appends until the read finishes', async () => {
-		const store = new RunDiskStore({ baseDir: await workdir() })
-		const runId = fixtureId.run('snapshot')
-		const mgr = persistence(store, runId)
-		await mgr.init()
-		const emitter = new EventTranslator(mgr)
-		const transcript = join(store.getRunDir() as string, 'transcript.jsonl')
-		const partialWritten = latch()
+	it('waits for an append and holds later appends until the read finishes', async () => {
+		const sessionLog = memoryLog()
+		const { emitter } = await begunTurn(sessionLog)
+		const appending = latch()
 		const finishAppend = latch()
 		const readStarted = latch()
 		const finishRead = latch()
-		const readEvents = store.readEvents.bind(store)
-		const append = vi.spyOn(store, 'appendEvent').mockImplementationOnce(async (event) => {
-			const line = JSON.stringify({ ...event, timestamp: 1 })
-			const split = Math.floor(line.length / 2)
-			await appendFile(transcript, line.slice(0, split))
-			partialWritten.resolve()
+		const realAppend = sessionLog.append.bind(sessionLog)
+		const append = vi.spyOn(sessionLog, 'append')
+		append.mockImplementationOnce(async (lease, draft) => {
+			appending.resolve()
 			await finishAppend.promise
-			await appendFile(transcript, `${line.slice(split)}\n`)
+			return realAppend(lease, draft)
 		})
-		const read = vi.spyOn(store, 'readEvents').mockImplementationOnce(async (options) => {
+		const readAll = sessionLog.readAll.bind(sessionLog)
+		const read = vi.spyOn(sessionLog, 'readAll').mockImplementationOnce(async (options) => {
 			readStarted.resolve()
 			await finishRead.promise
-			return readEvents(options)
+			return readAll(options)
 		})
-		const first = emitter.emitEvent({ type: 'iteration_started', runId, iteration: 1 })
-		await partialWritten.promise
-		const snapshot = emitter.readEvents({ integrity: 'strict' })
+		const first = emitter.emitEvent({ type: 'iteration_started', iteration: 1 } as never)
+		await appending.promise
+		const snapshot = emitter.readRecords({ mode: 'strict' })
 		void snapshot.catch(() => {})
-		const second = emitter.emitEvent({ type: 'iteration_started', runId, iteration: 2 })
+		const second = emitter.emitEvent({ type: 'iteration_started', iteration: 2 } as never)
 		try {
 			await new Promise<void>((resolve) => setImmediate(resolve))
 			expect(read).not.toHaveBeenCalled()
@@ -368,11 +352,14 @@ describe('a live transcript snapshot stays between whole appends', () => {
 			await new Promise<void>((resolve) => setImmediate(resolve))
 			expect(append).toHaveBeenCalledTimes(1)
 			finishRead.resolve()
-			expect((await snapshot).map((event) => event.seq)).toEqual([1])
+			const iterations = (await snapshot).filter((record) => record.type === 'iteration_started')
+			expect(iterations).toHaveLength(1)
 			await second
-			expect((await emitter.readEvents({ integrity: 'strict' })).map((event) => event.seq)).toEqual(
-				[1, 2],
-			)
+			expect(
+				(await emitter.readRecords({ mode: 'strict' })).filter(
+					(record) => record.type === 'iteration_started',
+				),
+			).toHaveLength(2)
 		} finally {
 			finishAppend.resolve()
 			finishRead.resolve()
@@ -381,44 +368,29 @@ describe('a live transcript snapshot stays between whole appends', () => {
 	})
 
 	it('initializes the query tool budget after an in-flight activity append finishes', async () => {
-		const store = new RunDiskStore({ baseDir: await workdir() })
-		const partialWritten = latch()
+		const sessionLog = memoryLog()
+		const appending = latch()
 		const finishAppend = latch()
 		const snapshotRequested = latch()
-		const appendEvent = store.appendEvent.bind(store)
+		const realAppend = sessionLog.append.bind(sessionLog)
 		let held = false
-		vi.spyOn(store, 'appendEvent').mockImplementation(async (event) => {
-			if (event.type !== 'activity_updated' || event.status !== 'completed' || held) {
-				return appendEvent(event)
+		vi.spyOn(sessionLog, 'append').mockImplementation(async (lease, draft) => {
+			const record = draft as { type: string; status?: string }
+			if (record.type !== 'activity_updated' || record.status !== 'completed' || held) {
+				return realAppend(lease, draft)
 			}
 			held = true
-			const transcript = join(store.getRunDir() as string, 'transcript.jsonl')
-			const line = JSON.stringify({ ...event, timestamp: 1 })
-			const split = Math.floor(line.length / 2)
-			await appendFile(transcript, line.slice(0, split))
-			partialWritten.resolve()
+			appending.resolve()
 			await finishAppend.promise
-			await appendFile(transcript, `${line.slice(split)}\n`)
+			return realAppend(lease, draft)
 		})
-		const readEvents = store.readEvents.bind(store)
-		vi.spyOn(store, 'readEvents').mockImplementation(async (options) => {
-			if (options?.integrity !== 'strict') return readEvents(options)
-			await partialWritten.promise
-			try {
-				return await readEvents(options)
-			} finally {
-				// If query bypasses the queued snapshot, capture its real strict-read
-				// failure before letting the held partial append finish.
-				snapshotRequested.resolve()
-			}
-		})
-		const readSnapshot = EventTranslator.prototype.readEvents
-		const snapshot = vi.spyOn(EventTranslator.prototype, 'readEvents').mockImplementation(function (
+		const readSnapshot = EventTranslator.prototype.readRecords
+		vi.spyOn(EventTranslator.prototype, 'readRecords').mockImplementation(function (
 			this: EventTranslator,
 			options,
 		) {
 			const pending = readSnapshot.call(this, options)
-			if (options?.integrity === 'strict') snapshotRequested.resolve()
+			snapshotRequested.resolve()
 			return pending
 		})
 		let executions = 0
@@ -433,7 +405,7 @@ describe('a live transcript snapshot stays between whole appends', () => {
 			},
 		})
 		const running = drainQuery({
-			...(await params(store)),
+			...(await params(sessionLog)),
 			tools,
 			maxToolCalls: 1,
 			authorizationGate: {
@@ -445,8 +417,8 @@ describe('a live transcript snapshot stays between whole appends', () => {
 			},
 		})
 		try {
-			await partialWritten.promise
-			await snapshotRequested.promise
+			await Promise.race([appending.promise, running])
+			await Promise.race([snapshotRequested.promise, running])
 			finishAppend.resolve()
 			const result = await running
 			expect(result.status, result.lastError).toBe('completed')
@@ -454,58 +426,60 @@ describe('a live transcript snapshot stays between whole appends', () => {
 		} finally {
 			finishAppend.resolve()
 			await running.catch(() => {})
-			snapshot.mockRestore()
 		}
 	})
 
-	it('still refuses a torn transcript and releases the queue after the failed read', async () => {
-		const store = new RunDiskStore({ baseDir: await workdir() })
-		const runId = fixtureId.run('corrupt-snapshot')
-		const mgr = persistence(store, runId)
-		await mgr.init()
-		const emitter = new EventTranslator(mgr)
-		const transcript = join(store.getRunDir() as string, 'transcript.jsonl')
-		await emitter.emitEvent({ type: 'iteration_started', runId, iteration: 1 })
-		const intact = await readFile(transcript, 'utf8')
-		await appendFile(transcript, '{"type":')
+	it('releases the queue after a failed read', async () => {
+		const sessionLog = memoryLog()
+		const { emitter } = await begunTurn(sessionLog)
+		await emitter.emitEvent({ type: 'iteration_started', iteration: 1 } as never)
+		vi.spyOn(sessionLog, 'readAll').mockRejectedValueOnce(new Error('the log refused the read'))
 
-		await expect(emitter.readEvents({ integrity: 'strict' })).rejects.toThrow(
-			'final record is not newline-terminated',
-		)
+		await expect(emitter.readRecords({ mode: 'strict' })).rejects.toThrow('refused the read')
 
-		// Repair only the fixture bytes, then prove a failed snapshot did not poison the queue.
-		await writeFile(transcript, intact)
-		await emitter.emitEvent({ type: 'iteration_started', runId, iteration: 2 })
+		// A failed snapshot must not poison the queue: the next append and the
+		// next read both go through.
+		await emitter.emitEvent({ type: 'iteration_started', iteration: 2 } as never)
+		const after = await emitter.readRecords({ mode: 'strict' })
 		expect(
-			(await emitter.readEvents({ integrity: 'strict', sinceSeq: 1 })).map((event) => event.seq),
-		).toEqual([2])
+			after
+				.filter((record) => record.type === 'iteration_started')
+				.map((record) => (record as { iteration?: number }).iteration),
+		).toEqual([1, 2])
 	})
 })
 
 describe('the sequence survives the process that was writing it', () => {
 	it('continues the log rather than starting a second sequence inside it', async () => {
-		const store = new InMemoryRunStore()
-		await store.initRun('8b0b7ac8-7f23-4ebf-9222-52fce838aa3e')
-		await store.appendEvent({
-			type: 'turn_started',
-			turnId: '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e',
-			seq: 1,
-		} as never)
-		await store.appendEvent({
-			type: 'iteration_started',
-			turnId: fixtureId.run('restart'),
-			iteration: 1,
-			seq: 2,
+		const sessionLog = memoryLog()
+		// What the first process left: its session, and a turn it closed.
+		const first = recorderOver(sessionLog)
+		await first.open({ session: { cwd: '/tmp' } })
+		const firstEmitter = new EventTranslator(first)
+		await firstEmitter.beginTurn({})
+		await firstEmitter.emitEvent({ type: 'iteration_started', iteration: 1 } as never)
+		await first.flush()
+		await first.release()
+		const closer = (await sessionLog.claim({ holder: 'closer', ttlMs: 60_000 })) as SessionLease
+		await sessionLog.abandonTurn(closer, first.turnId, 'the first process went away')
+		await sessionLog.release(closer)
+		const head = (await sessionLog.head())?.pointer.seq ?? 0
+
+		// A different `TurnRecorder` over another instance of the same log is
+		// what a second process is: the object graph is new, the log is not.
+		const reopened = new InMemorySessionLog({
+			sessionId: SESSION,
+			medium: sessionLog.medium,
+			leases: sessionLog.leaseStore,
+			spills: sessionLog.spillStore,
 		})
+		const second = recorderOver(reopened)
+		await second.open({ session: { cwd: '/tmp' } })
+		const begun = await second.begin({})
 
-		// A different `TurnRecorder` over the same store is what a second
-		// process is: the object graph is new, the log is not.
-		const mgr = persistence(store, '8b0b7ac8-7f23-4ebf-9222-52fce838aa3e')
-		await mgr.init()
-
-		// Without the seed this is 1, and the log then holds two events numbered
-		// 1 and two numbered 2 — so a consumer asking for everything above 2 is
-		// handed the run's own beginning a second time.
-		expect(mgr.nextEventSeq()).toBe(3)
+		// Numbered from 1 again, the log would hold two records numbered 1 —
+		// so a consumer asking for everything above 2 would be handed the
+		// session's own beginning a second time.
+		expect(begun.record.seq).toBe(head + 1)
 	})
 })
