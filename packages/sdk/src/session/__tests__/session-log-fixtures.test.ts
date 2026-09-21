@@ -236,6 +236,37 @@ describe('session-log fixtures', () => {
 		expect(new Set(batches.map((b) => b?.batchId)).size).toBe(1)
 	})
 
+	it('batch-annotated: a child that outlives its turn ends with no turnId, not a later one', () => {
+		const records = readRecords('batch-annotated.jsonl')
+		const ended = records.filter((r) => r.type === 'child_session_ended')
+		expect(ended.map((r) => [r.childSessionId, r.turnId])).toEqual([
+			[ids.session('batch-child-a'), ids.turn('batch-1')],
+			[ids.session('batch-child-b'), undefined],
+		])
+		// The late end is written while batch-2 runs, and still does not name it.
+		const late = records.indexOf(ended[1] as SessionRecord)
+		const batch2 = records.findIndex(
+			(r) => r.type === 'turn_started' && r.turnId === ids.turn('batch-2'),
+		)
+		expect(batch2).toBeGreaterThan(-1)
+		expect(late).toBeGreaterThan(batch2)
+		const first = records.find((r) => r.type === 'turn_completed') as Extract<
+			SessionRecord,
+			{ type: 'turn_completed' }
+		>
+		expect(first.settlement.abandonedTaskIds).toEqual(['toolu_fixture_batch_b'])
+	})
+
+	it.each(logs)('%s: no record names a turn that has already closed', (name) => {
+		const closed = new Set<string>()
+		for (const record of readRecords(name)) {
+			if (record.turnId !== undefined) expect(closed, record.type).not.toContain(record.turnId)
+			if (record.type === 'turn_completed' || record.type === 'turn_failed') {
+				closed.add(record.turnId)
+			}
+		}
+	})
+
 	it('origin-external-refs: caller ids are kept verbatim, UUID or not', () => {
 		const records = readRecords('origin-external-refs.jsonl')
 		expect(records[0]).toMatchObject({

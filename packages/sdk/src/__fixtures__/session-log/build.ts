@@ -239,7 +239,7 @@ export function buildSessionLogFixtures(): Record<string, string> {
 				auditId: fixtureUuid('audit:1'),
 				actor: { kind: 'agent', agentId: 'fixture-agent', tenantId: ids.tenant },
 				action: 'tool.ls',
-				outcome: 'allowed',
+				outcome: 'success',
 			})
 			.complete('valid-1', 'Two files: a.txt and b.txt.')
 			.prompt('valid-2', 'Thanks.')
@@ -559,10 +559,23 @@ export function buildSessionLogFixtures(): Record<string, string> {
 			)}\n`
 	}
 
-	// batch-annotated: two children grouped as one batch with a phase.
+	// batch-annotated: two children grouped as one batch with a phase. Child a
+	// ends inside the turn that spawned it; child b outlives that turn (it is
+	// in the settlement's abandonedTaskIds) and ends while the next turn runs,
+	// so its child_session_ended carries no turnId rather than the closed
+	// turn's or the running one's.
 	{
 		const log = new LogBuilder('batch')
 		const t1 = ids.turn('batch-1')
+		const childEnded = (name: string, turnId?: string) => ({
+			type: 'child_session_ended',
+			...(turnId === undefined ? {} : { turnId }),
+			childSessionId: ids.session(`batch-child-${name}`),
+			status: 'completed',
+			stopReason: 'end_turn',
+			usage: usage(80, 20),
+			cost: cost(0.001),
+		})
 		log.append(started()).prompt('batch-1', 'Audit both packages.')
 		for (const name of ['a', 'b']) {
 			log.append({
@@ -577,7 +590,19 @@ export function buildSessionLogFixtures(): Record<string, string> {
 				budgetAccountId: fixtureUuid(`acct:batch:${name}`),
 			})
 		}
-		log.answer('batch-1', 'Both packages audited.').complete('batch-1', 'Both packages audited.')
+		log
+			.append(childEnded('a', t1))
+			.answer('batch-1', 'Package a audited; package b is still running.')
+			.complete('batch-1', 'Package a audited; package b is still running.', {
+				settlement: settlement('completed', {
+					resultMessageId: ids.message('batch-1:answer'),
+					abandonedTaskIds: ['toolu_fixture_batch_b'],
+				}),
+			})
+			.prompt('batch-2', 'Summarise what you have so far.')
+			.append(childEnded('b'))
+			.answer('batch-2', 'Both packages audited.')
+			.complete('batch-2', 'Both packages audited.')
 		files['batch-annotated.jsonl'] = log.text()
 	}
 

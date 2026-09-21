@@ -94,7 +94,11 @@ const envelopeShape = {
 	v: z.literal(SESSION_RECORD_SCHEMA_VERSION),
 	id: recordId,
 	sessionId,
-	/** Present iff the record is inside a turn. */
+	/**
+	 * The turn the record belongs to; absent on a record outside any turn. A
+	 * record never names a closed turn: the `child_session_*` records carry
+	 * their spawning turn only while it is open, and omit it afterwards.
+	 */
 	turnId: turnId.optional(),
 	/** 1-based and contiguous. */
 	seq: positive,
@@ -448,6 +452,13 @@ export const CompactionRecordSchema = recordSchema('compaction', {
 })
 
 // Children (the live child_session_* events, plus one record-only type)
+//
+// A child can outlive the parent turn that spawned it (`Turn.abandonedTaskIds`
+// names such workers). So only the spawn is bound to a turn. The messaged,
+// idled and ended records carry the spawning turn's id while that turn is
+// open and omit it once the turn has closed, whether or not a later turn is
+// active: the child belongs to the turn its `child_session_spawned` names, and
+// a reader attributes the record through `childSessionId`.
 
 export const ChildSessionSpawnedRecordSchema = inTurn('child_session_spawned', {
 	childSessionId: sessionId,
@@ -462,16 +473,16 @@ export const ChildSessionSpawnedRecordSchema = inTurn('child_session_spawned', {
 	budgetAccountId: text.optional(),
 })
 
-export const ChildSessionMessagedRecordSchema = inTurn('child_session_messaged', {
+export const ChildSessionMessagedRecordSchema = recordSchema('child_session_messaged', {
 	childSessionId: sessionId,
 	messageId,
 })
 
-export const ChildSessionIdledRecordSchema = inTurn('child_session_idled', {
+export const ChildSessionIdledRecordSchema = recordSchema('child_session_idled', {
 	childSessionId: sessionId,
 })
 
-export const ChildSessionEndedRecordSchema = inTurn('child_session_ended', {
+export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended', {
 	childSessionId: sessionId,
 	status: turnExecutionStatus,
 	stopReason: stopReason.optional(),
@@ -482,13 +493,29 @@ export const ChildSessionEndedRecordSchema = inTurn('child_session_ended', {
 
 // Other record-only types
 
+/**
+ * One audit-trail entry. It holds everything `AuditEvent` (`types/run/audit.ts`)
+ * records today: `who` becomes `actor` plus `persona`, `what` is flattened into
+ * `action`, `tool` and `resource`, and the envelope's `seq`, `ts` and `turnId`
+ * replace the trail's own sequence, timestamp and run id.
+ */
 export const AuditRecordSchema = recordSchema('audit', {
 	auditId: text.min(1),
 	actor: actorRef,
+	/** The label a host assigned the agent, when one was configured. */
+	persona: text.min(1).optional(),
 	action: text.min(1),
-	outcome: text.min(1),
+	/** The tool, for a tool-scoped action. */
+	tool: text.min(1).optional(),
+	/** What the action targeted when that is narrower than the tool, for example a guardrail's name. */
+	resource: text.min(1).optional(),
+	outcome: z.enum(['success', 'failure', 'refused']),
 	cost: CostInfoSchema.optional(),
+	/** Present on `refused` and `failure`. */
 	reason: text.optional(),
+	/** The active span when the entry was recorded; both or neither. */
+	traceId: text.min(1).optional(),
+	spanId: text.min(1).optional(),
 })
 
 export const BudgetBoundRecordSchema = inTurn('budget_bound', {
@@ -638,7 +665,12 @@ const OtherEventRecordSchema = z
 /** Live-only fields a record never carries: the envelope or `session_started.parent` holds them. */
 const LIVE_ONLY_KEYS = ['lineage', 'schemaVersion', 'generation', 'runId'] as const
 
-const TURN_BOUND_OTHER_TYPES: ReadonlySet<string> = new Set([
+/**
+ * The persisted event types without a field-by-field schema that happen only
+ * inside a turn. With the `inTurn` schemas above they are exactly the events
+ * whose live type requires `turnId`; a type test holds the two lists together.
+ */
+const TURN_BOUND_OTHER_TYPE_LIST = [
 	'tool_calls_admitted',
 	'iteration_started',
 	'request_envelope',
@@ -674,7 +706,19 @@ const TURN_BOUND_OTHER_TYPES: ReadonlySet<string> = new Set([
 	'message_completed',
 	'tool_input_started',
 	'tool_input_completed',
-])
+] as const satisfies readonly PersistedSessionEventType[]
+
+const TURN_BOUND_OTHER_TYPES: ReadonlySet<string> = new Set(TURN_BOUND_OTHER_TYPE_LIST)
+
+/** The persisted event types whose record always carries `turnId`. */
+export type TurnBoundSessionEventType =
+	| (typeof TURN_BOUND_OTHER_TYPE_LIST)[number]
+	| 'turn_started'
+	| 'turn_paused'
+	| 'turn_resuming'
+	| 'turn_completed'
+	| 'turn_failed'
+	| 'child_session_spawned'
 
 const RECORD_OPTIONS = [
 	...Object.values(SPECIFIED_EVENT_SCHEMAS),
@@ -719,6 +763,13 @@ export const SessionRecordSchema = z
 				message: `${r.type} happens only inside a turn and must carry turnId`,
 			})
 		}
+		if (r.type === 'audit' && (r.traceId === undefined) !== (r.spanId === undefined)) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: [r.traceId === undefined ? 'traceId' : 'spanId'],
+				message: 'an audit record carries traceId and spanId together, or neither',
+			})
+		}
 		for (const key of LIVE_ONLY_KEYS) {
 			if (Object.hasOwn(r, key)) {
 				context.addIssue({
@@ -739,11 +790,16 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 
 type EventOf<T extends SessionEventType> = Extract<SessionEvent, { type: T }>
 
-/** A persisted live event as a record: the event minus its live-only fields, plus the envelope. */
+/**
+ * A persisted live event as a record: the event minus its live-only fields,
+ * plus the envelope. A turn-bound type carries a non-optional `turnId`, as
+ * `SessionRecordSchema` guarantees.
+ */
 export type SessionEventRecord<T extends PersistedSessionEventType = PersistedSessionEventType> =
 	T extends PersistedSessionEventType
 		? Omit<EventOf<T>, 'sessionId' | 'turnId' | 'lineage' | 'v' | 'seq' | 'generation'> &
-				RecordEnvelope
+				RecordEnvelope &
+				(T extends TurnBoundSessionEventType ? { readonly turnId: TurnId } : unknown)
 		: never
 
 export type SessionStartedRecord = z.infer<typeof SessionStartedRecordSchema>

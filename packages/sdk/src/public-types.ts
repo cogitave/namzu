@@ -658,6 +658,7 @@ export type {
 	SessionRecordType,
 	SessionStartedRecord,
 	SessionUpdatedRecord,
+	TurnBoundSessionEventType,
 } from './types/session/records.js'
 export type { Checkpoint } from './types/session/checkpoint.js'
 export type { ResolveNamzuHomeOptions } from './session/home.js'

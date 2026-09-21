@@ -98,7 +98,7 @@ Every record carries this envelope:
 | `type` | The discriminant (below). |
 | `id` | The record's own UUIDv7. |
 | `sessionId` | The session this log belongs to. |
-| `turnId` | Present exactly when the record is inside a turn. |
+| `turnId` | The turn the record belongs to; absent on a record outside any turn. A record never names a turn that has closed (see [Children](#children-that-outlive-their-turn)). |
 | `seq` | 1-based and contiguous. |
 | `ts` | ISO-8601 in UTC, with `Z`. |
 | `prev` | `{seq, offset, length, sha256}` of the previous line; `null` only at seq 1. |
@@ -141,8 +141,8 @@ The turn lifecycle events are checked field by field:
 | `turn_completed` | `result`, `stopReason?`, `cancelCause?`, `budget?`, `settlement` |
 | `turn_failed` | `error`, `failure?`, `providerError?`, `explanation?`, `budget?`, `settlement` |
 | `child_session_spawned` | `childSessionId`, `toolCallId`, `kind`, `description`, `path` (relative to the session directory), `batch?` (`{batchId, name, phase?}`), `budgetAccountId?` |
-| `child_session_messaged` | `childSessionId`, `messageId` |
-| `child_session_idled` | `childSessionId` |
+| `child_session_messaged` | `childSessionId`, `messageId`; `turnId` optional (below) |
+| `child_session_idled` | `childSessionId`; `turnId` optional (below) |
 
 `settlement` is `{status, iterations, usage, cost, durationMs,
 resultMessageId?, resultSource, structuredOutput?, servingProvider?,
@@ -154,7 +154,9 @@ record's type. `failure.code` on `turn_failed` is `interrupted` or
 The other persisted events are checked for their envelope and type, and must
 not carry `lineage`, `generation`, `schemaVersion` or a run id. Events that can
 only happen inside a turn (iterations, messages, tool calls, reviews, plans,
-delegation) must carry `turnId`. Events a host can cause between turns — a
+spawning a child) must carry `turnId`, and the TypeScript view
+(`SessionRecord`, `SessionEventRecord`) types their `turnId` as present; the
+list is exported as `TurnBoundSessionEventType`. Events a host can cause between turns — a
 manual compaction, a background job exiting, an approval-policy change, a
 session hook, task and sandbox bookkeeping — may omit it.
 
@@ -172,8 +174,8 @@ session hook, task and sandbox bookkeeping — may omit it.
 | `decision_resolved` | `decisionId`, `decision`, `resolvedBy` |
 | `decision_expired` | `decisionId` |
 | `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
-| `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost` |
-| `audit` | `auditId`, `actor`, `action`, `outcome`, `cost?`, `reason?` |
+| `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`; `turnId` optional (below) |
+| `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure` or `refused`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
 
@@ -183,6 +185,25 @@ round?}`, where `protocol` is `cli`, `sdk`, `ag-ui`, `a2a`, `acp`, `http`,
 with `kind` `session`, `thread` or `context`. The index's `external_refs` table
 is derived only from these two, never written directly, so it survives a
 rebuild.
+
+An `audit` record holds everything today's audit trail (`AuditEvent`,
+`packages/sdk/src/types/run/audit.ts`) records: `who` becomes `actor` plus
+`persona`, `what` is flattened into `action`, `tool` and `resource`, and the
+envelope's `seq`, `ts` and `turnId` replace the trail's own sequence,
+timestamp and run id. A session-level entry omits `turnId`.
+
+### Children that outlive their turn
+
+A delegated child can still be running when the parent turn that spawned it
+ends: the settlement's `abandonedTaskIds` names such workers. Only
+`child_session_spawned` is bound to a turn. `child_session_messaged`,
+`child_session_idled` and `child_session_ended` carry the spawning turn's id
+while that turn is open and omit it once the turn has closed, even when a
+later turn is running: naming the closed turn would break the envelope rule,
+and naming the running one would attribute the child to the wrong turn. A
+reader finds the spawning turn through `childSessionId` and the
+`child_session_spawned` record (or the meta file's `parentTurnId`). The
+`batch-annotated` fixture has one child of each kind.
 
 The `compaction` record is what the fold reads. The live
 `compaction_completed`, `compaction_shed` and `compaction_tool_results_cleared`
@@ -259,8 +280,8 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
 `packages/sdk/src/__fixtures__/session-log/` holds one log per case: `valid`,
 `torn-tail`, `repaired`, `broken-chain`, `compaction`, `paused-then-resumed`,
 `abandoned`, `guardrail-replaced`, `child-sessions` (a parent, its child
-under `subagents/`, and the meta file), `batch-annotated` and
-`origin-external-refs`. `build.ts` beside them generates every byte, and
+under `subagents/`, and the meta file), `batch-annotated` (one child ends in
+its turn, one after it) and `origin-external-refs`. `build.ts` beside them generates every byte, and
 `session-log-fixtures.test.ts` requires the committed files to equal its
 output, every complete line to round-trip through `SessionRecordSchema`, and
 the chain to hold everywhere except where a case breaks it on purpose.

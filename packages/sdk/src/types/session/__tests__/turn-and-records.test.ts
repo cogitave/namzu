@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { z } from 'zod'
 
 import { fixtureId } from '../../../test-support/ids.js'
+import type { AuditOutcome } from '../../run/audit.js'
 import type { CancelCause } from '../../run/cancel-cause.js'
 import type { StopReason } from '../../run/stop-reason.js'
 import {
@@ -10,16 +11,18 @@ import {
 	CheckpointDocumentError,
 	parseCheckpoint,
 } from '../checkpoint.js'
-import type { SessionEvent, SessionEventType } from '../events.js'
-import type {
-	ExternalRefSchema,
-	MessageRecord,
-	OriginSchema,
-	SessionEventRecord,
-	SessionRecord,
-	SessionRecordType,
-	SessionStartedRecord,
-	TurnSettlementSchema,
+import type { PersistedSessionEventType, SessionEvent, SessionEventType } from '../events.js'
+import {
+	type ExternalRefSchema,
+	type MessageRecord,
+	type OriginSchema,
+	type SessionEventRecord,
+	type SessionRecord,
+	SessionRecordSchema,
+	type SessionRecordType,
+	type SessionStartedRecord,
+	type TurnBoundSessionEventType,
+	type TurnSettlementSchema,
 } from '../records.js'
 import type { SubSessionKind } from '../sub-session.js'
 import {
@@ -157,5 +160,129 @@ describe('the record types agree with the runtime types they carry', () => {
 		expectTypeOf<
 			Extract<SessionEvent, { type: 'background_job_exited' }>['turnId']
 		>().toEqualTypeOf<typeof activeTurnId | undefined>()
+	})
+})
+
+describe('a record between turns and the audit trail', () => {
+	const pointer = { seq: 1, offset: 0, length: 10, sha256: 'a'.repeat(64) }
+	const envelope = (type: string, extra: Record<string, unknown>) => ({
+		v: 1,
+		type,
+		id: fixtureId.record('between'),
+		sessionId,
+		seq: 2,
+		ts: '2026-09-21T09:00:00.000Z',
+		prev: pointer,
+		gen: 1,
+		...extra,
+	})
+	const audit = (extra: Record<string, unknown> = {}) =>
+		envelope('audit', {
+			turnId: activeTurnId,
+			auditId: 'audit-1',
+			actor: { kind: 'agent', agentId: 'worker', tenantId: fixtureId.tenant('audit') },
+			action: 'tool_call',
+			outcome: 'refused',
+			reason: 'Blocked by the authorization gate.',
+			...extra,
+		})
+
+	it('holds every field the audit trail records today', () => {
+		const full = audit({
+			persona: 'reviewer',
+			tool: 'bash',
+			resource: 'pii-guardrail',
+			cost: { totalCost: 0.01, cacheDiscount: 0, unpricedTokens: 0 },
+			traceId: '4bf92f3577b34da6a3ce929d0e0e4736',
+			spanId: '00f067aa0ba902b7',
+		})
+		expect(SessionRecordSchema.parse(full)).toEqual(full)
+		// Outside a turn, as a session-level audit entry is.
+		const { turnId: _turnId, ...between } = audit() as Record<string, unknown>
+		expect(SessionRecordSchema.safeParse(between).success).toBe(true)
+	})
+
+	it('accepts only the three audit outcomes, and a trace link only whole', () => {
+		for (const outcome of ['success', 'failure', 'refused']) {
+			expect(SessionRecordSchema.safeParse(audit({ outcome })).success, outcome).toBe(true)
+		}
+		expect(SessionRecordSchema.safeParse(audit({ outcome: 'allowed' })).success).toBe(false)
+		const halfTrace = SessionRecordSchema.safeParse(audit({ traceId: 'a'.repeat(32) }))
+		expect(halfTrace.success).toBe(false)
+		expect(JSON.stringify(halfTrace.error?.issues)).toMatch(/traceId and spanId together/)
+		expect(SessionRecordSchema.safeParse(audit({ spanId: 'b'.repeat(16) })).success).toBe(false)
+	})
+
+	it.each([
+		[
+			'child_session_ended',
+			{
+				status: 'completed',
+				usage: {
+					promptTokens: 1,
+					completionTokens: 1,
+					totalTokens: 2,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+			},
+		],
+		['child_session_idled', {}],
+		['child_session_messaged', { messageId: fixtureId.message('child') }],
+	] as const)('records %s from a child that outlived its turn, with no turnId', (type, payload) => {
+		const record = envelope(type, { childSessionId: fixtureId.session('child'), ...payload })
+		expect(SessionRecordSchema.parse(record)).toEqual(record)
+		expect(SessionRecordSchema.safeParse({ ...record, turnId: activeTurnId }).success).toBe(true)
+	})
+
+	it('still requires the turn on the spawn', () => {
+		const spawned = envelope('child_session_spawned', {
+			childSessionId: fixtureId.session('child'),
+			toolCallId: 'toolu_1',
+			kind: 'agent_spawn',
+			description: 'd',
+			path: 'subagents/x.jsonl',
+		})
+		expect(SessionRecordSchema.safeParse(spawned).success).toBe(false)
+		expect(SessionRecordSchema.safeParse({ ...spawned, turnId: activeTurnId }).success).toBe(true)
+	})
+})
+
+describe('the TypeScript record view is as strong as the schema', () => {
+	/** The persisted event types whose live event requires `turnId`. */
+	type RequiresTurn<T extends PersistedSessionEventType = PersistedSessionEventType> =
+		T extends PersistedSessionEventType
+			? undefined extends Extract<SessionEvent, { type: T }>['turnId']
+				? never
+				: T
+			: never
+
+	it('lists exactly the event types whose live event requires a turn', () => {
+		expectTypeOf<TurnBoundSessionEventType>().toEqualTypeOf<RequiresTurn>()
+	})
+
+	it('gives a turn-bound record a non-optional turnId, and leaves the rest optional', () => {
+		expectTypeOf<Extract<SessionRecord, { type: 'turn_completed' }>['turnId']>().toEqualTypeOf<
+			typeof activeTurnId
+		>()
+		expectTypeOf<Extract<SessionRecord, { type: 'tool_completed' }>['turnId']>().toEqualTypeOf<
+			typeof activeTurnId
+		>()
+		expectTypeOf<
+			Extract<SessionRecord, { type: 'child_session_spawned' }>['turnId']
+		>().toEqualTypeOf<typeof activeTurnId>()
+		expectTypeOf<
+			Extract<SessionRecord, { type: 'background_job_exited' }>['turnId']
+		>().toEqualTypeOf<typeof activeTurnId | undefined>()
+		expectTypeOf<Extract<SessionRecord, { type: 'child_session_idled' }>['turnId']>().toEqualTypeOf<
+			typeof activeTurnId | undefined
+		>()
+		expectTypeOf<Extract<SessionRecord, { type: 'child_session_ended' }>['turnId']>().toEqualTypeOf<
+			typeof activeTurnId | undefined
+		>()
+		expectTypeOf<
+			Extract<SessionRecord, { type: 'audit' }>['outcome']
+		>().toEqualTypeOf<AuditOutcome>()
 	})
 })

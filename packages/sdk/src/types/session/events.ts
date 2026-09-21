@@ -1117,20 +1117,32 @@ export interface ChildSessionSpawnedEvent {
 	budgetAccountId?: string
 }
 
-/** The child session appended a message. */
+/**
+ * The child session appended a message.
+ *
+ * A child can outlive the parent turn that spawned it (`Turn.abandonedTaskIds`
+ * names such workers), so `turnId` is the spawning turn only while that turn
+ * is still open, and absent once it has closed. It never names a later turn:
+ * the child belongs to the turn in its `child_session_spawned` record.
+ */
 export interface ChildSessionMessagedEvent {
 	type: 'child_session_messaged'
 	sessionId: SessionId
-	turnId: TurnId
+	/** The spawning turn while it is open; absent after it closed. */
+	turnId?: TurnId
 	childSessionId: SessionId
 	messageId: MessageId
 }
 
-/** The child session went idle: its current turn ended and nothing is queued. */
+/**
+ * The child session went idle: its current turn ended and nothing is queued.
+ * `turnId` follows the rule on {@link ChildSessionMessagedEvent}.
+ */
 export interface ChildSessionIdledEvent {
 	type: 'child_session_idled'
 	sessionId: SessionId
-	turnId: TurnId
+	/** The spawning turn while it is open; absent after it closed. */
+	turnId?: TurnId
 	childSessionId: SessionId
 }
 
