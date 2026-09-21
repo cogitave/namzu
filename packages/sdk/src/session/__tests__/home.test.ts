@@ -1,7 +1,7 @@
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { NamzuHomeError, resolveNamzuHome } from '../home.js'
@@ -54,5 +54,15 @@ describe('Namzu application home', () => {
 	it('refuses a NUL byte and a filesystem root', async () => {
 		expect(() => resolveNamzuHome({ env: { NAMZU_HOME: 'a\0b' } })).toThrow(/NUL/)
 		expect(() => resolveNamzuHome({ env: { NAMZU_HOME: '/' } })).toThrow(/filesystem root/)
+	})
+})
+
+describe('the SDK test run', () => {
+	it("resolves the default home inside the runner's owned root, never the user's", () => {
+		const ownedRoot = process.env.NAMZU_SDK_TEST_ROOT
+		expect(ownedRoot, 'scripts/run-sdk-tests.mjs sets the owned root').toBeTruthy()
+		const home = resolveNamzuHome()
+		const inside = relative(realpathSync(ownedRoot as string), home)
+		expect(inside.length > 0 && !inside.startsWith('..'), home).toBe(true)
 	})
 })

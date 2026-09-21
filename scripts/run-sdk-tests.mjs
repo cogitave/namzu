@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -234,6 +234,13 @@ async function main() {
 		ownedRoot = await realpath(created);
 		validateOwnedRoot(ownedRoot, temporaryRoot);
 
+		// `NAMZU_HOME` is the session layout's home (`~/.namzu` by default,
+		// `packages/sdk/src/session/home.ts`). `resolveNamzuHome` requires an
+		// explicit value to be an existing real directory, so it is created
+		// inside the owned root and removed with it.
+		const namzuHome = join(ownedRoot, "namzu-home");
+		await mkdir(namzuHome);
+
 		if (!requestedSignal) {
 			// macOS commonly exposes the temporary directory as `/var/...` while
 			// `realpath` returns `/private/var/...`. Product code intentionally
@@ -252,6 +259,8 @@ async function main() {
 				// Tests must never write there; point it into the owned root,
 				// at the path the old `<cwd>/.namzu` default used.
 				NAMZU_STATE_DIR: join(ownedRoot, ".namzu"),
+				// Likewise the session layout: never the user's `~/.namzu`.
+				NAMZU_HOME: namzuHome,
 			};
 			delete childEnvironment[WORKER_VERIFIED_ENV];
 			delete childEnvironment[DEBUG_ROOT_ENV];
