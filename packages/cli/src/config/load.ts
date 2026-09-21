@@ -24,7 +24,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { SHELL_HOOK_EVENTS } from '@namzu/sdk'
+import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
 import { parse as yamlParse } from 'yaml'
 
@@ -704,6 +704,12 @@ const CONFIG_READERS: ConfigReaders = {
 		const events = new Set<string>(SHELL_HOOK_EVENTS)
 		const out: Record<string, HookEntry[]> = {}
 		for (const [event, entries] of Object.entries(v)) {
+			const renamed = Object.hasOwn(RENAMED_PLUGIN_HOOK_EVENTS, event)
+				? RENAMED_PLUGIN_HOOK_EVENTS[event]
+				: undefined
+			if (renamed !== undefined) {
+				return invalidConfigValue(context, [event], `was renamed; name it \`${renamed}\``)
+			}
 			if (!events.has(event)) {
 				return invalidConfigValue(
 					context,
