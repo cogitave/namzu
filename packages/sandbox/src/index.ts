@@ -1195,6 +1195,20 @@ export type {
 	SandboxEgressProfile,
 	SandboxEgressProfileErrorCode,
 } from './egress/profile.js'
+export {
+	defineSandboxSeed,
+	ensureSandboxSeed,
+	sandboxSeedDigest,
+	SandboxSeedError,
+} from './seed/index.js'
+export type {
+	EnsureSandboxSeedOptions,
+	SandboxSeed,
+	SandboxSeedErrorCode,
+	SandboxSeedReport,
+	SandboxSeedRepository,
+	SandboxSeedRepositoryReport,
+} from './seed/index.js'
 
 export type EgressPolicy =
 	| { readonly kind: 'deny-all' }

@@ -71,6 +71,8 @@ import type {
 	TerminalSession,
 } from '@namzu/sdk'
 
+import { ensureSandboxSeed } from '../seed/index.js'
+
 import type {
 	ConformanceAssertion,
 	ConformanceDescribe,
@@ -172,6 +174,14 @@ export interface SandboxConformanceOptions {
 	 * capability.
 	 */
 	readonly supportsRangedAndStreamedReads?: boolean
+	/**
+	 * A git repository the guest can clone, and an absolute directory to
+	 * clone it under, for the `ensureSandboxSeed` case. Absent (the default),
+	 * the case is a named skip: this suite cannot assume a guest has git or a
+	 * route to any repository. The URL follows the seed's own rules (`https://`,
+	 * or `http://` for a proxy-brokered host, no credentials).
+	 */
+	readonly seed?: { readonly url: string; readonly root: string }
 }
 
 /** Assert `call()` rejects. The contract cares that admission was refused, never the message. */
@@ -1193,6 +1203,27 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 				}),
 			)
 		})
+	})
+
+	describe(`${label} seed`, () => {
+		const seedOption = options.seed
+		const title = 'prepares a seed once, and a second call finds it present at the same commit'
+		it(
+			seedOption === undefined ? `${title} (skipped: no seed repository was given)` : title,
+			seedOption === undefined
+				? async () => {}
+				: withSandbox(async (sandbox) => {
+						const seed = {
+							name: 'conformance',
+							repositories: [{ name: 'repo', url: seedOption.url }],
+						}
+						const first = await ensureSandboxSeed(sandbox, seed, { root: seedOption.root })
+						expect(first.repositories[0]?.status).toBe('cloned')
+						const second = await ensureSandboxSeed(sandbox, seed, { root: seedOption.root })
+						expect(second.repositories[0]?.status).toBe('present')
+						expect(second.repositories[0]?.commit).toBe(first.repositories[0]?.commit)
+					}),
+		)
 	})
 }
 

@@ -1347,6 +1347,12 @@ It is a separate verb from `createSandboxProvider` on purpose: a
 (`workspaceModes: ['ephemeral']`), and a workspace is the opposite promise.
 `warmPoolName` is ignored here.
 
+Repositories a workspace should always have are a
+[sandbox seed](sandbox-seeds.md): call `ensureSandboxSeed(workspace, seed, {
+root })` after every create and resume, with `root` on the template's disk
+mount. The first call clones; every later one only checks each repository, and
+two hosts preparing the same disk at once do not collide.
+
 ### Calling it twice reattaches
 
 The Sandbox is named `namzu-ws-<workspaceId>`, deterministically, which is the

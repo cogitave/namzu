@@ -778,6 +778,18 @@ without its `ai.namzu.egress-proxy.config="2"` label. A profile carries no
 credentials and has no wildcard. See
 [docs/sdk/sandbox-egress-profiles.md](../../docs/sdk/sandbox-egress-profiles.md).
 
+## Sandbox seeds
+
+`ensureSandboxSeed(sandbox, defineSandboxSeed({ name, repositories }), { root })`
+makes git repositories present under `root`, doing only what is missing: every
+call checks each repository (origin, and that its pinned or recorded commit is
+an ancestor of HEAD), refuses drift without touching anything, clones what is
+missing into a partial directory and moves it into place. `root` is required:
+put it on a kubernetes workspace's disk mount, or `layout.scratch` on docker,
+never the docker outputs root. URLs with credentials, `ssh://` and `git@` are
+refused, so nothing secret enters the guest. See
+[docs/sdk/sandbox-seeds.md](../../docs/sdk/sandbox-seeds.md).
+
 ## Firecracker network policy
 
 At microVM creation, the Firecracker backend maps the resolved egress decision
