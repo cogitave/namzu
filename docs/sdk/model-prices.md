@@ -69,4 +69,4 @@ and both are `0`, and says nothing otherwise; the catalogue block under
 
 For cost estimation, nothing on this path is used. `resolveModelPricing` reads
 the versioned rate card in `packages/sdk/src/pricing/`, not a driver's listing,
-so a run's cost is unaffected by what a menu displays.
+so a turn's cost is unaffected by what a menu displays.
