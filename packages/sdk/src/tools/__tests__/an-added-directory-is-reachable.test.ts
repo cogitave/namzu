@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { buildBwrapArgs } from '../../sandbox/provider/local.js'
 import type { ToolContext } from '../../types/tool/index.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { ReadFileTool } from '../builtins/read-file.js'
 import { resolveWithinAny, resolveWithinAnyReal, toolRoots } from '../paths.js'
 
@@ -32,7 +32,8 @@ afterEach(() => {
 })
 
 const context = (extra?: readonly string[]): ToolContext => ({
-	runId: generateRunId(),
+	sessionId: generateSessionId(),
+	turnId: generateTurnId(),
 	workingDirectory: cwd,
 	...(extra ? { additionalDirectories: extra } : {}),
 	abortSignal: new AbortController().signal,

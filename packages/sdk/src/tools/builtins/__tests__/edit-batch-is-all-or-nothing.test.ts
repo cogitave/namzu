@@ -20,7 +20,8 @@ import { EditTool } from '../edit.js'
 
 function context(workingDirectory: string): ToolContext {
 	return {
-		runId: 'd71ecfcb-287a-445a-a34e-48026d38d820' as ToolContext['runId'],
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as ToolContext['sessionId'],
+		turnId: 'd71ecfcb-287a-445a-a34e-48026d38d820' as ToolContext['turnId'],
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

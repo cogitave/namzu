@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
 
-import type { RunId, SandboxId } from '../../../types/ids/index.js'
+import type { SandboxId, SessionId, TurnId } from '../../../types/ids/index.js'
 import type { Sandbox } from '../../../types/sandbox/index.js'
 import type { BackgroundJobRegistryRef, ToolContext } from '../../../types/tool/index.js'
 import { BashTool, SANDBOX_CANNOT_DETACH } from '../bash.js'
@@ -42,7 +42,8 @@ it('refuses a direct background call instead of changing its execution boundary'
 	} satisfies BackgroundJobRegistryRef
 	const boundary = sandbox()
 	const context: ToolContext = {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId,
 		workingDirectory: '/workspace',
 		abortSignal: new AbortController().signal,
 		env: {},

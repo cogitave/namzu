@@ -53,7 +53,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -87,7 +88,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -121,7 +123,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -148,7 +151,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -176,7 +180,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -202,7 +207,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -236,7 +242,8 @@ describe('structuredOutput', () => {
 			const tool = createStructuredOutputTool(schema)
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -259,7 +266,8 @@ describe('structuredOutput', () => {
 			}
 
 			const mockContext: ToolContext = {
-				runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as any,
+				turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as any,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},

@@ -5,17 +5,17 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { BackgroundJobRegistry, bindOwner } from '../../../runtime/jobs/registry.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { BashTool } from '../bash.js'
 import { JobTool } from '../job.js'
 
 /**
- * A background job belongs to the run that started it.
+ * A background job belongs to the turn that started it.
  *
  * The scoping is structural, not a check: the executor binds the owner
  * before a tool ever sees the registry, so there is no argument a tool could
- * pass to reach another run's jobs. These prove that the binding is what is
+ * pass to reach another turn's jobs. These prove that the binding is what is
  * actually in force, and that `bash` refuses rather than degrading when no
  * registry is there.
  *
@@ -47,16 +47,17 @@ async function waitFor(check: () => boolean, timeoutMs = 5000): Promise<void> {
 
 function contextFor(
 	registry: BackgroundJobRegistry | undefined,
-	runId: string,
+	turnId: string,
 	cwd: string,
 ): ToolContext {
 	return {
-		runId: runId as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: turnId as TurnId,
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},
 		log: () => {},
-		...(registry ? { backgroundJobs: bindOwner(registry, runId, { workingDirectory: cwd }) } : {}),
+		...(registry ? { backgroundJobs: bindOwner(registry, turnId, { workingDirectory: cwd }) } : {}),
 	}
 }
 
@@ -137,7 +138,7 @@ describe('bash and job are one capability', () => {
 		expect(second.output).toContain('second')
 	})
 
-	it('lists the jobs of this run and stops one on request', async () => {
+	it('lists the jobs of this turn and stops one on request', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
 		const context = contextFor(registry, '90a466e2-f869-4a3c-b750-f2156342ff40', cwd)
@@ -190,7 +191,7 @@ describe('bash and job are one capability', () => {
 	})
 })
 
-describe('one run cannot reach the job of another run', () => {
+describe('one turn cannot reach the job of another turn', () => {
 	it('reads as unknown, not as forbidden', async () => {
 		// The same answer the tenant checks give elsewhere in this tree, and
 		// for the same reason: refusing would confirm the job is there.
@@ -216,7 +217,7 @@ describe('one run cannot reach the job of another run', () => {
 		await registry.killOwner('90a466e2-f869-4a3c-b750-f2156342ff40')
 	})
 
-	it('lists nothing for a run that started nothing', async () => {
+	it('lists nothing for a turn that started nothing', async () => {
 		const registry = new BackgroundJobRegistry()
 		const cwd = await workdir()
 		await BashTool.execute(

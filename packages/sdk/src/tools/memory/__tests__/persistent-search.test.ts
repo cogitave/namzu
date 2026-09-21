@@ -21,7 +21,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { DiskMemoryStore } from '../../../store/memory/disk.js'
 import { InMemoryMemoryIndex } from '../../../store/memory/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
-import type { MemoryId, RunId } from '../../../types/ids/index.js'
+import type { MemoryId, SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildMemoryTools } from '../index.js'
 
@@ -33,7 +33,8 @@ afterEach(async () => {
 
 function context(root: string): ToolContext {
 	return {
-		runId: '7e69f32b-e28e-4a56-be95-7a6f206bd4b3' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: '7e69f32b-e28e-4a56-be95-7a6f206bd4b3' as TurnId,
 		workingDirectory: root,
 		abortSignal: new AbortController().signal,
 		env: {},

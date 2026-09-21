@@ -2,11 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import type { ToolContext } from '../../../types/tool/index.js'
-import { generateRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { buildMemoryTools } from '../index.js'
 
 const context: ToolContext = {
-	runId: generateRunId(),
+	sessionId: generateSessionId(),
+	turnId: generateTurnId(),
 	workingDirectory: process.cwd(),
 	abortSignal: new AbortController().signal,
 	env: {},
@@ -59,7 +60,8 @@ describe('memory lifecycle tools', () => {
 		expect(update.success).toBe(true)
 		expect((await store.list()).totalCount).toBe(1)
 		expect((await store.get(id))?.metadata).toMatchObject({
-			runId: context.runId,
+			sessionId: context.sessionId,
+			turnId: context.turnId,
 			source: 'agent-memory',
 		})
 		await registry.execute('update_memory', { id, status: 'archived' }, context)

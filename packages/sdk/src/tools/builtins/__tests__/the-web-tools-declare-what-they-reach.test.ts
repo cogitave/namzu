@@ -8,7 +8,7 @@ import {
 	UNATTENDED_PRESET,
 } from '../../../authorization/permission-presets.js'
 import { WebFetchRefusedError } from '../../../connector/web/types.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
 import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WebFetchTool, WebSearchTool } from '../web.js'
@@ -28,7 +28,8 @@ import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME, WebFetchTool, WebSearchTool 
  */
 
 const context = (over: Partial<ToolContext> = {}): ToolContext => ({
-	runId: 'b9dc517e-37ed-4289-afcd-b0d081254384' as RunId,
+	sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+	turnId: 'b9dc517e-37ed-4289-afcd-b0d081254384' as TurnId,
 	workingDirectory: '/tmp',
 	abortSignal: new AbortController().signal,
 	env: {},
