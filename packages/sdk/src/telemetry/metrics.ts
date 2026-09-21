@@ -22,7 +22,7 @@ let cached: { meter: Meter; instruments: Instruments } | undefined
 interface Instruments {
 	tokens: Counter
 	toolCalls: Counter
-	runDuration: Histogram
+	turnDuration: Histogram
 	llmDuration: Histogram
 	timeToFirstToken: Histogram
 	toolDuration: Histogram
@@ -43,8 +43,8 @@ function build(meter: Meter): Instruments {
 			description: 'Tool calls executed',
 			unit: '{call}',
 		}),
-		runDuration: meter.createHistogram('namzu.run.duration', {
-			description: 'Agent run duration',
+		turnDuration: meter.createHistogram('namzu.turn.duration', {
+			description: 'Agent turn duration',
 			unit: 's',
 		}),
 		llmDuration: meter.createHistogram('gen_ai.client.operation.duration', {
@@ -176,9 +176,9 @@ export function recordTimeToFirstToken(model: string, durationMs: number): void 
 	instruments().timeToFirstToken.record(durationMs / 1000, { [GENAI.REQUEST_MODEL]: model })
 }
 
-/** Record how long a whole run took, keyed by how it settled. */
-export function recordRunDuration(status: string, durationMs: number): void {
-	instruments().runDuration.record(durationMs / 1000, { [NAMZU.RUN_STATUS]: status })
+/** Record how long a whole turn took, keyed by how it settled. */
+export function recordTurnDuration(status: string, durationMs: number): void {
+	instruments().turnDuration.record(durationMs / 1000, { [NAMZU.TURN_STATUS]: status })
 }
 
 /** Record how long one model request took. */

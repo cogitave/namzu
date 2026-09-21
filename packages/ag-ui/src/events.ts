@@ -1,12 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { type BaseEvent, EventType, type TokenUsage } from '@ag-ui/core'
-import type { RunEvent } from '@namzu/sdk'
+import type { SessionEvent } from '@namzu/sdk'
 
-/** Public AG-UI identity and, optionally, the native run whose events are being adapted. */
+/**
+ * Public AG-UI identity, and optionally the namzu session and turn whose events
+ * are being adapted.
+ *
+ * `threadId` and `runId` are the client's own strings and are echoed verbatim;
+ * neither is ever a namzu id. An AG-UI run is one namzu turn: when `turnId` is
+ * absent the mapper adopts the turn of the first top-level event it sees.
+ */
 export interface AGUIEventMapperOptions {
 	threadId: string
 	runId: string
-	nativeRunId?: string
+	/** Only this session's events are adapted; a child session's never are. */
+	sessionId?: string
+	turnId?: string
 }
 
 interface MessageState {
@@ -22,8 +31,8 @@ interface ToolState {
 	inputTruncated: boolean
 }
 
-const PUBLIC_EVENTS = new Set<RunEvent['type']>([
-	'run_started',
+const PUBLIC_EVENTS = new Set<SessionEvent['type']>([
+	'turn_started',
 	'iteration_started',
 	'iteration_completed',
 	'message_started',
@@ -34,13 +43,13 @@ const PUBLIC_EVENTS = new Set<RunEvent['type']>([
 	'tool_input_completed',
 	'tool_executing',
 	'tool_completed',
-	'run_completed',
-	'run_failed',
-	'run_paused',
+	'turn_completed',
+	'turn_failed',
+	'turn_paused',
 ])
 
 /**
- * Stateful projection of one native run onto AG-UI's public event lifecycle.
+ * Stateful projection of one namzu turn onto AG-UI's public run lifecycle.
  *
  * Messages and tool calls retain their native identities. Private runtime events
  * are deliberately omitted. A mapper is used once: only a native successful
@@ -49,7 +58,8 @@ const PUBLIC_EVENTS = new Set<RunEvent['type']>([
 export class AGUIEventMapper {
 	private readonly threadId: string
 	private readonly runId: string
-	private nativeRunId: string | undefined
+	private readonly sessionId: string | undefined
+	private turnId: string | undefined
 	private started = false
 	private terminal = false
 	private readonly messages = new Map<string, MessageState>()
@@ -62,7 +72,8 @@ export class AGUIEventMapper {
 	constructor(options: AGUIEventMapperOptions) {
 		this.threadId = options.threadId
 		this.runId = options.runId
-		this.nativeRunId = options.nativeRunId
+		this.sessionId = options.sessionId
+		this.turnId = options.turnId
 	}
 
 	get ended(): boolean {
@@ -76,9 +87,9 @@ export class AGUIEventMapper {
 		return [{ type: EventType.RUN_STARTED, threadId: this.threadId, runId: this.runId }]
 	}
 
-	/** Map a native event. Child runs, private events, and repeated durable events are omitted. */
-	map(event: RunEvent): BaseEvent[] {
-		if (this.terminal || !PUBLIC_EVENTS.has(event.type) || !this.belongsToRun(event)) return []
+	/** Map a native event. Child sessions, private events, and repeated durable events are omitted. */
+	map(event: SessionEvent): BaseEvent[] {
+		if (this.terminal || !PUBLIC_EVENTS.has(event.type) || !this.belongsToTurn(event)) return []
 		if (event.seq !== undefined) {
 			if (this.seenSequences.has(event.seq)) return []
 			this.seenSequences.add(event.seq)
@@ -86,7 +97,7 @@ export class AGUIEventMapper {
 
 		const events = this.start()
 		switch (event.type) {
-			case 'run_started':
+			case 'turn_started':
 				break
 			case 'iteration_started':
 				this.startStep(event.iteration, events)
@@ -195,15 +206,15 @@ export class AGUIEventMapper {
 				})
 				break
 			}
-			case 'run_completed': {
+			case 'turn_completed': {
 				if (event.stopReason === 'paused') {
-					events.push({ type: EventType.CUSTOM, name: 'namzu.run.paused', value: {} })
-					return events.concat(this.fail('Namzu run paused.', 'NAMZU_RUN_PAUSED'))
+					events.push({ type: EventType.CUSTOM, name: 'namzu.turn.paused', value: {} })
+					return events.concat(this.fail('Namzu turn paused.', 'NAMZU_TURN_PAUSED'))
 				}
 				if (event.stopReason !== undefined && event.stopReason !== 'end_turn') {
 					return events.concat(
 						this.fail(
-							`Namzu run stopped: ${event.stopReason}.`,
+							`Namzu turn stopped: ${event.stopReason}.`,
 							`NAMZU_${event.stopReason.toUpperCase()}`,
 						),
 					)
@@ -227,15 +238,15 @@ export class AGUIEventMapper {
 				})
 				break
 			}
-			case 'run_failed':
-				return events.concat(this.fail('Namzu run failed.', 'NAMZU_RUN_ERROR'))
-			case 'run_paused':
+			case 'turn_failed':
+				return events.concat(this.fail('Namzu turn failed.', 'NAMZU_TURN_ERROR'))
+			case 'turn_paused':
 				events.push({
 					type: EventType.CUSTOM,
-					name: 'namzu.run.paused',
+					name: 'namzu.turn.paused',
 					value: { checkpointId: event.checkpointId },
 				})
-				return events.concat(this.fail('Namzu run paused.', 'NAMZU_RUN_PAUSED'))
+				return events.concat(this.fail('Namzu turn paused.', 'NAMZU_TURN_PAUSED'))
 			default:
 				// No raw event forwarding: prompts, reasoning, checkpoint payloads,
 				// and internal instrumentation are outside this public projection.
@@ -247,13 +258,13 @@ export class AGUIEventMapper {
 	/** Close a consumed stream. EOF without a native terminal event is never success. */
 	finish(): BaseEvent[] {
 		return this.fail(
-			'The native event stream ended before a terminal run event.',
+			'The native event stream ended before a terminal turn event.',
 			'NAMZU_STREAM_INCOMPLETE',
 		)
 	}
 
 	/** Close open protocol parts before reporting a public, caller-selected error. */
-	fail(message: string, code = 'NAMZU_RUN_ERROR'): BaseEvent[] {
+	fail(message: string, code = 'NAMZU_TURN_ERROR'): BaseEvent[] {
 		if (this.terminal) return []
 		const events = this.start()
 		this.closeOpenParts(events)
@@ -262,10 +273,14 @@ export class AGUIEventMapper {
 		return events
 	}
 
-	private belongsToRun(event: RunEvent): boolean {
-		if (!('runId' in event) || (event.lineage?.depth ?? 0) > 0) return false
-		if (this.nativeRunId === undefined) this.nativeRunId = event.runId
-		return event.runId === this.nativeRunId
+	private belongsToTurn(event: SessionEvent): boolean {
+		// A child session's events reach a parent's listener with a lineage
+		// deeper than the root; they are that child's business, not this run's.
+		if ((event.lineage?.depth ?? 0) > 0) return false
+		if (this.sessionId !== undefined && event.sessionId !== this.sessionId) return false
+		if (event.turnId === undefined) return false
+		if (this.turnId === undefined) this.turnId = event.turnId
+		return event.turnId === this.turnId
 	}
 
 	private startMessage(messageId: string, events: BaseEvent[]): MessageState {

@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
 	recordModelDuration,
-	recordRunDuration,
 	recordTokenUsage,
 	recordToolCall,
+	recordTurnDuration,
 	resetRuntimeMetrics,
 } from '../metrics.js'
 
@@ -122,11 +122,11 @@ describe('tool calls', () => {
 })
 
 describe('durations', () => {
-	it('records a run in seconds, keyed by how it settled', () => {
-		recordRunDuration('completed', 2500)
-		const write = attributesOf('namzu.run.duration')[0]
+	it('records a turn in seconds, keyed by how it settled', () => {
+		recordTurnDuration('completed', 2500)
+		const write = attributesOf('namzu.turn.duration')[0]
 		expect(write?.value).toBe(2.5)
-		expect(write?.attributes['namzu.run.status']).toBe('completed')
+		expect(write?.attributes['namzu.turn.status']).toBe('completed')
 	})
 
 	it('records a model call in seconds', () => {

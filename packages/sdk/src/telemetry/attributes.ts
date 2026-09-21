@@ -1,8 +1,9 @@
 import { context as otelContext, trace } from '@opentelemetry/api'
 export { GENAI, NAMZU } from '../constants/telemetry/index.js'
 
-export function agentRunSpanName(agentName: string): string {
-	return `namzu.agent.run ${agentName}`
+/** The root span of one turn. It carries `gen_ai.conversation.id` (the session) and `namzu.turn.id`. */
+export function agentTurnSpanName(agentName: string): string {
+	return `namzu.agent.turn ${agentName}`
 }
 
 export function agentIterationSpanName(iteration: number): string {
@@ -17,7 +18,7 @@ export function toolSpanName(toolName: string): string {
  * OTel GenAI semconv names the model-call span `chat {model}`.
  *
  * There was no span around the model call at all — `chatSpanName` existed
- * in `@namzu/telemetry` with zero call sites — so a run's traces carried
+ * in `@namzu/telemetry` with zero call sites — so a turn's traces carried
  * no LLM latency whatsoever, and the token attributes landed on the
  * iteration span instead of the operation that produced them.
  */
@@ -31,8 +32,8 @@ export function chatSpanName(model: string): string {
  * Async generators cannot use `startActiveSpan` for parenting: a generator
  * body resumes on its CONSUMER's async context, so whatever was active when
  * the parent span was created is gone by the time the child is made. Every
- * span-owning body in the run loop is a generator, which is why a 20-turn
- * run emitted 21 disconnected root spans. Passing the parent explicitly is
+ * span-owning body in the turn loop is a generator, which is why a
+ * 20-iteration turn emitted 21 disconnected root spans. Passing the parent explicitly is
  * the only thing that works here.
  */
 export function parentContext(parent?: import('@opentelemetry/api').Span | SerializedSpanContext) {
@@ -54,12 +55,12 @@ export function parentContext(parent?: import('@opentelemetry/api').Span | Seria
  *
  * `parentContext` used to accept only a live in-memory span, so a parent
  * that had to survive a process boundary could not be expressed at all — a
- * run that crashed at iteration 12 and resumed produced two traces with
+ * turn that crashed at iteration 12 and resumed produced two traces with
  * different trace ids and no link between them, and the crash and its
  * recovery could not be put on one timeline. Every span carries
- * `namzu.run.id`, which is enough to FIND both traces by query and not
- * enough to see one waterfall; and that much disappears for a replay fork,
- * which mints a new run id.
+ * `namzu.turn.id`, which is enough to FIND both traces by query and not
+ * enough to see one waterfall; and that much disappears for a fork, which
+ * starts a new session.
  *
  * Flat strings rather than the OTel type so it survives `JSON.stringify`
  * into a checkpoint unchanged.

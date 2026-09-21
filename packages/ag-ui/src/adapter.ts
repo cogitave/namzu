@@ -1,9 +1,36 @@
 import { type BaseEvent, EventType, type RunAgentInput, RunAgentInputSchema } from '@ag-ui/core'
 import { EventEncoder } from '@ag-ui/encoder'
-import { type QueryParams, type Run, type RunEvent, generateRunId, query } from '@namzu/sdk'
+import {
+	type Origin,
+	type QueryParams,
+	type SessionEvent,
+	type SessionId,
+	type SessionIndex,
+	type Turn,
+	generateSessionId,
+	isEntityId,
+	isTurnInProgressError,
+	query,
+} from '@namzu/sdk'
 import { AGUIRequestError } from './errors.js'
 import { AGUIEventMapper } from './events.js'
 import { AGUIRunUI, type AGUIRunUIOptions, positiveLimit } from './ui.js'
+
+/**
+ * The namzu session an AG-UI `threadId` names.
+ *
+ * A thread is a session and a run is one turn of it. The thread id is the
+ * client's string: it reaches a session when it is an existing session id or
+ * when a session already claimed it, and otherwise names a new session. The
+ * adapter records the thread (and the run) on the turn's `origin`, which is
+ * how the index learns the mapping, so a second run on the thread finds the
+ * same session even after the index is rebuilt.
+ */
+export interface AGUISessionResolution {
+	readonly sessionId: SessionId
+	/** True when no session has this thread yet: the host is starting one. */
+	readonly created: boolean
+}
 
 export interface AGUIRunContext {
 	/** Validated wire input. It remains untrusted application data. */
@@ -12,6 +39,12 @@ export interface AGUIRunContext {
 	readonly ui: AGUIRunUI
 	/** HTTP request headers remain available to the host's authentication/scope resolver. */
 	readonly request?: Request
+	/**
+	 * The session `input.threadId` resolved to, when the adapter was given a
+	 * session index (`AGUIAdapterOptions.sessions`). Build the query on this
+	 * `sessionId` so the run continues the thread's session.
+	 */
+	readonly session?: AGUISessionResolution
 }
 
 export type AGUIQueryFactory = (context: AGUIRunContext) => QueryParams | Promise<QueryParams>
@@ -23,15 +56,29 @@ export interface AGUIAdapterOptions extends AGUIRunUIOptions {
 	readonly maxRequestBytes?: number
 	/** Observe host/transport exceptions. Never copied into the wire response. */
 	readonly onError?: (error: unknown) => void
+	/**
+	 * The session index threads are resolved through. With it, each run's
+	 * context carries the `session` its `threadId` names; without it the host
+	 * picks the session in `createQuery` on its own.
+	 */
+	readonly sessions?: Pick<SessionIndex, 'getSession' | 'resolveExternal'>
+	/** Mints the id of a new session for an unknown thread. Defaults to the SDK's generator. */
+	readonly newSessionId?: () => SessionId
 }
+
+/**
+ * `QueryParams` with the turn's origin. The adapter always sets it: it is the
+ * record of which thread and which client run this turn serves.
+ */
+type TurnQueryParams = QueryParams & { origin?: Origin }
 
 export interface AGUIRunOptions {
 	readonly signal?: AbortSignal
 }
 
-interface PreparedRun {
+interface PreparedRequest {
 	readonly input: RunAgentInput
-	readonly params: QueryParams
+	readonly params: TurnQueryParams
 	readonly ui: AGUIRunUI
 	readonly controller: AbortController
 	readonly signal: AbortSignal
@@ -105,7 +152,7 @@ export class AGUIAdapter {
 			if (error instanceof AGUIRequestError) return this.errorResponse(error)
 			this.report(error)
 			return this.errorResponse(
-				new AGUIRequestError('Unable to start the Namzu run.', 500, 'RUN_SETUP_FAILED'),
+				new AGUIRequestError('Unable to start the Namzu turn.', 500, 'RUN_SETUP_FAILED'),
 			)
 		}
 	}
@@ -114,7 +161,7 @@ export class AGUIAdapter {
 		value: unknown,
 		externalSignal?: AbortSignal,
 		request?: Request,
-	): Promise<PreparedRun> {
+	): Promise<PreparedRequest> {
 		externalSignal?.throwIfAborted()
 		const parsed = RunAgentInputSchema.safeParse(value)
 		if (!parsed.success) throw new AGUIRequestError('Invalid AG-UI RunAgentInput.', 422)
@@ -156,15 +203,28 @@ export class AGUIAdapter {
 		const closeUI = () => ui.close()
 		signal.addEventListener('abort', closeUI, { once: true })
 		try {
+			const session = this.options.sessions
+				? await abortable(this.resolveThread(input.threadId, this.options.sessions), signal)
+				: undefined
 			const params = await abortable(
 				Promise.resolve(
-					this.options.createQuery({ input, signal, ui, ...(request ? { request } : {}) }),
+					this.options.createQuery({
+						input,
+						signal,
+						ui,
+						...(request ? { request } : {}),
+						...(session ? { session } : {}),
+					}),
 				),
 				signal,
 			)
 			signal.throwIfAborted()
 			ui.sealInitialMessages()
-			// Wire IDs are correlation strings, never filesystem keys or trusted kernel scope.
+			// Wire IDs are correlation strings, never filesystem keys or trusted
+			// kernel scope. They reach the kernel only as the turn's origin: the
+			// client's thread and run, recorded verbatim so the index can map a
+			// later run on this thread back to its session. The turn id itself
+			// is minted by the kernel when the turn begins.
 			const nativeSignal = params.signal ? AbortSignal.any([params.signal, signal]) : signal
 			if (nativeSignal !== signal) nativeSignal.addEventListener('abort', closeUI, { once: true })
 			if (nativeSignal.aborted) closeUI()
@@ -177,7 +237,16 @@ export class AGUIAdapter {
 					signal.removeEventListener('abort', closeUI)
 					nativeSignal.removeEventListener('abort', closeUI)
 				},
-				params: { ...params, runId: params.runId ?? generateRunId(), signal: nativeSignal },
+				params: {
+					...params,
+					origin: {
+						protocol: 'ag-ui',
+						kind: 'prompt',
+						externalSessionId: input.threadId,
+						externalTurnId: input.runId,
+					},
+					signal: nativeSignal,
+				},
 			}
 		} catch (error) {
 			controller.abort(error)
@@ -187,17 +256,17 @@ export class AGUIAdapter {
 		}
 	}
 
-	private async *events(prepared: PreparedRun): AsyncGenerator<BaseEvent> {
+	private async *events(prepared: PreparedRequest): AsyncGenerator<BaseEvent> {
 		const { input, params, controller, signal, ui } = prepared
 		const mapper = new AGUIEventMapper({
 			threadId: input.threadId,
 			runId: input.runId,
-			nativeRunId: params.runId,
+			sessionId: params.sessionId,
 		})
-		let source: AsyncGenerator<RunEvent, Run> | undefined
+		let source: AsyncGenerator<SessionEvent, Turn> | undefined
 		let sourceDone = false
 		let pendingRead: Promise<void> | undefined
-		let native: { next: IteratorResult<RunEvent, Run> } | { error: unknown } | undefined
+		let native: { next: IteratorResult<SessionEvent, Turn> } | { error: unknown } | undefined
 		let terminalEvents: BaseEvent[] | undefined
 		let undeliveredClosures: BaseEvent[] = []
 		let terminalDelivered = false
@@ -279,11 +348,23 @@ export class AGUIAdapter {
 			}
 		} catch (error) {
 			const canceled = signal.aborted
-			if (!canceled) this.report(error)
+			// One active turn per session: a second run on a thread whose turn
+			// is running, parked or interrupted is refused by the kernel. That
+			// is the client's conflict to resolve, not a host failure to report.
+			const inProgress = !canceled && isTurnInProgressError(error)
+			if (!canceled && !inProgress) this.report(error)
 			controller.abort(error)
 			if (!terminalDelivered) {
-				const message = canceled ? 'Namzu run canceled.' : 'Namzu run failed.'
-				const code = canceled ? 'NAMZU_RUN_CANCELED' : 'NAMZU_RUN_ERROR'
+				const message = canceled
+					? 'Namzu turn canceled.'
+					: inProgress
+						? 'This thread already has an active turn. Wait for it to finish, or resume or abandon it.'
+						: 'Namzu turn failed.'
+				const code = canceled
+					? 'NAMZU_TURN_CANCELED'
+					: inProgress
+						? 'NAMZU_TURN_IN_PROGRESS'
+						: 'NAMZU_TURN_ERROR'
 				// A mapper can already be terminal when encoding its final payload fails.
 				// Complete the parts whose starts reached the client, then send one error.
 				const failure = mapper.fail(message, code)
@@ -315,6 +396,24 @@ export class AGUIAdapter {
 		}
 	}
 
+	/**
+	 * A thread id, as the session it names: an existing session id, a thread a
+	 * session already claimed, or a new session.
+	 */
+	private async resolveThread(
+		threadId: string,
+		sessions: Pick<SessionIndex, 'getSession' | 'resolveExternal'>,
+	): Promise<AGUISessionResolution> {
+		if (isEntityId(threadId, 'session')) {
+			const existing = await sessions.getSession(threadId)
+			if (existing) return { sessionId: existing.id, created: false }
+		}
+		const ref = await sessions.resolveExternal('ag-ui', 'thread', threadId)
+		if (ref) return { sessionId: ref.sessionId, created: false }
+		const mint = this.options.newSessionId ?? generateSessionId
+		return { sessionId: mint(), created: true }
+	}
+
 	private checked(event: BaseEvent): BaseEvent {
 		if (Buffer.byteLength(JSON.stringify(event)) > this.maxEventBytes)
 			throw new RangeError('AG-UI event exceeds maxEventBytes')
@@ -325,7 +424,7 @@ export class AGUIAdapter {
 		try {
 			this.options.onError?.(error)
 		} catch {
-			/* Observability cannot own run cleanup. */
+			/* Observability cannot own turn cleanup. */
 		}
 	}
 

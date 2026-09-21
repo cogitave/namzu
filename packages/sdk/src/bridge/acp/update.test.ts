@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { createToolPresenter } from '../../registry/tool/presentation.js'
 import { fixtureId } from '../../test-support/ids.js'
-import type { RunEvent } from '../../types/run/events.js'
+import type { SessionEvent } from '../../types/session/events.js'
 import { toAcpSessionUpdate, toAcpStopReason } from './update.js'
 
 /**
@@ -15,7 +15,8 @@ import { toAcpSessionUpdate, toAcpStopReason } from './update.js'
  * mapper is a table, and a table is tested entry by entry.
  */
 
-const RID = fixtureId.run('acp')
+const SID = fixtureId.session('acp')
+const TID = fixtureId.turn('acp')
 const MID = fixtureId.message('a')
 const presenter = createToolPresenter(new ToolRegistry())
 
@@ -23,7 +24,14 @@ describe('what this protocol has a word for', () => {
 	it('maps a text delta to an assistant chunk', () => {
 		expect(
 			toAcpSessionUpdate(
-				{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'hi' } as RunEvent,
+				{
+					type: 'text_delta',
+					sessionId: SID,
+					turnId: TID,
+					iteration: 0,
+					messageId: MID,
+					text: 'hi',
+				} as SessionEvent,
 				presenter,
 			),
 		).toEqual({ kind: 'agent_message_chunk', text: 'hi' })
@@ -37,12 +45,13 @@ describe('what this protocol has a word for', () => {
 			toAcpSessionUpdate(
 				{
 					type: 'reasoning_delta',
-					runId: RID,
+					sessionId: SID,
+					turnId: TID,
 					iteration: 0,
 					messageId: MID,
 					blockIndex: 0,
 					text: 'weighing it',
-				} as RunEvent,
+				} as SessionEvent,
 				presenter,
 			),
 		).toEqual({ kind: 'agent_thought_chunk', text: 'weighing it' })
@@ -52,11 +61,12 @@ describe('what this protocol has a word for', () => {
 		const update = toAcpSessionUpdate(
 			{
 				type: 'tool_executing',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				toolUseId: 'toolu_7',
 				toolName: 'read_file',
 				input: { path: 'a.txt' },
-			} as RunEvent,
+			} as SessionEvent,
 			presenter,
 		)
 		expect(update).toMatchObject({ kind: 'tool_call', toolCallId: 'toolu_7', status: 'pending' })
@@ -66,22 +76,24 @@ describe('what this protocol has a word for', () => {
 		const ok = toAcpSessionUpdate(
 			{
 				type: 'tool_completed',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				toolUseId: 'toolu_7',
 				toolName: 'read_file',
 				result: 'contents',
-			} as RunEvent,
+			} as SessionEvent,
 			presenter,
 		)
 		const failed = toAcpSessionUpdate(
 			{
 				type: 'tool_completed',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				toolUseId: 'toolu_8',
 				toolName: 'read_file',
 				result: 'nope',
 				isError: true,
-			} as RunEvent,
+			} as SessionEvent,
 			presenter,
 		)
 		expect(ok).toMatchObject({ status: 'completed' })
@@ -95,11 +107,12 @@ describe('what this protocol has a word for', () => {
 		const update = toAcpSessionUpdate(
 			{
 				type: 'tool_completed',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				toolUseId: 'toolu_9',
 				toolName: 'count',
 				result: 42,
-			} as unknown as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 		expect(JSON.stringify(update)).toContain('42')
@@ -111,27 +124,36 @@ describe('what this protocol has a word for', () => {
 		const update = toAcpSessionUpdate(
 			{
 				type: 'tool_completed',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				toolUseId: 'toolu_x',
 				toolName: 'noop',
-			} as unknown as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 		expect(JSON.stringify(update)).not.toContain('undefined')
 	})
 
-	it('maps a completed run to a turn boundary carrying the reason', () => {
+	it('maps a completed turn to a turn boundary carrying the reason', () => {
 		expect(
 			toAcpSessionUpdate(
-				{ type: 'run_completed', runId: RID, stopReason: 'end_turn' } as RunEvent,
+				{
+					type: 'turn_completed',
+					sessionId: SID,
+					turnId: TID,
+					stopReason: 'end_turn',
+				} as SessionEvent,
 				presenter,
 			),
 		).toEqual({ kind: 'turn_ended', stopReason: 'end_turn' })
 	})
 
-	it('maps a failed run to a turn boundary of error', () => {
+	it('maps a failed turn to a turn boundary of error', () => {
 		expect(
-			toAcpSessionUpdate({ type: 'run_failed', runId: RID, error: 'boom' } as RunEvent, presenter),
+			toAcpSessionUpdate(
+				{ type: 'turn_failed', sessionId: SID, turnId: TID, error: 'boom' } as SessionEvent,
+				presenter,
+			),
 		).toEqual({ kind: 'turn_ended', stopReason: 'error' })
 	})
 })
@@ -146,11 +168,16 @@ describe('what it has no word for', () => {
 		'plan_ready',
 		'activity_created',
 	])('returns null for %s rather than inventing a shape', (type) => {
-		// `null`, not a throw: a run emits far more than any one peer surface
+		// `null`, not a throw: a turn emits far more than any one peer surface
 		// renders, and "this protocol does not carry that" is an ordinary
 		// answer. Forwarding them as a generic blob would put text on a
 		// client's screen that nothing there knows how to lay out.
-		expect(toAcpSessionUpdate({ type, runId: RID } as unknown as RunEvent, presenter)).toBeNull()
+		expect(
+			toAcpSessionUpdate(
+				{ type, sessionId: SID, turnId: TID } as unknown as SessionEvent,
+				presenter,
+			),
+		).toBeNull()
 	})
 })
 
@@ -180,7 +207,7 @@ describe('the stop-reason table', () => {
 	})
 
 	it('treats an absent reason as a normal end', () => {
-		// A run that settled without naming a reason ended normally; calling
+		// A turn that settled without naming a reason ended normally; calling
 		// that `error` would report a failure that did not happen.
 		expect(toAcpStopReason(undefined)).toBe('end_turn')
 	})

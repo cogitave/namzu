@@ -4,7 +4,7 @@ import type {
 	TaskStatusUpdateEvent,
 } from '../../types/a2a/index.js'
 
-import type { RunEvent } from '../../types/run/events.js'
+import type { SessionEvent } from '../../types/session/events.js'
 
 function statusEvent(
 	taskId: string,
@@ -39,30 +39,33 @@ function artifactEvent(
 	}
 }
 
-type A2ATransform<K extends RunEvent['type']> =
-	| ((event: Extract<RunEvent, { type: K }>, contextId?: string) => A2AStreamEvent | null)
+// An A2A task is one namzu turn: every mapped event's `taskId` is its
+// `turnId`, and each of them is an event that only happens inside a turn.
+// The context is the session.
+type A2ATransform<K extends SessionEvent['type']> =
+	| ((event: Extract<SessionEvent, { type: K }>, contextId: string) => A2AStreamEvent | null)
 	| null
 
 const MAPPING: {
-	[K in RunEvent['type']]: A2ATransform<K>
+	[K in SessionEvent['type']]: A2ATransform<K>
 } = {
 	// Internal cumulative admission ledger, not a public UI event.
 	tool_calls_admitted: null,
-	// Hosted activity is retained in the run log; A2A exposes the resulting answer.
+	// Hosted activity is retained in the session log; A2A exposes the resulting answer.
 	hosted_tool: null,
-	run_started: (e, ctx) => statusEvent(e.runId, 'running', false, ctx),
+	turn_started: (e, ctx) => statusEvent(e.turnId, 'running', false, ctx),
 
-	run_completed: (e, ctx) => {
-		const completedEvent = statusEvent(e.runId, 'completed', true, ctx, {
+	turn_completed: (e, ctx) => {
+		const completedEvent = statusEvent(e.turnId, 'completed', true, ctx, {
 			role: 'agent',
 			parts: [{ kind: 'text', text: e.result }],
 		})
 		return completedEvent
 	},
 
-	run_failed: (e, ctx) =>
+	turn_failed: (e, ctx) =>
 		statusEvent(
-			e.runId,
+			e.turnId,
 			'failed',
 			true,
 			ctx,
@@ -98,7 +101,7 @@ const MAPPING: {
 	approval_policy_changed: null,
 
 	iteration_started: (e, ctx) =>
-		statusEvent(e.runId, 'running', false, ctx, {
+		statusEvent(e.turnId, 'running', false, ctx, {
 			role: 'agent',
 			parts: [{ kind: 'text', text: `Iteration ${e.iteration} started` }],
 		}),
@@ -111,7 +114,7 @@ const MAPPING: {
 	// still running and this says why nothing is arriving. Reported as
 	// working rather than failed: the call has not given up.
 	provider_retry: (e, ctx) =>
-		statusEvent(e.runId, 'running', false, ctx, {
+		statusEvent(e.turnId, 'running', false, ctx, {
 			role: 'agent',
 			parts: [
 				{
@@ -123,9 +126,9 @@ const MAPPING: {
 
 	// A swap is news for a remote peer for the same reason it is news for a
 	// local operator: the answer arriving next was produced by a provider the
-	// peer did not ask for. Still `running` — the run did not fail, it moved.
+	// peer did not ask for. Still `running` — the turn did not fail, it moved.
 	provider_fallback: (e, ctx) =>
-		statusEvent(e.runId, 'running', false, ctx, {
+		statusEvent(e.turnId, 'running', false, ctx, {
 			role: 'agent',
 			parts: [
 				{
@@ -138,7 +141,7 @@ const MAPPING: {
 		}),
 
 	tool_completed: (e, ctx) =>
-		artifactEvent(e.runId, ctx, {
+		artifactEvent(e.turnId, ctx, {
 			artifactId: `tool-${e.toolName}-${Date.now()}`,
 			name: `${e.toolName} result`,
 			parts: [{ kind: 'text', text: e.result }],
@@ -150,7 +153,7 @@ const MAPPING: {
 		}),
 
 	user_question_asked: (e, ctx) =>
-		statusEvent(e.runId, 'input-required', false, ctx, {
+		statusEvent(e.turnId, 'input-required', false, ctx, {
 			role: 'agent',
 			parts: [
 				{ kind: 'text', text: e.question },
@@ -163,12 +166,12 @@ const MAPPING: {
 		}),
 
 	// The task leaves `input-required` by the next status event it emits;
-	// a second one here would only restate what the resumed run says.
+	// a second one here would only restate what the resumed turn says.
 	user_question_answered: null,
 
 	tool_review_requested: (e, ctx) => {
 		const toolNames = e.toolCalls.map((tc) => tc.name).join(', ')
-		return statusEvent(e.runId, 'input-required', false, ctx, {
+		return statusEvent(e.turnId, 'input-required', false, ctx, {
 			role: 'agent',
 			parts: [
 				{ kind: 'text', text: `Review requested for tools: ${toolNames}` },
@@ -188,7 +191,7 @@ const MAPPING: {
 	},
 
 	plan_ready: (e, ctx) =>
-		statusEvent(e.runId, 'input-required', false, ctx, {
+		statusEvent(e.turnId, 'input-required', false, ctx, {
 			role: 'agent',
 			parts: [
 				{ kind: 'text', text: `Plan ready: ${e.title}` },
@@ -209,15 +212,15 @@ const MAPPING: {
 			],
 		}),
 
-	run_paused: (e, ctx) =>
+	turn_paused: (e, ctx) =>
 		statusEvent(
-			e.runId,
+			e.turnId,
 			'input-required',
 			false,
 			ctx,
 			{
 				role: 'agent',
-				parts: [{ kind: 'text', text: `Run paused: ${e.reason}` }],
+				parts: [{ kind: 'text', text: `Turn paused: ${e.reason}` }],
 			},
 			// A remote host has the same recovery decision as a local one. The
 			// checkpoint is the address of that recovery; the classification tells
@@ -241,7 +244,7 @@ const MAPPING: {
 	// is tracking, and it is the largest single payload the kernel emits.
 	request_envelope: null,
 	// Declined. This carries whole message bodies including tool output, and
-	// a peer models a task lifecycle — shipping a run's deleted history over
+	// a peer models a task lifecycle — shipping a session's deleted history over
 	// an external wire by default is a disclosure nobody asked for.
 	compaction_shed: null,
 	compaction_completed: null,
@@ -249,7 +252,7 @@ const MAPPING: {
 	// strategies fired is a property of how it manages its own window, and a
 	// peer modelling a task lifecycle can act on none of them.
 	compaction_tool_results_cleared: null,
-	// What the run wrote to its own memory store is this runtime's business;
+	// What the turn wrote to its own memory store is this runtime's business;
 	// a peer sees the task's outcome, not its housekeeping.
 	memory_consolidated: null,
 	// A job's exit is housekeeping of this runtime's host; the peer sees the
@@ -259,7 +262,7 @@ const MAPPING: {
 	// manages its own context. A peer models a task lifecycle and cannot act on
 	// either outcome.
 	compaction_failed: null,
-	// A refusal is the run's own policy decision; the peer sees it in the
+	// A refusal is the turn's own policy decision; the peer sees it in the
 	// terminal task state, not as a separate signal.
 	guardrail_triggered: null,
 	// Reasoning is kernel-internal: an A2A peer models a task lifecycle,
@@ -270,7 +273,7 @@ const MAPPING: {
 	tool_executing: null,
 	tool_review_completed: null,
 	checkpoint_created: null,
-	run_resuming: null,
+	turn_resuming: null,
 	token_usage_updated: null,
 	activity_created: null,
 	activity_updated: null,
@@ -303,12 +306,11 @@ const MAPPING: {
 	sandbox_exec: null,
 	sandbox_destroyed: null,
 
-	// Sub-session lifecycle events (session-hierarchy.md §10.4). These are
-	// in-flight visibility signals for the kernel bus; the A2A bridge does not
-	// surface them today.
-	subsession_spawned: null,
-	subsession_messaged: null,
-	subsession_idled: null,
+	// Child-session lifecycle events: this runtime's division of labour, for
+	// the same reason as `agent_pending` above.
+	child_session_spawned: null,
+	child_session_messaged: null,
+	child_session_idled: null,
 
 	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). A2A's
 	// status-update model is coarse-grained, so per-delta events are dropped
@@ -319,7 +321,7 @@ const MAPPING: {
 	text_delta: null,
 	message_completed: (e, ctx) => {
 		if (!e.content) return null
-		return statusEvent(e.runId, 'running', false, ctx, {
+		return statusEvent(e.turnId, 'running', false, ctx, {
 			role: 'agent',
 			parts: [{ kind: 'text', text: e.content }],
 		})
@@ -329,14 +331,22 @@ const MAPPING: {
 	tool_input_completed: null,
 }
 
-export function mapRunToA2AEvent(event: RunEvent, contextId?: string): A2AStreamEvent | null {
+/**
+ * One session event as an A2A stream event, or `null` for the events a peer
+ * modelling a task lifecycle has no use for.
+ *
+ * `taskId` is the event's turn. `contextId` is the session as the peer knows
+ * it: pass the peer's own context id when the session was reached through
+ * one; absent, the event's `sessionId` is used.
+ */
+export function mapTurnToA2AEvent(event: SessionEvent, contextId?: string): A2AStreamEvent | null {
 	const transform = MAPPING[event.type]
 	if (!transform) return null
-	return (transform as (event: RunEvent, contextId?: string) => A2AStreamEvent | null)(
+	return (transform as (event: SessionEvent, contextId: string) => A2AStreamEvent | null)(
 		event,
-		contextId,
+		contextId ?? event.sessionId,
 	)
 }
 
-/** @deprecated Use mapRunToA2AEvent */
-export const mapSessionToA2AEvent = mapRunToA2AEvent
+/** @deprecated Use mapTurnToA2AEvent */
+export const mapSessionToA2AEvent = mapTurnToA2AEvent

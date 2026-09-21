@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { RUN_EVENT_FIXTURES as FIXTURES } from '../../__fixtures__/run-event-fixtures.js'
-import { mapRunToA2AEvent } from '../mapper.js'
+import { SESSION_EVENT_FIXTURES as FIXTURES } from '../../__fixtures__/session-event-fixtures.js'
+import { mapTurnToA2AEvent } from '../mapper.js'
 
 /**
  * The A2A wire, pinned the same way as the SSE one and against the same
@@ -19,10 +19,10 @@ import { mapRunToA2AEvent } from '../mapper.js'
  * passing, and the two wires would be tested against different events.
  */
 
-describe('every RunEvent has a decided place on the A2A wire', () => {
+describe('every SessionEvent has a decided place on the A2A wire', () => {
 	it('maps or declines each one, and never throws', () => {
 		for (const [type, build] of Object.entries(FIXTURES)) {
-			expect(() => mapRunToA2AEvent(build(), 'ctx_wire'), type).not.toThrow()
+			expect(() => mapTurnToA2AEvent(build(), 'ctx_wire'), type).not.toThrow()
 		}
 	})
 
@@ -32,7 +32,7 @@ describe('every RunEvent has a decided place on the A2A wire', () => {
 		// actually branches on.
 		const shape: Record<string, unknown> = {}
 		for (const [type, build] of Object.entries(FIXTURES)) {
-			const mapped = mapRunToA2AEvent(build(), 'ctx_wire')
+			const mapped = mapTurnToA2AEvent(build(), 'ctx_wire')
 			shape[type] = mapped ? Object.keys(mapped as object).sort() : null
 		}
 
@@ -43,7 +43,7 @@ describe('every RunEvent has a decided place on the A2A wire', () => {
 		// The set is large by design. That is exactly why it has to be
 		// written down: one more entry looks like nothing at all.
 		const declined = Object.entries(FIXTURES)
-			.filter(([, build]) => mapRunToA2AEvent(build(), 'ctx_wire') === null)
+			.filter(([, build]) => mapTurnToA2AEvent(build(), 'ctx_wire') === null)
 			.map(([type]) => type)
 			.sort()
 
@@ -55,12 +55,35 @@ describe('every RunEvent has a decided place on the A2A wire', () => {
 		// a mapper that returned `null` for everything would pin a perfectly
 		// stable, perfectly useless picture.
 		const outcomes = Object.values(FIXTURES).map((build) =>
-			mapRunToA2AEvent(build(), 'ctx_wire') === null ? 'declined' : 'mapped',
+			mapTurnToA2AEvent(build(), 'ctx_wire') === null ? 'declined' : 'mapped',
 		)
 		const declined = outcomes.filter((o) => o === 'declined').length
 		const mapped = outcomes.length - declined
 
 		expect(mapped).toBeGreaterThan(0)
 		expect(declined).toBeGreaterThan(mapped)
+	})
+
+	it('maps exactly twelve of the sixty-two, each as the turn of the session', () => {
+		// An A2A task is one turn and its context one session. Every mapped
+		// event is one that only happens inside a turn, so every one of them
+		// names its task.
+		const entries = Object.entries(FIXTURES)
+		expect(entries).toHaveLength(62)
+		const mapped = entries
+			.map(([type, build]) => {
+				// The shared fixture is minimal and carries no aggregated text;
+				// `message_completed` maps only when it has some.
+				const minimal = build()
+				const event = minimal.type === 'message_completed' ? { ...minimal, content: 'x' } : minimal
+				return { type, event, a2a: mapTurnToA2AEvent(event) }
+			})
+			.filter((entry) => entry.a2a !== null)
+		expect(mapped).toHaveLength(12)
+		for (const { type, event, a2a } of mapped) {
+			expect(a2a?.taskId, type).toBe(event.turnId)
+			// With no context id from the peer, the session is the context.
+			expect(a2a?.contextId, type).toBe(event.sessionId)
+		}
 	})
 })

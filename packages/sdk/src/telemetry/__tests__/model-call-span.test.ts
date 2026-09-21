@@ -13,7 +13,7 @@ import { createUserMessage } from '../../types/message/index.js'
  * There was no span around the model call at all.
  *
  * `chatSpanName` shipped in the telemetry attributes with zero call sites,
- * so a run's traces carried no LLM latency whatsoever — and the one thing
+ * so a turn's traces carried no LLM latency whatsoever — and the one thing
  * anybody opens a trace to find, which turn was slow and why, was the one
  * thing missing from it. The token counts landed on the iteration span
  * instead of the operation that produced them.
@@ -33,7 +33,7 @@ vi.mock('../runtime-accessors.js', () => ({
 	// them — so omitting this one does not fall through to the real
 	// implementation, it makes the import undefined. `recordAudit` reads the
 	// active span to stamp an audit event, so a partial mock here surfaces as
-	// a run failure in a file that is not about spans at all.
+	// a turn failure in a file that is not about spans at all.
 	getActiveSpanContext: () => undefined,
 	getTracer: () => ({
 		startSpan: (name: string) => {
@@ -109,7 +109,7 @@ async function runOnce(turns: { text?: string }[]): Promise<void> {
 	await drainQuery({
 		provider: new MockLLMProvider({ turns: turns as never }),
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -197,10 +197,10 @@ describe('the model call has a span of its own', () => {
 		expect(attrs).toHaveProperty('namzu.cache.write_tokens')
 	})
 
-	it('opens exactly one per model call, however many turns a run takes', async () => {
+	it('opens exactly one per model call, however many model turns a query takes', async () => {
 		await runOnce([{ text: 'first' }, { text: 'second' }])
 
-		// The count has to track model calls, not runs and not iterations —
+		// The count has to track model calls, not turns and not iterations —
 		// which is the only way a duplicate is visible at all.
 		const calls = spans.filter((s) => s.name.includes('iteration')).length
 		expect(chatSpans().length).toBeLessThanOrEqual(calls)

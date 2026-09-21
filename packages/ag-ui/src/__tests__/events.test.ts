@@ -1,12 +1,51 @@
 import { HttpAgent } from '@ag-ui/client'
 import { type BaseEvent, EventSchemas, EventType } from '@ag-ui/core'
 import { EventEncoder } from '@ag-ui/encoder'
-import type { MessageId, RunEvent, RunId, StopReason, ToolUseId } from '@namzu/sdk'
+import type {
+	MessageId,
+	SessionEvent,
+	SessionId,
+	StopReason,
+	ToolUseId,
+	TurnId,
+	TurnSettlement,
+} from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { AGUIEventMapper, type AGUIEventMapperOptions } from '../events.js'
 
-const RUN = '3f747aa4-e0fc-4278-ae40-f895280bb9fe' as RunId
-const CHILD = 'b272c51e-296e-4d1f-ac1c-43b5e4b5e572' as RunId
+const SESSION = '0199b3a0-0000-7000-8000-0000000000e1' as SessionId
+const TURN = '3f747aa4-e0fc-4278-ae40-f895280bb9fe' as TurnId
+/** A child session, and its turn: delegated work whose events reach the parent's listener. */
+const CHILD_SESSION = '0199b3a0-0000-7000-8000-0000000000e2' as SessionId
+const CHILD = 'b272c51e-296e-4d1f-ac1c-43b5e4b5e572' as TurnId
+const SETTLEMENT: TurnSettlement = {
+	status: 'completed',
+	iterations: 1,
+	usage: {
+		promptTokens: 0,
+		completionTokens: 0,
+		totalTokens: 0,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+	},
+	cost: {
+		inputCostPer1M: 0,
+		outputCostPer1M: 0,
+		totalCost: 0,
+		cacheDiscount: 0,
+		unpricedTokens: 0,
+	},
+	durationMs: 0,
+	resultSource: 'model',
+	abandonedTaskIds: [],
+	abandonedJobIds: [],
+}
+const FAILED: TurnSettlement = { ...SETTLEMENT, status: 'failed' }
+/** The fields `turn_started` requires and these tests do not look at. */
+const STARTED = {
+	userMessageId: 'native-prompt' as MessageId,
+	config: { model: 'm', tokenBudget: 1, timeoutMs: 1 },
+}
 const MESSAGE = 'native-message' as MessageId
 const OTHER_MESSAGE = 'other-native-message' as MessageId
 const TOOL = 'native-tool' as ToolUseId
@@ -14,38 +53,40 @@ const OTHER_TOOL = 'other-native-tool' as ToolUseId
 const OPTIONS: AGUIEventMapperOptions = {
 	threadId: 'thread:opaque/one',
 	runId: '',
-	nativeRunId: RUN,
+	sessionId: SESSION,
+	turnId: TURN,
 }
 
-function native<K extends RunEvent['type']>(
+function native<K extends SessionEvent['type']>(
 	type: K,
-	fields: Omit<Extract<RunEvent, { type: K }>, 'type' | 'runId'>,
-	runId = RUN,
-): Extract<RunEvent, { type: K }> {
-	return { type, runId, ...fields } as Extract<RunEvent, { type: K }>
+	fields: Omit<Extract<SessionEvent, { type: K }>, 'type' | 'sessionId' | 'turnId'>,
+	turnId: TurnId = TURN,
+	sessionId: SessionId = SESSION,
+): Extract<SessionEvent, { type: K }> {
+	return { type, sessionId, turnId, ...fields } as Extract<SessionEvent, { type: K }>
 }
 
-function messageStarted(messageId = MESSAGE): RunEvent {
+function messageStarted(messageId = MESSAGE): SessionEvent {
 	return native('message_started', { messageId, iteration: 1 })
 }
 
-function textDelta(text: string, messageId = MESSAGE): RunEvent {
+function textDelta(text: string, messageId = MESSAGE): SessionEvent {
 	return native('text_delta', { messageId, iteration: 1, text })
 }
 
-function messageCompleted(content?: string, messageId = MESSAGE): RunEvent {
+function messageCompleted(content?: string, messageId = MESSAGE): SessionEvent {
 	return native('message_completed', { messageId, iteration: 1, stopReason: 'end_turn', content })
 }
 
-function toolStarted(toolUseId = TOOL, messageId = MESSAGE): RunEvent {
+function toolStarted(toolUseId = TOOL, messageId = MESSAGE): SessionEvent {
 	return native('tool_input_started', { toolUseId, messageId, iteration: 1, toolName: 'lookup' })
 }
 
-function runCompleted(stopReason?: StopReason, result = ''): RunEvent {
-	return native('run_completed', { result, stopReason })
+function turnCompleted(stopReason?: StopReason, result = ''): SessionEvent {
+	return native('turn_completed', { result, stopReason, settlement: SETTLEMENT })
 }
 
-function mapAll(input: RunEvent[]): BaseEvent[] {
+function mapAll(input: SessionEvent[]): BaseEvent[] {
 	const mapper = new AGUIEventMapper(OPTIONS)
 	const events = [
 		...mapper.start(),
@@ -98,8 +139,8 @@ describe('AGUIEventMapper', () => {
 			{ type: EventType.RUN_STARTED, threadId: 'thread:opaque/one', runId: '' },
 		])
 		expect(mapper.start()).toEqual([])
-		expect(mapper.map(native('run_started', { systemPrompt: 'private' }))).toEqual([])
-		expect(mapper.map(runCompleted())).toEqual([
+		expect(mapper.map(native('turn_started', { ...STARTED, systemPrompt: 'private' }))).toEqual([])
+		expect(mapper.map(turnCompleted())).toEqual([
 			{
 				type: EventType.RUN_FINISHED,
 				threadId: OPTIONS.threadId,
@@ -109,7 +150,7 @@ describe('AGUIEventMapper', () => {
 			},
 		])
 		expect(mapper.ended).toBe(true)
-		expect(mapper.map(runCompleted())).toEqual([])
+		expect(mapper.map(turnCompleted())).toEqual([])
 		expect(mapper.map(textDelta('late'))).toEqual([])
 		expect(mapper.finish()).toEqual([])
 		expect(mapper.fail('late error')).toEqual([])
@@ -125,7 +166,7 @@ describe('AGUIEventMapper', () => {
 			messageCompleted('Hello world'),
 			messageCompleted('Hello world'),
 			native('iteration_completed', { iteration: 1, hasToolCalls: false }),
-			runCompleted('end_turn', 'Hello world'),
+			turnCompleted('end_turn', 'Hello world'),
 		])
 		expect(text(events)).toBe('Hello world')
 		expect(events.map((event) => event.type)).toEqual([
@@ -148,7 +189,7 @@ describe('AGUIEventMapper', () => {
 			messageCompleted('Recovered'),
 			textDelta('late'),
 			messageCompleted('Recovered'),
-			runCompleted('end_turn', 'Recovered'),
+			turnCompleted('end_turn', 'Recovered'),
 		])
 		expect(text(events)).toBe('Recovered')
 		expect(ofType(events, EventType.TEXT_MESSAGE_START)).toHaveLength(1)
@@ -160,7 +201,7 @@ describe('AGUIEventMapper', () => {
 			messageStarted(),
 			textDelta('Retained '),
 			messageCompleted('Retained prefix and missing suffix'),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(text(events)).toBe('Retained prefix and missing suffix')
 		expect(ofType(events, EventType.TEXT_MESSAGE_CONTENT).map((event) => event.delta)).toEqual([
@@ -174,7 +215,7 @@ describe('AGUIEventMapper', () => {
 			messageStarted(),
 			textDelta('Wrong prefix'),
 			messageCompleted('Different aggregate'),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(text(events)).toBe('Wrong prefix')
 		expect(events.at(-1)).toMatchObject({
@@ -193,7 +234,7 @@ describe('AGUIEventMapper', () => {
 			{ ...textDelta('!'), seq: 7 },
 			{ ...textDelta('!'), seq: 7 },
 			messageCompleted('haha!'),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(text(events)).toBe('haha!')
 		expect(ofType(events, EventType.TEXT_MESSAGE_START)).toHaveLength(1)
@@ -215,7 +256,7 @@ describe('AGUIEventMapper', () => {
 			native('tool_input_completed', { toolUseId: OTHER_TOOL, input: { city: 'Rome' } }),
 			messageCompleted('First message'),
 			messageCompleted('Second', OTHER_MESSAGE),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(text(events)).toBe('First message')
 		expect(text(events, OTHER_MESSAGE)).toBe('Second')
@@ -258,7 +299,7 @@ describe('AGUIEventMapper', () => {
 				result: 'Sunny',
 				isError: false,
 			}),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(args(events)).toBe('{"city":"Paris"}')
 		expect(events[1]).toEqual({
@@ -297,7 +338,7 @@ describe('AGUIEventMapper', () => {
 				result: 'Done',
 				isError: false,
 			}),
-			runCompleted(),
+			turnCompleted(),
 		])
 		const parent = ofType(events, EventType.TEXT_MESSAGE_START)[0]?.messageId
 		expect(ofType(events, EventType.TOOL_CALL_START)[0]?.parentMessageId).toBe(parent)
@@ -312,7 +353,7 @@ describe('AGUIEventMapper', () => {
 			native('tool_executing', { toolUseId: TOOL, toolName: 'lookup', input: {} }),
 			textDelta('Kept'),
 			messageCompleted('Kept'),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(text(events)).toBe('Kept')
 		await applyWithOfficialClient(events)
@@ -332,7 +373,7 @@ describe('AGUIEventMapper', () => {
 			messageStarted(OTHER_MESSAGE),
 			textDelta('Try again later.', OTHER_MESSAGE),
 			messageCompleted('Try again later.', OTHER_MESSAGE),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(ofType(events, EventType.TOOL_CALL_RESULT)[0]).toMatchObject({
 			content: 'Unavailable',
@@ -356,7 +397,7 @@ describe('AGUIEventMapper', () => {
 				reasoningTokens: 1,
 			},
 		})
-		const events = mapAll([completed, completed, runCompleted()])
+		const events = mapAll([completed, completed, turnCompleted()])
 		expect(events.at(-1)?.usage).toEqual([
 			{
 				inputTokens: 10,
@@ -371,24 +412,42 @@ describe('AGUIEventMapper', () => {
 	it('ignores child content and terminals without consuming the root sequence', () => {
 		const mapper = new AGUIEventMapper({ threadId: 'thread', runId: 'wire' })
 		expect(
-			mapper.map({ ...native('run_started', {}, CHILD), lineage: { depth: 1 } } as RunEvent),
+			mapper.map({
+				...native('turn_started', STARTED, CHILD, CHILD_SESSION),
+				lineage: { depth: 1 },
+			} as SessionEvent),
 		).toEqual([])
-		expect(mapper.map(native('run_started', {}))).toHaveLength(1)
-		expect(mapper.map({ ...textDelta('private child'), runId: CHILD, seq: 2 })).toEqual([])
+		expect(mapper.map(native('turn_started', STARTED))).toHaveLength(1)
 		expect(
-			mapper.map({ ...native('run_failed', { error: 'child failure' }, CHILD), seq: 3 }),
+			mapper.map({
+				...textDelta('private child'),
+				sessionId: CHILD_SESSION,
+				turnId: CHILD,
+				seq: 2,
+			}),
+		).toEqual([])
+		expect(
+			mapper.map({
+				...native(
+					'turn_failed',
+					{ error: 'child failure', settlement: FAILED },
+					CHILD,
+					CHILD_SESSION,
+				),
+				seq: 3,
+			}),
 		).toEqual([])
 		expect(mapper.map({ ...textDelta('Root'), seq: 2 })).toEqual([
 			{ type: EventType.TEXT_MESSAGE_START, messageId: MESSAGE, role: 'assistant' },
 			{ type: EventType.TEXT_MESSAGE_CONTENT, messageId: MESSAGE, delta: 'Root' },
 		])
 		expect(mapper.ended).toBe(false)
-		expect(mapper.map(runCompleted()).at(-1)?.type).toBe(EventType.RUN_FINISHED)
+		expect(mapper.map(turnCompleted()).at(-1)?.type).toBe(EventType.RUN_FINISHED)
 	})
 
 	it('never projects system prompts, context, reasoning, raw events, or failure details', () => {
 		const mapper = new AGUIEventMapper(OPTIONS)
-		const privateEvents: RunEvent[] = [
+		const privateEvents: SessionEvent[] = [
 			native('request_envelope', {
 				iteration: 1,
 				model: 'secret',
@@ -419,14 +478,16 @@ describe('AGUIEventMapper', () => {
 		]
 		for (const event of privateEvents) expect(mapper.map(event)).toEqual([])
 		const events = [
-			...mapper.map(native('run_started', { systemPrompt: 'secret' })),
-			...mapper.map(native('run_failed', { error: 'secret token https://internal/path' })),
+			...mapper.map(native('turn_started', { ...STARTED, systemPrompt: 'secret' })),
+			...mapper.map(
+				native('turn_failed', { error: 'secret token https://internal/path', settlement: FAILED }),
+			),
 		]
 		expect(JSON.stringify(events)).not.toContain('secret')
 		expect(events.at(-1)).toEqual({
 			type: EventType.RUN_ERROR,
-			message: 'Namzu run failed.',
-			code: 'NAMZU_RUN_ERROR',
+			message: 'Namzu turn failed.',
+			code: 'NAMZU_TURN_ERROR',
 		})
 	})
 
@@ -447,26 +508,29 @@ describe('AGUIEventMapper', () => {
 		'paused',
 		'error',
 	] satisfies StopReason[])('reports %s as an unsuccessful terminal outcome', (stopReason) => {
-		const events = mapAll([messageStarted(), textDelta('Partial'), runCompleted(stopReason)])
+		const events = mapAll([messageStarted(), textDelta('Partial'), turnCompleted(stopReason)])
 		expect(ofType(events, EventType.RUN_FINISHED)).toEqual([])
 		expect(events.at(-2)).toEqual({ type: EventType.TEXT_MESSAGE_END, messageId: MESSAGE })
 		expect(events.at(-1)).toMatchObject({
 			type: EventType.RUN_ERROR,
-			code: stopReason === 'paused' ? 'NAMZU_RUN_PAUSED' : `NAMZU_${stopReason.toUpperCase()}`,
+			code: stopReason === 'paused' ? 'NAMZU_TURN_PAUSED' : `NAMZU_${stopReason.toUpperCase()}`,
 		})
 	})
 
 	it('reports a pause with checkpoint metadata and a terminal error without claiming AG-UI resume', () => {
 		const events = mapAll([
-			native('run_paused', {
-				checkpointId: 'checkpoint' as Extract<RunEvent, { type: 'run_paused' }>['checkpointId'],
+			native('turn_paused', {
+				checkpointId: 'checkpoint' as Extract<
+					SessionEvent,
+					{ type: 'turn_paused' }
+				>['checkpointId'],
 				reason: 'private provider details',
 			}),
 		])
 		expect(events).toEqual([
 			{ type: EventType.RUN_STARTED, threadId: OPTIONS.threadId, runId: OPTIONS.runId },
-			{ type: EventType.CUSTOM, name: 'namzu.run.paused', value: { checkpointId: 'checkpoint' } },
-			{ type: EventType.RUN_ERROR, message: 'Namzu run paused.', code: 'NAMZU_RUN_PAUSED' },
+			{ type: EventType.CUSTOM, name: 'namzu.turn.paused', value: { checkpointId: 'checkpoint' } },
+			{ type: EventType.RUN_ERROR, message: 'Namzu turn paused.', code: 'NAMZU_TURN_PAUSED' },
 		])
 	})
 
@@ -511,7 +575,7 @@ describe('AGUIEventMapper', () => {
 				result: 'Input was truncated.',
 				isError: true,
 			}),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(args(events)).toBe('{"text":"cut off')
 		expect(ofType(events, EventType.TOOL_CALL_END)).toEqual([
@@ -530,7 +594,7 @@ describe('AGUIEventMapper', () => {
 		const events = mapAll([
 			toolStarted(),
 			native('tool_input_completed', { toolUseId: TOOL, input: {}, inputTruncated: true }),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(ofType(events, EventType.TOOL_CALL_ARGS)).toEqual([])
 		expect(ofType(events, EventType.TOOL_CALL_END)[0]?.metadata).toEqual({
@@ -543,7 +607,7 @@ describe('AGUIEventMapper', () => {
 			toolStarted(),
 			native('tool_input_delta', { toolUseId: TOOL, partialJson: '{"incomplete":' }),
 			native('tool_input_completed', { toolUseId: TOOL, input: { incomplete: 'normalized' } }),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(args(events)).toBe('{"incomplete":')
 		expect(ofType(events, EventType.TOOL_CALL_END)[0]?.metadata).toEqual({
@@ -574,7 +638,7 @@ describe('AGUIEventMapper', () => {
 	})
 
 	it('supports final-result-only producers without sending the result twice', async () => {
-		const events = mapAll([runCompleted('end_turn', 'Only result')])
+		const events = mapAll([turnCompleted('end_turn', 'Only result')])
 		const { agent, result } = await applyWithOfficialClient(events)
 		expect(agent.messages).toEqual([
 			expect.objectContaining({ role: 'assistant', content: 'Only result' }),
@@ -587,7 +651,7 @@ describe('AGUIEventMapper', () => {
 			messageStarted(),
 			textDelta('Draft answer'),
 			messageCompleted('Draft answer'),
-			runCompleted('end_turn', 'Reviewed answer'),
+			turnCompleted('end_turn', 'Reviewed answer'),
 		])
 		const { agent, result } = await applyWithOfficialClient(events)
 		expect(agent.messages).toEqual([expect.objectContaining({ content: 'Draft answer' })])
@@ -601,7 +665,7 @@ describe('AGUIEventMapper', () => {
 			native('iteration_completed', { iteration: 1, hasToolCalls: false }),
 			native('iteration_completed', { iteration: 1, hasToolCalls: false }),
 			native('iteration_started', { iteration: 2 }),
-			runCompleted(),
+			turnCompleted(),
 		])
 		expect(ofType(events, EventType.STEP_STARTED).map((event) => event.stepName)).toEqual([
 			'iteration-1',
