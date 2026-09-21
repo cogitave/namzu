@@ -409,6 +409,16 @@ export async function resolveAllowedHosts(egress: EgressPolicy): Promise<readonl
 	)
 }
 
+/**
+ * Whether two allowlists are the same list: same hosts, same order, duplicates
+ * kept. Deliberately not a set comparison. The proxy is handed the list as
+ * written, and a reordered list is a different configuration even when it
+ * permits the same hosts; the only cost of calling it different is one swap.
+ */
+function sameHostList(a: readonly string[], b: readonly string[]): boolean {
+	return a.length === b.length && a.every((host, index) => host === b[index])
+}
+
 /** Whether a policy needs a boundary before it can be enforced at all. */
 export function needsEgressProxy(egress: EgressPolicy | undefined): boolean {
 	return egress?.kind === 'static' || egress?.kind === 'resolver'
@@ -1368,6 +1378,11 @@ async function spawnDockerSandbox(
 
 	/** The proxy container's name, once it is being started. */
 	let egressProxyContainer: string | undefined
+	/**
+	 * The allowlist the running proxy container was started with, or
+	 * `undefined` when that is not known. See `setNetworkPolicy`.
+	 */
+	let appliedHosts: readonly string[] | undefined
 
 	// All bind sources come from the consumer-supplied layout. The
 	// backend never allocates host directories and never removes them
@@ -1451,6 +1466,7 @@ async function spawnDockerSandbox(
 				allowedHosts,
 				signal: options.signal,
 			})
+			appliedHosts = Object.freeze([...allowedHosts])
 			options.signal?.throwIfAborted()
 		}
 
@@ -1497,6 +1513,11 @@ async function spawnDockerSandbox(
 	let teardownPromise: Promise<void> | undefined
 	let teardownComplete = false
 	const workerClient = new HttpWorkerClient(baseUrl, workerToken)
+	/**
+	 * The tail of this sandbox's `setNetworkPolicy` calls. Each call chains
+	 * onto it, so at most one swap is in flight. See `setNetworkPolicy`.
+	 */
+	let policyQueue: Promise<void> = Promise.resolve()
 	const assertActive = (): void => {
 		if (lifecycle !== 'active') {
 			throw new Error(`Sandbox ${id} is ${lifecycle}; no new worker operation can be admitted`)
@@ -1631,57 +1652,93 @@ async function spawnDockerSandbox(
 			// raced a failing create would otherwise call `assertActive()` and
 			// then name `undefined` in the removal.
 			const proxyContainer = egressProxyContainer
-			try {
-				await restartEgressProxyContainer({
-					docker,
-					config,
-					containerName: proxyContainer,
-					internalNetwork: network,
-					allowedHosts: policy.allowedHosts,
-				})
-				// A teardown that landed while the replacement was starting
-				// leaves a container nothing else will ever remove: `destroy()`
-				// is running or has run, `egressProxyContainer` is only removed
-				// from `teardownSandbox` and `cleanupOnFailure`, and the
-				// `assertActive()` above ran BEFORE the first `await` — before
-				// the swap suspended inside `restartEgressProxyContainer`, which
-				// is exactly when a teardown lands. So the swap fails here
-				// rather than reporting a policy change on a sandbox that no
-				// longer exists.
+			// Copied now, so a caller that mutates its array while the call waits
+			// its turn does not change what the call applies.
+			const requested: readonly string[] = Object.freeze([...policy.allowedHosts])
+			// Calls are SERIALIZED per sandbox, first in first out, and each one
+			// applies and verifies its OWN policy. Overlapping swaps used to
+			// interleave remove, run, attach and inspect against one container
+			// name: one call's pre-start removal, or a failure path's removal by
+			// name, could land on the other call's container after that call had
+			// resolved, leaving no proxy at all; and one call's readiness inspect
+			// could read the other's container as running and resolve claiming a
+			// policy that was not in force. There is no coalescing ("last writer
+			// wins") on purpose: a call replaced by a later one would then resolve
+			// while a different policy was in force, which is the same misreport.
+			// The kubernetes backend's per-sandbox setter follows the same rule
+			// (`per-sandbox-policy.ts`).
+			const step = policyQueue.then(async () => {
+				// Again, because a teardown may have landed while this call waited
+				// behind another.
 				assertActive()
-			} finally {
-				// ... and the replacement is removed even so, because the check
-				// above cannot be where the guarantee lives. It sits AFTER the
-				// container comes into existence, and that ordering is what
-				// makes it airtight rather than merely narrower than the check
-				// at entry. A generation counter read before the `docker run`
-				// has the opposite shape: it can only refuse a start it already
-				// knows about, and a teardown that begins between that refusal
-				// being evaluated and the daemon committing the container is in
-				// no check's view — the container exists and nothing has looked
-				// since. Here the two orderings partition the space instead. A
-				// teardown that began before this point has already set
-				// `lifecycle`, synchronously (`teardownSandbox` and `retire()`
-				// both do, before their first `await`), so this removal runs. A
-				// teardown that begins after it issues its own `rm -f` for this
-				// same name — `teardownSandbox` reads `egressProxyContainer`,
-				// which is this container — against a container that, at this
-				// point, exists. Whichever of the two runs second finds the
-				// container and removes it, and both are idempotent.
-				//
-				// A signal-less remover, and not `runOnce` on some signal, for
-				// the reason `removeEgressProxyContainer` exists: the teardown
-				// this is racing may be one whose own signal was already
-				// aborted, and it removes nothing at all in that case (the whole
-				// container set is left, which is what `Sandbox.destroy`
-				// promises to settle promptly over). That is the caller's
-				// contract and not something to defeat — but a proxy container
-				// holding brokered credentials and a live route to the internet
-				// is not something to leave with it either.
-				if (lifecycle !== 'active') {
-					await removeEgressProxyContainer(docker, proxyContainer)
+				// A repeat of the policy the running container already enforces is a
+				// no-op. This backend has no adopt path, so the sandbox handle is the
+				// only owner of its proxy and this record is authoritative. It is
+				// cleared before every swap and set again only when the swap
+				// succeeds, because after a failure the state is unknown and the next
+				// call must swap.
+				if (appliedHosts !== undefined && sameHostList(appliedHosts, requested)) return
+				appliedHosts = undefined
+				try {
+					await restartEgressProxyContainer({
+						docker,
+						config,
+						containerName: proxyContainer,
+						internalNetwork: network,
+						allowedHosts: requested,
+					})
+					// A teardown that landed while the replacement was starting
+					// leaves a container nothing else will ever remove: `destroy()`
+					// is running or has run, `egressProxyContainer` is only removed
+					// from `teardownSandbox` and `cleanupOnFailure`, and the
+					// `assertActive()` above ran BEFORE the first `await` — before
+					// the swap suspended inside `restartEgressProxyContainer`, which
+					// is exactly when a teardown lands. So the swap fails here
+					// rather than reporting a policy change on a sandbox that no
+					// longer exists.
+					assertActive()
+				} finally {
+					// ... and the replacement is removed even so, because the check
+					// above cannot be where the guarantee lives. It sits AFTER the
+					// container comes into existence, and that ordering is what
+					// makes it airtight rather than merely narrower than the check
+					// at entry. A generation counter read before the `docker run`
+					// has the opposite shape: it can only refuse a start it already
+					// knows about, and a teardown that begins between that refusal
+					// being evaluated and the daemon committing the container is in
+					// no check's view — the container exists and nothing has looked
+					// since. Here the two orderings partition the space instead. A
+					// teardown that began before this point has already set
+					// `lifecycle`, synchronously (`teardownSandbox` and `retire()`
+					// both do, before their first `await`), so this removal runs. A
+					// teardown that begins after it issues its own `rm -f` for this
+					// same name — `teardownSandbox` reads `egressProxyContainer`,
+					// which is this container — against a container that, at this
+					// point, exists. Whichever of the two runs second finds the
+					// container and removes it, and both are idempotent.
+					//
+					// A signal-less remover, and not `runOnce` on some signal, for
+					// the reason `removeEgressProxyContainer` exists: the teardown
+					// this is racing may be one whose own signal was already
+					// aborted, and it removes nothing at all in that case (the whole
+					// container set is left, which is what `Sandbox.destroy`
+					// promises to settle promptly over). That is the caller's
+					// contract and not something to defeat — but a proxy container
+					// holding brokered credentials and a live route to the internet
+					// is not something to leave with it either.
+					if (lifecycle !== 'active') {
+						await removeEgressProxyContainer(docker, proxyContainer)
+					}
 				}
-			}
+				appliedHosts = requested
+			})
+			// The chain continues past a rejection: one caller's failed swap is
+			// that caller's error, not a reason to refuse every later call.
+			policyQueue = step.then(
+				() => undefined,
+				() => undefined,
+			)
+			await step
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {

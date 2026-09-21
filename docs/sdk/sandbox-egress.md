@@ -130,7 +130,25 @@ exists. The removal is issued after the container exists and does not travel on
 the caller's signal, which is what closes that ordering rather than narrowing
 it.
 
-That last property is NOT claimed of the ordinary teardown, and the difference
+Overlapping `setNetworkPolicy()` calls on one sandbox run one at a time, in
+the order they were made, and each resolves only once the container started
+with ITS allowlist is running. They used to interleave against the one proxy
+container name: a pre-start removal or a failure path's removal by name from one
+call could land on the other call's container after that call had resolved, so
+the sandbox was left with no proxy while its caller was told the policy was in
+force, and one call's readiness check could read the other call's container as
+running. There is no coalescing: a call that a later call is about to replace
+still applies and verifies its own policy, because resolving it while a
+different policy is in force would be the same misreport. A call whose
+allowlist equals the one the running container was started with (same hosts,
+same order) issues no docker call; after a failed swap the state is unknown,
+and the next call swaps whatever it asks for. A call waiting its turn when the
+sandbox is destroyed fails with the sandbox's retirement, and starts nothing.
+`src/backends/docker/__tests__/set-network-policy-queue.test.ts` pins this
+against a fake daemon that keeps unique container names; its overlap case fails
+on the unqueued swap with no proxy left running.
+
+The removal-after-teardown property above is NOT claimed of the ordinary teardown, and the difference
 matters to anyone reading this as "the proxy is always removed". A `destroy()`
 whose own `signal` was already aborted issues no `rm -f` at all — not for the
 proxy, and not for the sandbox either. `Sandbox.destroy` binds an
