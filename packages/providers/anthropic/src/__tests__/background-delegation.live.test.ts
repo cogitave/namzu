@@ -44,9 +44,9 @@ const KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = process.env.NAMZU_WIRE_TEST_MODEL ?? 'claude-haiku-4-5'
 
 /**
- * Where these runs work and keep their state. Not `process.cwd()`: a run with
- * no path builder writes its durable tree under its working directory's
- * `.namzu`, which put one inside this package.
+ * Where these turns work. Not `process.cwd()`: the turn's tools act on their
+ * working directory, and this package's own tree is not theirs to write in.
+ * The session log itself goes under the suite's `NAMZU_HOME`.
  */
 let work: string | undefined
 function workingDirectory(): string {
@@ -65,7 +65,7 @@ function provider(): AnthropicProvider {
 }
 
 /**
- * A host-shaped gateway: spawns a real child run per task and announces it.
+ * A host-shaped gateway: spawns a real child session per task and announces it.
  *
  * Nothing here is kernel code. It implements `TaskScheduler` the way an
  * embedding application does, which is the point — the inbox attaches to it

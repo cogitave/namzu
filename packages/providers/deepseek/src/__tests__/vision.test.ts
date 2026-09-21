@@ -285,7 +285,7 @@ describe('the query loop reaches tool-result images', () => {
 		await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 	})
 
-	it('puts the rich tool result on the second wire request without editing Run.messages', async () => {
+	it('puts the rich tool result on the second wire request without editing Turn.messages', async () => {
 		const { provider, requests } = providerWith([
 			[
 				{

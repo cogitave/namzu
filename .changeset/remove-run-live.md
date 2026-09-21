@@ -13,6 +13,10 @@ it. Earlier `@namzu/live` versions break against SDK 44.
   `modelSessionId` and `modelTurnId` instead of `runId`. Their `turnId` is
   still the live session's own turn.
 - `LiveTurnResult.runId` is replaced by `modelSessionId` and `modelTurnId`.
+- `LiveErrorCode` loses `'run_not_speakable'` and gains
+  `'turn_not_speakable'`: the error `NamzuModel` raises when the SDK turn did
+  not complete with a stop reason it can speak. A caller that switches on `err.code`
+  must match the new value.
 
 `NamzuModel` maps the SDK turn's `result`, `status`, `tokenUsage` and
 `stopReason` exactly as before. A `createQueryParams` callback passes
@@ -20,4 +24,5 @@ it. Earlier `@namzu/live` versions break against SDK 44.
 `sessionLog` where it used to pass an `InMemoryRunStore` as `runStore`.
 
 What to do: rename `runId` reads to `modelTurnId` (and `modelSessionId` where
-you need the session), and update the query params your callback builds.
+you need the session), match `'turn_not_speakable'` where you matched
+`'run_not_speakable'`, and update the query params your callback builds.
