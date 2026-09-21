@@ -5,12 +5,12 @@ import type {
 	CheckpointId,
 	HITLDecisionRequest,
 	ProjectId,
-	RunEvent,
-	RunId,
+	SessionEvent,
 	SessionId,
 	ToolCallSummary,
 	ToolPresenter,
 	ToolUseId,
+	TurnId,
 } from '@namzu/sdk'
 import {
 	DiskMemoryStore,
@@ -35,13 +35,13 @@ import {
 } from './agent.js'
 import { MAX_PERMISSION_REVIEW_BYTES } from './permission-review.js'
 
-const runId = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as RunId
+const turnId = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as TurnId
 const sessionId = '02b19846-c793-4e21-9c6e-21962a7d2de5' as SessionId
 const projectId = '3f488113-b658-4c23-833c-69d1e9072a19' as ProjectId
 const toolUseId = 'toolu_x' as ToolUseId
 
-// Minimal envelope fields the RunEvent union carries beyond the discriminant.
-const env = { schemaVersion: 1 as const, runId, sessionId, projectId }
+// Minimal envelope fields the SessionEvent union carries beyond the discriminant.
+const env = { turnId, sessionId, projectId }
 
 /**
  * A presenter over the REAL builtins, which is the whole point of the
@@ -68,15 +68,15 @@ describe('toAgentEvent', () => {
 			messageId: '116b88f1-7300-4be5-a05d-f2a87105f095',
 			text: 'hello',
 			...env,
-		} as unknown as RunEvent
-		// `messageId` and `runId` travel with the text now: `/feedback` rates a
+		} as unknown as SessionEvent
+		// `messageId` and `turnId` travel with the text now: `/feedback` rates a
 		// MESSAGE, and the id is the only thing tying a rating to what was
 		// actually said. The mapper used to drop both.
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'delta',
 			text: 'hello',
 			messageId: '116b88f1-7300-4be5-a05d-f2a87105f095',
-			runId,
+			turnId,
 		})
 	})
 
@@ -87,10 +87,10 @@ describe('toAgentEvent', () => {
 			toolName: 'bash',
 			input: { command: 'ls -la /tmp' },
 			...env,
-		} as unknown as RunEvent
+		} as unknown as SessionEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-start',
-			runId,
+			turnId,
 			toolUseId,
 			toolName: 'bash',
 			summary: 'ls -la /tmp',
@@ -104,10 +104,10 @@ describe('toAgentEvent', () => {
 			toolName: 'read',
 			input: { file_path: '/etc/hosts' },
 			...env,
-		} as unknown as RunEvent
+		} as unknown as SessionEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-start',
-			runId,
+			turnId,
 			toolUseId,
 			toolName: 'read',
 			summary: '/etc/hosts',
@@ -122,10 +122,10 @@ describe('toAgentEvent', () => {
 			message: 'compiled 40/120 files',
 			fraction: 0.33,
 			...env,
-		} as unknown as RunEvent
+		} as unknown as SessionEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-progress',
-			runId,
+			turnId,
 			toolUseId,
 			toolName: 'bash',
 			message: 'compiled 40/120 files',
@@ -142,11 +142,11 @@ describe('toAgentEvent', () => {
 			isError: false,
 			durationMs: 3_041,
 			...env,
-		} as unknown as RunEvent
+		} as unknown as SessionEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-end',
 			output: 'multi\n  line  ',
-			runId,
+			turnId,
 			toolUseId,
 			toolName: 'bash',
 			isError: false,
@@ -177,12 +177,12 @@ describe('toAgentEvent', () => {
 					toolName: 'desktop_control',
 					input: { type: 'screenshot' },
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				authored,
 			),
 		).toEqual({
 			kind: 'tool-start',
-			runId,
+			turnId,
 			toolUseId,
 			toolName: 'desktop_control',
 			summary: 'Capture screenshot',
@@ -197,13 +197,13 @@ describe('toAgentEvent', () => {
 					result: 'ok',
 					isError: false,
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				authored,
 			),
 		).toEqual({
 			kind: 'tool-end',
 			output: 'ok',
-			runId,
+			turnId,
 			toolUseId,
 			toolName: 'desktop_control',
 			isError: false,
@@ -216,20 +216,20 @@ describe('toAgentEvent', () => {
 		expect(
 			toAgentEvent(
 				{
-					type: 'run_completed',
+					type: 'turn_completed',
 					result: 'ok',
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toEqual({ kind: 'done', text: 'ok' })
 		expect(
 			toAgentEvent(
 				{
-					type: 'run_failed',
+					type: 'turn_failed',
 					error: 'boom',
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toEqual({ kind: 'error', message: 'boom' })
@@ -243,7 +243,7 @@ describe('toAgentEvent', () => {
 					usage: { totalTokens: 1234 },
 					cost: { totalCost: 0.0456, cacheDiscount: 0, unpricedTokens: 0 },
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 			// The cost record travels whole. Narrowing it to a single number
@@ -268,7 +268,7 @@ describe('toAgentEvent', () => {
 					usage: { totalTokens: 4210 },
 					cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 4210 },
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toMatchObject({ cost: { unpricedTokens: 4210 } })
@@ -281,7 +281,7 @@ describe('toAgentEvent', () => {
 					type: 'iteration_started',
 					iteration: 1,
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toBeNull()
@@ -290,7 +290,7 @@ describe('toAgentEvent', () => {
 				{
 					type: 'checkpoint_created',
 					...env,
-				} as unknown as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toBeNull()
@@ -307,7 +307,8 @@ const tc = (over: Partial<ToolCallSummary>): ToolCallSummary => ({
 })
 const toolReview = (toolCalls: ToolCallSummary[]): HITLDecisionRequest => ({
 	type: 'tool_review',
-	runId,
+	sessionId,
+	turnId,
 	checkpointId,
 	toolCalls,
 })
@@ -450,7 +451,8 @@ describe('makeResumeHandler', () => {
 		expect(
 			await handler({
 				type: 'plan_approval',
-				runId,
+				sessionId,
+				turnId,
 				checkpointId,
 				plan: { planId: asPlanId('0a90fff7-6b8a-4f97-861f-6337fc9a252c'), title: 't', steps: [] },
 			} as HITLDecisionRequest),
@@ -458,7 +460,8 @@ describe('makeResumeHandler', () => {
 		expect(
 			await handler({
 				type: 'iteration_checkpoint',
-				runId,
+				sessionId,
+				turnId,
 				checkpointId,
 				summary: {},
 			} as unknown as HITLDecisionRequest),
@@ -515,7 +518,8 @@ describe('the rows under a tool call', () => {
 		const event = toAgentEvent(
 			{
 				type: 'tool_completed',
-				runId,
+				sessionId,
+				turnId,
 				toolUseId,
 				toolName: 'write',
 				isError: false,
@@ -688,7 +692,7 @@ describe('isPromptExempt and the network', () => {
 
 describe('toAgentEvent and reasoning', () => {
 	const base = {
-		runId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6',
+		turnId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6',
 		iteration: 1,
 		messageId: '43030ace-a181-44a2-a1fc-e555d6e73027',
 		blockIndex: 0,

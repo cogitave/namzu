@@ -1,10 +1,16 @@
-import { type Message, type PrepareStepContext, generateRunId } from '@namzu/sdk'
+import {
+	type Message,
+	type PrepareStepContext,
+	generateSessionId,
+	generateTurnId,
+} from '@namzu/sdk'
 import { expect, it } from 'vitest'
 import { createContextInventoryStep } from './context-inventory.js'
 
 function context(messages: Message[], remainingTokens = 10_000): PrepareStepContext {
 	return {
-		runId: generateRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		stepNumber: 1,
 		messages,
 		steps: [],

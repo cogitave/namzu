@@ -70,6 +70,8 @@ vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, tru
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: '29b3a0cc-469e-4536-8e4d-ac3301a586a6' }),
 	startConversation: async () => '535454a0-3284-474e-80c6-c0c73b5d8eb5',
 	requireWritableConversation: async () => {},

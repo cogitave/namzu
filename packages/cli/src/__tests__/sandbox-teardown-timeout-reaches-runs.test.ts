@@ -8,6 +8,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { emptySessionLog } from '../__fixtures__/session-log.js'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
@@ -28,7 +29,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 				return { messages: [] }
 			})()
 		},
-		resumeRun: async (params: Record<string, unknown>) => {
+		resumeSession: async (params: Record<string, unknown>) => {
 			resumeCalls.push(params)
 			return { status: 'completed', messages: [] }
 		},
@@ -105,24 +106,25 @@ it('passes sandbox.teardownTimeoutMs to live and resumed kernel runs', async () 
 	}
 	await session.resumeDurable({
 		entry: {
-			runId: queryCalls[0]?.runId,
+			turnId: queryCalls[0]?.turnId,
 			tenantId: queryCalls[0]?.tenantId,
 			projectId: queryCalls[0]?.projectId,
 			sessionId: queryCalls[0]?.sessionId,
 		} as never,
+		sessionLog: emptySessionLog(undefined),
 		checkpointStore: {} as never,
 	})
 
 	expect(queryCalls).toHaveLength(1)
 	expect(queryCalls[0]?.sandboxTeardownTimeoutMs).toBe(37)
 	expect(queryCalls[0]?.sandboxProvider).toBeDefined()
-	expect((queryCalls[0]?.runConfig as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(
+	expect((queryCalls[0]?.turnConfig as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(
 		CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 	)
 	expect(resumeCalls).toHaveLength(1)
 	expect(resumeCalls[0]?.sandboxTeardownTimeoutMs).toBe(37)
 	expect(resumeCalls[0]?.sandboxProvider).toBe(queryCalls[0]?.sandboxProvider)
-	expect((resumeCalls[0]?.runConfig as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(
+	expect((resumeCalls[0]?.turnConfig as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(
 		CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 	)
 	expect(subagentOptions).toHaveLength(1)

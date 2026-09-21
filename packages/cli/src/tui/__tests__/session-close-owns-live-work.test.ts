@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createUserMessage } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { emptySessionLog } from '../../__fixtures__/session-log.js'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
@@ -59,7 +60,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 				try {
 					yield {
 						type: 'text_delta',
-						runId: '87f8e385-8e27-4622-ba76-750282582c15',
+						turnId: '87f8e385-8e27-4622-ba76-750282582c15',
 						iteration: 1,
 						messageId: 'ceb65f4b-38dd-4540-8fca-ce160e9dbd38',
 						text: 'started',
@@ -68,7 +69,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 					operations.order.push('query-cleanup-start')
 					yield {
 						type: 'sandbox_destroyed',
-						runId: '87f8e385-8e27-4622-ba76-750282582c15',
+						turnId: '87f8e385-8e27-4622-ba76-750282582c15',
 						sandboxId: '6f53f078-01e4-456a-af15-c94ae082667a',
 					} as never
 					operations.order.push('query-cleanup-finished')
@@ -81,7 +82,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			await hold('compact', input.signal)
 			return null
 		},
-		resumeRun: async (params: {
+		resumeSession: async (params: {
 			signal?: AbortSignal
 			pluginManager?: unknown
 			skillRegistry?: unknown
@@ -329,11 +330,12 @@ describe('AgentSession close owns its live work', () => {
 		const resumeOutcome = session
 			.resumeDurable({
 				entry: {
-					runId: '87f8e385-8e27-4622-ba76-750282582c15',
+					turnId: '87f8e385-8e27-4622-ba76-750282582c15',
 					sessionId: 'e987235a-edbf-4a98-bff1-f27a58cd7862',
 					projectId: '242a64d9-0216-4eb0-8d5d-cb832ccd4c21',
 					tenantId: 'a88f05eb-ba3a-4fef-9942-801a712acff6',
 				} as never,
+				sessionLog: emptySessionLog(undefined),
 				checkpointStore: {} as never,
 				signal: resumeCaller.signal,
 			})
@@ -399,7 +401,10 @@ describe('AgentSession close owns its live work', () => {
 							executeHooks(event: string, context: unknown): Promise<readonly unknown[]>
 					  }
 					| undefined
-			)?.executeHooks('pre_llm_call', { runId: 'c3b59814-a47c-41d7-b2bc-eacd7363d69f' }),
+			)?.executeHooks('pre_llm_call', {
+				sessionId: 'e987235a-edbf-4a98-bff1-f27a58cd7862' as never,
+				turnId: 'c3b59814-a47c-41d7-b2bc-eacd7363d69f' as never,
+			}),
 		).resolves.toEqual([])
 
 		const callsAfterClose = operations.calls.length
@@ -407,6 +412,7 @@ describe('AgentSession close owns its live work', () => {
 		await expect(
 			session.resumeDurable({
 				entry: {} as never,
+				sessionLog: emptySessionLog(undefined),
 				checkpointStore: {} as never,
 			}),
 		).rejects.toThrow('Agent session closed')

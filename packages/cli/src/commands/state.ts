@@ -73,12 +73,9 @@ export function renderStateReport(report: NamzuStateReport): string {
 			lines.push(`  ${category}: ${formatBytes(measure.logicalBytes)} · ${measure.files} files`)
 		}
 		const inventory = root.inventory
-		lines.push(
-			`  sessions ${inventory.sessions.files} · runs ${inventory.runs.files} · checkpoints ${inventory.checkpointFiles.files} (${formatBytes(inventory.checkpointFiles.logicalBytes)})`,
-		)
-		if (inventory.emergencyDumpFiles.files > 0) {
+		if (inventory.projects > 0 || inventory.sessionLogs.files > 0) {
 			lines.push(
-				`  emergency dumps ${inventory.emergencyDumpFiles.files} (${formatBytes(inventory.emergencyDumpFiles.logicalBytes)})`,
+				`  projects ${inventory.projects} · session logs ${inventory.sessionLogs.files} (${formatBytes(inventory.sessionLogs.logicalBytes)}) · subagent logs ${inventory.subagentLogs.files} · checkpoints ${inventory.checkpointFiles.files} (${formatBytes(inventory.checkpointFiles.logicalBytes)})`,
 			)
 		}
 		if (inventory.attachments.files > 0) {
@@ -86,12 +83,15 @@ export function renderStateReport(report: NamzuStateReport): string {
 				`  attachment files ${inventory.attachments.files} (${formatBytes(inventory.attachments.logicalBytes)}) · ${inventory.attachments.pairs} complete pairs · ${inventory.attachments.orphanedDataFiles + inventory.attachments.orphanedTypeFiles} orphan halves`,
 			)
 		}
-		const candidates = inventory.originOnlySessionCandidates
-		if (candidates.files > 0 || !candidates.complete) {
+		if (root.legacy.length > 0) {
 			lines.push(
-				`  origin-only candidates ${candidates.files} (${formatBytes(candidates.logicalBytes)}) · analysis ${candidates.complete ? 'complete' : 'incomplete'}`,
+				'  legacy (the layout before session logs; not read by this version, never changed here):',
 			)
-			lines.push(`    ${candidates.limitation}`)
+			for (const entry of root.legacy) {
+				lines.push(
+					`    ${safePath(entry.path)} — ${formatBytes(entry.logicalBytes)} · ${entry.files} files`,
+				)
+			}
 		}
 		for (const boundary of root.privacy) {
 			if (boundary.status === 'secure') continue
@@ -112,7 +112,7 @@ export function renderStateReport(report: NamzuStateReport): string {
 	lines.push(
 		`Project config: ${report.projectConfig.status}${report.projectConfig.status === 'present' ? ` · ${formatBytes(report.projectConfig.logicalBytes)}` : ''} at ${safePath(report.projectConfig.path)}`,
 	)
-	lines.push('No files were changed. Candidate state is not declared safe to delete.')
+	lines.push('No files were changed. Legacy state is reported, not declared safe to delete.')
 	return lines.join('\n')
 }
 

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import {
 	type Message,
 	type QueryParams,
-	type RunEvent,
+	type SessionEvent,
 	createAssistantMessage,
 	createSystemMessage,
 	createToolMessage,
@@ -45,22 +45,22 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 				if (first) {
 					yield {
 						type: 'tool_completed',
-						runId: 'cancelled-run',
+						turnId: 'cancelled-run',
 						toolUseId: 'call_child_evidence',
 						toolName: 'Agent',
 						isError: false,
 						result: receipt.content,
 						durationMs: 1,
-					} as RunEvent
+					} as unknown as SessionEvent
 					controller.abort(new DOMException('User interrupted.', 'AbortError'))
-					yield { type: 'text_delta', text: 'LATE_TEXT_MUST_NOT_RENDER' } as RunEvent
+					yield { type: 'text_delta', text: 'LATE_TEXT_MUST_NOT_RENDER' } as unknown as SessionEvent
 				}
 				yield {
-					type: 'run_completed',
-					runId: first ? 'cancelled-run' : 'next-run',
+					type: 'turn_completed',
+					turnId: first ? 'cancelled-run' : 'next-run',
 					stopReason: first ? 'cancelled' : 'end_turn',
 					result: '',
-				} as RunEvent
+				} as unknown as SessionEvent
 				return {
 					messages: [
 						privateFloor,

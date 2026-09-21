@@ -2,7 +2,7 @@ import { expect, it } from 'vitest'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 
 const page = {
-	runId: 'bcd3d4e0-ea88-4cfa-afb1-ed135da49ea8',
+	turnId: 'bcd3d4e0-ea88-4cfa-afb1-ed135da49ea8',
 	seq: 2,
 	part: 0,
 	source: 'tool_completed',

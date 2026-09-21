@@ -16,7 +16,7 @@ import {
 	AgentRegistry,
 	type LLMProvider,
 	LocalTaskScheduler,
-	type RunEvent,
+	type SessionEvent,
 	ToolRegistry,
 	createToolPresenter,
 } from '@namzu/sdk'
@@ -29,10 +29,10 @@ import { toAgentEvent } from '../agent.js'
  * empty registry gives exactly the generic fallback these assertions expect. */
 const presenter = createToolPresenter(new ToolRegistry())
 
-function fallbackEvent(over: Partial<Record<string, unknown>> = {}): RunEvent {
+function fallbackEvent(over: Partial<Record<string, unknown>> = {}): SessionEvent {
 	return {
 		type: 'provider_fallback',
-		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 		iteration: 2,
 		fromIndex: 0,
 		fromProviderId: 'anthropic',
@@ -43,7 +43,7 @@ function fallbackEvent(over: Partial<Record<string, unknown>> = {}): RunEvent {
 		code: 'rate_limit',
 		status: 429,
 		...over,
-	} as unknown as RunEvent
+	} as unknown as SessionEvent
 }
 
 describe('the operator is told, every time', () => {
@@ -127,12 +127,13 @@ describe('a sub-agent resolves its provider independently', () => {
 })
 
 it('presents hosted search as a single activity label without a repeated success body', () => {
-	const event: RunEvent = {
+	const event = {
 		type: 'hosted_tool',
-		runId: fallbackEvent().runId,
+		sessionId: '019a0000-0000-7000-8000-0000000000f1',
+		turnId: (fallbackEvent() as { turnId: string }).turnId,
 		iteration: 1,
 		tool: { id: 'search-1', name: 'web_search', status: 'running' },
-	}
+	} as unknown as Extract<SessionEvent, { type: 'hosted_tool' }>
 	expect(toAgentEvent(event, presenter)).toMatchObject({
 		kind: 'tool-start',
 		summary: 'Web search',

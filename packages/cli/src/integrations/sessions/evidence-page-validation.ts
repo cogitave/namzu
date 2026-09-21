@@ -1,7 +1,7 @@
 import type {
-	RunEvidenceScope,
-	RunTextEvidenceReadResult,
-	RunTextEvidenceSearchResult,
+	SessionEvidenceScope,
+	SessionTextEvidenceReadResult,
+	SessionTextEvidenceSearchResult,
 } from '@namzu/sdk'
 
 const integer = (value: unknown): value is number =>
@@ -14,17 +14,22 @@ const boundedString = (value: unknown, max: number): value is string =>
 /** Validate the source contract before its data becomes model input or a cached address.
  * Matching scope fields do not authenticate arbitrary text from a custom host source.
  */
-export function assertEvidenceOwner(scope: RunEvidenceScope, owner: RunEvidenceScope): void {
+export function assertEvidenceOwner(
+	scope: SessionEvidenceScope,
+	owner: SessionEvidenceScope,
+): void {
 	if (
 		!scope ||
-		Object.entries(owner).some(([key, value]) => scope[key as keyof RunEvidenceScope] !== value)
+		Object.entries(owner).some(
+			([key, value]) => value !== undefined && scope[key as keyof SessionEvidenceScope] !== value,
+		)
 	)
 		throw new Error('Evidence page or source has a different owner.')
 }
 
 function assertPage(
-	page: { scope: RunEvidenceScope; scannedBytes: number },
-	owner: RunEvidenceScope,
+	page: { scope: SessionEvidenceScope; scannedBytes: number },
+	owner: SessionEvidenceScope,
 	remainingBytes: number,
 	signal?: AbortSignal,
 ): void {
@@ -59,8 +64,8 @@ function validTextMetadata(page: {
 }
 
 export function assertEvidenceSearchPage(
-	page: RunTextEvidenceSearchResult,
-	owner: RunEvidenceScope,
+	page: SessionTextEvidenceSearchResult,
+	owner: SessionEvidenceScope,
 	remainingBytes: number,
 	maxMatches: number,
 	signal?: AbortSignal,
@@ -90,8 +95,8 @@ export function assertEvidenceSearchPage(
 }
 
 export function assertEvidenceReadPage(
-	page: RunTextEvidenceReadResult,
-	owner: RunEvidenceScope,
+	page: SessionTextEvidenceReadResult,
+	owner: SessionEvidenceScope,
 	remainingBytes: number,
 	byteOffset: number,
 	signal?: AbortSignal,

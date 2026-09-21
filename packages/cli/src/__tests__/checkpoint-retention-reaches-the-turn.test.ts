@@ -1,17 +1,17 @@
 /**
- * Every run the CLI starts bounds how many checkpoints it keeps.
+ * Every turn the CLI starts bounds how many checkpoints it keeps.
  *
- * The kernel keeps every checkpoint unless the host says otherwise, a run
+ * The kernel keeps every checkpoint unless the host says otherwise, a turn
  * takes one per iteration plus one per tool review, and nothing in the CLI
  * set `pruneKeepLast` — so a long session kept all of them. On one machine
  * that was 19,014 checkpoint files. What is asserted is the value the kernel
  * is handed, because that is the only thing that decides what it deletes.
  */
 
-import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asRunId } from '@namzu/sdk'
+import { asTurnId, generateMessageId } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
@@ -20,8 +20,11 @@ import {
 	PROVIDER_REGISTRY,
 	type Preferences,
 } from '../integrations/providers/index.js'
-import { CliPathBuilder } from '../integrations/sessions/paths.js'
-import { openSessions, startConversation } from '../integrations/sessions/store.js'
+import {
+	openConversationLog,
+	openSessions,
+	startConversation,
+} from '../integrations/sessions/store.js'
 import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
 
 const queryCalls: Record<string, unknown>[] = []
@@ -38,9 +41,9 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 				return turnOutcome
 			})()
 		},
-		resumeRun: async (params: Record<string, unknown>) => {
+		resumeSession: async (params: Record<string, unknown>) => {
 			resumeCalls.push(params)
-			return { resumed: true, run: {}, state: {} }
+			return { resumed: true, turn: {}, state: {} }
 		},
 	}
 })
@@ -79,8 +82,8 @@ it('hands the kernel a checkpoint retention on every turn', async () => {
 	} finally {
 		await session.close()
 	}
-	const runConfig = queryCalls[0]?.runConfig as { pruneKeepLast?: number } | undefined
-	expect(runConfig?.pruneKeepLast).toBe(CLI_CHECKPOINT_RETENTION)
+	const turnConfig = queryCalls[0]?.turnConfig as { pruneKeepLast?: number } | undefined
+	expect(turnConfig?.pruneKeepLast).toBe(CLI_CHECKPOINT_RETENTION)
 	expect(CLI_CHECKPOINT_RETENTION).toBeGreaterThanOrEqual(1)
 })
 
@@ -104,7 +107,7 @@ async function openScopedSession() {
 		detected,
 		{ cwd, stateRoot, scope, sandbox: { enabled: false } },
 	)
-	return { session, scope, stateRoot }
+	return { session, scope, stateRoot, conversations }
 }
 
 const extraRoots: string[] = []
@@ -112,25 +115,22 @@ afterEach(() => {
 	for (const root of extraRoots.splice(0)) removeTempDir(root)
 })
 
-it('hands the kernel the same retention when it resumes a run', async () => {
-	const { session, scope, stateRoot } = await openScopedSession()
-	const runId = asRunId('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
-	const dir = new CliPathBuilder(stateRoot).runDir(scope.projectId, scope.sessionId, runId)
-	mkdirSync(dir, { recursive: true })
-	writeFileSync(
-		join(dir, 'run.json'),
-		JSON.stringify({
-			schemaVersion: 1,
-			id: runId,
-			metadata: {
-				scope: { ...scope, runId },
-				config: { tokenBudget: 12000, maxIterations: 7, timeoutMs: 120000 },
-			},
-		}),
-	)
+it('hands the kernel the same retention, and the turn’s own limits, when it resumes a turn', async () => {
+	const { session, scope, conversations } = await openScopedSession()
+	const turnId = asTurnId('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
+	// The turn as its `turn_started` recorded it, limits included.
+	const log = openConversationLog(conversations, scope.sessionId)
+	const lease = await log.claim({ holder: 'test-retention', ttlMs: 10_000 })
+	if (!lease) throw new Error('fixture could not lease the log')
+	await log.beginTurn(lease, {
+		turnId,
+		userMessageId: generateMessageId(),
+		config: { model: 'test-model', tokenBudget: 12000, maxIterations: 7, timeoutMs: 120000 },
+	})
+	await log.release(lease)
 	try {
 		for await (const event of session.resumePaused({
-			runId,
+			turnId,
 			checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
 		})) {
 			if (event.kind === 'error') throw new Error(event.message)
@@ -138,40 +138,10 @@ it('hands the kernel the same retention when it resumes a run', async () => {
 	} finally {
 		await session.close()
 	}
-	const runConfig = resumeCalls[0]?.runConfig as { pruneKeepLast?: number } | undefined
-	expect(runConfig?.pruneKeepLast).toBe(CLI_CHECKPOINT_RETENTION)
-})
-
-/**
- * The CLI continues a conversation under a new run id, so the kernel's own
- * cleanup (same run id completes) never reaches the dump an interrupted turn
- * left. A later turn in the session completing is what outlives it.
- */
-it('removes the crash dumps a completed turn has outlived, and only those', async () => {
-	const { session, scope, stateRoot } = await openScopedSession()
-	const emergency = join(
-		new CliPathBuilder(stateRoot).sessionDir(scope.projectId, scope.sessionId),
-		'runs',
-		'emergency',
-	)
-	mkdirSync(emergency, { recursive: true })
-	const old = join(emergency, 'a2f1b9f0-3c55-4d4c-9d59-000000000001.json')
-	writeFileSync(old, '{}')
-	const past = new Date(Date.now() - 60_000)
-	utimesSync(old, past, past)
-	try {
-		turnOutcome = { status: 'failed', messages: [] }
-		for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
-			// drain
-		}
-		expect(existsSync(old)).toBe(true)
-
-		turnOutcome = { status: 'completed', messages: [] }
-		for await (const _ of session.send([{ role: 'user', content: 'again', timestamp: 0 }])) {
-			// drain
-		}
-		expect(existsSync(old)).toBe(false)
-	} finally {
-		await session.close()
-	}
+	const turnConfig = resumeCalls[0]?.turnConfig as
+		| { pruneKeepLast?: number; maxIterations?: number; tokenBudget?: number }
+		| undefined
+	expect(turnConfig?.pruneKeepLast).toBe(CLI_CHECKPOINT_RETENTION)
+	expect(turnConfig).toMatchObject({ maxIterations: 7, tokenBudget: 12000 })
+	expect(resumeCalls[0]?.scope).toMatchObject({ sessionId: scope.sessionId, turnId })
 })

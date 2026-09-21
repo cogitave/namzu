@@ -39,9 +39,9 @@ import type {
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
-	RunLimitsConfig,
 	SessionExportRedactorName,
 	TerminalNotificationEvent,
+	TurnLimitsConfig,
 } from './schema.js'
 import {
 	DEFAULT_CONFIG,
@@ -811,7 +811,7 @@ const CONFIG_READERS: ConfigReaders = {
 					'must be at most 2147483647 milliseconds; use 0 for unlimited',
 				)
 		}
-		return v as RunLimitsConfig
+		return v as TurnLimitsConfig
 	},
 	plugins: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')

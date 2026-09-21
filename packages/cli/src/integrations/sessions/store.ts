@@ -1,84 +1,95 @@
-import { sessionStore } from './database.js'
 /**
- * Conversation persistence for the TUI, built on the SDK's session
- * indexed SQLite session store. Each checkout is one Project (an immutable
- * root binding keeps its id stable across launches),
- * every conversation is a Session under a fixed CLI Topic, and the
- * conversation's messages are appended to the Session as turns complete.
+ * Conversation persistence for the CLI, built on the SDK's session log.
  *
- * This is what powers `/resume`: list recent sessions, load a chosen
- * session's messages, and keep chatting in it. New workspaces bind their
- * canonical checkout root to one Project below the application home.
- * Existing central bindings for individual working directories keep their history.
+ * Every conversation is one session: an append-only, hash-chained JSONL file
+ * at `$NAMZU_HOME/projects/<slug>/<session-id>.jsonl`. The log is the source
+ * of truth. The rebuildable index at `$NAMZU_HOME/index.sqlite` answers the
+ * questions a list needs (which sessions this project has, which one a
+ * desktop key names) and is refreshed from the log after every write here.
+ *
+ * The CLI writes only the records that happen outside a turn: the
+ * `session_started` that creates a conversation, `session_updated` for its
+ * title, archive flag and caller-side names, and the `compaction` record that
+ * seeds a fork with the history it copied. Messages and turns are appended by
+ * the kernel's turn recorder while `query()` runs, under the session lease.
+ *
+ * This is what powers `/resume`: list recent sessions, fold a chosen
+ * session's messages, and keep chatting in it. The project is the canonical
+ * checkout root, so every directory of one checkout shares its history.
  */
 
-import { createHash, randomBytes } from 'node:crypto'
-import {
-	chmodSync,
-	closeSync,
-	fsyncSync,
-	mkdirSync,
-	openSync,
-	readFileSync,
-	renameSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
-import { basename, join, resolve } from 'node:path'
+import { basename, resolve } from 'node:path'
+import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
 	DiskSessionGoalStore,
+	DiskSessionLog,
 	type Message,
 	type ProjectId,
 	type Session,
 	type SessionGoalStore,
 	type SessionId,
-	type SessionStore,
+	type SessionIndex,
+	type SessionLease,
+	type SessionLog,
+	SessionPaths,
+	type SessionRecord,
+	type SessionRecordDraft,
+	type SessionStartedRecord,
 	type TenantId,
 	type TopicId,
 	type UserMessage,
 	asSessionId,
 	asTopicId,
+	ensureProject,
+	foldSessionMessages,
+	generateSessionId,
 	isEntityId,
-	requireOpenProject,
+	openSessionIndex,
+	readSessionLog,
 } from '@namzu/sdk'
-import { restrictToOwner } from '../providers/credential-store.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { loadIdentity } from '../state/identity.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
-import { cliProjectRoot, findCliProject } from '../state/project.js'
-import {
-	type ConversationLineageTurn,
-	type ConversationOrigin,
-	type ConversationTurnReference,
-	DiskConversationEvidence,
-} from './turn-evidence.js'
+import { cliProjectRoot } from '../state/project.js'
+
+/**
+ * The part of the kernel's `SessionStore` contract the CLI still reads: one
+ * session by id, scoped to the tenant. Derived from the session's log, so it
+ * can never disagree with it. The goal store takes this for its ownership
+ * check.
+ */
+export interface CliSessionCatalog {
+	getSession(sessionId: SessionId, tenantId: TenantId): Promise<Session | null>
+}
 
 export interface CliSessions {
-	readonly store: Required<SessionStore>
-	/** Durable completion goal owned by each conversation Session. */
-	readonly goals: SessionGoalStore
+	/** Absolute `NAMZU_HOME`. */
+	readonly root: string
+	/** The project's layout under `root`. */
+	readonly paths: SessionPaths
+	/** The project's directory name under `projects/`. */
+	readonly slug: string
+	/** The canonical checkout root the project stands for. */
+	readonly projectRoot: string
 	readonly projectId: ProjectId
 	readonly topicId: TopicId
 	readonly tenantId: TenantId
-	/** Absolute application home used by the CLI path builder. */
-	readonly root: string
-	/** Shared application state root; individual capabilities apply their own ownership keys. */
-	readonly projectStateRoot: string
-	/** Shared CLI sidecars; workspace-specific bindings include their Project key. */
-	readonly controlRoot: string
-	/**
-	 * CLI-only turn/run correlation. Optional for embedded test doubles and
-	 * pre-feature hosts; {@link openSessions} always supplies it.
-	 */
-	readonly turnEvidence?: DiskConversationEvidence
+	/** The rebuildable index over every session log under `root`. */
+	readonly index: SessionIndex
+	/** Sessions by id, read from their logs. */
+	readonly store: CliSessionCatalog
+	/** Durable completion goal owned by each conversation Session. */
+	readonly goals: SessionGoalStore
 }
 
 /** Persisted conversation ownership and history; no goal or UI sidecars are needed for retrieval. */
 export type ConversationContext = Pick<
 	CliSessions,
-	'store' | 'projectId' | 'topicId' | 'tenantId' | 'root'
+	'root' | 'paths' | 'slug' | 'projectId' | 'topicId' | 'tenantId' | 'store' | 'index'
 >
 
 export interface RecentConversation {
@@ -99,22 +110,31 @@ export interface RecentConversation {
 	readonly preview?: string
 }
 
-/**
- * Open (or initialize) the working directory's CLI project. Returns the handle
- * used by the other helpers. Invalid identity or binding metadata refuses.
- */
 export interface OpenSessionsOptions {
-	/** Exact central hierarchy root; test/embedding seam. */
+	/** Exact `NAMZU_HOME`; test/embedding seam. */
 	readonly stateRoot?: string
 	/** OS-home and environment seams used by the application-home resolver. */
 	readonly home?: string
 	readonly env?: NodeJS.ProcessEnv
+	/** Index backend; `auto` (the default) uses SQLite when `node:sqlite` loads. */
+	readonly indexBackend?: 'auto' | 'sqlite' | 'scan'
 }
 
+/** Who created a conversation, as its `session_started.agent` records it. */
+const CLI_AGENT = { id: 'namzu-cli', name: 'Namzu' } as const
+
+/** How long a write outside a turn waits for a lease another writer holds. */
+const LEASE_WAIT_MS = 5_000
+const LEASE_POLL_MS = 25
+const LEASE_TTL_MS = 30_000
+
 /**
- * Select the existing central Project for this directory, or share the nearest
- * checkout's Project. A checkout is bounded by a `.git` file or directory, so
- * worktrees and nested repositories keep distinct state. Tool cwd is unchanged.
+ * Open (or initialize) the working directory's project: `projects/<slug>/`
+ * with its `project.json`, the installation's tenant, and the index.
+ *
+ * The project is the nearest checkout root (a `.git` file or directory), so
+ * worktrees and nested repositories keep distinct history while every
+ * directory of one checkout shares it. Tool cwd is unchanged.
  */
 export async function openSessions(
 	cwd: string,
@@ -128,37 +148,43 @@ export async function openSessions(
 				...(options.env !== undefined ? { env: options.env } : {}),
 			}),
 	)
+	mkdirSync(root, { recursive: true })
 	// The installation owns the tenant; the canonical checkout owns the Project.
 	const tenantId = loadIdentity(root).tenantId
-	ensurePrivateStateDirectory(root, 'sessions')
-	ensurePrivateStateDirectory(root, 'goals')
-	const store = sessionStore(root)
-	let project = await findCliProject(store, workingDirectory, tenantId)
-	if (!project) {
-		const projectRoot = cliProjectRoot(workingDirectory)
-		try {
-			project = await store.createProject(
-				{ tenantId, name: basename(projectRoot) || projectRoot, rootPath: projectRoot },
-				tenantId,
-			)
-		} catch (error) {
-			project = await findCliProject(store, workingDirectory, tenantId)
-			if (!project) throw error
-		}
-	}
-	const projectId = project.id
-	const projectStateRoot = root
-	const controlRoot = ensurePrivateStateDirectory(projectStateRoot, 'cli')
-	return {
-		store,
-		goals: new DiskSessionGoalStore({ rootDir: root, sessions: store }),
-		projectId,
-		topicId: topicIdFor(projectId),
-		tenantId,
+	const projectsDir = ensurePrivateStateDirectory(root, 'projects')
+	const project = await ensureProject({ home: root, cwd: cliProjectRoot(workingDirectory) })
+	ensurePrivateStateDirectory(projectsDir, project.slug)
+	const paths = new SessionPaths({ home: root, slug: project.slug })
+	const index = await openSessionIndex({
+		home: root,
+		...(options.indexBackend ? { backend: options.indexBackend } : {}),
+	})
+	const partial = {
 		root,
-		projectStateRoot,
-		controlRoot,
-		turnEvidence: new DiskConversationEvidence({ root, projectId }),
+		paths,
+		slug: project.slug,
+		projectRoot: project.cwd,
+		projectId: project.projectId,
+		topicId: topicIdFor(project.projectId),
+		tenantId,
+		index,
+	}
+	const store: CliSessionCatalog = {
+		getSession: (sessionId, tenant) => readSessionEntity(partial, sessionId, tenant),
+	}
+	return {
+		...partial,
+		store,
+		goals: new DiskSessionGoalStore({ rootDir: paths.projectDir(), sessions: store }),
+	}
+}
+
+/** Release the index's database handle. Idempotent. */
+export function closeSessions(s: Pick<CliSessions, 'index'>): void {
+	try {
+		s.index.close()
+	} catch {
+		// Already closed.
 	}
 }
 
@@ -170,128 +196,291 @@ function topicIdFor(projectId: ProjectId): TopicId {
 	)
 }
 
-// Maps an embedder's own session key (e.g. a desktop host's uuid) to a
-// namzu conversation id, so reopening that session resumes the same
-// transcript. Kept as a small JSON pointer beside cli.json.
-const DESKTOP_MAP = 'desktop-sessions.json'
-const DESKTOP_MAP_LOCK = `${DESKTOP_MAP}.lock`
-const DESKTOP_MAP_LOCK_TIMEOUT_MS = 5_000
-const DESKTOP_MAP_LOCK_POLL_MS = 10
+// ─── the log ──────────────────────────────────────────────────────────────
 
-function readDesktopMap(root: string): Record<string, string> {
-	const path = join(root, DESKTOP_MAP)
-	let raw: unknown
-	try {
-		raw = JSON.parse(readFileSync(path, 'utf8'))
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
-		throw new Error(
-			`Cannot read ${path}; refusing to replace an existing desktop-session map: ${error instanceof Error ? error.message : String(error)}`,
-		)
-	}
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-		throw new Error(
-			`Cannot read ${path}; its top level must be an object. Refusing to replace the existing desktop-session map.`,
-		)
-	}
-	const map: Record<string, string> = {}
-	for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-		if (!isEntityId(value, 'session')) {
+/** The file a root conversation's log lives in. */
+export function conversationLogPath(s: Pick<CliSessions, 'paths'>, sessionId: SessionId): string {
+	return s.paths.sessionLog({ sessionId })
+}
+
+/** A writer handle on one conversation's log. */
+export function openConversationLog(
+	s: Pick<CliSessions, 'paths'>,
+	sessionId: SessionId,
+): DiskSessionLog {
+	return DiskSessionLog.at(s.paths, { sessionId })
+}
+
+function holderName(): string {
+	return `namzu-cli:${process.pid}:${randomUUID()}`
+}
+
+/**
+ * Take a conversation's writer lease, waiting briefly for another writer.
+ *
+ * A turn holds the lease while it runs, so a write between turns only ever
+ * waits for a turn that is settling. One that is still running when the wait
+ * ends is refused by name rather than waited on indefinitely.
+ */
+async function claimLease(log: SessionLog, op: string): Promise<SessionLease> {
+	const deadline = Date.now() + LEASE_WAIT_MS
+	const holder = holderName()
+	for (;;) {
+		const lease = await log.claim({ holder, ttlMs: LEASE_TTL_MS })
+		if (lease) return lease
+		if (Date.now() >= deadline) {
 			throw new Error(
-				`Cannot read ${path}; desktop session ${JSON.stringify(key)} does not name a Session id. Refusing to replace the existing map.`,
+				`Conversation ${log.sessionId} is busy: another writer holds it — ${op} rejected. Wait for its turn to finish and try again.`,
 			)
 		}
-		map[key] = value
+		await new Promise((resolveWait) => setTimeout(resolveWait, LEASE_POLL_MS))
 	}
-	return map
 }
 
-function wait(ms: number): Promise<void> {
-	return new Promise((resolveWait) => setTimeout(resolveWait, ms))
+/** Append records outside any turn, under a lease taken for just these records. */
+async function appendOutsideTurn(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+	drafts: readonly SessionRecordDraft[],
+	op: string,
+): Promise<void> {
+	const log = openConversationLog(s, sessionId)
+	const lease = await claimLease(log, op)
+	try {
+		for (const draft of drafts) await log.append(lease, draft)
+	} finally {
+		await log.release(lease)
+	}
+	await refreshIndex(s, sessionId)
+}
+
+/** Bring the index's row for one conversation up to date with its log. */
+export async function refreshIndex(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+): Promise<void> {
+	await s.index.refresh({ slug: s.slug, logPath: conversationLogPath(s, sessionId), sessionId })
+}
+
+/** What one conversation's log says about it, outside its messages. */
+export interface ConversationFacts {
+	readonly sessionId: SessionId
+	readonly started: SessionStartedRecord
+	/** The latest `session_updated.title`; empty or absent means derived. */
+	readonly title?: string
+	readonly named: boolean
+	readonly archived: boolean
+	readonly createdAt: string
+	readonly updatedAt: string
+	/** The session's open turn, if any, and whether it is parked. */
+	readonly activeTurn?: { readonly turnId: string; readonly paused: boolean }
+	readonly records: readonly SessionRecord[]
 }
 
 /**
- * Hold one process-wide lease while mutating the shared desktop map.
+ * Read one conversation's log, or `null` when there is none.
  *
- * `open(..., "wx")` is the filesystem's exclusive-create primitive, so two
- * Namzu processes cannot both perform a stale read-modify-write. A crashed
- * owner deliberately leaves a lock behind: guessing that it is stale and
- * deleting it automatically would reintroduce the race this lease prevents.
+ * Strict by default: a log whose chain is broken is not something to resume
+ * or fork. A list passes `tolerant` and reads what precedes the break.
  */
-async function acquireDesktopMapLock(root: string): Promise<() => void> {
-	mkdirSync(root, { recursive: true })
-	const path = join(root, DESKTOP_MAP_LOCK)
-	const token = `${process.pid}:${randomBytes(12).toString('hex')}`
-	const deadline = Date.now() + DESKTOP_MAP_LOCK_TIMEOUT_MS
-	for (;;) {
-		let descriptor: number | undefined
-		try {
-			descriptor = openSync(path, 'wx', 0o600)
-			writeFileSync(descriptor, `${token}\n`, 'utf8')
-			fsyncSync(descriptor)
-			closeSync(descriptor)
-			descriptor = undefined
-			if (process.platform !== 'win32') chmodSync(path, 0o600)
-			restrictToOwner(path)
-			return () => {
-				try {
-					if (readFileSync(path, 'utf8').trim() === token) rmSync(path, { force: true })
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+export async function readConversationFacts(
+	s: Pick<CliSessions, 'paths'>,
+	sessionId: SessionId,
+	mode: 'strict' | 'tolerant' = 'strict',
+): Promise<ConversationFacts | null> {
+	const read = await readSessionLog(conversationLogPath(s, sessionId), { mode, sessionId })
+	const records = read.entries.map((entry) => entry.record)
+	const first = records[0]
+	if (first === undefined || first.type !== 'session_started') return null
+	let title: string | undefined
+	let named = false
+	let archived = false
+	let active: { turnId: string; paused: boolean } | undefined
+	for (const record of records) {
+		switch (record.type) {
+			case 'session_updated':
+				if (record.title !== undefined) {
+					title = record.title
+					named = record.titleSource === 'named' && record.title.length > 0
 				}
-			}
-		} catch (error) {
-			if (descriptor !== undefined) closeSync(descriptor)
-			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-				// We may have created the path and then failed to initialize it. It
-				// cannot be mistaken for somebody else's lock because exclusive
-				// create succeeded in this branch.
-				try {
-					if (readFileSync(path, 'utf8').trim() === token) rmSync(path, { force: true })
-				} catch {
-					// Preserve the original acquisition error.
-				}
-				throw error
-			}
-			if (Date.now() >= deadline) {
-				throw new Error(
-					`Timed out waiting for ${path}. Another Namzu process may be updating desktop session bindings. If no Namzu process is running, inspect and remove this stale lock manually.`,
-				)
-			}
-			await wait(DESKTOP_MAP_LOCK_POLL_MS)
+				if (record.archived !== undefined) archived = record.archived
+				break
+			case 'turn_started':
+				active = { turnId: record.turnId, paused: false }
+				break
+			case 'turn_paused':
+				if (active?.turnId === record.turnId) active = { ...active, paused: true }
+				break
+			case 'turn_resuming':
+				if (active?.turnId === record.turnId) active = { ...active, paused: false }
+				break
+			case 'turn_completed':
+			case 'turn_failed':
+				if (active?.turnId === record.turnId) active = undefined
+				break
 		}
 	}
+	return {
+		sessionId,
+		started: first,
+		...(title !== undefined ? { title } : {}),
+		named,
+		archived,
+		createdAt: first.ts,
+		updatedAt: records.at(-1)?.ts ?? first.ts,
+		...(active ? { activeTurn: active } : {}),
+		records,
+	}
+}
+
+/** The folded conversation a log's records describe, spills read back. */
+async function foldConversation(
+	s: Pick<CliSessions, 'paths'>,
+	sessionId: SessionId,
+	records: readonly SessionRecord[],
+): Promise<Message[]> {
+	const log = openConversationLog(s, sessionId)
+	return await foldSessionMessages(records, { readSpill: (ref) => log.readSpill(ref) })
+}
+
+async function readSessionEntity(
+	s: Pick<CliSessions, 'paths' | 'projectId'>,
+	sessionId: SessionId,
+	tenantId: TenantId,
+): Promise<Session | null> {
+	if (!isEntityId(sessionId, 'session')) return null
+	const facts = await readConversationFacts(s, sessionId, 'tolerant')
+	if (!facts) return null
+	const recordedTenant = facts.started.tenantId
+	if (recordedTenant !== undefined && recordedTenant !== tenantId) return null
+	return {
+		id: sessionId,
+		topicId: facts.started.topicId ?? topicIdFor(facts.started.projectId),
+		projectId: facts.started.projectId,
+		tenantId,
+		status: facts.archived ? 'archived' : 'idle',
+		currentActor: null,
+		previousActors: [],
+		workspaceId: null,
+		ownerVersion: 0,
+		createdAt: new Date(facts.createdAt),
+		updatedAt: new Date(facts.updatedAt),
+	}
+}
+
+// ─── conversations ────────────────────────────────────────────────────────
+
+export interface StartConversationOptions {
+	/** The id to create the conversation under; minted when absent. */
+	readonly id?: SessionId
+	/** A caller-side name for the conversation (a desktop host's session key). */
+	readonly origin?: SessionStartedRecord['origin']
 }
 
 /**
- * Resolve (creating if needed) the namzu conversation bound to an embedder's
- * session key. The mapping persists so a later turn / a history load with the
- * same key reuses the same conversation. Falls back to a fresh conversation if
- * the mapped id was wiped.
+ * Start a fresh conversation; returns its session id.
+ *
+ * Writes the log's first record, `session_started`, naming the project, the
+ * tenant and the CLI topic. An id that already has a log is refused: two
+ * conversations never share one.
+ */
+export async function startConversation(
+	s: Pick<
+		CliSessions,
+		'paths' | 'slug' | 'index' | 'projectId' | 'topicId' | 'tenantId' | 'projectRoot'
+	>,
+	idOrOptions?: SessionId | StartConversationOptions,
+): Promise<SessionId> {
+	const options: StartConversationOptions =
+		typeof idOrOptions === 'string' ? { id: idOrOptions } : (idOrOptions ?? {})
+	const id = options.id ?? generateSessionId()
+	const log = openConversationLog(s, id)
+	const lease = await claimLease(log, 'start conversation')
+	try {
+		if ((await log.head()) !== null) {
+			throw new Error(`Conversation ${id} already exists — start conversation rejected.`)
+		}
+		await log.append(lease, {
+			type: 'session_started',
+			projectId: s.projectId,
+			tenantId: s.tenantId,
+			topicId: s.topicId,
+			cwd: s.projectRoot,
+			agent: { ...CLI_AGENT },
+			origin: options.origin ?? { protocol: 'cli' },
+		})
+	} finally {
+		await log.release(lease)
+	}
+	await refreshIndex(s, id)
+	return id
+}
+
+/**
+ * Give a session log its `session_started` if it has none yet, so a turn can
+ * begin in it. A log that already starts is left alone. Used where a session
+ * is brought into existence by its first turn rather than by
+ * {@link startConversation}: a headless scope, an in-memory log.
+ */
+export async function ensureSessionStarted(
+	log: SessionLog,
+	session: {
+		readonly projectId: ProjectId
+		readonly tenantId: TenantId
+		readonly topicId: TopicId
+		readonly cwd: string
+		readonly agent: { readonly id: string; readonly name: string }
+		readonly origin?: SessionStartedRecord['origin']
+	},
+): Promise<void> {
+	if ((await log.head()) !== null) return
+	const lease = await claimLease(log, 'start session')
+	try {
+		if ((await log.head()) !== null) return
+		await log.append(lease, {
+			type: 'session_started',
+			projectId: session.projectId,
+			tenantId: session.tenantId,
+			topicId: session.topicId,
+			cwd: session.cwd,
+			agent: { ...session.agent },
+			origin: session.origin ?? { protocol: 'cli' },
+		})
+	} finally {
+		await log.release(lease)
+	}
+}
+
+/** The external id a desktop key is filed under: scoped to the project, like the map it replaces. */
+function desktopExternalId(projectId: ProjectId, key: string): string {
+	return JSON.stringify([projectId, key])
+}
+
+/**
+ * Resolve (creating if needed) the conversation bound to an embedder's
+ * session key. The binding is the conversation's own `session_started.origin`,
+ * so a later turn or history load with the same key reuses it, and an index
+ * rebuild finds it again.
  */
 export async function resolveConversation(s: CliSessions, key: string): Promise<SessionId> {
-	const existing = await resolveExistingConversation(s, key, readDesktopMap(s.controlRoot))
+	const existing = await findMappedConversation(s, key)
 	if (existing) {
 		await requireWritableConversation(s, existing, 'continue keyed conversation')
 		return existing
 	}
-
-	const release = await acquireDesktopMapLock(s.controlRoot)
-	try {
-		// A different process may have published this key while we waited.
-		const map = readDesktopMap(s.controlRoot)
-		const winner = await resolveExistingConversation(s, key, map)
-		if (winner) {
-			await requireWritableConversation(s, winner, 'continue keyed conversation')
-			return winner
-		}
-		const id = await startConversation(s)
-		map[JSON.stringify([s.projectId, key])] = id
-		writePrivateJson(s.controlRoot, DESKTOP_MAP, map)
-		return id
-	} finally {
-		release()
+	const id = await startConversation(s, {
+		origin: { protocol: 'desktop', externalSessionId: desktopExternalId(s.projectId, key) },
+	})
+	// Another process may have claimed the key while this one was creating. The
+	// earliest claim wins the name; a loser archives its empty conversation so it
+	// never shows up in `/resume` as a second, indistinguishable row.
+	const winner = await findMappedConversation(s, key)
+	if (winner && winner !== id) {
+		await archiveConversation(s, id).catch(() => undefined)
+		await requireWritableConversation(s, winner, 'continue keyed conversation')
+		return winner
 	}
+	return id
 }
 
 /** Read an external-session binding without creating or widening its scope. */
@@ -299,94 +488,53 @@ export async function findMappedConversation(
 	s: CliSessions,
 	key: string,
 ): Promise<SessionId | null> {
-	return await resolveExistingConversation(s, key, readDesktopMap(s.controlRoot))
-}
-
-async function resolveExistingConversation(
-	s: CliSessions,
-	key: string,
-	map: Readonly<Record<string, string>>,
-): Promise<SessionId | null> {
-	const existing = map[JSON.stringify([s.projectId, key])]
-	// readDesktopMap has validated the binding. A missing session may be
-	// recreated, but malformed identity metadata must never mint a replacement.
-	if (existing !== undefined) {
-		const mapped = asSessionId(existing)
-		const session = await s.store.getSession(mapped, s.tenantId)
-		if (session?.projectId === s.projectId) return mapped
-	}
-	return null
-}
-
-/**
- * Start a fresh conversation; returns its session id.
- *
- * The workspace gate runs HERE rather than being assumed from the caller,
- * because this is a store call and a store deliberately holds no view of
- * workspace status — the SDK's own note says a direct store caller bypasses
- * the invariant, and this was such a caller.
- *
- * `openSessions` reuses the central root-path binding across launches. Its
- * Project may have been closed since it was created, so session creation
- * checks that Project's current status again.
- */
-export async function startConversation(s: CliSessions, id?: SessionId): Promise<SessionId> {
-	const created = await createConversation(s, id)
-	await s.turnEvidence?.recordOrigin(created, { kind: 'new' })
-	return created
-}
-
-async function createConversation(s: CliSessions, id?: SessionId): Promise<SessionId> {
-	await requireOpenProject(s.store, s.projectId, s.tenantId, 'cli-session')
-	const session = await s.store.createSession(
-		{ ...(id ? { id } : {}), topicId: s.topicId, projectId: s.projectId, currentActor: null },
-		s.tenantId,
+	const target = await s.index.resolveExternal(
+		'desktop',
+		'session',
+		desktopExternalId(s.projectId, key),
 	)
-	return session.id
+	if (!target) return null
+	const facts = await readConversationFacts(s, target.sessionId, 'tolerant')
+	return facts?.started.projectId === s.projectId ? target.sessionId : null
 }
 
 /**
- * Resolve a conversation through the cwd-owned Project and CLI Topic.
+ * Resolve a conversation through this project.
  *
- * `SessionId` is globally locatable inside a store root, so successfully
- * loading one proves existence and tenant ownership, not that it belongs to
- * this `CliSessions` handle. The fixed CLI topic id makes the Project check
- * load-bearing: two Projects in one root can legitimately carry the same
- * topic id.
+ * A session id names a file under this project's directory, so a log that
+ * exists proves the conversation is this project's; the project id it
+ * recorded must also agree, and so must the tenant.
  */
 async function requireConversationInScope(
 	s: ConversationContext,
 	sessionId: SessionId,
 	op: string,
-): Promise<Session> {
-	const session = await s.store.getSession(sessionId, s.tenantId)
-	if (!session) {
+): Promise<ConversationFacts> {
+	const facts = await readConversationFacts(s, sessionId)
+	if (!facts) {
 		throw new Error(`Conversation ${sessionId} was not found — ${op} rejected`)
 	}
-	if (session.projectId !== s.projectId) {
+	if (
+		facts.started.projectId !== s.projectId ||
+		(facts.started.tenantId !== undefined && facts.started.tenantId !== s.tenantId)
+	) {
 		throw new Error(`Conversation ${sessionId} does not belong to this workspace — ${op} rejected`)
 	}
-	return session
+	return facts
 }
 
 /**
- * Sequential admission gate for a turn or conversation mutation.
- *
- * This establishes the state observed immediately before the operation. It is
- * deliberately not described as a cross-process transaction: Project archive
- * and Session mutation live in separate store records, so serializing an
- * archive racing a live turn requires a durable lease shared by both paths.
- * What this gate does guarantee is that a target already closed, archived or
- * outside the current Project never silently reaches the requested operation.
+ * Sequential admission gate for a turn or conversation mutation: the target
+ * exists in this project and is not archived. It is not a cross-process
+ * transaction; the session lease is what serialises writers.
  */
 export async function requireWritableConversation(
 	s: ConversationContext,
 	sessionId: SessionId,
 	op = 'continue conversation',
 ): Promise<void> {
-	const session = await requireConversationInScope(s, sessionId, op)
-	await requireOpenProject(s.store, s.projectId, s.tenantId, op)
-	if (session.status === 'archived') {
+	const facts = await requireConversationInScope(s, sessionId, op)
+	if (facts.archived) {
 		throw new Error(
 			`Conversation ${sessionId} is archived and read-only — ${op} rejected. Its history remains available for inspection.`,
 		)
@@ -394,74 +542,30 @@ export async function requireWritableConversation(
 }
 
 /**
- * Turn the active conversation into a read-only tombstone.
- *
- * The caller owns the live-turn barrier; this function owns store scope and a
- * versioned publication. History remains readable, while `/resume`, later
- * appends and forks reject through {@link requireWritableConversation}.
+ * Turn the conversation into a read-only tombstone with `session_updated
+ * {archived: true}`. History remains readable, while `/resume`, later turns
+ * and forks reject through {@link requireWritableConversation}.
  */
 export async function archiveConversation(s: CliSessions, sessionId: SessionId): Promise<void> {
-	const session = await requireConversationInScope(s, sessionId, 'archive conversation')
-	await requireOpenProject(s.store, s.projectId, s.tenantId, 'archive conversation')
-	if (session.status === 'archived') {
+	const facts = await requireConversationInScope(s, sessionId, 'archive conversation')
+	if (facts.archived) {
 		throw new Error(`Conversation ${sessionId} is already archived.`)
 	}
-	await s.store.updateSession(
-		{ ...session, status: 'archived', ownerVersion: session.ownerVersion + 1 },
-		s.tenantId,
-		session.ownerVersion,
+	await appendOutsideTurn(
+		s,
+		sessionId,
+		[{ type: 'session_updated', archived: true }],
+		'archive conversation',
 	)
 }
 
-/** Append messages (in order) to a conversation. */
-export async function appendMessages(
-	s: CliSessions,
+/** Load a conversation's folded message history. */
+export async function loadConversation(
+	s: ConversationContext,
 	sessionId: SessionId,
-	messages: readonly Message[],
-): Promise<void> {
-	await requireWritableConversation(s, sessionId, 'append conversation messages')
-	for (const m of messages) {
-		await s.store.appendMessage(sessionId, m, s.tenantId)
-	}
-}
-
-/**
- * Replace the durable conversation view with a compacted history.
- *
- * The store writes this as one replacement record inside its append-only log,
- * so a crash cannot expose the first half of a compacted conversation. Before
- * replacing, pin the derived title without calling it a chosen name: the
- * opening user message may be among the turns compacted away, and `/resume`
- * must neither rename nor quote the conversation as a side effect of making
- * it smaller.
- */
-export async function replaceConversation(
-	s: CliSessions,
-	sessionId: SessionId,
-	messages: readonly Message[],
-): Promise<void> {
-	await requireWritableConversation(s, sessionId, 'replace conversation history')
-	const existing = await loadConversation(s, sessionId)
-	const titles = readTitles(s.controlRoot)
-	if (
-		(titles[sessionId as string] === undefined ||
-			(!titles[sessionId as string]?.named &&
-				titles[sessionId as string]?.title === 'Conversation')) &&
-		conversationTitle(existing) !== 'Conversation'
-	) {
-		titles[sessionId as string] = {
-			title: conversationTitle(existing),
-			named: false,
-		}
-		writeTitles(s.controlRoot, titles)
-	}
-	await s.store.replaceMessages(sessionId, messages, s.tenantId)
-}
-
-/** Load a conversation's full message history. */
-export async function loadConversation(s: CliSessions, sessionId: SessionId): Promise<Message[]> {
-	await requireConversationInScope(s, sessionId, 'load conversation history')
-	return [...(await s.store.loadMessages(sessionId, s.tenantId))]
+): Promise<Message[]> {
+	const facts = await requireConversationInScope(s, sessionId, 'load conversation history')
+	return await foldConversation(s, sessionId, facts.records)
 }
 
 /**
@@ -469,44 +573,52 @@ export async function loadConversation(s: CliSessions, sessionId: SessionId): Pr
  *
  * Reading an archived conversation remains legitimate — `history` and export
  * are inspection surfaces — but resuming it would turn a tombstone back into a
- * live writer without a restore operation. The Project gate is separate for
- * the same reason: closing a workspace must not make its history disappear,
- * while it must stop a later turn from starting there.
+ * live writer without a restore operation.
  */
 export async function loadResumableConversation(
-	s: CliSessions,
+	s: ConversationContext,
 	sessionId: string,
 ): Promise<Message[]> {
 	const checked = asSessionId(sessionId)
 	await requireWritableConversation(s, checked, 'resume conversation')
-	return [...(await s.store.loadMessages(checked, s.tenantId))]
+	return await loadConversation(s, checked)
+}
+
+/** The open turn of a conversation, if it has one: `paused` when it is parked. */
+export async function activeConversationTurn(
+	s: ConversationContext,
+	sessionId: SessionId,
+): Promise<ConversationFacts['activeTurn'] | undefined> {
+	return (await requireConversationInScope(s, sessionId, 'inspect conversation')).activeTurn
 }
 
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
-	await requireOpenProject(s.store, s.projectId, s.tenantId, 'list resumable conversations')
-	const sessions = s.store.listSessionsByProject
-		? await s.store.listSessionsByProject(s.projectId, s.tenantId)
-		: await s.store.listSessionsByTopic(s.topicId, s.tenantId)
-	const titles = readTitles(s.controlRoot)
+	const rows = await s.index.listSessions({ slug: s.slug, rootsOnly: true, includeArchived: false })
 	const out: RecentConversation[] = []
-	for (const sess of sessions) {
-		// The CLI Topic id is intentionally stable, so a store root that contains
-		// an older Project can contain the same topic id more than once. The cwd's
-		// selected Project — `s.projectId` — is the authority; Topic membership
-		// alone is not. Archived Session records are tombstones, not resume rows.
-		if (sess.projectId !== s.projectId || sess.topicId !== s.topicId || sess.status === 'archived')
+	for (const row of rows) {
+		if (row.projectId !== s.projectId || row.archived) continue
+		let facts: ConversationFacts | null
+		let messages: Message[]
+		try {
+			facts = await readConversationFacts(s, row.id, 'tolerant')
+			if (!facts || facts.archived || facts.started.projectId !== s.projectId) continue
+			messages = await foldConversation(s, row.id, facts.records)
+		} catch {
+			// A log this process cannot read is not a row a person can resume.
 			continue
-		const messages = await s.store.loadMessages(sess.id, s.tenantId)
+		}
 		if (messages.length === 0) continue
-		const stored = titles[sess.id as string]
+		const everything = recordedMessages(facts.records)
 		out.push({
-			id: sess.id,
+			id: row.id,
 			title:
-				stored && (stored.named || stored.title !== 'Conversation')
-					? stored.title
-					: conversationTitle(messages),
-			preview: [...messages]
+				facts.title !== undefined &&
+				facts.title.length > 0 &&
+				(facts.named || facts.title !== 'Conversation')
+					? facts.title
+					: conversationTitle(everything),
+			preview: [...everything]
 				.reverse()
 				.find(
 					(message): message is UserMessage =>
@@ -515,112 +627,75 @@ export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConv
 				?.content.replace(/\s+/g, ' ')
 				.trim()
 				.slice(0, 240),
-			named: stored?.named ?? false,
-			updatedAt: toIso(sess.updatedAt),
+			named: facts.named,
+			updatedAt: facts.updatedAt,
 			count: messages.length,
 		})
 	}
 	return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit)
 }
 
-/**
- * Conversation titles that must survive their opening message, in a file
- * beside the sessions. `named` distinguishes a person's choice from a derived
- * title pinned before compaction removes the message it came from.
- *
- * A sidecar rather than a field on the SDK's `Session`. Naming a conversation
- * is an operator-application concern: the kernel has no view that lists them
- * and nothing in it would read the name. Putting it in the entity would widen
- * a store interface every host implements, to carry a string only this package
- * writes and only this package displays.
- *
- * The cost is that the two can disagree — a session deleted outside this
- * process leaves its name behind. That is why nothing here treats the file as
- * a list of sessions: it is consulted BY id, from a list the store produced,
- * so a stale entry is never reachable and never has to be reconciled.
- */
-const TITLES_FILE = 'titles.json'
-
-function titlesPath(root: string): string {
-	return join(root, TITLES_FILE)
-}
-
-interface StoredTitle {
-	readonly title: string
-	readonly named: boolean
-}
-
-function readTitles(root: string): Record<string, StoredTitle> {
-	try {
-		const parsed: unknown = JSON.parse(readFileSync(titlesPath(root), 'utf-8'))
-		if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
-		// Filtered rather than trusted. This file is on disk where a person can
-		// edit it, and a malformed value reaching the renderer as a title is a
-		// crash in a list nobody could then get out of. Strings are the v1 shape:
-		// every one was written by `/title`, so each remains a chosen name.
-		const titles: Record<string, StoredTitle> = {}
-		for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
-			if (typeof value === 'string') {
-				titles[id] = { title: value, named: true }
-				continue
-			}
-			if (typeof value !== 'object' || value === null) continue
-			const candidate = value as Record<string, unknown>
-			if (typeof candidate.title === 'string' && typeof candidate.named === 'boolean') {
-				titles[id] = { title: candidate.title, named: candidate.named }
-			}
-		}
-		return titles
-	} catch {
-		// Absent, unreadable, or not JSON. A conversation with no chosen name
-		// still has a derived one, so the honest fallback is "nobody named
-		// anything" rather than a failure the operator cannot act on.
-		return {}
-	}
-}
-
-function writeTitles(root: string, titles: Readonly<Record<string, StoredTitle>>): void {
-	writePrivateJson(root, TITLES_FILE, titles)
-}
-
-/** Crash-safe publication for the small CLI sidecars scoped to one Project. */
-function writePrivateJson(root: string, filename: string, value: unknown): void {
-	mkdirSync(root, { recursive: true })
-	const path = join(root, filename)
-	const temporary = `${path}.tmp.${process.pid}.${randomBytes(6).toString('hex')}`
-	try {
-		writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, {
-			encoding: 'utf-8',
-			flag: 'wx',
-			mode: 0o600,
-		})
-		if (process.platform !== 'win32') chmodSync(temporary, 0o600)
-		restrictToOwner(temporary)
-		renameSync(temporary, path)
-	} finally {
-		rmSync(temporary, { force: true })
-	}
-}
-
 /** The name a person gave this conversation, or `undefined`. */
-export function titleOf(s: CliSessions, sessionId: SessionId): string | undefined {
-	const stored = readTitles(s.controlRoot)[sessionId as string]
-	return stored?.named ? stored.title : undefined
+export async function titleOf(
+	s: ConversationContext,
+	sessionId: SessionId,
+): Promise<string | undefined> {
+	const facts = await readConversationFacts(s, sessionId, 'tolerant')
+	return facts?.named ? facts.title : undefined
 }
 
 /**
  * Name a conversation, or with an empty name, take the name away.
  *
- * Removing rather than storing `''` is what keeps "named" a real distinction:
- * an empty string is not a name, and leaving one behind would make `/resume`
- * show a blank row that reads as a conversation with nothing in it.
+ * Recorded as `session_updated{title, titleSource: 'named'}`; clearing records
+ * an empty derived title, so the list derives one from the first message
+ * again rather than showing a blank row.
  */
-export function setTitle(s: CliSessions, sessionId: SessionId, title: string): void {
-	const titles = readTitles(s.controlRoot)
+export async function setTitle(s: CliSessions, sessionId: SessionId, title: string): Promise<void> {
+	await requireConversationInScope(s, sessionId, 'name conversation')
 	const trimmed = title.trim()
-	if (trimmed === '') delete titles[sessionId as string]
-	else titles[sessionId as string] = { title: trimmed, named: true }
-	writeTitles(s.controlRoot, titles)
+	await appendOutsideTurn(
+		s,
+		sessionId,
+		[
+			trimmed === ''
+				? { type: 'session_updated', title: '', titleSource: 'derived' }
+				: { type: 'session_updated', title: trimmed, titleSource: 'named' },
+		],
+		'name conversation',
+	)
+}
+
+/**
+ * Seed a conversation that has no turns yet with a history, as one
+ * `compaction` record outside any turn: the fold starts from its summary, so
+ * the new conversation's context is exactly `messages`. Used by forks.
+ */
+export async function seedConversationHistory(
+	s: Pick<CliSessions, 'paths' | 'slug' | 'index'>,
+	sessionId: SessionId,
+	messages: readonly Message[],
+	strategy = 'fork',
+): Promise<void> {
+	if (messages.length === 0) return
+	await appendOutsideTurn(
+		s,
+		sessionId,
+		[
+			{
+				type: 'compaction',
+				compactionId: randomUUID(),
+				strategy,
+				trigger: 'manual',
+				replacesSeqRange: [1, 1],
+				summary: [...messages],
+				keptMessageIds: [],
+				tokensBefore: 0,
+				tokensAfter: 0,
+			},
+		],
+		'seed conversation history',
+	)
 }
 
 /**
@@ -632,11 +707,9 @@ export function setTitle(s: CliSessions, sessionId: SessionId, title: string): v
  *
  * **The fork is always named, and that is the load-bearing part.** Both
  * conversations start with the same first message, so both DERIVE the same
- * title — and `/resume` would show two rows a person cannot tell apart, which
- * is a worse outcome than not being able to fork at all. The name is taken
- * from the source's own, so a fork of a fork stays readable, and it is
- * numbered against the names already in use so a second fork does not collide
- * with the first.
+ * title — and `/resume` would show two rows a person cannot tell apart. The
+ * name is taken from the source's own, so a fork of a fork stays readable, and
+ * it is numbered against the names already in use.
  */
 export async function forkConversation(
 	s: CliSessions,
@@ -649,10 +722,7 @@ export async function forkConversation(
 		// that shows up in `/resume` forever and answers no question.
 		throw new Error('There is nothing to fork yet — this conversation has no messages.')
 	}
-
-	const { id, title } = await writeFork(s, sourceId, messages, messages, {
-		kind: 'all',
-	})
+	const { id, title } = await writeFork(s, sourceId, messages, messages)
 	return { id, title, copied: messages.length }
 }
 
@@ -675,8 +745,7 @@ export interface ForkBeforeUserResult {
  * a boundary the operator did not select.
  *
  * An empty prefix is valid. Editing the first prompt creates an empty branch
- * and restores that prompt to the composer; refusing it would make the most
- * common first-turn correction the one prompt this feature cannot edit.
+ * and restores that prompt to the composer.
  */
 export async function forkConversationBeforeUser(
 	s: CliSessions,
@@ -707,168 +776,59 @@ export async function forkConversationBeforeUser(
 	}
 
 	const prefix = messages.slice(0, messageIndex)
-	const { id, title } = await writeFork(s, sourceId, messages, prefix, {
-		kind: 'before-user',
-		userOrdinal,
-	})
+	const { id, title } = await writeFork(s, sourceId, messages, prefix)
 	return { id, title, messages: prefix, selected }
 }
 
-/** Create and name one fork after every boundary decision has been validated. */
+/** Create, seed and name one fork after every boundary decision has been validated. */
 async function writeFork(
 	s: CliSessions,
 	sourceId: SessionId,
 	sourceMessages: readonly Message[],
 	copiedMessages: readonly Message[],
-	boundary:
-		| { readonly kind: 'all' }
-		| { readonly kind: 'before-user'; readonly userOrdinal: number },
 ): Promise<{ id: SessionId; title: string }> {
+	const sourceFacts = await readConversationFacts(s, sourceId, 'tolerant')
 	const source =
-		readTitles(s.controlRoot)[sourceId as string]?.title ?? conversationTitle(sourceMessages)
-	const origin = await forkOrigin(s, sourceId, sourceMessages, copiedMessages.length, boundary)
-	const id = await createConversation(s)
-	// The copied model context is published as one replacement record and read
-	// back before lineage is committed. If the process dies before origin, export
-	// refuses; once origin exists, a restart cannot observe a half-copied prefix.
-	await s.store.replaceMessages(id, copiedMessages, s.tenantId)
+		sourceFacts?.title !== undefined && sourceFacts.title.length > 0
+			? sourceFacts.title
+			: conversationTitle(sourceFacts ? recordedMessages(sourceFacts.records) : sourceMessages)
+	const id = await startConversation(s)
+	await seedConversationHistory(s, id, copiedMessages)
 	const copiedBack = await loadConversation(s, id)
-	if (!isDeepStrictEqual(copiedBack, copiedMessages)) {
-		throw new Error(
-			`The forked conversation did not preserve its exact copied history. No lineage record was published for ${id}.`,
-		)
+	if (!isDeepStrictEqual(copiedBack, [...copiedMessages])) {
+		throw new Error(`The forked conversation did not preserve its exact copied history (${id}).`)
 	}
-	await s.turnEvidence?.recordOrigin(id, origin)
-	const title = nextForkName(
-		Object.fromEntries(
-			Object.entries(readTitles(s.controlRoot)).map(([key, value]) => [key, value.title]),
-		),
-		source,
-	)
-	setTitle(s, id, title)
+	const title = nextForkName(await takenTitles(s), source)
+	await setTitle(s, id, title)
 	return { id, title }
 }
 
-async function forkOrigin(
-	s: CliSessions,
-	sourceId: SessionId,
-	sourceMessages: readonly Message[],
-	copiedMessages: number,
-	boundary:
-		| { readonly kind: 'all' }
-		| { readonly kind: 'before-user'; readonly userOrdinal: number },
-): Promise<ConversationOrigin> {
-	const unresolved: ConversationOrigin = {
-		kind: 'fork-unresolved',
-		sourceSessionId: sourceId,
-		copiedMessages,
+/** Every title in use among this project's conversations, keyed by session id. */
+async function takenTitles(s: CliSessions): Promise<Record<string, string>> {
+	const taken: Record<string, string> = {}
+	for (const row of await s.index.listSessions({ slug: s.slug, rootsOnly: true })) {
+		if (row.title !== undefined && row.title.length > 0) taken[row.id] = row.title
 	}
-	if (!s.turnEvidence) return unresolved
-
-	try {
-		const lineage = await s.turnEvidence.resolveLineage(sourceId)
-		if (lineage.kind !== 'available') return unresolved
-		const durableTurns = durableTurnProjections(sourceMessages)
-		if (!durableTurns || durableTurns.length === 0) return unresolved
-		const selected =
-			boundary.kind === 'all'
-				? uniqueLineageIndex(durableTurns, lineage.turns, durableTurns.length - 1)
-				: uniqueLineageIndex(durableTurns, lineage.turns, boundary.userOrdinal)
-		if (selected === undefined) return unresolved
-		const copiedTurnCount = boundary.kind === 'all' ? selected + 1 : selected
-
-		return {
-			kind: 'fork',
-			sourceSessionId: sourceId,
-			copiedMessages,
-			turns: lineage.turns
-				.slice(0, copiedTurnCount)
-				.map((turn) => ({ ...turn.reference }) satisfies ConversationTurnReference),
-		}
-	} catch {
-		// Forking model history remains useful when old/foreign evidence cannot
-		// prove lineage. The origin says so explicitly, and complete export refuses.
-		return unresolved
-	}
+	return taken
 }
 
-interface DurableTurnProjection {
-	readonly user: UserMessage
-	readonly assistantText?: string
-}
-
-function durableTurnProjections(messages: readonly Message[]): DurableTurnProjection[] | undefined {
-	const turns: Array<{ user: UserMessage; assistantText?: string }> = []
-	for (const message of messages) {
-		if (message.role === 'user') {
-			turns.push({ user: message })
-			continue
-		}
-		if (message.role !== 'assistant') continue
-		const turn = turns.at(-1)
-		if (!turn || turn.assistantText !== undefined || typeof message.content !== 'string') {
-			return undefined
-		}
-		turn.assistantText = message.content
-	}
-	return turns
-}
-
-/** Unique source-turn boundary for one user selected from a possibly compacted suffix. */
-function uniqueLineageIndex(
-	durable: readonly DurableTurnProjection[],
-	lineage: readonly ConversationLineageTurn[],
-	selectedUser: number,
-): number | undefined {
-	if (selectedUser < 0 || selectedUser >= durable.length) return undefined
-	const prefix = alignmentTable(durable, lineage)
-	const reversedDurable = [...durable].reverse()
-	const reversedLineage = [...lineage].reverse()
-	const suffix = alignmentTable(reversedDurable, reversedLineage)
-	const candidates: number[] = []
-	for (let index = 0; index < lineage.length; index += 1) {
-		if (!projectionMatches(durable[selectedUser], lineage[index])) continue
-		const beforeFits = prefix[selectedUser]?.[index] === true
-		const durableAfter = durable.length - selectedUser - 1
-		const lineageAfter = lineage.length - index - 1
-		const afterFits = suffix[durableAfter]?.[lineageAfter] === true
-		if (beforeFits && afterFits) candidates.push(index)
-	}
-	return candidates.length === 1 ? candidates[0] : undefined
-}
-
-/** DP table: whether the first i needles embed, in order, within the first j haystack values. */
-function alignmentTable(
-	needles: readonly DurableTurnProjection[],
-	haystack: readonly ConversationLineageTurn[],
-): boolean[][] {
-	const table = Array.from({ length: needles.length + 1 }, () =>
-		Array.from({ length: haystack.length + 1 }, () => false),
-	)
-	for (let column = 0; column <= haystack.length; column += 1) table[0][column] = true
-	for (let row = 1; row <= needles.length; row += 1) {
-		for (let column = 1; column <= haystack.length; column += 1) {
-			table[row][column] =
-				table[row]?.[column - 1] === true ||
-				(table[row - 1]?.[column - 1] === true &&
-					projectionMatches(needles[row - 1], haystack[column - 1]))
+/**
+ * Every message the log ever recorded, in order: a fork's seeded history and
+ * each `message` record, before any compaction or replacement folds them.
+ *
+ * A derived title and the list preview are read from this rather than from
+ * the fold, so compacting a conversation away from its opening question does
+ * not rename it: the opening message is still in the log.
+ */
+function recordedMessages(records: readonly SessionRecord[]): Message[] {
+	const out: Message[] = []
+	for (const record of records) {
+		if (record.type === 'message') out.push(record.content)
+		else if (record.type === 'compaction' && Array.isArray(record.summary)) {
+			if (record.strategy === 'fork') out.push(...record.summary)
 		}
 	}
-	return table
-}
-
-function projectionMatches(
-	durable: DurableTurnProjection | undefined,
-	lineage: ConversationLineageTurn | undefined,
-): boolean {
-	if (!durable || !lineage || !isDeepStrictEqual(durable.user, lineage.evidence.started.user)) {
-		return false
-	}
-	const settled = lineage.evidence.settled
-	if (!settled) return false
-	return durable.assistantText === undefined
-		? settled.assistantText.trim().length === 0
-		: settled.assistantText === durable.assistantText
+	return out
 }
 
 /**
@@ -891,7 +851,7 @@ export function nextForkName(taken: Record<string, string>, source: string): str
 	return `${source} (fork)`
 }
 
-function conversationTitle(messages: readonly Message[]): string {
+export function conversationTitle(messages: readonly Message[]): string {
 	const firstHuman = messages.find(
 		(message) => message.role === 'user' && message.source === undefined,
 	)
@@ -908,7 +868,17 @@ function conversationTitle(messages: readonly Message[]): string {
 	return text.length > 60 ? `${text.slice(0, 59)}…` : text || 'Conversation'
 }
 
-function toIso(value: unknown): string {
-	if (value instanceof Date) return value.toISOString()
-	return typeof value === 'string' ? value : new Date(0).toISOString()
+/** The project directory name, for messages that point a person at it. */
+export function projectLabel(s: Pick<CliSessions, 'projectRoot'>): string {
+	return basename(s.projectRoot) || s.projectRoot
+}
+
+/** Where a conversation's per-session files live (`<session-id>/`). */
+export function conversationDir(s: Pick<CliSessions, 'paths'>, sessionId: SessionId): string {
+	return s.paths.sessionDir({ sessionId })
+}
+
+/** The project's directory under `NAMZU_HOME` (`projects/<slug>/`). */
+export function projectDir(s: Pick<CliSessions, 'root' | 'slug'>): string {
+	return join(s.root, 'projects', s.slug)
 }

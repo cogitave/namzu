@@ -1,68 +1,54 @@
-import { existsSync } from 'node:fs'
 import { constants, type Stats } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, resolve, sep } from 'node:path'
-import { sessionDatabasePath, sessionStore } from '../sessions/database.js'
+import { basename, join, resolve, sep } from 'node:path'
 
-import { asSessionId, isEntityId } from '@namzu/sdk'
+import { hashedSlugForCwd, isEntityId, slugForCwd } from '@namzu/sdk'
 
-import { readIdentity } from './identity.js'
-import { findCliProject } from './project.js'
+import { cliProjectRoot } from './project.js'
 
 const MAX_METADATA_BYTES = 4 * 1024 * 1024
-const MAX_ORIGIN_BYTES = 64 * 1024
 const MAX_REPORTED_ISSUES = 100
 const MAX_ENTRIES = 100_000
 
-const AUTHORED_TOP_LEVEL = new Set(['commands', 'plugins', 'skills'])
+const AUTHORED_TOP_LEVEL = new Set(['agents', 'commands', 'plugins', 'skills', 'MEMORY.md'])
 const CONFIG_TOP_LEVEL = new Set([
 	'config.yaml',
 	'credentials.json',
+	'identity.json',
 	'preferences.json',
 	'plugin-settings',
 	'trust.json',
 ])
-const RUNTIME_TOP_LEVEL = new Set([
-	'learning',
-	'attachments',
-	'cli.json',
-	'desktop-sessions.json',
-	'feedback',
-	'goals',
-	'memory',
-	'projects',
+const RUNTIME_TOP_LEVEL = new Set(['attachments', 'cli', 'cli.json', 'projects', 'index.sqlite'])
+/**
+ * The layout before sessions became logs (spec §3.4). Nothing reads these any
+ * more; the report names them so a person can decide what to keep. It never
+ * writes or removes them.
+ */
+const LEGACY_TOP_LEVEL = new Set([
 	'state',
 	'sessions',
-	'cli',
-	'residents',
-	'checkpoints',
-	'delegation-history',
-	'tenants',
 	'titles.json',
+	'desktop-sessions.json',
+	'delegation-history',
+	'checkpoints',
+	'tenants',
+	'goals',
+	'feedback',
+	'learning',
+	'residents',
 	'worktrees',
+	'memory',
 ])
 const CONTROL_TOP_LEVEL = new Set(['.migration'])
-const PRIVATE_BOUNDARIES = [
-	'learning',
-	'attachments',
-	'goals',
-	'memory',
-	'plugin-settings',
-	'projects',
-	'state',
-	'sessions',
-	'cli',
-	'residents',
-	'checkpoints',
-	'delegation-history',
-	'tenants',
-] as const
+const PRIVATE_BOUNDARIES = ['attachments', 'plugin-settings', 'projects'] as const
 
 export type StateCategory =
 	| 'authored'
 	| 'configuration'
 	| 'runtime'
+	| 'legacy'
 	| 'control'
 	| 'transient'
 	| 'unknown'
@@ -92,21 +78,27 @@ export interface StatePrivacyBoundary {
 	readonly detail: string
 }
 
+/** One path of the old layout, and what it holds. */
+export interface LegacyStateEntry {
+	/** Relative to the state root, with `/` separators. */
+	readonly path: string
+	/** A top-level name of the old layout, or a `projects/<uuid>/` directory. */
+	readonly kind: 'top-level' | 'uuid-project'
+	readonly files: number
+	readonly logicalBytes: number
+}
+
 export interface StateInventory {
-	readonly sessions: StateMeasure & {
-		readonly directories: number
-		readonly invalidOrMissingRecords: number
-	}
-	readonly originOnlySessionCandidates: StateMeasure & {
-		readonly complete: boolean
-		readonly limitation: string
-	}
-	readonly runs: StateMeasure & {
-		readonly directories: number
-		readonly invalidOrMissingRecords: number
-	}
+	/** `projects/<slug>/` directories that hold a `project.json`. */
+	readonly projects: number
+	/** Root session logs: `projects/<slug>/<session-id>.jsonl`. */
+	readonly sessionLogs: StateMeasure
+	/** Child session logs: `…/subagents/<child-id>.jsonl`. */
+	readonly subagentLogs: StateMeasure
+	/** `projects/<slug>/<session-id>/checkpoints/<id>.json`, at any depth. */
 	readonly checkpointFiles: StateMeasure
-	readonly emergencyDumpFiles: StateMeasure
+	/** `tool-results/` spills beside the logs. */
+	readonly toolResultFiles: StateMeasure
 	readonly attachments: StateMeasure & {
 		readonly pairs: number
 		readonly orphanedDataFiles: number
@@ -116,35 +108,17 @@ export interface StateInventory {
 
 export type ProjectBinding =
 	| { readonly status: 'uninitialized'; readonly detail: string }
-	| { readonly status: 'missing-pointer'; readonly detail: string }
-	| { readonly status: 'invalid-pointer'; readonly detail: string }
-	| {
-			readonly status: 'missing-project'
-			readonly projectId: string
-			readonly detail: string
-	  }
 	| {
 			readonly status: 'corrupt-project'
-			readonly projectId: string
-			readonly detail: string
-	  }
-	| {
-			readonly status: 'legacy-unbound'
-			readonly projectId: string
-			readonly detail: string
-	  }
-	| {
-			readonly status: 'root-mismatch'
-			readonly projectId: string
-			readonly recordedRoot: string
+			readonly slug: string
 			readonly detail: string
 	  }
 	| {
 			readonly status: 'bound'
+			readonly slug: string
 			readonly projectId: string
 			readonly detail: string
 	  }
-	| { readonly status: 'split'; readonly detail: string }
 	| { readonly status: 'unknown'; readonly detail: string }
 
 export interface StateRootReport {
@@ -157,13 +131,15 @@ export interface StateRootReport {
 	readonly logicalBytes: number
 	readonly categories: Readonly<Record<StateCategory, StateMeasure>>
 	readonly inventory: StateInventory
+	/** The old layout found under this root. Reported, never read or changed. */
+	readonly legacy: readonly LegacyStateEntry[]
 	readonly privacy: readonly StatePrivacyBoundary[]
 	readonly issues: readonly StateIssue[]
 	readonly omittedIssues: number
 }
 
 export interface NamzuStateReport {
-	readonly version: 1
+	readonly version: 2
 	readonly readOnly: true
 	readonly snapshot: {
 		readonly consistency: 'best-effort-unlocked'
@@ -231,9 +207,9 @@ export interface InspectNamzuStateOptions {
 /**
  * Inspect Namzu's filesystem estate without changing it.
  *
- * Collection uses direct bounded filesystem reads. The one store object below
- * is used only for its read-only root-binding lookup; it does not create or
- * heal paths. A report about an untouched tree must leave that tree untouched.
+ * Collection uses direct bounded filesystem reads only: no store, no index,
+ * no lease. A report about an untouched tree leaves that tree untouched, the
+ * old layout included, which it names as `legacy` and never opens.
  */
 export async function inspectNamzuState(
 	options: InspectNamzuStateOptions = {},
@@ -282,13 +258,11 @@ export async function inspectNamzuState(
 	)
 	const projectConfigPath = join(cwd, 'namzu.config.json')
 	const projectConfig = await inspectOneRegularFile(projectConfigPath)
-	const projectCollection = collections.get(projectRoot) as RootCollection
-	const localBinding = await inspectProjectBinding(projectCollection, cwd)
-	const centralBinding = await inspectCentralProjectBinding(userRoot, cwd)
-	const projectBinding = combineProjectBindings(localBinding, centralBinding, projectRoot, userRoot)
+	const userCollection = collections.get(userRoot) as RootCollection
+	const projectBinding = await inspectProjectBinding(userCollection, cwd)
 
 	return {
-		version: 1,
+		version: 2,
 		readOnly: true,
 		snapshot: {
 			consistency: 'best-effort-unlocked',
@@ -311,70 +285,11 @@ export async function inspectNamzuState(
 	}
 }
 
-function combineProjectBindings(
-	local: ProjectBinding,
-	central: ProjectBinding,
-	localRoot: string,
-	centralRoot: string,
-): ProjectBinding {
-	if (localRoot === centralRoot) {
-		return central.status === 'uninitialized' ? local : central
-	}
-	if (local.status === 'uninitialized') return central
-	if (central.status === 'uninitialized') return local
-	if (central.status === 'unknown') return central
-	if (central.status === 'bound') {
-		return {
-			status: 'split',
-			detail: `Project-local state at ${localRoot} and central state at ${centralRoot} both claim this workspace. The CLI uses central state; this inventory does not merge or migrate the local history.`,
-		}
-	}
-	return local
-}
-
-async function inspectCentralProjectBinding(
-	centralRoot: string,
-	canonicalCwd: string,
-): Promise<ProjectBinding> {
-	try {
-		// Read-only: an inventory reports what is there and mints nothing.
-		const identity = readIdentity(centralRoot)
-		if (!identity || !existsSync(sessionDatabasePath(centralRoot))) {
-			return {
-				status: 'uninitialized',
-				detail: 'No identity has been minted in this application home, so no Project can be bound.',
-			}
-		}
-		const project = await findCliProject(
-			sessionStore(centralRoot, true),
-			canonicalCwd,
-			identity.tenantId,
-		)
-		if (!project) {
-			return {
-				status: 'uninitialized',
-				detail: 'No central Project is bound to this working directory or its checkout root.',
-			}
-		}
-		return {
-			status: 'bound',
-			projectId: project.id,
-			detail: `Central Project ${project.id} is bound to ${project.rootPath}.`,
-		}
-	} catch (error) {
-		return {
-			status: 'unknown',
-			detail: `The central Project binding could not be read safely: ${errorMessage(error)}`,
-		}
-	}
-}
-
 async function canonicalBase(path: string): Promise<string> {
 	const absolute = resolve(path)
 	try {
 		return await realpath(absolute)
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return absolute
+	} catch {
 		return absolute
 	}
 }
@@ -406,13 +321,7 @@ async function collectRoot(root: string, entryLimit: number): Promise<RootCollec
 			return { root, exists: false, entries: [], issues: [], omittedIssues: 0 }
 		}
 		addIssue(sink, root, error)
-		return {
-			root,
-			exists: true,
-			entries: [],
-			issues: sink.issues,
-			omittedIssues: sink.omitted,
-		}
+		return { root, exists: true, entries: [], issues: sink.issues, omittedIssues: sink.omitted }
 	}
 	if (rootStat.isSymbolicLink()) {
 		pushIssue(sink, {
@@ -457,17 +366,21 @@ async function collectRoot(root: string, entryLimit: number): Promise<RootCollec
 	}
 }
 
+function entryKind(stat: Stats): Entry['kind'] {
+	return stat.isDirectory()
+		? 'directory'
+		: stat.isFile()
+			? 'file'
+			: stat.isSymbolicLink()
+				? 'symlink'
+				: 'other'
+}
+
 function rootEntry(root: string, stat: Stats): Entry {
 	return {
 		absolute: root,
 		relative: '.',
-		kind: stat.isDirectory()
-			? 'directory'
-			: stat.isFile()
-				? 'file'
-				: stat.isSymbolicLink()
-					? 'symlink'
-					: 'other',
+		kind: entryKind(stat),
 		size: stat.isFile() ? stat.size : 0,
 		device: stat.dev,
 		inode: stat.ino,
@@ -499,7 +412,7 @@ async function walk(
 				return false
 			}
 			const absolute = join(root, relativePath)
-			let stat: Awaited<ReturnType<typeof lstat>>
+			let stat: Stats
 			try {
 				stat = await lstat(absolute)
 			} catch (error) {
@@ -509,13 +422,7 @@ async function walk(
 			const entry: Entry = {
 				absolute,
 				relative: normalizeRelative(relativePath),
-				kind: stat.isDirectory()
-					? 'directory'
-					: stat.isFile()
-						? 'file'
-						: stat.isSymbolicLink()
-							? 'symlink'
-							: 'other',
+				kind: entryKind(stat),
 				size: stat.isFile() ? stat.size : 0,
 				device: stat.dev,
 				inode: stat.ino,
@@ -577,6 +484,7 @@ async function projectRootReport(
 		authored: emptyMeasure(),
 		configuration: emptyMeasure(),
 		runtime: emptyMeasure(),
+		legacy: emptyMeasure(),
 		control: emptyMeasure(),
 		transient: emptyMeasure(),
 		unknown: emptyMeasure(),
@@ -598,7 +506,8 @@ async function projectRootReport(
 		issues: [...collection.issues],
 		omitted: collection.omittedIssues,
 	}
-	const inventory = await inventoryOf(collection, analysisSink)
+	const inventory = inventoryOf(collection)
+	const legacy = legacyOf(collection)
 	const privacy = privacyOf(collection, privacyContext, analysisSink)
 
 	return {
@@ -611,6 +520,7 @@ async function projectRootReport(
 		logicalBytes,
 		categories,
 		inventory,
+		legacy,
 		privacy,
 		issues: analysisSink.issues,
 		omittedIssues: analysisSink.omitted,
@@ -621,82 +531,109 @@ function emptyMeasure(): MutableMeasure {
 	return { files: 0, logicalBytes: 0 }
 }
 
+/**
+ * The top-level name, or `projects/<name>` when `<name>` is a UUID: a slug
+ * never looks like one (a POSIX path's slug starts with `-`, a Windows
+ * path's with `C-`), so only the old `projects/<projectId>/` tree matches.
+ */
+function legacyKey(path: string): { key: string; kind: LegacyStateEntry['kind'] } | undefined {
+	const [top, second] = path.split('/')
+	if (top === undefined) return undefined
+	if (LEGACY_TOP_LEVEL.has(top)) return { key: top, kind: 'top-level' }
+	if (top === 'projects' && second !== undefined && isEntityId(second, 'project')) {
+		return { key: `projects/${second}`, kind: 'uuid-project' }
+	}
+	return undefined
+}
+
 function categoryOf(path: string): StateCategory {
 	const top = path.split('/')[0] ?? path
 	const name = basename(path)
+	if (legacyKey(path)) return 'legacy'
 	if (
 		name.endsWith('.lock') ||
 		name.includes('.tmp.') ||
-		name.endsWith('.candidate') ||
-		(top === 'learning' && name.startsWith('.candidate-'))
+		name.includes('.tmp-') ||
+		name.endsWith('.candidate')
 	) {
 		return 'transient'
 	}
 	if (AUTHORED_TOP_LEVEL.has(top)) return 'authored'
 	if (CONFIG_TOP_LEVEL.has(top)) return 'configuration'
-	if (RUNTIME_TOP_LEVEL.has(top)) return 'runtime'
+	if (RUNTIME_TOP_LEVEL.has(top) || /^index\.sqlite(-wal|-shm|-journal)?$/.test(top))
+		return 'runtime'
 	if (CONTROL_TOP_LEVEL.has(top)) return 'control'
 	return 'unknown'
 }
 
-async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise<StateInventory> {
-	const files = new Map(
-		collection.entries
-			.filter((entry): entry is Entry & { kind: 'file' } => entry.kind === 'file')
-			.map((entry) => [entry.relative, entry]),
-	)
-	const directories = collection.entries.filter((entry) => entry.kind === 'directory')
-	const sessionDirs = directories.filter((entry) => isCanonicalSessionDir(entry.relative))
-	const runDirs = directories.filter((entry) => isCanonicalRunDir(entry.relative))
-
-	const validSessions = new Map<string, Entry>()
-	let candidateAnalysisComplete = true
-	let identity: ReturnType<typeof readIdentity> = null
-	try {
-		identity = readIdentity(collection.root)
-	} catch (error) {
-		metadataIssue(sink, 'identity.json', error)
-		candidateAnalysisComplete = false
-	}
-	const database =
-		identity && existsSync(sessionDatabasePath(collection.root))
-			? sessionStore(collection.root, true)
-			: undefined
-	for (const directory of sessionDirs) {
-		if (directory.relative.startsWith('sessions/') && database && identity) {
-			try {
-				const id = asSessionId(basename(directory.relative))
-				if (await database.getSession(id, identity.tenantId)) validSessions.set(id, directory)
-			} catch (error) {
-				metadataIssue(sink, directory.relative, error)
-			}
-			continue
+function legacyOf(collection: RootCollection): LegacyStateEntry[] {
+	const found = new Map<string, { kind: LegacyStateEntry['kind']; files: number; bytes: number }>()
+	for (const entry of collection.entries) {
+		const legacy = legacyKey(entry.relative)
+		if (!legacy) continue
+		const current = found.get(legacy.key) ?? { kind: legacy.kind, files: 0, bytes: 0 }
+		if (entry.kind === 'file') {
+			current.files += 1
+			current.bytes += entry.size
 		}
-		const record = files.get(`${directory.relative}/session.json`)
-		if (!record) continue
-		const parsed = await readJsonRecord(record, sink)
-		const expected = basename(directory.relative)
-		if (recordId(parsed) === expected) validSessions.set(expected, directory)
-		else candidateAnalysisComplete = false
+		found.set(legacy.key, current)
+	}
+	return [...found.entries()]
+		.map(([path, value]) => ({
+			path,
+			kind: value.kind,
+			files: value.files,
+			logicalBytes: value.bytes,
+		}))
+		.sort((a, b) => a.path.localeCompare(b.path))
+}
+
+/** `projects/<slug>/…` split into the slug and the rest, for a slug directory only. */
+function inSlugProject(path: string): { slug: string; rest: string[] } | undefined {
+	const parts = path.split('/')
+	if (parts[0] !== 'projects' || parts.length < 3) return undefined
+	const slug = parts[1] as string
+	if (isEntityId(slug, 'project') || !/^[A-Za-z0-9-]+$/.test(slug)) return undefined
+	return { slug, rest: parts.slice(2) }
+}
+
+function inventoryOf(collection: RootCollection): StateInventory {
+	const files = collection.entries.filter(
+		(entry): entry is Entry & { kind: 'file' } => entry.kind === 'file',
+	)
+	const projects = new Set<string>()
+	const sessionLogs: Entry[] = []
+	const subagentLogs: Entry[] = []
+	const checkpointFiles: Entry[] = []
+	const toolResultFiles: Entry[] = []
+	for (const entry of files) {
+		const located = inSlugProject(entry.relative)
+		if (!located) continue
+		const { slug, rest } = located
+		const file = rest.at(-1) ?? ''
+		if (rest.length === 1 && file === 'project.json') projects.add(slug)
+		else if (
+			rest.length === 1 &&
+			file.endsWith('.jsonl') &&
+			isEntityId(file.slice(0, -6), 'session')
+		)
+			sessionLogs.push(entry)
+		else if (
+			rest.at(-2) === 'subagents' &&
+			file.endsWith('.jsonl') &&
+			isEntityId(file.slice(0, -6), 'session')
+		)
+			subagentLogs.push(entry)
+		else if (
+			rest.at(-2) === 'checkpoints' &&
+			file.endsWith('.json') &&
+			isEntityId(file.slice(0, -5), 'checkpoint')
+		)
+			checkpointFiles.push(entry)
+		else if (rest.at(-2) === 'tool-results') toolResultFiles.push(entry)
 	}
 
-	const validRuns: Entry[] = []
-	for (const directory of runDirs) {
-		const record = files.get(`${directory.relative}/run.json`)
-		if (!record) continue
-		const parsed = await readJsonRecord(record, sink)
-		if (recordId(parsed) === basename(directory.relative)) validRuns.push(directory)
-	}
-
-	const checkpointFiles = [...files.values()].filter((entry) =>
-		isCanonicalCheckpointFile(entry.relative),
-	)
-	const emergencyFiles = [...files.values()].filter((entry) =>
-		isCanonicalEmergencyFile(entry.relative),
-	)
-	const attachmentFiles = [...files.values()].filter((entry) =>
-		entry.relative.startsWith('attachments/'),
-	)
+	const attachmentFiles = files.filter((entry) => entry.relative.startsWith('attachments/'))
 	const attachmentKeys = new Map<string, { data?: Entry; type?: Entry }>()
 	for (const entry of attachmentFiles) {
 		const suffix = entry.relative.endsWith('.bin')
@@ -712,31 +649,12 @@ async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise
 		attachmentKeys.set(key, pair)
 	}
 
-	// SQLite messages and links cannot be classified by inspecting files alone.
-	const candidates = database
-		? { complete: false, directories: [] }
-		: await originOnlyCandidates(files, validSessions, runDirs, sink)
-	candidateAnalysisComplete &&= candidates.complete
-
 	return {
-		sessions: {
-			...measureDirectories(validSessions.values(), collection.entries),
-			directories: sessionDirs.length,
-			invalidOrMissingRecords: sessionDirs.length - validSessions.size,
-		},
-		originOnlySessionCandidates: {
-			...measureDirectories(candidates.directories, collection.entries),
-			complete: candidateAnalysisComplete,
-			limitation:
-				'Candidates have only a new-conversation origin, no messages, runs, goal, title, desktop mapping, fork reference, or sub-session link. They are not declared safe to delete because no writer lease was acquired.',
-		},
-		runs: {
-			...measureDirectories(validRuns, collection.entries),
-			directories: runDirs.length,
-			invalidOrMissingRecords: runDirs.length - validRuns.length,
-		},
+		projects: projects.size,
+		sessionLogs: measureFiles(sessionLogs),
+		subagentLogs: measureFiles(subagentLogs),
 		checkpointFiles: measureFiles(checkpointFiles),
-		emergencyDumpFiles: measureFiles(emergencyFiles),
+		toolResultFiles: measureFiles(toolResultFiles),
 		attachments: {
 			...measureFiles(attachmentFiles),
 			pairs: [...attachmentKeys.values()].filter((pair) => pair.data && pair.type).length,
@@ -748,166 +666,11 @@ async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise
 	}
 }
 
-function isCanonicalSessionDir(path: string): boolean {
-	const parts = path.split('/')
-	return (
-		(parts.length === 2 && parts[0] === 'sessions' && isEntityId(parts[1], 'session')) ||
-		(parts.length === 4 &&
-			parts[0] === 'projects' &&
-			isEntityId(parts[1], 'project') &&
-			parts[2] === 'sessions' &&
-			isEntityId(parts[3], 'session'))
-	)
-}
-
-function isCanonicalRunDir(path: string): boolean {
-	const parts = path.split('/')
-	const prefix = parts[0] === 'sessions' ? 2 : 4
-	return (
-		(parts.length === prefix + 2 ||
-			(parts.length === prefix + 4 &&
-				parts[prefix + 2] === 'children' &&
-				isEntityId(parts[prefix + 3], 'run'))) &&
-		isCanonicalSessionDir(parts.slice(0, prefix).join('/')) &&
-		parts[prefix] === 'runs' &&
-		isEntityId(parts[prefix + 1], 'run')
-	)
-}
-
-function isCanonicalCheckpointFile(path: string): boolean {
-	const parts = path.split('/')
-	const file = parts.at(-1)
-	return (
-		file?.endsWith('.json') === true &&
-		isEntityId(file.slice(0, -5), 'checkpoint') &&
-		parts.at(-2) === 'checkpoints' &&
-		isCanonicalRunDir(parts.slice(0, -2).join('/'))
-	)
-}
-
-function isCanonicalEmergencyFile(path: string): boolean {
-	const parts = path.split('/')
-	const prefix = parts[0] === 'sessions' ? 2 : 4
-	const file = parts[prefix + 2]
-	return (
-		parts.length === prefix + 3 &&
-		isCanonicalSessionDir(parts.slice(0, prefix).join('/')) &&
-		parts[prefix] === 'runs' &&
-		parts[prefix + 1] === 'emergency' &&
-		file?.endsWith('.json') === true &&
-		isEntityId(file.slice(0, -5), 'run')
-	)
-}
-
-async function originOnlyCandidates(
-	files: ReadonlyMap<string, Entry>,
-	sessions: ReadonlyMap<string, Entry>,
-	runDirs: readonly Entry[],
-	sink: IssueSink,
-): Promise<{
-	readonly complete: boolean
-	readonly directories: readonly Entry[]
-}> {
-	let complete = true
-	const referenced = new Set<string>()
-	const originKinds = new Map<string, string>()
-	for (const [sessionId, directory] of sessions) {
-		const evidence = files.get(`${directory.relative}/turns.jsonl`)
-		if (!evidence) continue
-		if (evidence.size > MAX_ORIGIN_BYTES) {
-			complete = false
-			pushIssue(sink, {
-				code: 'inspection_skipped',
-				path: evidence.relative,
-				detail: `Turn evidence exceeds the ${MAX_ORIGIN_BYTES}-byte origin-inspection cap; its raw bytes remain counted.`,
-			})
-			continue
-		}
-		try {
-			const raw = await readBoundedRegularFile(evidence, MAX_ORIGIN_BYTES)
-			const lines = raw.split('\n').filter((line) => line.length > 0)
-			if (lines.length !== 1) continue
-			const parsed = JSON.parse(lines[0] ?? '') as Record<string, unknown>
-			if (parsed.type !== 'conversation_started' || parsed.sessionId !== sessionId) continue
-			const origin = parsed.origin
-			if (typeof origin !== 'object' || origin === null) continue
-			const originRecord = origin as Record<string, unknown>
-			if (typeof originRecord.kind === 'string') originKinds.set(sessionId, originRecord.kind)
-			if (typeof originRecord.sourceSessionId === 'string') {
-				referenced.add(originRecord.sourceSessionId)
-			}
-		} catch (error) {
-			complete = false
-			metadataIssue(sink, evidence.relative, error)
-		}
-	}
-
-	const titles = await readStringKeys(files.get('titles.json'), sink)
-	const desktopTargets = await readStringValues(files.get('desktop-sessions.json'), sink)
-	if (titles === null || desktopTargets === null) complete = false
-	for (const id of titles ?? []) referenced.add(id)
-	for (const id of desktopTargets ?? []) referenced.add(id)
-
-	for (const entry of files.values()) {
-		if (!entry.relative.endsWith('/subsession.json')) continue
-		const parsed = await readJsonRecord(entry, sink)
-		if (!parsed) {
-			complete = false
-			continue
-		}
-		for (const key of ['parentSessionId', 'childSessionId'] as const) {
-			const id = parsed[key]
-			if (typeof id === 'string') referenced.add(id)
-		}
-	}
-
-	if (!complete) return { complete: false, directories: [] }
-	const candidates: Entry[] = []
-	for (const [sessionId, directory] of sessions) {
-		if (originKinds.get(sessionId) !== 'new' || referenced.has(sessionId)) continue
-		const messages = files.get(`${directory.relative}/messages.jsonl`)
-		if (messages && messages.size > 0) continue
-		if (runDirs.some((run) => run.relative.startsWith(`${directory.relative}/runs/`))) continue
-		if (files.has(`goals/${sessionId}.json`)) continue
-		candidates.push(directory)
-	}
-	return { complete: true, directories: candidates }
-}
-
-async function readStringKeys(entry: Entry | undefined, sink: IssueSink): Promise<string[] | null> {
-	if (!entry) return []
-	const parsed = await readJsonRecord(entry, sink)
-	if (!parsed) return null
-	return Object.keys(parsed)
-}
-
-async function readStringValues(
-	entry: Entry | undefined,
-	sink: IssueSink,
-): Promise<string[] | null> {
-	if (!entry) return []
-	const parsed = await readJsonRecord(entry, sink)
-	if (!parsed) return null
-	return Object.values(parsed).filter((value): value is string => typeof value === 'string')
-}
-
 function measureFiles(entries: readonly Entry[]): StateMeasure {
 	return {
 		files: entries.length,
 		logicalBytes: entries.reduce((sum, entry) => sum + entry.size, 0),
 	}
-}
-
-function measureDirectories(directories: Iterable<Entry>, entries: readonly Entry[]): StateMeasure {
-	const selected = [...directories]
-	let logicalBytes = 0
-	for (const directory of selected) {
-		const prefix = `${directory.relative}/`
-		logicalBytes += entries
-			.filter((entry) => entry.kind === 'file' && entry.relative.startsWith(prefix))
-			.reduce((sum, entry) => sum + entry.size, 0)
-	}
-	return { files: selected.length, logicalBytes }
 }
 
 function privacyOf(
@@ -921,11 +684,7 @@ function privacyOf(
 		const entry = byRelative.get(segment)
 		if (!entry) continue
 		if (entry.kind !== 'directory') {
-			out.push({
-				path: segment,
-				status: 'insecure',
-				detail: 'Boundary is not a directory.',
-			})
+			out.push({ path: segment, status: 'insecure', detail: 'Boundary is not a directory.' })
 			continue
 		}
 		if (context.platform === 'win32' || context.uid === undefined) {
@@ -947,11 +706,7 @@ function privacyOf(
 				path: segment,
 				detail: `Boundary is owned by uid ${entry.uid}, current uid is ${context.uid}.`,
 			})
-			out.push({
-				path: segment,
-				status: 'insecure',
-				detail: 'Boundary owner does not match.',
-			})
+			out.push({ path: segment, status: 'insecure', detail: 'Boundary owner does not match.' })
 			continue
 		}
 		const exposed = entry.mode & 0o077
@@ -979,14 +734,25 @@ function modeText(mode: number): string {
 	return (mode & 0o777).toString(8).padStart(3, '0')
 }
 
+/**
+ * Which `projects/<slug>/project.json` stands for this working directory's
+ * checkout, read without creating anything: the plain slug, or the hashed
+ * one when two directories slug alike.
+ */
 async function inspectProjectBinding(
 	collection: RootCollection,
 	canonicalCwd: string,
 ): Promise<ProjectBinding> {
 	if (!collection.exists) {
+		return { status: 'uninitialized', detail: 'No application home exists yet.' }
+	}
+	let projectRoot: string
+	try {
+		projectRoot = await canonicalBase(cliProjectRoot(canonicalCwd))
+	} catch (error) {
 		return {
-			status: 'uninitialized',
-			detail: 'No project-local runtime state exists.',
+			status: 'unknown',
+			detail: `The checkout root could not be resolved: ${errorMessage(error)}`,
 		}
 	}
 	const files = new Map(
@@ -994,136 +760,44 @@ async function inspectProjectBinding(
 			.filter((entry): entry is Entry & { kind: 'file' } => entry.kind === 'file')
 			.map((entry) => [entry.relative, entry]),
 	)
-	const pointer = files.get('cli.json')
-	if (!pointer) {
-		const hasProjects = collection.entries.some((entry) => entry.relative.startsWith('projects/'))
-		return hasProjects
-			? {
-					status: 'missing-pointer',
-					detail: 'Runtime projects exist but cli.json does not select one.',
-				}
-			: { status: 'uninitialized', detail: 'No CLI project pointer exists.' }
-	}
-	let parsed: Record<string, unknown>
-	try {
-		const value = JSON.parse(await readBoundedRegularFile(pointer, MAX_METADATA_BYTES)) as unknown
-		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-			return {
-				status: 'invalid-pointer',
-				detail: 'cli.json is not an object.',
+	for (const slug of [slugForCwd(projectRoot), hashedSlugForCwd(projectRoot)]) {
+		const entry = files.get(`projects/${slug}/project.json`)
+		if (!entry) continue
+		let record: Record<string, unknown>
+		try {
+			const value = JSON.parse(await readBoundedRegularFile(entry, MAX_METADATA_BYTES)) as unknown
+			if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+				return { status: 'corrupt-project', slug, detail: 'project.json is not an object.' }
 			}
-		}
-		parsed = value as Record<string, unknown>
-	} catch (error) {
-		return {
-			status: 'invalid-pointer',
-			detail: `cli.json could not be read as bounded JSON: ${errorMessage(error)}`,
-		}
-	}
-	const projectId = parsed.projectId
-	if (!isEntityId(projectId, 'project')) {
-		return {
-			status: 'invalid-pointer',
-			detail: 'cli.json has no valid projectId.',
-		}
-	}
-	const project = files.get(`projects/${projectId}/project.json`)
-	if (!project) {
-		return {
-			status: 'missing-project',
-			projectId,
-			detail: 'cli.json selects a project record that is not present.',
-		}
-	}
-	let record: Record<string, unknown>
-	try {
-		const value = JSON.parse(await readBoundedRegularFile(project, MAX_METADATA_BYTES)) as unknown
-		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+			record = value as Record<string, unknown>
+		} catch (error) {
 			return {
 				status: 'corrupt-project',
-				projectId,
-				detail: 'project.json is not an object.',
+				slug,
+				detail: `project.json could not be read as bounded JSON: ${errorMessage(error)}`,
 			}
 		}
-		record = value as Record<string, unknown>
-	} catch (error) {
-		return {
-			status: 'corrupt-project',
-			projectId,
-			detail: `project.json could not be read as bounded JSON: ${errorMessage(error)}`,
+		if (
+			record.v !== 1 ||
+			record.kind !== 'project' ||
+			!isEntityId(record.projectId, 'project') ||
+			typeof record.cwd !== 'string'
+		) {
+			return { status: 'corrupt-project', slug, detail: 'project.json is not a project document.' }
 		}
-	}
-	if (record.id !== projectId) {
+		// Two directories that slug alike: the plain slug belongs to the other one.
+		if (record.cwd !== projectRoot) continue
 		return {
-			status: 'corrupt-project',
-			projectId,
-			detail: 'project.json id does not match the selected directory.',
-		}
-	}
-	if (typeof record.rootPath !== 'string' || record.rootPath.length === 0) {
-		return {
-			status: 'legacy-unbound',
-			projectId,
-			detail: 'Project record predates canonical root binding; cli.json is its only locator.',
-		}
-	}
-	if (!isAbsolute(record.rootPath)) {
-		return {
-			status: 'corrupt-project',
-			projectId,
-			detail: 'project.json rootPath is not absolute.',
-		}
-	}
-	const recordedRoot = await canonicalBase(record.rootPath)
-	if (recordedRoot !== canonicalCwd) {
-		return {
-			status: 'root-mismatch',
-			projectId,
-			recordedRoot,
-			detail: 'Project record is bound to a different canonical working directory.',
+			status: 'bound',
+			slug,
+			projectId: record.projectId,
+			detail: `Project ${record.projectId} at projects/${slug} stands for ${projectRoot}.`,
 		}
 	}
 	return {
-		status: 'bound',
-		projectId,
-		detail: 'Project id and canonical root agree.',
+		status: 'uninitialized',
+		detail: 'No project in this application home stands for this working directory yet.',
 	}
-}
-
-async function readJsonRecord(
-	entry: Entry,
-	sink: IssueSink,
-): Promise<Record<string, unknown> | null> {
-	if (entry.size > MAX_METADATA_BYTES) {
-		pushIssue(sink, {
-			code: 'inspection_skipped',
-			path: entry.relative,
-			detail: `Metadata exceeds the ${MAX_METADATA_BYTES}-byte semantic-inspection cap; its raw bytes remain counted.`,
-		})
-		return null
-	}
-	try {
-		const value = JSON.parse(await readBoundedRegularFile(entry, MAX_METADATA_BYTES)) as unknown
-		if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-			throw new Error('expected a JSON object')
-		}
-		return value as Record<string, unknown>
-	} catch (error) {
-		metadataIssue(sink, entry.relative, error)
-		return null
-	}
-}
-
-function recordId(value: Record<string, unknown> | null): string | undefined {
-	return typeof value?.id === 'string' ? value.id : undefined
-}
-
-function metadataIssue(sink: IssueSink, path: string, error: unknown): void {
-	pushIssue(sink, {
-		code: error instanceof EntryChangedError ? 'entry_changed' : 'corrupt_metadata',
-		path,
-		detail: errorMessage(error),
-	})
 }
 
 async function readBoundedRegularFile(entry: Entry, maxBytes: number): Promise<string> {

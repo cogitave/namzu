@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
 	MockLLMProvider,
-	type RunEvent,
+	type SessionEvent,
 	ToolRegistry,
 	createToolPresenter,
 	createUserMessage,
@@ -100,10 +100,10 @@ function framedSearchTool(): ToolDefinition {
  */
 async function eventsFor(
 	screens: Parameters<typeof resolveToolResultScreens>[0],
-): Promise<readonly RunEvent[]> {
+): Promise<readonly SessionEvent[]> {
 	const registry = new ToolRegistry({ resultGuardrails: resolveToolResultScreens(screens) })
 	registry.register(framedSearchTool())
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const workingDirectory = mkdtempSync(join(tmpdir(), 'namzu-refusal-'))
 	workDirs.push(workingDirectory)
 
@@ -121,7 +121,12 @@ async function eventsFor(
 			sessionId: generateSessionId(),
 			tenantId: generateTenantId(),
 			topicId: generateTopicId(),
-			runConfig: { model: 'mock-model', maxIterations: 4, tokenBudget: 100_000, timeoutMs: 20_000 },
+			turnConfig: {
+				model: 'mock-model',
+				maxIterations: 4,
+				tokenBudget: 100_000,
+				timeoutMs: 20_000,
+			},
 		},
 		(event) => {
 			events.push(event)

@@ -1,33 +1,74 @@
 import {
-	type EvidenceRecallCandidate,
-	type EvidenceRecallContinuation,
 	type PrepareStep,
+	type SessionEvidenceScope,
 	type SessionId,
+	type SessionTextEvidenceSource,
 	createEvidenceRecallStep,
 	refineEvidenceRecallTerms,
 } from '@namzu/sdk'
 import {
+	type ActiveEvidence,
 	CONVERSATION_RETRIEVAL_TOOLS,
-	retainLiveConversationSearch,
 	searchConversationTerms,
 } from './conversation-search.js'
-import { assertEvidenceOwner, assertEvidenceSearchPage } from './evidence-page-validation.js'
 import type { ConversationContext } from './store.js'
+
+/**
+ * What the kernel's recall step hands the host for one retrieval: the terms
+ * it wants, its ceilings, and — inside a running turn — that turn's own
+ * evidence snapshot, which covers the whole session log up to now.
+ */
+export interface ConversationRecallRequest {
+	readonly turnId?: string
+	readonly captureSessionEvidence?: (
+		maxReadBytes?: number,
+	) => Promise<SessionTextEvidenceSource | undefined>
+	readonly terms: readonly string[]
+	readonly maxReadBytes: number
+	readonly maxCandidates: number
+	readonly signal: AbortSignal
+}
+
+/** One authenticated historical passage, never a current-state assertion. */
+export interface ConversationRecallCandidate {
+	readonly scope: SessionEvidenceScope
+	readonly seq: number
+	readonly recordedAt?: number
+	readonly part: number
+	readonly source: string
+	readonly toolName?: string
+	readonly isError?: boolean
+	readonly retained: 'full' | 'preview'
+	readonly excerpt: string
+	readonly excerptComplete?: boolean
+	readonly byteOffset?: number
+}
+
+export interface ConversationRecallBatch {
+	readonly candidates: readonly ConversationRecallCandidate[]
+	readonly scannedBytes: number
+	readonly incomplete: boolean
+	readonly excludedToolResults?: number
+	readonly excludedSummaries?: number
+	readonly continuations?: readonly {
+		readonly toolName: string
+		readonly input: Readonly<Record<string, string | number | boolean | null>>
+	}[]
+}
 
 interface RecallScan {
 	terms: readonly string[]
 	excludeDerivedSummaries?: boolean
 	cursor?: string
 	started: boolean
-	omitted: boolean
 }
 
 function newScan(terms: readonly string[]): RecallScan {
-	return { terms, started: false, omitted: false }
+	return { terms, started: false }
 }
 
-// At most one focused scan per source class. It spends an existing page and
-// leaves the broader cursor intact. Completing a subset cannot exhaust it.
+// At most one focused scan. It spends an existing page and leaves the broader
+// cursor intact. Completing a subset cannot exhaust it.
 function advanceScan(
 	scans: RecallScan[],
 	scan: RecallScan,
@@ -39,109 +80,55 @@ function advanceScan(
 	scan.started = true
 	scan.cursor = nextCursor
 	if (!canRefine || scans.length !== 1 || !nextCursor) return
-	// Spend the existing refinement page on source records when derived text
-	// fills discovery. Preserve the general cursor and its summary candidates.
+	// Spend the refinement page on source records when derived text fills
+	// discovery. Preserve the general cursor and its summary candidates.
 	if (hasDerivedSummaries) {
 		scans.push({ ...newScan(scan.terms), excludeDerivedSummaries: true })
 		return
 	}
-	const focused = refineEvidenceRecallTerms(scan.terms, excerpts)
+	const focused: readonly string[] | undefined = refineEvidenceRecallTerms(scan.terms, excerpts)
 	if (focused) scans.push(newScan(focused))
 }
+
+/** Pages of one recall; the kernel's own ceiling bounds the bytes. */
+const RECALL_PAGES = 4
 
 /** A stable hook per conversation keeps timed-out reads from piling up across turns. */
 export function createConversationEvidenceRecall(
 	sessions: ConversationContext,
 	sessionId: SessionId,
-	assertOwner: (runId: string) => void,
+	assertOwner: (turnId: string | undefined) => void,
 	resolveQuery = false,
 ): PrepareStep {
 	const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId }
 	return createEvidenceRecallStep({
 		scope,
 		resolveQuery,
-		async retrieve({ runId, terms, signal, maxReadBytes, maxCandidates, captureRunEvidence }) {
-			assertOwner(runId)
-			const candidates: EvidenceRecallCandidate[] = []
+		async retrieve(request: ConversationRecallRequest): Promise<ConversationRecallBatch> {
+			const { turnId, terms, signal, maxReadBytes, maxCandidates, captureSessionEvidence } = request
+			assertOwner(turnId)
+			// Inside a turn its own snapshot covers the whole log, the running turn
+			// included; outside one the log is read as a snapshot.
+			const active: ActiveEvidence | undefined =
+				captureSessionEvidence && turnId !== undefined
+					? {
+							sessionId,
+							turnId: turnId as ActiveEvidence['turnId'],
+							captureSessionEvidence: (bytes) => captureSessionEvidence(bytes),
+						}
+					: undefined
+			const candidates: ConversationRecallCandidate[] = []
 			let scannedBytes = 0
 			let incomplete = false
 			let excludedToolResults = 0
 			let excludedSummaries = 0
-			let pages = 0
-			// Reserve at least two of the four pages for earlier invocations. The
-			// current writer is visited directly, never rediscovered as a disk run.
-			const liveScans = [newScan(terms)]
-			if (captureRunEvidence) {
-				for (let livePage = 0; livePage < 2; livePage++) {
-					const scan = [...liveScans].reverse().find((s) => !s.started || s.cursor)
-					if (!scan) break
-					signal.throwIfAborted()
-					const remaining = maxReadBytes - scannedBytes
-					if (remaining < 1024 * 1024) {
-						incomplete = true
-						break
-					}
-					const source = await captureRunEvidence(remaining)
-					assertOwner(runId)
-					if (!source) {
-						if (liveScans.some((s) => s.cursor))
-							throw new Error('The active evidence source disappeared.')
-						incomplete = true
-						break
-					}
-					const owner = { ...scope, runId }
-					assertEvidenceOwner(source.scope, owner)
-					const page = await source.search(
-						{
-							terms: scan.terms,
-							matchMode: 'token',
-							excludeSuccessfulTools: CONVERSATION_RETRIEVAL_TOOLS,
-							excludeDerivedSummaries: scan.excludeDerivedSummaries,
-							caseSensitive: false,
-							cursor: scan.cursor,
-							limit: 4,
-						},
-						signal,
-					)
-					assertOwner(runId)
-					assertEvidenceSearchPage(page, owner, remaining, 4, signal)
-					pages++
-					scannedBytes += page.scannedBytes
-					excludedToolResults += page.excludedToolResults ?? 0
-					excludedSummaries += page.excludedSummaries ?? 0
-					scan.omitted ||= page.incomplete || page.unavailable.length > 0
-					for (const match of page.matches)
-						candidates.push({
-							scope: owner,
-							seq: match.seq,
-							recordedAt: match.recordedAt,
-							part: match.part,
-							source: match.source,
-							toolName: match.toolName,
-							isError: match.isError,
-							retained: match.retained,
-							excerpt: match.excerpt,
-							excerptComplete: match.excerptComplete,
-							...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
-						})
-					advanceScan(
-						liveScans,
-						scan,
-						page.nextCursor ?? undefined,
-						page.matches.map((match) => match.excerpt),
-						page.matches.some((match) => match.source === 'compaction_shed:summary'),
-						livePage < 1,
-					)
-				}
-				incomplete ||= liveScans.some((s) => s.omitted || s.cursor !== undefined)
-			}
-			const historyScans = [newScan(terms)]
-			for (; pages < 4; pages++) {
-				const scan = [...historyScans].reverse().find((s) => !s.started || s.cursor)
+			const scans = [newScan(terms)]
+			for (let pages = 0; pages < RECALL_PAGES; pages++) {
+				const scan = [...scans].reverse().find((s) => !s.started || s.cursor)
 				if (!scan) break
 				signal.throwIfAborted()
 				const remaining = maxReadBytes - scannedBytes
-				if (remaining < 6 * 1024 * 1024) {
+				if (remaining < 1024 * 1024) {
 					incomplete = true
 					break
 				}
@@ -152,27 +139,27 @@ export function createConversationEvidenceRecall(
 						terms: scan.terms,
 						matchMode: 'token',
 						excludeSuccessfulTools: CONVERSATION_RETRIEVAL_TOOLS,
-						excludeDerivedSummaries: scan.excludeDerivedSummaries,
-						excludeRunId: runId,
+						excludeDerivedSummaries: scan.excludeDerivedSummaries ?? false,
 						maxReadBytes: remaining,
-						cursor: scan.cursor,
+						...(scan.cursor ? { cursor: scan.cursor } : {}),
 					},
 					signal,
+					active,
 				)
-				assertOwner(runId)
+				assertOwner(turnId)
 				scannedBytes += page.scannedBytes
 				excludedToolResults += page.excludedToolResults ?? 0
 				excludedSummaries += page.excludedSummaries ?? 0
 				// Continuation alone is not permanent incompleteness; unavailable
 				// source data stays incomplete even after all bounded pages are read.
-				incomplete ||= page.unavailableRuns > 0 || (page.incomplete && !page.nextCursor)
+				incomplete ||= page.unavailable > 0 || (page.incomplete && !page.nextCursor)
 				for (const match of page.matches) {
 					if (candidates.length >= maxCandidates) {
 						incomplete = true
 						break
 					}
 					candidates.push({
-						scope: { ...scope, runId: match.runId },
+						scope,
 						seq: match.seq,
 						recordedAt: match.recordedAt,
 						part: match.part,
@@ -182,48 +169,32 @@ export function createConversationEvidenceRecall(
 						retained: match.retained ?? 'preview',
 						excerpt: match.text,
 						excerptComplete: match.excerptComplete,
-						byteOffset: match.byteOffset,
+						...(match.byteOffset === undefined ? {} : { byteOffset: match.byteOffset }),
 					})
 				}
 				advanceScan(
-					historyScans,
+					scans,
 					scan,
 					page.nextCursor,
 					page.matches.map((match) => match.text),
 					page.matches.some((match) => match.source === 'compaction_shed:summary'),
-					pages < 3,
+					pages < RECALL_PAGES - 1,
 				)
 				if (candidates.length >= maxCandidates) break
 			}
-			assertOwner(runId)
+			assertOwner(turnId)
 			signal.throwIfAborted()
-			const continuations: EvidenceRecallContinuation[] = []
-			for (const scan of [...liveScans].reverse()) {
-				if (!scan.cursor) continue
-				continuations.push({
+			const continuations = [...scans]
+				.reverse()
+				.filter((scan) => scan.cursor !== undefined)
+				.map((scan) => ({
 					toolName: 'search_conversation',
-					input: {
-						cursor: retainLiveConversationSearch(
-							sessions,
-							sessionId,
-							runId,
-							scan.terms,
-							scan.cursor,
-							scan.omitted,
-							'token',
-							CONVERSATION_RETRIEVAL_TOOLS,
-							scan.excludeDerivedSummaries,
-						),
-					},
-				})
-			}
-			for (const scan of [...historyScans].reverse())
-				if (scan.cursor)
-					continuations.push({ toolName: 'search_conversation', input: { cursor: scan.cursor } })
+					input: { cursor: scan.cursor as string },
+				}))
 			return {
 				candidates,
 				scannedBytes,
-				incomplete: incomplete || historyScans.some((s) => s.cursor !== undefined),
+				incomplete: incomplete || continuations.length > 0,
 				continuations,
 				...(excludedToolResults ? { excludedToolResults } : {}),
 				...(excludedSummaries ? { excludedSummaries } : {}),

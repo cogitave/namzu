@@ -1,6 +1,6 @@
 /** Return steers the active turn; Tab remains a durable next-turn FIFO. */
 
-import { InMemoryTaskStore, type Message, generateRunId } from '@namzu/sdk'
+import { InMemoryTaskStore, type Message, generateSessionId, generateTurnId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -24,7 +24,6 @@ const image = { data: 'AAAA', mediaType: 'image/png' as const }
 const sent: Message[][] = []
 const sentOptions: SendOptions[] = []
 const delivered: Message[][] = []
-const replacements: Message[][] = []
 let taskStore = new InMemoryTaskStore()
 const { defaultEditor, discoveredUserCommands } = vi.hoisted(() => ({
 	defaultEditor: vi.fn(),
@@ -60,26 +59,13 @@ vi.mock('../mentions.js', async (importOriginal) => {
 	}
 })
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId: 'tenant',
-		turnEvidence: {
-			recordTurnStarted: async (input: {
-				runId: string
-				displayText: string
-				user: Message
-			}) => ({
-				...input,
-				turnId: `turn_${sent.length + 1}`,
-			}),
-			recordTurnSettled: async (input: unknown) => input,
-		},
 	}),
 	startConversation: async () => 'd5700245-2b3e-4529-b3fb-bf747e847ca0',
 	requireWritableConversation: async () => {},
-	appendMessages: async () => {},
-	replaceConversation: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {
-		replacements.push([...messages])
-	},
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
@@ -182,7 +168,6 @@ beforeEach(() => {
 	sent.length = 0
 	sentOptions.length = 0
 	delivered.length = 0
-	replacements.length = 0
 	taskStore = new InMemoryTaskStore()
 	discoveredUserCommands.length = 0
 	defaultEditor.mockReset().mockResolvedValue('edited by configured host editor')
@@ -395,7 +380,8 @@ describe('the two composer destinations', () => {
 
 	it('dispatches the exact kernel task command from a filtered /help row', async () => {
 		const task = await taskStore.create({
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			subject: 'Inspect filtered selection',
 		})
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
@@ -562,11 +548,8 @@ describe('the two composer destinations', () => {
 					(message) => message.role === 'user' && message.content === 'also inspect this',
 				),
 			).toMatchObject({ attachments: [image] })
-			expect(
-				replacements.some((history) =>
-					history.some((message) => message.content === 'also inspect this'),
-				),
-			).toBe(true)
+			// The steered message is recorded by the kernel's turn recorder; what
+			// App owns is that the next turn's history carries it, asserted above.
 
 			const transcript = screen.scrollback().join('\n')
 			expect(transcript.indexOf('first answer')).toBeLessThan(

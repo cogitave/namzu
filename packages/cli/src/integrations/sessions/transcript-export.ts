@@ -1,43 +1,30 @@
-import { CliPathBuilder } from './paths.js'
-/** Verified Markdown projection of one CLI conversation. */
+/** Verified Markdown projection of one CLI conversation, read from its session log. */
 
 import { randomUUID } from 'node:crypto'
-import type { Dirent } from 'node:fs'
-import { link, lstat, open, readdir, stat, unlink } from 'node:fs/promises'
+import { link, open, stat, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { isDeepStrictEqual } from 'node:util'
-import {
-	type Message,
-	type MessageAttachment,
-	type PersistedRunEvent,
-	type SessionId,
-	type ToolMessage,
-	isEntityId,
-	readRunEventsIn,
-	readRunMessagesIn,
+import type {
+	Message,
+	MessageAttachment,
+	SessionId,
+	SessionRecord,
+	ToolMessage,
+	UserMessage,
 } from '@namzu/sdk'
 import { visibleProjectInstructionPath } from '../../context/project-path.js'
 import { runtimeContextLabel } from '../../context/runtime-message.js'
-import type { CliSessions } from './store.js'
-import type {
-	ConversationTurnEvidence,
-	ConversationTurnOutcome,
-	DiskConversationEvidence,
-} from './turn-evidence.js'
+import {
+	type ConversationContext,
+	type ConversationFacts,
+	openConversationLog,
+	readConversationFacts,
+} from './store.js'
 
 export type ConversationTranscriptUnavailableReason =
-	| 'evidence-not-recorded'
-	| 'fork-lineage-unavailable'
+	| 'not-found'
+	| 'log-unreadable'
 	| 'nothing-to-export'
-	| 'unbound-run'
-	| 'run-record-corrupt'
-	| 'run-incomplete'
-	| 'run-snapshot-unavailable'
-	| 'run-snapshot-unverified'
-	| 'run-snapshot-out-of-sync'
-	| 'turn-run-mismatch'
-	| 'turn-settlement-mismatch'
 
 export class ConversationTranscriptUnavailableError extends Error {
 	readonly reason: ConversationTranscriptUnavailableReason
@@ -55,221 +42,139 @@ export interface ConversationMarkdownExport {
 	readonly markdown: string
 }
 
+type MessageRecord = Extract<SessionRecord, { type: 'message' }>
+
 /**
- * Reconstruct a conversation from caller/run correlation plus the SDK's
- * strictly read, event-head-verified run records.
+ * Reconstruct a conversation from its session log, read strictly: a log whose
+ * hash chain is broken is refused rather than exported in part.
+ *
+ * Every turn is rendered from its own records — the prompt, the messages it
+ * produced, the activity it recorded and how it ended. An answer the runtime
+ * replaced (a guardrail rewrite, a review, a structured result) is shown as
+ * replaced, exactly as every fold of the log shows it; the raw text stays in
+ * the log for audit.
  */
 export async function conversationMarkdown(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 ): Promise<ConversationMarkdownExport> {
-	const evidenceStore = sessions.turnEvidence
-	if (!evidenceStore) {
-		throw unavailable(
-			'evidence-not-recorded',
-			'this host did not provide the CLI turn-evidence store',
-		)
-	}
-	const evidence = await evidenceStore.read(sessionId)
-	if (evidence.kind === 'not-recorded') {
-		throw unavailable(
-			'evidence-not-recorded',
-			`conversation ${sessionId} predates durable turn/run correlation`,
-		)
-	}
-	if (evidence.origin.origin.kind === 'fork-unresolved') {
-		throw unavailable(
-			'fork-lineage-unavailable',
-			`conversation ${sessionId} is a fork whose copied prefix is not yet tied to stable source turns`,
-		)
-	}
-	let lineage: Awaited<ReturnType<DiskConversationEvidence['resolveLineage']>>
+	let facts: ConversationFacts | null
 	try {
-		lineage = await evidenceStore.resolveLineage(sessionId)
+		facts = await readConversationFacts(sessions, sessionId)
 	} catch (error) {
 		throw unavailable(
-			'fork-lineage-unavailable',
-			`conversation ${sessionId} has invalid fork lineage: ${messageOf(error)}`,
+			'log-unreadable',
+			`conversation ${sessionId} cannot be read strictly: ${messageOf(error)}`,
 		)
 	}
-	if (lineage.kind === 'unavailable') {
-		throw unavailable('fork-lineage-unavailable', lineage.detail)
+	if (!facts || facts.started.projectId !== sessions.projectId) {
+		throw unavailable('not-found', `conversation ${sessionId} is not in this workspace`)
 	}
-	if (lineage.turns.length === 0) {
-		throw unavailable('nothing-to-export', `conversation ${sessionId} has no recorded turns`)
+	const log = openConversationLog(sessions, sessionId)
+	const content = async (record: MessageRecord | { content: Message; spill?: unknown }) => {
+		const spill = (record as { spill?: Parameters<typeof log.readSpill>[0] }).spill
+		return spill ? (JSON.parse(await log.readSpill(spill)) as Message) : record.content
 	}
 
-	const paths = new CliPathBuilder(sessions.root)
-	const runsRoot = join(paths.sessionDir(sessions.projectId, sessionId), 'runs')
-	const onDiskRunIds = await listRunIds(runsRoot)
-	const boundRunIds = new Set(lineage.localTurns.map((turn) => turn.started.runId as string))
-	const unbound = onDiskRunIds.filter((runId) => !boundRunIds.has(runId))
-	if (unbound.length > 0) {
-		throw unavailable(
-			'unbound-run',
-			`session ${sessionId} contains run evidence with no CLI turn binding: ${unbound.join(', ')}`,
-		)
+	// The latest replacement of each message wins, as in every fold (§4.4).
+	const replacements = new Map<string, Message>()
+	for (const record of facts.records) {
+		if (record.type === 'message_replaced') {
+			replacements.set(record.targetMessageId, await content(record))
+		}
 	}
 
 	const lines = ['# Namzu conversation', '', `Conversation: \`${sessionId}\``, '']
-	for (const inherited of lineage.turns) {
-		const turn = inherited.evidence
-		lines.push(...renderUser(turn), '')
-		const runDir = paths.runDir(
-			sessions.projectId,
-			inherited.reference.sessionId,
-			turn.started.runId,
-		)
-		if (!(await isDirectory(runDir))) {
-			if (turn.settled?.outcome === 'cancelled' && turn.settled.assistantText.length === 0) {
+	let turns = 0
+	let current: string | undefined
+	let produced: Message[] = []
+	const flush = (): void => {
+		if (produced.length > 0) lines.push(...renderProducedMessages(produced))
+		produced = []
+	}
+	for (const record of facts.records) {
+		switch (record.type) {
+			case 'compaction':
+				flush()
+				if (record.strategy === 'fork' && Array.isArray(record.summary)) {
+					// The prompts a fork copied are turns of this conversation too.
+					turns += record.summary.filter(
+						(message) =>
+							message.role === 'user' &&
+							(message.source === undefined || message.source.type === 'goal-round'),
+					).length
+					lines.push(
+						'## Copied history',
+						'',
+						'_Copied from the conversation this one was forked from._',
+						'',
+					)
+					lines.push(...renderProducedMessages(record.summary))
+				} else {
+					lines.push(
+						'## Activity',
+						'',
+						`Context compacted (${record.trigger}): ${record.tokensBefore.toLocaleString()} → ${record.tokensAfter.toLocaleString()} tokens.`,
+						'',
+					)
+				}
+				break
+			case 'turn_started':
+				flush()
+				current = record.turnId
+				turns += 1
+				break
+			case 'message': {
+				const message = replacements.get(record.messageId) ?? (await content(record))
+				if (record.kind === 'prompt' && message.role === 'user') {
+					flush()
+					lines.push(...renderUser(message), '')
+				} else produced.push(message)
+				break
+			}
+			case 'turn_completed':
+				flush()
+				if (record.stopReason && record.stopReason !== 'end_turn') {
+					lines.push('## Activity', '', `Turn stopped: ${record.stopReason}.`, '')
+				}
+				current = undefined
+				break
+			case 'turn_failed':
+				flush()
 				lines.push(
 					'## Activity',
 					'',
-					'Run was cancelled before model execution began; no SDK run record was published.',
+					`Turn failed${record.failure ? ` [${record.failure.code}]` : ''}: ${record.error}`,
 					'',
 				)
-				continue
-			}
-			if (turn.settled) {
-				throw unavailable(
-					'turn-run-mismatch',
-					`turn ${turn.started.turnId} settled in the host but run ${turn.started.runId} has no SDK record`,
-				)
-			}
-			lines.push('## Activity', '', 'Run did not start; no SDK run record was published.', '')
-			continue
-		}
-
-		let events: readonly PersistedRunEvent[]
-		try {
-			events = await readRunEventsIn(runDir, { integrity: 'strict' })
-		} catch (error) {
-			throw unavailable(
-				'run-record-corrupt',
-				`run ${turn.started.runId} cannot be read strictly: ${messageOf(error)}`,
-			)
-		}
-		if (
-			events.length === 0 ||
-			events[0]?.type !== 'run_started' ||
-			events.some((event) => event.runId !== turn.started.runId)
-		) {
-			throw unavailable(
-				'run-record-corrupt',
-				`run ${turn.started.runId} is empty, lacks its start record, or contains another run's events`,
-			)
-		}
-		const terminal = terminalEvent(events)
-		if (terminal.kind === 'invalid' || (terminal.kind === 'absent' && !turn.settled)) {
-			throw unavailable(
-				'run-incomplete',
-				`run ${turn.started.runId} has no unique terminal event at the durable log head and no host settlement that can close an interrupted turn`,
-			)
-		}
-
-		let snapshot: Awaited<ReturnType<typeof readRunMessagesIn>>
-		try {
-			snapshot = await readRunMessagesIn(runDir)
-		} catch (error) {
-			throw unavailable(
-				'run-record-corrupt',
-				`run ${turn.started.runId} has an invalid message snapshot: ${messageOf(error)}`,
-			)
-		}
-		if (snapshot.kind === 'unavailable') {
-			throw unavailable(
-				'run-snapshot-unavailable',
-				`run ${turn.started.runId} never published its survivor snapshot`,
-			)
-		}
-		if (snapshot.kind === 'legacy-unverified') {
-			throw unavailable(
-				'run-snapshot-unverified',
-				`run ${turn.started.runId} has a legacy snapshot with no event-log boundary`,
-			)
-		}
-		const eventHead = events.at(-1)?.seq ?? 0
-		if (snapshot.throughEventSeq !== eventHead) {
-			throw unavailable(
-				'run-snapshot-out-of-sync',
-				`run ${turn.started.runId} snapshot ends at event ${snapshot.throughEventSeq}, while its log ends at ${eventHead}`,
-			)
-		}
-
-		const fullMessages = [
-			...events.flatMap((event) => (event.type === 'compaction_shed' ? event.messages : [])),
-			...snapshot.messages,
-		]
-		const userIndex = findExactUser(fullMessages, turn.started.user)
-		if (userIndex < 0) {
-			throw unavailable(
-				'turn-run-mismatch',
-				`run ${turn.started.runId} does not contain the exact user message bound before it started`,
-			)
-		}
-		const produced = fullMessages.slice(userIndex + 1)
-		const assistants = produced.filter((message) => message.role === 'assistant')
-		const completions = events.filter((event) => event.type === 'message_completed')
-		if (completions.length !== assistants.length) {
-			throw unavailable(
-				'turn-run-mismatch',
-				`run ${turn.started.runId} records ${completions.length} completed model messages but its verified history contains ${assistants.length}`,
-			)
-		}
-		for (let index = 0; index < completions.length; index += 1) {
-			const recorded = completions[index]?.content
-			const persisted = assistants[index]?.content
-			if (recorded !== undefined && recorded !== (typeof persisted === 'string' ? persisted : '')) {
-				throw unavailable(
-					'turn-run-mismatch',
-					`run ${turn.started.runId} message completion disagrees with its verified history`,
-				)
+				current = undefined
+				break
+			case 'turn_paused':
+				flush()
+				lines.push('## Activity', '', `Turn paused: ${record.reason}`, '')
+				break
+			default: {
+				const activity = renderRecordedActivity(record, produced)
+				if (activity.length > 0) {
+					flush()
+					lines.push(...activity)
+				}
 			}
 		}
-
-		const completedText = assistants
-			.map((message) => (typeof message.content === 'string' ? message.content : ''))
-			.join('')
-		let hostOnlyPartial = ''
-		if (turn.settled) {
-			const expectedOutcome =
-				terminal.kind === 'present' ? terminalOutcome(terminal.event) : 'cancelled'
-			if (
-				turn.settled.outcome !== expectedOutcome ||
-				!turn.settled.assistantText.startsWith(completedText)
-			) {
-				throw unavailable(
-					'turn-settlement-mismatch',
-					`turn ${turn.started.turnId} settlement disagrees with terminal run ${turn.started.runId}`,
-				)
-			}
-			hostOnlyPartial = turn.settled.assistantText.slice(completedText.length)
-		} else if (terminal.kind !== 'present' || terminal.event.type !== 'run_completed') {
-			throw unavailable(
-				'run-incomplete',
-				`turn ${turn.started.turnId} lacks host settlement evidence after ${terminal.kind === 'present' ? terminal.event.type : 'an unterminated run'}`,
-			)
-		}
-
-		lines.push(...renderProducedMessages(produced))
-		if (hostOnlyPartial.length > 0) {
-			lines.push(
-				'## Assistant',
-				'',
-				'_Partial output captured by the terminal host before the model message closed._',
-				'',
-				hostOnlyPartial,
-				'',
-			)
-		}
-		lines.push(...renderRecordedActivity(events, produced), '')
 	}
-
-	return {
-		sessionId,
-		turns: lineage.turns.length,
-		markdown: `${trimBlankTail(lines).join('\n')}\n`,
+	flush()
+	if (current !== undefined && facts.activeTurn && !facts.activeTurn.paused) {
+		lines.push(
+			'## Activity',
+			'',
+			'This turn has not settled: it is still running, or its process stopped before it finished.',
+			'',
+		)
 	}
+	if (turns === 0 && !facts.records.some((record) => record.type === 'compaction')) {
+		throw unavailable('nothing-to-export', `conversation ${sessionId} has no recorded turns`)
+	}
+	return { sessionId, turns, markdown: `${trimBlankTail(lines).join('\n')}\n` }
 }
 
 export interface WriteConversationExportResult {
@@ -318,9 +223,9 @@ export async function writeConversationExport(
 	}
 }
 
-function renderUser(turn: ConversationTurnEvidence): string[] {
-	if (turn.started.user.source?.type === 'goal-round') {
-		const source = turn.started.user.source
+function renderUser(user: UserMessage): string[] {
+	if (user.source?.type === 'goal-round') {
+		const source = user.source
 		return [
 			`## Goal round ${source.round} / ${source.maxGoalRounds}`,
 			'',
@@ -328,11 +233,11 @@ function renderUser(turn: ConversationTurnEvidence): string[] {
 			'',
 			'Model-visible continuation prompt:',
 			'',
-			turn.started.user.content,
+			user.content,
 		]
 	}
-	const lines = ['## User', '', turn.started.displayText]
-	const attachments = turn.started.user.attachments ?? []
+	const lines = ['## User', '', user.content]
+	const attachments = user.attachments ?? []
 	if (attachments.length > 0) {
 		lines.push(
 			'',
@@ -395,14 +300,7 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 						'',
 					)
 				} else if (message.source?.type === 'goal-round') {
-					lines.push(
-						`## Goal round ${message.source.round} / ${message.source.maxGoalRounds}`,
-						'',
-						`Objective: ${message.source.objective}`,
-						'',
-						message.content,
-						'',
-					)
+					lines.push(...renderUser(message), '')
 				} else if (message.source?.type === 'runtime-context') {
 					lines.push(
 						`## Runtime context — ${runtimeContextLabel(message.source.kind)}`,
@@ -414,145 +312,86 @@ function renderProducedMessages(messages: readonly Message[]): string[] {
 				break
 			case 'system':
 				// System and working-memory messages are model context, not operator
-				// conversation. Compaction itself is rendered from its durable event.
+				// conversation. Compaction itself is rendered from its record.
 				break
 		}
 	}
 	return lines
 }
 
-function renderRecordedActivity(
-	events: readonly PersistedRunEvent[],
-	produced: readonly Message[],
-): string[] {
-	const representedTools = new Set<string>()
-	for (const message of produced) {
-		if (message.role === 'assistant') {
-			for (const call of message.toolCalls ?? []) representedTools.add(call.id)
-		}
-		if (message.role === 'tool') representedTools.add(message.toolCallId)
-	}
+/** Activity a record carries that the messages around it do not already show. */
+function renderRecordedActivity(record: SessionRecord, produced: readonly Message[]): string[] {
+	const represented = (toolUseId: string): boolean =>
+		produced.some(
+			(message) =>
+				(message.role === 'assistant' &&
+					(message.toolCalls ?? []).some((call) => call.id === toolUseId)) ||
+				(message.role === 'tool' && message.toolCallId === toolUseId),
+		)
 	const lines: string[] = []
 	const activity = (text: string, detail?: string, language = '') => {
 		lines.push('## Activity', '', text)
 		if (detail !== undefined && detail.length > 0) lines.push('', ...fence(detail, language))
 		lines.push('')
 	}
-	for (const event of events) {
-		switch (event.type) {
-			case 'tool_executing':
-				if (event.via || !representedTools.has(event.toolUseId)) {
-					activity(
-						`Nested tool started: \`${event.toolName}\`${event.via ? ` via \`${event.via.tool}\`` : ''}`,
-						jsonText(event.input),
-						'json',
-					)
-				}
-				break
-			case 'tool_completed':
-				if (event.via || !representedTools.has(event.toolUseId)) {
-					activity(
-						`Nested tool ${event.isError ? 'failed' : 'completed'}: \`${event.toolName}\`${event.outputTruncated ? ' (output preview; full output was spilled)' : ''}`,
-						event.result,
-					)
-				}
-				break
-			case 'provider_fallback':
+	switch (record.type) {
+		case 'tool_executing':
+			if (record.via || !represented(record.toolUseId)) {
 				activity(
-					`Provider fallback: ${event.fromProviderId}${event.fromModel ? `/${event.fromModel}` : ''} → ${event.toProviderId}${event.toModel ? `/${event.toModel}` : ''} (${event.reason})`,
+					`Nested tool started: \`${record.toolName}\`${record.via ? ` via \`${record.via.tool}\`` : ''}`,
+					jsonText(record.input),
+					'json',
 				)
-				break
-			case 'capability_warning':
-				activity(`Capability warning (${event.capability}): ${event.message}`)
-				break
-			case 'message_history_repaired':
-				if (event.source === 'provider-rejected-image') {
-					activity(
-						`Provider-rejected image delivery repaired: ${event.providerRejectedImagesSuppressed ?? 0} occurrence(s) retained in history and omitted from later model requests.`,
-					)
-				} else {
-					activity(
-						`Tool history repaired (${event.source}): ${event.duplicateToolResultsRemoved} duplicate result(s) removed, ${event.orphanedToolResultsRemoved} orphaned result(s) removed, ${event.syntheticToolResultsInserted} interrupted call(s) closed with unknown outcome.`,
-					)
-				}
-				break
-			case 'compaction_completed':
+			}
+			break
+		case 'tool_completed':
+			if (record.via || !represented(record.toolUseId)) {
 				activity(
-					`Context compacted: ${event.messagesBefore} → ${event.messagesAfter} messages; ${event.tokensBefore.toLocaleString()} → ${event.tokensAfter.toLocaleString()} tokens.`,
+					`Nested tool ${record.isError ? 'failed' : 'completed'}: \`${record.toolName}\`${record.outputTruncated ? ' (output preview; full output was spilled)' : ''}`,
+					record.result,
 				)
-				break
-			case 'compaction_tool_results_cleared':
+			}
+			break
+		case 'provider_fallback':
+			activity(
+				`Provider fallback: ${record.fromProviderId}${record.fromModel ? `/${record.fromModel}` : ''} → ${record.toProviderId}${record.toModel ? `/${record.toModel}` : ''} (${record.reason})`,
+			)
+			break
+		case 'capability_warning':
+			activity(`Capability warning (${record.capability}): ${record.message}`)
+			break
+		case 'message_history_repaired':
+			if (record.source === 'provider-rejected-image') {
 				activity(
-					`Context relief cleared ${event.clearedCount} oversized tool result${event.clearedCount === 1 ? '' : 's'} (~${event.reclaimedTokens.toLocaleString()} tokens).`,
+					`Provider-rejected image delivery repaired: ${record.providerRejectedImagesSuppressed ?? 0} occurrence(s) retained in history and omitted from later model requests.`,
 				)
-				break
-			case 'compaction_failed':
-				activity(`Context compaction did not change history (${event.cause}).`)
-				break
-			case 'guardrail_triggered':
+			} else {
 				activity(
-					`${event.stage === 'input' ? 'Input' : 'Output'} guardrail ${event.action}${event.guardrail ? ` (${event.guardrail})` : ''}${event.reason ? `: ${event.reason}` : '.'}`,
+					`Tool history repaired (${record.source}): ${record.duplicateToolResultsRemoved} duplicate result(s) removed, ${record.orphanedToolResultsRemoved} orphaned result(s) removed, ${record.syntheticToolResultsInserted} interrupted call(s) closed with unknown outcome.`,
 				)
-				break
-			case 'task_created':
-				activity(`Task ${event.status}: ${event.subject}`)
-				break
-			case 'task_updated':
-				if (event.status === 'completed') activity(`Task completed: ${event.subject}`)
-				break
-			case 'run_completed':
-				if (event.stopReason && event.stopReason !== 'end_turn') {
-					activity(`Run stopped: ${event.stopReason}.`)
-				}
-				break
-			case 'run_failed':
-				activity(`Run failed${event.failure ? ` [${event.failure.code}]` : ''}: ${event.error}`)
-				break
-			case 'run_paused':
-				activity(`Run paused: ${event.reason}`)
-				break
-		}
+			}
+			break
+		case 'compaction_tool_results_cleared':
+			activity(
+				`Context relief cleared ${record.clearedCount} oversized tool result${record.clearedCount === 1 ? '' : 's'} (~${record.reclaimedTokens.toLocaleString()} tokens).`,
+			)
+			break
+		case 'compaction_failed':
+			activity(`Context compaction did not change history (${record.cause}).`)
+			break
+		case 'guardrail_triggered':
+			activity(
+				`${record.stage === 'input' ? 'Input' : 'Output'} guardrail ${record.action}${record.guardrail ? ` (${record.guardrail})` : ''}${record.reason ? `: ${record.reason}` : '.'}`,
+			)
+			break
+		case 'task_created':
+			activity(`Task ${record.status}: ${record.subject}`)
+			break
+		case 'task_updated':
+			if (record.status === 'completed') activity(`Task completed: ${record.subject}`)
+			break
 	}
 	return lines
-}
-
-type TerminalEvent = Extract<
-	PersistedRunEvent,
-	{ type: 'run_completed' | 'run_failed' | 'run_paused' }
->
-
-function terminalEvent(
-	events: readonly PersistedRunEvent[],
-):
-	| { readonly kind: 'present'; readonly event: TerminalEvent }
-	| { readonly kind: 'absent' }
-	| { readonly kind: 'invalid' } {
-	const terminals = events.filter(
-		(event): event is TerminalEvent =>
-			event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_paused',
-	)
-	if (terminals.length === 0) return { kind: 'absent' }
-	const terminal = terminals[0]
-	return terminals.length === 1 && terminal === events.at(-1)
-		? { kind: 'present', event: terminal }
-		: { kind: 'invalid' }
-}
-
-function terminalOutcome(
-	event: Extract<PersistedRunEvent, { type: 'run_completed' | 'run_failed' | 'run_paused' }>,
-): ConversationTurnOutcome {
-	if (event.type === 'run_failed') return 'failed'
-	if (event.type === 'run_paused') return 'stopped'
-	if (event.stopReason === 'cancelled') return 'cancelled'
-	return event.stopReason === undefined || event.stopReason === 'end_turn' ? 'completed' : 'stopped'
-}
-
-function findExactUser(messages: readonly Message[], expected: Message): number {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		if (messages[index]?.role === 'user' && isDeepStrictEqual(messages[index], expected))
-			return index
-	}
-	return -1
 }
 
 function renderToolContent(message: ToolMessage): string[] {
@@ -601,44 +440,6 @@ function jsonText(value: unknown): string {
 function trimBlankTail(lines: string[]): string[] {
 	while (lines.at(-1) === '') lines.pop()
 	return lines
-}
-
-async function listRunIds(root: string): Promise<string[]> {
-	let entries: Dirent[]
-	try {
-		entries = await readdir(root, { withFileTypes: true, encoding: 'utf-8' })
-	} catch (error) {
-		if (isCode(error, 'ENOENT')) return []
-		throw error
-	}
-	const ids: string[] = []
-	for (const entry of entries) {
-		if (!entry.isDirectory()) continue
-		// The SDK writes emergency snapshots beside run directories. They are
-		// recovery data, not an additional run needing a CLI turn binding.
-		if (entry.name === 'emergency') continue
-		if (!isEntityId(entry.name, 'run')) {
-			throw unavailable(
-				'run-record-corrupt',
-				`session run directory has an invalid name: ${entry.name}`,
-			)
-		}
-		ids.push(entry.name)
-	}
-	return ids.sort()
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-	try {
-		const value = await lstat(path)
-		if (value.isSymbolicLink()) {
-			throw unavailable('run-record-corrupt', `run path is a symbolic link: ${path}`)
-		}
-		return value.isDirectory()
-	} catch (error) {
-		if (isCode(error, 'ENOENT')) return false
-		throw error
-	}
 }
 
 function resolveExportPath(destination: string, cwd: string): string {

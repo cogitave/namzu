@@ -376,10 +376,10 @@ export const tools = [{
 		)
 		await writeFile(
 			join(plugin, 'hooks.mjs'),
-			`export const hooks = [{ event: 'pre_llm_call', async handler(ctx) { globalThis.${HOOK_RECORD}.push({ event: ctx.event, runId: ctx.runId }); return { action: 'continue' }; } }];\n`,
+			`export const hooks = [{ event: 'pre_llm_call', async handler(ctx) { globalThis.${HOOK_RECORD}.push({ event: ctx.event, turnId: ctx.turnId }); return { action: 'continue' }; } }];\n`,
 			'utf8',
 		)
-		const hookEvents: Array<{ event: string; runId: string }> = []
+		const hookEvents: Array<{ event: string; turnId: string }> = []
 		;(globalThis as Record<string, unknown>)[HOOK_RECORD] = hookEvents
 		const requests: unknown[] = []
 		vi.stubGlobal(
@@ -416,7 +416,7 @@ export const tools = [{
 				'pre_llm_call',
 				'pre_llm_call',
 			])
-			expect(new Set(hookEvents.map((event) => event.runId)).size).toBe(1)
+			expect(new Set(hookEvents.map((event) => event.turnId)).size).toBe(1)
 		} finally {
 			await session.close()
 		}

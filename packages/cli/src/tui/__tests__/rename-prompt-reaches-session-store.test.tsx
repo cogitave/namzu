@@ -51,6 +51,8 @@ vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => '91d5cf2f-12e5-4cee-a622-e9d3cc9b17f0',
 	requireWritableConversation: async () => {},

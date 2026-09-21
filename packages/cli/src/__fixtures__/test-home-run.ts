@@ -15,10 +15,8 @@ declare module 'vitest' {
 export default function setup(project: TestProject): () => void {
 	const root = mkdtempSync(join(realpathSync(tmpdir()), 'namzu-cli-test-run-'))
 	project.provide('namzuTestHomeRoot', root)
-	// An SDK entry point reached without a path builder writes under
-	// `defaultStateRoot()`, the user's state directory. Point it here; the
-	// forked workers inherit it and the cleanup below removes it.
-	process.env.NAMZU_STATE_DIR = join(root, 'sdk-state')
+	// Every suite gets its own NAMZU_HOME below this root (`test-setup.ts`), so
+	// no state lands in the developer's home; the cleanup removes the root.
 	const cleanup = () => removeTempDir(root)
 	// TUI unmount persistence can finish after per-suite teardown. The runner's
 	// final exit follows worker shutdown, including any late directory recreation.

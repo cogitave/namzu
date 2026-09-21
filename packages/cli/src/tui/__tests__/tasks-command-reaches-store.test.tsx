@@ -2,7 +2,7 @@ import {
 	InMemoryTaskStore,
 	type TaskStore,
 	generateProjectId,
-	generateRunId,
+	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -26,6 +26,8 @@ vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, tru
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId,
 		projectId,
@@ -105,7 +107,8 @@ it('reads the actual current task store without a model call and clears it on a 
 	await waitFor('Tasks: none.')
 
 	const task = await state.store.create({
-		runId: generateRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		tenantId,
 		subject: 'Check the real task store',
 		owner: 'reviewer',

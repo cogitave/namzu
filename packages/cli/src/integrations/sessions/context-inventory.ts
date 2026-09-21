@@ -33,7 +33,7 @@ export function createContextInventoryStep(): PrepareStep {
 			largestToolBlocks: blocks.sort((a, b) => b.chars - a.chars).slice(0, 6),
 		}
 		const text =
-			'Context inventory (current request only). Positions are temporary, not archive IDs. Sizes are UTF-16 text characters; non-text payloads are counted, not estimated as base64 text tokens. For earlier evidence use search_conversation, then read_conversation(runId, seq, part) for exact retained pages. Do not repeat a state-changing action to recover its output.\n' +
+			'Context inventory (current request only). Positions are temporary, not archive IDs. Sizes are UTF-16 text characters; non-text payloads are counted, not estimated as base64 text tokens. For earlier evidence use search_conversation, then read_conversation(seq, part) for exact retained pages. Do not repeat a state-changing action to recover its output.\n' +
 			JSON.stringify(inventory)
 		return { context: [prepared.context, text].filter(Boolean).join('\n\n') }
 	}

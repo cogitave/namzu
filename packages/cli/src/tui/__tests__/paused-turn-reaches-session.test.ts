@@ -3,7 +3,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Message, Run, RunEvent } from '@namzu/sdk'
+import type { Message, SessionEvent, Turn } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -14,10 +14,11 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	return {
 		...actual,
 		query: (params: { readonly messages: readonly Message[] }) =>
-			(async function* (): AsyncGenerator<RunEvent, Run> {
+			(async function* (): AsyncGenerator<SessionEvent, Turn> {
 				yield {
-					type: 'run_paused',
-					runId: 'dcc4e6b8-5dbe-453f-a4e4-61e076a09185' as never,
+					type: 'turn_paused',
+					sessionId: '019a0000-0000-7000-8000-0000000000e1' as never,
+					turnId: 'dcc4e6b8-5dbe-453f-a4e4-61e076a09185' as never,
 					checkpointId: '02400658-7072-4cd3-b006-1e7c822072ac' as never,
 					reason: 'slow down',
 					failure: {
@@ -32,7 +33,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 						hint: 'Wait before continuing.',
 					},
 				}
-				return { messages: [...params.messages] } as unknown as Run
+				return { messages: [...params.messages] } as unknown as Turn
 			})(),
 	}
 })
@@ -65,7 +66,7 @@ afterEach(() => {
 })
 
 it('publishes checkpoint identity, classification and remedy from session.send', async () => {
-	const cwd = mkdtempSync(join(tmpdir(), 'namzu-paused-run-reaches-session-'))
+	const cwd = mkdtempSync(join(tmpdir(), 'namzu-paused-turn-reaches-session-'))
 	roots.push(cwd)
 	const { createAgentSession } = await import('../agent.js')
 	const session = await createAgentSession(preferences, detected, { cwd })
@@ -81,7 +82,7 @@ it('publishes checkpoint identity, classification and remedy from session.send',
 	expect(events).toEqual([
 		{
 			kind: 'paused',
-			runId: 'dcc4e6b8-5dbe-453f-a4e4-61e076a09185',
+			turnId: 'dcc4e6b8-5dbe-453f-a4e4-61e076a09185',
 			checkpointId: '02400658-7072-4cd3-b006-1e7c822072ac',
 			reason: 'slow down',
 			failure: {

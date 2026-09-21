@@ -1,4 +1,4 @@
-import type { StopReason, TokenBudgetSummary } from '@namzu/sdk'
+import type { SessionTokenBudgetSummary, StopReason } from '@namzu/sdk'
 
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -10,9 +10,9 @@ export type Interruption = Extract<AgentEvent, { kind: 'error' | 'paused' }>
  * Budget admission includes reservations: refusal is not proof of money or
  * tokens spent. Usage remains the reported measurement available through /cost.
  */
-export function describeRunStop(
+export function describeTurnStop(
 	reason: StopReason | undefined,
-	budget?: TokenBudgetSummary,
+	budget?: SessionTokenBudgetSummary,
 ): string | undefined {
 	switch (reason) {
 		case undefined:
@@ -21,36 +21,36 @@ export function describeRunStop(
 			return undefined
 		case 'token_budget':
 			if ((budget?.unresolvedRequests ?? 0) > 0)
-				return 'Run stopped: usage for a model request could not be confirmed. /cost shows reported usage; the total remains uncertain.'
+				return 'Turn stopped: usage for a model request could not be confirmed. /cost shows reported usage; the total remains uncertain.'
 			if (budget?.poisoned)
-				return 'Run stopped: usage accounting could not be verified. /cost shows the available measurements.'
-			return 'Run stopped: the token allowance could not cover further work. /cost shows reported usage.'
+				return 'Turn stopped: usage accounting could not be verified. /cost shows the available measurements.'
+			return 'Turn stopped: the token allowance could not cover further work. /cost shows reported usage.'
 		case 'cost_limit':
-			return 'Run stopped: the cost allowance could not cover further work. /cost shows reported usage.'
+			return 'Turn stopped: the cost allowance could not cover further work. /cost shows reported usage.'
 		case 'cost_unmeasurable':
-			return 'Run stopped: missing pricing prevented checking the cost limit. /cost shows reported usage.'
+			return 'Turn stopped: missing pricing prevented checking the cost limit. /cost shows reported usage.'
 		case 'timeout':
-			return 'Run stopped: the time limit was reached.'
+			return 'Turn stopped: the time limit was reached.'
 		case 'max_iterations':
-			return 'Run stopped: the step limit was reached.'
+			return 'Turn stopped: the step limit was reached.'
 		case 'plan_rejected':
-			return 'Run stopped: the plan was rejected.'
+			return 'Turn stopped: the plan was rejected.'
 		case 'stop_condition':
-			return 'Run stopped: the configured stop condition was met.'
+			return 'Turn stopped: the configured stop condition was met.'
 		case 'step_refused':
-			return 'Run stopped: the next model call was refused.'
+			return 'Turn stopped: the next model call was refused.'
 		case 'structured_output_failed':
-			return 'Run stopped: no valid structured result was produced.'
+			return 'Turn stopped: no valid structured result was produced.'
 		case 'answer_rejected':
-			return 'Run stopped: the final answer was not accepted.'
+			return 'Turn stopped: the final answer was not accepted.'
 		case 'input_guardrail':
-			return 'Run stopped: an input check refused this run.'
+			return 'Turn stopped: an input check refused this turn.'
 		case 'output_guardrail':
-			return 'Run stopped: an output check refused the result.'
+			return 'Turn stopped: an output check refused the result.'
 		case 'paused':
-			return 'Run paused.'
+			return 'Turn paused.'
 		case 'error':
-			return 'Run stopped after an error.'
+			return 'Turn stopped after an error.'
 	}
 }
 
@@ -98,12 +98,12 @@ function materiallyDifferent(candidate: string, earlier: readonly string[]): boo
  * not a clock this process keeps updating. No generic remedy either: when the
  * SDK catalog did not claim a failure, the provider reason is all we know.
  */
-export function describeRunInterruption(event: Interruption): string {
+export function describeTurnInterruption(event: Interruption): string {
 	const explained = event.explanation
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
 	const lead = line(explained?.message || rawReason)
 	const id = explained?.id ? ` [${line(explained.id, 120)}]` : ''
-	const rows = [`${event.kind === 'paused' ? 'Run paused' : 'Error'}${id}: ${lead}`]
+	const rows = [`${event.kind === 'paused' ? 'Turn paused' : 'Error'}${id}: ${lead}`]
 
 	const providerDetail = event.providerError?.detail
 	if (providerDetail && materiallyDifferent(providerDetail, [lead, rawReason])) {
@@ -124,3 +124,11 @@ export function describeRunInterruption(event: Interruption): string {
 
 	return rows.join('\n')
 }
+
+/**
+ * Transition names, kept until every caller imports the turn names; the
+ * resident step (`integrations/resident/session-step.ts`) still imports the
+ * first. Removed at the train tip.
+ */
+export const describeRunInterruption = describeTurnInterruption
+export const describeRunStop = describeTurnStop

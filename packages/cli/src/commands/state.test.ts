@@ -7,7 +7,7 @@ import { createStateCommand, renderStateReport } from './state.js'
 function report(path = '/work/.namzu'): NamzuStateReport {
 	const zero = { files: 0, logicalBytes: 0 }
 	return {
-		version: 1,
+		version: 2,
 		readOnly: true,
 		snapshot: {
 			consistency: 'best-effort-unlocked',
@@ -33,20 +33,17 @@ function report(path = '/work/.namzu'): NamzuStateReport {
 					authored: zero,
 					configuration: zero,
 					runtime: zero,
+					legacy: zero,
 					control: zero,
 					transient: zero,
 					unknown: zero,
 				},
 				inventory: {
-					sessions: { ...zero, directories: 0, invalidOrMissingRecords: 0 },
-					originOnlySessionCandidates: {
-						...zero,
-						complete: true,
-						limitation: 'No deletion claim.',
-					},
-					runs: { ...zero, directories: 0, invalidOrMissingRecords: 0 },
+					projects: 0,
+					sessionLogs: zero,
+					subagentLogs: zero,
 					checkpointFiles: zero,
-					emergencyDumpFiles: zero,
+					toolResultFiles: zero,
 					attachments: {
 						...zero,
 						pairs: 0,
@@ -54,6 +51,7 @@ function report(path = '/work/.namzu'): NamzuStateReport {
 						orphanedTypeFiles: 0,
 					},
 				},
+				legacy: [{ path: 'sessions', kind: 'top-level', files: 3, logicalBytes: 2048 }],
 				privacy: [],
 				issues: [],
 				omittedIssues: 0,
@@ -64,7 +62,7 @@ function report(path = '/work/.namzu'): NamzuStateReport {
 			status: 'absent',
 			logicalBytes: 0,
 		},
-		projectBinding: { status: 'uninitialized', detail: 'No pointer.' },
+		projectBinding: { status: 'uninitialized', detail: 'No project yet.' },
 	}
 }
 
@@ -107,6 +105,13 @@ describe('namzu state command', () => {
 				message: expect.stringContaining('namzu state [report]'),
 			}),
 		])
+	})
+
+	it('lists legacy paths with their byte counts and says they were not changed', () => {
+		const rendered = renderStateReport(report())
+		expect(rendered).toContain('legacy (the layout before session logs')
+		expect(rendered).toContain('sessions — 2.00 KiB · 3 files')
+		expect(rendered).toContain('No files were changed.')
 	})
 
 	it('escapes terminal controls, newlines and bidi controls from disk-derived paths', () => {

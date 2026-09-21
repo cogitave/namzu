@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { type Message, createUserMessage, generateSessionId } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type DetectedProvider,
@@ -13,7 +14,6 @@ import {
 	type Preferences,
 } from '../../integrations/providers/index.js'
 import {
-	appendMessages,
 	loadConversation,
 	openSessions,
 	startConversation,
@@ -230,7 +230,7 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 	if (!produced) throw new Error('the first session did not publish its conversation')
 
 	const conversationId = await startConversation(sessions)
-	await appendMessages(sessions, conversationId, produced)
+	await recordTurn(sessions, conversationId, produced)
 	const loaded = await loadConversation(sessions, conversationId)
 	const nativeTurn = loaded.find(
 		(message) => message.role === 'assistant' && (message.toolCalls?.length ?? 0) > 0,

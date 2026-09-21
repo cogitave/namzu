@@ -1,32 +1,19 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-	type Message,
-	type RunEvent,
-	type RunId,
-	type SessionId,
-	type UserMessage,
-	asGoalId,
-	asRunId,
-	createAssistantMessage,
-	createProjectInstructionMessage,
-	createRuntimeContextMessage,
-	createToolMessage,
-	createUserMessage,
-	generateRunId,
-} from '@namzu/sdk'
+import { type Message, createUserMessage, generateMessageId } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
-import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
+
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { CliPathBuilder } from './paths.js'
 import {
-	type CliSessions,
-	appendMessages,
+	conversationLogPath,
 	forkConversation,
-	forkConversationBeforeUser,
+	openConversationLog,
 	openSessions,
-	replaceConversation,
+	readConversationFacts,
+	refreshIndex,
 	startConversation,
 } from './store.js'
 import { conversationMarkdown, writeConversationExport } from './transcript-export.js'
@@ -36,700 +23,159 @@ afterEach(() => {
 	for (const dir of dirs.splice(0)) removeTempDir(dir)
 })
 
-async function cwd(): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), 'namzu-cli-transcript-export-'))
+async function temp(prefix: string): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), prefix))
 	dirs.push(dir)
 	return dir
 }
 
-function recordedEvent(
-	type: RunEvent['type'],
-	runId: RunId,
-	seq: number,
-	fields: Record<string, unknown> = {},
-): RunEvent {
-	return { type, runId, seq, timestamp: seq, ...fields } as never
+async function project() {
+	return openSessions(await temp('namzu-export-workspace-'), {
+		stateRoot: await temp('namzu-export-home-'),
+	})
 }
 
-async function bindTurn(
-	sessions: CliSessions,
-	sessionId: SessionId,
-	options: { readonly settle?: boolean; readonly runId?: RunId } = {
-		settle: true,
-	},
-) {
-	const runId = options.runId ?? generateRunId()
-	const user = createUserMessage('expanded contract body', [
-		{ data: 'SECRET-IMAGE-BYTES', mediaType: 'image/png' },
-		{
-			type: 'document',
-			data: 'SECRET-PDF-BYTES',
-			mediaType: 'application/pdf',
-			name: 'contract.pdf',
-		},
-	])
-	const started = await sessions.turnEvidence?.recordTurnStarted({
-		sessionId,
-		runId,
-		displayText: 'inspect @contract.pdf',
-		user,
-	})
-	if (!started) throw new Error('fixture requires production evidence store')
-	if (options.settle !== false) {
-		await sessions.turnEvidence?.recordTurnSettled({
-			sessionId,
-			turnId: started.turnId,
-			runId,
-			outcome: 'completed',
-			assistantText: 'I will **check**.Done.',
-		})
-	}
-	return { runId, user, started }
+function assistant(content: string, extra: Record<string, unknown> = {}): Message {
+	return { role: 'assistant', content, ...extra } as Message
 }
 
-async function publishCompleteRun(
-	sessions: CliSessions,
-	sessionId: SessionId,
-	runId: RunId,
-	user: Message,
-	options: {
-		readonly snapshotSeq?: number
-		readonly producedContext?: readonly Message[]
-	} = {},
-): Promise<string> {
-	const paths = new CliPathBuilder(sessions.root)
-	const runDir = paths.runDir(sessions.projectId, sessionId, runId)
-	await mkdir(runDir, { recursive: true })
-	const toolUseId = 'toolu_export_1'
-	const messages: Message[] = [
-		user,
-		createAssistantMessage('I will **check**.', [
-			{
-				id: toolUseId,
-				type: 'function',
-				function: { name: 'read_file', arguments: '{"path":"contract.md"}' },
-			},
-		]),
-		createToolMessage('contract body', toolUseId),
-		...(options.producedContext ?? []),
-		createAssistantMessage('Done.'),
-	]
-	const events = [
-		recordedEvent('run_started', runId, 1),
-		recordedEvent('message_completed', runId, 2, {
-			iteration: 1,
-			messageId: 'd53c902a-8b83-4bc7-a411-f35d1c45d869',
-			stopReason: 'tool_use',
-			content: 'I will **check**.',
-		}),
-		recordedEvent('tool_executing', runId, 3, {
-			toolUseId,
-			toolName: 'read_file',
-			input: { path: 'contract.md' },
-		}),
-		recordedEvent('tool_completed', runId, 4, {
-			toolUseId,
-			toolName: 'read_file',
-			result: 'contract body',
-			isError: false,
-		}),
-		recordedEvent('message_completed', runId, 5, {
-			iteration: 2,
-			messageId: '3eb3518f-84c1-46b4-b806-1efdfad0582b',
-			stopReason: 'end_turn',
-			content: 'Done.',
-		}),
-		recordedEvent('message_history_repaired', runId, 6, {
-			source: 'fresh-history',
-			duplicateToolResultsRemoved: 1,
-			orphanedToolResultsRemoved: 2,
-			syntheticToolResultsInserted: 3,
-		}),
-		recordedEvent('message_history_repaired', runId, 7, {
-			source: 'provider-rejected-image',
-			duplicateToolResultsRemoved: 0,
-			orphanedToolResultsRemoved: 0,
-			syntheticToolResultsInserted: 0,
-			providerRejectedImagesSuppressed: 2,
-		}),
-		recordedEvent('run_completed', runId, 8, {
-			result: 'I will **check**.Done.',
-		}),
-	]
-	await writeFile(
-		join(runDir, 'transcript.jsonl'),
-		`${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-		'utf-8',
-	)
-	await writeFile(
-		join(runDir, 'messages.json'),
-		`${JSON.stringify({
-			format: 'namzu.run-message-snapshot.v1',
-			throughEventSeq: options.snapshotSeq ?? 8,
-			messages,
-		})}\n`,
-		'utf-8',
-	)
-	return runDir
-}
-
-async function publishSimpleTurn(
-	sessions: CliSessions,
-	sessionId: SessionId,
-	userText: string,
-	assistantText: string,
-	options: { readonly user?: UserMessage; readonly persist?: boolean } = {},
-) {
-	const runId = generateRunId()
-	const user = options.user ?? createUserMessage(userText)
-	const assistant = createAssistantMessage(assistantText)
-	const started = await sessions.turnEvidence?.recordTurnStarted({
-		sessionId,
-		runId,
-		displayText: userText,
-		user,
-	})
-	if (!started) throw new Error('fixture requires production evidence store')
-	await sessions.turnEvidence?.recordTurnSettled({
-		sessionId,
-		turnId: started.turnId,
-		runId,
-		outcome: 'completed',
-		assistantText,
-	})
-	if (options.persist !== false) await appendMessages(sessions, sessionId, [user, assistant])
-	const runDir = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
-	await mkdir(runDir, { recursive: true })
-	const events = [
-		recordedEvent('run_started', runId, 1),
-		recordedEvent('message_completed', runId, 2, {
-			iteration: 1,
-			messageId: fixtureUuid(`msg_${runId}`),
-			stopReason: 'end_turn',
-			content: assistantText,
-		}),
-		recordedEvent('run_completed', runId, 3, { result: assistantText }),
-	]
-	await writeFile(
-		join(runDir, 'transcript.jsonl'),
-		`${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-		'utf-8',
-	)
-	await writeFile(
-		join(runDir, 'messages.json'),
-		`${JSON.stringify({
-			format: 'namzu.run-message-snapshot.v1',
-			throughEventSeq: 3,
-			messages: [user, assistant],
-		})}\n`,
-		'utf-8',
-	)
-	return { runId, user, assistant, started }
-}
-
-describe('verified conversation Markdown', () => {
-	it('labels an automatic continuation as a goal round, not operator-authored input', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const user = createUserMessage('internal model continuation prompt', undefined, {
-			type: 'goal-round',
-			goalId: asGoalId('04f88189-bd8e-4ae6-b9a7-ea8e21da4ee1'),
-			objective: 'finish the release',
-			goalRevision: 2,
-			round: 1,
-			maxGoalRounds: 4,
-		})
-		await publishSimpleTurn(sessions, sessionId, 'Goal round 1 / 4', 'progress', { user })
-
-		const projected = await conversationMarkdown(sessions, sessionId)
-
-		expect(projected.markdown).toContain('## Goal round 1 / 4')
-		expect(projected.markdown).toContain('Objective: finish the release')
-		expect(projected.markdown).toContain('internal model continuation prompt')
-		expect(projected.markdown).not.toContain('## User')
-	})
-
-	it('labels retained project policy separately from operator input', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		const policy = createProjectInstructionMessage('exact standing policy', [
-			'AGENTS.md',
-			'packages/a/AGENTS.md',
-			'packages/\u202e/AGENTS.md',
-		])
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, {
-			producedContext: [policy],
-		})
-
-		const projected = await conversationMarkdown(sessions, sessionId)
-
-		expect(projected.markdown).toContain('## Project instructions')
-		expect(projected.markdown).toContain('- AGENTS.md')
-		expect(projected.markdown).toContain('- packages/a/AGENTS.md')
-		expect(projected.markdown).toContain('- packages/\\u202e/AGENTS.md')
-		expect(projected.markdown).not.toContain('packages/\u202e/AGENTS.md')
-		expect(projected.markdown).toContain('exact standing policy')
-		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
-	})
-
-	it('labels runtime-authored provider context separately from operator input', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		const runtime = createRuntimeContextMessage(
-			'retry with the required structured output tool',
-			'structured-output',
-		)
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, {
-			producedContext: [runtime],
-		})
-
-		const projected = await conversationMarkdown(sessions, sessionId)
-
-		expect(projected.markdown).toContain('## Runtime context — Structured-output retry')
-		expect(projected.markdown).toContain('retry with the required structured output tool')
-		expect(projected.markdown.match(/^## User$/gm)).toHaveLength(1)
-	})
-
-	it.each([generateRunId(), asRunId('0382c0bd-c56f-42dc-a477-80174625c693')])(
-		'exports verified Markdown for run %s',
-		async (runId) => {
-			const root = await cwd()
-			const sessions = await openSessions(root)
-			const sessionId = await startConversation(sessions)
-			const turn = await bindTurn(sessions, sessionId, { runId })
-			await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-
-			const projected = await conversationMarkdown(sessions, sessionId)
-
-			expect(projected.turns).toBe(1)
-			expect(projected.markdown).toContain('inspect @contract.pdf')
-			expect(projected.markdown).toContain('I will **check**.')
-			expect(projected.markdown).toContain('`read_file`')
-			expect(projected.markdown).toContain('{"path":"contract.md"}')
-			expect(projected.markdown).toContain('contract body')
-			expect(projected.markdown).not.toContain('SECRET-IMAGE-BYTES')
-			expect(projected.markdown).not.toContain('SECRET-PDF-BYTES')
-			expect(projected.markdown).toContain('binary data omitted')
-			expect(projected.markdown).toContain('Tool history repaired (fresh-history)')
-			expect(projected.markdown).toContain('3 interrupted call(s) closed with unknown outcome')
-			expect(projected.markdown).toContain('Provider-rejected image delivery repaired')
-			expect(projected.markdown).toContain('2 occurrence(s) retained in history')
-		},
-	)
-
-	it('does not let a run belonging to a sibling session block this conversation', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const sibling = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-		await mkdir(
-			new CliPathBuilder(sessions.root).runDir(
-				sessions.projectId,
-				sibling,
-				asRunId('e91e1416-09b3-4b55-8f32-748aa6e38f7a'),
-			),
-			{ recursive: true },
-		)
-
-		await expect(conversationMarkdown(sessions, sessionId)).resolves.toMatchObject({ turns: 1 })
-	})
-
-	it('exports the parent transcript alongside emergency snapshots and nested child runs', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		const runDir = await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-		const emergencyDir = join(runDir, '..', 'emergency')
-		await mkdir(emergencyDir)
-		await writeFile(join(emergencyDir, `${turn.runId}.json`), JSON.stringify({ runId: turn.runId }))
-		await mkdir(join(runDir, 'children', generateRunId()), { recursive: true })
-
-		await expect(conversationMarkdown(sessions, sessionId)).resolves.toMatchObject({ turns: 1 })
-	})
-
-	it.each(['run_', 'ses_wrong-kind', 'not-a-run'])(
-		'refuses an invalid run directory: %s',
-		async (name) => {
-			const sessions = await openSessions(await cwd())
-			const sessionId = await startConversation(sessions)
-			const turn = await bindTurn(sessions, sessionId)
-			const runDir = await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-			await mkdir(join(runDir, '..', name))
-
-			await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-				reason: 'run-record-corrupt',
-			})
-		},
-	)
-
-	it.each([generateRunId(), asRunId('30ae63ad-6292-422e-bae9-3f7394b67017')])(
-		'refuses an unbound run inside the same session: %s',
-		async (unboundId) => {
-			const sessions = await openSessions(await cwd())
-			const sessionId = await startConversation(sessions)
-			const turn = await bindTurn(sessions, sessionId)
-			await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-			await mkdir(
-				new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, unboundId),
-				{ recursive: true },
-			)
-
-			await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-				reason: 'unbound-run',
-			})
-		},
-	)
-
-	it('refuses a crash-point log with a start but no terminal event', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId, { settle: false })
-		const runDir = new CliPathBuilder(sessions.root).runDir(
-			sessions.projectId,
-			sessionId,
-			turn.runId,
-		)
-		await mkdir(runDir, { recursive: true })
-		await writeFile(
-			join(runDir, 'transcript.jsonl'),
-			`${JSON.stringify(recordedEvent('run_started', turn.runId, 1))}\n`,
-			'utf-8',
-		)
-
-		await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-			reason: 'run-incomplete',
-		})
-	})
-
-	it('refuses a survivor snapshot that was not published through the event head', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user, {
-			snapshotSeq: 5,
-		})
-
-		await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-			reason: 'run-snapshot-out-of-sync',
-		})
-	})
-
-	it('refuses a malformed event line even when the tolerant SDK reader could skip it', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		const runDir = await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
-		const transcript = await readFile(join(runDir, 'transcript.jsonl'), 'utf-8')
-		const lines = transcript.trimEnd().split('\n')
-		await writeFile(
-			join(runDir, 'transcript.jsonl'),
-			`${lines[0]}\nnot-json\n${lines.slice(1).join('\n')}\n`,
-			'utf-8',
-		)
-
-		await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-			reason: 'run-record-corrupt',
-		})
-	})
-
-	it('uses a settled host record for partial text that failed before message completion', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId, { settle: false })
-		await sessions.turnEvidence?.recordTurnSettled({
-			sessionId,
-			turnId: turn.started.turnId,
-			runId: turn.runId,
-			outcome: 'failed',
-			assistantText: 'partial before failure',
-		})
-		const runDir = new CliPathBuilder(sessions.root).runDir(
-			sessions.projectId,
-			sessionId,
-			turn.runId,
-		)
-		await mkdir(runDir, { recursive: true })
-		const events = [
-			recordedEvent('run_started', turn.runId, 1),
-			recordedEvent('run_failed', turn.runId, 2, { error: 'stream broke' }),
-		]
-		await writeFile(
-			join(runDir, 'transcript.jsonl'),
-			`${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-			'utf-8',
-		)
-		await writeFile(
-			join(runDir, 'messages.json'),
-			`${JSON.stringify({
-				format: 'namzu.run-message-snapshot.v1',
-				throughEventSeq: 2,
-				messages: [turn.user],
-			})}\n`,
-			'utf-8',
-		)
-
-		const projected = await conversationMarkdown(sessions, sessionId)
-		expect(projected.markdown).toContain('partial before failure')
-		expect(projected.markdown).toContain('Partial output captured')
-		expect(projected.markdown).toContain('Run failed')
-	})
-
-	it('lets a durable host cancellation close a run whose adapter stopped before its terminal event', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId, { settle: false })
-		await sessions.turnEvidence?.recordTurnSettled({
-			sessionId,
-			turnId: turn.started.turnId,
-			runId: turn.runId,
-			outcome: 'cancelled',
-			assistantText: 'partial before cancel',
-		})
-		const runDir = new CliPathBuilder(sessions.root).runDir(
-			sessions.projectId,
-			sessionId,
-			turn.runId,
-		)
-		await mkdir(runDir, { recursive: true })
-		await writeFile(
-			join(runDir, 'transcript.jsonl'),
-			`${JSON.stringify(recordedEvent('run_started', turn.runId, 1))}\n`,
-			'utf-8',
-		)
-		await writeFile(
-			join(runDir, 'messages.json'),
-			`${JSON.stringify({
-				format: 'namzu.run-message-snapshot.v1',
-				throughEventSeq: 1,
-				messages: [turn.user],
-			})}\n`,
-			'utf-8',
-		)
-
-		const projected = await conversationMarkdown(sessions, sessionId)
-		expect(projected.markdown).toContain('partial before cancel')
-	})
-
-	it('exports a turn cancelled at the host admission boundary before an SDK run existed', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const runId = generateRunId()
-		const user = createUserMessage('cancel before provider start')
-		const started = await sessions.turnEvidence?.recordTurnStarted({
-			sessionId,
-			runId,
-			displayText: 'cancel before provider start',
-			user,
-		})
-		if (!started) throw new Error('fixture requires production evidence store')
-		await sessions.turnEvidence?.recordTurnSettled({
-			sessionId,
-			turnId: started.turnId,
-			runId,
-			outcome: 'cancelled',
-			assistantText: '',
-		})
-		await appendMessages(sessions, sessionId, [user])
-
-		const projected = await conversationMarkdown(sessions, sessionId)
-
-		expect(projected.turns).toBe(1)
-		expect(projected.markdown).toContain('cancel before provider start')
-		expect(projected.markdown).toContain('cancelled before model execution began')
-	})
-
-	it('does not excuse a missing SDK run when the host claims any output or another outcome', async () => {
-		for (const settlement of [
-			{ outcome: 'failed' as const, assistantText: '' },
-			{ outcome: 'cancelled' as const, assistantText: 'unverified partial' },
-		]) {
-			const sessions = await openSessions(await cwd())
-			const sessionId = await startConversation(sessions)
-			const runId = generateRunId()
-			const user = createUserMessage('must have a run record')
-			const started = await sessions.turnEvidence?.recordTurnStarted({
-				sessionId,
-				runId,
-				displayText: 'must have a run record',
-				user,
-			})
-			if (!started) throw new Error('fixture requires production evidence store')
-			await sessions.turnEvidence?.recordTurnSettled({
-				sessionId,
-				turnId: started.turnId,
-				runId,
-				...settlement,
-			})
-
-			await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-				reason: 'turn-run-mismatch',
-			})
-		}
-	})
-
-	it('refuses a fork until its copied prefix has stable source-turn lineage', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		await sessions.store.appendMessage(source, createUserMessage('source'), sessions.tenantId)
-		const fork = await forkConversation(sessions, source)
-
-		await expect(conversationMarkdown(sessions, fork.id)).rejects.toMatchObject({
-			reason: 'fork-lineage-unavailable',
-		})
-	})
-
-	it('exports the immutable source boundary of a resolved fork, not later source turns', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		await publishSimpleTurn(sessions, source, 'source one', 'answer one')
-		const fork = await forkConversation(sessions, source)
-
-		await publishSimpleTurn(sessions, source, 'source later', 'answer later')
-		const projected = await conversationMarkdown(sessions, fork.id)
-
-		expect(projected.turns).toBe(1)
-		expect(projected.markdown).toContain('source one')
-		expect(projected.markdown).toContain('answer one')
-		expect(projected.markdown).not.toContain('source later')
-		expect(projected.markdown).not.toContain('answer later')
-	})
-
-	it('does not inherit evidence that advanced beyond the copied session history', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		await publishSimpleTurn(sessions, source, 'durable source', 'durable answer')
-		await publishSimpleTurn(sessions, source, 'evidence only', 'not copied', {
-			persist: false,
-		})
-
-		const fork = await forkConversation(sessions, source)
-		const projected = await conversationMarkdown(sessions, fork.id)
-
-		expect(projected.turns).toBe(1)
-		expect(projected.markdown).toContain('durable answer')
-		expect(projected.markdown).not.toContain('evidence only')
-		expect(projected.markdown).not.toContain('not copied')
-	})
-
-	it('refuses resolved lineage when the copied session lost a settled assistant answer', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		const partial = await publishSimpleTurn(sessions, source, 'partially saved', 'missing answer', {
-			persist: false,
-		})
-		await appendMessages(sessions, source, [partial.user])
-
-		const fork = await forkConversation(sessions, source)
-
-		expect(await sessions.turnEvidence?.read(fork.id)).toMatchObject({
-			kind: 'available',
-			origin: { origin: { kind: 'fork-unresolved' } },
-		})
-		await expect(conversationMarkdown(sessions, fork.id)).rejects.toMatchObject({
-			reason: 'fork-lineage-unavailable',
-		})
-	})
-
-	it('flattens inherited and local turns when a fork is forked again', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		await publishSimpleTurn(sessions, source, 'root turn', 'root answer')
-		const firstFork = await forkConversation(sessions, source)
-		await publishSimpleTurn(sessions, firstFork.id, 'branch turn', 'branch answer')
-		const nested = await forkConversation(sessions, firstFork.id)
-
-		const projected = await conversationMarkdown(sessions, nested.id)
-
-		expect(projected.turns).toBe(2)
-		expect(projected.markdown).toContain('root answer')
-		expect(projected.markdown).toContain('branch answer')
-		const origin = await sessions.turnEvidence?.read(nested.id)
-		expect(origin).toMatchObject({
-			kind: 'available',
-			origin: {
-				origin: {
-					kind: 'fork',
-					turns: [{ sessionId: source }, { sessionId: firstFork.id }],
-				},
-			},
-		})
-	})
-
-	it('maps a compacted surviving prompt back to its unique raw turn boundary', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		await publishSimpleTurn(sessions, source, 'older raw turn', 'older raw answer')
-		const selected = await publishSimpleTurn(
-			sessions,
-			source,
-			'surviving prompt',
-			'answer to remove',
-		)
-		await replaceConversation(sessions, source, [
-			{ role: 'system', content: 'opaque compacted context' } as Message,
-			selected.user,
-			selected.assistant,
+describe('exporting a conversation from its session log', () => {
+	it('renders each turn: the prompt, the answer and the tool activity between them', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [
+			createUserMessage('list the files'),
+			assistant('', {
+				toolCalls: [{ id: 'call-1', type: 'function', function: { name: 'ls', arguments: '{}' } }],
+			}),
+			{ role: 'tool', toolCallId: 'call-1', content: 'a.ts\nb.ts' } as Message,
+			assistant('There are two files.'),
 		])
 
-		const fork = await forkConversationBeforeUser(sessions, source, 0, selected.user)
-		const projected = await conversationMarkdown(sessions, fork.id)
+		const exported = await conversationMarkdown(s, id)
 
-		expect(projected.turns).toBe(1)
-		expect(projected.markdown).toContain('older raw turn')
-		expect(projected.markdown).toContain('older raw answer')
-		expect(projected.markdown).not.toContain('surviving prompt')
-		expect(projected.markdown).not.toContain('answer to remove')
+		expect(exported.turns).toBe(1)
+		expect(exported.markdown).toContain(`Conversation: \`${id}\``)
+		expect(exported.markdown).toContain('## User\n\nlist the files')
+		expect(exported.markdown).toContain('Tool started: `ls`')
+		expect(exported.markdown).toContain('Tool result for `call-1`')
+		expect(exported.markdown).toContain('## Assistant\n\nThere are two files.')
 	})
 
-	it('keeps an ambiguous compacted prompt unresolved instead of choosing a lookalike turn', async () => {
-		const sessions = await openSessions(await cwd())
-		const source = await startConversation(sessions)
-		const repeated = createUserMessage('identical prompt')
-		await publishSimpleTurn(sessions, source, 'identical prompt', 'first answer', {
-			user: repeated,
-		})
-		const later = await publishSimpleTurn(sessions, source, 'identical prompt', 'first answer', {
-			user: repeated,
-		})
-		await replaceConversation(sessions, source, [
-			{ role: 'system', content: 'opaque compacted context' } as Message,
-			repeated,
-			later.assistant,
-		])
-
-		const fork = await forkConversationBeforeUser(sessions, source, 0, repeated)
-
-		expect(await sessions.turnEvidence?.read(fork.id)).toMatchObject({
-			kind: 'available',
-			origin: { origin: { kind: 'fork-unresolved' } },
-		})
-		await expect(conversationMarkdown(sessions, fork.id)).rejects.toMatchObject({
-			reason: 'fork-lineage-unavailable',
-		})
-	})
-
-	it('refuses a run whose verified messages do not contain the exact bound user input', async () => {
-		const sessions = await openSessions(await cwd())
-		const sessionId = await startConversation(sessions)
-		const turn = await bindTurn(sessions, sessionId)
-		const runDir = await publishCompleteRun(
-			sessions,
-			sessionId,
-			turn.runId,
-			createUserMessage('other'),
+	it('shows an answer the runtime replaced, never the raw one', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [createUserMessage('what is the key'), assistant('the key is SECRET')])
+		const facts = await readConversationFacts(s, id)
+		const answer = facts?.records.find(
+			(record) => record.type === 'message' && record.role === 'assistant',
 		)
-		expect(runDir).toContain(turn.runId)
-
-		await expect(conversationMarkdown(sessions, sessionId)).rejects.toMatchObject({
-			reason: 'turn-run-mismatch',
+		if (answer?.type !== 'message') throw new Error('fixture expected the assistant record')
+		const log = openConversationLog(s, id)
+		const lease = await log.claim({ holder: 'test-replacement', ttlMs: 10_000 })
+		if (!lease) throw new Error('fixture could not lease the log')
+		await log.append(lease, {
+			type: 'message_replaced',
+			targetMessageId: answer.messageId,
+			content: assistant('the key is [redacted]'),
+			reason: 'guardrail_rewritten',
 		})
+		await log.release(lease)
+		await refreshIndex(s, id)
+
+		const exported = await conversationMarkdown(s, id)
+
+		expect(exported.markdown).toContain('the key is [redacted]')
+		expect(exported.markdown).not.toContain('SECRET')
 	})
 
-	it('writes atomically without replacing an existing export', async () => {
-		const root = await cwd()
+	it('names how a turn ended when it did not end normally', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [createUserMessage('first')], { status: 'failed', result: 'boom' })
+		await recordTurn(s, id, [createUserMessage('second')], { status: 'cancelled' })
+
+		const exported = await conversationMarkdown(s, id)
+
+		expect(exported.turns).toBe(2)
+		expect(exported.markdown).toContain('Turn failed: boom')
+		expect(exported.markdown).toContain('Turn stopped: cancelled.')
+	})
+
+	it('includes the history a fork copied', async () => {
+		const s = await project()
+		const source = await startConversation(s)
+		await recordTurn(s, source, [
+			createUserMessage('the original question'),
+			assistant('an answer'),
+		])
+		const fork = await forkConversation(s, source)
+		await recordTurn(s, fork.id, [createUserMessage('a follow-up in the fork')])
+
+		const exported = await conversationMarkdown(s, fork.id)
+
+		expect(exported.markdown).toContain('## Copied history')
+		expect(exported.markdown).toContain('the original question')
+		expect(exported.markdown).toContain('a follow-up in the fork')
+		// The copied prompt is a turn of the fork, and so is its own.
+		expect(exported.turns).toBe(2)
+	})
+
+	it('refuses a log whose hash chain is broken', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(s, id, [createUserMessage('tamper with me'), assistant('original')])
+		const path = conversationLogPath(s, id)
+		writeFileSync(path, readFileSync(path, 'utf8').replace('original', 'forged!!'))
+
+		await expect(conversationMarkdown(s, id)).rejects.toMatchObject({ reason: 'log-unreadable' })
+	})
+
+	it('refuses a conversation with nothing to export, and one of another project', async () => {
+		const s = await project()
+		const empty = await startConversation(s)
+		const other = await openSessions(await temp('namzu-export-other-'), { stateRoot: s.root })
+		const foreign = await startConversation(other)
+		await recordTurn(other, foreign, [createUserMessage('not yours')])
+
+		await expect(conversationMarkdown(s, empty)).rejects.toMatchObject({
+			reason: 'nothing-to-export',
+		})
+		await expect(conversationMarkdown(s, foreign)).rejects.toMatchObject({ reason: 'not-found' })
+	})
+
+	it('reports a turn that has not settled instead of guessing its end', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		const log = openConversationLog(s, id)
+		const lease = await log.claim({ holder: 'test-open-turn', ttlMs: 10_000 })
+		if (!lease) throw new Error('fixture could not lease the log')
+		const userMessageId = generateMessageId()
+		const started = await log.beginTurn(lease, {
+			turnId: '019a0000-0000-7000-8000-00000000000a' as never,
+			userMessageId,
+			config: { model: 'test-model', tokenBudget: 1, timeoutMs: 1 },
+		})
+		await log.append(lease, {
+			type: 'message',
+			turnId: started.record.turnId as never,
+			messageId: userMessageId,
+			role: 'user',
+			kind: 'prompt',
+			content: createUserMessage('still going'),
+		})
+		await log.release(lease)
+
+		const exported = await conversationMarkdown(s, id)
+
+		expect(exported.markdown).toContain('still going')
+		expect(exported.markdown).toContain('has not settled')
+	})
+})
+
+describe('writing an export', () => {
+	it('never overwrites an existing file', async () => {
+		const root = await temp('namzu-export-target-')
 		const target = join(root, 'conversation.md')
 
 		const first = await writeConversationExport('# one\n', target, root)

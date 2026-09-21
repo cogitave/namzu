@@ -1,10 +1,14 @@
-import { type ToolContext, generateRunId } from '@namzu/sdk'
+import { type ToolContext, generateTurnId } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { type RequestModelSwitch, buildSwitchModelTool } from './model-switch-tool.js'
 
 function context(signal?: AbortSignal): ToolContext {
-	return { runId: generateRunId(), abortSignal: signal } as ToolContext
+	return {
+		sessionId: '019a0000-0000-7000-8000-0000000000f3',
+		turnId: generateTurnId(),
+		abortSignal: signal,
+	} as unknown as ToolContext
 }
 
 describe('the interactive model-switch request tool', () => {

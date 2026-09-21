@@ -1,5 +1,4 @@
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
-import { CliPathBuilder } from '../integrations/sessions/paths.js'
 import {
 	createWebSearchTool,
 	resolveWebSearch,
@@ -18,11 +17,12 @@ import {
  * Unlike the earlier `chatStream()`-only adapter, this drives the full
  * tool-execution loop: the model can call tools, their results are fed
  * back, and the loop iterates until the turn settles. We translate the
- * SDK's `RunEvent` stream into the TUI's smaller `AgentEvent` vocabulary
+ * SDK's `SessionEvent` stream into the TUI's smaller `AgentEvent` vocabulary
  * (text deltas + tool start/end + done/error).
  *
- * The TUI owns conversation history and passes the full `Message[]` on
- * every turn (stateless session). Empty / partial states (no
+ * The TUI holds the conversation it renders and passes the full `Message[]`
+ * on every turn; the session's log, which the kernel appends to while the
+ * turn runs, is what a later resume folds back. Empty / partial states (no
  * credentials, no preferences, no matching detected provider) return an
  * `emptySession()` whose `send()` yields a single error event so the UI
  * renders an actionable hint rather than crashing.
@@ -34,18 +34,17 @@ import {
 	type BackgroundJob,
 	BackgroundJobRegistry,
 	type CheckpointId,
-	type CheckpointStore,
 	type CompactionConfig,
 	type CompactionResult,
 	type CompletionInbox,
 	type CostInfo,
-	DiskCheckpointStore,
+	DiskSessionCheckpointStore,
+	DiskSessionLog,
 	DiskTaskStore,
-	type DurableRunEntry,
 	EVENT_NAME_ATTRIBUTE,
-	type FencingToken,
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
+	InMemorySessionLog,
 	type LLMProvider,
 	type LogAttributes,
 	MarkdownMemoryStore,
@@ -53,6 +52,7 @@ import {
 	type MemoryType,
 	type Message,
 	type ModelInfo,
+	type Origin,
 	type PluginLifecycleManager,
 	type PrepareStep,
 	type PrepareStepChain,
@@ -70,12 +70,17 @@ import {
 	type ResumeHandler,
 	type ResumeOutcome,
 	type ReviewAnswer,
-	type RunEvent,
-	type RunId,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
+	type SessionCheckpointStore,
+	type SessionEvent,
 	type SessionGoalStore,
 	type SessionId,
+	type SessionLease,
+	type SessionLog,
+	SessionPaths,
+	type SessionStartedRecord,
+	type SessionTokenBudgetSummary,
 	type Skill,
 	type SkillRegistry,
 	type StopReason,
@@ -83,7 +88,6 @@ import {
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
-	type TokenBudgetSummary,
 	type ToolCallView,
 	type ToolDefinition,
 	type ToolPresenter,
@@ -93,8 +97,9 @@ import {
 	type ToolReviewPrompt,
 	type ToolReviewRequest,
 	type TopicId,
+	type TurnId,
 	WebFetchTool,
-	asRunId,
+	abandonTurn,
 	batchNeedsReview,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
@@ -102,6 +107,7 @@ import {
 	buildResidentToolEvidenceTools,
 	buildSessionGoalTools,
 	compactNow,
+	compactSession,
 	createComputerUseTool,
 	createFileReadTracker,
 	createMemoryPromoter,
@@ -110,15 +116,16 @@ import {
 	createResidentStepContributions,
 	createReviewHandler,
 	createToolPresenter,
-	generateRunId,
+	ensureProject,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 	getBuiltinTools,
 	isReviewExempt,
-	projectIdForDirectory,
+	isTurnInProgressError,
 	query,
-	resumeRun,
+	resumeSession,
 	seedObservationLedger,
 	webGuidanceContribution,
 	withProviderFallback,
@@ -127,17 +134,17 @@ import {
 import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
-import { join, parse, resolve } from 'node:path'
+import { parse, resolve } from 'node:path'
 import { FileCheckpointStore } from '../checkpoints/store.js'
 import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
-import { readStoredRunGuards, resolveRunGuards } from '../config/run-limits.js'
+import { readStoredTurnGuards, resolveTurnGuards } from '../config/run-limits.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
-	RunLimitsConfig,
 	SandboxConfig,
+	TurnLimitsConfig,
 	WebConfig,
 } from '../config/schema.js'
 import {
@@ -203,7 +210,7 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
-import { retainManualCompaction } from '../integrations/sessions/compaction-evidence.js'
+import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
 	CONVERSATION_EVIDENCE_GUIDANCE,
@@ -212,29 +219,26 @@ import {
 	releaseConversationEvidence,
 } from '../integrations/sessions/conversation-search.js'
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
-import type { ConversationContext } from '../integrations/sessions/store.js'
+import { type ConversationContext, ensureSessionStarted } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
-import {
-	CLI_CHECKPOINT_RETENTION,
-	clearOutlivedEmergencySaves,
-} from '../integrations/state/retention.js'
+import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
 import type {
 	SubagentActivity,
 	SubagentActivitySource,
 } from '../integrations/subagents/activity.js'
+import { type Batch, listSavedBatches } from '../integrations/subagents/batches.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
-import { createDelegationHistoryStep } from '../integrations/subagents/history.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
-import { SubagentPathBuilder, resolveSubagentParent } from '../integrations/subagents/parent.js'
+import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
-import {
-	type OrchestrationRun,
-	listSavedOrchestrationRuns,
-} from '../integrations/subagents/runs.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
+import {
+	createSavedAgentHistory,
+	createSavedAgentsStep,
+} from '../integrations/subagents/saved-agents.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -248,7 +252,7 @@ import {
 	saveTypedNote,
 } from '../memory/typed.js'
 import type { PermissionMode } from '../permissions/mode.js'
-import { projectRunConversation } from './conversation-history.js'
+import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
 
@@ -267,16 +271,16 @@ export type AgentEvent =
 			 * way to name the answer it was looking at.
 			 */
 			readonly messageId?: string
-			/** The run that produced it — a rating names both. */
-			readonly runId?: string
+			/** The turn that produced it — a rating names both. */
+			readonly turnId?: string
 	  }
 	| {
 			readonly kind: 'tool-start'
 			readonly activity?: 'exploration'
 			/** Exact task identity for host-owned wait presentation. */
 			readonly taskId?: string
-			/** Run-scopes provider tool ids, which are not globally unique. */
-			readonly runId?: string
+			/** Turn-scopes provider tool ids, which are not globally unique. */
+			readonly turnId?: string
 			/** SDK tool-use id — stable across this call's start/end (for tracking). */
 			readonly toolUseId: string
 			readonly toolName: string
@@ -288,7 +292,7 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'tool-progress'
-			readonly runId?: string
+			readonly turnId?: string
 			readonly toolUseId: string
 			readonly toolName: string
 			/** Bounded latest-state text from the executing tool. */
@@ -299,7 +303,7 @@ export type AgentEvent =
 			readonly kind: 'tool-end'
 			/** Verbatim retained output, before terminal preview projection. */
 			readonly output?: string
-			readonly runId?: string
+			readonly turnId?: string
 			readonly toolUseId: string
 			readonly toolName: string
 			readonly isError: boolean
@@ -324,9 +328,12 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'usage'
+			/** The session and turn this spend belongs to. */
+			readonly sessionId?: string
+			readonly turnId?: string
 			/** Parent and all descendants, reported separately from own usage. */
-			readonly budget?: TokenBudgetSummary
-			/** CUMULATIVE run spend. Grows every turn; never a context size. */
+			readonly budget?: SessionTokenBudgetSummary
+			/** CUMULATIVE turn spend. Never a context size. */
 			readonly totalTokens: number
 			/**
 			 * The kernel's cost record, carried whole.
@@ -407,13 +414,16 @@ export type AgentEvent =
 	| { readonly kind: 'provider-fallback'; readonly text: string }
 	| {
 			readonly kind: 'capability-warning'
-			readonly capability: Extract<RunEvent, { type: 'capability_warning' }>['capability']
-			readonly contentSource?: Extract<RunEvent, { type: 'capability_warning' }>['contentSource']
+			readonly capability: Extract<SessionEvent, { type: 'capability_warning' }>['capability']
+			readonly contentSource?: Extract<
+				SessionEvent,
+				{ type: 'capability_warning' }
+			>['contentSource']
 			readonly text: string
 	  }
 	| {
 			readonly kind: 'history-repair'
-			readonly source: Extract<RunEvent, { type: 'message_history_repaired' }>['source']
+			readonly source: Extract<SessionEvent, { type: 'message_history_repaired' }>['source']
 			readonly text: string
 	  }
 	/**
@@ -435,35 +445,48 @@ export type AgentEvent =
 	 * no reader anywhere in this package. The name was also wrong for what is
 	 * needed here: a "finish reason" in this codebase is `MessageStopReason`,
 	 * reported per model message, while the question a caller has at the end of
-	 * a turn is the run-level `StopReason` — did it answer, or did it run out
+	 * a turn is the turn-level `StopReason` — did it answer, or did it run out
 	 * of budget, iterations, time, or permission to say what it produced.
 	 */
 	| {
 			readonly kind: 'done'
+			/** The session and turn that settled. */
+			readonly sessionId?: string
+			readonly turnId?: string
 			/** Settled kernel result, including an intentionally empty guarded result. */
 			readonly text?: string
 			readonly stopReason?: StopReason
-			readonly budget?: TokenBudgetSummary
+			readonly budget?: SessionTokenBudgetSummary
 	  }
 	| {
-			/** A recoverable run stopped with an addressable checkpoint. */
+			/** A recoverable turn stopped with an addressable checkpoint. */
 			readonly kind: 'paused'
-			readonly budget?: TokenBudgetSummary
-			/** The run that paused: with the checkpoint, what `resumePaused` needs. */
-			readonly runId: string
+			readonly budget?: SessionTokenBudgetSummary
+			/** The turn that paused: with the checkpoint, what `resumePaused` needs. */
+			readonly turnId: string
 			readonly checkpointId: string
 			readonly reason: string
-			readonly failure?: Extract<RunEvent, { type: 'run_paused' }>['failure']
-			readonly providerError?: Extract<RunEvent, { type: 'run_paused' }>['providerError']
-			readonly explanation?: Extract<RunEvent, { type: 'run_paused' }>['explanation']
+			readonly failure?: Extract<SessionEvent, { type: 'turn_paused' }>['failure']
+			readonly providerError?: Extract<SessionEvent, { type: 'turn_paused' }>['providerError']
+			readonly explanation?: Extract<SessionEvent, { type: 'turn_paused' }>['explanation']
 	  }
 	| {
 			readonly kind: 'error'
-			readonly budget?: TokenBudgetSummary
+			readonly budget?: SessionTokenBudgetSummary
 			readonly message: string
-			readonly failure?: Extract<RunEvent, { type: 'run_failed' }>['failure']
-			readonly providerError?: Extract<RunEvent, { type: 'run_failed' }>['providerError']
-			readonly explanation?: Extract<RunEvent, { type: 'run_failed' }>['explanation']
+			readonly failure?: Extract<SessionEvent, { type: 'turn_failed' }>['failure']
+			readonly providerError?: Extract<SessionEvent, { type: 'turn_failed' }>['providerError']
+			readonly explanation?: Extract<SessionEvent, { type: 'turn_failed' }>['explanation']
+			/**
+			 * The conversation already has an active turn, so this one was not
+			 * started (`TurnInProgressError`). A paused turn is left to
+			 * `resumePaused` or `abandonTurn`; nothing is closed implicitly.
+			 */
+			readonly turnInProgress?: {
+				readonly sessionId: string
+				readonly activeTurnId: string
+				readonly state: 'running' | 'paused' | 'interrupted'
+			}
 	  }
 
 /** A single tool the model wants to run, surfaced to the user for approval. */
@@ -503,8 +526,8 @@ export type QuestionAnswer =
 export type QuestionFn = (question: UserQuestion) => Promise<QuestionAnswer>
 
 export interface SendOptions {
-	/** Overrides for this new run and its built-in children; does not change a parked run. */
-	readonly limits?: RunLimitsConfig
+	/** Overrides for this new turn and its built-in children; does not change a parked turn. */
+	readonly limits?: TurnLimitsConfig
 	readonly signal?: AbortSignal
 	/**
 	 * Who answers `ask_user_question` this turn. Absent means nobody: the
@@ -542,10 +565,22 @@ export interface SendOptions {
 	 * Overrides the session default for this turn only.
 	 */
 	readonly permissionMode?: PermissionMode
-	/** Caller-reserved identity used to correlate this turn before it starts. */
-	readonly runId?: RunId
-	/** Exact durable admission that makes goal tools visible for this one run. */
+	/**
+	 * Caller-reserved identity for this new turn, for a host that has to name
+	 * the turn before it starts (a resident step's verifier). Absent: the
+	 * kernel mints one, and the session learns it from the turn's first event.
+	 */
+	readonly turnId?: TurnId
+	/** Why this turn exists (a prompt, a goal round, a resident step), recorded on `turn_started`. */
+	readonly origin?: Origin
+	/** Exact durable admission that makes goal tools visible for this one turn. */
 	readonly goalRound?: GoalRoundAuthority
+	/**
+	 * Close an `interrupted` active turn (its process is gone) before this one
+	 * begins, as `turn_failed{ interrupted }`. The interactive TUI passes it: it
+	 * never resumed an interrupted turn. A paused turn is never closed this way.
+	 */
+	readonly abandonInterrupted?: boolean
 	/**
 	 * Called before a batch of non-read-only tools runs. Resolves with the
 	 * user's decision. When omitted, prompt mode auto-approves because nobody
@@ -573,32 +608,34 @@ export interface SendOptions {
 
 /** What {@link AgentSession.resumeDurable} needs that the session does not hold. */
 export interface ResumeDurableParams {
+	/** The paused or interrupted turn to continue, and the session it belongs to. */
+	readonly entry: {
+		readonly tenantId: TenantId
+		readonly projectId: ProjectId
+		readonly sessionId: SessionId
+		readonly turnId: TurnId
+	}
+	/** The session's log; the resumed turn appends to it. */
+	readonly sessionLog: SessionLog
+	/** Where the turn's checkpoints are. Absent: `<session-id>/checkpoints/` beside the log. */
+	readonly checkpointStore?: SessionCheckpointStore
 	/**
-	 * The run to continue, straight out of a durable listing.
-	 *
-	 * A `DurableRunEntry` IS an addressable run scope, which is why it can be
-	 * passed here unreassembled — and why there is no chance of assembling it
-	 * wrong.
+	 * The lease this process holds on the session (`claimSession`). Present,
+	 * every record the resumed turn appends carries its fence, so a worker that
+	 * stalled past its lease cannot write over whoever took the session over.
 	 */
-	readonly entry: DurableRunEntry
-	/** The backend the entry came from. */
-	readonly checkpointStore: CheckpointStore
-	/**
-	 * The fence of the claim this process holds on the run.
-	 *
-	 * Omit it only for a single-writer host. Present, it rides every durable
-	 * write the resumed run makes, so a worker that stalled past its lease
-	 * cannot overwrite the record of whoever took the run over.
-	 */
-	readonly claimFence?: FencingToken
+	readonly lease?: SessionLease
 	readonly signal?: AbortSignal
 }
 
 export interface ResumePausedParams {
-	/** The run the `paused` event named. */
-	readonly runId: string
-	/** The checkpoint the `paused` event named. */
-	readonly checkpointId: string
+	/** The turn the `paused` event named. */
+	readonly turnId: string
+	/**
+	 * The checkpoint the `paused` event named. Absent: the one an open
+	 * decision references, else the newest.
+	 */
+	readonly checkpointId?: string
 	readonly signal?: AbortSignal
 }
 
@@ -745,15 +782,15 @@ export interface AgentSession {
 	 * the runtime to find out.
 	 */
 	readonly agentIds: readonly string[]
-	/** Actual task store of this conversation's current/latest run; absent before a run starts. */
+	/** Task store of this conversation (`<session-id>/tasks/`); absent before a turn starts. */
 	readonly currentTaskStore?: () => TaskStore | undefined
-	/** Forget the selected run when the operator leaves its conversation. Does not delete tasks. */
+	/** Forget the selected store when the operator leaves its conversation. Does not delete tasks. */
 	readonly resetTaskStore?: () => void
 	/** Children created in this process, available for the TUI's observational view. */
 	readonly subagents?: SubagentActivitySource
 	/**
-	 * Children of this conversation's earlier runs, rebuilt from the evidence
-	 * they left on disk.
+	 * Children of this conversation's earlier turns, rebuilt from their own
+	 * session logs.
 	 *
 	 * The counterpart of {@link subagents}, which only ever holds what THIS
 	 * process launched and only until its eighty-agent bound evicts it. Both
@@ -768,17 +805,13 @@ export interface AgentSession {
 	 */
 	readonly savedChildren?: () => Promise<readonly SubagentActivity[]>
 	/**
-	 * Finished parent turns this conversation delegated work under, read from
-	 * disk — the counterpart of {@link savedChildren} for `/agents runs`,
-	 * grouped by parent run rather than flattened to one row per child.
-	 *
-	 * A run still in flight is never reported here: it belongs to
-	 * `liveOrchestrationRuns` over the live monitor's own snapshot instead, the
-	 * same split {@link savedChildren} draws against `subagents`. Optional for
-	 * the same reason that one is — an embedded session with no evidence on
-	 * disk has none to offer.
+	 * Batches of delegated work this conversation's turns launched, read from
+	 * the session index — the counterpart of {@link savedChildren} for
+	 * `/agents batches`, grouped by parent turn rather than flattened to one row
+	 * per child. The live half comes from the monitor; `agentsSlashCommand`
+	 * merges the two. Optional because a session with no durable log has none.
 	 */
-	readonly listOrchestrationRuns?: () => Promise<readonly OrchestrationRun[]>
+	readonly listSavedBatches?: () => Promise<readonly Batch[]>
 	/**
 	 * Things about this session's configuration the operator must be told, every
 	 * launch — today, an accepted capability disagreement in the provider chain,
@@ -847,36 +880,37 @@ export interface AgentSession {
 	readonly promptExemptTools: () => readonly string[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
-	 * Continue a run some OTHER process started, from its durable state.
+	 * Continue a turn some OTHER process started, from its session log.
 	 *
-	 * The kernel could always do this — `resumeRun` joins a checkpoint back
-	 * to a running loop — and nothing in this package could reach it, because
-	 * the half a snapshot cannot carry (the provider client, the tool
-	 * registry, the working directory) lives inside this session and had no
-	 * way out. So `namzu` could produce durable runs and never pick one up.
+	 * The half a checkpoint cannot carry (the provider client, the tool
+	 * registry, the working directory) lives inside this session, so this is
+	 * the way a drainer continues a parked turn: the SAME session and the SAME
+	 * `turnId`, through the kernel's `resumeSession`.
 	 *
-	 * Returns the outcome rather than a stream: `resumeRun` drains the loop
-	 * and hands back a settled run, so there is nothing to render as it
-	 * happens. A parked run comes back as `awaiting-decision` and is NOT
-	 * resumed past — the answer is a human's, not a drainer's.
+	 * Returns the outcome rather than a stream: the resumed turn is drained to
+	 * settlement. A turn parked on a decision comes back as
+	 * `awaiting-decision` and is NOT resumed past — the answer is a human's,
+	 * not a drainer's.
 	 */
 	resumeDurable(params: ResumeDurableParams): Promise<ResumeOutcome>
 	/**
-	 * Continue THIS session's own run after the provider paused it, from the
-	 * checkpoint the pause named, streaming events as the resumed run makes
-	 * them.
+	 * Continue THIS session's own turn after the provider paused it, from the
+	 * checkpoint the pause named, streaming events as the resumed turn makes
+	 * them — the same turn id, the same session log.
 	 *
-	 * `resumeDurable` is for a run some other process started and takes the
-	 * listing and the store the caller found it in. A pause inside this
-	 * session already knows both: the run's scope is this session's and its
-	 * checkpoints are in the store the turn wrote to. What a headless caller
-	 * lacked was a way to say "wait, then go on" — it could only exit and be
-	 * re-prompted from whatever notes the run left behind, losing the run's
-	 * own context. A run parked on a human decision is not resumed past: it
-	 * comes back as an error naming the fact, because the answer is a
-	 * person's.
+	 * What a headless caller lacked was a way to say "wait, then go on" — it
+	 * could only exit and be re-prompted from whatever notes the turn left
+	 * behind, losing its own context. A turn parked on a human decision is not
+	 * resumed past: it comes back as an error naming the fact, because the
+	 * answer is a person's.
 	 */
 	resumePaused(params: ResumePausedParams): AsyncIterable<AgentEvent>
+	/**
+	 * Close this conversation's paused or interrupted turn without resuming it
+	 * (`turn_failed{ error.code: 'abandoned' }`), so the next prompt can begin a
+	 * turn. What `/abandon` does. A running turn is refused by the kernel.
+	 */
+	abandonTurn?(turnId: TurnId, reason: string): Promise<void>
 	/**
 	 * Cancel and settle live sends, compactions and durable resumes, then release
 	 * what the session holds — today, the external tool servers.
@@ -1284,7 +1318,7 @@ const NAMZU_IDENTITY = [
 interface BuiltTools {
 	readonly registry: ToolRegistry
 	readonly memoryStore: MarkdownMemoryStore
-	/** The directory the store keeps its files in; injectable through `projectStateRoot`. */
+	/** The directory the store keeps its files in: the project's `memory/`. */
 	readonly memoryDirectory: string
 }
 
@@ -1335,10 +1369,9 @@ function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
 }
 
 function buildToolRegistry(
-	projectStateRoot: string,
+	paths: SessionPaths,
 	backgroundJobs: boolean,
 	checkpoints: FileCheckpointStore | undefined,
-	projectId: ProjectId,
 	screens?: readonly ToolResultScreenConfig[],
 ): BuiltTools {
 	// Configured here rather than on the run, so every registry this CLI
@@ -1363,15 +1396,11 @@ function buildToolRegistry(
 		}
 	}
 	// Stored memory: the agent gets search_memory / read_memory / save_memory
-	// over typed Markdown files, one per memory, in this Project's
-	// generated-state directory, always partitioned by Project. An
-	// unpartitioned store sat at `<root>/memory` itself, which — once the root
-	// is the application home, or the working directory IS the home — is shared
-	// by every workspace that ever ran. The directory is the one the JSON store
-	// used, so `migrateMemoryOnce` finds that store's records where they are.
-	// Separate from the operator-curated files, which are prompt text.
-	const memoryRoot = ensurePrivateStateDirectory(projectStateRoot, 'memory')
-	const directory = ensurePrivateStateDirectory(memoryRoot, projectId)
+	// over typed Markdown files, one per memory, in this project's `memory/`
+	// under the application home (`projects/<slug>/memory`), so every
+	// workspace keeps its own. Separate from the operator-curated files, which
+	// are prompt text.
+	const directory = ensurePrivateStateDirectory(paths.projectDir(), 'memory')
 	const memoryStore = new MarkdownMemoryStore({ directory })
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
@@ -1399,11 +1428,24 @@ export interface AgentSessionOptions {
 	 */
 	readonly toolLoading?: 'eager' | 'deferred'
 	/**
-	 * Session/thread/project/tenant identity for this run. Minted when absent,
-	 * with the Project derived from the working directory's checkout so the
-	 * same directory keeps the same Project across sessions.
+	 * Session/topic/project/tenant identity for this session's turns. Minted
+	 * when absent, with the project the working directory's checkout stands
+	 * for (`projects/<slug>/project.json`), so the same directory keeps the
+	 * same project across sessions.
 	 */
-	readonly scope?: RunScope
+	readonly scope?: SessionScope
+	/**
+	 * The session this agent's turns are recorded into when {@link scope} is
+	 * absent: a protocol gateway (ACP) resolves its client's id to a session
+	 * first and hands the result here. Ignored when `scope` is given.
+	 */
+	readonly sessionId?: SessionId
+	/**
+	 * Who started the session, written into its `session_started` record the
+	 * first time a turn runs in it: the protocol and, for a gateway, the
+	 * client's own id for it. Absent: `{ protocol: 'cli' }`.
+	 */
+	readonly origin?: SessionStartedRecord['origin']
 	/**
 	 * The directory the agent works in: what every filesystem tool resolves a
 	 * relative path against and where sub-agents run. Generated task and memory
@@ -1417,22 +1459,29 @@ export interface AgentSessionOptions {
 	 */
 	readonly cwd?: string
 	/**
-	 * Injected SDK hierarchy root for this host session, whose Project and
-	 * Session records exist in its conversation store. Absent means the
-	 * application home (`NAMZU_HOME`, else `~/.namzu`) WITHOUT those records:
-	 * generated state still goes there, never into the working directory, and
-	 * delegation uses the supplied scope as it is.
+	 * The application home (`NAMZU_HOME`) this session files its state under:
+	 * `projects/<slug>/` for the working directory's checkout. Absent means
+	 * `resolveNamzuHome()`. Never the working directory.
 	 */
 	readonly stateRoot?: string
-	/** Host-owned durable conversations, for run-scoped original evidence retrieval. */
+	/**
+	 * Host-owned durable conversations: the layout and index the session's
+	 * logs live in, for turn-scoped original evidence retrieval and the
+	 * delegation views. Absent: the layout of the working directory's project
+	 * under {@link stateRoot}.
+	 */
 	readonly conversationSessions?: ConversationContext
+	/**
+	 * Keep every turn in memory: an in-memory session log per send, nothing
+	 * written under `NAMZU_HOME`. For a stateless host (`run-stream` without
+	 * `--session`), whose history arrives with each call.
+	 */
+	readonly ephemeral?: boolean
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource
 	/** Host-bound to this resident admission; fresh sends only, never checkpoint resume. */
 	readonly residentEvidenceRecall?: PrepareStep
-	/** False when an enclosing host owns signals and must drain before exiting. */
-	readonly emergencySave?: boolean
 	/**
 	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
 	 *
@@ -1499,16 +1548,16 @@ export interface AgentSessionOptions {
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one run may spend. */
-	readonly limits?: RunLimitsConfig
+	readonly limits?: TurnLimitsConfig
 	/**
-	 * Where this session's run events are recorded, if anywhere.
+	 * Where this session's events are recorded, if anywhere.
 	 *
 	 * A listener rather than a config: the CLI resolves `@namzu/telemetry`,
 	 * builds the sink and the redaction chain, and hands the result here
 	 * already assembled — so this file has no opinion about optional
 	 * packages, redactors, or what a destination is.
 	 */
-	readonly onRunEvent?: (event: RunEvent) => void
+	readonly onSessionEvent?: (event: SessionEvent) => void
 	/** Durable goal authority for the main TUI session; omitted on headless surfaces. */
 	readonly sessionGoals?: SessionGoalStore
 	/**
@@ -1599,30 +1648,32 @@ export async function createAgentSession(
 			'invocation',
 		)
 	}
-	const scope = options.scope ?? mintScope(cwd)
 	// Generated state never defaults into the working directory. It used to:
 	// `<cwd>/.namzu` for any caller without a state root, which put runtime
 	// trees inside checkouts (and, run from the home directory, made the
-	// project root and the application home the same directory).
-	let hierarchyRoot: string
+	// project root and the application home the same directory). It lives in
+	// the checkout's project under the application home: `projects/<slug>/`.
+	let paths: SessionPaths
+	let projectId: ProjectId
 	try {
-		hierarchyRoot = resolve(options.stateRoot ?? resolveNamzuHome())
-	} catch (error) {
-		return emptySession(`Application state is unavailable: ${describeError(error)}`, 'environment')
-	}
-	const pathBuilder = new CliPathBuilder(hierarchyRoot)
-	const projectStateRoot = hierarchyRoot
-	try {
-		ensurePrivateStateDirectory(hierarchyRoot, 'sessions')
+		if (options.conversationSessions) {
+			paths = options.conversationSessions.paths
+			projectId = options.conversationSessions.projectId
+		} else {
+			const home = resolve(options.stateRoot ?? resolveNamzuHome())
+			ensurePrivateStateDirectory(home, 'projects')
+			const project = await ensureProject({ home, cwd: cliProjectRoot(cwd) })
+			paths = new SessionPaths({ home, slug: project.slug })
+			projectId = project.projectId
+		}
 		// Refuse an aliased or otherwise unsafe generated-state root before any
-		// provider, sandbox or plugin runtime is constructed. Project-authored
-		// `.namzu` content may coexist here, but generated memory must never be
-		// redirected outside the trusted working directory through an ancestor
-		// symlink.
-		ensurePrivateStateDirectory(projectStateRoot, 'memory')
+		// provider, sandbox or plugin runtime is constructed.
+		ensurePrivateStateDirectory(resolve(paths.projectDir(), '..'), paths.slug)
+		ensurePrivateStateDirectory(paths.projectDir(), 'memory')
 	} catch (error) {
 		return emptySession(`Project state is unavailable: ${describeError(error)}`, 'environment')
 	}
+	const scope = options.scope ?? mintScope(projectId, options.sessionId)
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -1998,15 +2049,16 @@ export async function createAgentSession(
 			return { added: true, path: absolute }
 		},
 	}
+	// `/restore` snapshots live with the conversation they belong to
+	// (`<session-id>/file-history/`), not in a tree of their own.
 	const checkpoints = new FileCheckpointStore(
-		join(ensurePrivateStateDirectory(projectStateRoot, 'checkpoints'), scope.sessionId),
+		paths.fileHistory({ sessionId: scope.sessionId }),
 		cwd,
 	)
 	const { registry, memoryStore, memoryDirectory } = buildToolRegistry(
-		projectStateRoot,
+		paths,
 		backgroundJobs,
 		checkpoints,
-		scope.projectId,
 		options.toolResultScreens,
 	)
 	// Once per store, idempotently: a launch that finds nothing to move moves
@@ -2084,15 +2136,17 @@ export async function createAgentSession(
 	// Registered only on the main session path. Sub-agents call
 	// `buildToolRegistry` directly below, so they never receive these tools.
 	// Per-send denial further keeps the schemas out of ordinary human turns.
-	const goalAuthorities = new Map<RunId, GoalRoundAuthority>()
+	const goalAuthorities = new Map<TurnId, GoalRoundAuthority>()
 	// A child is created after the parent query has started, from inside its
-	// Agent tool. Keying the review channel by the executing run keeps two
+	// Agent tool. Keying the review channel by the executing turn keeps two
 	// concurrent sends from borrowing each other's prompt or approval latch.
-	const delegatedResumeHandlers = new Map<RunId, ResumeHandler>()
+	const delegatedResumeHandlers = new Map<TurnId, ResumeHandler>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		registry.register(
-			buildSessionGoalTools(options.sessionGoals, (runId) => goalAuthorities.get(runId)),
+			buildSessionGoalTools(options.sessionGoals, (turnId) =>
+				goalAuthorities.get(turnId as TurnId),
+			),
 		)
 	}
 	// External tool servers, before the roster is counted, so `toolNames` and
@@ -2162,15 +2216,15 @@ export async function createAgentSession(
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
-	const delegationScopes = new Map<RunId, RunScope>()
-	const delegationLimits = new Map<RunId, RunLimitsConfig>()
-	const delegatedInputWaiters = new Map<RunId, NonNullable<SendOptions['waitForInbound']>>()
+	const delegationScopes = new Map<TurnId, SessionScope>()
+	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
+	const delegatedInputWaiters = new Map<TurnId, NonNullable<SendOptions['waitForInbound']>>()
 	if (options.residentHistory) {
 		const history = options.residentHistory
 		const historyOwner = { ...scope }
 		registry.register(
 			buildResidentHistoryTools((context) => {
-				const owner = delegationScopes.get(context.runId)
+				const owner = delegationScopes.get(context.turnId)
 				if (
 					!owner ||
 					owner.sessionId !== historyOwner.sessionId ||
@@ -2178,7 +2232,7 @@ export async function createAgentSession(
 					owner.tenantId !== historyOwner.tenantId ||
 					owner.tenantId !== history.scope.tenantId
 				)
-					throw new Error('The requesting run does not own this resident history.')
+					throw new Error('The requesting turn does not own this resident history.')
 				return history
 			}),
 		)
@@ -2188,7 +2242,7 @@ export async function createAgentSession(
 		const evidenceOwner = { ...scope }
 		registry.register(
 			buildResidentToolEvidenceTools((context) => {
-				const owner = delegationScopes.get(context.runId)
+				const owner = delegationScopes.get(context.turnId)
 				if (
 					!owner ||
 					owner.sessionId !== evidenceOwner.sessionId ||
@@ -2197,7 +2251,7 @@ export async function createAgentSession(
 					owner.projectId !== evidence.scope.projectId ||
 					owner.tenantId !== evidence.scope.tenantId
 				)
-					throw new Error('The requesting run does not own this resident tool evidence.')
+					throw new Error('The requesting turn does not own this resident tool evidence.')
 				return evidence
 			}),
 		)
@@ -2207,13 +2261,13 @@ export async function createAgentSession(
 		for (const build of [buildConversationSearchTool, buildConversationReadTool])
 			registry.register(
 				build((context) => {
-					const owner = delegationScopes.get(context.runId)
+					const owner = delegationScopes.get(context.turnId)
 					if (
 						!owner ||
 						owner.projectId !== sessions.projectId ||
 						owner.tenantId !== sessions.tenantId
 					)
-						throw new Error('The requesting run does not own this conversation.')
+						throw new Error('The requesting turn does not own this conversation.')
 					return { sessions, sessionId: owner.sessionId }
 				}),
 			)
@@ -2230,15 +2284,15 @@ export async function createAgentSession(
 			step = createConversationEvidenceRecall(
 				sessions,
 				sessionId,
-				(runId) => {
-					const owner = delegationScopes.get(asRunId(runId))
+				(turnId) => {
+					const owner = turnId === undefined ? undefined : delegationScopes.get(turnId as TurnId)
 					if (
 						!owner ||
 						owner.sessionId !== sessionId ||
 						owner.tenantId !== sessions.tenantId ||
 						owner.projectId !== sessions.projectId
 					)
-						throw new Error('The requesting run no longer owns this conversation.')
+						throw new Error('The requesting turn no longer owns this conversation.')
 				},
 				options.compaction?.resolveEvidenceQueries !== false,
 			)
@@ -2246,6 +2300,22 @@ export async function createAgentSession(
 		}
 		return [step]
 	}
+	// The saved children of a conversation, read back from the session index and
+	// the child logs: the delegation history a turn is told about.
+	const conversationIndex = options.conversationSessions?.index
+	const savedAgentsSteps = (sessionId: SessionId): PrepareStep[] =>
+		conversationIndex
+			? [
+					createSavedAgentsStep(
+						createSavedAgentHistory({
+							index: conversationIndex,
+							paths,
+							session: { sessionId },
+							log: cliLogger(),
+						}),
+					),
+				]
+			: []
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -2264,23 +2334,35 @@ export async function createAgentSession(
 			})
 		}
 		const sub = await createSubagentRuntime({
-			historyRoot: projectStateRoot,
 			cwd,
 			model,
 			tokenBudget: options.limits?.tokenBudget,
 			maxIterations: options.limits?.maxIterations,
-			resolveLimits: (runId) => delegationLimits.get(runId),
+			resolveLimits: (turnId) => delegationLimits.get(turnId),
 			timeoutMs: options.limits?.timeoutMs,
 			definitions: discovered.definitions,
-			pathBuilder: new SubagentPathBuilder(projectStateRoot, scope.projectId),
-			resolveParent: async (runId) => {
-				const parent = delegationScopes.get(runId)
-				if (!parent) throw new Error(`Run ${runId} no longer owns delegation authority`)
-				return resolveSubagentParent(parent, cwd, options.stateRoot ? hierarchyRoot : undefined)
+			// Children log under the parent's `<session-id>/subagents/`; an
+			// ephemeral session keeps them in memory with its own log.
+			...(options.ephemeral ? {} : { paths }),
+			...(conversationIndex
+				? {
+						savedAgents: (sessionId: SessionId) =>
+							createSavedAgentHistory({
+								index: conversationIndex,
+								paths,
+								session: { sessionId },
+								log: cliLogger(),
+							}),
+					}
+				: {}),
+			resolveParent: async (turnId) => {
+				const parent = delegationScopes.get(turnId)
+				if (!parent) throw new Error(`Turn ${turnId} no longer owns delegation authority`)
+				return resolveSubagentParent(parent, cwd)
 			},
 			sandboxWorkspace,
-			resolveResumeHandler: (runId) => delegatedResumeHandlers.get(runId),
-			resolveWaitForInbound: (runId) => delegatedInputWaiters.get(runId),
+			resolveResumeHandler: (turnId) => delegatedResumeHandlers.get(turnId),
+			resolveWaitForInbound: (turnId) => delegatedInputWaiters.get(turnId),
 			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 			...(options.sandbox?.teardownTimeoutMs !== undefined
 				? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
@@ -2290,7 +2372,7 @@ export async function createAgentSession(
 			// honours the project's rules and every task it delegates quietly
 			// does not — the worse half of the feature, because the delegating
 			// turn reports success either way.
-			projectInstructionContext: () => projectInstructions.createRunContext(),
+			projectInstructionContext: () => projectInstructions.createTurnContext(),
 			// Same argument as the instructions, one step further: a sub-agent that
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
@@ -2402,15 +2484,14 @@ export async function createAgentSession(
 				// deferred and there is nothing for a search to load.
 				//
 				// The store this also builds is dropped, deliberately: a sub-agent
-				// promoting its own run memory would write a record per
-				// delegation, and a parent that delegated six times would leave
-				// seven accounts of one piece of work for the next run to read.
-				// The parent's settle is the one that speaks for the whole task.
+				// promoting its own memory would write a record per delegation,
+				// and a parent that delegated six times would leave seven accounts
+				// of one piece of work for the next turn to read. The parent's
+				// settle is the one that speaks for the whole task.
 				const childTools = buildToolRegistry(
-					projectStateRoot,
+					paths,
 					backgroundJobs,
 					undefined,
-					scope.projectId,
 					options.toolResultScreens,
 				).registry
 				// Search owns its provider connection per call, so it is safe to share
@@ -2471,11 +2552,11 @@ export async function createAgentSession(
 		cliLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
 	// This capability belongs to the active main turn, never the child roster.
-	const modelSwitchHandlers = new Map<RunId, NonNullable<SendOptions['onModelSwitch']>>()
+	const modelSwitchHandlers = new Map<TurnId, NonNullable<SendOptions['onModelSwitch']>>()
 	if (options.allowModelSwitch) {
 		registry.register(
 			buildSwitchModelTool(async (request, context) => {
-				const handler = modelSwitchHandlers.get(context.runId)
+				const handler = modelSwitchHandlers.get(context.turnId)
 				if (!handler || context.abortSignal?.aborted) {
 					return {
 						kind: 'rejected',
@@ -2513,14 +2594,15 @@ export async function createAgentSession(
 					return { action: 'continue' }
 			}
 		}
-		// The park request carries the run id of the call that asked; the
-		// handler above routes by the question, not by the run, and no durable
+		// The park request carries the turn of the call that asked; the
+		// handler above routes by the question, not by the turn, and no durable
 		// park recorder is supplied.
 		registry.register(buildAskUserQuestionTool({ resumeHandler: parkQuestion }))
 	}
 	// Task store → query registers task_create / task_update / task_list and
-	// emits task_created/task_updated, so the agent can track a plan for the
-	// current request. Tasks are run-scoped. The kernel's default availability
+	// emits task_created/task_updated, so the agent can track a plan. Tasks
+	// belong to the session (`<session-id>/tasks/`) and record the turn that
+	// created them, so a plan outlives the turn. The kernel's default availability
 	// for them is `deferred`; this session overrides that to `active` at the
 	// query call, because the doctrine tells the model to plan with them and a
 	// tool it must search for first is a tool it skips.
@@ -2534,20 +2616,19 @@ export async function createAgentSession(
 	// It is also why `toolNames` below reads the registry rather than a list
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
-	ensurePrivateStateDirectory(projectStateRoot, 'tenants')
-	const taskStoreForRun = (runId: RunId, tenantId: TenantId): TaskStore =>
+	const taskStoreFor = (runScope: SessionScope): TaskStore =>
 		new DiskTaskStore({
-			baseDir: projectStateRoot,
-			defaultRunId: runId,
-			tenantId,
+			paths,
+			session: { sessionId: runScope.sessionId },
+			tenantId: runScope.tenantId,
 		})
-	let selectedTaskStore: { scope: RunScope; store: TaskStore } | undefined
+	let selectedTaskStore: { scope: SessionScope; store: TaskStore } | undefined
 	let taskSelectionGeneration = 0
 	const resetTaskStore = () => {
 		selectedTaskStore = undefined
 		taskSelectionGeneration += 1
 	}
-	const matchesCurrentScope = (candidate: RunScope) =>
+	const matchesCurrentScope = (candidate: SessionScope) =>
 		candidate.sessionId === scope.sessionId &&
 		candidate.projectId === scope.projectId &&
 		candidate.tenantId === scope.tenantId &&
@@ -2561,8 +2642,8 @@ export async function createAgentSession(
 		// and other asynchronous setup are still being prepared.
 		resetTaskStore()
 		const generation = taskSelectionGeneration
-		return (runId: RunId, runScope: RunScope): TaskStore => {
-			const store = taskStoreForRun(runId, runScope.tenantId)
+		return (runScope: SessionScope): TaskStore => {
+			const store = taskStoreFor(runScope)
 			if (generation === taskSelectionGeneration && matchesCurrentScope(runScope)) {
 				selectedTaskStore = { scope: { ...runScope }, store }
 			}
@@ -2572,7 +2653,7 @@ export async function createAgentSession(
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
-	// Share the project store with tools and recall. Each run selects either
+	// Share the project store with tools and recall. Each turn selects either
 	// this extracted-claim promoter or explicit consolidation, never both.
 	// Candidates without useful claims write nothing.
 	const promoteMemory = createMemoryPromoter({ store: memoryStore })
@@ -2589,20 +2670,18 @@ export async function createAgentSession(
 		return emptySession(describeError(error))
 	}
 	// The session's own lifecycle, for hooks that set up or tear down
-	// something per session rather than per run. The run id is minted for
-	// these two calls: they belong to no turn. `session_start` waits for
-	// the first turn rather than firing here, because the conversation id
-	// the scope holds at construction is provisional — it is replaced when
-	// the conversation is first made durable — and a hook given the
-	// provisional id could never match it to a run.
+	// something per session rather than per turn. These two calls belong to no
+	// turn, so they carry no turn id — nothing is minted to fill the field.
+	// `session_start` waits for the first turn rather than firing here, because
+	// the conversation id the scope holds at construction is provisional — it
+	// is replaced when the conversation is first made durable — and a hook
+	// given the provisional id could never match it to a turn.
 	const sessionPlugins = pluginRuntime
-	const sessionHookRunId = generateRunId()
 	let sessionStarted = false
 	const announceSessionStart = async (): Promise<void> => {
 		if (!sessionPlugins || sessionStarted) return
 		sessionStarted = true
 		await sessionPlugins.manager.executeHooks('session_start', {
-			runId: sessionHookRunId,
 			sessionId: scope.sessionId,
 		})
 	}
@@ -2659,7 +2738,6 @@ export async function createAgentSession(
 			sessionPlugins
 				? sessionPlugins.manager
 						.executeHooks('session_end', {
-							runId: sessionHookRunId,
 							sessionId: scope.sessionId,
 						})
 						.catch(() => [])
@@ -2730,31 +2808,28 @@ export async function createAgentSession(
 		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}`
 	}
 	/**
-	 * The kernel's resume with this session's half of the run attached: the
+	 * The kernel's resume with this session's half of the turn attached: the
 	 * provider, the tools, the working directory, the doctrine — the part a
 	 * checkpoint cannot carry. `resumeDurable` and `resumePaused` differ only
-	 * in where the run and its store come from.
+	 * in where the log and its lease come from.
 	 */
 	const kernelResume = ({
 		entry,
+		sessionLog,
 		checkpointStore,
-		claimFence,
+		lease,
 		signal,
 		checkpointId,
 		listener,
-	}: Omit<ResumeDurableParams, 'entry'> & {
-		/** The run's address; a durable listing carries more, and only this is needed. */
-		readonly entry: Pick<DurableRunEntry, 'tenantId' | 'projectId' | 'sessionId' | 'runId'>
+	}: ResumeDurableParams & {
 		readonly checkpointId?: CheckpointId
-		readonly listener?: (event: RunEvent) => void
+		readonly listener?: (event: SessionEvent) => void
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
+			// The turn's own limits, as its `turn_started` recorded them.
 			const resumedLimits =
-				(await readStoredRunGuards(
-					join(pathBuilder.runDir(entry.projectId, entry.sessionId, entry.runId), 'run.json'),
-					entry,
-				)) ?? resolveRunGuards(options.limits)
+				(await readStoredTurnGuards(sessionLog, entry.turnId)) ?? resolveTurnGuards(options.limits)
 			// The same prelude a turn runs, and for the same reasons: a lapsed
 			// OAuth token has to be renewed before the provider is used, and the
 			// fallback chain has to be built AFTER that so its members do not
@@ -2793,28 +2868,26 @@ export async function createAgentSession(
 				options.permissionMode,
 				(name, input) => isPromptExempt(registry, name, input),
 			)
-			if (delegatedResumeHandlers.has(entry.runId)) {
-				throw new Error(`Run ${entry.runId} already owns a delegated review channel.`)
+			if (delegatedResumeHandlers.has(entry.turnId)) {
+				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
 			}
-			delegatedResumeHandlers.set(entry.runId, resumeHandler)
-			delegationScopes.set(entry.runId, { ...entry, topicId: scope.topicId })
-			delegationLimits.set(entry.runId, resumedLimits)
-			const runTaskStore = selectTaskStore(entry.runId, {
-				...entry,
-				topicId: scope.topicId,
-			})
+			const turnScope = { ...entry, topicId: scope.topicId }
+			delegatedResumeHandlers.set(entry.turnId, resumeHandler)
+			delegationScopes.set(entry.turnId, turnScope)
+			delegationLimits.set(entry.turnId, resumedLimits)
+			const turnTaskStore = selectTaskStore(turnScope)
 			try {
-				return await resumeRun({
+				return await resumeSession({
 					provider: providerForSession(entry.sessionId),
 					fallbackProviders: fallbackPlan.build(currentToken, entry.sessionId),
 					tools: registry,
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
 					skills: pluginSkills,
-					taskStore: runTaskStore,
+					taskStore: turnTaskStore,
 					...(webCapability ? { web: webCapability } : {}),
-					// The same availability the original run registered under.
-					// A resumed run re-registers the task tools; leaving them at
+					// The same availability the original turn registered under.
+					// A resumed turn re-registers the task tools; leaving them at
 					// the kernel's `deferred` default would hand the model a plan
 					// it started with active tools and can no longer update.
 					runtimeToolOverrides: {
@@ -2823,9 +2896,7 @@ export async function createAgentSession(
 						task_list: 'active',
 					},
 					...(subagentRuntime
-						? {
-								taskScheduler: await subagentRuntime.gatewayForRun(entry.runId),
-							}
+						? { taskScheduler: await subagentRuntime.gatewayForTurn(entry.turnId) }
 						: {}),
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
@@ -2833,8 +2904,8 @@ export async function createAgentSession(
 						? (options.compaction?.retainedToolPreviewChars ?? 4_000)
 						: undefined,
 					prepareStep: [
-						createTaskContextStep(runTaskStore, entry.tenantId),
-						createDelegationHistoryStep(projectStateRoot, entry.sessionId),
+						createTaskContextStep(turnTaskStore, entry.tenantId),
+						...savedAgentsSteps(entry.sessionId),
 						...(options.memory?.recall === false
 							? []
 							: [
@@ -2849,18 +2920,13 @@ export async function createAgentSession(
 					...(options.compaction?.consolidate
 						? { consolidateInto: memoryStore }
 						: { promoteMemory }),
-					projectInstructionContext: projectInstructions.createRunContext(),
-					pathBuilder,
+					projectInstructionContext: projectInstructions.createTurnContext(),
+					paths,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 					...(options.sandbox?.teardownTimeoutMs !== undefined
 						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
 						: {}),
-					// NOT `emergencySave`, unlike a turn. The manager is a singleton
-					// whose `attach` detaches whoever held it before, so a caller
-					// resuming several runs in one process would leave only the last
-					// one covered — and would look covered. A turn owns its process
-					// end to end; a drainer does not.
-					runConfig: {
+					turnConfig: {
 						model,
 						...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
@@ -2874,80 +2940,73 @@ export async function createAgentSession(
 					...(systemPrompt ? { systemPrompt } : {}),
 					workingDirectory: cwd,
 					...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
-					...(options.limits ? { limits: options.limits } : {}),
 					// No `onPermission`: there is nobody at a drainer's terminal, so a
-					// prompt would block the pass forever on a run nobody is watching.
+					// prompt would block the pass forever on a turn nobody is watching.
 					// The gate's deny rules still apply.
-					// One presenter for the whole stream, built from the registry this
-					// scope already holds. It was the absence of the registry HERE that
-					// forced presentation to be name matching: `toAgentEvent` was pure
-					// over a `RunEvent` and could not ask a tool anything.
 					resumeHandler,
 					signal: ownedSignal,
-					// Attribution comes from the ENTRY, not from this session: the run
+					// Attribution comes from the ENTRY, not from this session: the turn
 					// belongs to whoever started it, and stamping the drainer's ids onto
 					// it would file another tenant's work under this one.
 					tenantId: entry.tenantId,
 					projectId: entry.projectId,
 					sessionId: entry.sessionId,
-					// …except the topic, which no checkpoint records — see
-					// `RunStateScope`. This one is the drainer's, and honestly so:
-					// supplied here rather than pretended to have been recovered.
+					// …except the topic, which the drainer supplies honestly rather
+					// than pretending to have recovered it.
 					topicId: scope.topicId,
-					scope: { ...entry, topicId: scope.topicId },
-					checkpointStore,
-					...(claimFence !== undefined ? { claimFence } : {}),
+					scope: turnScope,
+					sessionLog,
+					checkpointStore:
+						checkpointStore ??
+						new DiskSessionCheckpointStore({ paths, log: sessionLogCheckpointView(sessionLog) }),
+					...(lease ? { lease } : {}),
 					...(checkpointId !== undefined ? { checkpointId } : {}),
-					...(listener ? { listener } : {}),
+					...(listener || options.onSessionEvent
+						? {
+								listener: (event: SessionEvent) => {
+									options.onSessionEvent?.(event)
+									listener?.(event)
+								},
+							}
+						: {}),
 				})
 			} finally {
-				if (delegatedResumeHandlers.get(entry.runId) === resumeHandler) {
-					delegatedResumeHandlers.delete(entry.runId)
-					delegationScopes.delete(entry.runId)
-					delegationLimits.delete(entry.runId)
-					await subagentRuntime?.releaseRun(entry.runId)
+				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
+					delegatedResumeHandlers.delete(entry.turnId)
+					delegationScopes.delete(entry.turnId)
+					delegationLimits.delete(entry.turnId)
+					await subagentRuntime?.releaseTurn(entry.turnId)
 				}
 			}
 		})
 	/**
-	 * `resumeRun` drains the loop and returns a settled run; the events go to a
-	 * listener. A small queue turns that into the stream `send` gives, so a
-	 * headless caller renders a resumed run exactly as it rendered the turn.
+	 * `resumeSession` drains the loop and returns a settled turn; the events go
+	 * to a listener. A small queue turns that into the stream `send` gives, so a
+	 * headless caller renders a resumed turn exactly as it rendered the first
+	 * segment.
 	 */
 	const resumePausedStream = ({
-		runId,
+		turnId,
 		checkpointId,
 		signal,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
-		const queue: RunEvent[] = []
+		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
 		let settled = false
 		let failure: Error | undefined
 		const presenter = createToolPresenter(registry)
-		// The store the turn's run manager wrote to, built the same way it
-		// built it (see the kernel's `RunPersistence`): the session directory's
-		// `runs/`, attributed to this tenant and project.
-		const store = new DiskCheckpointStore(
-			{
-				baseDir: join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs'),
-			},
-			{
+		// The log the turn appends to, and its checkpoints beside it.
+		const sessionLog = DiskSessionLog.at(paths, { sessionId: scope.sessionId })
+		const outcome = kernelResume({
+			entry: {
 				tenantId: scope.tenantId,
 				projectId: scope.projectId,
 				sessionId: scope.sessionId,
+				turnId: turnId as TurnId,
 			},
-		)
-		const entry = {
-			tenantId: scope.tenantId,
-			projectId: scope.projectId,
-			sessionId: scope.sessionId,
-			runId: runId as RunId,
-		}
-		const outcome = kernelResume({
-			entry,
-			checkpointStore: store,
+			sessionLog,
 			...(signal ? { signal } : {}),
-			checkpointId: checkpointId as CheckpointId,
+			...(checkpointId !== undefined ? { checkpointId: checkpointId as CheckpointId } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()
@@ -2957,8 +3016,11 @@ export async function createAgentSession(
 				if (!result.resumed) {
 					failure = new Error(
 						result.reason === 'no-checkpoint'
-							? `no checkpoint ${checkpointId} is recorded for run ${runId}`
-							: `run ${runId} is parked on a decision only a person can answer`,
+							? `no checkpoint ${checkpointId ?? ''} is recorded for turn ${turnId}`.replace(
+									'  ',
+									' ',
+								)
+							: `turn ${turnId} is parked on a decision only a person can answer`,
 					)
 				}
 			})
@@ -3005,25 +3067,30 @@ export async function createAgentSession(
 				const sessionId = scope.sessionId
 				const sessions = options.conversationSessions
 				await prepareProviderCredential(signal)
-				return compactNow({
-					messages,
+				const common = {
 					config: compactionConfigFor(options.compaction),
 					provider: providerForSession(sessionId),
 					model,
 					signal,
-					...(sessions
-						? {
-								onShed: async (removed: readonly Message[]) => {
-									if (
-										sessions.projectId !== scope.projectId ||
-										sessions.tenantId !== scope.tenantId
-									)
-										throw new Error('Manual compaction is outside the current conversation scope.')
-									await retainManualCompaction(sessions, sessionId, removed, signal)
-								},
-							}
-						: {}),
-				})
+				}
+				// A durable conversation compacts its own log: the kernel folds the
+				// context from it and appends a `compaction{ trigger: 'manual' }`
+				// record outside any turn, so the originals stay in the log and a
+				// resume folds the summary. A session with no log compacts the
+				// history it was handed.
+				if (sessions && !options.ephemeral) {
+					if (sessions.projectId !== scope.projectId || sessions.tenantId !== scope.tenantId)
+						throw new Error('Manual compaction is outside the current conversation scope.')
+					return await compactSession({
+						...common,
+						sessionId,
+						locator: {
+							log: DiskSessionLog.at(paths, { sessionId }),
+							index: sessions.index,
+						},
+					})
+				}
+				return compactNow({ ...common, messages })
 			}),
 		// Reads the same registry object the deferred registration mutates, at
 		// call time — the pair of `promptExemptTools` below, and for the same
@@ -3058,18 +3125,24 @@ export async function createAgentSession(
 				if (job.owner === jobOwner) listener(job)
 			}) ?? (() => {}),
 		...(subagentRuntime ? { subagents: subagentRuntime.activity } : {}),
-		savedChildren: () =>
-			replaySavedChildrenFor({
-				sessionsRoot: join(projectStateRoot, 'sessions'),
-				sessionId: scope.sessionId,
-				log: cliLogger(),
-			}),
-		listOrchestrationRuns: () =>
-			listSavedOrchestrationRuns({
-				sessionsRoot: join(projectStateRoot, 'sessions'),
-				sessionId: scope.sessionId,
-				log: cliLogger(),
-			}),
+		...(conversationIndex
+			? {
+					savedChildren: () =>
+						replaySavedChildrenFor({
+							index: conversationIndex,
+							paths,
+							session: { sessionId: scope.sessionId },
+							log: cliLogger(),
+						}),
+					listSavedBatches: () =>
+						listSavedBatches({
+							index: conversationIndex,
+							paths,
+							session: { sessionId: scope.sessionId },
+							log: cliLogger(),
+						}),
+				}
+			: {}),
 		get instructionFiles() {
 			return projectInstructions.instructionFiles
 		},
@@ -3125,9 +3198,8 @@ export async function createAgentSession(
 			operations.stream(opts?.signal, (signal) =>
 				(async function* () {
 					const selectTaskStore = beginTaskStoreReadout()
-					const runId = opts?.runId ?? generateRunId()
-					const turnLimits = resolveRunGuards(options.limits, opts?.limits)
-					const turnOpts: SendOptions = { ...opts, runId, signal }
+					const turnLimits = resolveTurnGuards(options.limits, opts?.limits)
+					const turnOpts: SendOptions = { ...opts, signal }
 					let runTools = registry
 					const resumeHandler = makeResumeHandler(
 						approval,
@@ -3135,15 +3207,33 @@ export async function createAgentSession(
 						opts?.permissionMode ?? options.permissionMode,
 						(name, input) => isPromptExempt(runTools, name, input),
 					)
-					if (delegatedResumeHandlers.has(runId)) {
-						throw new Error(`Run ${runId} already owns a delegated review channel.`)
-					}
-					delegatedResumeHandlers.set(runId, resumeHandler)
-					if (opts?.onModelSwitch) modelSwitchHandlers.set(runId, opts.onModelSwitch)
-					if (opts?.waitForInbound) delegatedInputWaiters.set(runId, opts.waitForInbound)
 					const turnScope = { ...scope }
-					delegationScopes.set(runId, turnScope)
-					delegationLimits.set(runId, turnLimits)
+					// The turn's id is reserved here, before the kernel begins it, because
+					// everything that authorizes the turn is keyed by it: the review
+					// channel its children borrow, the delegation gateway, the goal-round
+					// authority. A caller may reserve it itself (a resident step names
+					// its turn to its verifier first).
+					const turnId = opts?.turnId ?? generateTurnId()
+					const claimed = new Set<TurnId>()
+					let capturedAuthority: GoalRoundAuthority | undefined
+					const claimTurn = (turnId: TurnId): void => {
+						if (claimed.has(turnId)) return
+						if (delegatedResumeHandlers.has(turnId)) {
+							throw new Error(`Turn ${turnId} already owns a delegated review channel.`)
+						}
+						claimed.add(turnId)
+						delegatedResumeHandlers.set(turnId, resumeHandler)
+						if (opts?.onModelSwitch) modelSwitchHandlers.set(turnId, opts.onModelSwitch)
+						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
+						delegationScopes.set(turnId, turnScope)
+						delegationLimits.set(turnId, turnLimits)
+						if (capturedAuthority) {
+							if (goalAuthorities.has(turnId)) {
+								throw new Error(`Turn ${turnId} already owns goal-round authority.`)
+							}
+							goalAuthorities.set(turnId, capturedAuthority)
+						}
+					}
 					try {
 						// Renew a lapsed OAuth token before the turn runs (no-op for valid
 						// tokens and non-subscription credentials).
@@ -3230,8 +3320,8 @@ export async function createAgentSession(
 									? createResidentStepContext({
 											...contextOptions,
 											authorizeLearningRead: (context) =>
-												context.runId === runId &&
-												delegationScopes.get(context.runId) === turnScope,
+												claimed.has(context.turnId) &&
+												delegationScopes.get(context.turnId) === turnScope,
 										})
 									: { contributions: createResidentStepContributions(contextOptions), tools: [] }
 							if (bundle.tools.length) {
@@ -3273,9 +3363,7 @@ export async function createAgentSession(
 								.join('\n\n') || undefined
 						await announceSessionStart()
 						checkpoints.beginTurn(lastUserText(messages))
-						let capturedAuthority: GoalRoundAuthority | undefined
 						if (opts?.goalRound) {
-							if (!opts.runId) throw new Error('A goal round requires a caller-reserved runId.')
 							if (!options.sessionGoals) throw new Error('This session has no durable goal store.')
 							if (
 								opts.goalRound.sessionId !== scope.sessionId ||
@@ -3295,13 +3383,34 @@ export async function createAgentSession(
 							) {
 								throw new Error('Goal-round authority is stale or does not match the durable goal.')
 							}
-							if (goalAuthorities.has(opts.runId)) {
-								throw new Error(`Run ${opts.runId} already owns goal-round authority.`)
-							}
 							capturedAuthority = Object.freeze({ ...opts.goalRound })
-							goalAuthorities.set(opts.runId, capturedAuthority)
 						}
-						const runTaskStore = selectTaskStore(runId, turnScope)
+						claimTurn(turnId)
+						const turnTaskStore = selectTaskStore(turnScope)
+						// An ephemeral session keeps its whole turn in memory: a fresh
+						// log per send, opened with the `session_started` a turn follows.
+						// A durable one appends to `<session-id>.jsonl`, created first
+						// when this session is the one bringing it into existence.
+						let ephemeralLog: InMemorySessionLog | undefined
+						if (options.ephemeral) {
+							ephemeralLog = new InMemorySessionLog({ sessionId: turnScope.sessionId })
+							await ensureSessionStarted(ephemeralLog, {
+								...turnScope,
+								cwd,
+								agent: { id: 'namzu', name: 'namzu' },
+								...(options.origin ? { origin: options.origin } : {}),
+							})
+						} else {
+							await ensureSessionStarted(
+								DiskSessionLog.at(paths, { sessionId: turnScope.sessionId }),
+								{
+									...turnScope,
+									cwd,
+									agent: { id: 'namzu', name: 'namzu' },
+									...(options.origin ? { origin: options.origin } : {}),
+								},
+							)
+						}
 						try {
 							yield* runTurn({
 								provider: providerForSession(turnScope.sessionId),
@@ -3331,7 +3440,10 @@ export async function createAgentSession(
 								skillRegistry: pluginRuntime?.skills,
 								skills: pluginSkills,
 								scope: turnScope,
-								pathBuilder,
+								turnId,
+								paths,
+								...(ephemeralLog ? { sessionLog: ephemeralLog } : {}),
+								claimTurn,
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
 								limits: turnLimits,
@@ -3342,8 +3454,8 @@ export async function createAgentSession(
 								maxAnswerReviews: options.maxAnswerReviews,
 								promoteMemory: options.compaction?.consolidate ? undefined : promoteMemory,
 								prepareStep: [
-									createTaskContextStep(runTaskStore, turnScope.tenantId),
-									createDelegationHistoryStep(projectStateRoot, turnScope.sessionId),
+									createTaskContextStep(turnTaskStore, turnScope.tenantId),
+									...savedAgentsSteps(turnScope.sessionId),
 									...(options.memory?.recall === false
 										? []
 										: [
@@ -3357,14 +3469,14 @@ export async function createAgentSession(
 									...evidenceRecallFor(turnScope.sessionId),
 									...(options.residentEvidenceRecall ? [options.residentEvidenceRecall] : []),
 								],
-								taskStore: runTaskStore,
+								taskStore: turnTaskStore,
 								systemPrompt,
 								messages,
-								projectInstructionContext: projectInstructions.createRunContext(),
+								projectInstructionContext: projectInstructions.createTurnContext(),
 								opts: turnOpts,
 								resumeHandler,
-								taskGateway: await subagentRuntime?.gatewayForRun(runId),
-								completionInbox: await subagentRuntime?.completionInboxForRun(runId),
+								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
+								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
 								...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
@@ -3375,8 +3487,7 @@ export async function createAgentSession(
 									task_update: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 									task_list: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 								},
-								emergencySave: options.emergencySave ?? true,
-								onRunEvent: options.onRunEvent,
+								onSessionEvent: options.onSessionEvent,
 								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 								...(options.sandbox?.teardownTimeoutMs !== undefined
 									? {
@@ -3385,34 +3496,35 @@ export async function createAgentSession(
 									: {}),
 							})
 						} finally {
-							if (
-								opts?.runId &&
-								capturedAuthority &&
-								goalAuthorities.get(opts.runId) === capturedAuthority
-							) {
-								goalAuthorities.delete(opts.runId)
+							for (const turnId of claimed) {
+								if (capturedAuthority && goalAuthorities.get(turnId) === capturedAuthority) {
+									goalAuthorities.delete(turnId)
+								}
 							}
 						}
 					} finally {
-						if (delegatedResumeHandlers.get(runId) === resumeHandler) {
-							delegatedResumeHandlers.delete(runId)
-							modelSwitchHandlers.delete(runId)
-							delegatedInputWaiters.delete(runId)
-							delegationScopes.delete(runId)
-							delegationLimits.delete(runId)
-							await subagentRuntime?.releaseRun(runId)
+						for (const turnId of claimed) {
+							if (delegatedResumeHandlers.get(turnId) !== resumeHandler) continue
+							delegatedResumeHandlers.delete(turnId)
+							modelSwitchHandlers.delete(turnId)
+							delegatedInputWaiters.delete(turnId)
+							delegationScopes.delete(turnId)
+							delegationLimits.delete(turnId)
+							await subagentRuntime?.releaseTurn(turnId)
 						}
 					}
 				})(),
 			),
-		resumeDurable: ({ entry, checkpointStore, claimFence, signal }) =>
-			kernelResume({
-				entry,
-				checkpointStore,
-				...(claimFence !== undefined ? { claimFence } : {}),
-				...(signal ? { signal } : {}),
-			}),
+		resumeDurable: (params) => kernelResume(params),
 		resumePaused: (params) => resumePausedStream(params),
+		abandonTurn: (turnId, reason) =>
+			operations.promise(undefined, async () => {
+				if (options.ephemeral) throw new Error('An ephemeral session keeps no turn to abandon.')
+				await abandonTurn(scope.sessionId, turnId, reason, {
+					log: DiskSessionLog.at(paths, { sessionId: scope.sessionId }),
+					...(options.conversationSessions ? { index: options.conversationSessions.index } : {}),
+				})
+			}),
 	}
 }
 
@@ -3847,7 +3959,7 @@ export async function listProviderModels(
 	return listing.kind === 'ok' ? [...listing.models] : []
 }
 
-export interface RunScope {
+export interface SessionScope {
 	/**
 	 * The active conversation. Chosen before the conversation is written
 	 * and never replaced by a provisional value; it changes only when the
@@ -3882,17 +3994,18 @@ function lastUserText(messages: readonly Message[]): string {
 /**
  * A scope for a session no host supplied one for.
  *
- * The Project is derived from the working directory's checkout, not minted:
- * a minted one gave every session a Project of its own, so generated memory
- * and task state were partitioned per launch and a second session in the same
- * directory could not see what the first had saved. The session, topic and
- * tenant stay minted — nothing here has a store to find existing ones in.
+ * The project is the one the working directory's checkout stands for
+ * (`projects/<slug>/project.json`), not minted: a minted one gave every
+ * session a project of its own, so generated memory and task state were
+ * partitioned per launch and a second session in the same directory could
+ * not see what the first had saved. The session, topic and tenant stay
+ * minted — nothing here has a store to find existing ones in.
  */
-function mintScope(cwd: string): RunScope {
+function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 	return {
-		sessionId: generateSessionId(),
+		sessionId: sessionId ?? generateSessionId(),
 		topicId: generateTopicId(),
-		projectId: projectIdForDirectory(cliProjectRoot(cwd)),
+		projectId,
 		tenantId: generateTenantId(),
 	}
 }
@@ -3983,8 +4096,7 @@ function compactionConfigFor(compaction: CompactionCliConfig | undefined): Compa
  * them are strings, so `workingDirectory` and `systemPrompt` would sit next
  * to each other with nothing but call order to keep them apart.
  */
-interface RunTurnParams {
-	readonly emergencySave: boolean
+interface TurnParams {
 	readonly retainedToolPreviewChars?: number
 	readonly provider: LLMProvider
 	/** The kernel's compaction configuration for this session, strategy included. */
@@ -4004,15 +4116,21 @@ interface RunTurnParams {
 	readonly pluginManager: PluginLifecycleManager | undefined
 	readonly skillRegistry: SkillRegistry | undefined
 	readonly skills: Skill[] | undefined
-	readonly scope: RunScope
-	/** Exact durable layout shared by turns, resume, and boot migration. */
-	readonly pathBuilder: CliPathBuilder
+	readonly scope: SessionScope
+	/** The id reserved for this turn; the kernel begins the turn under it. */
+	readonly turnId: TurnId
+	/** The project layout the session log and its files live in. */
+	readonly paths: SessionPaths
+	/** An in-memory log for an ephemeral session; absent means the log under {@link paths}. */
+	readonly sessionLog?: SessionLog
+	/** Register the turn's authority under an id the kernel reports, if it is not the reserved one. */
+	readonly claimTurn: (turnId: TurnId) => void
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	readonly additionalDirectories?: readonly string[]
 	/** See `NamzuCliConfig.limits`. */
-	readonly limits?: RunLimitsConfig
+	readonly limits?: TurnLimitsConfig
 	/** The project tree a sandboxed turn is rooted at. */
 	readonly sandboxWorkspace: 'working-directory' | 'ephemeral'
 	/** Operator rules for this run, already compiled. */
@@ -4037,7 +4155,7 @@ interface RunTurnParams {
 	/** Host text for the `turn` placement; absent means none this session. */
 	readonly promptContributions?: PromptContributionRegistry
 	/** How this turn reaches the web; absent means the web tools report themselves unwired. */
-	readonly webSearch?: NonNullable<Parameters<typeof query>[0]['runConfig']>['webSearch']
+	readonly webSearch?: NonNullable<Parameters<typeof query>[0]['turnConfig']>['webSearch']
 	readonly web?: NonNullable<Parameters<typeof query>[0]['web']>
 	/**
 	 * Availability the task tools register with. The kernel's default is
@@ -4046,8 +4164,8 @@ interface RunTurnParams {
 	 * the model plans the way the doctrine tells it to.
 	 */
 	readonly runtimeToolOverrides?: NonNullable<Parameters<typeof query>[0]['runtimeToolOverrides']>
-	/** See {@link AgentSessionOptions.onRunEvent}. */
-	readonly onRunEvent: ((event: RunEvent) => void) | undefined
+	/** See {@link AgentSessionOptions.onSessionEvent}. */
+	readonly onSessionEvent: ((event: SessionEvent) => void) | undefined
 	/**
 	 * Where this turn's commands run. Absent means the host process, which
 	 * is what every turn did before the CLI built one.
@@ -4058,7 +4176,6 @@ interface RunTurnParams {
 }
 
 async function* runTurn({
-	emergencySave,
 	retainedToolPreviewChars,
 	fileReadTracker,
 	provider,
@@ -4073,7 +4190,10 @@ async function* runTurn({
 	skillRegistry,
 	skills,
 	scope,
-	pathBuilder,
+	turnId,
+	paths,
+	sessionLog,
+	claimTurn,
 	workingDirectory,
 	limits,
 	additionalDirectories,
@@ -4098,23 +4218,26 @@ async function* runTurn({
 	web,
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
-	onRunEvent,
-}: RunTurnParams): AsyncIterable<AgentEvent> {
+	onSessionEvent,
+}: TurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	// One presenter for the whole stream, built from the registry this scope
 	// already holds. Its absence HERE is what forced presentation to be name
-	// matching in the first place: `toAgentEvent` is pure over a `RunEvent`
+	// matching in the first place: `toAgentEvent` is pure over a `SessionEvent`
 	// and could not ask a tool anything, so the host guessed from the name.
 	const presenter = createToolPresenter(tools)
-	const turnStartedAt = Date.now()
 	try {
 		const events = query({
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
 			provider,
-			pathBuilder,
-			...(opts?.runId ? { runId: opts.runId } : {}),
+			paths,
+			...(sessionLog ? { sessionLog } : {}),
+			// Reserved by the session, so a new turn begins under this id.
+			turnId,
+			...(opts?.origin ? { origin: opts.origin } : {}),
+			...(opts?.abandonInterrupted ? { abandonInterrupted: true } : {}),
 			// Omitted rather than empty when there is no tail. `query` treats the
 			// two the same, but an absent option reads as "this run has no chain"
 			// where `[]` reads as "this run has a chain with nothing in it".
@@ -4138,15 +4261,12 @@ async function* runTurn({
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
-			// Interactive chat may own process exit. An enclosing resident host
-			// instead drains the run and writes its finish/runner receipts first.
-			emergencySave,
-			runConfig: {
+			turnConfig: {
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(webSearch ? { webSearch } : {}),
-				...resolveRunGuards(limits),
+				...resolveTurnGuards(limits),
 				maxResponseTokens: 8192,
 				permissionMode: 'auto',
 				// The kernel keeps every checkpoint unless told otherwise.
@@ -4187,37 +4307,35 @@ async function* runTurn({
 				const next = await events.next()
 				if (next.done) {
 					settled = true
-					// The CLI continues a conversation under a new run id, so a
-					// dump an interrupted earlier turn left is never cleared by the
-					// kernel. This turn completing is what makes it outlived.
-					if (emergencySave && next.value?.status === 'completed') {
-						clearOutlivedEmergencySaves(
-							join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs'),
-							turnStartedAt,
-						)
-					}
-					// A Run contains its fresh static/dynamic system floor as well as the
-					// conversation. Only the latter crosses this host seam. Compaction
-					// summaries survive because they ARE conversation state; arbitrary
-					// system prompts are rebuilt fresh on every send and stay private to it.
-					opts?.onConversationMessages?.(projectRunConversation(next.value.messages))
+					// A Turn contains its fresh static/dynamic system floor as well as
+					// the conversation. Only the latter crosses this host seam.
+					// Compaction summaries survive because they ARE conversation state;
+					// arbitrary system prompts are rebuilt fresh on every send and stay
+					// private to it.
+					opts?.onConversationMessages?.(projectTurnConversation(next.value.messages))
 					return
 				}
 				const event = next.value
+				// Every event inside a turn names it. Should the kernel have begun the
+				// turn under an id other than the reserved one, that id gets the same
+				// authority before any of its tools can run.
+				if ('turnId' in event && typeof event.turnId === 'string' && event.turnId !== turnId) {
+					claimTurn(event.turnId as TurnId)
+				}
 				// Before the abort check and before `toAgentEvent`: a session
 				// cancelled mid-turn still produced the events up to that point, and
 				// they are the interesting ones. Every event, not just the ones the
 				// TUI renders — an export that only saw what the screen showed would
 				// be a recording of the interface rather than of the session.
-				onRunEvent?.(event)
+				onSessionEvent?.(event)
 				if (signal?.aborted) {
 					if (!abortReported) {
 						abortReported = true
 						yield { kind: 'error', message: 'aborted' }
 					}
 					// Let cancellation settle in the kernel. Calling return() here
-					// discarded its Run and forced App to save only visible prose,
-					// losing tool receipts and reasoning before the next user turn.
+					// discarded its Turn before the recorder closed it, losing tool
+					// receipts and reasoning before the next user turn.
 					continue
 				}
 				const mapped = toAgentEvent(event, presenter)
@@ -4225,12 +4343,31 @@ async function* runTurn({
 				yield mapped
 			}
 		} finally {
-			// Manual iteration is what exposes the generator's Run return value.
+			// Manual iteration is what exposes the generator's Turn return value.
 			// Preserve `for await`'s other guarantee too: a consumer that stops
 			// early must close the live query instead of abandoning its transport.
 			if (!settled) await drainIterator(events)
 		}
 	} catch (err) {
+		if (isTurnInProgressError(err)) {
+			// Nothing was begun: the conversation already has an active turn. Said
+			// by name, with the turn and its state, because the ways out differ —
+			// a paused turn is resumed or abandoned, a running one is waited for.
+			yield {
+				kind: 'error',
+				message: `This conversation already has a ${err.state} turn (${err.activeTurnId}). ${
+					err.state === 'running'
+						? 'Wait for it to finish.'
+						: 'Resume it with /resume, or close it with /abandon.'
+				}`,
+				turnInProgress: {
+					sessionId: String(err.sessionId),
+					activeTurnId: String(err.activeTurnId),
+					state: err.state,
+				},
+			}
+			return
+		}
 		yield {
 			kind: 'error',
 			message: err instanceof Error ? err.message : String(err),
@@ -4280,15 +4417,15 @@ export function promptExemptToolNames(registry: ToolRegistry): readonly string[]
 export const batchNeedsPrompt = batchNeedsReview
 
 /**
- * Translate one SDK `RunEvent` into the TUI's `AgentEvent` vocabulary, or
+ * Translate one SDK `SessionEvent` into the TUI's `AgentEvent` vocabulary, or
  * `null` for events the chat surface doesn't render (iteration markers,
- * token usage, checkpoints, plan/task lifecycle, …). Pure — unit-tested.
+ * checkpoints, plan lifecycle, …). Pure — unit-tested.
  */
-export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEvent | null {
+export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): AgentEvent | null {
 	switch (event.type) {
 		case 'hosted_tool': {
 			const common = {
-				runId: event.runId,
+				turnId: event.turnId,
 				toolUseId: event.tool.id,
 				toolName: 'web_search',
 			}
@@ -4313,7 +4450,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				text: event.text,
 				...(event.textPart ? { textPart: event.textPart } : {}),
 				...(event.messageId ? { messageId: event.messageId } : {}),
-				...(event.runId ? { runId: event.runId } : {}),
+				...(event.turnId ? { turnId: event.turnId } : {}),
 			}
 		case 'reasoning_started':
 			// A redacted block has no text to show; the empty delta still says
@@ -4326,7 +4463,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 		case 'tool_executing':
 			return {
 				kind: 'tool-start',
-				runId: event.runId,
+				turnId: event.turnId,
 				...(event.toolName === 'wait_for_task' &&
 				typeof (event.input as { task_id?: unknown } | null)?.task_id === 'string'
 					? { taskId: (event.input as { task_id: string }).task_id }
@@ -4348,7 +4485,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 		case 'tool_progress':
 			return {
 				kind: 'tool-progress',
-				runId: event.runId,
+				turnId: event.turnId,
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				message: event.message,
@@ -4377,7 +4514,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			return {
 				kind: 'tool-end',
 				output: event.result,
-				runId: event.runId,
+				turnId: event.turnId,
 				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				isError: event.isError,
@@ -4399,6 +4536,8 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			// cannot ground, and a `0` here would ground a wrong one.
 			return {
 				kind: 'usage',
+				sessionId: event.sessionId,
+				...(event.turnId ? { turnId: event.turnId } : {}),
 				totalTokens: event.usage.totalTokens,
 				...(event.budget ? { budget: event.budget } : {}),
 				cost: event.cost,
@@ -4457,7 +4596,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 				subject: event.subject,
 				status: event.status,
 			}
-		case 'run_paused':
+		case 'turn_paused':
 			// A pause is not an error and not an invisible end. The checkpoint and
 			// classification are the recovery surface; dropping this event made a
 			// shell report success and let the interactive queue run on a premise
@@ -4465,26 +4604,28 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			return {
 				kind: 'paused',
 				...(event.budget ? { budget: event.budget } : {}),
-				runId: String(event.runId),
+				turnId: String(event.turnId),
 				checkpointId: event.checkpointId,
 				reason: event.reason,
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),
 			}
-		case 'run_completed':
-			// Carried through rather than dropped: `run_failed` fires only from
+		case 'turn_completed':
+			// Carried through rather than dropped: `turn_failed` fires only from
 			// the throw path, so this event is also how a budget stop, a
 			// timeout, a cancellation and a blocked output guardrail arrive. A
-			// consumer that reads this as success reports one for a run whose
+			// consumer that reads this as success reports one for a turn whose
 			// answer was refused.
 			return {
 				kind: 'done',
+				sessionId: event.sessionId,
+				turnId: event.turnId,
 				text: event.result,
 				...(event.budget ? { budget: event.budget } : {}),
 				...(event.stopReason ? { stopReason: event.stopReason } : {}),
 			}
-		case 'run_failed':
+		case 'turn_failed':
 			// Keep the compatibility string and the structure. Prefixing the
 			// message with only the coarse `provider_error` code discarded the
 			// stable explanation, retry delay and first-hand provider detail while

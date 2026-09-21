@@ -68,6 +68,8 @@ vi.mock('../../user-commands/store.js', () => ({
 	discoverUserCommands: () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId: '29b3a0cc-469e-4536-8e4d-ac3301a586a6',
 	}),

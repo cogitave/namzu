@@ -1,6 +1,6 @@
 /** A resource stop must not look like the agent quietly forgot the conversation. */
 
-import type { Message, StopReason, TokenBudgetSummary } from '@namzu/sdk'
+import type { Message, StopReason, SessionTokenBudgetSummary } from '@namzu/sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -17,12 +17,14 @@ const partial = 'I inspected the package entry points.'
 const followup = 'Continue from those findings.'
 const sent: Message[][] = []
 let stopReason: StopReason | undefined
-let budget: TokenBudgetSummary | undefined
+let budget: SessionTokenBudgetSummary | undefined
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 'a3b15478-78be-44e8-ad59-f6e4cec8a1ec' }),
 	startConversation: async () => 'f173a4b7-62d2-4705-878b-d15f52c8cde8',
 	requireWritableConversation: async () => {},
@@ -123,7 +125,7 @@ it.each([
 		await until(screen, () => screen.viewport().join('\n').includes(notice))
 		const stopped = screen.viewport().join('\n')
 		expect(stopped).toContain(partial)
-		expect(stopped).toContain('Run stopped:')
+		expect(stopped).toContain('Turn stopped:')
 		expect(stopped).toContain('Type a message')
 		expect(stopped).not.toContain('Working')
 		expect(stopped).not.toContain('tokens spent')
@@ -134,7 +136,7 @@ it.each([
 		expect(sent).toHaveLength(2)
 		expect(JSON.stringify(sent[1])).toContain(partial)
 		expect(JSON.stringify(sent[1])).toContain(followup)
-		expect(screen.scrollback().join('\n').match(/Run stopped:/g)).toHaveLength(1)
+		expect(screen.scrollback().join('\n').match(/Turn stopped:/g)).toHaveLength(1)
 	} finally {
 		await screen.unmount()
 	}
@@ -154,8 +156,8 @@ it.each([undefined, 'end_turn', 'cancelled'] as const)(
 			await until(screen, () => screen.viewport().join('\n').includes(partial))
 			await submit(screen, followup)
 			await until(screen, () => sent.length === 2)
-			expect(screen.scrollback().join('\n')).not.toContain('Run stopped')
-			expect(screen.scrollback().join('\n')).not.toContain('Run paused')
+			expect(screen.scrollback().join('\n')).not.toContain('Turn stopped')
+			expect(screen.scrollback().join('\n')).not.toContain('Turn paused')
 		} finally {
 			await screen.unmount()
 		}

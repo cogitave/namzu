@@ -27,7 +27,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { appendMessages, openSessions } from '../../integrations/sessions/store.js'
+import { openSessions } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession, probeAgentSession } from '../../tui/agent.js'
 import { runStreamCommand } from '../run-stream.js'
@@ -37,8 +37,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: vi.fn(async () => ({}) as never),
 	resolveConversation: vi.fn(async () => 'conv-1' as never),
 	loadConversation: vi.fn(async () => []),
-	appendMessages: vi.fn(async () => undefined),
-	replaceConversation: vi.fn(async () => undefined),
+	closeSessions: vi.fn(),
 }))
 
 const trusted = { value: true }
@@ -105,8 +104,8 @@ afterEach(() => {
 })
 
 describe('one terminal event per streamed run', () => {
-	it('publishes and persists the settled result separately from streamed candidates', async () => {
-		vi.mocked(appendMessages).mockClear()
+	it('publishes the settled result separately from streamed candidates, into the keyed conversation', async () => {
+		vi.mocked(createAgentSession).mockClear()
 		vi.mocked(createAgentSession).mockResolvedValue(
 			fakeAgentSession({
 				send: async function* () {
@@ -128,10 +127,56 @@ describe('one terminal event per streamed run', () => {
 			stopReason: 'end_turn',
 			text: 'Corrected answer.',
 		})
-		expect(vi.mocked(appendMessages).mock.calls.at(-1)?.[2]).toEqual([
-			expect.objectContaining({ role: 'user', content: 'hello' }),
-			expect.objectContaining({ role: 'assistant', content: 'Corrected answer.' }),
-		])
+		// The kernel records the turn in the conversation's log while it runs;
+		// the command hands the session that log rather than writing after it.
+		expect(vi.mocked(createAgentSession).mock.calls.at(-1)?.[2]).toMatchObject({
+			scope: { sessionId: 'conv-1' },
+			conversationSessions: {},
+		})
+	})
+
+	it('runs a stateless turn in an in-memory log, writing nothing', async () => {
+		vi.mocked(createAgentSession).mockClear()
+		const { code } = await run(['hello'])
+		expect(code).toBe(0)
+		const options = vi.mocked(createAgentSession).mock.calls.at(-1)?.[2]
+		expect(options).toMatchObject({ ephemeral: true })
+		expect(options).not.toHaveProperty('conversationSessions')
+	})
+
+	it('exits 75 with turn_in_progress when the keyed conversation already has an active turn', async () => {
+		vi.mocked(createAgentSession).mockResolvedValue(
+			fakeAgentSession({
+				send: async function* () {
+					yield {
+						kind: 'error',
+						message: 'This conversation already has a paused turn.',
+						turnInProgress: {
+							sessionId: 'conv-1',
+							activeTurnId: '019a0000-0000-7000-8000-00000000abcd',
+							state: 'paused',
+						},
+					}
+				},
+			}),
+		)
+		const { out, code } = await run(['--session', '0614a7ea-f67e-4e8a-b36c-6de629acfb18', 'hello'])
+		expect(code).toBe(75)
+		const events = out
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line))
+		expect(events).toContainEqual(
+			expect.objectContaining({
+				kind: 'error',
+				code: 'turn_in_progress',
+				turnInProgress: expect.objectContaining({
+					activeTurnId: '019a0000-0000-7000-8000-00000000abcd',
+					state: 'paused',
+				}),
+			}),
+		)
+		expect(events.at(-1)).toMatchObject({ kind: 'done', sessionId: 'conv-1' })
 	})
 
 	it('keeps the stop reason and emits done once', async () => {
@@ -364,6 +409,7 @@ it('keeps own usage separate and carries the latest tree snapshot into a synthes
 		reservedTokens: 0,
 		remainingTokens: 750,
 		inFlightRequests: 0,
+		unresolvedRequests: 0,
 		unsettledChildren: 0,
 		poisoned: false,
 	}

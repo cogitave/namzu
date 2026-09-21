@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { type Message, ProviderRegistry, createUserMessage } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type DetectedProvider,
@@ -12,7 +13,6 @@ import {
 	type Preferences,
 } from '../../integrations/providers/index.js'
 import {
-	appendMessages,
 	loadConversation,
 	openSessions,
 	startConversation,
@@ -135,8 +135,11 @@ it('keeps native items through a tool continuation, persistence and a new Sessio
 		await first.close()
 	}
 	if (!produced) throw new Error('Session did not publish messages')
-	await appendMessages(store, sessionId, produced)
-	const loaded = await loadConversation(store, sessionId)
+	// The exact messages round-trip through a session log, as the kernel's
+	// recorder writes them.
+	const recorded = await startConversation(store)
+	await recordTurn(store, recorded, produced)
+	const loaded = await loadConversation(store, recorded)
 	expect(loaded.filter((m) => m.role === 'assistant').map((m) => m.source)).toMatchObject([
 		{ replayState: { content: null, items: [reasoning, call] } },
 		{ replayState: { content: 'Read the fixture.', items: [answer] } },

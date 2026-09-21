@@ -1,7 +1,7 @@
 /** Real tool presenters and event adapter reach the rendered transcript. */
 
 import { afterEach, expect, it, vi } from 'vitest'
-import { ToolRegistry, ReadFileTool, GrepTool, JobTool, createToolPresenter, generateRunId, type RunEvent } from '@namzu/sdk'
+import { ToolRegistry, ReadFileTool, GrepTool, JobTool, createToolPresenter, generateTurnId, type SessionEvent } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
@@ -17,6 +17,8 @@ const PREFS: Preferences = {
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -63,15 +65,15 @@ vi.mock('../agent.js', async (importOriginal) => {
 				const registry = new ToolRegistry()
 				registry.register([ReadFileTool, GrepTool, JobTool])
 				const presenter = createToolPresenter(registry)
-				const runId = generateRunId()
+				const turnId = generateTurnId()
                 const calls = [{ toolName: 'agent_models', input: { query: 'muse' }, result: JSON.stringify({ models: [{ provider: 'zen', id: 'muse-spark-1.3-contributor-free', name: 'Muse Spark 1.3 Contributor Free', contextWindow: 1048576, effortLevels: ['low', 'medium', 'high'], supportsAnonymousAccess: true }], omitted: 0 }), isError: false }]
 
 				for (const [index, call] of calls.entries()) {
 					for (const event of [
-						{ type: 'tool_executing', runId, toolUseId: `call-${index}`, toolName: call.toolName, input: call.input },
-						{ type: 'tool_completed', runId, toolUseId: `call-${index}`, toolName: call.toolName, result: call.result, isError: call.isError ?? false },
+						{ type: 'tool_executing', turnId, toolUseId: `call-${index}`, toolName: call.toolName, input: call.input },
+						{ type: 'tool_completed', turnId, toolUseId: `call-${index}`, toolName: call.toolName, result: call.result, isError: call.isError ?? false },
 					]) {
-						const mapped = actual.toAgentEvent(event as RunEvent, presenter)
+						const mapped = actual.toAgentEvent(event as unknown as SessionEvent, presenter)
 						if (mapped) yield mapped
 					}
 				}

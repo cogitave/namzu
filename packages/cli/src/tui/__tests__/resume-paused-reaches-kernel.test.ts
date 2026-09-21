@@ -1,45 +1,49 @@
 /**
- * `session.resumePaused` hands the kernel's resume this session's own run.
+ * `session.resumePaused` hands the kernel's resume this session's own turn.
  *
- * The pause itself is proven elsewhere (`paused-run-reaches-session`). What
- * this pins is the half a headless caller cannot see: the run is addressed
- * under THIS session's ids, the checkpoint the pause named is the one asked
- * for, the store is the disk store the turn wrote to, and the events the
- * kernel hands a listener come back out as the same stream `send` gives —
- * ending with an error, not silence, when there was nothing to resume.
+ * The pause itself is proven elsewhere (`paused-turn-reaches-session`). What
+ * this pins is the half a headless caller cannot see: the turn is addressed
+ * under THIS session's ids and the same turn id, the checkpoint the pause
+ * named is the one asked for, the log is the conversation's own, and the
+ * events the kernel hands a listener come back out as the same stream `send`
+ * gives — ending with an error, not silence, when there was nothing to resume.
  */
 
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type RunEvent, asRunId } from '@namzu/sdk'
+import { type SessionEvent, asTurnId, generateMessageId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
-import { CliPathBuilder } from '../../integrations/sessions/paths.js'
-import { openSessions, startConversation } from '../../integrations/sessions/store.js'
+import {
+	conversationLogPath,
+	openConversationLog,
+	openSessions,
+	startConversation,
+} from '../../integrations/sessions/store.js'
 
 const resumeCalls: Record<string, unknown>[] = []
-let resumeOutcome: unknown = { resumed: true, run: {}, state: {} }
+let resumeOutcome: unknown = { resumed: true, turn: {}, state: {} }
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
-		resumeRun: async (params: Record<string, unknown>) => {
+		resumeSession: async (params: Record<string, unknown>) => {
 			resumeCalls.push(params)
-			const listener = params.listener as ((event: RunEvent) => void) | undefined
+			const listener = params.listener as ((event: SessionEvent) => void) | undefined
 			listener?.({
 				type: 'text_delta',
-				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				text: 'picked up ',
-			} as unknown as RunEvent)
+			} as unknown as SessionEvent)
 			listener?.({
 				type: 'text_delta',
-				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				text: 'where it left off',
-			} as unknown as RunEvent)
+			} as unknown as SessionEvent)
 			return resumeOutcome
 		},
 	}
@@ -70,7 +74,7 @@ const roots: string[] = []
 
 afterEach(() => {
 	resumeCalls.length = 0
-	resumeOutcome = { resumed: true, run: {}, state: {} }
+	resumeOutcome = { resumed: true, turn: {}, state: {} }
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
@@ -87,79 +91,79 @@ async function openSession() {
 	}
 	const { createAgentSession } = await import('../agent.js')
 	return {
-		session: await createAgentSession(preferences, detected, { cwd, stateRoot, scope }),
+		session: await createAgentSession(preferences, detected, {
+			cwd,
+			stateRoot,
+			scope,
+			conversationSessions: conversations,
+		}),
 		scope,
 		stateRoot,
+		conversations,
 	}
 }
 
-describe('resuming this session’s own paused run', () => {
+/** Open a turn in the conversation's log with the limits it recorded. */
+async function recordTurnStart(
+	conversations: Awaited<ReturnType<typeof openSessions>>,
+	sessionId: Parameters<typeof openConversationLog>[1],
+	config: Record<string, number>,
+) {
+	const log = openConversationLog(conversations, sessionId)
+	const lease = await log.claim({ holder: 'test-resume', ttlMs: 10_000 })
+	if (!lease) throw new Error('fixture could not lease the log')
+	await log.beginTurn(lease, {
+		turnId: asTurnId('3b0329bb-f60a-48dc-9552-1b386c52cfe8'),
+		userMessageId: generateMessageId(),
+		config: { model: 'test-model', ...config } as never,
+	})
+	await log.release(lease)
+}
+
+describe('resuming this session’s own paused turn', () => {
 	it.each([
 		{ tokenBudget: 12000, maxIterations: 7, timeoutMs: 120000 },
 		{ tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
-	])('reopens a paused run with its recorded limits: %j', async (limits) => {
-		const { session, stateRoot, scope } = await openSession()
-		const runId = asRunId('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
-		const dir = new CliPathBuilder(stateRoot).runDir(scope.projectId, scope.sessionId, runId)
-		mkdirSync(dir, { recursive: true })
-		writeFileSync(
-			join(dir, 'run.json'),
-			JSON.stringify({
-				schemaVersion: 1,
-				id: runId,
-				metadata: { scope: { ...scope, runId }, config: limits },
-			}),
-		)
+	])('reopens a paused turn with its recorded limits: %j', async (limits) => {
+		const { session, scope, conversations } = await openSession()
+		await recordTurnStart(conversations, scope.sessionId, limits)
 		try {
 			for await (const event of session.resumePaused({
-				runId,
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
 			})) {
 				if (event.kind === 'error') throw new Error(event.message)
 			}
-			expect(resumeCalls[0]?.runConfig).toMatchObject(limits)
+			expect(resumeCalls[0]?.turnConfig).toMatchObject(limits)
 		} finally {
 			await session.close()
 		}
 	})
 
-	it('refuses a stored limit record from another scope instead of replacing it with unlimited defaults', async () => {
-		const { session, stateRoot, scope } = await openSession()
-		const runId = asRunId('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
-		const dir = new CliPathBuilder(stateRoot).runDir(scope.projectId, scope.sessionId, runId)
-		mkdirSync(dir, { recursive: true })
-		writeFileSync(
-			join(dir, 'run.json'),
-			JSON.stringify({
-				schemaVersion: 1,
-				id: runId,
-				metadata: {
-					scope: { ...scope, runId, tenantId: 'someone-else' },
-					config: { tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
-				},
-			}),
-		)
+	it('refuses a turn whose recorded limits are incomplete instead of running it unlimited', async () => {
+		const { session, scope, conversations } = await openSession()
+		await recordTurnStart(conversations, scope.sessionId, { tokenBudget: 5, timeoutMs: 5 })
 		const errors: string[] = []
 		try {
 			for await (const event of session.resumePaused({
-				runId,
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
 			})) {
 				if (event.kind === 'error') errors.push(event.message)
 			}
-			expect(errors.join(' ')).toContain('scope')
+			expect(errors.join(' ')).toContain('limits')
 			expect(resumeCalls).toHaveLength(0)
 		} finally {
 			await session.close()
 		}
 	})
 
-	it('addresses the run under the session’s ids, at the checkpoint named, in the turn’s store', async () => {
-		const { session, stateRoot, scope } = await openSession()
+	it('addresses the turn under the session’s ids, at the checkpoint named, in the conversation’s log', async () => {
+		const { session, scope, conversations } = await openSession()
 		const texts: string[] = []
 		try {
 			for await (const event of session.resumePaused({
-				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
 			})) {
 				if (event.kind === 'delta') texts.push(event.text)
@@ -175,23 +179,21 @@ describe('resuming this session’s own paused run', () => {
 			scope: Record<string, string>
 			checkpointId: string
 			checkpointStore: { constructor: { name: string } }
+			sessionLog: { file: string }
 			tenantId: string
 			projectId: string
 			sessionId: string
 			topicId: string
 		}
-		expect(call.scope).toEqual({ ...scope, runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8' })
+		expect(call.scope).toEqual({ ...scope, turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8' })
 		expect(call.checkpointId).toBe('f0d1dd26-fd58-4593-b904-7817c789af26')
 		expect(call.tenantId).toBe(scope.tenantId)
 		expect(call.projectId).toBe(scope.projectId)
 		expect(call.sessionId).toBe(scope.sessionId)
 		expect(call.topicId).toBe(scope.topicId)
-		// The disk store, rooted where the turn's run manager roots its own:
-		// the session directory's `runs/`, under the state root this session
-		// was given.
-		expect(call.checkpointStore.constructor.name).toBe('DiskCheckpointStore')
-		expect(JSON.stringify(call.checkpointStore)).toContain(join(stateRoot, ''))
-		expect(JSON.stringify(call.checkpointStore)).toMatch(/[\\/]runs"/)
+		// The conversation's own log, and its checkpoints beside it.
+		expect(call.sessionLog.file).toBe(conversationLogPath(conversations, scope.sessionId))
+		expect(call.checkpointStore.constructor.name).toBe('DiskSessionCheckpointStore')
 	})
 
 	it('ends with an error, not silence, when the checkpoint is not there', async () => {
@@ -201,7 +203,7 @@ describe('resuming this session’s own paused run', () => {
 		let message = ''
 		try {
 			for await (const event of session.resumePaused({
-				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				checkpointId: '7c81157d-b597-49f9-b951-772a567ecdf2',
 			})) {
 				kinds.push(event.kind)
@@ -216,13 +218,13 @@ describe('resuming this session’s own paused run', () => {
 		expect(message).toContain('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
 	})
 
-	it('does not resume past a run parked on a human decision', async () => {
+	it('does not resume past a turn parked on a human decision', async () => {
 		resumeOutcome = { resumed: false, reason: 'awaiting-decision', pending: {}, state: {} }
 		const { session } = await openSession()
 		let message = ''
 		try {
 			for await (const event of session.resumePaused({
-				runId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+				turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
 				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
 			})) {
 				if (event.kind === 'error') message = event.message

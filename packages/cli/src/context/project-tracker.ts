@@ -115,7 +115,7 @@ export class ProjectInstructionTracker {
 	}
 
 	/** Each run's durable messages are its cursor over the shared discovered state. */
-	createRunContext(): ProjectInstructionContext {
+	createTurnContext(): ProjectInstructionContext {
 		return {
 			prepareInitialSnapshot: ({ messages }) => this.prepareSnapshot(messages),
 			observeToolResult: (observation, { messages }) => {

@@ -1,21 +1,17 @@
 import { realpathSync } from 'node:fs'
-import { join } from 'node:path'
-import { DiskMemoryStore, MarkdownMemoryStore, projectIdForDirectory } from '@namzu/sdk'
+import { DiskMemoryStore, MarkdownMemoryStore, SessionPaths, slugForCwd } from '@namzu/sdk'
 
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
 
 /**
- * Where a session opened on `cwd` without a scope keeps generated memory: the
- * application home, partitioned by the Project the directory stands for.
- * Never `<cwd>/.namzu` — that default put runtime trees inside checkouts.
+ * Where a session opened on `cwd` keeps generated memory: the project's
+ * `memory/` under `NAMZU_HOME` (`projects/<slug>/memory`). Never
+ * `<cwd>/.namzu` — that default put runtime trees inside checkouts.
  */
 export function sessionMemoryDir(cwd: string): string {
-	return join(
-		resolveNamzuHome(),
-		'memory',
-		projectIdForDirectory(cliProjectRoot(realpathSync(cwd))),
-	)
+	const root = realpathSync(cliProjectRoot(realpathSync(cwd)))
+	return new SessionPaths({ home: resolveNamzuHome(), slug: slugForCwd(root) }).memoryDir()
 }
 
 /** The store the session's memory tools read and write, opened the same way. */
