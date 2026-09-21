@@ -35,7 +35,7 @@ export interface ZenModel {
  * derived is an edit to the script. Both survive regeneration; a hand edit here
  * does not, and the CI gate "Zen catalogue matches its source" fails on one.
  *
- * Refreshed: 2026-09-19
+ * Refreshed: 2026-09-21
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
@@ -887,6 +887,19 @@ const ZEN_MODELS = freezeModels([
 ])
 
 const GO_MODELS = freezeModels([
+	{
+		id: 'grok-4.7',
+		name: 'Grok 4.7',
+		protocol: 'responses',
+		contextWindow: 500000,
+		maxOutputTokens: 500000,
+		inputModalities: ['text', 'image', 'document'],
+		inputPrice: 2.0,
+		outputPrice: 6.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'high', 'xhigh'],
+	},
 	{
 		id: 'grok-4.6',
 		name: 'Grok 4.6',
