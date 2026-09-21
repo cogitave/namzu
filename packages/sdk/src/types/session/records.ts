@@ -247,6 +247,16 @@ export const TurnSettlementSchema = z
 	})
 	.strict()
 
+/**
+ * The record's type is the terminal verdict (spec §2.10): `turn_completed`
+ * settles `completed` or `cancelled`, `turn_failed` settles `failed`. The
+ * other execution statuses (`idle`, `pending`, `running`) never settle a turn.
+ */
+const completedSettlement = TurnSettlementSchema.extend({
+	status: z.enum(['completed', 'cancelled']),
+})
+const failedSettlement = TurnSettlementSchema.extend({ status: z.literal('failed') })
+
 /** A body too large for one record, written (and fsynced) to `tool-results/` before the record. */
 const spill = z
 	.object({
@@ -368,7 +378,7 @@ export const TurnCompletedRecordSchema = inTurn('turn_completed', {
 	stopReason: stopReason.optional(),
 	cancelCause: cancelCause.optional(),
 	budget: tokenBudgetSummary.optional(),
-	settlement: TurnSettlementSchema,
+	settlement: completedSettlement,
 })
 
 export const TurnFailedRecordSchema = inTurn('turn_failed', {
@@ -377,11 +387,12 @@ export const TurnFailedRecordSchema = inTurn('turn_failed', {
 	providerError: providerError.optional(),
 	explanation: explanation.optional(),
 	budget: tokenBudgetSummary.optional(),
-	settlement: TurnSettlementSchema,
+	settlement: failedSettlement,
 })
 
 // Messages (record-only)
 
+/** `SessionRecordSchema` also holds `role` equal to `content.role`. */
 export const MessageRecordSchema = inTurn('message', {
 	messageId,
 	role: z.enum(['user', 'assistant', 'tool', 'system']),
@@ -406,6 +417,7 @@ export const MessageReplacedRecordSchema = recordSchema('message_replaced', {
 
 // Checkpoints and human decisions (record-only)
 
+/** `SessionRecordSchema` also holds `throughSeq` below the record's own `seq`. */
 export const CheckpointWrittenRecordSchema = inTurn('checkpoint_written', {
 	checkpointId,
 	iteration: count,
@@ -439,6 +451,10 @@ export const DecisionExpiredRecordSchema = inTurn('decision_expired', {
 
 // Compaction (record-only; the fold reads this, not the live compaction events)
 
+/**
+ * `SessionRecordSchema` also holds `replacesSeqRange` ascending and before the
+ * record: `fromSeq <= toSeq < seq`.
+ */
 export const CompactionRecordSchema = recordSchema('compaction', {
 	compactionId: text.min(1),
 	strategy: text.min(1),
@@ -762,6 +778,34 @@ export const SessionRecordSchema = z
 				path: ['turnId'],
 				message: `${r.type} happens only inside a turn and must carry turnId`,
 			})
+		}
+		if (r.type === 'message') {
+			const content = r.content as { role: unknown }
+			if (r.role !== content.role) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ['role'],
+					message: `a message record's role (${String(r.role)}) is its content's role (${String(content.role)})`,
+				})
+			}
+		}
+		if (r.type === 'checkpoint_written' && (r.throughSeq as number) >= r.seq) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ['throughSeq'],
+				message: 'a checkpoint covers records before its own checkpoint_written: throughSeq < seq',
+			})
+		}
+		if (r.type === 'compaction') {
+			const [fromSeq, toSeq] = r.replacesSeqRange as [number, number]
+			if (fromSeq > toSeq || toSeq >= r.seq) {
+				context.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ['replacesSeqRange'],
+					message:
+						'a compaction replaces an ascending range of earlier records: fromSeq <= toSeq < seq',
+				})
+			}
 		}
 		if (r.type === 'audit' && (r.traceId === undefined) !== (r.spanId === undefined)) {
 			context.addIssue({

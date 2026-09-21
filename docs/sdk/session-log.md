@@ -179,6 +179,13 @@ session hook, task and sandbox bookkeeping — may omit it.
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
 
+Three payload fields are checked against the rest of the record by
+`SessionRecordSchema`, not by the per-type schema alone: a `message` record's
+`role` is its `content.role`; `checkpoint_written.throughSeq` is below the
+record's own `seq`, since a checkpoint covers only records already written; and
+a `compaction`'s `replacesSeqRange` `[fromSeq, toSeq]` is ascending and before
+the record, `fromSeq <= toSeq < seq`.
+
 `origin` is `{protocol, externalSessionId?, externalTurnId?, kind?, goalId?,
 round?}`, where `protocol` is `cli`, `sdk`, `ag-ui`, `a2a`, `acp`, `http`,
 `desktop` or `resident`. An external reference is `{protocol, kind, externalId}`

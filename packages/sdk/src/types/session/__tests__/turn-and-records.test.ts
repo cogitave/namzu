@@ -286,3 +286,97 @@ describe('the TypeScript record view is as strong as the schema', () => {
 		>().toEqualTypeOf<AuditOutcome>()
 	})
 })
+
+describe('cross-field record rules', () => {
+	const pointer = { seq: 9, offset: 900, length: 10, sha256: 'a'.repeat(64) }
+	const inTurn = (type: string, extra: Record<string, unknown>) => ({
+		v: 1,
+		type,
+		id: fixtureId.record('rules'),
+		sessionId,
+		turnId: activeTurnId,
+		seq: 10,
+		ts: '2026-09-21T09:00:00.000Z',
+		prev: pointer,
+		gen: 1,
+		...extra,
+	})
+	const settlement = (status: string) => ({
+		status,
+		iterations: 1,
+		usage: {
+			promptTokens: 1,
+			completionTokens: 1,
+			totalTokens: 2,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		},
+		cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+		durationMs: 5,
+		resultSource: 'model',
+		abandonedTaskIds: [],
+		abandonedJobIds: [],
+	})
+	const accepts = (record: unknown) => SessionRecordSchema.safeParse(record).success
+
+	it.each([
+		['turn_completed', { result: 'done' }, ['completed', 'cancelled']],
+		['turn_failed', { error: 'boom' }, ['failed']],
+	] as const)('lets %s settle only its own verdict', (type, payload, allowed) => {
+		for (const status of ['idle', 'pending', 'running', 'completed', 'failed', 'cancelled']) {
+			const record = inTurn(type, { ...payload, settlement: settlement(status) })
+			expect(accepts(record), `${type} with ${status}`).toBe(
+				(allowed as readonly string[]).includes(status),
+			)
+		}
+	})
+
+	it("holds a message record's role to its content's role", () => {
+		const message = (role: string, contentRole: string) =>
+			inTurn('message', {
+				messageId: fixtureId.message('rules'),
+				role,
+				content: { role: contentRole, content: 'hi' },
+			})
+		expect(accepts(message('user', 'user'))).toBe(true)
+		const mismatched = SessionRecordSchema.safeParse(message('assistant', 'user'))
+		expect(mismatched.success).toBe(false)
+		expect(JSON.stringify(mismatched.error?.issues)).toMatch(
+			/role \(assistant\) is its content's role \(user\)/,
+		)
+	})
+
+	it('keeps a checkpoint behind its own record', () => {
+		const written = (throughSeq: number) =>
+			inTurn('checkpoint_written', {
+				checkpointId: fixtureId.checkpoint('rules'),
+				iteration: 1,
+				throughSeq,
+				throughSha256: 'b'.repeat(64),
+				path: 'checkpoints/x.json',
+				docSha256: 'c'.repeat(64),
+			})
+		expect(accepts(written(9))).toBe(true)
+		expect(accepts(written(10))).toBe(false)
+		expect(accepts(written(11))).toBe(false)
+	})
+
+	it('replaces only an ascending range of earlier records', () => {
+		const compaction = (replacesSeqRange: [number, number]) =>
+			inTurn('compaction', {
+				compactionId: 'compaction-1',
+				strategy: 'summary',
+				trigger: 'auto',
+				replacesSeqRange,
+				summary: [],
+				keptMessageIds: [],
+				tokensBefore: 10,
+				tokensAfter: 2,
+			})
+		expect(accepts(compaction([2, 9]))).toBe(true)
+		expect(accepts(compaction([4, 4]))).toBe(true)
+		expect(accepts(compaction([9, 2]))).toBe(false)
+		expect(accepts(compaction([2, 10]))).toBe(false)
+		expect(accepts(compaction([2, 12]))).toBe(false)
+	})
+})

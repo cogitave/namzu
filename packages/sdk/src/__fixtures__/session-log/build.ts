@@ -333,7 +333,7 @@ export function buildSessionLogFixtures(): Record<string, string> {
 				compactionId: fixtureUuid('compaction:2'),
 				strategy: 'summarize',
 				trigger: 'manual',
-				replacesSeqRange: [2, 17],
+				replacesSeqRange: [2, 13],
 				summary: [
 					{
 						role: 'system',
