@@ -132,12 +132,12 @@ describe('the file sink', () => {
 		const path = join(dir, 'nested', 'session.jsonl')
 		const sink = fileSink(path)
 		sink.emit({ event: { type: 'text_delta' }, at: 1 })
-		sink.emit({ event: { type: 'run_completed' }, at: 2 })
+		sink.emit({ event: { type: 'turn_completed' }, at: 2 })
 
 		const lines = readFileSync(path, 'utf-8').trimEnd().split('\n')
 		expect(lines).toHaveLength(2)
 		expect(JSON.parse(lines[0] as string)).toMatchObject({ event: { type: 'text_delta' } })
-		expect(JSON.parse(lines[1] as string)).toMatchObject({ event: { type: 'run_completed' } })
+		expect(JSON.parse(lines[1] as string)).toMatchObject({ event: { type: 'turn_completed' } })
 	})
 })
 

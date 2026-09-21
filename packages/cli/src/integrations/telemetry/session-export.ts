@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 
-import type { RunEventListener } from '@namzu/sdk'
+import type { SessionEventListener } from '@namzu/sdk'
 
 import { probeOptionalPackage } from '../../context/capabilities.js'
 
@@ -17,7 +17,7 @@ import type { SessionExportConfig } from '../../config/schema.js'
  * Everywhere else in this CLI an absent optional package degrades a feature:
  * no sandbox package, no sandbox, say so and continue. Not here. An operator
  * who wrote `sessionExport` into a config asked for a session to be
- * recorded, and continuing without it means the run happens and the record
+ * recorded, and continuing without it means the turn happens and the record
  * they were counting on does not exist — the failure is invisible until the
  * moment they go looking for the session that was supposed to be there.
  *
@@ -29,7 +29,7 @@ import type { SessionExportConfig } from '../../config/schema.js'
 
 /** What the CLI needs back: a listener to attach, and a way to drain it. */
 export interface AttachedSessionExport {
-	readonly listener: RunEventListener
+	readonly listener: SessionEventListener
 	/** Flush before the process exits. */
 	shutdown(): Promise<void>
 	/** The sentence to show a user — `describeSessionExport`'s output. */
@@ -58,7 +58,7 @@ interface TelemetryModule {
 		destination: string
 		eventTypes?: readonly string[]
 		redactors?: readonly ((record: unknown) => unknown)[]
-	}): RunEventListener
+	}): SessionEventListener
 	describeSessionExport(config?: unknown): string
 	secretRedactor(): (record: unknown) => unknown
 }
@@ -106,8 +106,8 @@ async function loadTelemetry(loader?: TelemetryLoader): Promise<TelemetryModule>
  * `appendFileSync` rather than a stream, and that is a deliberate trade: a
  * stream would not block, but a stream's buffered tail is lost when the
  * process exits on a signal, and the whole value of an exported session is
- * that it survives the run that produced it. The listener already never
- * waits on `emit` — the synchronous write happens inside a call the run does
+ * that it survives the turn that produced it. The listener already never
+ * waits on `emit` — the synchronous write happens inside a call the turn does
  * not await, so the cost lands on the exporting call and not on the model
  * loop.
  */
