@@ -41,6 +41,10 @@ including for runs written before this version: it reads each run's
 `run.json`, and also an `index.json` an earlier version left, for the runs no
 readable `run.json` describes (a directory named with a pre-UUID id, or a
 missing or damaged `run.json`). Where both describe a run the `run.json` row
-wins. An `index.json` that is not readable JSON is refused, as before. `RunStore.addToIndex` and `RunDiskStore.addToIndex` are deprecated
+wins. An `index.json` that is not readable JSON is refused, as before. One
+narrowing applies to runs started on this version or later. Such a run has no
+catalogue row, so if its `run.json` later goes missing or is damaged, `listRuns`
+skips it where an older version still listed it. The run's directory stays
+readable by id. `RunStore.addToIndex` and `RunDiskStore.addToIndex` are deprecated
 and still work when called. Each checkpoint of a listing has message objects
 of its own. Checkpoint files are compact JSON.

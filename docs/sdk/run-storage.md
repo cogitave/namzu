@@ -134,7 +134,12 @@ id, or whose `run.json` is missing or damaged. Where both describe a run the
 `run.json` row wins, since a resume after the catalogue's last write updates
 only the run record. So it returns every row it returned before, including
 for runs written before the change; a catalogue that is not readable JSON is
-refused, as it always was. Nothing in the kernel or the CLI read the file.
+refused, as it always was. The one narrowing is forward. A run started on this
+version or later has no catalogue row, so if its `run.json` later goes missing
+or is damaged, `listRuns` skips it (`packages/sdk/src/store/run/disk.ts`,
+the `run.json` loop), where the catalogue used to keep listing it from the row
+written at its settle. Its directory, transcript and checkpoints are still
+there and readable by run id. Nothing in the kernel or the CLI read the file.
 `RunStore.addToIndex` and `RunDiskStore.addToIndex` are deprecated and still
 work when called directly.
 
