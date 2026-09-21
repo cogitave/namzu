@@ -64,6 +64,15 @@ migration.
 | `EvalRun`, `evalRunFromQuery`, `evalRunFromRun` | `EvalTurn`, `evalTurnFromQuery`, `evalTurnFromTurn` |
 | `RunMemoryCandidate`, `RUN_MEMORY_TAG` | `SessionMemoryCandidate`, `SESSION_MEMORY_TAG` |
 | `SubsessionSpawnedEvent`, `SubsessionMessagedEvent`, `SubsessionIdledEvent`, `SubsessionLifecycleEvent` | `ChildSessionSpawnedEvent`, `ChildSessionMessagedEvent`, `ChildSessionIdledEvent`, `ChildSessionLifecycleEvent` |
+| `ReadRunEventsOptions` | `ReadSessionLogOptions` |
+| `CheckpointRunScope` | `CheckpointScope` (`{ tenantId, projectId, sessionId, turnId }`) |
+| `ReplayAttribution` (`Run.replayOf`) | `TurnForkOrigin` (`Turn.forkedFrom`, `{ sessionId, turnId, checkpointId }`) |
+| `validateTokenBudgetSnapshot`, `OpenTokenBudgetOptions`, `DiskTokenBudgetStoreConfig` | `validateSessionTokenBudgetSnapshot`, `OpenSessionTokenBudgetOptions`, `DiskSessionTokenBudgetStoreOptions` |
+| `TurnStatusResolver.blockingRun`, the handoff deps field `runStatus` | `blockingTurn`, `turnStatus` (on `SingleHandoffDeps` and the broadcast deps) |
+| `Agent.forRun()`, `AbstractAgent.forRun()` | `forTurn()` |
+| `AgentHandle.queueForNextRun()` | `queueForNextTurn()` |
+| `CaseResult.run` | `CaseResult.turn` |
+| `AdvisoryBudget.maxCallsPerRun`, `maxCostPerRun` | `maxCallsPerTurn`, `maxCostPerTurn` (the advisory stack is built per turn, so the bound always was) |
 
 **`query()`, `drainQuery()` and `runAgent()`.** `query()` is now
 `AsyncGenerator<SessionEvent, Turn>` and `drainQuery()` resolves to a `Turn`.
@@ -90,6 +99,12 @@ and `subsession_idled` are `child_session_spawned`, `child_session_messaged`
 and `child_session_idled`. Every event drops `runId`, carries `sessionId`, and
 carries `turnId` inside a turn. The other 54 literals are unchanged.
 `isEphemeralEvent` is now exported at runtime.
+
+**Other string literals.** `HandoffLockRejectedReason` (and
+`HandoffLockRejected.details.reason`) `'active_run'` is `'active_turn'`.
+`ResidentConsumptionAttempt.receiptStatus` `'duplicate-run'` is
+`'duplicate-turn'`. A caller that compares either value must match the new
+one.
 
 **Delegation records.** The parent turn appends `child_session_spawned` and
 `child_session_ended` to its own log, reading them from the task scheduler's
@@ -142,7 +157,14 @@ cannot list them: implement it to keep them listable.
   hold throws `UnknownMessageError`.
 - Custom log backends are checked with `defineSessionLogConformance` from
   `@namzu/sdk/testing`. `defineCheckpointStoreConformance` and its types are
-  removed.
+  removed, and so are `CHECKPOINT_STORE_CONTRACT_VERSION`,
+  `CheckpointStoreCapabilities` and `DiskCheckpointStoreAttribution`: a
+  checkpoint store is keyed by `CheckpointScope`, and `prune` is part of the
+  interface rather than a capability to probe.
+- `validateTokenBudgetBinding` is removed with no replacement of its own. It
+  checked the budget binding a checkpoint carried; a checkpoint's binding is
+  now checked with the rest of the document by `parseCheckpoint` (the
+  `budget.binding` of `CheckpointSchema`).
 
 **The emergency surface is removed.** `EmergencySaveManager`,
 `EmergencySaveData`, `EmergencySaveConfig`, `EmergencySaveConfigSchema`,
@@ -169,7 +191,13 @@ Old run trees, `sessions.sqlite`, checkpoints, ledgers and resident learning
 databases are not read.
 
 `defaultStateRoot`, `NAMZU_STATE_DIR` and `projectIdForDirectory` were on
-unreleased `main` and never shipped; they are not in this release.
+unreleased `main` and never shipped; they are not in this release. Neither is
+the per-run message history of that branch (`RunHistory*`: `openRunHistory`,
+`loadRunHistory`, `resolveRunHistory`, `compactRunHistory` and the rest, with
+their `history/messages.<g>.jsonl` files). Its idea, that each message is
+stored once, is the session log's `message` record: a message is appended
+once, when it ends, and a resume or a compaction refers to it by its
+`messageId` instead of copying it.
 
 **Hooks.** Hook events `run_start`, `run_end` and `run_interrupt` are
 `turn_start`, `turn_end` and `turn_interrupt`; a config naming an old event is
@@ -223,6 +251,17 @@ the session promoter stamps is `'session-memory'` (was `'run-memory'`), and
   `TurnBoundSessionEventType`, `Checkpoint` with `parseCheckpoint`, and
   `recordSha256`, `parseSessionLogLine` and `formatSessionLogLine` for one log
   line.
+- `resolveA2AContext` (with `A2AContextResolution`) and
+  `resolveExternalSession` (with `ExternalSessionLookup`,
+  `ExternalSessionResolution` and `ResolveExternalSessionOptions`): how a host
+  server resolves an A2A `contextId`, or any protocol's own session id, to a
+  session through the index.
+- `PrepareStepContext.turnStartedAt`: when the turn began. A resumed turn
+  keeps the time of its `turn_started` record, whichever process wrote it.
+- `ChildSessionStorage` gains a `disk` kind (`{ kind: 'disk', paths }`). A
+  parent on disk hands its layout to the children it delegates to, so their
+  logs nest under it whether or not a layout was named. Code that switched on
+  `kind` must handle the new member.
 - `resolveNamzuHome` and `NamzuHomeError` (moved from the CLI, same
   behaviour), `SessionPaths`, `ensureProject`, `slugForCwd`,
   `hashedSlugForCwd` and `tempRoot`.
