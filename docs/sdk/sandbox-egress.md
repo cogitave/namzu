@@ -124,7 +124,9 @@ check, before any brokered credential is looked up, and a refusal is named:
 are the union over every profile rule that matches it, a matching rule without
 ports allowing every port, which is the same rule the kubernetes translation
 gets from Cilium. `EgressProxyOptions.allowedPorts` is the option on the proxy
-itself; absent, nothing about ports is checked, as before.
+itself; absent, nothing about ports is checked, as before. To give it a
+profile's rules with the same union rule, pass
+`egressPortsForRules(profile.hosts)`, exported from `@namzu/sandbox`.
 
 The configuration then travels as `NAMZU_EGRESS_PROXY_CONFIG_V2`, which adds
 `hostPorts` (every rule of the profile, with or without ports) and refuses a

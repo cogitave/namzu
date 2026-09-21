@@ -6,7 +6,8 @@ The docker and runsc egress proxy now enforces the `ports` of an egress
 profile, on the port it actually dials: an upgraded `http://host/` and a
 `CONNECT` with no port are checked on 443. A host may use the union of the
 ports of every rule that matches it. The same check is available on
-`EgressProxy` as `allowedPorts`.
+`EgressProxy` as `allowedPorts`, and `egressPortsForRules(profile.hosts)`
+builds that option from a profile's rules with the same union rule.
 
 **Rebuild `egressProxyImage` from `packages/sandbox/egress-proxy/Dockerfile`
 before using `ports`.** A profile with ports sends the proxy a new

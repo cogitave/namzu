@@ -1185,6 +1185,7 @@ export type {
 } from './egress/index.js'
 export {
 	defineEgressProfile,
+	egressPortsForRules,
 	egressProfileAllowsPort,
 	kubernetesEgressFromProfile,
 	SandboxEgressProfileError,
