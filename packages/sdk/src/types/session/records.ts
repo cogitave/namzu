@@ -374,7 +374,9 @@ export const TurnResumingRecordSchema = inTurn('turn_resuming', {
 })
 
 export const TurnCompletedRecordSchema = inTurn('turn_completed', {
+	/** The settled answer, or a preview of it when `resultSpill` holds the whole text. */
 	result: text,
+	resultSpill: spill.optional(),
 	stopReason: stopReason.optional(),
 	cancelCause: cancelCause.optional(),
 	budget: tokenBudgetSummary.optional(),
@@ -404,6 +406,7 @@ export const MessageRecordSchema = inTurn('message', {
 export const MessageReplacedRecordSchema = recordSchema('message_replaced', {
 	targetMessageId: messageId,
 	content: messageBody,
+	spill: spill.optional(),
 	reason: z.enum([
 		'pin-slot',
 		'guardrail_blocked',
