@@ -99,6 +99,32 @@ describe('migrateMemoryOnce', () => {
 		expect(second).toMatchObject({ importedRecords: 0, importedBullets: 0, problems: [] })
 	})
 
+	it('moves a curated bullet once even when two launches race', async () => {
+		const directory = tempRoot()
+		const cwd = tempRoot()
+		const { mkdirSync, writeFileSync } = await import('node:fs')
+		mkdirSync(join(cwd, '.namzu'))
+		writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), '- use pnpm, not npm\n- keep prose\n')
+		const reports = await Promise.all([
+			migrateMemoryOnce({ store: new MarkdownMemoryStore({ directory }), directory, cwd }),
+			migrateMemoryOnce({ store: new MarkdownMemoryStore({ directory }), directory, cwd }),
+		])
+		const store = new MarkdownMemoryStore({ directory })
+		expect((await store.list()).entries.map((entry) => entry.name).sort()).toEqual([
+			'keep-prose',
+			'use-pnpm-not-npm',
+		])
+		expect(reports.reduce((total, report) => total + report.importedBullets, 0)).toBe(2)
+		expect(readFileSync(join(cwd, '.namzu', 'MEMORY.md'), 'utf8')).toBe('')
+		expect(readFileSync(join(cwd, '.namzu', 'MEMORY.md.before-typed-memory'), 'utf8')).toBe(
+			'- use pnpm, not npm\n- keep prose\n',
+		)
+		// A later run finds the marker and moves nothing.
+		writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), '- written by hand later\n')
+		expect(await migrateMemoryOnce({ store, directory, cwd })).toMatchObject({ importedBullets: 0 })
+		expect(readFileSync(join(cwd, '.namzu', 'MEMORY.md'), 'utf8')).toBe('- written by hand later\n')
+	})
+
 	it('reports a JSON store it cannot read and leaves it in place', async () => {
 		const directory = tempRoot()
 		const disk = new DiskMemoryStore({ baseDir: directory, directory })

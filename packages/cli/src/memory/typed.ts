@@ -20,8 +20,10 @@ import { join } from 'node:path'
 import {
 	DiskMemoryStore,
 	type MarkdownMemoryStore,
+	MemoryNameConflictError,
 	type MemoryType,
 	type RenderedMemoryIndex,
+	slugifyMemoryName,
 } from '@namzu/sdk'
 
 import { readMemoryFile, replaceMemoryFile, writeMemoryBackup } from './io.js'
@@ -181,6 +183,41 @@ export function splitCuratedBullets(text: string): { bullets: string[]; rest: st
 }
 
 /**
+ * Create the memory for one curated bullet, false when it already exists.
+ *
+ * Under the name its text slugs to, first: the store refuses a taken name
+ * inside its lock, so two launches moving the same bullet at once write it
+ * once, the second finding the first's record by its source digest. A name
+ * held by an unrelated memory falls back to a suffixed one.
+ */
+async function moveBullet(
+	store: MarkdownMemoryStore,
+	bullet: string,
+	sourceDigest: string,
+	migratedFrom: string,
+): Promise<boolean> {
+	const params = {
+		title: firstLine(bullet, 72),
+		summary: firstLine(bullet, 300),
+		description: firstLine(bullet, 150),
+		content: bullet,
+		type: 'project' as const,
+		metadata: { source: 'curated-bullet', sourceDigest, migratedFrom },
+	}
+	const name = slugifyMemoryName(bullet)
+	try {
+		await store.create({ ...params, name })
+		return true
+	} catch (error) {
+		if (!(error instanceof MemoryNameConflictError)) throw error
+	}
+	const holder = await store.getByName(name)
+	if (holder?.content.metadata?.sourceDigest === sourceDigest) return false
+	await store.create(params)
+	return true
+}
+
+/**
  * Move what the older memory shapes hold into typed files, once and safely
  * again: every step is idempotent, so a migration interrupted halfway is
  * finished by the next launch.
@@ -247,20 +284,14 @@ export async function migrateMemoryOnce(options: {
 				for (const bullet of bullets) {
 					const sourceDigest = digest(bullet)
 					if (moved.has(sourceDigest)) continue
-					await store.create({
-						title: firstLine(bullet, 72),
-						summary: firstLine(bullet, 300),
-						description: firstLine(bullet, 150),
-						content: bullet,
-						type: 'project',
-						metadata: { source: 'curated-bullet', sourceDigest, migratedFrom: location.path },
-					})
+					if (await moveBullet(store, bullet, sourceDigest, location.path)) importedBullets++
 					moved.add(sourceDigest)
-					importedBullets++
 				}
 				backupPath = `${location.path}${BACKUP_SUFFIX}`
 				writeMemoryBackup(backupPath, text)
-				if (!replaceMemoryFile(location, text, rest)) {
+				// A concurrent launch that already rewrote it to the same text has
+				// done this launch's work; anything else is an edit to keep.
+				if (!replaceMemoryFile(location, text, rest) && readMemoryFile(location) !== rest) {
 					throw new Error(
 						`${location.path} changed while its notes were being moved; retrying next launch`,
 					)
