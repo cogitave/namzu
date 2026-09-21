@@ -9,17 +9,17 @@ import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import { type PendingDecision, autoApproveHandler } from '../../../types/hitl/index.js'
-import type { CheckpointId, PluginId } from '../../../types/ids/index.js'
+import { autoApproveHandler } from '../../../types/hitl/index.js'
+import type { PluginId } from '../../../types/ids/index.js'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
 import { type CancelCause, TurnCancelled } from '../../../types/session/cancel-cause.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/session/durable.js'
-import type { Run, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -27,6 +27,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import { readParks } from '../checkpoint.js'
 import { type QueryParams, query } from '../index.js'
 
 /**
@@ -83,34 +84,9 @@ function latch() {
  * A {@link CheckpointStore} that can answer the one question an approval queue
  * asks: how many parks are outstanding right now.
  */
-class CountingCheckpointStore implements CheckpointStore {
-	readonly rows = new Map<string, { id: CheckpointId; pending?: PendingDecision }>()
-
-	async writeCheckpoint(
-		_scope: CheckpointRunScope,
-		checkpoint: { id: CheckpointId; pending?: PendingDecision },
-	): Promise<void> {
-		this.rows.set(checkpoint.id, checkpoint)
-	}
-
-	async readCheckpoint(_scope: CheckpointRunScope, checkpointId: CheckpointId): Promise<never> {
-		return this.rows.get(checkpointId) as never
-	}
-
-	async listCheckpoints(_scope: CheckpointRunScope): Promise<never[]> {
-		return [...this.rows.values()] as never[]
-	}
-
-	async deleteCheckpoint(_scope: CheckpointRunScope, checkpointId: CheckpointId): Promise<void> {
-		this.rows.delete(checkpointId)
-	}
-
-	/** Parks with no `resolvedAt` — exactly what `findPendingCheckpoint` serves. */
-	pendingCount(): number {
-		return [...this.rows.values()].filter(
-			(row) => row.pending !== undefined && row.pending.resolvedAt === undefined,
-		).length
-	}
+/** Parks with no answer — exactly what `findPendingCheckpoint` serves. */
+async function pendingParks(log: InMemorySessionLog): Promise<number> {
+	return (await readParks(log)).filter((park) => park.pending.resolvedAt === undefined).length
 }
 
 const baseParams = async (overrides: Partial<QueryParams>): Promise<QueryParams> =>
@@ -144,9 +120,9 @@ const baseParams = async (overrides: Partial<QueryParams>): Promise<QueryParams>
  * `iteration_completed`" a fact about the loop rather than a race.
  */
 async function drain(
-	gen: AsyncGenerator<SessionEvent, Run>,
+	gen: AsyncGenerator<SessionEvent, Turn>,
 	onEvent?: (event: SessionEvent) => void,
-): Promise<{ events: SessionEvent[]; run: Run }> {
+): Promise<{ events: SessionEvent[]; run: Turn }> {
 	const events: SessionEvent[] = []
 	let next = await gen.next()
 	while (!next.done) {
@@ -374,13 +350,15 @@ describe('a Stop that arrives while the run is parked on a tool review', () => {
 			turns: [{ toolCalls: [{ id: 'c1', name: 'deploy', args: {} }], finishReason: 'tool_calls' }],
 		})
 		const { tools } = reviewFixture()
-		const store = new CountingCheckpointStore()
+		const sessionId = generateSessionId()
+		const sessionLog = new InMemorySessionLog({ sessionId })
 
 		const asked = latch()
 		const params = await baseParams({
 			provider,
 			tools,
-			checkpointStore: store,
+			sessionId,
+			sessionLog,
 			signal: caller.signal,
 			parkRecordDelayMs: 0,
 			authorizationGate: reviewGate,
@@ -394,13 +372,13 @@ describe('a Stop that arrives while the run is parked on a tool review', () => {
 		await asked.promise
 		// Wait for the write rather than for a duration: what makes this a
 		// run-level claim is that the park is on the durable record at all.
-		await vi.waitFor(() => expect(store.pendingCount()).toBeGreaterThan(0))
+		await vi.waitFor(async () => expect(await pendingParks(sessionLog)).toBeGreaterThan(0))
 		caller.abort(new TurnCancelled('user'))
 		await pending
 
 		// An approval queue built from durable state must stop re-serving a
 		// park nobody is waiting on any more.
-		expect(store.pendingCount()).toBe(0)
+		expect(await pendingParks(sessionLog)).toBe(0)
 	})
 })
 

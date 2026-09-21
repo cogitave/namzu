@@ -6,7 +6,7 @@ import type {
 	HITLResumeDecision,
 	IterationCheckpoint,
 } from '../../../types/hitl/index.js'
-import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -31,6 +31,7 @@ import { planPendingResume } from '../resume-pending.js'
  */
 
 const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
+const SESSION = 'a4d7c2e1-9b3f-4e6a-8c5d-1f2e3a4b5c6d' as SessionId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -57,6 +58,7 @@ function askTool(opts: {
 		gateway: {} as never,
 		workingDirectory: '/tmp',
 		allowedAgentIds: [],
+		sessionId: SESSION,
 		turnId: RID,
 		resumeHandler: opts.resumeHandler as never,
 		...(opts.questionParks ? { questionParks: opts.questionParks } : {}),

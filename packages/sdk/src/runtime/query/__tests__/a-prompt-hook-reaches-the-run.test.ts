@@ -45,7 +45,10 @@ async function run(
 	seen: Seen[],
 	options: {
 		answer?: (event: PluginHookEvent) => PluginHookResult[]
-		parentRunId?: ReturnType<typeof generateTurnId>
+		parent?: {
+			readonly sessionId: ReturnType<typeof generateSessionId>
+			readonly turnId: ReturnType<typeof generateTurnId>
+		}
 		contextWindowTokens?: number
 		prompt?: string
 	} = {},
@@ -77,7 +80,9 @@ async function run(
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			pluginManager: manager(seen, options.answer),
-			...(options.parentRunId ? { parentRunId: options.parentRunId } : {}),
+			...(options.parent
+				? { parentSessionId: options.parent.sessionId, parentTurnId: options.parent.turnId }
+				: {}),
 			...(options.contextWindowTokens
 				? {
 						compactionConfig: CompactionConfigSchema.parse({
@@ -129,13 +134,14 @@ describe('the prompt, before the model sees it', () => {
 })
 
 describe('a delegated run ending', () => {
-	it('fires subagent_stop with the parent, after its own run_end', async () => {
+	it('fires subagent_stop with the parent, after its own turn_end', async () => {
 		const seen: Seen[] = []
-		const parentRunId = generateTurnId()
-		await run(seen, { parentRunId })
+		const parent = { sessionId: generateSessionId(), turnId: generateTurnId() }
+		await run(seen, { parent })
 		const order = seen.map((s) => s.event)
 		expect(order.indexOf('subagent_stop')).toBeGreaterThan(order.indexOf('turn_end'))
-		expect(pick(seen, 'subagent_stop')?.parentRunId).toBe(parentRunId)
+		expect(pick(seen, 'subagent_stop')?.parentSessionId).toBe(parent.sessionId)
+		expect(pick(seen, 'subagent_stop')?.parentTurnId).toBe(parent.turnId)
 	})
 
 	it('is not a root run', async () => {

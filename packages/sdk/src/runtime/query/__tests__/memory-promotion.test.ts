@@ -60,9 +60,10 @@ describe('what a finished run leaves behind', () => {
 
 		expect(promote).toHaveBeenCalledTimes(1)
 		const candidate = promote.mock.calls[0]?.[0] as SessionMemoryCandidate
-		expect(candidate.runId).toMatch(
+		expect(candidate.turnId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
+		expect(candidate.sessionId).toMatch(/^[0-9a-f]{8}-/)
 		expect(candidate.task).toContain('invoice')
 	})
 
@@ -179,7 +180,11 @@ describe('whether there is anything to offer', () => {
 		// Inventing an empty candidate would ask a host to store a record of
 		// nothing.
 		expect(
-			memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, undefined),
+			memoryCandidateFor(
+				'5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+				'37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+				undefined,
+			),
 		).toBeUndefined()
 	})
 
@@ -194,9 +199,13 @@ describe('whether there is anything to offer', () => {
 			files: new Map([['src/a.ts', {}]]),
 			evicted: { decisions: 2 },
 		}
-		const candidate = memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, {
-			getState: () => state,
-		})
+		const candidate = memoryCandidateFor(
+			'5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			{
+				getState: () => state,
+			},
+		)
 
 		expect(candidate?.files).toEqual(['src/a.ts'])
 		expect(candidate?.userRequirements).toEqual(['never bill twice'])

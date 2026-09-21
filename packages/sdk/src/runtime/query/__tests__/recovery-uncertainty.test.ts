@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
-import type { SessionLog } from '../../../store/session-log/index.js'
+import type { SessionLease, SessionLog } from '../../../store/session-log/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
-import { generateTurnId } from '../../../utils/id.js'
+import { generateMessageId, generateTurnId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { PendingAnswers } from '../question-park.js'
 import { recoverCompletedCalls } from '../resume-pending.js'
@@ -78,20 +78,28 @@ it.each(['unavailable', 'incomplete', 'wrong-name'] as const)(
 )
 
 it("reads only the resumed turn's records", async () => {
-	// Another turn of the session ran a call with the same id; its receipt is
-	// not this turn's.
+	// An earlier turn of the session ran a call with the same id; its
+	// receipt is not this turn's, and this turn has no record of the call.
 	const session = await sessionWithCheckpoint()
 	await session.log.append(session.lease, {
 		type: 'tool_completed',
 		turnId: session.turnId,
 		toolUseId: 'unknown',
 		toolName: 'effect',
-		result: 'this turn',
+		result: 'an earlier turn',
 		isError: false,
 	} as Parameters<SessionLog['append']>[1])
-	const recovered = await recoverCompletedCalls(recorder(session.log, session.turnId), calls, log)
-	expect([...recovered.keys()]).toEqual(['unknown'])
-	expect(recovered.get('unknown')?.result).toBe('this turn')
+	await session.log.release(session.lease)
+	const lease = (await session.log.claim({ holder: 'next', ttlMs: 60_000 })) as SessionLease
+	await session.log.abandonTurn(lease, session.turnId, 'the earlier process went away')
+	const next = generateTurnId()
+	await session.log.beginTurn(lease, {
+		turnId: next,
+		userMessageId: generateMessageId(),
+		config: { model: 'mock-model', tokenBudget: 0, timeoutMs: 0 },
+	})
+	const recovered = await recoverCompletedCalls(recorder(session.log, next), calls, log)
+	expect(recovered.size).toBe(0)
 })
 
 it('lets an explicit durable answer re-enter only its asking tool when the log is unavailable', async () => {

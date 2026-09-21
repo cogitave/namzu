@@ -24,14 +24,16 @@ function registry() {
 }
 
 function context(permissionMode: PermissionMode): ToolContext {
-	const runId = generateTurnId()
+	const turnId = generateTurnId()
+	const sessionId = generateSessionId()
 	return {
+		sessionId,
 		turnId,
 		workingDirectory: process.cwd(),
 		abortSignal: new AbortController().signal,
 		env: {},
 		log: () => {},
-		permissionContext: { mode: permissionMode, runId, workingDirectory: process.cwd() },
+		permissionContext: { mode: permissionMode, sessionId, turnId, workingDirectory: process.cwd() },
 		backgroundJobs: {
 			start: vi.fn(),
 			get: vi.fn(),
