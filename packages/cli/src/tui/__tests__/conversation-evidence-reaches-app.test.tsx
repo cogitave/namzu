@@ -90,7 +90,7 @@ it.each([40, 100])('shows preview and original error status, then opens the full
 
 it('renders incomplete search and empty lookup honestly, and leaves retrieval failures visible', async () => {
 	calls = [
-		{ name: 'search_conversation', result: JSON.stringify({ matches: [], incomplete: true, unavailableRuns: 1 }) },
+		{ name: 'search_conversation', result: JSON.stringify({ matches: [], incomplete: true, unavailable: 1 }) },
 		{ name: 'read_conversation', result: JSON.stringify({ text: '', offset: 0, complete: false, retainedPreview: false, nextCursor: 'opaque' }) },
 		{ name: 'read_conversation', isError: true, result: 'Cannot read this evidence address.' },
 	]
@@ -99,7 +99,7 @@ it('renders incomplete search and empty lookup honestly, and leaves retrieval fa
 	await until(() => painted().includes('failed: Cannot read this evidence address.'))
 	expect(painted()).toContain('0 matches on this page')
 	expect(painted()).toContain('Search incomplete · absence is inconclusive')
-	expect(painted()).toContain('1 run(s) unavailable')
+	expect(painted()).toContain('1 record(s) unavailable')
 	expect(painted()).toContain('Locating retained text · continue scan')
 	expect(painted()).not.toContain('Selected retained part returned')
 })
