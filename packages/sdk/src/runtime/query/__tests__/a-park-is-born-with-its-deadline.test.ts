@@ -144,7 +144,11 @@ describe("a host's park time-to-live reaches the run that records the park", () 
 		// from `turnConfig`, `setParkTtl` is never called, no deadline is
 		// written, and this park is immortal — the manager would still be
 		// right, and the run would still be wrong.
-		expect(parked?.pending.deadlineAt).toBe((parked?.pending.parkedAt ?? 0) + 60_000)
+		// Read back from the log, `parkedAt` is the record's time, taken as it
+		// was appended — a moment after the deadline was computed from.
+		const parkedAt = parked?.pending.parkedAt ?? 0
+		expect(parked?.pending.deadlineAt).toBeLessThanOrEqual(parkedAt + 60_000)
+		expect(parked?.pending.deadlineAt).toBeGreaterThan(parkedAt + 59_000)
 	})
 
 	it('writes no deadline when the host asked for none', async () => {

@@ -328,3 +328,81 @@ export async function addCheckpoint(
 	})
 	return next.checkpointId
 }
+
+/** A record without its envelope: what a writer appends. */
+export type RecordDraft = Parameters<SessionLog['append']>[1]
+
+/**
+ * A new in-memory session whose log is `source`'s, record by record, with
+ * `transform` applied to each record's payload — the way a test stands in
+ * for "the log said something else". Checkpoints of `turns` are carried
+ * over, re-anchored to the new log's hashes, together with the ledgers they
+ * are bound to. The source is only read.
+ */
+export async function rewriteSession(
+	source: InMemorySessionLog,
+	turns: readonly CheckpointScope[],
+	transform: (draft: RecordDraft) => RecordDraft = (draft) => draft,
+): Promise<InMemorySessionLog> {
+	// Spilled bodies are shared, so a record that names one still finds it.
+	const target = new InMemorySessionLog({
+		sessionId: source.sessionId,
+		spills: source.spillStore,
+	})
+	const storage = await resolveSessionStorage({ sessionId: source.sessionId, sessionLog: target })
+	const from = heldSessionState(source)
+	const lease = (await target.claim({ holder: 'rewrite', ttlMs: 60_000 })) as SessionLease
+	const hashes = new Map<number, string>()
+	const ledgers = new Map<string, SessionTokenBudgetScope>()
+	for (const record of await records(source)) {
+		const {
+			v: _v,
+			id: _id,
+			sessionId: _sessionId,
+			seq: _seq,
+			ts: _ts,
+			prev: _prev,
+			prevText: _prevText,
+			gen: _gen,
+			...payload
+		} = record as SessionRecord & { prevText?: unknown }
+		const draft = transform(payload as RecordDraft)
+		let entry: Awaited<ReturnType<SessionLog['append']>>
+		if (draft.type === 'turn_started') {
+			const { type: _type, ...turn } = draft
+			entry = await target.beginTurn(lease, turn as Parameters<SessionLog['beginTurn']>[1])
+		} else if (draft.type === 'checkpoint_written') {
+			const written = draft as RecordDraft & { checkpointId: CheckpointId; turnId: TurnId }
+			const scope = turns.find((candidate) => candidate.turnId === written.turnId)
+			const document = scope ? await from?.checkpoints.read(scope, written.checkpointId) : null
+			if (!scope || !document)
+				throw new Error(`No checkpoint ${written.checkpointId} to carry over`)
+			const anchored: Checkpoint = {
+				...document,
+				throughSha256: hashes.get(document.throughSeq) ?? document.throughSha256,
+			}
+			const receipt = await storage.checkpoints.write(scope, anchored)
+			entry = await target.append(lease, {
+				type: 'checkpoint_written',
+				turnId: written.turnId,
+				...receipt,
+			})
+			const binding = document.budget?.binding
+			if (binding) {
+				ledgers.set(`${binding.rootSessionId}/${binding.rootTurnId}`, {
+					rootSessionId: binding.rootSessionId,
+					rootTurnId: binding.rootTurnId,
+				})
+			}
+		} else {
+			entry = await target.append(lease, draft)
+		}
+		hashes.set(entry.pointer.seq, entry.pointer.sha256)
+	}
+	for (const scope of ledgers.values()) {
+		const ledger = await from?.tokenBudgets.load(scope)
+		if (ledger) await storage.tokenBudget.save(scope, JSON.parse(JSON.stringify(ledger)))
+	}
+	await target.release(lease)
+	return target
+}
