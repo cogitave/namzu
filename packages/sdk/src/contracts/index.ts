@@ -4,7 +4,7 @@
 //   - contracts/* — snake_case wire fields, stable for HTTP and protocol clients.
 //   - types/*     — camelCase domain shapes, may include internal-only fields.
 // When a wire type is just a rename of a domain type, that's intentional (e.g.
-// `TurnStopReason` is the domain stop reason under its wire name).
+// `WireStopReason` is the domain stop reason under its wire name).
 //
 // The session and turn shapes (`WireTurn`, `WireTurnStatus`,
 // `CreateTurnRequest`, `CreateEphemeralSessionRequest`, `SessionStreamEvent`

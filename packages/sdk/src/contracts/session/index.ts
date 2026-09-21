@@ -13,7 +13,7 @@ export type {
 } from './api.js'
 export { TURN_STREAM_EVENT_TYPES } from './api.js'
 
-export type { TurnStopReason, WireTurn, WireTurnConfig, WireTurnUsage } from './turn.js'
+export type { WireStopReason, WireTurn, WireTurnConfig, WireUsage } from './turn.js'
 
 export type { WireTurnStatus } from './turn-status.js'
 export { TURN_STATUS_TO_WIRE, WIRE_TURN_STATUSES, toWireTurnStatus } from './turn-status.js'

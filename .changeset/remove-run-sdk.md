@@ -194,7 +194,7 @@ the session promoter stamps is `'session-memory'` (was `'run-memory'`), and
   `WireTurnStatus`, `toWireTurnStatus`, `WireTurnConfig`, `TurnConfigSchema`,
   `TurnIdSchema`, `CreateTurnRequest`, `CreateTurnSchema`,
   `CreateEphemeralSessionRequest`, `CreateEphemeralSessionSchema`,
-  `WireTurnUsage`, `TurnStopReason`, `SessionStreamEvent` and
+  `WireUsage`, `WireStopReason`, `SessionStreamEvent` and
   `SessionStreamEventType`.
 - `WireTurnStatus` gains `awaiting_input`: `awaiting_hitl` and
   `awaiting_hitl_resolution` map to it (they mapped to `running`), and A2A
