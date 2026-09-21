@@ -62,7 +62,13 @@ export interface EvidenceSession {
 	): ReturnType<typeof createSessionEvidenceSource>
 }
 
-export async function evidenceSession(root: string): Promise<EvidenceSession> {
+export async function evidenceSession(
+	root: string,
+	options: {
+		/** The log's clock: every record's `ts` reads it. */
+		readonly now?: () => number
+	} = {},
+): Promise<EvidenceSession> {
 	const scope = {
 		tenantId: randomUUID() as TenantId,
 		projectId: randomUUID() as ProjectId,
@@ -71,7 +77,12 @@ export async function evidenceSession(root: string): Promise<EvidenceSession> {
 	}
 	const logPath = join(root, `${scope.sessionId}.jsonl`)
 	const sessionDir = join(root, scope.sessionId)
-	const log = new DiskSessionLog({ sessionId: scope.sessionId, file: logPath, sessionDir })
+	const log = new DiskSessionLog({
+		sessionId: scope.sessionId,
+		file: logPath,
+		sessionDir,
+		...(options.now ? { now: options.now } : {}),
+	})
 	const lease = (await log.claim({ holder: 'evidence-test', ttlMs: 600_000 })) as SessionLease
 	await log.append(lease, {
 		type: 'session_started',
