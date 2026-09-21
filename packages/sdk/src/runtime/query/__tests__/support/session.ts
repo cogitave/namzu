@@ -74,6 +74,26 @@ export async function heldCheckpointStore(
 	return (await resolveSessionStorage({ sessionId: log.sessionId, sessionLog: log })).checkpoints
 }
 
+/**
+ * The checkpoints one turn of an in-memory session wrote, oldest first, read
+ * from the store `query()` kept beside the log.
+ */
+export async function turnCheckpoints(turn: {
+	readonly sessionLog: InMemorySessionLog
+	readonly tenantId: TenantId
+	readonly projectId: ProjectId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
+}): Promise<Checkpoint[]> {
+	const store = await heldCheckpointStore(turn.sessionLog)
+	return store.list({
+		tenantId: turn.tenantId,
+		projectId: turn.projectId,
+		sessionId: turn.sessionId,
+		turnId: turn.turnId,
+	})
+}
+
 /** A fresh in-memory checkpoint store verified against `log`. */
 export function checkpointStoreFor(log: SessionLog): InMemorySessionCheckpointStore {
 	return new InMemorySessionCheckpointStore({ log: checkpointLogView(log) })

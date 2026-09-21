@@ -1,9 +1,8 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { PrepareStepContext } from '../../../types/session/prepare-step.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
@@ -13,7 +12,36 @@ import {
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
+import { EventTranslator } from '../events.js'
 import { drainQuery } from '../index.js'
+
+/** An in-memory session: its log has no retained text to capture. */
+function memorySession() {
+	const sessionId = generateSessionId()
+	return { sessionId, sessionLog: new InMemorySessionLog({ sessionId }) }
+}
+
+afterEach(() => {
+	vi.restoreAllMocks()
+})
+
+/**
+ * Run `hook` inside every evidence capture, after the translator's own
+ * checks passed: where a backend's read of the session log would run.
+ */
+function interceptCapture(
+	hook: (maxReadBytes?: number, signal?: AbortSignal) => Promise<undefined>,
+): void {
+	const real = EventTranslator.prototype.captureSessionEvidence
+	vi.spyOn(EventTranslator.prototype, 'captureSessionEvidence').mockImplementation(async function (
+		this: EventTranslator,
+		maxReadBytes?: number,
+		signal?: AbortSignal,
+	) {
+		await real.call(this, maxReadBytes, signal)
+		return hook(maxReadBytes, signal)
+	})
+}
 
 it('revokes a timed-out tool capture while the next tool can still read evidence', async () => {
 	let release!: () => void
@@ -64,6 +92,7 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 			return { success: true, output: 'The next tool still owns its read.' }
 		},
 	})
+	interceptCapture(captureTextEvidence)
 	const run = await drainQuery({
 		turnId: generateTurnId(),
 		provider: new MockLLMProvider({
@@ -74,10 +103,8 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 			],
 		}),
 		tools,
-		runStore: Object.assign(new InMemoryRunStore(), { captureTextEvidence }),
-		checkpointStore: new InMemoryCheckpointStore(),
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		...memorySession(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		workingDirectory: process.cwd(),
@@ -106,16 +133,14 @@ it('local preparation cancellation refuses late capture without cancelling the r
 		local.abort(new Error('local deadline'))
 		return undefined
 	})
-	const runStore = Object.assign(new InMemoryRunStore(), { captureTextEvidence })
+	interceptCapture(captureTextEvidence)
 	let held: PrepareStepContext['captureSessionEvidence']
 	const result = await drainQuery({
 		turnId: generateTurnId(),
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
-		runStore,
-		checkpointStore: new InMemoryCheckpointStore(),
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		...memorySession(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		workingDirectory: process.cwd(),
@@ -147,15 +172,12 @@ it.each(
 	'keeps $entry capture invocation-bound when cancellation during capture is $cancelDuringCapture',
 	async ({ cancelDuringCapture, entry }) => {
 		const caller = new AbortController()
-		const store = new InMemoryRunStore()
-		const runStore = cancelDuringCapture
-			? Object.assign(store, {
-					captureTextEvidence: async () => {
-						caller.abort(new Error('operator cancelled during capture'))
-						return undefined
-					},
-				})
-			: store
+		if (cancelDuringCapture) {
+			interceptCapture(async () => {
+				caller.abort(new Error('operator cancelled during capture'))
+				return undefined
+			})
+		}
 		let capture: ToolContext['captureSessionEvidence']
 		let returned = false
 		let refused = false
@@ -202,10 +224,8 @@ it.each(
 			}),
 			tools,
 			...(entry === 'prepare' ? { prepareStep: prepare } : {}),
-			runStore,
-			checkpointStore: new InMemoryCheckpointStore(),
 			projectId: generateProjectId(),
-			sessionId: generateSessionId(),
+			...memorySession(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			workingDirectory: process.cwd(),
@@ -239,7 +259,7 @@ it.each(['nested', 'local'] as const)(
 	async (mode) => {
 		const local = new AbortController()
 		let receivedSignal: AbortSignal | undefined
-		const captureTextEvidence = vi.fn(async (_scope, _maxReadBytes, signal?: AbortSignal) => {
+		const captureTextEvidence = vi.fn(async (_maxReadBytes?: number, signal?: AbortSignal) => {
 			receivedSignal = signal
 			if (captureTextEvidence.mock.calls.length === 1) local.abort(new Error('only this read'))
 			return undefined
@@ -288,16 +308,15 @@ it.each(['nested', 'local'] as const)(
 				return { success: true, output: 'Parent still owns its evidence read.' }
 			},
 		})
+		interceptCapture(captureTextEvidence)
 		const run = await drainQuery({
 			turnId: generateTurnId(),
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ id: 'parent', name: 'parent', args: {} }] }, { text: 'Done.' }],
 			}),
 			tools,
-			runStore: Object.assign(new InMemoryRunStore(), { captureTextEvidence }),
-			checkpointStore: new InMemoryCheckpointStore(),
 			projectId: generateProjectId(),
-			sessionId: generateSessionId(),
+			...memorySession(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			workingDirectory: process.cwd(),

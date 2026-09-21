@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { createUserMessage } from '../../../types/message/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
 import {
 	generateProjectId,
@@ -12,6 +13,12 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+import {
+	TEST_SCOPE,
+	heldCheckpointStore,
+	sessionWithCheckpoint,
+	turnCheckpoints,
+} from './support/session.js'
 
 registerMock()
 const schema = z.object({ score: z.number() })
@@ -26,6 +33,7 @@ function fixture(
 		})),
 	})
 	const request = vi.spyOn(provider, 'chatStream')
+	const sessionId = generateSessionId()
 	const params = {
 		provider,
 		tools: new ToolRegistry(),
@@ -40,11 +48,11 @@ function fixture(
 			maxIterations: 10,
 		},
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		turnId: generateTurnId(),
-		checkpointStore: new InMemoryCheckpointStore(),
+		sessionLog: new InMemorySessionLog({ sessionId }),
 		structuredOutput: { schema, review, maxReviews },
 		signal,
 	}
@@ -106,13 +114,13 @@ describe('structured result host review', () => {
 	it('preserves cancellation while saving an exhausted rejection', async () => {
 		const controller = new AbortController()
 		const f = fixture(() => ({ accept: false, feedback: 'Rejected' }), 0, controller.signal)
-		const save = f.params.checkpointStore.writeCheckpoint.bind(f.params.checkpointStore)
-		vi.spyOn(f.params.checkpointStore, 'writeCheckpoint').mockImplementation(
-			async (scope, checkpoint, fence) => {
-				await save(scope, checkpoint, fence)
-				if (checkpoint.structuredReviewAttempts === 1) controller.abort()
-			},
-		)
+		const store = await heldCheckpointStore(f.params.sessionLog)
+		const save = store.write.bind(store)
+		vi.spyOn(store, 'write').mockImplementation(async (scope, checkpoint) => {
+			const receipt = await save(scope, checkpoint)
+			if (checkpoint.review.structuredAttempts === 1) controller.abort()
+			return receipt
+		})
 		const run = await f.run()
 		expect(run.status).toBe('cancelled')
 		expect(run.stopReason).toBe('cancelled')
@@ -151,22 +159,30 @@ describe('structured result host review', () => {
 		})
 		expect((await f.run()).structuredOutput).toEqual({ score: 99 })
 	})
-	it('restores exhaustion from a checkpoint even when feedback history was compacted', async () => {
+	it('records exhaustion in the checkpoint, and a resume honours it', async () => {
 		const f = fixture(() => ({ accept: false, feedback: 'Rejected' }), 0)
 		await f.run()
-		const checkpoints = await f.params.checkpointStore.listCheckpoints(f.params)
-		const checkpoint = checkpoints.find((cp) => cp.structuredReviewAttempts === 1)
-		expect(checkpoint).toBeDefined()
-		if (!checkpoint) throw new Error('missing review checkpoint')
-		await f.params.checkpointStore.writeCheckpoint(f.params, {
-			...checkpoint,
-			messages: [{ role: 'user', content: 'Compacted history' }],
+		const checkpoints = await turnCheckpoints(f.params)
+		expect(checkpoints.find((cp) => cp.review.structuredAttempts === 1)).toBeDefined()
+
+		// A turn interrupted after that rejection continues without one more.
+		const session = await sessionWithCheckpoint({
+			messages: [createUserMessage('Return a score below ten'), createUserMessage('Rejected')],
+			document: {
+				review: { structuredAttempts: 1, answerAttempts: 0, nativeStructuredAttempts: 0 },
+			},
+			release: true,
 		})
 		f.request.mockClear()
 		const run = await drainQuery({
 			...f.params,
+			...TEST_SCOPE,
+			sessionId: session.sessionId,
+			sessionLog: session.log,
+			checkpointStore: session.store,
+			turnId: session.turnId,
 			tools: new ToolRegistry(),
-			resumeFromCheckpoint: checkpoint.id,
+			resumeFromCheckpoint: session.checkpointId,
 		})
 		expect(run.stopReason).toBe('answer_rejected')
 		expect(run.structuredOutput).toBeUndefined()

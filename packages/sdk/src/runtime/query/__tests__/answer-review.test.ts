@@ -4,7 +4,8 @@ import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { createCommandGate } from '../../../turn/command-gate.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { AnswerReview, ReviewAnswer } from '../../../types/session/answer-review.js'
 import {
 	generateProjectId,
@@ -14,6 +15,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+import { TEST_SCOPE, heldCheckpointStore, sessionWithCheckpoint } from './support/session.js'
 
 /**
  * The halt predicate is only consulted after tools have run, so there was
@@ -43,6 +45,7 @@ function scriptedRun(
 		return original(params)
 	}) as typeof provider.chatStream
 
+	const sessionId = generateSessionId()
 	const params = {
 		provider,
 		tools: new ToolRegistry(),
@@ -52,11 +55,11 @@ function scriptedRun(
 		workingDirectory: process.cwd(),
 		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		turnId: generateTurnId(),
-		checkpointStore: new InMemoryCheckpointStore(),
+		sessionLog: new InMemorySessionLog({ sessionId }),
 		reviewAnswer,
 		...(signal ? { signal } : {}),
 		...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
@@ -276,29 +279,44 @@ describe('judging the answer a run is about to settle with', () => {
 		},
 	)
 
-	it('preserves exhaustion through checkpoint restore after feedback compaction', async () => {
+	/**
+	 * A turn interrupted after one rejected answer: its checkpoint says one
+	 * correction was spent. Resuming it continues the same turn.
+	 */
+	async function resumeAfterOneRejection(maxAnswerReviews: number) {
 		const scripted = scriptedRun(
 			['unaccepted'],
-			() => ({ accept: false, feedback: 'Source does not match' }),
-			0,
+			() => ({ accept: false, feedback: 'Mismatch' }),
+			maxAnswerReviews,
 		)
-		expect((await scripted.run()).stopReason).toBe('answer_rejected')
-		const store = scripted.params.checkpointStore
-		const checkpoint = (await store.listCheckpoints(scripted.params)).find(
-			(cp) => cp.answerReviewAttempts === 1,
-		)
-		if (!checkpoint) throw new Error('rejection checkpoint missing')
-		expect(checkpoint.messages.at(-1)).toMatchObject({
-			content: 'Source does not match',
-			source: { type: 'runtime-context', kind: 'answer-review' },
+		const session = await sessionWithCheckpoint({
+			messages: [
+				createUserMessage('go'),
+				createAssistantMessage('unaccepted'),
+				createUserMessage('Mismatch'),
+			],
+			document: {
+				review: { structuredAttempts: 0, answerAttempts: 1, nativeStructuredAttempts: 0 },
+			},
+			release: true,
 		})
-		await store.writeCheckpoint(scripted.params, {
-			...checkpoint,
-			messages: [{ role: 'user', content: 'Compacted history' }],
+		const run = await drainQuery({
+			...scripted.params,
+			...TEST_SCOPE,
+			sessionId: session.sessionId,
+			sessionLog: session.log,
+			checkpointStore: session.store,
+			turnId: session.turnId,
+			resumeFromCheckpoint: session.checkpointId,
 		})
-		const restored = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
-		expect(restored.stopReason).toBe('answer_rejected')
-		expect(scripted.turns()).toBe(1)
+		return { run, turns: scripted.turns() }
+	}
+
+	it('preserves exhaustion through a resume of the same turn', async () => {
+		const { run, turns } = await resumeAfterOneRejection(0)
+		expect(run.stopReason).toBe('answer_rejected')
+		// The allowance was spent before the interruption: no new request.
+		expect(turns).toBe(0)
 	})
 
 	it('keeps cancellation when it arrives during rejection persistence', async () => {
@@ -309,11 +327,12 @@ describe('judging the answer a run is about to settle with', () => {
 			0,
 			controller.signal,
 		)
-		const store = scripted.params.checkpointStore
-		const save = store.writeCheckpoint.bind(store)
-		vi.spyOn(store, 'writeCheckpoint').mockImplementation(async (scope, checkpoint, fence) => {
-			await save(scope, checkpoint, fence)
-			if (checkpoint.answerReviewAttempts === 1) controller.abort()
+		const store = await heldCheckpointStore(scripted.params.sessionLog)
+		const save = store.write.bind(store)
+		vi.spyOn(store, 'write').mockImplementation(async (scope, checkpoint) => {
+			const receipt = await save(scope, checkpoint)
+			if (checkpoint.review.answerAttempts === 1) controller.abort()
+			return receipt
 		})
 		const run = await scripted.run()
 		expect(run.status).toBe('cancelled')
@@ -321,37 +340,25 @@ describe('judging the answer a run is about to settle with', () => {
 	})
 
 	it('resumes only the unspent correction allowance', async () => {
-		const scripted = scriptedRun(['unaccepted'], () => ({ accept: false, feedback: 'Mismatch' }), 2)
-		await scripted.run()
-		const checkpoint = (
-			await scripted.params.checkpointStore.listCheckpoints(scripted.params)
-		).find((cp) => cp.answerReviewAttempts === 1)
-		if (!checkpoint) throw new Error('rejection checkpoint missing')
-		const before = scripted.turns()
-		const run = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
+		const { run, turns } = await resumeAfterOneRejection(2)
 		expect(run.stopReason).toBe('answer_rejected')
-		expect(scripted.turns() - before).toBe(2)
+		expect(turns).toBe(2)
 	})
 
 	it.each([-1, Number.POSITIVE_INFINITY, 0.5, Number.MAX_SAFE_INTEGER + 1])(
-		'rejects a corrupt checkpoint review counter %s before a model request',
-		async (answerReviewAttempts) => {
-			const scripted = scriptedRun(
-				['unaccepted'],
-				() => ({ accept: false, feedback: 'Mismatch' }),
-				0,
-			)
-			await scripted.run()
-			const store = scripted.params.checkpointStore
-			const checkpoint = (await store.listCheckpoints(scripted.params)).find(
-				(cp) => cp.answerReviewAttempts === 1,
-			)
-			if (!checkpoint) throw new Error('rejection checkpoint missing')
-			await store.writeCheckpoint(scripted.params, { ...checkpoint, answerReviewAttempts })
-			const run = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
-			expect(run.status).toBe('failed')
-			expect(run.lastError).toContain('answerReviewAttempts')
-			expect(scripted.turns()).toBe(1)
+		'refuses a checkpoint with a corrupt review counter %s',
+		async (answerAttempts) => {
+			// The document is validated where it is written and where it is
+			// read, so a corrupt counter never reaches a resumed turn.
+			const session = await sessionWithCheckpoint()
+			const checkpoint = await session.store.read(session.scope, session.checkpointId)
+			if (!checkpoint) throw new Error('checkpoint missing')
+			await expect(
+				session.store.write(session.scope, {
+					...checkpoint,
+					review: { ...checkpoint.review, answerAttempts },
+				}),
+			).rejects.toThrow(/answerAttempts/)
 		},
 	)
 

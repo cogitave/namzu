@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import {
@@ -14,6 +15,7 @@ import {
 } from '../../../utils/id.js'
 import { drainQuery, query } from '../index.js'
 import { SteeringBinding } from '../steering.js'
+import { TEST_SCOPE, sessionWithCheckpoint, turnCheckpoints } from './support/session.js'
 
 const schema = z.object({ score: z.number() })
 function fixture(turns: MockTurn[]) {
@@ -26,6 +28,7 @@ function fixture(turns: MockTurn[]) {
 			supportsNativeStructuredOutput: true,
 		},
 	})
+	const sessionId = generateSessionId()
 	const params = {
 		provider,
 		tools: new ToolRegistry(),
@@ -34,12 +37,12 @@ function fixture(turns: MockTurn[]) {
 		messages: [{ role: 'user' as const, content: 'Return a score' }],
 		workingDirectory: process.cwd(),
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
 		turnId: generateTurnId(),
 		turnConfig: { model: 'mock', tokenBudget: 100_000, maxIterations: 10, timeoutMs: 10_000 },
-		checkpointStore: new InMemoryCheckpointStore(),
+		sessionLog: new InMemorySessionLog({ sessionId }),
 		structuredOutput: { mode: 'native' as const, schema, maxRetries: 2 },
 	}
 	return { params, provider }
@@ -74,24 +77,33 @@ describe('native structured output through the real query loop', () => {
 			)
 		},
 	)
-	it('persists validation exhaustion independently of compacted history', async () => {
+	it('persists validation exhaustion in the checkpoint, and a resume honours it', async () => {
 		const { params, provider } = fixture([{ text: 'invalid' }])
 		params.structuredOutput.maxRetries = 0
 		expect((await drainQuery(params)).stopReason).toBe('structured_output_failed')
-		const cp = (await params.checkpointStore.listCheckpoints(params)).find(
-			(item) => item.nativeStructuredAttempts === 1,
+		const cp = (await turnCheckpoints(params)).find(
+			(item) => item.review.nativeStructuredAttempts === 1,
 		)
 		expect(cp).toBeDefined()
-		if (!cp) throw new Error('Missing correction checkpoint')
-		await params.checkpointStore.writeCheckpoint(params, {
-			...cp,
-			messages: [{ role: 'user', content: 'Compacted' }],
+
+		// A turn interrupted after that correction continues without one more.
+		const session = await sessionWithCheckpoint({
+			messages: [createUserMessage('Return a score'), createAssistantMessage('invalid')],
+			document: {
+				review: { structuredAttempts: 0, answerAttempts: 0, nativeStructuredAttempts: 1 },
+			},
+			release: true,
 		})
 		provider.reset()
 		const run = await drainQuery({
 			...params,
+			...TEST_SCOPE,
+			sessionId: session.sessionId,
+			sessionLog: session.log,
+			checkpointStore: session.store,
+			turnId: session.turnId,
 			tools: new ToolRegistry(),
-			resumeFromCheckpoint: cp.id,
+			resumeFromCheckpoint: session.checkpointId,
 		})
 		expect(run.stopReason).toBe('structured_output_failed')
 		expect(run.structuredOutput).toBeUndefined()

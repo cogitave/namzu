@@ -7,7 +7,8 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
@@ -15,6 +16,7 @@ import type { LLMProvider } from '../../../types/provider/index.js'
 import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { IterationOrchestrator } from '../iteration/index.js'
+import { turnCheckpoints } from './support/session.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -37,7 +39,7 @@ async function fixture(provider: LLMProvider, advisor: LLMProvider) {
 		sessionId: fixtureId.session('advisory-request'),
 		topicId: fixtureId.topic('advisory-request'),
 		messages: [createUserMessage('Use the supplied reference.')],
-		checkpointStore: new InMemoryCheckpointStore(),
+		sessionLog: new InMemorySessionLog({ sessionId: fixtureId.session('advisory-request') }),
 		retry: false,
 		advisory: {
 			advisors: [
@@ -152,9 +154,8 @@ it.each(['trigger', 'tool'] as const)(
 		}
 		expect(reads).toBe(2)
 		expect(JSON.stringify(result.messages)).not.toContain('Transient reference:')
-		expect(JSON.stringify(await params.checkpointStore.listCheckpoints(params))).not.toContain(
-			'Transient reference:',
-		)
+		expect(JSON.stringify(await turnCheckpoints(params))).not.toContain('Transient reference:')
+		expect(JSON.stringify(await params.sessionLog.readAll())).not.toContain('Transient reference:')
 		expect(runner).toBeDefined()
 		expect(runner?.getAdvisoryTurnContext()).toBeUndefined()
 	},
@@ -254,7 +255,7 @@ it('captures the successful image-repaired request, not the rejected image paylo
 	).toBe(true)
 })
 
-it('rebuilds the snapshot on resume without persisting the earlier transient source', async () => {
+it('rebuilds the snapshot on the next turn without persisting the earlier transient source', async () => {
 	const advisor = new MockLLMProvider({ turns: [{ text: 'Advice.' }] })
 	const main = new MockLLMProvider({
 		turns: [{ toolCalls: [{ name: 'observe', args: {} }] }, { text: 'Needs review.' }],
@@ -278,15 +279,16 @@ it('rebuilds the snapshot on resume without persisting the earlier transient sou
 		reviewAnswer: () => ({ accept: false, feedback: 'Continue checking.' }),
 	})
 	expect(first.stopReason).toBe('answer_rejected')
-	const checkpoint = (await params.checkpointStore.listCheckpoints(params)).find(
-		(c) => c.answerReviewAttempts === 1,
-	)
+	const checkpoint = (await turnCheckpoints(params)).find((c) => c.review.answerAttempts === 1)
 	if (!checkpoint) throw new Error('Missing rejection checkpoint')
 	expect(JSON.stringify(checkpoint)).not.toContain('Old transient:')
+	expect(JSON.stringify(await readFoldedHistory(params.sessionLog))).not.toContain('Old transient:')
+	// The turn settled `answer_rejected`; the session's next turn folds its log.
 	const resumed = await drainQuery({
 		...params,
 		advisory,
-		resumeFromCheckpoint: checkpoint.id,
+		turnId: generateTurnId(),
+		messages: [createUserMessage('Check again.')],
 		provider: new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'observe', args: {} }] }, { text: 'Done.' }],
 		}),
