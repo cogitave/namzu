@@ -272,6 +272,34 @@ describe.each(backends)('%s session checkpoint store', (_name, make) => {
 		await expect(store.prune(scope, -1)).rejects.toThrow(RangeError)
 		await expect(store.prune(scope, 1.5)).rejects.toThrow(RangeError)
 	})
+
+	it('neither counts nor deletes a document no checkpoint_written record commits', async () => {
+		const store = make()
+		const scope = scopeOf()
+		const committed = await written(store, scope)
+		// A crash between the write and the append, or a stale writer: newer, but inert.
+		const orphan = checkpointOf(scope)
+		await store.write(scope, orphan)
+		expect(await store.prune(scope, 1)).toEqual([])
+		expect(await store.restore(scope, committed.checkpointId)).toEqual(committed)
+		expect(await store.read(scope, orphan.checkpointId)).toEqual(orphan)
+
+		const newer = await written(store, scope)
+		const late = checkpointOf(scope)
+		await store.write(scope, late)
+		expect(await store.prune(scope, 1)).toEqual([committed.checkpointId])
+		expect((await store.list(scope)).map((c) => c.checkpointId)).toEqual([
+			orphan.checkpointId,
+			newer.checkpointId,
+			late.checkpointId,
+		])
+		expect(await store.restore(scope, newer.checkpointId)).toEqual(newer)
+		expect(await store.prune(scope, 0)).toEqual([newer.checkpointId])
+		expect((await store.list(scope)).map((c) => c.checkpointId)).toEqual([
+			orphan.checkpointId,
+			late.checkpointId,
+		])
+	})
 })
 
 describe('the disk session checkpoint store', () => {

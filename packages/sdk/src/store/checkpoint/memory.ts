@@ -13,7 +13,7 @@ import {
 	verifyCheckpoint,
 	writeReceipt,
 } from './contract.js'
-import { compareCheckpoints, selectSessionCheckpointsToPrune } from './prune.js'
+import { compareCheckpoints, selectStoredCheckpointsToPrune } from './prune.js'
 
 export interface InMemorySessionCheckpointStoreOptions {
 	/** The session log the checkpoints are verified and protected against. */
@@ -100,10 +100,11 @@ export class InMemorySessionCheckpointStore implements SessionCheckpointStore {
 
 	async prune(scope: CheckpointScope, keepLast: number): Promise<CheckpointId[]> {
 		const checked = validateCheckpointScope(scope)
-		const doomed = selectSessionCheckpointsToPrune(
+		const doomed = await selectStoredCheckpointsToPrune(
+			this.#log,
+			checked,
 			await this.list(checked),
 			keepLast,
-			new Set(await this.#log.openDecisionCheckpoints(checked)),
 		)
 		for (const id of doomed) await this.delete(checked, id)
 		return doomed

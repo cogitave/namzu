@@ -122,9 +122,12 @@ export interface SessionCheckpointStore {
 	list(scope: CheckpointScope): Promise<Checkpoint[]>
 	delete(scope: CheckpointScope, checkpointId: CheckpointId): Promise<void>
 	/**
-	 * Delete the turn's oldest checkpoints until `keepLast` newer ones
-	 * remain, never one an open decision references. Returns the deleted ids,
-	 * oldest first, for the `checkpoint_pruned` record (none: append nothing).
+	 * Delete the turn's oldest committed checkpoints until `keepLast` newer
+	 * committed ones remain, never one an open decision references. Only a
+	 * checkpoint a `checkpoint_written` record names is counted or deleted: a
+	 * document no record commits is inert and left alone, so it can never
+	 * stand in for the turn's resume point. Returns the deleted ids, oldest
+	 * first, for the `checkpoint_pruned` record (none: append nothing).
 	 */
 	prune(scope: CheckpointScope, keepLast: number): Promise<CheckpointId[]>
 }

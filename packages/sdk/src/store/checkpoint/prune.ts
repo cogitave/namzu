@@ -1,5 +1,6 @@
 import type { CheckpointId } from '../../types/ids/index.js'
 import type { Checkpoint } from '../../types/session/checkpoint.js'
+import type { CheckpointLogView, CheckpointScope } from './contract.js'
 
 /** What choosing checkpoints to prune needs to know about each one. */
 export type PrunableSessionCheckpoint = Pick<Checkpoint, 'checkpointId' | 'createdAt'>
@@ -53,4 +54,40 @@ export function compareCheckpoints(
 		: left.checkpointId > right.checkpointId
 			? 1
 			: 0
+}
+
+/**
+ * The checkpoints `prune(scope, keepLast)` deletes, from the turn's stored
+ * documents: shared by every store so they choose alike.
+ *
+ * Only a committed checkpoint, one a `checkpoint_written` record names, is
+ * ranked. A document with no such record is inert by design (writes are
+ * unfenced: a stale writer, or a crash between the write and the append,
+ * leaves one behind) and a restore refuses it as `not-recorded`. Counting it
+ * toward `keepLast` would let it stand in for the turn's real resume point
+ * and prune that instead. It is not deleted either: the writer that holds
+ * the lease may be between its write and its append, and the id would go
+ * into a `checkpoint_pruned` record that names a checkpoint no record ever
+ * committed.
+ */
+export async function selectStoredCheckpointsToPrune(
+	log: CheckpointLogView,
+	scope: CheckpointScope,
+	stored: readonly Checkpoint[],
+	keepLast: number,
+): Promise<CheckpointId[]> {
+	if (!Number.isSafeInteger(keepLast) || keepLast < 0) {
+		throw new RangeError(`keepLast must be a nonnegative integer, got ${String(keepLast)}`)
+	}
+	const committed: Checkpoint[] = []
+	for (const checkpoint of stored) {
+		if ((await log.writtenDocSha256(scope, checkpoint.checkpointId)) !== null) {
+			committed.push(checkpoint)
+		}
+	}
+	return selectSessionCheckpointsToPrune(
+		committed,
+		keepLast,
+		new Set(await log.openDecisionCheckpoints(scope)),
+	)
 }
