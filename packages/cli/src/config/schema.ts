@@ -57,20 +57,27 @@ export type HookEntry = ShellHookEntry
 export type HooksConfig = ShellHooksConfig
 
 /** See `NamzuCliConfig.limits`. */
-export interface RunLimitsConfig {
-	/** Main-loop iterations one run may make. Omitted or 0 means unlimited. */
+export interface TurnLimitsConfig {
+	/** Main-loop iterations one turn may make. Omitted or 0 means unlimited. */
 	readonly maxIterations?: number
-	/** Aggregate prompt and completion tokens for the run and descendants. Omitted or 0 means unlimited. */
+	/** Aggregate prompt and completion tokens for the turn and descendants. Omitted or 0 means unlimited. */
 	readonly tokenBudget?: number
-	/** Total run duration in milliseconds. Omitted or 0 means unlimited. */
+	/** Total turn duration in milliseconds. Omitted or 0 means unlimited. */
 	readonly timeoutMs?: number
 	/**
-	 * Milliseconds a headless run may spend waiting out provider pauses — a
-	 * rate limit, an outage — resuming from its checkpoint after each, before
-	 * it stops with exit code 75. Default 0: a pause ends the run at once.
+	 * Milliseconds a headless `namzu run` may spend waiting out provider
+	 * pauses — a rate limit, an outage — resuming from its checkpoint after
+	 * each, before it stops with exit code 75. Default 0: a pause ends it at once.
 	 */
 	readonly waitForProviderMs?: number
 }
+
+/**
+ * Transition name for {@link TurnLimitsConfig}, kept until the delegation
+ * runtime (`integrations/subagents/runtime.ts`) imports the new one. Removed at
+ * the train tip.
+ */
+export type RunLimitsConfig = TurnLimitsConfig
 
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
@@ -196,7 +203,7 @@ export interface NamzuCliConfig {
 	 * them for one run. Absent means unlimited tokens, iterations and run duration.
 	 * Explicit token budgets cover descendants.
 	 */
-	readonly limits?: RunLimitsConfig
+	readonly limits?: TurnLimitsConfig
 	/**
 	 * Isolation for the commands this CLI runs.
 	 *

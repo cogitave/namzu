@@ -170,7 +170,7 @@ import {
 	type PermissionRequest,
 	type QuestionAnswer,
 	type QuestionFn,
-	type RunScope,
+	type SessionScope,
 	type UserQuestion,
 	createAgentSession,
 	describeProviderModels,
@@ -1419,7 +1419,7 @@ export function App({
 	// the active session id used by query() — mutated in place on /resume so new
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
-	const scopeRef = useRef<RunScope | null>(null)
+	const scopeRef = useRef<SessionScope | null>(null)
 	/**
 	 * A provider session can be ready before a person has started a conversation.
 	 * The scope still needs a mutable session cursor, but its generated id is
@@ -1427,7 +1427,7 @@ export function App({
 	 * operation publishes the durable Session.
 	 */
 	const conversationMaterializedRef = useRef(false)
-	const materializationRef = useRef<Promise<RunScope | undefined> | null>(null)
+	const materializationRef = useRef<Promise<SessionScope | undefined> | null>(null)
 	/**
 	 * The session owns processes — MCP servers, background jobs, the hooks'
 	 * `session_end` — and Ink's exit does not close it. So the session is
@@ -2845,7 +2845,7 @@ export function App({
 	// This is an admission gate for every startup, not optional persistence: a
 	// corrupt or split estate must not silently widen into cwd-local state and
 	// let the model run against a different history than the operator selected.
-	const ensureSessions = useCallback(async (): Promise<RunScope> => {
+	const ensureSessions = useCallback(async (): Promise<SessionScope> => {
 		if (scopeRef.current) return scopeRef.current
 		const requestedConversationId = initialConversationIdRef.current
 		const sessions = await openSessions(ctxRef.current.cwd)
@@ -2882,13 +2882,13 @@ export function App({
 	}, [nextId])
 
 	/** Publish the provisional conversation exactly once, at first durable use. */
-	const materializeConversation = useCallback(async (): Promise<RunScope | undefined> => {
+	const materializeConversation = useCallback(async (): Promise<SessionScope | undefined> => {
 		const existing = await ensureSessions()
 		if (!existing) return undefined
 		if (conversationMaterializedRef.current) return existing
 		if (materializationRef.current) return materializationRef.current
 
-		const pending = (async (): Promise<RunScope | undefined> => {
+		const pending = (async (): Promise<SessionScope | undefined> => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
 			if (!sessions || !scope) return undefined
@@ -3781,12 +3781,12 @@ export function App({
 	 * would have run against a conversation nobody asked them of. And, the one
 	 * that outlived the process, its `appendMessages` wrote into the RESUMED
 	 * conversation's durable record, because `sessionId` was mutated on a
-	 * `RunScope` the running loop held the very same object of.
+	 * `SessionScope` the running loop held the very same object of.
 	 *
 	 * The mutation below stays, and it is the sharing that makes it necessary:
 	 * `createAgentSession` closed over this exact object and spreads it into
 	 * every `query()`, so replacing it here would leave the agent attributing
-	 * every future turn to the conversation the operator has left. `RunScope`
+	 * every future turn to the conversation the operator has left. `SessionScope`
 	 * says as much — `sessionId` is its one non-`readonly` field. What changed is
 	 * on the other side: a turn now fixes its own destination when it starts
 	 * (see `runTurn`), so a shared cursor moving under it can no longer decide
@@ -4862,7 +4862,7 @@ export function App({
 			// state idle while the admission read was pending let a second submit
 			// start beside it and broke the queue's FIFO ownership.
 			setState('thinking')
-			let durableScope: RunScope | undefined
+			let durableScope: SessionScope | undefined
 			try {
 				durableScope = await materializeConversation()
 			} catch (error) {
@@ -5155,7 +5155,7 @@ export function App({
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
 			const turnOrchestrateMode = orchestrateModeRef.current
-			const turnRunLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
+			const turnLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
@@ -5182,7 +5182,7 @@ export function App({
 			}
 			try {
 				// Setup above awaited. A conversation switch can happen meanwhile and
-				// move the mutable RunScope captured by `createAgentSession`. Re-admit
+				// move the mutable SessionScope captured by `createAgentSession`. Re-admit
 				// the turn here, immediately before the generator exists, or an
 				// abandoned prompt can begin its reserved turn under the new
 				// conversation.
@@ -5203,7 +5203,7 @@ export function App({
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
 						permissionMode: turnPermissionMode,
-						limits: turnRunLimits,
+						limits: turnLimits,
 						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
 						...(turnOrchestrateMode ? { orchestrate: true } : {}),
 						...(goalRound ? { goalRound } : {}),

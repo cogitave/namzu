@@ -142,8 +142,8 @@ import type {
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
-	RunLimitsConfig,
 	SandboxConfig,
+	TurnLimitsConfig,
 	WebConfig,
 } from '../config/schema.js'
 import {
@@ -526,7 +526,7 @@ export type QuestionFn = (question: UserQuestion) => Promise<QuestionAnswer>
 
 export interface SendOptions {
 	/** Overrides for this new turn and its built-in children; does not change a parked turn. */
-	readonly limits?: RunLimitsConfig
+	readonly limits?: TurnLimitsConfig
 	readonly signal?: AbortSignal
 	/**
 	 * Who answers `ask_user_question` this turn. Absent means nobody: the
@@ -1432,7 +1432,7 @@ export interface AgentSessionOptions {
 	 * for (`projects/<slug>/project.json`), so the same directory keeps the
 	 * same project across sessions.
 	 */
-	readonly scope?: RunScope
+	readonly scope?: SessionScope
 	/**
 	 * The directory the agent works in: what every filesystem tool resolves a
 	 * relative path against and where sub-agents run. Generated task and memory
@@ -1535,7 +1535,7 @@ export interface AgentSessionOptions {
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
 	/** See `NamzuCliConfig.limits`: how many model calls and tokens one run may spend. */
-	readonly limits?: RunLimitsConfig
+	readonly limits?: TurnLimitsConfig
 	/**
 	 * Where this session's events are recorded, if anywhere.
 	 *
@@ -2203,8 +2203,8 @@ export async function createAgentSession(
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
-	const delegationScopes = new Map<TurnId, RunScope>()
-	const delegationLimits = new Map<TurnId, RunLimitsConfig>()
+	const delegationScopes = new Map<TurnId, SessionScope>()
+	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
 	const delegatedInputWaiters = new Map<TurnId, NonNullable<SendOptions['waitForInbound']>>()
 	if (options.residentHistory) {
 		const history = options.residentHistory
@@ -2359,7 +2359,7 @@ export async function createAgentSession(
 			// honours the project's rules and every task it delegates quietly
 			// does not — the worse half of the feature, because the delegating
 			// turn reports success either way.
-			projectInstructionContext: () => projectInstructions.createRunContext(),
+			projectInstructionContext: () => projectInstructions.createTurnContext(),
 			// Same argument as the instructions, one step further: a sub-agent that
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
@@ -2603,19 +2603,19 @@ export async function createAgentSession(
 	// It is also why `toolNames` below reads the registry rather than a list
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
-	const taskStoreFor = (runScope: RunScope): TaskStore =>
+	const taskStoreFor = (runScope: SessionScope): TaskStore =>
 		new DiskTaskStore({
 			paths,
 			session: { sessionId: runScope.sessionId },
 			tenantId: runScope.tenantId,
 		})
-	let selectedTaskStore: { scope: RunScope; store: TaskStore } | undefined
+	let selectedTaskStore: { scope: SessionScope; store: TaskStore } | undefined
 	let taskSelectionGeneration = 0
 	const resetTaskStore = () => {
 		selectedTaskStore = undefined
 		taskSelectionGeneration += 1
 	}
-	const matchesCurrentScope = (candidate: RunScope) =>
+	const matchesCurrentScope = (candidate: SessionScope) =>
 		candidate.sessionId === scope.sessionId &&
 		candidate.projectId === scope.projectId &&
 		candidate.tenantId === scope.tenantId &&
@@ -2629,7 +2629,7 @@ export async function createAgentSession(
 		// and other asynchronous setup are still being prepared.
 		resetTaskStore()
 		const generation = taskSelectionGeneration
-		return (runScope: RunScope): TaskStore => {
+		return (runScope: SessionScope): TaskStore => {
 			const store = taskStoreFor(runScope)
 			if (generation === taskSelectionGeneration && matchesCurrentScope(runScope)) {
 				selectedTaskStore = { scope: { ...runScope }, store }
@@ -2907,7 +2907,7 @@ export async function createAgentSession(
 					...(options.compaction?.consolidate
 						? { consolidateInto: memoryStore }
 						: { promoteMemory }),
-					projectInstructionContext: projectInstructions.createRunContext(),
+					projectInstructionContext: projectInstructions.createTurnContext(),
 					paths,
 					...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 					...(options.sandbox?.teardownTimeoutMs !== undefined
@@ -3453,7 +3453,7 @@ export async function createAgentSession(
 								taskStore: turnTaskStore,
 								systemPrompt,
 								messages,
-								projectInstructionContext: projectInstructions.createRunContext(),
+								projectInstructionContext: projectInstructions.createTurnContext(),
 								opts: turnOpts,
 								resumeHandler,
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
@@ -3940,7 +3940,7 @@ export async function listProviderModels(
 	return listing.kind === 'ok' ? [...listing.models] : []
 }
 
-export interface RunScope {
+export interface SessionScope {
 	/**
 	 * The active conversation. Chosen before the conversation is written
 	 * and never replaced by a provisional value; it changes only when the
@@ -3982,7 +3982,7 @@ function lastUserText(messages: readonly Message[]): string {
  * not see what the first had saved. The session, topic and tenant stay
  * minted — nothing here has a store to find existing ones in.
  */
-function mintScope(projectId: ProjectId): RunScope {
+function mintScope(projectId: ProjectId): SessionScope {
 	return {
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -4077,7 +4077,7 @@ function compactionConfigFor(compaction: CompactionCliConfig | undefined): Compa
  * them are strings, so `workingDirectory` and `systemPrompt` would sit next
  * to each other with nothing but call order to keep them apart.
  */
-interface RunTurnParams {
+interface TurnParams {
 	readonly retainedToolPreviewChars?: number
 	readonly provider: LLMProvider
 	/** The kernel's compaction configuration for this session, strategy included. */
@@ -4097,7 +4097,7 @@ interface RunTurnParams {
 	readonly pluginManager: PluginLifecycleManager | undefined
 	readonly skillRegistry: SkillRegistry | undefined
 	readonly skills: Skill[] | undefined
-	readonly scope: RunScope
+	readonly scope: SessionScope
 	/** The id reserved for this turn; the kernel begins the turn under it. */
 	readonly turnId: TurnId
 	/** The project layout the session log and its files live in. */
@@ -4111,7 +4111,7 @@ interface RunTurnParams {
 	/** See `QueryParams.additionalDirectories`. */
 	readonly additionalDirectories?: readonly string[]
 	/** See `NamzuCliConfig.limits`. */
-	readonly limits?: RunLimitsConfig
+	readonly limits?: TurnLimitsConfig
 	/** The project tree a sandboxed turn is rooted at. */
 	readonly sandboxWorkspace: 'working-directory' | 'ephemeral'
 	/** Operator rules for this run, already compiled. */
@@ -4200,7 +4200,7 @@ async function* runTurn({
 	sandboxProvider,
 	sandboxTeardownTimeoutMs,
 	onSessionEvent,
-}: RunTurnParams): AsyncIterable<AgentEvent> {
+}: TurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	// One presenter for the whole stream, built from the registry this scope
 	// already holds. Its absence HERE is what forced presentation to be name
