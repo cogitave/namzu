@@ -20,7 +20,7 @@ import { runCompactionCheck } from '../../runtime/query/iteration/phases/compact
 import type { IterationContext } from '../../runtime/query/iteration/phases/context.js'
 import { PromptCache } from '../../runtime/query/prompt-cache.js'
 import { PromptBuilder } from '../../runtime/query/prompt.js'
-import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -326,7 +326,7 @@ it('preserves resident state and project policy when older conversation is compa
 		workingStateManager: manager,
 		log: NOOP_LOGGER,
 		runMgr: {
-			id: 'f732fe15-0558-4154-b4e4-42033ead15ed' as RunId,
+			id: 'f732fe15-0558-4154-b4e4-42033ead15ed' as TurnId,
 			currentIteration: 3,
 			messages,
 			clearLastPromptTokens: () => {},
@@ -395,7 +395,7 @@ it('keeps the admitted objective, evidence and project policy through every quer
 			observeToolResult: () => undefined,
 		},
 		messages: [createUserMessage('Continue the authorized review.')],
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 5 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 5 },
 		agentId: 'resident-reviewer',
 		agentName: 'Resident reviewer',
 		tenantId: state().tenantId as TenantId,

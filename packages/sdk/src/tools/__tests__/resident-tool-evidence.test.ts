@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest'
 import type { ResidentToolEvidenceSource } from '../../manager/resident/tool-evidence.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ToolContext } from '../../types/tool/index.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { buildResidentToolEvidenceTools } from '../resident-tool-evidence.js'
 
 it('rejects model-selected authority and malformed pointers before resolving the host', async () => {
@@ -10,7 +10,8 @@ it('rejects model-selected authority and malformed pointers before resolving the
 	const registry = new ToolRegistry()
 	registry.register(buildResidentToolEvidenceTools(resolve))
 	const context: ToolContext = {
-		runId: generateRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		workingDirectory: '/tmp',
 		env: {},
 		log() {},
@@ -25,7 +26,7 @@ it('rejects model-selected authority and malformed pointers before resolving the
 	for (const input of [
 		{ revision: 0, address: 'x' },
 		{ revision: 2, address: 'x', byteOffset: -1 },
-		{ revision: 2, address: 'x', runId: 'other' },
+		{ revision: 2, address: 'x', turnId: 'other' },
 	])
 		expect((await registry.execute('read_resident_tool', input, context)).success).toBe(false)
 	expect(resolve).not.toHaveBeenCalled()
@@ -33,7 +34,8 @@ it('rejects model-selected authority and malformed pointers before resolving the
 
 it('forwards exact pagination and cancellation, and never leaks host rejection details', async () => {
 	const context: ToolContext = {
-		runId: generateRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		workingDirectory: '/tmp',
 		env: {},
 		log() {},
@@ -41,7 +43,7 @@ it('forwards exact pagination and cancellation, and never leaks host rejection d
 	}
 	const read = vi.fn().mockResolvedValue({ text: 'retained text', nextByteOffset: 17 })
 	const tools = buildResidentToolEvidenceTools((request) => {
-		if (request.runId !== context.runId) throw new Error('/private/source contains SECRET')
+		if (request.turnId !== context.turnId) throw new Error('/private/source contains SECRET')
 		return { read } as unknown as ResidentToolEvidenceSource
 	})
 	const input = { revision: 3, address: 'opaque', byteOffset: 8 }
@@ -50,7 +52,7 @@ it('forwards exact pagination and cancellation, and never leaks host rejection d
 		output: JSON.stringify({ text: 'retained text', nextByteOffset: 17 }),
 	})
 	expect(read).toHaveBeenCalledExactlyOnceWith(input, context.abortSignal)
-	const refused = await tools[1]!.execute(input, { ...context, runId: generateRunId() })
+	const refused = await tools[1]!.execute(input, { ...context, turnId: generateTurnId() })
 	expect(refused.success).toBe(false)
 	expect(JSON.stringify(refused)).not.toContain('SECRET')
 	expect(

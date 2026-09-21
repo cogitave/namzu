@@ -8,6 +8,8 @@ import { generateProjectId, generateTenantId } from '../../utils/id.js'
 import type { ResidentLearningCycleEvent, ResidentLearningCycleResult } from './learning-cycle.js'
 import { SqliteResidentLearningStore } from './learning-store.js'
 
+const RECEIPT_SESSION = randomUUID()
+
 const roots: string[] = []
 afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -79,7 +81,9 @@ describe('SQLite resident learning journal', () => {
 			sequence: 3,
 			kind: 'usage',
 			stage: 'explore',
-			data: { receipt: { runId: randomUUID(), tokens: 7, costUsd: null } },
+			data: {
+				receipt: { sessionId: RECEIPT_SESSION, turnId: randomUUID(), tokens: 7, costUsd: null },
+			},
 		})
 		const reader = new SqliteResidentLearningStore({ ...f.options, readOnly: true })
 		expect(await reader.events(f.cycleId, { after: 1 })).toContainEqual(observation)
@@ -92,7 +96,9 @@ describe('SQLite resident learning journal', () => {
 			cycleId: f.cycleId,
 			sequence: 2,
 			kind: 'usage',
-			data: { receipt: { runId: randomUUID(), tokens: 7, costUsd: null } },
+			data: {
+				receipt: { sessionId: RECEIPT_SESSION, turnId: randomUUID(), tokens: 7, costUsd: null },
+			},
 		})
 		expect(await f.store.get(f.cycleId)).toMatchObject({
 			status: 'running',
@@ -137,12 +143,12 @@ describe('SQLite resident learning journal', () => {
 	it('refuses duplicate receipt aliases and a fabricated final total atomically', async () => {
 		const f = fixture()
 		await f.store.append(f.start)
-		const runId = randomUUID()
+		const turnId = randomUUID()
 		await f.store.append({
 			cycleId: f.cycleId,
 			sequence: 2,
 			kind: 'usage',
-			data: { receipt: { runId, tokens: 7, costUsd: null } },
+			data: { receipt: { sessionId: RECEIPT_SESSION, turnId, tokens: 7, costUsd: null } },
 		})
 		await expect(
 			f.store.append({
@@ -150,7 +156,12 @@ describe('SQLite resident learning journal', () => {
 				sequence: 3,
 				kind: 'usage',
 				data: {
-					receipt: { runId: runId.toUpperCase(), tokens: 7, costUsd: null },
+					receipt: {
+						sessionId: RECEIPT_SESSION,
+						turnId: turnId.toUpperCase(),
+						tokens: 7,
+						costUsd: null,
+					},
 				},
 			}),
 		).rejects.toThrow()

@@ -3,12 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
-import type { RunEvidenceSource } from '../../store/evidence/types.js'
+import type { SessionEvidenceSource } from '../../store/evidence/types.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import { DiskResidentAgenda } from './agenda.js'
 import { createResidentToolEvidenceSource } from './tool-evidence.js'
@@ -43,7 +43,7 @@ async function fixture() {
 		search: vi.fn(originalHistory.search),
 		read: vi.fn(originalHistory.read),
 	}
-	const scope = { tenantId, projectId, sessionId: generateSessionId(), runId: generateRunId() }
+	const scope = { tenantId, projectId, sessionId: generateSessionId(), turnId: generateTurnId() }
 	const page = {
 		scope,
 		matches: [],
@@ -67,13 +67,13 @@ async function fixture() {
 		totalBytes: 5,
 		scannedBytes: 80,
 	})
-	const backend: RunEvidenceSource = { scope, search, read }
-	const resolveRun = vi.fn().mockResolvedValue(backend)
-	const options = { history, projectId, resolveRun }
-	return { revision, history, backend, search, read, resolveRun, page, options }
+	const backend: SessionEvidenceSource = { scope, search, read }
+	const resolveTurn = vi.fn().mockResolvedValue(backend)
+	const options = { history, projectId, resolveTurn }
+	return { revision, history, backend, search, read, resolveTurn, page, options }
 }
 
-it('reserves resolution and run capacity before history, then charges all stages to one ceiling', async () => {
+it('reserves resolution and turn evidence capacity before history, then charges all stages to one ceiling', async () => {
 	const f = await fixture()
 	const limit = 2 * mib
 	const resolutionReadBytes = 128 * 1024
@@ -105,7 +105,7 @@ it('requires a declared resolution ceiling before any bounded retrieval I/O', as
 	).rejects.toThrow('resolution')
 	expect(f.history.search).not.toHaveBeenCalled()
 	expect(f.history.read).not.toHaveBeenCalled()
-	expect(f.resolveRun).not.toHaveBeenCalled()
+	expect(f.resolveTurn).not.toHaveBeenCalled()
 	const oldPage = await source.search()
 	expect(oldPage.chargedBytes).toBeUndefined()
 	expect(f.search.mock.calls[0]?.[0]).not.toHaveProperty('maxReadBytes')
@@ -118,7 +118,7 @@ it('retains a history cursor when only the reserved archive capacity remains', a
 	const page = await source.search({ query: 'DELTA', maxReadBytes: mib + resolutionReadBytes + 1 })
 	expect(page).toMatchObject({ evidence: null, chargedBytes: 0, unavailableRevisions: [] })
 	if (!page.nextCursor) throw new Error('Missing history continuation.')
-	expect(f.resolveRun).not.toHaveBeenCalled()
+	expect(f.resolveTurn).not.toHaveBeenCalled()
 	const resumed = await source.search({
 		query: 'DELTA',
 		cursor: page.nextCursor,
@@ -146,7 +146,7 @@ it.each(['resolve', 'search'] as const)(
 	'charges the remaining allowance when %s fails without a byte receipt',
 	async (stage) => {
 		const f = await fixture()
-		if (stage === 'resolve') f.resolveRun.mockRejectedValue(new Error('unavailable'))
+		if (stage === 'resolve') f.resolveTurn.mockRejectedValue(new Error('unavailable'))
 		else f.search.mockRejectedValue(new Error('unavailable'))
 		const source = createResidentToolEvidenceSource({ ...f.options, resolutionReadBytes: 100 })
 		const page = await source.search({ maxReadBytes: 2 * mib })
@@ -159,16 +159,16 @@ it.each(['resolve', 'search'] as const)(
 	},
 )
 
-it.each(['tenantId', 'projectId', 'sessionId', 'runId'] as const)(
+it.each(['tenantId', 'projectId', 'sessionId', 'turnId'] as const)(
 	'rejects a returned page with a different %s before exposing text',
 	async (field) => {
 		const f = await fixture()
 		f.search.mockResolvedValue({
 			...f.page,
-			scope: { ...f.backend.scope, [field]: generateRunId() },
+			scope: { ...f.backend.scope, [field]: generateTurnId() },
 		})
 		f.read.mockResolvedValue({
-			scope: { ...f.backend.scope, [field]: generateRunId() },
+			scope: { ...f.backend.scope, [field]: generateTurnId() },
 			scannedBytes: 1,
 			text: 'FOREIGN',
 		})
@@ -201,7 +201,7 @@ it.each(['history', 'source'] as const)(
 		const source = createResidentToolEvidenceSource({ ...f.options, resolutionReadBytes: 0 })
 		if (stage === 'history') {
 			await expect(source.search({ maxReadBytes: 2 * mib })).rejects.toThrow('budget')
-			expect(f.resolveRun).not.toHaveBeenCalled()
+			expect(f.resolveTurn).not.toHaveBeenCalled()
 		} else
 			expect(await source.search({ maxReadBytes: 2 * mib })).toMatchObject({
 				evidence: null,
@@ -273,14 +273,14 @@ it('refuses malformed or oversized token queries before touching history', async
 	])
 		await expect(source.search(input)).rejects.toThrow()
 	expect(f.history.search).not.toHaveBeenCalled()
-	expect(f.resolveRun).not.toHaveBeenCalled()
+	expect(f.resolveTurn).not.toHaveBeenCalled()
 })
 
 it.each([true, false])(
 	'refines a resident cursor after reopening (backend support=%s)',
 	async (supportsTermRefinement) => {
 		const f = await fixture()
-		f.resolveRun.mockResolvedValue({ ...f.backend, supportsTermRefinement })
+		f.resolveTurn.mockResolvedValue({ ...f.backend, supportsTermRefinement })
 		f.search.mockResolvedValue({ ...f.page, nextCursor: 'inner-original' })
 		const options = { ...f.options, resolutionReadBytes: 0 }
 		const first = await createResidentToolEvidenceSource(options).search({

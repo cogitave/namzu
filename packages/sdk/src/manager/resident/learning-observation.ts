@@ -8,11 +8,16 @@ export const learningTargetSchema = z.object({
 	baselineRevision: z.union([z.literal('none'), z.string().regex(/^[a-f0-9]{64}$/)]),
 })
 
+const lowerUuid = z
+	.string()
+	.uuid()
+	.transform((id) => id.toLowerCase())
+
 export const learningObservationSchema = learningTargetSchema.extend({
-	runId: z
-		.string()
-		.uuid()
-		.transform((id) => id.toLowerCase()),
+	/** The session whose log holds the observed turn. */
+	sessionId: lowerUuid,
+	/** The observed turn; one observation per (session, turn, evaluator, skill). */
+	turnId: lowerUuid,
 	/** Stable task identity, including input/source revision; retries keep the same key. */
 	taskKey: label,
 	outcome: z.enum(['passed', 'failed', 'execution-error', 'unresolved']),
