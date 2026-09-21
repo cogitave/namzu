@@ -371,7 +371,7 @@ them.
 
 ```bash
 namzu run "fix the failing test" --format json
-namzu run-stream "refactor the parser" | jq -c 'select(.type == "tool_call")'
+namzu run-stream "refactor the parser" | jq -c 'select(.kind == "tool-start")'
 ```
 
 `run` prints a result; `run-stream` emits one structured event per line as the
