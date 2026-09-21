@@ -221,6 +221,9 @@ trap cleanup EXIT
 STATE_SCRATCH="$CONSUMER_DIR/generated-state"
 export XDG_STATE_HOME="$STATE_SCRATCH/xdg"
 export NAMZU_HOME="$STATE_SCRATCH/namzu-home"
+# An explicit `NAMZU_HOME` must already be a real directory: the resolver
+# refuses one it cannot read rather than creating a home somewhere unexpected.
+mkdir -p "$XDG_STATE_HOME" "$NAMZU_HOME"
 
 # ---------------------------------------------------------------------------
 # A refusal has to be readable.
