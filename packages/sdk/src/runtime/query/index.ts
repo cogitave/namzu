@@ -1595,6 +1595,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// Decided during checkpoint restore, executed after the sandbox
 			// exists — the approved tools may well need it.
 			let pendingResume: PendingResumePlan | null = null
+			/** The record id of the parked assistant message the plan re-appends. */
+			let pendingResumeAssistantId: MessageId | undefined
 			/**
 			 * The cadence park this resume answered, when the decision is one the
 			 * ordinary continue path carries out. See the restore path below.
@@ -1823,6 +1825,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					// from the generic pass so no synthetic result competes with the
 					// authority that still owns the call. Everything else is abandoned
 					// history and is repaired conservatively rather than deleted.
+					pendingResumeAssistantId = pendingResume
+						? checkpoint.messageIds.get(pendingResume.assistant)
+						: undefined
 					const abandonedCheckpointMessages = pendingResume
 						? withoutOwnedResumeTurn(projectedCheckpoint.messages, pendingResume.assistant)
 						: projectedCheckpoint.messages
@@ -2224,7 +2229,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						}
 					}
 
-					await applyPendingResume(pendingResume, ctx.recorder, toolExecutor, recoveredResults)
+					await applyPendingResume(
+						pendingResume,
+						ctx.recorder,
+						toolExecutor,
+						recoveredResults,
+						pendingResumeAssistantId,
+					)
 					yield* eventTranslator.drainPending()
 				}
 

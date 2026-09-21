@@ -7,7 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { InMemorySessionLog, SessionMessageFold } from '../../../store/session-log/index.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type {
@@ -374,6 +374,46 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		// the user already answered back in front of them, and headless would
 		// resolve it with the no-consent sentinel.
 		expect(asked).not.toHaveBeenCalledWith('user_question')
+	})
+
+	it('puts the parked assistant message back under its own record, never a second copy', async () => {
+		const { log, park } = await parkOnce()
+		const request = park.pending.request
+		const questionId = request.type === 'user_question' ? request.question.questionId : ''
+		const isParkedAssistant = (record: { type: string; content?: unknown }) =>
+			record.type === 'message' &&
+			(record.content as { role?: string; toolCalls?: { id: string }[] } | undefined)?.role ===
+				'assistant' &&
+			(record.content as { toolCalls?: { id: string }[] }).toolCalls?.some(
+				(call) => call.id === 'call_1',
+			) === true
+		const before = (await log.readAll()).entries.map((entry) => entry.record)
+		const parked = before.filter(isParkedAssistant)
+		expect(parked).toHaveLength(1)
+		const parkedId = (parked[0] as { messageId: string }).messageId
+
+		const outcome = await resumeSession({
+			...(await baseParams(log)),
+			scope: SCOPE,
+			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
+			tools: deployTool({}),
+			pendingDecision: answerWith(questionId, 'staging'),
+			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
+		})
+		expect(outcome.resumed).toBe(true)
+
+		const after = (await log.readAll()).entries.map((entry) => entry.record)
+		// Each message is stored once (§2.1): the resume re-used the record.
+		expect(after.filter(isParkedAssistant)).toHaveLength(1)
+		// A resume that restored exactly the context the log already folds to
+		// has nothing to re-base: no compaction record appears without a live
+		// compaction event beside it (§4.2).
+		expect(after.filter((record) => record.type === 'compaction')).toEqual([])
+		// The original id still resolves in the fold, so a feedback call or a
+		// `resultMessageId` naming it keeps working.
+		const fold = new SessionMessageFold()
+		for (const record of after) fold.apply(record)
+		expect(fold.entries().some((entry) => entry.messageId === parkedId)).toBe(true)
 	})
 
 	it('delivers an answer through run_code using the durable ancestor call id', async () => {

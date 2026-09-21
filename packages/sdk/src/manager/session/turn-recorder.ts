@@ -213,6 +213,13 @@ export class TurnRecorder {
 	#userMessageId: MessageId | undefined
 	/** Set by {@link resume}: the next reconciliation re-bases the fold on the restored context. */
 	#rebasePending = false
+	/**
+	 * The message ids of the log's fold when the turn resumed, oldest first;
+	 * `undefined` when the fold holds a message with no record of its own (a
+	 * compaction summary). A restored context whose recorded ids are exactly
+	 * these needs no re-basing, so no `compaction` record is written for it.
+	 */
+	#foldIdsAtResume: readonly MessageId[] | undefined
 
 	constructor(config: TurnRecorderConfig) {
 		this.#config = config
@@ -707,9 +714,33 @@ export class TurnRecorder {
 		this.#phase = 'active'
 		// The log may hold records past the checkpoint (a crash after it); the
 		// fold is re-based on the context the resume restores, once it has been
-		// pushed.
+		// pushed, unless that context is the one the log already folds to.
+		this.#foldIdsAtResume = await this.#foldIds()
 		this.#rebasePending = true
 		return entry
+	}
+
+	/** The fold's message ids at the log's head, or `undefined` when one has no record. */
+	async #foldIds(): Promise<readonly MessageId[] | undefined> {
+		await this.flush()
+		const fold = new SessionMessageFold()
+		for await (const entry of this.log.read()) fold.apply(entry.record as SessionRecord)
+		if (fold.spilledSummary) return undefined
+		const ids: MessageId[] = []
+		for (const entry of fold.entries()) {
+			if (!entry.messageId) return undefined
+			ids.push(entry.messageId)
+		}
+		return ids
+	}
+
+	/** The recorded context is exactly what the log folds to: a resume changed nothing. */
+	#viewMatchesFold(): boolean {
+		const expected = this.#foldIdsAtResume
+		if (!expected) return false
+		const durable = this.#view.filter((entry) => !entry.transient)
+		if (durable.length !== expected.length) return false
+		return durable.every((entry, index) => entry.id === expected[index])
 	}
 
 	/**
@@ -923,8 +954,12 @@ export class TurnRecorder {
 		if (this.#phase !== 'active') return
 		if (this.#rebasePending) {
 			this.#rebasePending = false
-			this.#recordCompaction()
-			return
+			const unchanged = this.#viewMatchesFold()
+			this.#foldIdsAtResume = undefined
+			if (!unchanged) {
+				this.#recordCompaction()
+				return
+			}
 		}
 		const live = this.#turn.messages
 		const view = this.#view

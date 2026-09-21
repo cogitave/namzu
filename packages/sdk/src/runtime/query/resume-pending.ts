@@ -7,6 +7,7 @@ import type {
 	HITLResumeDecision,
 	ToolCallSummary,
 } from '../../types/hitl/index.js'
+import type { MessageId } from '../../types/ids/index.js'
 import type { AssistantMessage, Message, ToolCall } from '../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { ToolExecutionSnapshot } from '../../types/session/tool-execution.js'
@@ -407,6 +408,7 @@ export async function applyPendingResume(
 	recorder: TurnRecorder,
 	executor: ToolExecutor,
 	prior?: PriorToolResults,
+	assistantMessageId?: MessageId,
 ): Promise<void> {
 	const denials = new Map(plan.denials)
 	const reviewedById = new Map(plan.reviewedCalls?.map((call) => [call.id, call]))
@@ -472,7 +474,9 @@ export async function applyPendingResume(
 		}
 	}
 
-	recorder.pushMessage(plan.assistant)
+	// The parked assistant message is already in the log: it goes back into
+	// the context under its own record id, never as a second copy.
+	recorder.pushMessage(plan.assistant, assistantMessageId ? { messageId: assistantMessageId } : {})
 	const batch = await executor.executeBatch(plan.response, denials, prior, preparedBatch)
 	for (const msg of batch.messages) {
 		recorder.pushMessage(msg)
