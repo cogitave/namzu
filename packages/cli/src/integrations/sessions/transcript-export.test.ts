@@ -117,6 +117,8 @@ describe('exporting a conversation from its session log', () => {
 		expect(exported.markdown).toContain('## Copied history')
 		expect(exported.markdown).toContain('the original question')
 		expect(exported.markdown).toContain('a follow-up in the fork')
+		// The copied prompt is a turn of the fork, and so is its own.
+		expect(exported.turns).toBe(2)
 	})
 
 	it('refuses a log whose hash chain is broken', async () => {

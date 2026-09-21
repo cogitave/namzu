@@ -97,6 +97,12 @@ export async function conversationMarkdown(
 			case 'compaction':
 				flush()
 				if (record.strategy === 'fork' && Array.isArray(record.summary)) {
+					// The prompts a fork copied are turns of this conversation too.
+					turns += record.summary.filter(
+						(message) =>
+							message.role === 'user' &&
+							(message.source === undefined || message.source.type === 'goal-round'),
+					).length
 					lines.push(
 						'## Copied history',
 						'',
