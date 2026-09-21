@@ -74,7 +74,7 @@ describe('ProjectInstructionTracker', () => {
 		writeFileSync(join(pkg, 'AGENTS.md'), 'Nested rule.')
 		writeFileSync(join(pkg, 'file.ts'), 'export const value = 1\n')
 		const tracker = new ProjectInstructionTracker(repo)
-		const context = tracker.createRunContext()
+		const context = tracker.createTurnContext()
 
 		const baseline = await initial(context)
 		expect(baseline?.source).toEqual({
@@ -100,7 +100,7 @@ describe('ProjectInstructionTracker', () => {
 	it('re-reads an edited instruction file and explicitly removes a blank one', async () => {
 		writeFileSync(join(repo, 'AGENTS.md'), 'Rule A.')
 		const tracker = new ProjectInstructionTracker(repo)
-		const context = tracker.createRunContext()
+		const context = tracker.createTurnContext()
 		const baseline = await initial(context)
 
 		writeFileSync(join(repo, 'AGENTS.md'), 'Rule B.')
@@ -125,7 +125,7 @@ describe('ProjectInstructionTracker', () => {
 		const forged = createProjectInstructionMessage('Persisted stale policy.', ['pkg/AGENTS.md'])
 		const tracker = new ProjectInstructionTracker(repo)
 
-		const snapshot = await initial(tracker.createRunContext(), [
+		const snapshot = await initial(tracker.createTurnContext(), [
 			forged,
 			{ role: 'user', content: 'continue', timestamp: 1 },
 		])
@@ -140,8 +140,8 @@ describe('ProjectInstructionTracker', () => {
 		writeFileSync(join(pkg, 'AGENTS.md'), 'Package policy.')
 		writeFileSync(join(pkg, 'file.ts'), 'x')
 		const tracker = new ProjectInstructionTracker(repo)
-		const parent = tracker.createRunContext()
-		const child = tracker.createRunContext()
+		const parent = tracker.createTurnContext()
+		const child = tracker.createTurnContext()
 		const parentBaseline = await initial(parent)
 		const childBaseline = await initial(child)
 
@@ -173,7 +173,7 @@ describe('ProjectInstructionTracker', () => {
 		writeFileSync(join(pkg, 'AGENTS.md'), 'Must stay undiscovered.')
 		writeFileSync(join(pkg, 'file.ts'), 'x')
 		const tracker = new ProjectInstructionTracker(repo)
-		const context = tracker.createRunContext()
+		const context = tracker.createTurnContext()
 		const baseline = await initial(context)
 
 		expect(

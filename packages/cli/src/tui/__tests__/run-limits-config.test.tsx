@@ -13,6 +13,8 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -100,7 +102,7 @@ it('opens limits from /config, edits a field, and forwards the next run without 
 	mounted = harness
 	await waitFor(harness, '› Type a message')
 	await command(harness, '/config')
-	await waitFor(harness, 'Run limits')
+	await waitFor(harness, 'Turn limits')
 	// Model, effort, permissions, then run limits.
 	harness.stdin.write('\u001b[B\u001b[B\u001b[B')
 	await tick()

@@ -4,13 +4,11 @@ import { join } from 'node:path'
 
 import {
 	type CreateTaskOptions,
-	InMemoryCheckpointStore,
-	InMemoryRunStore,
 	type LLMProvider,
 	LocalTaskScheduler,
 	type Message,
 	MockLLMProvider,
-	type RunEvent,
+	type SessionEvent,
 	type TaskHandle,
 	type ToolContext,
 	ToolRegistry,
@@ -26,7 +24,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
-import type { OrchestrationRun } from '../../integrations/subagents/runs.js'
+import type { Batch } from '../../integrations/subagents/batches.js'
 import {
 	AgentCockpit,
 	AgentTaskPanel,
@@ -113,11 +111,11 @@ const savedChildren: {
 	gate?: Promise<void>
 } = vi.hoisted(() => ({ current: [], reads: 0 }))
 /**
- * What `/agents runs` finds on disk for this conversation, as the cheap
+ * What `/agents batches` finds saved for this conversation, as the cheap
  * listing reads it. `gate` holds one open so a test can put the read in
  * flight underneath a key press, the same shape as `savedChildren.gate`.
  */
-const orchestrationRuns: { current: readonly OrchestrationRun[]; gate?: Promise<void> } = vi.hoisted(() => ({
+const orchestrationRuns: { current: readonly Batch[]; gate?: Promise<void> } = vi.hoisted(() => ({
 	current: [],
 }))
 
@@ -132,6 +130,8 @@ vi.mock('../../user-commands/store.js', () => ({
 	discoverUserCommands: () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId: 'tenant',
 		turnEvidence: {
@@ -178,7 +178,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				await savedChildren.gate
 				return savedChildren.current
 			},
-			listOrchestrationRuns: async () => {
+			listSavedBatches: async () => {
 				await orchestrationRuns.gate
 				return orchestrationRuns.current
 			},
@@ -201,7 +201,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				if (JSON.stringify(messages).includes('reused tool id')) {
 					yield {
 						kind: 'tool-start',
-						runId: 'run-next',
+						turnId: 'turn-next',
 						toolUseId: 'matched-agent',
 						toolName: 'Bash',
 						summary: 'echo still visible',
@@ -448,7 +448,8 @@ describe('Ctrl+T', () => {
 						prompt: `Inspect area ${index + 1}`,
 					},
 					{
-						runId: parent.scope.runId,
+						sessionId: parent.scope.sessionId,
+						turnId: parent.scope.turnId,
 						workingDirectory: '/tmp',
 						abortSignal: new AbortController().signal,
 						env: {},
@@ -465,25 +466,25 @@ describe('Ctrl+T', () => {
 			)
 			for (let index = 0; index < created.length; index += 1) {
 				created[index]?.onEvent?.({
-					type: 'run_started',
-					runId: `run-child-${index}`,
-				} as unknown as RunEvent)
+					type: 'turn_started',
+					turnId: `turn-child-${index}`,
+				} as unknown as SessionEvent)
 			}
 			created[0]?.onEvent?.({
 				type: 'reasoning_delta',
-				runId: 'run-child-0',
+				turnId: 'turn-child-0',
 				iteration: 1,
 				messageId: 'reasoning' as never,
 				blockIndex: 0,
 				text: 'private reasoning must stay hidden',
-			} as unknown as RunEvent)
+			} as unknown as SessionEvent)
 			created[0]?.onEvent?.({
 				type: 'text_delta',
-				runId: 'run-child-0',
+				turnId: 'turn-child-0',
 				iteration: 1,
 				messageId: 'answer' as never,
 				text: 'public live finding',
-			} as unknown as RunEvent)
+			} as unknown as SessionEvent)
 			// Child deltas are intentionally coalesced for 100 ms so a token stream
 			// cannot make Ink repaint per token. Wait past that production boundary.
 			await new Promise<void>((resolve) => setTimeout(resolve, 120))
@@ -595,10 +596,10 @@ describe('Ctrl+T', () => {
 			})
 			sendOverride.current = async function* (messages) {
 				const events = query({
-					taskScheduler: await runtime.gatewayForRun(parentFixture.scope.runId),
+					taskScheduler: await runtime.gatewayForTurn(parentFixture.scope.turnId),
 					provider: parent,
 					tools,
-					runConfig: {
+					turnConfig: {
 						model: 'mock-model',
 						tokenBudget: 100_000,
 						// Generous on purpose. Four real child runs stand up under this
@@ -617,8 +618,6 @@ describe('Ctrl+T', () => {
 					messages: [...messages],
 					resumeHandler: async () => ({ action: 'approve_tools' }),
 					...parentFixture.scope,
-					runStore: new InMemoryRunStore(),
-					checkpointStore: new InMemoryCheckpointStore(),
 				})
 				for await (const event of events) {
 					const projected = toAgentEvent(event, presenter)
@@ -1402,7 +1401,7 @@ describe('Ctrl+T', () => {
 	})
 })
 
-describe('/agents runs', () => {
+describe('/agents batches', () => {
 	it('selecting a past run opens the cockpit with the replayed banner', async () => {
 		// Nothing live: this run is entirely on disk, the way a past turn's
 		// work looks once the process that ran it has exited.
@@ -1422,7 +1421,7 @@ describe('/agents runs', () => {
 		orchestrationRuns.current = [
 			{
 				id: 'saved-run-1',
-				name: 'Contract critic run',
+				name: 'Contract critic batch',
 				startedAt: 1,
 				phases: ['Work'],
 				agentsDone: 1,
@@ -1436,18 +1435,18 @@ describe('/agents runs', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		await submit(screen, '/agents runs')
+		await submit(screen, '/agents batches')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Contract critic run'),
-			'the run listing did not show the saved run',
+			() => screen.viewport().join('\n').includes('Contract critic batch'),
+			'the batch listing did not show the saved batch',
 		)
 
 		screen.press('\r')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('Replayed from saved evidence.'),
-			'selecting the run did not open the replayed banner',
+			'selecting the batch did not open the replayed banner',
 		)
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('cannot be continued')
@@ -1462,10 +1461,10 @@ describe('/agents runs', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		await submit(screen, '/agents runs')
+		await submit(screen, '/agents batches')
 		await waitUntil(
 			screen,
-			() => painted(screen).includes('No orchestration runs'),
+			() => painted(screen).includes('No batches yet'),
 			'an empty history did not say so',
 		)
 	})
@@ -1481,10 +1480,10 @@ describe('/agents runs', () => {
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
-		await submit(screen, '/agents runs')
+		await submit(screen, '/agents batches')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Orchestration runs'),
+			() => screen.viewport().join('\n').includes('Reading saved batches'),
 			'the loading picker did not open',
 		)
 
@@ -1492,7 +1491,7 @@ describe('/agents runs', () => {
 		screen.press('\x1b')
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('Orchestration runs'),
+			() => !screen.viewport().join('\n').includes('Reading saved batches'),
 			'escape did not close the loading picker',
 		)
 
@@ -1504,8 +1503,8 @@ describe('/agents runs', () => {
 
 		// A stale read must not reopen the picker the operator already left,
 		// nor push the empty-history message over whatever is on screen now.
-		expect(screen.viewport().join('\n')).not.toContain('Orchestration runs')
-		expect(painted(screen)).not.toContain('No orchestration runs')
+		expect(screen.viewport().join('\n')).not.toContain('Reading saved batches')
+		expect(painted(screen)).not.toContain('No batches yet')
 	})
 })
 
@@ -2100,7 +2099,7 @@ describe('agent completion presentation', () => {
 					toolUseId: `wait-${i}`,
 					toolName: 'wait_for_task',
 					taskId: `task-${i}`,
-					runId: 'run-parent',
+					turnId: 'turn-parent',
 					summary: `{"task_id":"task-${i}"}`,
 				}
 			await waits
@@ -2109,7 +2108,7 @@ describe('agent completion presentation', () => {
 					kind: 'tool-end',
 					toolUseId: `wait-${i}`,
 					toolName: 'wait_for_task',
-					runId: 'run-parent',
+					turnId: 'turn-parent',
 					isError: false,
 					summary: `task_id: task-${i}`,
 					detail: ['status: completed', 'Agent result:', 'full report from child'],

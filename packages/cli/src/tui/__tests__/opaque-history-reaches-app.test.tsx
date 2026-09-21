@@ -1,12 +1,16 @@
-/** App persists and replays exact kernel history without rendering opaque state. */
+/**
+ * App replays exact kernel history without rendering opaque state.
+ *
+ * The kernel's turn recorder owns persistence: the fake session below records
+ * each turn into the conversation's log the way `query()` does, and App's part
+ * is to hand the next turn the folded history byte-for-byte.
+ */
 
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	SqliteSessionStore,
 	createAssistantMessage,
-	createSystemMessage,
 	createToolMessage,
 	createUserMessage,
 	type Message,
@@ -15,9 +19,11 @@ import {
 import { render } from 'ink-testing-library'
 import { afterEach, expect, it, vi } from 'vitest'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import type { CliSessions } from '../../integrations/sessions/store.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession, RunScope, SendOptions } from '../agent.js'
+import type { AgentEvent, AgentSession, SessionScope, SendOptions } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = {
@@ -29,7 +35,7 @@ const HIDDEN_REASONING = 'HIDDEN_REASONING_MUST_NOT_RENDER'
 const HIDDEN_SIGNATURE = 'opaque-signature-exact'
 const HIDDEN_ENCRYPTED = 'opaque-encrypted-exact'
 
-let scope: RunScope | undefined
+let scope: SessionScope | undefined
 const sent: Message[][] = []
 
 vi.mock('../../integrations/trust/store.js', () => ({
@@ -52,9 +58,20 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async (
 			_preferences: Preferences,
 			_detected: readonly unknown[],
-			options: { readonly scope?: RunScope; readonly sessionGoals?: SessionGoalStore },
+			options: {
+				readonly scope?: SessionScope
+				readonly sessionGoals?: SessionGoalStore
+				readonly conversationSessions?: unknown
+			},
 		): Promise<AgentSession> => {
 			scope = options.scope
+			const conversations = options.conversationSessions as CliSessions | undefined
+			// What the kernel records at the end of a turn: the turn's new messages.
+			const record = async (prior: readonly Message[], turn: readonly Message[]) => {
+				const sessionId = scope?.sessionId
+				if (!conversations || !sessionId) return
+				await recordTurn(conversations, sessionId, turn.slice(prior.length - 1))
+			}
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
@@ -84,21 +101,6 @@ vi.mock('../agent.js', async (importOriginal) => {
 					sendOptions?: SendOptions,
 				): AsyncIterable<AgentEvent> {
 					sent.push([...messages])
-					if (messages.at(-1)?.content === 'compact this turn') {
-						const summary = {
-							...createSystemMessage(
-								'[COMPACTED CONTEXT] The following is a structured summary of the conversation so far.\n\ncompacted exact',
-							),
-							retain: true,
-						}
-						const user = messages.at(-1)
-						if (!user) throw new Error('fixture requires the current user message')
-						const answer = createAssistantMessage('COMPACTED ANSWER')
-						yield { kind: 'delta', text: 'COMPACTED ANSWER' }
-						yield { kind: 'done', stopReason: 'end_turn' }
-						sendOptions?.onConversationMessages?.([summary, user, answer])
-						return
-					}
 					if (sent.length === 1) {
 						const call = createAssistantMessage(null, [
 							{
@@ -116,15 +118,19 @@ vi.mock('../agent.js', async (importOriginal) => {
 								encrypted: HIDDEN_ENCRYPTED,
 							},
 						])
+						const turn = [...messages, call, result, answer]
 						yield { kind: 'delta', text: 'VISIBLE ANSWER' }
+						await record(messages, turn)
 						yield { kind: 'done', stopReason: 'end_turn' }
-						sendOptions?.onConversationMessages?.([...messages, call, result, answer])
+						sendOptions?.onConversationMessages?.(turn)
 						return
 					}
 					const answer = createAssistantMessage('SECOND ANSWER')
+					const turn = [...messages, answer]
 					yield { kind: 'delta', text: 'SECOND ANSWER' }
+					await record(messages, turn)
 					yield { kind: 'done', stopReason: 'end_turn' }
-					sendOptions?.onConversationMessages?.([...messages, answer])
+					sendOptions?.onConversationMessages?.(turn)
 				},
 			}
 		},
@@ -132,7 +138,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 })
 
 const { App } = await import('../App.js')
-const { appendMessages, loadConversation, openSessions, startConversation } = await import(
+const { loadConversation, openSessions, startConversation } = await import(
 	'../../integrations/sessions/store.js'
 )
 const roots: string[] = []
@@ -193,7 +199,7 @@ it('resumes public message parts without blank rows and sends the original tool/
 		createToolMessage('original tool result', 'seed-call'),
 		answer,
 	]
-	await appendMessages(sessions, sessionId, history)
+	await recordTurn(sessions, sessionId, history)
 	const durable = await loadConversation(sessions, sessionId)
 	const harness = render(
 		<App
@@ -229,8 +235,6 @@ it('resumes public message parts without blank rows and sends the original tool/
 })
 
 it('reopens the exact tool/reasoning history and sends it next turn', async () => {
-	const replacements = vi.spyOn(SqliteSessionStore.prototype, 'replaceMessages')
-	const appends = vi.spyOn(SqliteSessionStore.prototype, 'appendMessage')
 	const root = await mkdtemp(join(tmpdir(), 'namzu-opaque-history-app-'))
 	roots.push(root)
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
@@ -269,8 +273,6 @@ it('reopens the exact tool/reasoning history and sends it next turn', async () =
 			},
 		],
 	})
-	expect(replacements).toHaveBeenCalledTimes(1)
-	expect(appends).not.toHaveBeenCalled()
 	const rendered = harness.frames.join('\n')
 	expect(rendered).not.toContain(HIDDEN_REASONING)
 	expect(rendered).not.toContain(HIDDEN_SIGNATURE)
@@ -287,34 +289,4 @@ it('reopens the exact tool/reasoning history and sends it next turn', async () =
 		},
 		{ timeout: 5_000 },
 	)
-})
-
-it('atomically replaces a prefix changed by in-run compaction', async () => {
-	const replacements = vi.spyOn(SqliteSessionStore.prototype, 'replaceMessages')
-	const appends = vi.spyOn(SqliteSessionStore.prototype, 'appendMessage')
-	const root = await mkdtemp(join(tmpdir(), 'namzu-compacted-history-app-'))
-	roots.push(root)
-	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
-	mounted.push(harness)
-	await until(() => scope?.sessionId !== undefined, 'the durable conversation never became ready')
-
-	await submit(harness, 'compact this turn')
-	await until(() => sent.length === 1, 'the compacting turn never reached the session')
-	const sessionId = scope?.sessionId
-	if (!sessionId) throw new Error('fixture requires the active session id')
-	const sessions = await openSessions(root)
-	let durable: readonly Message[] = []
-	await vi.waitFor(
-		async () => {
-			durable = await loadConversation(sessions, sessionId)
-			expect(durable).toHaveLength(3)
-		},
-		{ timeout: 5_000 },
-	)
-
-	expect(durable[0]).toMatchObject({ role: 'system', retain: true })
-	expect(durable[1]).toMatchObject({ role: 'user', content: 'compact this turn' })
-	expect(durable[2]).toMatchObject({ role: 'assistant', content: 'COMPACTED ANSWER' })
-	expect(replacements).toHaveBeenCalledTimes(1)
-	expect(appends).not.toHaveBeenCalled()
 })

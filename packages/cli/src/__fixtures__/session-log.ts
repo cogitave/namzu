@@ -1,6 +1,7 @@
 import {
 	type Message,
 	type SessionId,
+	type SessionLog,
 	type TurnId,
 	generateCheckpointId,
 	generateMessageId,
@@ -101,4 +102,24 @@ export async function recordTurn(
 	}
 	await refreshIndex(s, sessionId)
 	return turnId
+}
+
+/**
+ * A session log with no records, for tests that drive a resume into a mocked
+ * kernel: the session reads the turn's recorded limits from it and finds
+ * none, so the configured ones apply.
+ */
+export function emptySessionLog(sessionId: unknown): SessionLog {
+	return {
+		sessionId,
+		// An iterator that ends at once, returning the read's summary.
+		read: () => ({
+			[Symbol.asyncIterator]: () => ({
+				next: async () => ({
+					done: true,
+					value: { intact: true, throughSeq: 0, head: null, tornBytes: 0 },
+				}),
+			}),
+		}),
+	} as unknown as SessionLog
 }

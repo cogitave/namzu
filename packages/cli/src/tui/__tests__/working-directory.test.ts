@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { BackgroundJobRegistry, type ToolRegistry, getBuiltinTools } from '@namzu/sdk'
-import type { RunId, ToolContext } from '@namzu/sdk'
+import type { ToolContext, TurnId } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import { openSessions, startConversation } from '../../integrations/sessions/store.js'
@@ -55,7 +55,8 @@ afterEach(() => {
 
 function toolContext(workingDirectory: string): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
+		sessionId: '019a0000-0000-7000-8000-0000000000f4' as ToolContext['sessionId'],
+		turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId,
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -166,7 +167,7 @@ describe('createAgentSession runs where it is told to', () => {
 					backgroundJobs: expect.any(BackgroundJobRegistry),
 					backgroundJobOwner: parentScope.sessionId,
 					sandboxProvider: expect.objectContaining({ create: expect.any(Function) }),
-					runConfig: { sandbox: { workspace: 'working-directory' } },
+					turnConfig: { sandbox: { workspace: 'working-directory' } },
 				})
 				expect(tools.map((tool) => tool.name)).toContain('job')
 				expect(
@@ -227,7 +228,7 @@ describe('createAgentSession runs where it is told to', () => {
 		expect(queryCalls[0].workingDirectory).toBe(workDir)
 		expect(queryCalls[0].workingDirectory).not.toBe(process.cwd())
 		expect(queryCalls[0]).toMatchObject({
-			runConfig: { sandbox: { workspace: 'working-directory' } },
+			turnConfig: { sandbox: { workspace: 'working-directory' } },
 		})
 		// Keep this cwd-routing test from manufacturing an unrelated legacy
 		// store in the directory whose file-tool behavior it is measuring. CLI
@@ -247,7 +248,7 @@ describe('createAgentSession runs where it is told to', () => {
 		}
 
 		expect(queryCalls[0]).toMatchObject({
-			runConfig: { sandbox: { workspace: 'ephemeral' } },
+			turnConfig: { sandbox: { workspace: 'ephemeral' } },
 		})
 	})
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { type RunEvent, type RunId, ToolRegistry, createToolPresenter } from '@namzu/sdk'
+import {
+	type SessionEvent,
+	type SessionId,
+	ToolRegistry,
+	type TurnId,
+	createToolPresenter,
+} from '@namzu/sdk'
 
 import { toAgentEvent } from '../agent.js'
 
@@ -11,7 +17,7 @@ const presenter = createToolPresenter(new ToolRegistry())
 /**
  * The seam between the kernel and the command.
  *
- * The SDK test proves `run_completed` carries a stop reason and the `run` test
+ * The SDK test proves `turn_completed` carries a stop reason and the `run` test
  * proves the command acts on one, and both of those passed while this function
  * threw the field away in between — the mutation that reverted it to a bare
  * `{ kind: 'done' }` was caught by nothing. Two tested ends and an untested
@@ -19,14 +25,16 @@ const presenter = createToolPresenter(new ToolRegistry())
  * never arrive.
  */
 
-const runId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
+const turnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
+const sessionId = '019a0000-0000-7000-8000-00000000a0e1' as SessionId
 
 describe('toAgentEvent carries the stop reason across', () => {
 	it('preserves the provider text item boundary for streaming presentation', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'text_delta',
-				runId,
+				sessionId,
+				turnId,
 				iteration: 1,
 				messageId: 'message' as never,
 				text: 'Answer',
@@ -46,7 +54,8 @@ describe('toAgentEvent carries the stop reason across', () => {
 			const mapped = toAgentEvent(
 				{
 					type: 'capability_warning',
-					runId,
+					sessionId,
+					turnId,
 					capability,
 					providerId: 'deepseek',
 					message: `cannot serve ${capability}`,
@@ -67,7 +76,8 @@ describe('toAgentEvent carries the stop reason across', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'capability_warning',
-				runId,
+				sessionId,
+				turnId,
 				capability: 'vision',
 				contentSource: 'tool-result',
 				providerId: 'text-only',
@@ -88,7 +98,8 @@ describe('toAgentEvent carries the stop reason across', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'message_history_repaired',
-				runId,
+				sessionId,
+				turnId,
 				source: 'abandoned-checkpoint',
 				duplicateToolResultsRemoved: 1,
 				orphanedToolResultsRemoved: 2,
@@ -109,7 +120,8 @@ describe('toAgentEvent carries the stop reason across', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'message_history_repaired',
-				runId,
+				sessionId,
+				turnId,
 				source: 'provider-rejected-image',
 				duplicateToolResultsRemoved: 0,
 				orphanedToolResultsRemoved: 0,
@@ -129,15 +141,22 @@ describe('toAgentEvent carries the stop reason across', () => {
 	it('passes a non-normal stop through to the done event', () => {
 		const mapped = toAgentEvent(
 			{
-				type: 'run_completed',
-				runId,
+				type: 'turn_completed',
+				sessionId,
+				turnId,
 				result: '',
 				stopReason: 'output_guardrail',
-			} as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 
-		expect(mapped).toEqual({ kind: 'done', stopReason: 'output_guardrail', text: '' })
+		expect(mapped).toEqual({
+			kind: 'done',
+			sessionId,
+			turnId,
+			stopReason: 'output_guardrail',
+			text: '',
+		})
 	})
 
 	it('passes end_turn through rather than inventing it downstream', () => {
@@ -146,33 +165,35 @@ describe('toAgentEvent carries the stop reason across', () => {
 		// here rather than reconstructed by whoever reads it.
 		const mapped = toAgentEvent(
 			{
-				type: 'run_completed',
-				runId,
+				type: 'turn_completed',
+				sessionId,
+				turnId,
 				result: 'hi',
 				stopReason: 'end_turn',
-			} as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 
-		expect(mapped).toEqual({ kind: 'done', stopReason: 'end_turn', text: 'hi' })
+		expect(mapped).toEqual({ kind: 'done', sessionId, turnId, stopReason: 'end_turn', text: 'hi' })
 	})
 
 	it('still maps a completion that carries no reason', () => {
 		const mapped = toAgentEvent(
-			{ type: 'run_completed', runId, result: 'hi' } as RunEvent,
+			{ type: 'turn_completed', sessionId, turnId, result: 'hi' } as unknown as SessionEvent,
 			presenter,
 		)
 
-		expect(mapped).toEqual({ kind: 'done', text: 'hi' })
+		expect(mapped).toEqual({ kind: 'done', sessionId, turnId, text: 'hi' })
 	})
 
 	it('maps a failure to an error, not to done', () => {
 		const mapped = toAgentEvent(
 			{
-				type: 'run_failed',
-				runId,
+				type: 'turn_failed',
+				sessionId,
+				turnId,
 				error: 'boom',
-			} as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 
@@ -195,18 +216,19 @@ describe('toAgentEvent carries the stop reason across', () => {
 		expect(
 			toAgentEvent(
 				{
-					type: 'run_paused',
-					runId,
+					type: 'turn_paused',
+					sessionId,
+					turnId,
 					checkpointId: '198e213b-0e39-40d2-8484-2d6e8cc9d83f' as never,
 					reason: 'slow down',
 					failure,
 					explanation,
-				} as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toEqual({
 			kind: 'paused',
-			runId: String(runId),
+			turnId: String(turnId),
 			checkpointId: '198e213b-0e39-40d2-8484-2d6e8cc9d83f',
 			reason: 'slow down',
 			failure,
@@ -216,12 +238,13 @@ describe('toAgentEvent carries the stop reason across', () => {
 		expect(
 			toAgentEvent(
 				{
-					type: 'run_failed',
-					runId,
+					type: 'turn_failed',
+					sessionId,
+					turnId,
 					error: 'slow down',
 					failure,
 					explanation,
-				} as RunEvent,
+				} as unknown as SessionEvent,
 				presenter,
 			),
 		).toEqual({ kind: 'error', message: 'slow down', failure, explanation })
@@ -236,7 +259,7 @@ describe('compaction is reported, not silent', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'compaction_completed',
-				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				iteration: 3,
 				messagesBefore: 42,
 				messagesAfter: 9,
@@ -265,7 +288,7 @@ describe('compaction is reported, not silent', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'compaction_completed',
-				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				iteration: 3,
 				messagesBefore: 10,
 				messagesAfter: 4,
@@ -290,7 +313,7 @@ describe('the three decline causes get three sentences', () => {
 		const mapped = toAgentEvent(
 			{
 				type: 'compaction_failed',
-				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 				iteration: 2,
 				cause,
 				messages: 31,
@@ -359,7 +382,7 @@ describe('toAgentEvent labels a delegation with the label it required', () => {
 				toolName,
 				toolUseId: 'tu_1',
 				input,
-			} as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 
@@ -412,11 +435,12 @@ describe('toAgentEvent carries the context figures across', () => {
 		toAgentEvent(
 			{
 				type: 'token_usage_updated',
-				runId,
+				sessionId,
+				turnId,
 				usage: { totalTokens: 90 },
 				cost: COST,
 				...extra,
-			} as unknown as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 
@@ -430,6 +454,8 @@ describe('toAgentEvent carries the context figures across', () => {
 			}),
 		).toEqual({
 			kind: 'usage',
+			sessionId,
+			turnId,
 			totalTokens: 90,
 			cost: COST,
 			contextTokens: 12_000,
@@ -446,7 +472,7 @@ describe('toAgentEvent carries the context figures across', () => {
 		// to show no proportion at all.
 		const mapped = usageEvent({})
 
-		expect(mapped).toEqual({ kind: 'usage', totalTokens: 90, cost: COST })
+		expect(mapped).toEqual({ kind: 'usage', sessionId, turnId, totalTokens: 90, cost: COST })
 		expect(mapped).not.toHaveProperty('contextTokens')
 		expect(mapped).not.toHaveProperty('contextWindowTokens')
 	})
@@ -482,25 +508,27 @@ it('preserves own usage and the separate tree summary through usage and terminal
 	const usage = toAgentEvent(
 		{
 			type: 'token_usage_updated',
-			runId,
+			sessionId,
+			turnId,
 			usage: { totalTokens: 90 },
 			cost: { totalCost: 0.5, cacheDiscount: 0, unpricedTokens: 0 },
 			budget,
-		} as unknown as RunEvent,
+		} as unknown as SessionEvent,
 		presenter,
 	)
 	expect(usage).toMatchObject({ kind: 'usage', totalTokens: 90, budget })
-	for (const type of ['run_completed', 'run_failed', 'run_paused'] as const) {
+	for (const type of ['turn_completed', 'turn_failed', 'turn_paused'] as const) {
 		const mapped = toAgentEvent(
 			{
 				type,
-				runId,
+				sessionId,
+				turnId,
 				budget,
 				error: 'stopped',
 				result: 'answer',
 				checkpointId: 'checkpoint',
 				reason: 'paused',
-			} as unknown as RunEvent,
+			} as unknown as SessionEvent,
 			presenter,
 		)
 		expect(mapped).toHaveProperty('budget', budget)
@@ -511,11 +539,12 @@ it('carries the exact wait task identity without parsing its display summary', (
 	const event = toAgentEvent(
 		{
 			type: 'tool_executing',
-			runId,
+			sessionId,
+			turnId,
 			toolUseId: 'wait-call',
 			toolName: 'wait_for_task',
 			input: { task_id: 'task-identity' },
-		} as RunEvent,
+		} as unknown as SessionEvent,
 		presenter,
 	)
 	expect(event).toMatchObject({ kind: 'tool-start', taskId: 'task-identity' })

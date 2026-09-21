@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ToolRegistry } from '@namzu/sdk'
-import type { RunId, RunMemoryCandidate, ToolContext } from '@namzu/sdk'
+import type { SessionId, SessionMemoryCandidate, ToolContext, TurnId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -85,9 +85,10 @@ function detectedAnthropic(): DetectedProvider[] {
 	]
 }
 
-function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
+function candidate(over: Partial<SessionMemoryCandidate> = {}): SessionMemoryCandidate {
 	return {
-		runId: 'a6ef4a3c-dd6b-4115-90d3-9fb61cdb2a81' as RunMemoryCandidate['runId'],
+		sessionId: '019a0000-0000-7000-8000-0000000000b1' as SessionId,
+		turnId: 'a6ef4a3c-dd6b-4115-90d3-9fb61cdb2a81' as TurnId,
 		task: 'wire the invoice job',
 		decisions: [],
 		discoveries: [],
@@ -100,7 +101,7 @@ function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
 	}
 }
 
-async function drive(): Promise<(c: RunMemoryCandidate) => void | Promise<void>> {
+async function drive(): Promise<(c: SessionMemoryCandidate) => void | Promise<void>> {
 	const { createAgentSession } = await import('../tui/agent.js')
 	const session = await createAgentSession(prefs, detectedAnthropic(), { cwd })
 	for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
@@ -112,12 +113,13 @@ async function drive(): Promise<(c: RunMemoryCandidate) => void | Promise<void>>
 	// knowledge on the floor at settle — silently, because a run that
 	// remembers nothing looks exactly like a run that learned nothing.
 	expect(typeof promoteMemory).toBe('function')
-	return promoteMemory as (c: RunMemoryCandidate) => void | Promise<void>
+	return promoteMemory as (c: SessionMemoryCandidate) => void | Promise<void>
 }
 
 function toolContext(): ToolContext {
 	return {
-		runId: '225ccf73-c558-4774-8681-93fbe9048da9' as RunId,
+		sessionId: '019a0000-0000-7000-8000-0000000000b2' as SessionId,
+		turnId: '225ccf73-c558-4774-8681-93fbe9048da9' as TurnId,
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -156,7 +158,7 @@ describe('the run memory promoter', () => {
 			return queryCalls.at(-1) ?? {}
 		}
 		const first = await turn()
-		const promote = first.promoteMemory as (c: RunMemoryCandidate) => Promise<void>
+		const promote = first.promoteMemory as (c: SessionMemoryCandidate) => Promise<void>
 		await promote(candidate({ userRequirements: ['never email an invoice twice'] }))
 		const store = sessionMemoryStore(cwd)
 		expect((await store.list()).totalCount).toBe(1)

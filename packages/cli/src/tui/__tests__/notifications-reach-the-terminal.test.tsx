@@ -102,6 +102,8 @@ vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'current',
 	requireWritableConversation: async () => {},
@@ -190,7 +192,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				} else if (script.outcome === 'paused') {
 					yield {
 						kind: 'paused',
-						runId: 'dc7938d2-47e4-4af8-8f98-db8f2043f6a9',
+						turnId: 'dc7938d2-47e4-4af8-8f98-db8f2043f6a9',
 						checkpointId: '7f6bf1c5-d9f6-4443-be52-d4c01f4f405b',
 						reason: 'request rejected after retries',
 						failure: {
@@ -392,7 +394,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await submit(harness, 'depends on first')
 	gates[0]?.release()
 
-	await frameShows(harness, 'Run paused [provider.rate_limit]: The provider is rate limiting this run.')
+	await frameShows(harness, 'Turn paused [provider.rate_limit]: The provider is rate limiting this run.')
 	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
 	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
 	await frameShows(harness, 'Checkpoint preserved: 7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')

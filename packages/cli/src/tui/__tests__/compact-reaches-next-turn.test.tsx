@@ -12,7 +12,7 @@
  * `session.send` and to conversation persistence.
  */
 
-import { createSystemMessage, type Message, type RunId } from '@namzu/sdk'
+import { createSystemMessage, type Message, type TurnId } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -93,6 +93,8 @@ function holdAutomaticFailure(): void {
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -165,13 +167,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
 				if (reportAutomaticCompaction && sent.length === 2) {
-					// Use the production RunEvent -> AgentEvent mapper. The App-level
+					// Use the production SessionEvent -> AgentEvent mapper. The App-level
 					// observer below therefore covers both hops that must remain intact:
 					// SDK status snapshot mapping and StatusBar publication.
 					yield actual.toAgentEvent(
 						{
 							type: 'compaction_completed',
-							runId: '4ac54cdc-8544-408d-9644-81a89368a5a0' as RunId,
+							sessionId: '019a0000-0000-7000-8000-0000000000f2' as never,
+							turnId: '4ac54cdc-8544-408d-9644-81a89368a5a0' as TurnId,
 							iteration: 2,
 							messagesBefore: 40,
 							messagesAfter: 6,
@@ -186,7 +189,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 					yield actual.toAgentEvent(
 						{
 							type: 'token_usage_updated',
-							runId: '4ac54cdc-8544-408d-9644-81a89368a5a0' as RunId,
+							sessionId: '019a0000-0000-7000-8000-0000000000f2' as never,
+							turnId: '4ac54cdc-8544-408d-9644-81a89368a5a0' as TurnId,
 							usage: { ...ZERO_USAGE, totalTokens: 9_500 },
 							cost: { totalCost: 0.19, cacheDiscount: 0, unpricedTokens: 0 },
 							contextTokens: 20_000,

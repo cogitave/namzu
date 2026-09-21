@@ -59,7 +59,7 @@ function stream(events: unknown[]): AsyncIterable<AgentEvent> {
 
 const PAUSE = {
 	kind: 'paused',
-	runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+	turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 	checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 	reason: 'slow down',
 	// A millisecond, so the test waits for real rather than faking a clock:
@@ -89,7 +89,7 @@ describe('a paused run, given time to wait', () => {
 	it('waits the provider delay, resumes from the checkpoint, and finishes with 0', async () => {
 		sessionStub.send = (() =>
 			stream([{ kind: 'delta', text: 'first half, ' }, PAUSE])) as AgentSession['send']
-		const resumed = vi.fn((params: { runId: string; checkpointId: string }) =>
+		const resumed = vi.fn((params: { turnId: string; checkpointId?: string }) =>
 			stream([
 				{ kind: 'delta', text: `second half from ${params.checkpointId}` },
 				{ kind: 'done', stopReason: 'end_turn' },
@@ -101,7 +101,7 @@ describe('a paused run, given time to wait', () => {
 
 		expect(code).toBe(0)
 		expect(resumed).toHaveBeenCalledWith({
-			runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+			turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 			checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 		})
 		expect(printed.join('')).toBe(
@@ -156,7 +156,7 @@ describe('a paused run, given time to wait', () => {
 			stream([
 				{
 					kind: 'paused',
-					runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+					turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 					checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 					reason: 'parked',
 				},

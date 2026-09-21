@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { type RunEvent, type RunId, ToolRegistry, createToolPresenter } from '@namzu/sdk'
+import { type SessionEvent, type TurnId, ToolRegistry, createToolPresenter } from '@namzu/sdk'
 
 import { Transcript, renderedDetailLines, willCollapse } from '../Transcript.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
@@ -10,7 +10,7 @@ import type { TranscriptMessage } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const presenter = createToolPresenter(new ToolRegistry())
-const runId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
+const turnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 const LONG_LINE = `${'x'.repeat(400)}FIRST_LINE_END`
 const OUTPUT = [
 	LONG_LINE,
@@ -22,12 +22,12 @@ function completed(result: string) {
 	const event = toAgentEvent(
 		{
 			type: 'tool_completed',
-			runId,
+			turnId,
 			toolUseId: 'receipt',
 			toolName: 'remote_tool',
 			isError: false,
 			result,
-		} as RunEvent,
+		} as unknown as SessionEvent,
 		presenter,
 	)
 	if (event?.kind !== 'tool-end') throw new Error('missing completion')
@@ -37,6 +37,8 @@ function completed(result: string) {
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -57,7 +59,7 @@ vi.mock('../agent.js', async (importOriginal) => ({
 			send: async function* () {
 				yield {
 					kind: 'tool-start',
-					runId,
+					turnId,
 					toolUseId: 'receipt',
 					toolName: 'remote_tool',
 					summary: 'inspect output',

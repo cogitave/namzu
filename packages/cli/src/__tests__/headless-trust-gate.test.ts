@@ -538,13 +538,14 @@ describe('namzu drain crosses the same project trust boundary', () => {
 		store: string,
 		extra: readonly string[] = [],
 		projectId = 'f2584e6f-9b19-4cd8-a450-454bffef0d5b',
+		tenantId = '8bce6ebb-557b-46c5-b492-d73f56d2dac6',
 	): string[] {
 		return [
 			'drain',
 			'--store',
 			store,
 			'--tenant',
-			'8bce6ebb-557b-46c5-b492-d73f56d2dac6',
+			tenantId,
 			'--project',
 			projectId,
 			'--session',
@@ -581,32 +582,30 @@ describe('namzu drain crosses the same project trust boundary', () => {
 				plugins: { enabled: true, allowedScopes: ['project'] },
 			}),
 		)
-		const { asTenantId, asSessionId, generateTopicId } = await import('@namzu/sdk')
+		const { asSessionId } = await import('@namzu/sdk')
 		const stateRoot = join(home, '.namzu')
 		mkdirSync(stateRoot, { recursive: true })
 		vi.stubEnv('NAMZU_HOME', stateRoot)
-		const { sessionStore } = await import('../integrations/sessions/database.js')
-		const state = sessionStore(stateRoot)
-		const tenantId = asTenantId('8bce6ebb-557b-46c5-b492-d73f56d2dac6')
-		const project = await state.createProject({ tenantId, name: 'Drain fixture' }, tenantId)
-		await state.createSession(
-			{
-				id: asSessionId('e084422e-7ef9-4ff8-a4bf-faf77028e6ad'),
-				projectId: project.id,
-				topicId: generateTopicId(),
-				currentActor: null,
-			},
-			tenantId,
+		// The session the drain names: its log under the project `--cwd` stands for.
+		const { openSessions, startConversation, closeSessions } = await import(
+			'../integrations/sessions/store.js'
 		)
-		const store = join(stranger, 'runs')
-		mkdirSync(store)
+		const sessions = await openSessions(stranger, { stateRoot })
+		await startConversation(sessions, asSessionId('e084422e-7ef9-4ff8-a4bf-faf77028e6ad'))
+		closeSessions(sessions)
+		const project = { id: sessions.projectId, tenantId: sessions.tenantId }
+		const store = stateRoot
 		const ambient = mkdtempSync(join(tmpdir(), 'namzu-drain-ambient-'))
 		const previousCwd = process.cwd()
 		try {
 			process.chdir(ambient)
 			const { runCli } = await import('../cli.js')
 			const code = await runCli({
-				argv: ['node', 'namzu', ...drainArgs(store, ['--cwd', stranger, '--trust'], project.id)],
+				argv: [
+					'node',
+					'namzu',
+					...drainArgs(store, ['--cwd', stranger, '--trust'], project.id, project.tenantId),
+				],
 			})
 
 			expect(code).toBe(0)

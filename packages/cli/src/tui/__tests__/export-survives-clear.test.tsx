@@ -1,7 +1,6 @@
-import { CliPathBuilder } from '../../integrations/sessions/paths.js'
-/** `/export` reads durable run evidence, not the transcript `/clear-screen` removes. */
+/** `/export` reads the session log, not the transcript `/clear-screen` removes. */
 
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -11,6 +10,7 @@ import {
 } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type {
@@ -44,8 +44,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 			options: AgentSessionOptions,
 		): Promise<AgentSession> => {
 			const scope = options.scope
-			if (!scope) throw new Error('fixture requires a durable scope')
-			const stateRoot = options.stateRoot ?? join(root, '.namzu')
+			const sessions = options.conversationSessions
+			if (!scope || !sessions) throw new Error('fixture requires a durable conversation')
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
@@ -74,18 +74,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					messages: readonly Message[],
 					sendOptions?: SendOptions,
 				): AsyncIterable<AgentEvent> {
-					const runId = sendOptions?.runId
-					if (!runId) throw new Error('App did not reserve a run id')
-					const evidencePath = join(
-						new CliPathBuilder(stateRoot).sessionDir(
-							scope.projectId,
-							scope.sessionId,
-						),
-						'turns.jsonl',
-					)
-					const evidence = await readFile(evidencePath, 'utf-8')
-					if (!evidence.includes(runId)) throw new Error('run began before its turn binding landed')
-
+					if (!sendOptions?.turnId) throw new Error('App did not reserve a turn id')
 					const toolUseId = 'toolu_clear_export'
 					const first = createAssistantMessage('First **raw**.', [
 						{
@@ -96,75 +85,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 					])
 					const result = createToolMessage('durable tool result', toolUseId)
 					const last = createAssistantMessage('Done.')
-					const runDir = new CliPathBuilder(stateRoot).runDir(
-						scope.projectId,
-						scope.sessionId,
-						runId,
-					)
-					await mkdir(runDir, { recursive: true })
-					const events = [
-						{ type: 'run_started', runId, seq: 1, timestamp: 1 },
-						{
-							type: 'message_completed',
-							runId,
-							seq: 2,
-							timestamp: 2,
-							iteration: 1,
-							messageId: '99dd4f90-026f-404d-8bd7-5b8623e7cec0',
-							stopReason: 'tool_use',
-							content: 'First **raw**.',
-						},
-						{
-							type: 'tool_executing',
-							runId,
-							seq: 3,
-							timestamp: 3,
-							toolUseId,
-							toolName: 'read_file',
-							input: { path: 'facts.md' },
-						},
-						{
-							type: 'tool_completed',
-							runId,
-							seq: 4,
-							timestamp: 4,
-							toolUseId,
-							toolName: 'read_file',
-							result: 'durable tool result',
-							isError: false,
-						},
-						{
-							type: 'message_completed',
-							runId,
-							seq: 5,
-							timestamp: 5,
-							iteration: 2,
-							messageId: '24f8251d-c5bf-4410-b0a0-422a6afdb183',
-							stopReason: 'end_turn',
-							content: 'Done.',
-						},
-						{
-							type: 'run_completed',
-							runId,
-							seq: 6,
-							timestamp: 6,
-							result: 'First **raw**.Done.',
-						},
-					]
-					await writeFile(
-						join(runDir, 'transcript.jsonl'),
-						`${events.map((event) => JSON.stringify(event)).join('\n')}\n`,
-						'utf-8',
-					)
-					await writeFile(
-						join(runDir, 'messages.json'),
-						`${JSON.stringify({
-							format: 'namzu.run-message-snapshot.v1',
-							throughEventSeq: 6,
-							messages: [...messages, first, result, last],
-						})}\n`,
-						'utf-8',
-					)
+					// What the kernel's recorder appends while the turn runs.
+					const user = messages.at(-1)
+					if (!user) throw new Error('App sent no prompt')
+					await recordTurn(sessions, scope.sessionId, [user, first, result, last], {
+						turnId: sendOptions.turnId,
+					})
 
 					yield { kind: 'delta', text: 'First **raw**.' }
 					yield { kind: 'delta', text: 'Done.' }

@@ -82,6 +82,7 @@ describe('command summaries and details', () => {
 					reservedTokens: 0,
 					remainingTokens: 600,
 					inFlightRequests: 1,
+					unresolvedRequests: 0,
 					unsettledChildren: 0,
 					poisoned: true,
 				},
