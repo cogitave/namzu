@@ -1,14 +1,16 @@
-import type { TokenBudget } from '../../run/token-budget.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
+import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
+import type { SessionLog } from '../../store/session-log/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import type { Logger } from '../../utils/logger.js'
-import type { RunId, SessionId, TenantId } from '../ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
-import type { ProjectId, TopicId } from '../session/ids.js'
-import type { CheckpointStore } from './checkpoint-store.js'
+import type { ProjectId, TopicId } from './ids.js'
 
-export interface AgentRunConfig {
+/** The configuration one turn runs with. */
+export interface TurnConfig {
 	model: string
-	/** Total run duration in milliseconds; 0 disables the run deadline. */
+	/** Total turn duration in milliseconds; 0 disables the turn deadline. */
 	timeoutMs: number
 	/**
 	 * Maximum silence between provider stream chunks, in milliseconds.
@@ -25,7 +27,7 @@ export interface AgentRunConfig {
 	 *
 	 * Defaults to 24 MiB. The budget is shared by user attachments and rich
 	 * tool-result blocks. When history exceeds it, the provider-bound projection
-	 * replaces the oldest values with model-visible omission markers; the run's
+	 * replaces the oldest values with model-visible omission markers; the turn's
 	 * canonical messages and durable evidence remain unchanged. Set `0` to keep
 	 * the prior unbounded behaviour.
 	 */
@@ -33,7 +35,7 @@ export interface AgentRunConfig {
 	maxResponseTokens?: number
 
 	/**
-	 * Extended-thinking request, forwarded on every model call in the run.
+	 * Extended-thinking request, forwarded on every model call in the turn.
 	 *
 	 * Drivers that do not support it ignore the field. Note that a provider
 	 * rejects temperature/top_p/top_k while thinking is enabled, so the
@@ -42,9 +44,9 @@ export interface AgentRunConfig {
 	thinking?: import('../provider/index.js').ThinkingConfig
 
 	/**
-	 * How much work the model should spend on each call in the run.
+	 * How much work the model should spend on each call in the turn.
 	 *
-	 * A SIBLING of {@link AgentRunConfig.thinking}, not a field inside it.
+	 * A SIBLING of {@link TurnConfig.thinking}, not a field inside it.
 	 * On some models the two are independent controls that apply together —
 	 * effort shapes the answer while a budget sets thinking depth — so
 	 * nesting one inside the other would make that combination unsayable.
@@ -56,17 +58,17 @@ export interface AgentRunConfig {
 	 * going out at the model's default — reads as "this model ignores
 	 * effort" rather than "nobody plumbed it through".
 	 *
-	 * Run-level rather than per-step, deliberately. It is a property of what
-	 * the run is FOR, and a value that moves between steps buys a different
+	 * Turn-level rather than per-step, deliberately. It is a property of what
+	 * the turn is FOR, and a value that moves between steps buys a different
 	 * answer shape at the cost of the prompt-cache prefix on every step that
 	 * changes it.
 	 *
 	 * A driver that cannot honour it REFUSES rather than dropping it, on the
-	 * same reasoning as `thinking`: paying for a run you believe was
+	 * same reasoning as `thinking`: paying for a turn you believe was
 	 * high-effort and silently was not is worse than a startup error.
 	 */
 	effort?: import('../provider/index.js').ReasoningEffort
-	/** Provider-hosted search for this run. Explicit opt-in; no local network permission. */
+	/** Provider-hosted search for this turn. Explicit opt-in; no local network permission. */
 	webSearch?: import('../provider/index.js').ChatCompletionParams['webSearch']
 	/** Cumulative parent-and-descendant tokens; 0 is unlimited with usage accounting. */
 	tokenBudget: number
@@ -100,19 +102,17 @@ export interface AgentRunConfig {
 	checkpointEvery?: number
 
 	/**
-	 * After creating an iteration checkpoint, prune the run's checkpoint
-	 * set down to the newest N. Default `undefined` — never prune, today's
-	 * behavior. The disk store keeps a run's messages once, in a per-run
-	 * history log, so a checkpoint costs its own bookkeeping rather than a
-	 * copy of the conversation; a store that writes checkpoints whole (a
-	 * custom one) still grows O(iterations × history) without this. Either
-	 * way the COUNT only ever grows unless a host bounds it here. The CLI
-	 * does.
+	 * After creating an iteration checkpoint, prune the turn's checkpoint
+	 * set down to the newest N. Default `undefined` — never prune. A
+	 * checkpoint holds no inline messages (its context is the fold of the
+	 * session log through `throughSeq`), so it costs its own bookkeeping
+	 * rather than a copy of the conversation, but the COUNT only ever grows
+	 * unless a host bounds it here. The CLI does.
 	 *
-	 * Oldest-first by `createdAt`, across all of the run's checkpoints — but
-	 * a checkpoint whose park is UNRESOLVED is never collected, whatever its
-	 * age. Those rows are what `findPendingCheckpoint` serves to an approval
-	 * queue and what `listExpiredParks` enumerates for a sweep, so pruning
+	 * Oldest-first by `createdAt`, across all of the turn's checkpoints — but
+	 * a checkpoint an open decision references is never collected, whatever
+	 * its age. Those rows are what `SessionIndex.listPendingDecisions` serves
+	 * to an approval queue and what a sweep enumerates, so pruning
 	 * briefly holds more than N while a park is outstanding; the next prune
 	 * after the park resolves — by `unpark`, or by `expire` for one that ran
 	 * out of time — collects them. A host that needs the bound to hold
@@ -126,14 +126,14 @@ export interface AgentRunConfig {
 	 * Written onto the park as an ABSOLUTE deadline, so it survives the
 	 * process that set it. Every timer in the SDK is an in-process
 	 * `setTimeout` and the park-record delay is deliberately `unref`'d, so
-	 * nothing in memory can outlive a redeploy: without this a run parks for
+	 * nothing in memory can outlive a redeploy: without this a turn parks for
 	 * approval, the worker is replaced, nobody answers, and the checkpoint
 	 * stays outstanding forever — every approval-queue reader keeps serving
 	 * it and its workspace is never reclaimed.
 	 *
-	 * The run timeout does not cover this. It is only checked between
+	 * The turn timeout does not cover this. It is only checked between
 	 * iterations and a park suspends mid-iteration, so a long-lived process
-	 * hard-stops the run immediately *after* the human finally approves,
+	 * hard-stops the turn immediately *after* the human finally approves,
 	 * while across a restart the restored elapsed clock excludes parked time
 	 * entirely — the same configuration producing two opposite outcomes.
 	 *
@@ -147,14 +147,14 @@ export interface AgentRunConfig {
 	hitlParkTtlMs?: number
 
 	/**
-	 * Override the logger a run's log lines derive from.
+	 * Override the logger a turn's log lines derive from.
 	 *
 	 * This is an override of the SOURCE, not a substitute for correlation:
-	 * `RunContextFactory.buildLogger` always calls `.child()` on whichever
+	 * `TurnContextFactory.buildLogger` always calls `.child()` on whichever
 	 * logger this resolves to, so a host-supplied logger still gains
-	 * `namzu.run.id`, `sessionId`, `threadId`, `projectId` and `tenantId` —
+	 * `namzu.turn.id`, `sessionId`, `threadId`, `projectId` and `tenantId` —
 	 * the same binding the process default gets. A host that wants its own
-	 * sink, format or destination threaded through every record a run
+	 * sink, format or destination threaded through every record a turn
 	 * produces sets this once; a host that wants the process default
 	 * (`getRootLogger()`) sets nothing, which is what absent has always
 	 * meant.
@@ -163,57 +163,44 @@ export interface AgentRunConfig {
 }
 
 /**
- * Config for {@link RunPersistence}. `sessionId`, `topicId`, `tenantId`,
- * and `projectId` are required — every Run is attributed across the full
- * five-layer scope (Tenant → Project → Topic → Session → Run,
- * Convention #17).
+ * Config for {@link import('../../manager/session/turn-recorder.js').TurnRecorder}.
+ *
+ * `sessionId`, `topicId`, `tenantId` and `projectId` are required: every
+ * turn is attributed across the full scope (Tenant → Project → Topic →
+ * Session → Turn). The recorder appends records to `sessionLog` under the
+ * session lease; it writes no `run.json`, `messages.json` or `report.md`.
  */
-export interface RunPersistenceConfig {
-	/** Shared account for this invocation and its delegated descendants. */
-	budget?: TokenBudget
-	runId: RunId
+export interface TurnRecorderConfig {
+	/** The ledger this turn and its child sessions spend from, keyed by (rootSessionId, rootTurnId). */
+	budget?: SessionTokenBudget
+	sessionId: SessionId
+	turnId: TurnId
 	agentId: string
 	agentName: string
-	runConfig: AgentRunConfig
+	turnConfig: TurnConfig
 	providerId: string
-	outputDir: string
 	pricing?: ModelPricing
 	log: Logger
 
-	sessionId: SessionId
 	topicId: TopicId
 	tenantId: TenantId
 	projectId: ProjectId
 
-	parentRunId?: RunId
+	/** Present on a child session's turn: the parent session that delegated it. */
+	parentSessionId?: SessionId
+	/** Present on a child session's turn: the parent turn whose tool call spawned the child. */
+	parentTurnId?: TurnId
 
 	depth?: number
 
-	/**
-	 * Optional checkpoint persistence override. Defaults to the disk
-	 * layout under `outputDir` (a
-	 * {@link import('../../store/run/checkpoint-disk.js').DiskCheckpointStore});
-	 * hosts inject a scope-keyed backend (e.g. Postgres) here.
-	 */
-	checkpointStore?: CheckpointStore
+	/** The session log the turn's records are appended to. */
+	sessionLog: SessionLog
 
 	/**
-	 * Optional run-evidence persistence override. Defaults to the disk layout
-	 * under `outputDir` (a
-	 * {@link import('../../store/run/disk.js').RunDiskStore}); hosts inject
-	 * their own backend here.
-	 *
-	 * The sibling of `checkpointStore`, and it should have been one from the
-	 * start: checkpoints got an injectable seam while the run record, its
-	 * messages, its transcript and its report did not, so the evidence was
-	 * the one part of a run that could not leave the local filesystem.
+	 * Optional checkpoint persistence override. Defaults to the disk layout
+	 * under `<session-id>/checkpoints/`; hosts inject a scope-keyed backend here.
 	 */
-	runStore?: import('./store.js').RunStore
-}
-
-export interface RunStoreConfig {
-	baseDir: string
-	logger?: Logger
+	checkpointStore?: SessionCheckpointStore
 }
 
 export interface LimitCheckerConfig {

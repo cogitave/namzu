@@ -3,14 +3,13 @@ import type { Id } from './brand.js'
 /**
  * Entity ids are opaque branded strings. Factories mint UUIDs; checked
  * constructors reject every other spelling, including earlier type prefixes.
- * A RunId cannot be assigned to a SessionId even though their wire shapes
+ * A TurnId cannot be assigned to a SessionId even though their wire shapes
  * are identical. Persisted records and typed fields establish the kind,
  * not the spelling of the id.
  *
  * Brands do not validate a type assertion. Use the checked constructors
  * for values received from JSON, flags, URLs, or other untyped boundaries.
  */
-export type RunId = Id<'RunId'>
 /**
  * One turn of a session: a user prompt (or a goal round, resident step or
  * verification step) and everything the agent did to answer it. Recorded in
@@ -53,11 +52,10 @@ export type CheckpointId = Id<'CheckpointId'>
 export type LockId = Id<'LockId'>
 export type AdvisoryId = Id<'AdvisoryId'>
 export type AdvisoryCallId = Id<'AdvisoryCallId'>
-export type EmergencySaveId = Id<'EmergencySaveId'>
 export type MemoryId = Id<'MemoryId'>
 export type PluginId = Id<'PluginId'>
 export type SandboxId = Id<'SandboxId'>
-/** LOG-14: the audit trail's own record id — distinct from `RunEvent.seq`. */
+/** LOG-14: the audit trail's own record id — distinct from a session record's `seq`. */
 export type AuditEventId = Id<'AuditEventId'>
 
 // Actor identifiers (Session Hierarchy §4.3).

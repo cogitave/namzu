@@ -9,18 +9,18 @@ import type { ProviderErrorCode } from '../provider/errors.js'
  * None of this was reachable before. `Run` and `BaseAgentResult` have no
  * `steps[]`, so a host that persisted the returned `Run` — the natural
  * thing — permanently lost per-step attribution: answering "which step
- * cost the most" meant correlating raw `RunEvent`s by iteration number and
+ * cost the most" meant correlating raw `SessionEvent`s by iteration number and
  * diffing cumulative counters, and per-tool duration was never emitted at
  * all. Every field here was already computed somewhere in the loop.
  */
 export interface StepResult {
-	/** 1-based, matching `iteration` on the run events. */
+	/** 1-based, matching `iteration` on the turn events. */
 	stepNumber: number
 	/**
-	 * The model this step ASKED for: the run's configured model, or the
+	 * The model this step ASKED for: the turn's configured model, or the
 	 * override a `prepareStep` hook returned for this step.
 	 *
-	 * It used to be the run's model unconditionally — the loop passed its own
+	 * It used to be the turn's model unconditionally — the loop passed its own
 	 * `model` here while building the request from `step.model ?? model` a few
 	 * lines above — so a host that routed one step to a cheaper model read the
 	 * expensive one back out of the ledger. No chain was needed to see it.
@@ -33,7 +33,7 @@ export interface StepResult {
 	/**
 	 * Who actually answered, and with which model.
 	 *
-	 * Equal to {@link model} and to `run.metadata.provider` on every run
+	 * Equal to {@link model} and to `run.metadata.provider` on every turn
 	 * without a chain, which is most of them; it diverges exactly when
 	 * `withProviderFallback` advanced. Recorded even when it agrees, because a
 	 * ledger that carries the fact only when it is surprising cannot be read as
@@ -47,13 +47,10 @@ export interface StepResult {
 	 * as fact the exact thing that release got wrong, on exactly the runs
 	 * where it was wrong. Every step this build produces has it.
 	 *
-	 * **Reaches a host through the returned `Run`, not through `run.json`.**
-	 * `RunDiskStore.writeRunMeta` persists the metadata and the counters and
-	 * does not write `steps` at all, so the built-in store carries the
-	 * run-level {@link
-	 * import('./entity.js').RunStateMetadata.servingProvider} and none of
-	 * this. A host that wants per-step provenance on disk persists the `Run`
-	 * it is handed.
+	 * **Reaches a host through the returned `Turn`.** The session log records
+	 * the turn-level {@link import('./turn.js').TurnMetadata.servingProvider}
+	 * on `turn_completed.settlement`; a host that wants per-step provenance
+	 * on disk persists the `Turn` it is handed.
 	 */
 	servedBy?: StepProvenance
 	/**
@@ -99,14 +96,14 @@ export interface StepResult {
 	/**
 	 * What went wrong, on a step with `finishReason: 'error'`.
 	 *
-	 * Absent everywhere else. A run whose ledger is complete except on the
+	 * Absent everywhere else. A turn whose ledger is complete except on the
 	 * turns that failed reads as "nothing went wrong" precisely when
 	 * something did, which is worse than an absent record — so the failed
 	 * turn gets the same record as every other, and this is what makes it
 	 * legible as a failure.
 	 */
 	failure?: StepFailure
-	/** Usage for THIS step, not the run's cumulative total. */
+	/** Usage for THIS step, not the turn's cumulative total. */
 	usage: TokenUsage
 	/** Cost delta attributable to this step. Zero without a pricing table. */
 	costDelta: CostInfo
@@ -131,11 +128,11 @@ export interface StepProvenance extends ProviderRoute {}
  * Why a step ended in `finishReason: 'error'`.
  *
  * The step-level counterpart of the pair a failed run already carries —
- * {@link import('./entity.js').Run.lastError} and
- * {@link import('./entity.js').Run.lastProviderError} — and shaped from the
+ * {@link import('./turn.js').Turn.lastError} and
+ * {@link import('./turn.js').Turn.lastProviderError} — and shaped from the
  * same classification, so the two agree when the failed step is the one that
- * ended the run. What a run records once, a run of twenty iterations records
- * per iteration, which is the difference between "this run failed" and "this
+ * ended the turn. What a turn records once, a turn of twenty iterations records
+ * per iteration, which is the difference between "this turn failed" and "this
  * turn failed, and the next four succeeded".
  */
 export interface StepFailure {
@@ -177,7 +174,7 @@ export interface StepToolResult {
  * run: the model had to be prompt-begged to stop, with `maxIterations:
  * 200` as the only backstop.
  *
- * Returning `true` ends the run with `stop_reason: 'stop_condition'`.
+ * Returning `true` ends the turn with `stop_reason: 'stop_condition'`.
  */
 export type StopCondition = (state: StopConditionState) => boolean | Promise<boolean>
 
@@ -197,7 +194,7 @@ export function stepCountIs(n: number): StopCondition {
 /**
  * Stop when the latest step called any of `names`.
  *
- * The tool still executes and its result is still recorded — the run ends
+ * The tool still executes and its result is still recorded — the turn ends
  * after, not instead. That is what makes a `submit_answer` / `verify` tool
  * usable as a terminator without losing its output.
  */

@@ -1,7 +1,7 @@
 /**
- * Why a run stopped, when it stopped because somebody stopped it.
+ * Why a turn stopped, when it stopped because somebody stopped it.
  *
- * `stopReason: 'cancelled'` says the run was cancelled and nothing more,
+ * `stopReason: 'cancelled'` says the turn was cancelled and nothing more,
  * and the four cases behind it want four different responses. An operator
  * pressing cancel is not a defect. A parent abandoning its children is a
  * fact about the parent, and looking for the child's problem wastes the
@@ -12,7 +12,7 @@
  * carried. `AbstractAgent.cancel()` aborted with no argument at all, and
  * `AgentManager` aborted a child with the bare string `'canceled'`, which
  * `abortReasonText` deliberately renders as no reason (it would otherwise
- * print "was cancelled: canceled"). So both paths arrived at the run loop
+ * print "was cancelled: canceled"). So both paths arrived at the turn loop
  * indistinguishable.
  */
 export type CancelCause = 'user' | 'parent' | 'budget' | 'hook'
@@ -26,8 +26,8 @@ export type CancelCause = 'user' | 'parent' | 'budget' | 'hook'
  * the answer this codebase already settled on for provider errors: two
  * copies of a package defeat `instanceof` and nothing announces it.
  */
-export class RunCancelled extends Error {
-	override readonly name = 'RunCancelled'
+export class TurnCancelled extends Error {
+	override readonly name = 'TurnCancelled'
 
 	/**
 	 * Named `cancelCause`, not `cause`. `Error.cause` already exists and
@@ -38,7 +38,7 @@ export class RunCancelled extends Error {
 	readonly cancelCause: CancelCause
 
 	constructor(cancelCause: CancelCause) {
-		super(`run cancelled by ${cancelCause}`)
+		super(`turn cancelled by ${cancelCause}`)
 		this.cancelCause = cancelCause
 	}
 }
@@ -53,8 +53,8 @@ export class RunCancelled extends Error {
  * belongs.
  */
 export function cancelCauseOf(reason: unknown): CancelCause | undefined {
-	if (reason instanceof Error && reason.name === 'RunCancelled') {
-		return (reason as RunCancelled).cancelCause
+	if (reason instanceof Error && reason.name === 'TurnCancelled') {
+		return (reason as TurnCancelled).cancelCause
 	}
 	return undefined
 }

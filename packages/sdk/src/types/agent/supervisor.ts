@@ -135,7 +135,7 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * to finish without a human at the keyboard.
 	 *
 	 * Hosts that want "Ask before acting" behaviour pass a custom
-	 * handler that surfaces the `tool_review_requested` RunEvent to
+	 * handler that surfaces the `tool_review_requested` SessionEvent to
 	 * the user and resolves the returned promise once the user
 	 * approves, rejects, or modifies the call.
 	 *

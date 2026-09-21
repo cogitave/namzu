@@ -1,11 +1,12 @@
-import type { CostInfo, RunExecutionStatus } from '../common/index.js'
-import type { AuditEventId, RunId, TenantId } from '../ids/index.js'
+import type { CostInfo } from '../common/index.js'
+import type { AuditEventId, SessionId, TenantId, TurnId } from '../ids/index.js'
+import type { TurnExecutionStatus } from './turn.js'
 
 /**
  * What happened to the thing this event describes.
  *
  * `'refused'` is a VALUE, not an absent record — the whole reason this type
- * exists rather than reusing whatever shape {@link import('./events.js').RunEvent}
+ * exists rather than reusing whatever shape {@link import('./events.js').SessionEvent}
  * already had. Before this, a permission denial (the `AuthorizationGate`) and
  * a guardrail block each produced nothing durable with cost/outcome/identity
  * attached — the one outcome an auditor most needs was the one absent from
@@ -18,7 +19,7 @@ export type AuditOutcome = 'success' | 'failure' | 'refused'
  * tenant it acted under.
  *
  * `persona` is the label a host assigned the agent for THIS run — absent
- * when the run was not configured with one (most runs today), and nothing
+ * when the turn was not configured with one (most runs today), and nothing
  * here invents a value for it. Populated only at call sites that actually
  * have a persona in scope (`runtime/query/index.ts`'s guardrail-block
  * branches, via `params.persona?.identity.role`); a call site with no
@@ -33,12 +34,12 @@ export interface AuditActor {
 
 /**
  * What was attempted. `tool` is present for a tool-scoped action; absent for
- * a run-level one (an input/output guardrail, the run's own completion or
+ * a turn-level one (an input/output guardrail, the turn's own completion or
  * failure). `resource` names the thing the action targeted when that is
  * narrower than the tool itself — a guardrail's own name, for instance.
  *
  * `action` is deliberately a free-text label, not a closed union: unlike
- * `RunEvent['type']` (which a switch must exhaustively handle, per
+ * `SessionEvent['type']` (which a switch must exhaustively handle, per
  * Convention #16), nothing here switches on `action` today, and closing it
  * prematurely would be inventing a vocabulary nobody has asked to enumerate
  * yet.
@@ -50,39 +51,39 @@ export interface AuditAction {
 }
 
 /**
- * One entry in a run's audit trail — durable evidence of what the agent
+ * One entry in a session's audit trail — durable evidence of what the agent
  * did, under whose identity, at what cost, and whether it was allowed.
  *
- * ## Why this is a SEPARATE trail from `RunEvent`
+ * ## Why this is not an operational log line
  *
- * See {@link import('./store.js').RunStore.appendAuditEvent}'s own doc and
- * ses_020's logging design §5 for the full reasoning. In short: an
+ * See ses_020's logging design §5 for the full reasoning. It is appended to
+ * the session log as an `audit` record. In short: an
  * operational log is level-filtered, sampled, rotatable and legitimately
  * absent when no host installed a sink. None of that is acceptable for the
  * kernel's own claim — "an auditable trail of what it did and what it
  * cost", the README's sentence about itself.
  *
- * ## `seq` is this trail's OWN sequence space
+ * ## `seq` is the audit trail's OWN sequence
  *
- * Independent of {@link import('./events.js').RunEvent}'s envelope `seq`,
- * which numbers the (much higher-volume) operational transcript. Two logs,
- * two cursors, and forcing them to share one counter would make an
- * unrelated burst on one trail move the other's cursor — see
- * `manager/run/persistence.ts`'s `_lastAuditSeq` for where this is held.
+ * Independent of the session log's record `seq`: the audit entries of a
+ * session are numbered among themselves, so a reader can tell whether one is
+ * missing.
  *
  * ## `cost` is NON-OPTIONAL
  *
  * "What it did and what it cost" is the kernel's own sentence about itself
  * (README) — an audit entry that cannot say what something cost has not
- * answered the question it exists to answer. It carries the run's
- * CUMULATIVE total AT THIS MOMENT, matching `Run.costInfo`'s own semantics
+ * answered the question it exists to answer. It carries the turn's
+ * CUMULATIVE total AT THIS MOMENT, matching `Turn.costInfo`'s own semantics
  * (see `utils/cost.ts`'s `accumulateCost`: the field IS the running total,
  * not a delta, so "the most recent entry carries the answer whole" is
- * already how the derived summary treats it — see {@link replayRun}).
+ * already how the derived summary treats it — see {@link replayAudit}).
  */
 export interface AuditEvent {
 	readonly id: AuditEventId
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	/** Absent for an entry recorded outside any turn. */
+	readonly turnId?: TurnId
 	readonly seq: number
 	/** Epoch ms at which the store recorded the event. */
 	readonly timestamp: number
@@ -106,12 +107,12 @@ export interface AuditEvent {
 
 /**
  * What a caller hands
- * {@link import('../../manager/run/persistence.js').RunPersistence.recordAudit} —
- * the fields ONLY the call site knows. `id`, `runId`, `seq`, `timestamp`,
+ * {@link import('../../manager/session/turn-recorder.js').TurnRecorder.recordAudit} —
+ * the fields ONLY the call site knows. `id`, `sessionId`, `turnId`, `seq`, `timestamp`,
  * `who.agentId`/`who.tenantId` and `cost` are filled in by `recordAudit`
- * itself from the run it is bound to; a caller supplying them would be
- * asserting facts about identity and cost that only the run-persistence
- * layer is positioned to know, and could disagree with what the run
+ * itself from the turn it is bound to; a caller supplying them would be
+ * asserting facts about identity and cost that only the turn-persistence
+ * layer is positioned to know, and could disagree with what the turn
  * actually holds.
  */
 export interface AuditEventInput {
@@ -121,39 +122,35 @@ export interface AuditEventInput {
 	readonly persona?: string
 }
 
-/** What {@link replayRun} reconstructs from the trail alone. */
-export interface RunSummary {
+/** What {@link replayAudit} reconstructs from the trail alone. */
+export interface AuditSummary {
 	readonly costInfo: CostInfo
-	readonly status: Extract<RunExecutionStatus, 'completed' | 'failed'>
+	readonly status: Extract<TurnExecutionStatus, 'completed' | 'failed'>
 }
 
 /**
- * Reconstruct a completed run's cost and status from its audit trail alone,
- * with no read of the derived `Run` record.
+ * Reconstruct a completed turn's cost and status from its audit trail alone,
+ * with no read of the derived `Turn`.
  *
- * This is the verification ses_020's design promises (§5): `Run.costInfo`
- * and `Run.status`, persisted through `RunStore.writeRunMeta`
- * (`manager/run/persistence.ts:221`/`:569`), are a full-record overwrite
- * with no `seq` and no prior-value retention — a DERIVED summary cache, not
- * the evidence. The audit trail is the evidence, and a divergence between
- * what this returns and what `Run.costInfo`/`Run.status` actually hold is a
- * defect in the summary, never in the trail.
+ * `Turn.costInfo` and `Turn.status` are a DERIVED summary; the audit trail is
+ * the evidence, and a divergence between what this returns and what the
+ * summary holds is a defect in the summary, never in the trail.
  *
  * Walks from the END rather than folding forward: `cost` on each entry is
- * already the run's cumulative total (see {@link AuditEvent.cost}), so the
- * most recent entry that actually SETTLES the run — `'success'` or
+ * already the turn's cumulative total (see {@link AuditEvent.cost}), so the
+ * most recent entry that actually SETTLES the turn — `'success'` or
  * `'failure'` — carries the answer whole. A `'refused'` entry is a single
- * action inside a still-open run, never the run's own verdict, and is
+ * action inside a still-open run, never the turn's own verdict, and is
  * skipped rather than treated as terminal: otherwise a refusal that
- * happened to be the last write before a crash would replay as the run's
+ * happened to be the last write before a crash would replay as the turn's
  * final status, which is not what it means.
  *
- * `undefined` when no terminal entry exists — a run still in progress, or
+ * `undefined` when no terminal entry exists — a turn still in progress, or
  * one that crashed before a terminal write landed. Callers that need "no
  * answer yet" and "diverges from the derived summary" to read differently
  * should treat `undefined` as the former.
  */
-export function replayRun(events: readonly AuditEvent[]): RunSummary | undefined {
+export function replayAudit(events: readonly AuditEvent[]): AuditSummary | undefined {
 	for (let i = events.length - 1; i >= 0; i--) {
 		const event = events[i]
 		if (event === undefined) continue

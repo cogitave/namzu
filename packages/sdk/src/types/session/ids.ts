@@ -16,7 +16,7 @@ export type {
 	DeliverableId,
 	SessionId,
 	TenantId,
-	RunId,
+	TurnId,
 	AgentId,
 	UserId,
 	TaskId,

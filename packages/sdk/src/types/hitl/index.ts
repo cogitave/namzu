@@ -1,10 +1,5 @@
-import type { WorkingStateSnapshot } from '../../compaction/wire.js'
-import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
-import type { CheckpointId, PlanId, RunId } from '../ids/index.js'
-import type { Message, UserMessage } from '../message/index.js'
-import type { PlanStatus } from '../plan/index.js'
-import type { TokenBudgetBinding } from '../run/token-budget-store.js'
+import type { CheckpointId, PlanId, SessionId, TurnId } from '../ids/index.js'
 
 export type { CheckpointId }
 
@@ -55,15 +50,34 @@ export type HITLResumeDecision =
 	| { action: 'abort'; reason: string }
 
 export type HITLDecisionRequest =
-	| { type: 'plan_approval'; runId: RunId; checkpointId: CheckpointId; plan: PlanApprovalData }
-	| { type: 'tool_review'; runId: RunId; checkpointId: CheckpointId; toolCalls: ToolCallSummary[] }
+	| {
+			type: 'plan_approval'
+			sessionId: SessionId
+			turnId: TurnId
+			checkpointId: CheckpointId
+			plan: PlanApprovalData
+	  }
+	| {
+			type: 'tool_review'
+			sessionId: SessionId
+			turnId: TurnId
+			checkpointId: CheckpointId
+			toolCalls: ToolCallSummary[]
+	  }
 	| {
 			type: 'iteration_checkpoint'
-			runId: RunId
+			sessionId: SessionId
+			turnId: TurnId
 			checkpointId: CheckpointId
 			summary: CheckpointSummary
 	  }
-	| { type: 'user_question'; runId: RunId; checkpointId: CheckpointId; question: UserQuestionData }
+	| {
+			type: 'user_question'
+			sessionId: SessionId
+			turnId: TurnId
+			checkpointId: CheckpointId
+			question: UserQuestionData
+	  }
 
 export type ResumeHandler = (request: HITLDecisionRequest) => Promise<HITLResumeDecision>
 
@@ -156,7 +170,7 @@ export interface CheckpointSummary {
 }
 
 /**
- * A decision the run is parked on, recorded durably.
+ * A decision a turn is parked on, recorded durably (`decision_requested`).
  *
  * Without this the park exists only as a suspended `await` inside one
  * process: a checkpoint written at a tool-review gate looks identical to a
@@ -203,109 +217,6 @@ export interface PendingDecision {
 	readonly resolvedAt?: number
 	/** The answer, when one arrived. Kept as evidence of who decided what. */
 	readonly decision?: HITLResumeDecision
-}
-
-export interface IterationCheckpoint {
-	/** Reference to the canonical tree ledger; a checkpoint never resets it. */
-	readonly budgetBinding?: TokenBudgetBinding
-	/** Also present for non-durable accounts; those require the live authority on resume. */
-	readonly budgetAccountId?: string
-	id: CheckpointId
-	runId: RunId
-	iteration: number
-	messages: Message[]
-	/**
-	 * Current operator/goal/steering text and provenance, independent of
-	 * compacted history. Attachments are not duplicated here. Older
-	 * checkpoints omit this field and use surviving history on resume.
-	 */
-	latestUserMessage?: UserMessage
-	/** Structured host-review rejections consumed at this checkpoint, independent of compacted messages. */
-	structuredReviewAttempts?: number
-	/** Consumed prose-answer rejections, independent of compactable feedback messages. */
-	answerReviewAttempts?: number
-	/** Native structured-output corrections consumed independently of message history. */
-	nativeStructuredAttempts?: number
-	tokenUsage: TokenUsage
-	costInfo: CostInfo
-	/**
-	 * **Never set.** No checkpoint is written with a plan status.
-	 *
-	 * It matters more than an unused field usually would: a host restoring a
-	 * checkpoint and reading this to decide whether the plan was approved
-	 * gets `undefined` for every run, approved or not, and cannot tell the
-	 * two apart. Ask the plan manager instead.
-	 *
-	 * @deprecated No producer. Removed in the next major.
-	 */
-	planStatus?: PlanStatus
-
-	/**
-	 * When the RUN was attributed — not when this checkpoint was written.
-	 * See {@link IterationCheckpoint.createdAt} for the latter.
-	 *
-	 * Denormalized onto every checkpoint of the run, identically, and that
-	 * repetition is the whole point. A listing above the run needs a key it
-	 * can order by, and a key a paging caller can trust is one that cannot
-	 * MOVE. Every other time a checkpoint store can derive per run moves: the
-	 * newest checkpoint's `createdAt` advances every time the run checkpoints
-	 * again, and the oldest one's advances every time `prune` deletes
-	 * oldest-first. Carried on all of them, this one survives both — pruning
-	 * cannot reach a value every survivor also holds.
-	 *
-	 * `readonly`, and written exactly once per run by
-	 * {@link import('../../runtime/query/checkpoint.js').CheckpointManager},
-	 * which settles it on whichever comes first — adopting it from the
-	 * checkpoint a resume restores, or minting it from the run's own start
-	 * instant — and never reassigns after. A field that COULD be updated is
-	 * one edit away from moving again, which would put the ordering back
-	 * where it started.
-	 *
-	 * Absent on checkpoints written before this existed. That absence is
-	 * information, not a gap: a run with no stamp on any of its checkpoints
-	 * was attributed before the stamp existed, and therefore before every
-	 * run that has one.
-	 */
-	readonly runCreatedAt?: number
-
-	/**
-	 * Present when the run parked at this checkpoint awaiting a human.
-	 * See {@link PendingDecision}.
-	 */
-	pending?: PendingDecision
-	guardState: {
-		iterationCount: number
-		elapsedMs: number
-	}
-	createdAt: number
-
-	toolResultHashes?: Record<string, string>
-
-	/**
-	 * Compaction's accumulated working state at the moment of the
-	 * checkpoint.
-	 *
-	 * Absent on checkpoints written before this existed, and absent when
-	 * compaction is disabled — in both cases the resumed run starts with an
-	 * empty manager, which is exactly today's behaviour.
-	 */
-	workingState?: WorkingStateSnapshot
-
-	/**
-	 * The trace this checkpoint was taken inside.
-	 *
-	 * A resumed run used to mint a fresh root span with a new trace id and
-	 * no link to the one that crashed, so the failure and its recovery could
-	 * not be reconstructed as one timeline. Every span carries the run id,
-	 * which is enough to find both traces by query and not enough to see one
-	 * waterfall — and even that goes away for a replay fork, which mints a
-	 * new run id.
-	 *
-	 * Absent on checkpoints written before this existed, and on runs with no
-	 * telemetry registered; in both cases the resumed run starts its own
-	 * trace, which is exactly today's behaviour.
-	 */
-	traceContext?: SerializedSpanContext
 }
 
 export function autoApproveHandler(request: HITLDecisionRequest): Promise<HITLResumeDecision> {

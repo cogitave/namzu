@@ -1,8 +1,8 @@
-import type { TokenBudget } from '../../run/token-budget.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
-import type { CancelCause } from '../run/cancel-cause.js'
-import type { RunEventListener } from '../run/events.js'
+import type { CancelCause } from '../session/cancel-cause.js'
+import type { SessionEventListener } from '../session/events.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
@@ -45,7 +45,7 @@ export interface CreateTaskOptions {
 	 * it when that transport has no event stream. Callers must therefore settle
 	 * their task view from the returned {@link TaskHandle} as well.
 	 */
-	readonly onEvent?: RunEventListener
+	readonly onEvent?: SessionEventListener
 
 	/**
 	 * Span the spawned run should hang off — normally the executing tool's
@@ -62,9 +62,9 @@ export interface CreateTaskOptions {
 	 * Display grouping for the delegated child, carried onto its
 	 * `agent_pending` event so a consumer watching from outside this process
 	 * can group the child the way this caller meant. Reach, not durability:
-	 * that event goes straight to a host's listener and enters no run's log,
+	 * that event goes straight to a host's listener and enters no session log,
 	 * so nothing here is persisted by the kernel. See the `agent_pending`
-	 * variant in `types/run/events.ts` for the full contract.
+	 * variant in `types/session/events.ts` for the full contract.
 	 *
 	 * These fields are display annotations only; they do not create
 	 * dependencies, barriers, or serial execution. The kernel reads none of
@@ -134,7 +134,7 @@ export interface CreateTaskOptions {
 
 export interface TaskScheduler {
 	/** Authority under which this scheduler reserves and meters child execution. */
-	readonly budget?: TokenBudget
+	readonly budget?: SessionTokenBudget
 
 	createTask(options: CreateTaskOptions): Promise<TaskHandle>
 

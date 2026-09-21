@@ -76,9 +76,13 @@ export interface AgentFactoryOptions {
 
 	taskRouter?: TaskRouterConfig
 
-	runId?: string
+	sessionId?: string
 
-	parentRunId?: string
+	turnId?: string
+
+	parentSessionId?: string
+
+	parentTurnId?: string
 
 	depth?: number
 }

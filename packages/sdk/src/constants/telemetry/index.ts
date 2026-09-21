@@ -51,10 +51,6 @@ export const GENAI = {
 } as const
 
 export const NAMZU = {
-	RUN_ID: 'namzu.run.id',
-	RUN_STATUS: 'namzu.run.status',
-	// The session → turn model's keys. Added beside the run keys above, which
-	// the cutover deletes; each call site moves to these then.
 	TURN_ID: 'namzu.turn.id',
 	TURN_STATUS: 'namzu.turn.status',
 	/** Set on a child session's spans: the parent session that delegated it. */
@@ -67,24 +63,19 @@ export const NAMZU = {
 	CACHE_WRITE_TOKENS: 'namzu.cache.write_tokens',
 	CACHE_DISCOUNT: 'namzu.cache.discount',
 
-	// Correlation attributes for the run's own logger — see
-	// RunContextFactory.buildLogger (runtime/query/context.ts). RUN_ID above
-	// already covered the run itself; these are the layers above it
-	// (Tenant -> Project -> Thread -> Session -> Run, Convention #17) that
-	// used to reach the run's logger as four bare, un-namespaced keys.
+	// Correlation attributes for a turn's own logger — see
+	// TurnContextFactory.buildLogger (runtime/query/context.ts). TURN_ID above
+	// covers the turn itself; these are the layers above it
+	// (Tenant -> Project -> Topic -> Session -> Turn, Convention #17).
 	SESSION_ID: 'namzu.session.id',
 	THREAD_ID: 'namzu.thread.id',
 	PROJECT_ID: 'namzu.project.id',
 	TENANT_ID: 'namzu.tenant.id',
-	// Set only when a run was started by another run (the sub-agent gateway
-	// path) — see query()'s params.parentRunId in runtime/query/index.ts.
-	// Previously reached the RunContext's own fields but never the logger.
-	RUN_PARENT_ID: 'namzu.run.parent_id',
 
 	// AbstractAgent's per-instance identity (agents/AbstractAgent.ts). The id
 	// half reuses GENAI.AGENT_ID — an agent's id is the same concept whether
 	// it is read off a span or a log record, and GENAI.AGENT_ID already
-	// exists and is already bound at the run's own correlated logger and
+	// exists and is already bound at the turn's own correlated logger and
 	// root span. TYPE has no GENAI analogue, so it is new.
 	AGENT_TYPE: 'namzu.agent.type',
 

@@ -16,7 +16,7 @@ describe('AuditEvent — cost is non-optional', () => {
 		// not compile.
 		const incomplete: AuditEvent = {
 			id: '138741ac-dcaa-4068-9b8c-fb5b5c1786e5' as AuditEvent['id'],
-			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as AuditEvent['runId'],
+			sessionId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as AuditEvent['sessionId'],
 			seq: 1,
 			timestamp: 0,
 			who: {
@@ -33,7 +33,7 @@ describe('AuditEvent — cost is non-optional', () => {
 	it('compiles with every required field present, including `cost`', () => {
 		const complete: AuditEvent = {
 			id: '138741ac-dcaa-4068-9b8c-fb5b5c1786e5' as AuditEvent['id'],
-			runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as AuditEvent['runId'],
+			sessionId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as AuditEvent['sessionId'],
 			seq: 1,
 			timestamp: 0,
 			who: {

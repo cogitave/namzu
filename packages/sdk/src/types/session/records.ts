@@ -513,7 +513,7 @@ export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended',
 // Other record-only types
 
 /**
- * One audit-trail entry. It holds everything `AuditEvent` (`types/run/audit.ts`)
+ * One audit-trail entry. It holds everything `AuditEvent` (`types/session/audit.ts`)
  * records today: `who` becomes `actor` plus `persona`, `what` is flattened into
  * `action`, `tool` and `resource`, and the envelope's `seq`, `ts` and `turnId`
  * replace the trail's own sequence, timestamp and run id.

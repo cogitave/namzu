@@ -1,3 +1,5 @@
+import type { TurnId } from '../ids/index.js'
+
 /**
  * Per-turn context the SDK is allowed to hand a working-memory provider.
  *
@@ -9,9 +11,9 @@
  * the primacy edge; the host OWNS the content and its authority framing.
  */
 export interface WorkingMemoryTurnContext {
-	/** The active run id (opaque). */
-	readonly runId: string
-	/** 1-based iteration counter for this run. */
+	/** The active turn. */
+	readonly turnId: TurnId
+	/** 1-based iteration counter for this turn. */
 	readonly iteration: number
 }
 

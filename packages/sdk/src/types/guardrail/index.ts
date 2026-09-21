@@ -1,9 +1,9 @@
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ToolProvenance } from '../tool/index.js'
 
 /**
- * Guardrails inspect what goes INTO a run and what comes OUT of it.
+ * Guardrails inspect what goes INTO a turn and what comes OUT of it.
  *
  * namzu had three good gates on tool calls — probe veto, `AuthorizationGate`,
  * HITL review — and they all point the same way: they protect the world
@@ -17,7 +17,8 @@ import type { ToolProvenance } from '../tool/index.js'
  */
 
 export interface InputGuardrailContext {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	/** The messages the run is about to start with. */
 	readonly messages: readonly Message[]
 	/** The assembled system prompt, when there is one. */
@@ -25,7 +26,8 @@ export interface InputGuardrailContext {
 }
 
 export interface OutputGuardrailContext {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	/** The run's final assistant text. */
 	readonly output: string
 	/** Full message history, for a guardrail that needs the conversation. */

@@ -48,7 +48,7 @@ export interface LLMProvider {
 	 * `collectChatCompletion(provider.chatStream(params))` from
 	 * `@namzu/sdk/provider/collect-chat-completion`. The kernel's iteration
 	 * orchestrator consumes the stream directly so it can emit
-	 * per-delta `RunEvent`s.
+	 * per-delta `SessionEvent`s.
 	 *
 	 * Phase 2 of ses_001-tool-stream-events removed the previous
 	 * non-streaming `chat()` method from this interface.

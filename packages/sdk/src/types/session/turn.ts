@@ -1,4 +1,4 @@
-import type { TokenBudgetSummary } from '../../run/token-budget.js'
+import type { SessionTokenBudgetSummary } from '../../store/budget/index.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type {
 	CheckpointId,
@@ -10,12 +10,9 @@ import type {
 } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
-// Unchanged names that still live in the run type directory until the cutover
-// moves them here: the configuration a turn runs with, the per-step ledger
-// and the stop reasons.
-import type { AgentRunConfig } from '../run/config.js'
-import type { StepResult } from '../run/step.js'
-import type { StopReason } from '../run/stop-reason.js'
+import type { TurnConfig } from './config.js'
+import type { StepResult } from './step.js'
+import type { StopReason } from './stop-reason.js'
 
 export type { TurnId }
 
@@ -57,15 +54,6 @@ export type TurnStatus =
 	| 'succeeded'
 	| 'failed'
 	| 'cancelled'
-
-/**
- * The configuration a turn runs with.
- *
- * Transitional alias: the definition moves here, under this name, when the
- * cutover deletes the run type directory. Declared now so `Turn` and
- * `TurnMetadata` carry their final shape.
- */
-export type TurnConfig = AgentRunConfig
 
 /** The durable subset of {@link TurnConfig} recorded in `turn_started.config`. */
 export interface TurnConfigSnapshot {
@@ -209,7 +197,7 @@ export interface Turn {
 	messages: Message[]
 	/** Usage of this turn only; descendant spend is in `budget`. */
 	tokenUsage: TokenUsage
-	budget?: TokenBudgetSummary
+	budget?: SessionTokenBudgetSummary
 	budgetBinding?: TurnBudgetBinding
 	costInfo: CostInfo
 	currentIteration: number

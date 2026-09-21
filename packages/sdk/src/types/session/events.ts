@@ -1,4 +1,4 @@
-import type { TokenBudgetSummary } from '../../run/token-budget.js'
+import type { SessionTokenBudgetSummary } from '../../store/budget/index.js'
 import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, PlatformError, TokenUsage } from '../common/index.js'
@@ -17,15 +17,12 @@ import type {
 import type { Message } from '../message/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
-// Unchanged names that still live in the run type directory until the cutover
-// moves them here: the cancellation cause, the stop reasons, the lease
-// fence and the delegation lineage.
-import type { CancelCause } from '../run/cancel-cause.js'
-import type { FencingToken } from '../run/checkpoint-store.js'
-import type { Lineage } from '../run/lineage.js'
-import type { MessageStopReason, StopReason } from '../run/stop-reason.js'
 import type { TaskStatus } from '../task/index.js'
 import type { ToolResultView } from '../tool/presentation.js'
+import type { CancelCause } from './cancel-cause.js'
+import type { FencingToken } from './durable.js'
+import type { Lineage } from './lineage.js'
+import type { MessageStopReason, StopReason } from './stop-reason.js'
 import type { SubSessionKind } from './sub-session.js'
 import type { Origin, TurnBudgetBinding, TurnConfigSnapshot, TurnSettlement } from './turn.js'
 
@@ -521,7 +518,7 @@ type CoreSessionEvent =
 	 */
 	| {
 			type: 'turn_paused'
-			budget?: TokenBudgetSummary
+			budget?: SessionTokenBudgetSummary
 			sessionId: SessionId
 			turnId: TurnId
 			checkpointId: CheckpointId
@@ -611,7 +608,7 @@ type CoreSessionEvent =
 	 */
 	| {
 			type: 'turn_completed'
-			budget?: TokenBudgetSummary
+			budget?: SessionTokenBudgetSummary
 			sessionId: SessionId
 			turnId: TurnId
 			result: string
@@ -647,7 +644,7 @@ type CoreSessionEvent =
 	 */
 	| {
 			type: 'turn_failed'
-			budget?: TokenBudgetSummary
+			budget?: SessionTokenBudgetSummary
 			sessionId: SessionId
 			turnId: TurnId
 			error: string
@@ -710,7 +707,7 @@ type CoreSessionEvent =
 	| {
 			type: 'token_usage_updated'
 			/** Aggregate tree spend, distinct from this turn's own usage. */
-			budget?: TokenBudgetSummary
+			budget?: SessionTokenBudgetSummary
 			sessionId: SessionId
 			turnId: TurnId
 			usage: TokenUsage

@@ -1,4 +1,4 @@
-import type { RunEventListener } from '../run/index.js'
+import type { SessionEventListener } from '../session/events.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -15,7 +15,7 @@ export interface Agent<
 	readonly type: AgentType
 	readonly metadata: AgentMetadata
 
-	run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
+	run(input: AgentInput, config: TConfig, listener?: SessionEventListener): Promise<TResult>
 
 	/**
 	 * A shell of this agent that one run may have to itself.

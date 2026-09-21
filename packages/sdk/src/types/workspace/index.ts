@@ -12,10 +12,10 @@ export type {
 } from './ref.js'
 
 export type {
-	SharedRunWorkspaceAgentRecord,
-	SharedRunWorkspaceManifest,
-	SharedRunWorkspacePaths,
-	SharedRunWorkspacePlan,
-	SharedRunWorkspaceRefs,
-	SharedRunWorkspaceSource,
-} from './shared-run.js'
+	SharedSessionWorkspaceAgentRecord,
+	SharedSessionWorkspaceManifest,
+	SharedSessionWorkspacePaths,
+	SharedSessionWorkspacePlan,
+	SharedSessionWorkspaceRefs,
+	SharedSessionWorkspaceSource,
+} from './shared-session.js'

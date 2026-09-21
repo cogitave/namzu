@@ -1,21 +1,7 @@
-/**
- * The lifecycle of one RUN.
- *
- * Named for what it types. Every one of its uses in this package is a
- * run's status, a run's audit outcome, or the status field of a run's
- * result -- none of them describe an `AbstractAgent` or a
- * `ReactiveAgent`, which have no status of their own. The old name sent a
- * reader looking for an agent's lifecycle to the type that governs a run.
- */
-export type RunExecutionStatus =
-	| 'idle'
-	| 'pending'
-	| 'running'
-	| 'completed'
-	| 'failed'
-	| 'cancelled'
+import type { TurnExecutionStatus } from '../session/turn.js'
 
-export function isTerminalStatus(status: RunExecutionStatus): boolean {
+/** Whether a turn's execution status is settled: `completed`, `failed` or `cancelled`. */
+export function isTerminalStatus(status: TurnExecutionStatus): boolean {
 	return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 

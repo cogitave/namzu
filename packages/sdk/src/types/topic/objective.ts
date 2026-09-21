@@ -1,4 +1,4 @@
-import type { RunId, TenantId, TopicId } from '../ids/index.js'
+import type { SessionId, TenantId, TopicId, TurnId } from '../ids/index.js'
 
 /**
  * Work that outlives one run.
@@ -53,7 +53,8 @@ export interface TopicObjective {
 	 * stop.
 	 */
 	readonly roundsStarted: number
-	readonly lastRunId?: RunId
+	/** The turn that ran the most recent round. */
+	readonly lastTurn?: { readonly sessionId: SessionId; readonly turnId: TurnId }
 	readonly updatedAt: number
 }
 
@@ -89,5 +90,6 @@ export interface ObjectiveRoundVerdict {
 	/** `undefined` leaves the phase alone: the round ran and said nothing. */
 	readonly phase?: Extract<ObjectivePhase, 'complete' | 'blocked'>
 	readonly blockedReason?: ObjectiveBlock
-	readonly runId?: RunId
+	readonly sessionId?: SessionId
+	readonly turnId?: TurnId
 }

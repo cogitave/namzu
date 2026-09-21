@@ -1,5 +1,5 @@
 import type { TokenUsage } from '../common/index.js'
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { Message, UserMessage } from '../message/index.js'
 import type { ToolChoice } from '../provider/chat.js'
 import type { Skill } from '../skills/index.js'
@@ -16,11 +16,11 @@ export interface PreparationTextRequest {
 	 * Accepted and validated; no longer bounds the request.
 	 *
 	 * @deprecated An auxiliary request that ends without its final usage
-	 * receipt leaves the run's shared ledger with unresolved spend, which stops
-	 * the run — so a deadline short enough to fire in normal use does not bound
-	 * the call, it ends the run that made it. The call is bounded by the
-	 * provider's own request timeout and by the run's cancellation instead, the
-	 * same two bounds every other model request in the run has. Passing this
+	 * receipt leaves the turn's shared ledger with unresolved spend, which stops
+	 * the turn — so a deadline short enough to fire in normal use does not bound
+	 * the call, it ends the turn that made it. The call is bounded by the
+	 * provider's own request timeout and by the turn's cancellation instead, the
+	 * same two bounds every other model request in the turn has. Passing this
 	 * field changes nothing; it is retained so an existing caller keeps
 	 * compiling until it is removed in a later major.
 	 */
@@ -28,7 +28,7 @@ export interface PreparationTextRequest {
 	readonly signal?: AbortSignal
 }
 
-/** @experimental Side-call usage also contributes to the owning run's totals. */
+/** @experimental Side-call usage also contributes to the owning turn's totals. */
 export interface PreparationTextResult {
 	readonly text: string
 	readonly usage: TokenUsage
@@ -38,19 +38,20 @@ export interface PreparationTextResult {
 /**
  * What the loop knows before it calls the model again.
  *
- * `stopWhen` (shipped earlier) let a run DECIDE TO STOP based on what the
+ * `stopWhen` (shipped earlier) let a turn DECIDE TO STOP based on what the
  * steps produced. This is the other half of the same idea: deciding how
- * the next step should be shaped. Without it, a run's tool surface, model
+ * the next step should be shaped. Without it, a turn's tool surface, model
  * and sampling parameters are fixed at `query()` time, so a phased agent —
  * research with search tools, then write with file tools, then verify with
  * a cheaper model — had to be built as three separate runs, each losing
  * the prior one's context.
  */
 export interface PrepareStepContext {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	/**
 	 * Optional run-owned inference for context preparation. At most one call per
-	 * stage invocation; cannot be called after that stage returns. Uses the run's
+	 * stage invocation; cannot be called after that stage returns. Uses the turn's
 	 * metered provider/fallback chain and the model selected by preceding stages.
 	 * Only supplied text is sent (12,000 characters total); no tools or history
 	 * are implicitly attached. Returned text is bounded to 8,192 characters.
@@ -59,25 +60,25 @@ export interface PrepareStepContext {
 	readonly generateText?: (request: PreparationTextRequest) => Promise<PreparationTextResult>
 	/**
 	 * Optional writer-bound snapshot of this invocation's completed events.
-	 * Never discovers other runs or repeats tools. Unsupported stores return
+	 * Never discovers other sessions or repeats tools. Unsupported stores return
 	 * undefined; cancellation or a settled invocation rejects capture. A local
-	 * signal can shorten, never extend, the run's lifetime.
+	 * signal can shorten, never extend, the turn's lifetime.
 	 */
-	readonly captureRunEvidence?: (
+	readonly captureSessionEvidence?: (
 		maxReadBytes?: number,
 		signal?: AbortSignal,
-	) => Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined>
+	) => Promise<import('../../store/evidence/types.js').SessionTextEvidenceSource | undefined>
 	/** 1-based, matching the iteration number in events and traces. */
 	readonly stepNumber: number
 	/** Full history as it stands, so a decision can read what happened. */
 	readonly messages: readonly Message[]
 	/**
-	 * Latest operator, goal-round, or steering input accepted by this run,
+	 * Latest operator, goal-round, or steering input accepted by this turn,
 	 * retained even when compaction removes it from `messages`. Project
 	 * instructions and task-completion context do not replace operator intent.
 	 */
 	readonly latestUserMessage?: UserMessage
-	/** The run's cancellation signal, for bounded asynchronous preparation. */
+	/** The turn's cancellation signal, for bounded asynchronous preparation. */
 	readonly signal?: AbortSignal
 	/**
 	 * Estimated room for additional step context after existing messages,
@@ -105,22 +106,22 @@ export interface PrepareStepContext {
 
 /**
  * Overrides for the NEXT step. Every field is optional; an omitted field
- * keeps the run's configured value, and returning nothing at all is the
+ * keeps the turn's configured value, and returning nothing at all is the
  * same as not supplying a `prepareStep`.
  */
 export interface PrepareStepResult {
 	/**
 	 * Restrict which tools the model may call this step, by name. Names
 	 * that are not registered are dropped with a warning rather than
-	 * failing the run.
+	 * failing the turn.
 	 *
 	 * **Dropping every name leaves the step able to call nothing**, and that
 	 * is deliberate rather than an accident of the filter. This list means
 	 * "only these": if a rename outlives a phase list, the only set
 	 * satisfying "only the tools that no longer exist" is the empty one, and
-	 * widening back to the run's list would grant precisely what the caller
+	 * widening back to the turn's list would grant precisely what the caller
 	 * did not ask for. The step is constrained, not crashed — the model
-	 * answers from what it has and the run continues.
+	 * answers from what it has and the turn continues.
 	 *
 	 * This changed meaning when the list started bounding what may RUN
 	 * rather than only what the model is shown. Before, an aged-out list hid
@@ -151,7 +152,7 @@ export interface PrepareStepResult {
 	 * one. Absent leaves the provider's default.
 	 *
 	 * **It applies to this step only, by construction.** That is the whole
-	 * reason it lives here rather than on the run config. A forced choice
+	 * reason it lives here rather than on the turn config. A forced choice
 	 * that persists makes the model call a tool, see the result, and be
 	 * forced again — an agent that cannot stop. The one peer SDK that puts
 	 * `tool_choice` on persistent model settings has to undo it with a
@@ -171,17 +172,17 @@ export interface PrepareStepResult {
 	/**
 	 * Put these skills in front of the model for this step only.
 	 *
-	 * A run's skills are fixed at `query()` time and rendered into the cached
-	 * system prefix, so every skill a run might ever need is paid for on
+	 * A turn's skills are fixed at `query()` time and rendered into the cached
+	 * system prefix, so every skill a turn might ever need is paid for on
 	 * every single turn. A phased agent rarely needs them all at once —
 	 * research wants the search skill, writing wants the style guide, and
 	 * neither benefits from carrying the other.
 	 *
 	 * Rendered into the same ephemeral system message `system` uses. Providers
 	 * may move that message before history, so changing skills can invalidate
-	 * reuse of the conversation prefix even though the run's prompt is unchanged.
+	 * reuse of the conversation prefix even though the turn's prompt is unchanged.
 	 *
-	 * ADDITIVE to the run's skills, not a replacement. A skill the run
+	 * ADDITIVE to the turn's skills, not a replacement. A skill the turn
 	 * always carries is not something a step should be able to take away by
 	 * naming a different one — that would make every step's list a complete
 	 * restatement, and a phase that forgot one would silently lose it.
@@ -225,10 +226,10 @@ export interface PrepareStepResult {
 }
 
 /**
- * Called before each model call, with everything the run has produced so
+ * Called before each model call, with everything the turn has produced so
  * far.
  *
- * A throw fails OPEN — the step proceeds with the run's configured values.
+ * A throw fails OPEN — the step proceeds with the turn's configured values.
  * Same reasoning as `stopWhen` and deliberately opposite to a guardrail: a
  * broken step-shaping hook should not kill an otherwise healthy run, and
  * unlike a safety check, nothing unsafe gets through when it is skipped.
@@ -243,7 +244,7 @@ export type PrepareStep = (
  * An object rather than a boolean, for two reasons that are both about the
  * reader. A bare boolean does not say which polarity means stop — `true`
  * is equally readable as "allowed" and as "veto" — and it carries nothing
- * into the run record, so an operator finds a run that stopped and no
+ * into the turn record, so an operator finds a turn that stopped and no
  * account of why.
  */
 export interface StepVeto {

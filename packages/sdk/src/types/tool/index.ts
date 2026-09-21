@@ -6,7 +6,7 @@ import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // the guardrails is described here. Erased at compile time, so neither
 // module exists at runtime to depend on the other.
 import type { ToolResultGuardrailSpec } from '../guardrail/index.js'
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
@@ -340,12 +340,15 @@ export interface ToolContext {
 	 * deadline; an optional signal can cancel capture earlier. Never replays
 	 * effects. Unsupported stores return undefined.
 	 */
-	captureRunEvidence?: (
+	captureSessionEvidence?: (
 		maxReadBytes?: number,
 		signal?: AbortSignal,
-	) => Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined>
+	) => Promise<import('../../store/evidence/types.js').SessionTextEvidenceSource | undefined>
 
-	runId: RunId
+	/** The session this call belongs to. */
+	sessionId: SessionId
+	/** The turn this call belongs to. */
+	turnId: TurnId
 	workingDirectory: string
 	/**
 	 * Directories besides the working directory the file tools may reach,
@@ -359,7 +362,8 @@ export interface ToolContext {
 	log: (level: 'info' | 'warn' | 'error', message: string) => void
 	permissionContext?: {
 		mode: PermissionMode
-		runId: string
+		sessionId: string
+		turnId: string
 		workingDirectory: string
 	}
 

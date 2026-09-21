@@ -1,32 +1,31 @@
-/** @experimental An explicitly authorized invocation. No directory discovery. */
-export interface RunEvidenceScope {
+/** @experimental An explicitly authorized session, or one turn of it. No directory discovery. */
+export interface SessionEvidenceScope {
 	readonly tenantId: string
 	readonly projectId: string
 	readonly sessionId: string
-	readonly runId: string
+	/** Narrow to one turn. Absent: every turn of the session. */
+	readonly turnId?: string
 }
 
-/** @experimental Cache and run directories must be private and host-owned. */
-export interface DiskRunEvidenceOptions {
-	readonly scope: RunEvidenceScope
-	readonly runDir: string
-	readonly indexDir: string
+/** @experimental The session log must be private and host-owned. */
+export interface SessionEvidenceSourceOptions {
+	readonly scope: SessionEvidenceScope
+	/** The session log (`<session-id>.jsonl`). */
+	readonly logPath: string
 	/** Optional smaller I/O ceiling per operation, in bytes (1–8 MiB). */
 	readonly maxReadBytes?: number
 	/**
-	 * Disk readers default to closed runs. Snapshot mode also reads explicitly
-	 * scoped nonterminal runs, checking file/metadata stamps before and after
-	 * every operation. It neither claims a writer is dead nor resumes it.
-	 * Appends or metadata changes invalidate continuations and addresses.
-	 * Nonterminal search results remain incomplete even at the snapshot end.
-	 * An incomplete final JSONL fragment is excluded without changing the file;
-	 * the backward boundary scan is capped at one record (4 MiB) and billed.
+	 * Readers default to a session with no active turn. Snapshot mode also
+	 * reads a session whose turn is still running, checking the log head
+	 * before and after every operation. Appends invalidate continuations and
+	 * addresses. Results over an active turn remain incomplete even at the
+	 * snapshot end.
 	 */
 	readonly consistency?: 'closed' | 'snapshot'
 }
 
 /** @experimental Literal search; empty query browses tool records. */
-export interface RunEvidenceSearchOptions {
+export interface SessionEvidenceSearchOptions {
 	/** Optional per-call ceiling, 1–8 MiB. Cannot raise the source's own ceiling.
 	 * Not part of search identity; a continuation may use a different allowance.
 	 */
@@ -63,7 +62,7 @@ export interface RunEvidenceSearchOptions {
 }
 
 /** @experimental Opaque addresses remain usable after restart while the source is unchanged. */
-export interface RunEvidenceMatch {
+export interface SessionEvidenceMatch {
 	readonly address: string
 	readonly seq: number
 	/** Stored event wall-clock Unix milliseconds; absent/invalid/zero stamps remain unknown.
@@ -83,9 +82,9 @@ export interface RunEvidenceMatch {
 }
 
 /** @experimental An empty bounded page does not imply absence. Follow nextCursor. */
-export interface RunEvidenceSearchResult {
-	readonly scope: RunEvidenceScope
-	readonly matches: readonly RunEvidenceMatch[]
+export interface SessionEvidenceSearchResult {
+	readonly scope: SessionEvidenceScope
+	readonly matches: readonly SessionEvidenceMatch[]
 	readonly nextCursor: string | null
 	readonly scannedBytes: number
 	readonly indexedRecords: number
@@ -97,7 +96,7 @@ export interface RunEvidenceSearchResult {
 }
 
 /** @experimental Byte offsets refer to UTF-8 retained text, not the current workspace file. */
-export interface RunEvidenceReadOptions {
+export interface SessionEvidenceReadOptions {
 	readonly address: string
 	readonly byteOffset?: number
 	/** Optional per-call ceiling, 1–8 MiB, capped by the source's own ceiling. */
@@ -105,10 +104,10 @@ export interface RunEvidenceReadOptions {
 }
 
 /** @experimental Full means retained text, not binary blocks or proof an action succeeded. */
-export interface RunEvidenceReadResult {
-	readonly scope: RunEvidenceScope
+export interface SessionEvidenceReadResult {
+	readonly scope: SessionEvidenceScope
 	readonly seq: number
-	/** Same stored-event wall-clock semantics as RunEvidenceMatch.recordedAt. */
+	/** Same stored-event wall-clock semantics as SessionEvidenceMatch.recordedAt. */
 	readonly recordedAt?: number
 	readonly toolName: string
 	readonly isError: boolean
@@ -120,16 +119,22 @@ export interface RunEvidenceReadResult {
 	readonly scannedBytes: number
 }
 
-/** @experimental Retrieval only: never re-executes a tool or resumes a run. */
-export interface RunEvidenceSource {
-	readonly scope: RunEvidenceScope
+/** @experimental Retrieval only: never re-executes a tool or resumes a turn. */
+export interface SessionEvidenceSource {
+	readonly scope: SessionEvidenceScope
 	readonly supportsTermRefinement?: boolean
-	search(options?: RunEvidenceSearchOptions, signal?: AbortSignal): Promise<RunEvidenceSearchResult>
-	read(options: RunEvidenceReadOptions, signal?: AbortSignal): Promise<RunEvidenceReadResult>
+	search(
+		options?: SessionEvidenceSearchOptions,
+		signal?: AbortSignal,
+	): Promise<SessionEvidenceSearchResult>
+	read(
+		options: SessionEvidenceReadOptions,
+		signal?: AbortSignal,
+	): Promise<SessionEvidenceReadResult>
 }
 
 /** @experimental Textual event parts, including assistant output and shed conversation messages. */
-export interface RunTextEvidenceSearchOptions extends RunEvidenceSearchOptions {
+export interface SessionTextEvidenceSearchOptions extends SessionEvidenceSearchOptions {
 	/** Omit explicitly marked derived summaries. Default false; bound into cursors. Exact reads remain available. */
 	readonly excludeDerivedSummaries?: boolean
 	readonly seq?: number
@@ -138,7 +143,8 @@ export interface RunTextEvidenceSearchOptions extends RunEvidenceSearchOptions {
 }
 
 /** @experimental Event identity is durable; byteOffset starts a bounded excerpt in the retained text. */
-export interface RunTextEvidenceMatch extends Omit<RunEvidenceMatch, 'toolName' | 'isError'> {
+export interface SessionTextEvidenceMatch
+	extends Omit<SessionEvidenceMatch, 'toolName' | 'isError'> {
 	readonly source: string
 	readonly part: number
 	readonly toolName?: string
@@ -148,15 +154,16 @@ export interface RunTextEvidenceMatch extends Omit<RunEvidenceMatch, 'toolName' 
 }
 
 /** @experimental Search includes messages and tool text, never binary or private reasoning blocks. */
-export interface RunTextEvidenceSearchResult extends Omit<RunEvidenceSearchResult, 'matches'> {
-	readonly matches: readonly RunTextEvidenceMatch[]
+export interface SessionTextEvidenceSearchResult
+	extends Omit<SessionEvidenceSearchResult, 'matches'> {
+	readonly matches: readonly SessionTextEvidenceMatch[]
 	/** Derived-summary part visits deliberately skipped, not unique facts or matched passages. */
 	readonly excludedSummaries?: number
 }
 
 /** @experimental Character counts are UTF-16 units; absent counts must not be inferred from bytes. */
-export interface RunTextEvidenceReadResult
-	extends Omit<RunEvidenceReadResult, 'toolName' | 'isError'> {
+export interface SessionTextEvidenceReadResult
+	extends Omit<SessionEvidenceReadResult, 'toolName' | 'isError'> {
 	readonly source: string
 	readonly part: number
 	readonly toolName?: string
@@ -165,13 +172,16 @@ export interface RunTextEvidenceReadResult
 	readonly totalChars?: number
 }
 
-/** @experimental Scope-bound, bounded text retrieval across an invocation's event stream. */
-export interface RunTextEvidenceSource {
-	readonly scope: RunEvidenceScope
+/** @experimental Scope-bound, bounded text retrieval across a session log. */
+export interface SessionTextEvidenceSource {
+	readonly scope: SessionEvidenceScope
 	readonly supportsTermRefinement?: boolean
 	search(
-		options?: RunTextEvidenceSearchOptions,
+		options?: SessionTextEvidenceSearchOptions,
 		signal?: AbortSignal,
-	): Promise<RunTextEvidenceSearchResult>
-	read(options: RunEvidenceReadOptions, signal?: AbortSignal): Promise<RunTextEvidenceReadResult>
+	): Promise<SessionTextEvidenceSearchResult>
+	read(
+		options: SessionEvidenceReadOptions,
+		signal?: AbortSignal,
+	): Promise<SessionTextEvidenceReadResult>
 }

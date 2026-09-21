@@ -1,12 +1,13 @@
-import type { TokenBudget } from '../../run/token-budget.js'
-import type { RunId } from '../ids/index.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 
 export interface StepContext {
 	/** Shared authority; reserve a child scope before invoking another agent. */
-	budget: TokenBudget
-	runId: RunId
+	budget: SessionTokenBudget
+	sessionId: SessionId
+	turnId: TurnId
 	stepIndex: number
 	totalSteps: number
 	previousResults: Map<string, unknown>

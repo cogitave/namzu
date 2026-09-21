@@ -1,8 +1,10 @@
-import type { CheckpointId, RunId, ToolCallId } from '../ids/index.js'
+import type { CheckpointId, SessionId, ToolCallId, TurnId } from '../ids/index.js'
 import type { ToolResult } from '../tool/index.js'
 
 /**
- * Controlled mutation applied at the fork point during {@link replay}.
+ * Controlled mutation applied at the fork point when a session is forked
+ * from a checkpoint. A fork always creates a NEW session whose
+ * `session_started.forkedFrom` names the source.
  *
  * v1 ships a single variant: `injectToolResponse` — the 80% debugging use
  * case. Additional variants (`swapProvider`, `overrideBudget`, etc.) are
@@ -15,9 +17,9 @@ export type Mutation = {
 }
 
 /**
- * Lightweight listing entry returned by {@link listCheckpoints}. Projected
- * from {@link import('../hitl/index.js').IterationCheckpoint} — not a full
- * checkpoint payload, just enough to pick a fork point.
+ * Lightweight listing entry returned by `listCheckpoints`. Projected from a
+ * checkpoint document — not the full payload, just enough to pick a fork
+ * point.
  *
  * Named `CheckpointListEntry` (not `CheckpointSummary`) to avoid collision
  * with the pre-existing HITL `CheckpointSummary` shape at
@@ -25,23 +27,12 @@ export type Mutation = {
  */
 export interface CheckpointListEntry {
 	id: CheckpointId
-	runId: RunId
+	sessionId: SessionId
+	turnId: TurnId
 	iteration: number
 	createdAt: number
-	messageCount: number
-}
-
-/**
- * Attribution record stamped on a {@link Run} produced by {@link replay}.
- * Non-replay runs have `replayOf === undefined`. Shape mirrors voltagent's
- * `replayedFromExecutionId` / `replayFromStepId` pattern, folded into a
- * single optional rather than three parallel ones.
- */
-export interface ReplayAttribution {
-	sourceRunId: RunId
-	fromCheckpointId: CheckpointId
-	mutations: Mutation[]
-	replayedAt: number
+	/** Records of the session log the checkpoint covers (`throughSeq`). */
+	throughSeq: number
 }
 
 /**

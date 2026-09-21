@@ -1,4 +1,4 @@
-import type { RunId, TaskId, TenantId } from '../ids/index.js'
+import type { SessionId, TaskId, TenantId, TurnId } from '../ids/index.js'
 
 /**
  * `failed` exists because a unit that did not succeed had nowhere to say so.
@@ -40,7 +40,10 @@ export function assertTaskStatus(status: TaskStatus): void {
 
 export interface Task {
 	readonly id: TaskId
-	readonly runId: RunId
+	/** The session the task belongs to (`<session-id>/tasks/`). */
+	readonly sessionId: SessionId
+	/** The turn that created the task. */
+	readonly turnId: TurnId
 	readonly tenantId?: TenantId
 
 	subject: string
@@ -77,7 +80,8 @@ export interface TaskEvent {
 export type TaskEventListener = (event: TaskEvent) => void
 
 export interface CreateTaskParams {
-	runId: RunId
+	sessionId: SessionId
+	turnId: TurnId
 	tenantId?: TenantId
 	subject: string
 	description?: string
@@ -101,7 +105,7 @@ export interface TaskStore {
 	get(id: TaskId): Promise<Task | undefined>
 	update(id: TaskId, updates: UpdateTaskParams): Promise<Task | undefined>
 	delete(id: TaskId): Promise<boolean>
-	list(filter?: { status?: TaskStatus; owner?: string; runId?: RunId }): Promise<Task[]>
+	list(filter?: { status?: TaskStatus; owner?: string; sessionId?: SessionId }): Promise<Task[]>
 
 	claim(id: TaskId, owner: string): Promise<Task | undefined>
 

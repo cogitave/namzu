@@ -61,15 +61,14 @@ export type {
 
 // ─── wire schemas + a2a (contracts/) ─────────────────────────────────────
 
+// Turn and session schemas (CreateTurnSchema, CreateEphemeralSessionSchema,
+// TurnConfigSchema, TurnIdSchema, SessionIdSchema, …) come through
+// `export * from './contracts/session/index.js'` at the end of this file.
 export {
 	CreateMessageSchema,
-	CreateRunSchema,
-	CreateStatelessRunSchema,
 	MessageIdSchema,
 	PaginationSchema,
 	ProjectIdSchema,
-	RunConfigSchema,
-	RunIdSchema,
 	zodErrorToApiError,
 } from './contracts/schemas.js'
 
@@ -136,10 +135,10 @@ export {
 	Severity,
 } from './utils/log/index.js'
 
-// A cancellation carries its origin now; these are what a host reads it
-// with.  is exported alongside the class because a host
-// implementing its own gateway holds an abort REASON, not a RunCancelled.
-export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
+// A cancellation carries its origin; these are what a host reads it with.
+// `cancelCauseOf` is exported alongside the class because a host
+// implementing its own gateway holds an abort REASON, not a TurnCancelled.
+export { cancelCauseOf, TurnCancelled } from './types/session/cancel-cause.js'
 
 // A tool authors how it is shown; a host resolves through this rather than
 // switching on a lowercased tool name, which is what left every MCP and
@@ -162,7 +161,7 @@ export {
 } from './store/topic/state.js'
 export { StaleTopicStateError } from './types/topic/state.js'
 
-// Work that outlives one run. Named explicitly here rather than reached
+// Work that outlives one turn. Named explicitly here rather than reached
 // through the sub-barrels, because this file re-exports SELECTED names from
 // `./manager/index.js` and friends rather than star-exporting them — so a
 // name added to a sub-barrel alone never reaches the package entry at all.
@@ -250,7 +249,7 @@ export { createChildAbortController } from './utils/abort.js'
 export { memoizeAsync } from './utils/memoize.js'
 export { extractFinalResponse } from './utils/conversation.js'
 
-// ─── router, runtime, run ────────────────────────────────────────────────
+// ─── router, runtime, turn ───────────────────────────────────────────────
 
 export { resolveTaskModel } from './model-router/task-router.js'
 // Every driver accepts `thinking`; one that does not implement it must
@@ -304,7 +303,7 @@ export type { SteeringChannel } from './runtime/query/steering.js'
 export {
 	BidiSessionCloseTimeoutError,
 	createMockBidiProvider,
-	startBidiRun,
+	startBidiTurn,
 } from './runtime/bidi/index.js'
 export { PromptCache } from './runtime/query/prompt-cache.js'
 export {
@@ -312,51 +311,58 @@ export {
 	findPendingCheckpoint,
 	isExpiredPark,
 	listExpiredParks,
-	projectEmergencyToCheckpoint,
 } from './runtime/query/checkpoint.js'
-// Projecting what the SDK records onto the session-layer statuses. Both
-// were declared and consumed with nothing in the repo producing them, so a
-// host implementing either had to invent the mapping.
-export { deriveRunStatus } from './types/run/derive-status.js'
+// Projecting what a turn records onto the domain `TurnStatus`.
+export { deriveTurnStatus } from './types/session/derive-status.js'
 // Scoped approval memory: the mechanism that lets an approver choose how
 // wide their yes is, instead of choosing between 'this one call' and
 // 'everything for the session'.
 export { ToolGrantSet, toolGrantKeys } from './runtime/query/tool-grants.js'
 export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
-export { toWireRunStatus } from './contracts/run-status.js'
-// Durable run state: the snapshot a different process picks a run up from.
-export { captureRunState, loadRunState } from './runtime/query/run-state.js'
-// …and the driver that joins the snapshot back to a running loop. Without
-// it every host wrote the same wiring, and in practice none did.
-export { resumeRun } from './runtime/query/resume-run.js'
+// `toWireTurnStatus` comes through `./contracts/session/index.js`.
+// Durable turn state: the snapshot a different process picks a turn up from.
+export {
+	captureTurnState,
+	loadSelectedTurnState,
+	loadTurnState,
+} from './runtime/query/turn-state.js'
+export type { TurnStateScope } from './runtime/query/turn-state.js'
+export {
+	TURN_STATE_VERSION,
+	TurnStateVersionError,
+	parseTurnState,
+} from './types/session/turn-state.js'
+// …and the driver that joins the snapshot back to a running loop: the same
+// session and the same turn.
+export { resumeSession } from './runtime/query/resume-session.js'
 export type {
 	ResumeOutcome,
-	ResumeRunParams,
-} from './runtime/query/resume-run.js'
-// The scope type was internal, so a host calling `loadRunState` could not
-// name the argument it had to construct.
-export type { RunStateScope } from './runtime/query/run-state.js'
+	ResumeSessionParams,
+} from './runtime/query/resume-session.js'
+// Closing a paused or interrupted turn without resuming it, and compacting a
+// session between turns.
+export { abandonTurn } from './runtime/query/abandon-turn.js'
+export type { SessionLocatorOptions } from './runtime/query/abandon-turn.js'
+export { compactSession } from './runtime/query/compact-session.js'
+export type { CompactSessionParams } from './runtime/query/compact-session.js'
 export { prepareReplayState } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
 export {
 	buildLimitConfig,
 	checkLimitsDetailed,
-	createRunReporter,
-} from './run/index.js'
-// One bounded pass over a queue of durable runs: list what nobody holds,
-// claim it, work it, release it in a `finally`. Every primitive it composes
-// already shipped and nothing composed them, so an approval inbox and a
-// crash sweeper each still needed a host to write the loop — including the
-// two parts a host writes wrong, the release on the failure path and the
-// `null` claim that is not one. Not a daemon: it makes one pass and returns.
-export { DEFAULT_DRAIN_PAGE_SIZE, drainRuns } from './run/index.js'
+	createTurnReporter,
+} from './turn/index.js'
+// One bounded pass over the parked turns: list the pending decisions nobody
+// holds, claim the session, resume the turn, release in a `finally`. Not a
+// daemon: it makes one pass and returns.
+export { DEFAULT_DRAIN_PAGE_SIZE, drainParkedTurns } from './turn/index.js'
 export type {
 	DrainFailure,
-	DrainRun,
-	DrainRunsParams,
-	DrainRunsResult,
-} from './run/index.js'
+	DrainTurn,
+	DrainTurnsParams,
+	DrainTurnsResult,
+} from './turn/index.js'
 // A `ReviewAnswer` that runs shell commands, so "don't finish until the
 // build passes" needs no TypeScript. `reviewAnswer` was the seam for this
 // and nothing shipped supplied one. Skips re-running a command whose
@@ -373,32 +379,29 @@ export {
 	createCommandGate,
 	createJsonClaimVerifier,
 	fingerprintWorkspace,
-} from './run/index.js'
+} from './turn/index.js'
 export type {
 	CommandGateOptions,
 	FingerprintExec,
 	GateExec,
 	WorkspaceFingerprintOptions,
-} from './run/index.js'
-// The default `promoteMemory`: write what a run learned into a MemoryStore,
-// or write NOTHING. The hook was invoked at settle with the compaction
-// extractor's already-structured output and no shipped app supplied it, so
-// that structure was serialized into one system message and dropped when
-// the run ended. A run that learned nothing leaves no record at all — the
-// model reads this store, so noise here is context spent on a run that did
-// nothing.
-export { RUN_MEMORY_TAG, createMemoryPromoter } from './run/index.js'
-export type { MemoryPromoterOptions } from './run/index.js'
-export { createMemoryRecallStep } from './run/memory-recall.js'
-export type { MemoryRecallOptions } from './run/memory-recall.js'
-export { createEvidenceRecallStep, refineEvidenceRecallTerms } from './run/evidence-recall.js'
+} from './turn/index.js'
+// The default `promoteMemory`: write what a turn learned into a MemoryStore,
+// or write NOTHING. A turn that learned nothing leaves no record at all —
+// the model reads this store, so noise here is context spent on a turn that
+// did nothing.
+export { SESSION_MEMORY_TAG, createMemoryPromoter } from './turn/index.js'
+export type { MemoryPromoterOptions } from './turn/index.js'
+export { createMemoryRecallStep } from './turn/memory-recall.js'
+export type { MemoryRecallOptions } from './turn/memory-recall.js'
+export { createEvidenceRecallStep, refineEvidenceRecallTerms } from './turn/evidence-recall.js'
 export type {
 	EvidenceRecallOptions,
 	EvidenceRecallRequest,
 	EvidenceRecallBatch,
 	EvidenceRecallCandidate,
 	EvidenceRecallContinuation,
-} from './run/evidence-recall.js'
+} from './turn/evidence-recall.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 
@@ -432,8 +435,8 @@ export { parseFrontmatter } from './utils/frontmatter.js'
 // of the kernel, not a product beside it.
 export {
 	ALL_SLOTS,
-	deriveRunOptions,
 	deriveSupervisorOptions,
+	deriveTurnOptions,
 	loadDirectory,
 } from './directory/index.js'
 export {
@@ -474,12 +477,9 @@ export {
 
 export {
 	ActivityStore,
-	DiskCheckpointStore,
 	DiskMemoryStore,
 	DiskTaskStore,
-	InMemoryCheckpointStore,
 	InMemoryMemoryIndex,
-	InMemoryRunStore,
 	InMemoryMemoryStore,
 	InMemoryStore,
 	InMemoryTaskStore,
@@ -494,38 +494,17 @@ export {
 	memoryIndexLine,
 	memoryLinkNames,
 	renderMemoryIndex,
-	RunDiskStore,
 	slugifyMemoryName,
 } from './store/index.js'
-export type { DiskCheckpointStoreAttribution } from './store/index.js'
-// Enumerating runs above a run id — the read an approval inbox and a park
-// sweep are built from, and the one the contract had no way to express.
-// `listDurableRuns` REFUSES on a store that cannot list rather than
-// reporting an empty page, because "nothing is waiting on a human" is not
-// what "I cannot tell" means.
+// Cross-process possession of a session: its `lease.json`. Listing what is
+// waiting (pending decisions, turns, children) is `SessionIndex`'s job, which
+// comes through `./store/session-index/index.js` at the end of this file.
 export {
-	assertContiguousListingScope,
-	listDurableRuns,
-	paginateDurableRuns,
-	toDurableRunEntry,
-} from './store/index.js'
-// Cross-process possession of a run. `claimRun` REFUSES on a store that
-// cannot arbitrate rather than proceeding unclaimed, because proceeding lets
-// two workers restore one checkpoint, both run its tools and both write under
-// one run id — which loses half the work and reports nothing.
-export {
-	claimRun,
+	claimSession,
 	fencedOut,
-	releaseRun,
+	releaseSession,
 	toClaimSummary,
-} from './store/index.js'
-// Reading a run's durable event log back — what a consumer that lost its
-// connection catches up through. `readRunEventsIn` takes a directory rather
-// than a bound store because binding one CREATES the run directory, and a read
-// that mints an empty run then reports it as having no events is worse than an
-// error. `resolveRunEventReplay` decides what a cursor is owed, and REFUSES
-// rather than delivering a partial catch-up a consumer would fold into its
-// state without knowing it had a hole in it.
+} from './store/session-claim.js'
 // Walking the actor chain — exported so the next cross-tree concern (an
 // audit over a subtree, a host asking whether one run is contained by
 // another) composes with the chain that is already persisted, rather than
@@ -535,14 +514,14 @@ export {
 	isDescendantOfActor,
 	MAX_ACTOR_CHAIN_DEPTH,
 } from './session/actor-scope.js'
-export { readRunEventsIn, readRunMessagesIn } from './store/index.js'
 export {
 	DiskMessageFeedbackStore,
 	InMemoryMessageFeedbackStore,
 	StaleFeedbackError,
 	UnknownMessageError,
 } from './store/feedback/index.js'
-export { resolveRunEventReplay } from './types/run/event-cursor.js'
+// Deciding what a reconnecting consumer's cursor is owed.
+export { resolveSessionLogReplay } from './types/session/log-cursor.js'
 
 // Commands a HOST offers its operator. Deliberately NOT tools: no
 // descriptor reaches a provider and no dispatch path reaches the model — a
@@ -586,7 +565,6 @@ export {
 
 export {
 	AgentManager,
-	EmergencySaveManager,
 	PlanManager,
 	ProjectManager,
 	// The gate itself, not only the manager that wraps it. A host writing its
@@ -594,7 +572,6 @@ export {
 	// sessions — needs to refuse a closed workspace without constructing a
 	// manager, which is the reason it is a function over a store.
 	requireOpenProject,
-	RunPersistence,
 	TopicManager,
 	/**
 	 * @deprecated Use {@link TopicManager}. A literal identity re-export, not a
@@ -604,6 +581,9 @@ export {
 	 * can actually see the warning in.
 	 */
 } from './manager/index.js'
+
+// Records one turn into its session log.
+export { TurnRecorder } from './manager/session/turn-recorder.js'
 
 export {
 	InMemoryTopicStore,
@@ -801,16 +781,16 @@ export type {
 // ─── bridges (a2a + sse) ─────────────────────────────────────────────────
 
 export {
-	a2aMessageToCreateRun,
+	a2aMessageToCreateTurn,
 	a2aMessageToInput,
 	buildAgentCard,
 	extractTextFromA2AMessage,
 	isTerminalState,
-	mapRunToA2AEvent,
 	mapSessionToA2AEvent,
+	mapTurnToA2AEvent,
+	mapTurnToA2ATask,
 	messageToA2A,
-	runStatusToA2AState,
-	runToA2ATask,
+	turnStatusToA2AState,
 } from './bridge/a2a/index.js'
 
 // The client half. Until this landed the bridge was a one-way door: this
@@ -830,7 +810,7 @@ export type {
 } from './bridge/a2a/client.js'
 
 export {
-	mapRunToStreamEvent,
+	mapSessionEventToStreamEvent,
 	mapSessionToStreamEvent,
 } from './bridge/sse/index.js'
 
@@ -919,7 +899,7 @@ export {
 } from './invariants/index.js'
 export type { InvariantCheck, InvariantOutcome } from './invariants/index.js'
 
-// ─── probe (typed observation AND enforcement over AgentBus + RunEvent) ──
+// ─── probe (typed observation AND enforcement over AgentBus + SessionEvent)
 //
 // This said "typed observation", which was true of `on`/`onAny`/`dispatch`
 // and false of `veto`/`queryVeto`: a registered veto handler can deny a
@@ -962,14 +942,10 @@ export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 // ─── session runtime — explicit named lists, no `export *` ───────────────
 // See §1.5 + §4.2 of design.md. Types flow through public-types.ts.
 
-export { RUN_EVENT_SCHEMA_VERSION } from './session/events/index.js'
-
 export {
-	DefaultPathBuilder,
-	defaultStateRoot,
 	GitWorktreeDriver,
 	parseWorktreeList,
-	SharedRunWorkspace,
+	SharedSessionWorkspace,
 	WorkspaceBackendRegistry,
 } from './session/workspace/index.js'
 
@@ -1088,10 +1064,11 @@ export {
 	assertPluginStatus,
 	PluginManifestSchema,
 	PluginMCPServerConfigSchema,
+	RENAMED_PLUGIN_HOOK_EVENTS,
 } from './types/plugin/index.js'
-export { EmergencySaveConfigSchema } from './types/run/emergency.js'
-export { toMemoryCandidate } from './types/run/memory-promotion.js'
-export { MutationNotApplicableError } from './types/run/replay.js'
+export { toMemoryCandidate } from './types/session/memory-promotion.js'
+export { MutationNotApplicableError } from './types/session/fork.js'
+export { replayAudit } from './types/session/audit.js'
 export {
 	assertSandboxEnvironment,
 	assertSandboxStatus,
@@ -1136,7 +1113,7 @@ export {
 	consolidationEntry,
 	isConsolidated,
 } from './compaction/consolidation.js'
-// The sibling state-bearing system message. A host that carries a Run's
+// The sibling state-bearing system message. A host that carries a turn's
 // conversation into a fresh query must distinguish this ledger from the fresh
 // identity/environment prompt floor without copying its private header string.
 export { isWorkingMemoryMessage } from './runtime/query/iteration/phases/working-memory.js'
@@ -1175,7 +1152,7 @@ export type {
 
 // ─── loop control ────────────────────────────────────────────────────────
 
-export { anyOf, hasToolCall, stepCountIs } from './types/run/step.js'
+export { anyOf, hasToolCall, stepCountIs } from './types/session/step.js'
 
 // ─── evaluation harness ──────────────────────────────────────────────────
 
@@ -1185,8 +1162,8 @@ export {
 	completionScorer,
 	containsScorer,
 	customScorer,
-	evalRunFromQuery,
-	evalRunFromRun,
+	evalTurnFromQuery,
+	evalTurnFromTurn,
 	formatReport,
 	judgeScorer,
 	runExperiment,
@@ -1202,8 +1179,8 @@ export {
 
 export {
 	recordModelDuration,
-	recordRunDuration,
 	recordTokenUsage,
+	recordTurnDuration,
 	recordToolCall,
 	resetRuntimeMetrics,
 } from './telemetry/metrics.js'
@@ -1267,7 +1244,7 @@ export type {
 
 // The box itself is built by `query` — a host receives it through
 // `onApprovalPolicy` rather than constructing one, because changing the
-// policy emits a durable event and only the run holds the emitter. The name
+// policy appends a durable record and only the turn holds the log. The name
 // constant is exported so a host can recognise the unattended default.
 export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'
 // The modes a host resolves the undecided under — prompt, auto,
@@ -1336,23 +1313,20 @@ export {
 	resolveAttachments,
 } from './store/attachment/index.js'
 
-// Derived values, maintained from the run's own event log rather than
+// Derived values, maintained from the session's own log rather than
 // recomputed by whoever asks. See `read-model/registry.ts`.
 export {
 	DuplicateEventError,
 	EventGapError,
-	RUN_STATUS_READ_MODEL_ID,
 	ReadModelCollisionError,
 	ReadModelRegistry,
+	SESSION_STATUS_READ_MODEL_ID,
 	UnknownReadModelError,
-	createRunStatusReadModel,
+	createSessionStatusReadModel,
 } from './read-model/index.js'
 
-// Asking a finished run what happened, including what compaction removed.
-// `compaction_shed` has carried the removed messages since NZ-RUNREC-06 and
-// nothing read them back; evidence nobody can retrieve is evidence nobody
-// kept.
-export { RunQuery, RunTranscriptUnavailableError } from './run-query/index.js'
+// Asking a session what happened, including what compaction removed.
+export { SessionQuery, SessionTranscriptUnavailableError } from './session-query/index.js'
 
 // A host-scoped pseudo-terminal primitive, or a refusal that names the
 // binding to install. It neither creates a sandbox nor owns a descendant
@@ -1395,7 +1369,7 @@ export type {
 } from './registry/command/kernel-commands.js'
 export type { ToolCatalogFromRegistryOptions } from './registry/toolset/catalog.js'
 export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
-export type { BidiRun, BidiRunParams } from './runtime/bidi/session.js'
+export type { BidiTurn, BidiTurnParams } from './runtime/bidi/session.js'
 export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'
 export type { ToolResultCorrespondenceOptions } from './runtime/query/guardrail-presets.js'
 export type { ListCheckpointsInput } from './runtime/query/replay/list.js'
@@ -1420,11 +1394,6 @@ export type {
 export type { JobProcess } from './runtime/jobs/registry.js'
 export { WORKING_STATE_MIME } from './connector/mcp/adapter.js'
 
-export { TokenBudget, validateTokenBudgetSnapshot } from './run/token-budget.js'
-export { DiskTokenBudgetStore, openTokenBudget } from './store/run/token-budget-disk.js'
-export { InMemoryTokenBudgetStore } from './store/run/token-budget-memory.js'
-export { validateTokenBudgetBinding } from './types/run/token-budget-store.js'
-
 export { snapshotRequestContext, diffRequestContext } from './runtime/query/request-context.js'
 
 export { DiskResidentStore, ResidentConflictError } from './manager/resident/store.js'
@@ -1442,11 +1411,9 @@ export { createResidentDeliveryWindow } from './manager/resident/delivery-window
 export { hashResidentSkill, projectResidentLearning } from './manager/resident/learning.js'
 export { runResidentLearningCycle } from './manager/resident/learning-cycle.js'
 
-export { SqliteSessionStore } from './store/session/sqlite.js'
-
 export {
-	createDiskRunEvidenceSource,
-	createDiskRunTextEvidenceSource,
+	createSessionEvidenceSource,
+	createSessionTextEvidenceSource,
 } from './store/evidence/disk.js'
 export { classifyEvidenceSource, EVIDENCE_RECORD_GUIDANCE } from './store/evidence/source-kind.js'
 export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'
@@ -1462,14 +1429,16 @@ export {
 // ─── sessions, turns and the session log ─────────────────────────────────
 //
 // The session → turn → message model. The record schema is described in
-// docs/sdk/session-log.md. The five `index.ts` modules below start empty and
-// are filled by the workstreams that own them.
+// docs/sdk/session-log.md.
 
 export {
 	TurnInProgressError,
 	isTurnInProgressError,
 } from './types/session/turn.js'
-export { EPHEMERAL_EVENT_TYPES as EPHEMERAL_SESSION_EVENT_TYPES } from './types/session/events.js'
+export {
+	EPHEMERAL_EVENT_TYPES as EPHEMERAL_SESSION_EVENT_TYPES,
+	isEphemeralEvent,
+} from './types/session/events.js'
 export {
 	ChildSessionMetaSchema,
 	CompactionRecordSchema,

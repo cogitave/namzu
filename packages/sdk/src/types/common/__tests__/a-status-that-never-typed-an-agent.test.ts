@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunExecutionStatus } from '../index.js'
+import type { TurnExecutionStatus } from '../../session/turn.js'
 import { isTerminalStatus } from '../index.js'
 
 /**
@@ -20,12 +20,12 @@ import { isTerminalStatus } from '../index.js'
  * itself — the thing the rename was about.
  */
 
-describe('the run lifecycle union', () => {
+describe('the turn lifecycle union', () => {
 	it('treats exactly the three settled values as terminal', () => {
 		// Pinned member by member rather than by count: adding a seventh
 		// member to the union and forgetting it here would otherwise pass.
-		const settled: RunExecutionStatus[] = ['completed', 'failed', 'cancelled']
-		const live: RunExecutionStatus[] = ['idle', 'pending', 'running']
+		const settled: TurnExecutionStatus[] = ['completed', 'failed', 'cancelled']
+		const live: TurnExecutionStatus[] = ['idle', 'pending', 'running']
 
 		expect(settled.map(isTerminalStatus)).toEqual([true, true, true])
 		expect(live.map(isTerminalStatus)).toEqual([false, false, false])

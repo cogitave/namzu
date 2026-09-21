@@ -1,7 +1,7 @@
-import type { RunId, TaskId } from '../ids/index.js'
+import type { SessionId, TaskId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
-import type { CancelCause } from '../run/cancel-cause.js'
-import type { RunEventListener } from '../run/events.js'
+import type { CancelCause } from '../session/cancel-cause.js'
+import type { SessionEventListener } from '../session/events.js'
 import type { AgentLifecycleListener } from './lifecycle-event.js'
 import type { AgentTask, AgentTaskContext, AgentTaskState, SendMessageOptions } from './task.js'
 
@@ -13,7 +13,7 @@ export interface AgentManagerContract {
 	sendMessage(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<AgentTask>
 
 	cancel(taskId: TaskId, cause?: CancelCause): void
@@ -22,7 +22,7 @@ export interface AgentManagerContract {
 	 * site IS a parent abandoning its children — unlike `AbstractAgent.cancel`,
 	 * where the caller could be anyone.
 	 */
-	cancelAll(parentRunId: RunId, cause?: CancelCause): void
+	cancelAll(parentSessionId: SessionId, cause?: CancelCause): void
 
 	/**
 	 * Queue a message for a running task.
@@ -56,7 +56,7 @@ export interface AgentManagerContract {
 
 	waitForCompletion(taskId: TaskId): Promise<void>
 	getInstance(taskId: TaskId): AgentTask | undefined
-	listByParent(parentRunId: RunId): AgentTask[]
+	listByParent(parentSessionId: SessionId): AgentTask[]
 	listActive(): AgentTask[]
 	getState(taskId: TaskId): AgentTaskState | undefined
 

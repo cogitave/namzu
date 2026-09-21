@@ -32,7 +32,6 @@ function pairs(): {
 }
 
 const legacyPrefixes: Record<string, string> = {
-	asRunId: 'run_',
 	asTurnId: 'turn_',
 	asRecordId: 'rec_',
 	asMessageId: 'msg_',
@@ -58,7 +57,6 @@ const legacyPrefixes: Record<string, string> = {
 	asLockId: 'lock_',
 	asAdvisoryId: 'adv_',
 	asAdvisoryCallId: 'advc_',
-	asEmergencySaveId: 'esave_',
 	asMemoryId: 'mem_',
 	asPluginId: 'plg_',
 	asSandboxId: 'sbx_',
@@ -79,15 +77,15 @@ const legacyPrefixes: Record<string, string> = {
 
 describe('an id can be checked at runtime', () => {
 	it('rejects a prefixed id and identifies the required entity field', () => {
-		expect(() => ids.asRunId('run_previous')).toThrow(InvalidIdError)
-		expect(() => ids.asRunId('run_previous')).toThrow(/run_previous/)
-		expect(() => ids.asRunId('run_previous')).toThrow(/Invalid run id/)
-		expect(() => ids.asRunId('run_previous')).toThrow(/must be a UUID/)
+		expect(() => ids.asTurnId('turn_previous')).toThrow(InvalidIdError)
+		expect(() => ids.asTurnId('turn_previous')).toThrow(/turn_previous/)
+		expect(() => ids.asTurnId('turn_previous')).toThrow(/Invalid turn id/)
+		expect(() => ids.asTurnId('turn_previous')).toThrow(/must be a UUID/)
 	})
 
 	it('returns a checked UUID unchanged without normalizing its case', () => {
 		const value = '550E8400-E29B-41D4-A716-446655440000'
-		expect(ids.asRunId(value)).toBe(value)
+		expect(ids.asTurnId(value)).toBe(value)
 	})
 
 	it('accepts every id its own factory mints', () => {
@@ -105,8 +103,8 @@ describe('an id can be checked at runtime', () => {
 	})
 
 	it('refuses the empty string and an arbitrary string', () => {
-		expect(() => ids.asRunId('')).toThrow(InvalidIdError)
-		expect(() => ids.asRunId('abc')).toThrow(InvalidIdError)
+		expect(() => ids.asTurnId('')).toThrow(InvalidIdError)
+		expect(() => ids.asTurnId('abc')).toThrow(InvalidIdError)
 	})
 
 	it.each(['', '../outside', 'a/b', 'a\\b', 'a.b', 'a:stream', 'a b', 'a\n', 'a\0b', 'ü'])(
@@ -125,14 +123,14 @@ describe('an id can be checked at runtime', () => {
 
 	it('applies the same shape rules to deprecated parsers', () => {
 		const parsers = [
-			{ parse: ids.parseRunId, prefix: 'run_' },
+			{ parse: ids.parseTurnId, prefix: 'turn_' },
 			{ parse: ids.parseProjectId, prefix: 'prj_' },
 			{ parse: ids.parseConnectorInstanceId, prefix: 'ci_' },
 			{ parse: ids.parsePluginId, prefix: 'plg_' },
 			{ parse: ids.parseSandboxId, prefix: 'sbx_' },
 		]
 		for (const { parse, prefix } of parsers) {
-			const uuid = ids.generateRunId()
+			const uuid = ids.generateTurnId()
 			expect(parse(uuid)).toBe(uuid)
 			expect(() => parse(`${prefix}Custom-A_1`)).toThrow(Error)
 			expect(() => parse(prefix)).toThrow(Error)
@@ -147,7 +145,7 @@ describe('opaque ids retain identity across typed boundaries', () => {
 			const parse = (ids as unknown as Record<string, (value: string) => string>)[name]
 			if (parse === undefined) throw new Error(`Missing checked constructor: ${name}`)
 			expect(() => parse(`${prefix}Selected-A_1`), name).toThrow(InvalidIdError)
-			const other = prefix === 'run_' ? 'ses_Other' : 'run_Other'
+			const other = prefix === 'turn_' ? 'ses_Other' : 'turn_Other'
 			expect(() => parse(other), name).toThrow(InvalidIdError)
 			expect(() => parse('thd_old'), name).toThrow(InvalidIdError)
 			expect(() => parse(prefix), name).toThrow(InvalidIdError)
@@ -161,8 +159,8 @@ describe('opaque ids retain identity across typed boundaries', () => {
 		'550e8400-e29b-81d4-a716-446655440000',
 		'550E8400-E29B-41D4-A716-446655440000',
 	])('checks a supported UUID without normalizing %s', (value) => {
-		expect(ids.isEntityId(value, 'run')).toBe(true)
-		expect(ids.asRunId(value)).toBe(value)
+		expect(ids.isEntityId(value, 'turn')).toBe(true)
+		expect(ids.asTurnId(value)).toBe(value)
 		expect(ids.asSessionId(value)).toBe(value)
 	})
 
@@ -179,12 +177,12 @@ describe('opaque ids retain identity across typed boundaries', () => {
 		'550e8400-e29b-41d4-7716-446655440000',
 		'550e8400-e29b-41d4-a716-446655440000\n',
 		'550e8400-e29b-41d4-a716-446655440000/../outside',
-		'run_../outside',
+		'turn_../outside',
 		'thd_old',
 		'ses_different-kind',
-		'run_valid_before_this_release',
+		'turn_valid_before_this_release',
 	])('a nonthrowing predicate rejects invalid or mismatched input %j', (value) => {
-		expect(ids.isEntityId(value, 'run')).toBe(false)
+		expect(ids.isEntityId(value, 'turn')).toBe(false)
 	})
 
 	it('mints independent identities for every entity kind', () => {

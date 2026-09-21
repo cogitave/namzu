@@ -2,9 +2,8 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import type { z } from 'zod'
 
 import { fixtureId } from '../../../test-support/ids.js'
-import type { AuditOutcome } from '../../run/audit.js'
-import type { CancelCause } from '../../run/cancel-cause.js'
-import type { StopReason } from '../../run/stop-reason.js'
+import type { AuditOutcome } from '../audit.js'
+import type { CancelCause } from '../cancel-cause.js'
 import {
 	CHECKPOINT_DOCUMENT_VERSION,
 	type Checkpoint,
@@ -24,6 +23,7 @@ import {
 	type TurnBoundSessionEventType,
 	type TurnSettlementSchema,
 } from '../records.js'
+import type { StopReason } from '../stop-reason.js'
 import type { SubSessionKind } from '../sub-session.js'
 import {
 	type ExternalRef,

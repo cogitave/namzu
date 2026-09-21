@@ -1,4 +1,4 @@
-import type { PlanId, RunId } from '../ids/index.js'
+import type { PlanId, SessionId, TurnId } from '../ids/index.js'
 
 export type PlanStatus =
 	| 'generating'
@@ -56,7 +56,8 @@ export interface PlanStep {
 
 export interface Plan {
 	id: PlanId
-	runId: RunId
+	sessionId: SessionId
+	turnId: TurnId
 	status: PlanStatus
 	title: string
 	summary?: string
@@ -86,7 +87,8 @@ export interface Plan {
 
 export interface PlanApprovalRequest {
 	planId: PlanId
-	runId: RunId
+	sessionId: SessionId
+	turnId: TurnId
 	title: string
 	steps: PlanStep[]
 	summary?: string

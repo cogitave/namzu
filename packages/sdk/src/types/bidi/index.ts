@@ -1,4 +1,4 @@
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { LLMToolSchema } from '../tool/index.js'
 
 /**
@@ -98,23 +98,31 @@ export interface BidiProvider {
 }
 
 /** What the loop reports back to whoever is driving it. */
-export type BidiRunEvent =
-	| { readonly type: 'text'; readonly runId: RunId; readonly text: string }
+export type BidiTurnEvent =
+	| {
+			readonly type: 'text'
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
+			readonly text: string
+	  }
 	| {
 			readonly type: 'audio'
-			readonly runId: RunId
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
 			readonly data: string
 			readonly mediaType: string
 	  }
 	| {
 			readonly type: 'tool_started'
-			readonly runId: RunId
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
 			readonly toolUseId: string
 			readonly toolName: string
 	  }
 	| {
 			readonly type: 'tool_completed'
-			readonly runId: RunId
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
 			readonly toolUseId: string
 			readonly toolName: string
 			readonly output: string
@@ -126,11 +134,22 @@ export type BidiRunEvent =
 	 */
 	| {
 			readonly type: 'tool_abandoned'
-			readonly runId: RunId
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
 			readonly toolUseId: string
 			readonly toolName: string
 	  }
-	| { readonly type: 'turn_complete'; readonly runId: RunId }
-	| { readonly type: 'interrupted'; readonly runId: RunId }
-	| { readonly type: 'error'; readonly runId: RunId; readonly message: string }
-	| { readonly type: 'closed'; readonly runId: RunId; readonly reason?: string }
+	| { readonly type: 'turn_complete'; readonly sessionId: SessionId; readonly turnId: TurnId }
+	| { readonly type: 'interrupted'; readonly sessionId: SessionId; readonly turnId: TurnId }
+	| {
+			readonly type: 'error'
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
+			readonly message: string
+	  }
+	| {
+			readonly type: 'closed'
+			readonly sessionId: SessionId
+			readonly turnId: TurnId
+			readonly reason?: string
+	  }

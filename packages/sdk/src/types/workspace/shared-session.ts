@@ -1,4 +1,4 @@
-export interface SharedRunWorkspacePaths {
+export interface SharedSessionWorkspacePaths {
 	root: string
 	manifest: string
 	sharedContext: string
@@ -7,7 +7,7 @@ export interface SharedRunWorkspacePaths {
 	agents: string
 }
 
-export interface SharedRunWorkspaceSource {
+export interface SharedSessionWorkspaceSource {
 	id: string
 	label: string
 	path: string
@@ -15,14 +15,14 @@ export interface SharedRunWorkspaceSource {
 	sizeBytes?: number
 }
 
-export interface SharedRunWorkspacePlan {
+export interface SharedSessionWorkspacePlan {
 	id: string
 	briefPath: string
 	status: 'seeded' | 'ready' | 'running' | 'completed' | 'failed'
 	updatedAt: string
 }
 
-export interface SharedRunWorkspaceAgentRecord {
+export interface SharedSessionWorkspaceAgentRecord {
 	agentId: string
 	taskId?: string
 	workPath: string
@@ -30,23 +30,23 @@ export interface SharedRunWorkspaceAgentRecord {
 	updatedAt: string
 }
 
-export interface SharedRunWorkspaceManifest {
+export interface SharedSessionWorkspaceManifest {
 	schemaVersion: 1
-	kind: 'shared-run-workspace'
+	kind: 'shared-session-workspace'
 	createdAt: string
 	updatedAt: string
 	label?: string
-	paths: SharedRunWorkspacePaths
-	sources: SharedRunWorkspaceSource[]
-	plans: SharedRunWorkspacePlan[]
-	agents: SharedRunWorkspaceAgentRecord[]
+	paths: SharedSessionWorkspacePaths
+	sources: SharedSessionWorkspaceSource[]
+	plans: SharedSessionWorkspacePlan[]
+	agents: SharedSessionWorkspaceAgentRecord[]
 }
 
-export interface SharedRunWorkspaceRefs {
+export interface SharedSessionWorkspaceRefs {
 	rootPath: string
 	manifestPath: string
 	/**
-	 * Path to the shared coordination packet for this run. Workers read this
+	 * Path to the shared coordination packet for this session. Workers read this
 	 * before the larger task context or source inventory so common runtime
 	 * instructions, source summaries, and workspace paths are not rediscovered
 	 * independently by every specialist.
@@ -55,7 +55,7 @@ export interface SharedRunWorkspaceRefs {
 	sourceInventoryPath: string
 	supervisorBriefPath: string
 	/**
-	 * Path to the canonical, full-fidelity user task description for this run.
+	 * Path to the canonical, full-fidelity user task description for this session.
 	 * Workers read this instead of receiving the user's request text inline in
 	 * every child prompt — keeps child prompts compact and lets the request
 	 * grow without bloating per-worker handoffs.

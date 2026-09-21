@@ -23,8 +23,11 @@ import type { ProviderChainMember } from '../../provider/fallback.js'
 import { withStreamIdleTimeout } from '../../provider/idle-timeout.js'
 import type { ProviderRetryConfig } from '../../provider/retry.js'
 import { withTokenBudget } from '../../provider/token-budget.js'
-import type { TokenBudget } from '../../run/token-budget.js'
-import type { PathBuilder } from '../../session/workspace/path-builder.js'
+// The session → turn surface QueryParams and query() are frozen against.
+import type { SessionPaths } from '../../session/paths.js'
+import type { SessionTokenBudget, SessionTokenBudgetStore } from '../../store/budget/index.js'
+import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
+import type { SessionLease, SessionLog } from '../../store/session-log/index.js'
 import {
 	GENAI,
 	NAMZU,
@@ -53,7 +56,7 @@ import {
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
-import type { CheckpointId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { CheckpointId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import {
@@ -65,10 +68,7 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
-import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
-import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
 import type {
-	AgentRunConfig,
 	BeforeStep,
 	PrepareStepChain,
 	Run,
@@ -78,10 +78,17 @@ import type {
 	StopCondition,
 } from '../../types/run/index.js'
 import type { PromoteMemory } from '../../types/run/memory-promotion.js'
-import type { RunStore } from '../../types/run/store.js'
-import type { TokenBudgetStore } from '../../types/run/token-budget-store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
+import type {
+	SessionEvent,
+	SessionEventListener,
+	SessionLogCursor,
+	SessionLogReplay,
+	Turn,
+	TurnConfig,
+	TurnId,
+} from '../../types/session/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -137,16 +144,14 @@ import { ToolingBootstrap } from './tooling.js'
 export interface QueryParams {
 	/** Share observations across turns of one conversation and filesystem; otherwise run-local. */
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
-	/** One account shared with the task scheduler and descendant runs. */
-	budget?: TokenBudget
+	/** One ledger shared with the task scheduler and descendant child sessions, keyed by (rootSessionId, rootTurnId). */
+	budget?: SessionTokenBudget
 	/**
-	 * Canonical tree ledger. Absent, it lives where the run's checkpoints
-	 * live: in the `InMemoryCheckpointStore` that holds them (its
-	 * `tokenBudgets`), whether passed as {@link QueryParams.checkpointStore} or
-	 * held for an in-memory {@link QueryParams.runStore}; otherwise on disk
-	 * beside the root run under {@link QueryParams.pathBuilder}.
+	 * Where root-turn ledgers are kept (`<root-session-id>/budgets/<root-turn-id>.json`).
+	 * Absent: beside the session under {@link QueryParams.paths}, or in memory
+	 * for an in-memory {@link QueryParams.sessionLog}.
 	 */
-	tokenBudgetStore?: TokenBudgetStore
+	tokenBudgetStore?: SessionTokenBudgetStore
 	/**
 	 * Notice when the model issues the identical tool call repeatedly, and
 	 * say so on the next `tool_result`. Defaults on.
@@ -195,39 +200,6 @@ export interface QueryParams {
 	 * at full price.
 	 */
 	fallbackProviders?: readonly ProviderChainMember[]
-
-	/**
-	 * Install process-level crash handlers that dump this run's state to
-	 * `<runDir>/../emergency/<runId>.json` on SIGINT, SIGTERM or an
-	 * uncaught exception. `replay({ fromCheckpoint: 'emergency' })` reads
-	 * that file.
-	 *
-	 * **Off by default, and it must stay that way.** `attach` registers
-	 * `process.on(...)` handlers that call `process.exit()`. A library
-	 * seizing a host's termination path is an overreach in any embedded
-	 * context (an API server has its own drain sequence), and the manager
-	 * is a singleton whose `attach` detaches whoever held it before — so
-	 * with concurrent runs the last one to start would silently become the
-	 * only one that gets saved.
-	 *
-	 * Turn it on for a process the run owns end-to-end: a CLI, a worker
-	 * that handles one run at a time. The handlers are removed when the
-	 * run settles.
-	 */
-	emergencySave?: boolean
-
-	/**
-	 * A crash dump this run continues, removed when the run completes.
-	 *
-	 * `prepareReplayState({ fromCheckpoint: 'emergency' })` returns it as
-	 * `emergencySavePath`. The replay is a new run with its own id, so the
-	 * cleanup a run does for its OWN dump (`<runDir>/../emergency/<runId>.json`)
-	 * never reaches the dump it forked from; this names it. Removed only when
-	 * the run settles `completed` — a replay that fails or pauses leaves the
-	 * dump, which is still the only record of the moment the original run
-	 * died.
-	 */
-	supersedesEmergencySave?: string
 
 	/**
 	 * Durability for questions raised by a tool that closed over its
@@ -501,7 +473,7 @@ export interface QueryParams {
 	 */
 	outputGuardrails?: readonly OutputGuardrailSpec[]
 	tools: ToolRegistryContract
-	runConfig: AgentRunConfig
+	turnConfig: TurnConfig
 	allowedTools?: string[]
 	agentId: string
 	agentName: string
@@ -578,62 +550,35 @@ export interface QueryParams {
 	tenantId: TenantId
 
 	/**
-	 * Optional path layout override. Defaults to a {@link DefaultPathBuilder}
-	 * rooted at `defaultStateRoot()`. First-call filesystem migration
-	 * runs against this builder's root too, so an injected layout never touches
-	 * the fallback working-directory store as a side effect.
+	 * Where the session lives on disk (`<NAMZU_HOME>/projects/<slug>/…`).
+	 * Defaults to `SessionPaths` under `resolveNamzuHome()`. Namzu never writes
+	 * under the working directory.
 	 */
-	pathBuilder?: PathBuilder
+	paths?: SessionPaths
 
 	/**
-	 * Optional checkpoint persistence override. Absent ⇒ iteration
-	 * checkpoints go to the disk layout under the run's output directory —
-	 * except when {@link QueryParams.runStore} is an `InMemoryRunStore` and no
-	 * `pathBuilder` is given, where that run store holds them for the run it
-	 * is bound to and releases them when it is used for another run. Either
-	 * way an `InMemoryCheckpointStore` also keeps the run's token ledger.
-	 * A host injects a scope-keyed
-	 * {@link CheckpointStore} (e.g. Postgres-backed) so mid-turn resume
-	 * survives machines that lose their local disk.
+	 * Optional checkpoint persistence override. Absent: checkpoint documents go
+	 * to `<session-id>/checkpoints/`, or stay in memory for an in-memory
+	 * {@link QueryParams.sessionLog}.
 	 */
-	checkpointStore?: CheckpointStore
+	checkpointStore?: SessionCheckpointStore
 
 	/**
-	 * The fence of the claim this worker holds on the run, from `claimRun`.
-	 *
-	 * Presented on every checkpoint the run writes, so a worker that stalled
-	 * past its lease is refused rather than writing into a run somebody else
-	 * has taken over. Omit it for single-writer deployments, which is what
-	 * every run did before claims existed.
-	 *
-	 * This hop did not exist for a release. The claim, the fence and the
-	 * store-side refusal were all built and tested, and no path between a run
-	 * and its store carried the number — so every checkpoint a RUN wrote went
-	 * out unfenced while the tests, which called the store directly, all
-	 * passed. A capability complete except for the wire between its halves
-	 * reads exactly like a working one.
-	 *
-	 * It fences checkpoints and nothing else. {@link QueryParams.runStore}
-	 * takes no fence, so two workers that both took one run still overwrite
-	 * each other's run record, transcript and report — see the changeset.
+	 * The lease this worker holds on the session, from `claimSession`. Every
+	 * record the turn appends carries its fence (`gen`), so a worker that
+	 * stalled past its lease is refused rather than writing into a session
+	 * somebody else has taken over. Absent: `query()` claims the lease itself
+	 * and releases it when the turn settles or parks.
 	 */
-	claimFence?: FencingToken
+	lease?: SessionLease
 
 	/**
-	 * Where this run records its own evidence — the run record, its messages,
-	 * its transcript and its report. Defaults to the disk layout under the
-	 * resolved output directory.
-	 *
-	 * The sibling of {@link QueryParams.checkpointStore}, and it should always
-	 * have been one: checkpoints could be pointed at durable storage and the
-	 * evidence could not.
-	 *
-	 * An `InMemoryRunStore` with no `pathBuilder` keeps the whole run in
-	 * memory: its checkpoints and ledger (unless named), released when the
-	 * store is used for a different run id, and — through `SupervisorAgent`
-	 * or an `AgentTaskContext.childStorage` — its delegated children.
+	 * The session log this turn appends to. Defaults to the log at
+	 * {@link QueryParams.paths}. An `InMemorySessionLog` with no `paths` keeps
+	 * the whole session in memory: its checkpoints, its ledger and its child
+	 * sessions.
 	 */
-	runStore?: RunStore
+	sessionLog?: SessionLog
 
 	/**
 	 * Where a reconnecting consumer left off, so this run's stream can start by
@@ -642,7 +587,7 @@ export interface QueryParams {
 	 * The case this serves is the one that exists without a network hop: the
 	 * process holding the run died, and the consumer watching it is coming back
 	 * to a run that has to be resumed. Pair it with `resumeFromCheckpoint` — or
-	 * reach it through {@link import('./resume-run.js').resumeRun}, which is the
+	 * reach it through {@link import('./resume-session.js').resumeSession}, which is the
 	 * surface that does both — and the missed durable events are yielded, in
 	 * order, before the resumed run emits anything of its own.
 	 *
@@ -651,11 +596,11 @@ export interface QueryParams {
 	 * silence.
 	 *
 	 * What comes back is message-granular. Streaming deltas are never persisted
-	 * — see {@link import('../../types/run/store.js').RunStore.appendEvent} —
+	 * — see {@link import('../../types/session/events.js').isEphemeralEvent} —
 	 * so a late subscriber recovers the assistant text, the tool results and the
 	 * lifecycle, not the keystroke cadence that produced them.
 	 */
-	eventCursor?: RunEventCursor
+	eventCursor?: SessionLogCursor
 
 	/**
 	 * What became of {@link QueryParams.eventCursor}.
@@ -670,11 +615,20 @@ export interface QueryParams {
 	 * Called once, before the run's first event, and only when a cursor was
 	 * supplied.
 	 */
-	onEventReplay?: (replay: RunEventReplay) => void
+	onEventReplay?: (replay: SessionLogReplay) => void
 
-	runId?: RunId
+	/**
+	 * Continue this turn (with `resumeFromCheckpoint`). Absent: a new turn is
+	 * begun, and refused with `TurnInProgressError` when the session already
+	 * has an active one.
+	 */
+	turnId?: TurnId
 
-	parentRunId?: RunId
+	/** Present on a child session: the session that delegated it. */
+	parentSessionId?: SessionId
+
+	/** Present on a child session: the parent turn whose tool call spawned it. */
+	parentTurnId?: TurnId
 
 	depth?: number
 
@@ -914,7 +868,7 @@ function withOwnedResumeOutcomes(
 	]
 }
 
-export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, Turn> {
 	const prepared = await prepareRun(params)
 	const {
 		runConfig,
@@ -2441,8 +2395,8 @@ export async function drainQuery(
 	params: Omit<QueryParams, 'resumeHandler'> & {
 		resumeHandler?: ResumeHandler
 	},
-	listener?: RunEventListener,
-): Promise<Run> {
+	listener?: SessionEventListener,
+): Promise<Turn> {
 	const fullParams: QueryParams = {
 		...params,
 		resumeHandler: params.resumeHandler ?? autoApproveHandler,
@@ -2454,8 +2408,8 @@ export async function drainQuery(
 export async function drainQueryWithSelectedResumeState(
 	params: DrainQueryParams,
 	state: SelectedResumeState,
-	listener?: RunEventListener,
-): Promise<Run> {
+	listener?: SessionEventListener,
+): Promise<Turn> {
 	const fullParams: QueryParams = {
 		...params,
 		resumeHandler: params.resumeHandler ?? autoApproveHandler,

@@ -4,14 +4,14 @@ import { fixtureId, unchecked } from '../../../test-support/ids.js'
 import {
 	InvalidIdError,
 	asGoalId,
-	asRunId,
 	asSessionId,
 	asTenantId,
+	asTurnId,
 	generateGoalId,
-	generateRunId,
+	generateTurnId,
 	isEntityId,
 } from '../../../utils/id.js'
-import type { GoalId, RunId, SessionId, TenantId } from '../index.js'
+import type { GoalId, SessionId, TenantId, TurnId } from '../index.js'
 
 /**
  * The id types are nominal, and this file is what keeps them that way.
@@ -32,12 +32,12 @@ import type { GoalId, RunId, SessionId, TenantId } from '../index.js'
 
 describe('an id is not a string', () => {
 	it('refuses a bare literal in an id position', () => {
-		// @ts-expect-error a `run_`-shaped literal is not a RunId: ids are minted
-		const fake: RunId = 'run_not_minted'
+		// @ts-expect-error a `turn_`-shaped literal is not a TurnId: ids are minted
+		const fake: TurnId = 'turn_not_minted'
 		// The value still EXISTS at runtime — the brand is a compile-time
 		// property and erases to nothing. Asserting that is the point: it is why
 		// the `@ts-expect-error` above is the real check and this line is not.
-		expect(fake).toBe('run_not_minted')
+		expect(fake).toBe('turn_not_minted')
 	})
 
 	it('refuses a template literal in an id position', () => {
@@ -48,33 +48,33 @@ describe('an id is not a string', () => {
 	})
 
 	it('refuses one id type where another was asked for', () => {
-		const run = generateRunId()
-		// @ts-expect-error a RunId is not a SessionId, prefixes aside
-		const wrong: SessionId = run
-		expect(wrong).toBe(run)
+		const turn = generateTurnId()
+		// @ts-expect-error a TurnId is not a SessionId, prefixes aside
+		const wrong: SessionId = turn
+		expect(wrong).toBe(turn)
 	})
 
 	it('does not encode a wire prefix into the nominal type', () => {
-		const run = generateRunId()
+		const turn = generateTurnId()
 		// @ts-expect-error callers cannot derive a serialized prefix from an opaque id
-		const prefixed: `run_${string}` = run
-		expect(prefixed).toBe(run)
+		const prefixed: `turn_${string}` = turn
+		expect(prefixed).toBe(turn)
 	})
 
 	it('narrows an untyped boundary using the caller-supplied entity kind', () => {
-		const value: unknown = generateRunId()
-		if (!isEntityId(value, 'run')) throw new Error('Expected the minted run id to validate')
-		const run: RunId = value
-		// @ts-expect-error a run check cannot establish a session identity
+		const value: unknown = generateTurnId()
+		if (!isEntityId(value, 'turn')) throw new Error('Expected the minted turn id to validate')
+		const turn: TurnId = value
+		// @ts-expect-error a turn check cannot establish a session identity
 		const session: SessionId = value
-		expect(run).toBe(value)
+		expect(turn).toBe(value)
 		expect(session).toBe(value)
 	})
 
 	it('refuses a plain string in an id position', () => {
-		const raw: string = 'run_from_a_url'
+		const raw: string = 'turn_from_a_url'
 		// @ts-expect-error a string that happens to look right is still a string
-		const fake: RunId = raw
+		const fake: TurnId = raw
 		expect(fake).toBe(raw)
 	})
 
@@ -82,30 +82,30 @@ describe('an id is not a string', () => {
 		// Minted, checked, and the fixture constructor — the only three ways an
 		// id can come into existence, and each satisfies the type with no
 		// assertion at the call site.
-		const minted: RunId = generateRunId()
-		const checked: RunId = asRunId('6e86e19a-b453-41c0-8b43-131c6a442e7d')
+		const minted: TurnId = generateTurnId()
+		const checked: TurnId = asTurnId('6e86e19a-b453-41c0-8b43-131c6a442e7d')
 		const goal: GoalId = generateGoalId()
 		const checkedGoal: GoalId = asGoalId('8960161a-9da0-4128-8871-f5042ce1ca9b')
-		const fixture: RunId = fixtureId.run('from_a_test')
+		const fixture: TurnId = fixtureId.turn('from_a_test')
 		const sentinel: TenantId = asTenantId('1fe7a516-1f59-4c7b-8767-d4a46eeaac32')
 
-		expect(asRunId(minted)).toBe(minted)
+		expect(asTurnId(minted)).toBe(minted)
 		expect(checked).toBe('6e86e19a-b453-41c0-8b43-131c6a442e7d')
 		expect(asGoalId(goal)).toBe(goal)
 		expect(checkedGoal).toBe('8960161a-9da0-4128-8871-f5042ce1ca9b')
-		expect(fixture).toBe('60ef03a7-a780-4a96-b458-d3eb542e7f8a')
+		expect(fixture).toBe('42797211-7875-4f09-850b-5a4ee62a52ab')
 		expect(sentinel).toBe('1fe7a516-1f59-4c7b-8767-d4a46eeaac32')
 	})
 
 	it('rejects non-UUID values at runtime, which the brand cannot', () => {
 		// The brand says "this came from a producer"; it says nothing about
-		// WHICH prefix, because a `ses_` string asserted into a RunId carries
+		// WHICH prefix, because a `ses_` string asserted into a TurnId carries
 		// the same brand a real one does. The runtime check is the half that
 		// catches a value read from a log, a URL or a flag.
-		expect(() => asRunId('ses_wrong_kind')).toThrow(InvalidIdError)
-		expect(() => asSessionId('run_wrong_kind')).toThrow(InvalidIdError)
+		expect(() => asTurnId('ses_wrong_kind')).toThrow(InvalidIdError)
+		expect(() => asSessionId('turn_wrong_kind')).toThrow(InvalidIdError)
 		expect(() => asGoalId('ses_wrong_kind')).toThrow(InvalidIdError)
-		expect(() => asRunId('')).toThrow(InvalidIdError)
+		expect(() => asTurnId('')).toThrow(InvalidIdError)
 	})
 })
 
@@ -119,18 +119,18 @@ describe('what the brand does NOT stop', () => {
 	 */
 
 	it('an assertion from a literal still mints a fake', () => {
-		const fake = 'run_totally_made_up' as RunId
-		expect(fake).toBe('run_totally_made_up')
+		const fake = 'turn_totally_made_up' as TurnId
+		expect(fake).toBe('turn_totally_made_up')
 	})
 
 	it('an assertion from an arbitrary string still compiles', () => {
 		const fromTheWire: string = 'not even close'
-		const fake = fromTheWire as RunId
+		const fake = fromTheWire as TurnId
 		expect(fake).toBe('not even close')
 	})
 
 	it('and so does the fixture escape hatch, which is why it is named that way', () => {
-		const fake = unchecked<RunId>('nonsense')
+		const fake = unchecked<TurnId>('nonsense')
 		expect(fake).toBe('nonsense')
 	})
 })

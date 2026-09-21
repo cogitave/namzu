@@ -40,7 +40,6 @@ export type {
 } from './directory/derive-supervisor.js'
 export type * from './types/toolset/index.js'
 export type * from './types/permission/index.js'
-export type * from './types/run/index.js'
 export type * from './types/errors/index.js'
 export type * from './types/provider/index.js'
 export type * from './types/agent/index.js'
@@ -70,11 +69,15 @@ export type * from './types/doctor/index.js'
 export type * from './types/workspace/index.js'
 export type * from './types/goal/index.js'
 
-// Session-hierarchy type surface (ses_010 moved entities here).
+// The session → turn → message surface: sessions, turns, their events,
+// records, checkpoints and durable state. The only definition of a turn.
 export type * from './types/session/index.js'
 
 // ─── wire surface (contracts/) ────────────────────────────────────────────
 
+// Turn and session wire shapes (WireTurn, WireTurnStatus, CreateTurnRequest,
+// CreateEphemeralSessionRequest, SessionStreamEvent, …) come through
+// `export * from './contracts/session/index.js'` in public-runtime.ts.
 export type {
 	AgentDefaults,
 	AgentInfo,
@@ -82,20 +85,11 @@ export type {
 	ApiErrorType,
 	ApiPermissionMode,
 	CreateMessageRequest,
-	CreateRunRequest,
-	CreateStatelessRunRequest,
 	ISOTimestamp,
 	PaginatedResponse,
 	PaginationParams,
-	RunConfig,
-	RunHierarchyNode,
-	RunStopReason,
-	RunUsage,
-	StreamEvent,
-	StreamEventType,
+	SessionTreeNode,
 	ToolCallInfo,
-	WireRun,
-	WireRunStatus,
 } from './contracts/api.js'
 
 // ─── runtime-config type shapes ───────────────────────────────────────────
@@ -117,7 +111,7 @@ export type {
 
 export type { CacheRates, ModelPricing } from './utils/cost.js'
 export type { VendorRates } from './pricing/index.js'
-export type { PricingSubject } from './manager/run/persistence.js'
+export type { PricingSubject } from './manager/session/turn-recorder.js'
 export type {
 	FrontmatterValue,
 	ParsedFrontmatter,
@@ -151,8 +145,8 @@ export type {
 export type {
 	LimitCheckResult,
 	LimitCheckerState,
-	RunReporter,
-} from './run/index.js'
+	TurnReporter,
+} from './turn/index.js'
 
 export type {
 	AgentIdentity,
@@ -214,9 +208,8 @@ export type {
 } from './tools/coordinator/index.js'
 
 export type {
-	PathBuilder,
-	RegisterSharedRunPlanInput,
-	SharedRunWorkspaceConfig,
+	RegisterSharedSessionPlanInput,
+	SharedSessionWorkspaceConfig,
 } from './session/workspace/index.js'
 
 export type {
@@ -239,7 +232,7 @@ export type {
 	ConnectorToolStrategy,
 } from './connector/tools/index.js'
 
-export type { CreateRunFromA2A } from './bridge/a2a/index.js'
+export type { CreateTurnFromA2A } from './bridge/a2a/index.js'
 
 export type { MappedStreamEvent } from './bridge/sse/index.js'
 
@@ -342,13 +335,13 @@ export type {
 	ResolvedCredential,
 } from './vault/CredentialProvider.js'
 
-// Who answers when a run asks a human, as a value rather than a closure
+// Who answers when a turn asks a human, as a value rather than a closure
 // captured at `query()` start. See `types/hitl/policy.ts`.
 export type {
 	ApprovalPolicy,
 	ApprovalPolicyChange,
 	ApprovalPolicyChangedEvent,
-	RunApprovalPolicy,
+	SessionApprovalPolicy,
 } from './types/hitl/policy.js'
 
 export type {
@@ -410,15 +403,15 @@ export type {
 
 export type {
 	ReadModel,
-	RunStatusReadModelOptions,
-	RunStatusState,
+	SessionStatusReadModelOptions,
+	SessionStatusState,
 } from './read-model/index.js'
 
 export type {
-	RunQueryOptions,
-	RunTranscriptUnavailableReason,
+	SessionQueryOptions,
+	SessionTranscriptUnavailableReason,
 	ShedPass,
-} from './run-query/index.js'
+} from './session-query/index.js'
 
 export type {
 	OpenTerminalOptions,
@@ -432,22 +425,8 @@ export type {
 // Existing Topic snapshots can initialize an in-memory delegation store.
 export type { Topic, TopicStatus } from './types/topic/entity.js'
 
-export type {
-	TokenBudgetAccountSnapshot,
-	TokenBudgetRequestSnapshot,
-	TokenBudgetSnapshot,
-	TokenBudgetSummary,
-	TokenBudgetPersistence,
-} from './run/token-budget.js'
-export type {
-	TokenBudgetStore,
-	TokenBudgetScope,
-	TokenBudgetBinding,
-} from './types/run/token-budget-store.js'
-export type {
-	DiskTokenBudgetStoreConfig,
-	OpenTokenBudgetOptions,
-} from './store/run/token-budget-disk.js'
+// Token ledgers (SessionTokenBudget*, keyed by rootSessionId + rootTurnId)
+// come through `export * from './store/budget/index.js'` in public-runtime.ts.
 
 export type {
 	RequestContextPart,
@@ -560,22 +539,20 @@ export type {
 	ResidentArchiveListOptions,
 } from './manager/resident/agenda.js'
 
-export type { SqliteSessionStoreConfig } from './store/session/sqlite.js'
-
 export type {
-	RunEvidenceScope,
-	DiskRunEvidenceOptions,
-	RunEvidenceSearchOptions,
-	RunEvidenceMatch,
-	RunEvidenceSearchResult,
-	RunEvidenceReadOptions,
-	RunEvidenceReadResult,
-	RunEvidenceSource,
-	RunTextEvidenceSearchOptions,
-	RunTextEvidenceMatch,
-	RunTextEvidenceSearchResult,
-	RunTextEvidenceReadResult,
-	RunTextEvidenceSource,
+	SessionEvidenceScope,
+	SessionEvidenceSourceOptions,
+	SessionEvidenceSearchOptions,
+	SessionEvidenceMatch,
+	SessionEvidenceSearchResult,
+	SessionEvidenceReadOptions,
+	SessionEvidenceReadResult,
+	SessionEvidenceSource,
+	SessionTextEvidenceSearchOptions,
+	SessionTextEvidenceMatch,
+	SessionTextEvidenceSearchResult,
+	SessionTextEvidenceReadResult,
+	SessionTextEvidenceSource,
 } from './store/evidence/types.js'
 export type { EvidenceRecordKind } from './store/evidence/source-kind.js'
 export type {
@@ -599,7 +576,7 @@ export type {
 	JsonClaimVerdict,
 	JsonClaimVerifierOptions,
 	JsonClaimVerifier,
-} from './run/json-claim-verifier.js'
+} from './turn/json-claim-verifier.js'
 
 export type {
 	SqliteResidentLearningStoreOptions,
@@ -615,52 +592,9 @@ export type {
 	ResidentLearningTarget,
 } from './manager/resident/learning-observation.js'
 
-// ─── sessions, turns and the session log ─────────────────────────────────
-// Declared beside the run-era types until the cutover removes those.
+// ─── sessions, turns and the session log: paths and log lines ────────────
+// The session types themselves come through `./types/session/index.js` above.
 
-export type * from './types/session/turn.js'
-export type {
-	ChildSessionIdledEvent,
-	ChildSessionLifecycleEvent,
-	ChildSessionMessagedEvent,
-	ChildSessionSpawnedEvent,
-	CoreSessionEvent,
-	PersistedSessionEventType,
-	SessionEvent,
-	SessionEventEnvelope,
-	SessionEventListener,
-	SessionEventType,
-} from './types/session/events.js'
-export type {
-	AuditRecord,
-	BudgetBoundRecord,
-	CheckpointPrunedRecord,
-	CheckpointWrittenRecord,
-	ChildSessionEndedRecord,
-	ChildSessionMeta,
-	CompactionRecord,
-	DecisionExpiredRecord,
-	DecisionRequestedRecord,
-	DecisionResolvedRecord,
-	LogRepairedRecord,
-	MessageRecord,
-	MessageReplacedRecord,
-	ProjectDocument,
-	RecordEnvelope,
-	RecordPointer,
-	SessionDecisionRequest,
-	SessionEventRecord,
-	SessionLeaseDocument,
-	SessionRecord,
-	SessionRecordOnly,
-	SessionRecordOnlyType,
-	SessionRecordSchemaVersion,
-	SessionRecordType,
-	SessionStartedRecord,
-	SessionUpdatedRecord,
-	TurnBoundSessionEventType,
-} from './types/session/records.js'
-export type { Checkpoint } from './types/session/checkpoint.js'
 export type { ResolveNamzuHomeOptions } from './session/home.js'
 export type {
 	EnsureProjectOptions,
