@@ -14,7 +14,7 @@ clients such as the official `HttpAgent`. It is an optional leaf package:
 the host supplies a trusted SDK query configuration, and the adapter runs
 `query` with that configuration.
 
-Install `@namzu/ag-ui`, `@namzu/sdk >=36.0.0`, and the SDK's Zod v3 peer in a
+Install `@namzu/ag-ui` 1.x, `@namzu/sdk >=44.0.0`, and the SDK's Zod v3 peer in a
 Node.js 20+ ESM application. The adapter pins `@ag-ui/core` and
 `@ag-ui/encoder` to `0.0.59`. Tests use the official `@ag-ui/client` at
 `0.0.59` to parse SSE, verify event order, and rebuild messages and state.
@@ -42,7 +42,7 @@ import {
   type RunAgentInput,
 } from '@namzu/ag-ui'
 
-type ResolveAuthorizedRun = (
+type ResolveAuthorizedThread = (
   request: Request,
   input: RunAgentInput,
   signal: AbortSignal,
@@ -51,11 +51,11 @@ type ResolveAuthorizedRun = (
   admittedMessages: readonly AGUIMessage[]
 }>
 
-export function createAgentEndpoint(resolveAuthorizedRun: ResolveAuthorizedRun) {
+export function createAgentEndpoint(resolveAuthorizedThread: ResolveAuthorizedThread) {
   const adapter = new AGUIAdapter({
     async createQuery({ request, input, signal }) {
       if (!request) throw new AGUIRequestError('An HTTP request is required.', 400)
-      const authorized = await resolveAuthorizedRun(request, input, signal)
+      const authorized = await resolveAuthorizedThread(request, input, signal)
       return {
         ...authorized.params,
         prompt: toNamzuMessages(authorized.admittedMessages),
@@ -67,11 +67,24 @@ export function createAgentEndpoint(resolveAuthorizedRun: ResolveAuthorizedRun) 
 ```
 
 Use an authenticated tenant plus the external `threadId` as the lookup key
-for a server-owned native session. Return its real tenant, project, topic,
-and session UUIDs in `QueryParams`. The adapter generates a native run UUID
-when the factory does not supply one; the wire retains the external
-`threadId` and `runId`. The endpoint requires nonempty external IDs without
-requiring UUID syntax. Never cast external IDs to Namzu ID types, use them
+for a server-owned native session: an AG-UI thread is one Namzu session, and
+each AG-UI run is a new turn in it. Return the session's real tenant,
+project, topic and session UUIDs in `QueryParams`. A thread the host has not
+seen before gets a new session; recording `threadId` as the session's
+external reference (`origin.externalSessionId`, protocol `ag-ui`, kind
+`thread`) lets a later request find it again through
+`SessionIndex.resolveExternal('ag-ui', 'thread', threadId)`, and the mapping
+survives an index rebuild because it lives in the session log. The adapter
+records the client's run id as the new turn's `origin.externalTurnId` and
+never uses it as a Namzu id; the wire echoes the external `threadId` and run
+id verbatim on every `RUN_*` event. The endpoint requires nonempty external
+IDs without requiring UUID syntax.
+
+A session has one active turn at a time. A second request on a thread whose
+session still has a turn running or paused ends with `RUN_ERROR` code
+`NAMZU_TURN_IN_PROGRESS` and leaves the active turn untouched; the kernel
+refuses it with `TurnInProgressError`, which `isTurnInProgressError`
+recognises. Never cast external IDs to Namzu ID types, use them
 directly as filesystem paths, or turn `forwardedProps` into authorization.
 
 All request fields remain untrusted after schema validation, including
@@ -175,7 +188,7 @@ remain separate work.
 
 Each factory invocation receives its own `AGUIRunUI`, initialized with a
 detached copy of the request state. Capture it in backend tools or
-callbacks created for that run. `state` returns another detached copy;
+callbacks created for that request. `state` returns another detached copy;
 mutating that copy publishes nothing.
 
 ```ts
@@ -223,12 +236,12 @@ owns routing, authentication, CORS, and persistence.
 | `maxPendingEvents` | 128 | Queued application state/custom events per request |
 
 All limits must be positive safe integers. Native events are consumed with
-bounded demand. The adapter combines HTTP/run cancellation with any signal
-the trusted query factory supplied. Disconnect or early consumption
-termination aborts the native run and drains its iterator cleanup.
+bounded demand. The adapter combines HTTP and iterator cancellation with any
+signal the trusted query factory supplied. Disconnect or early consumption
+termination aborts the native turn and drains its iterator cleanup.
 
 Invalid wire schemas, nonempty frontend `tools`, and nonempty `resume`
-arrays produce HTTP 422 before a run starts. Invalid JSON state values or
+arrays produce HTTP 422 before a turn starts. Invalid JSON state values or
 initial state exceeding `maxEventBytes` also produce 422 before the query
 factory runs. Bad JSON request bodies produce 400,
 oversize bodies 413, unsupported content types 415, unsupported response
@@ -236,24 +249,26 @@ formats 406, and non-POST methods 405. A factory may throw
 `AGUIRequestError(message, status?, code?)` for an intentionally public
 response. Other setup exceptions become a generic 500; `onError` observes
 internal exceptions without copying them to the wire. Validation also
-applies to direct iterator runs, where setup errors reject iteration.
+applies to direct iteration with `run(input)`, where setup errors reject iteration.
 
 A successful native completion produces `RUN_FINISHED` with
 `outcome.type: "success"`, authoritative `result`, and available per-message
 token usage. Delivery waits for the native iterator to settle, including
-final run and message persistence; the native completion event alone does
+the turn's final records in the session log; the native completion event alone does
 not release the successful terminal event. Streamed assistant text may
 contain narration or an answer subsequently changed by output review.
 Final-answer consumers must use
-`RUN_FINISHED.result`, or the official client's `runAgent()` result's
+`RUN_FINISHED.result` (the turn's `turn_completed.result`), or the official client's `runAgent()` result's
 `result` field, rather than concatenate text events.
 
 Budget exhaustion, cancellation, guardrail stops, other unsuccessful native
-stop reasons, and native failure produce `RUN_ERROR`. A native pause emits
-`CUSTOM` named `namzu.run.paused`, with a checkpoint ID when available,
-followed by `RUN_ERROR` code `NAMZU_RUN_PAUSED`. That describes the pause;
-it does not advertise AG-UI interrupt resumption. The host separately owns
-native checkpoint authorization and resumption.
+stop reasons, and native failure produce `RUN_ERROR`, with code
+`NAMZU_TURN_CANCELED` for a cancellation and `NAMZU_TURN_ERROR` otherwise. A
+native pause emits `CUSTOM` named `namzu.turn.paused`, with a checkpoint ID
+when available, followed by `RUN_ERROR` code `NAMZU_TURN_PAUSED`. That
+describes the pause; it does not advertise AG-UI interrupt resumption. The
+host separately owns native checkpoint authorization and resumption
+(`resumeSession`, same turn id).
 
 Open text, tool-input, and iteration lifecycles close before terminal events.
 Unexpected EOF produces `NAMZU_STREAM_INCOMPLETE`. Repeated completed
@@ -265,11 +280,15 @@ the normalized fallback object is not presented as the original call.
 Backend tool failures carry `metadata.namzu.isError` on their result.
 
 `AGUIEventMapper` exposes `start`, `map`, `finish`, `fail`, and `ended` for
-hosts that already consume native `RunEvent` streams. Supply the external
-`threadId`/`runId` and the known native `nativeRunId`; matching by native
-identity keeps a child's terminal event from ending its parent. Each mapper
-owns one run. Private prompts, reasoning/signatures, raw internal events,
-and child-run trees are omitted.
+hosts that already consume native `SessionEvent` streams. Supply the external
+thread and run ids, and the native turn id when it is known; events from a
+child session (`lineage.depth > 0`) are filtered out, so a child's terminal
+event never ends its parent. Each mapper owns one AG-UI run. Private prompts,
+reasoning/signatures, raw internal events, and child sessions are omitted.
+
+`MESSAGES_SNAPSHOT` built from the session comes from `foldSessionMessages`,
+so it shows the answer after any guardrail, review or structured-output
+rewrite, never the raw model text the log keeps for audit.
 
 ## Connect CopilotKit
 
