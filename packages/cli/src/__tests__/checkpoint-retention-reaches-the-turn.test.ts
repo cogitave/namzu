@@ -44,7 +44,7 @@ afterEach(() => {
 
 const detected: DetectedProvider[] = [
 	{
-		entry: PROVIDER_REGISTRY.anthropic,
+		entry: PROVIDER_REGISTRY['anthropic'],
 		source: { kind: 'env', envName: 'ANTHROPIC_API_KEY' },
 		apiKey: 'not-a-real-key',
 		alternatives: [],

@@ -1,7 +1,7 @@
 /**
  * How much durable state the headless CLI leaves behind, measured end to end.
  *
- * Offline: a local HTTP server speaks just enough of the Anthropic Messages
+ * Offline: a local HTTP server speaks just enough of the default provider's Messages
  * API (streamed) to script a tool loop — every model turn but the last asks
  * for `read` on a different ~4 KB file, the last one answers. The CLI under
  * test is the BUILT one (`packages/cli/dist/bin.js`), launched as a separate
