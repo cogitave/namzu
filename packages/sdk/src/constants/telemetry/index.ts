@@ -42,11 +42,23 @@ export const GENAI = {
 
 	AGENT_NAME: 'gen_ai.agent.name',
 	AGENT_ID: 'gen_ai.agent.id',
+
+	/**
+	 * The conversation a span belongs to. In namzu that is the session: the
+	 * value is the `sessionId`.
+	 */
+	CONVERSATION_ID: 'gen_ai.conversation.id',
 } as const
 
 export const NAMZU = {
 	RUN_ID: 'namzu.run.id',
 	RUN_STATUS: 'namzu.run.status',
+	// The session → turn model's keys. Added beside the run keys above, which
+	// the cutover deletes; each call site moves to these then.
+	TURN_ID: 'namzu.turn.id',
+	TURN_STATUS: 'namzu.turn.status',
+	/** Set on a child session's spans: the parent session that delegated it. */
+	SESSION_PARENT_ID: 'namzu.session.parent_id',
 	ITERATION: 'namzu.iteration',
 	TOOL_SUCCESS: 'namzu.tool.success',
 	TOOL_ERROR: 'namzu.tool.error',

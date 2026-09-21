@@ -23,7 +23,7 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'p1' }, tenant)
 		expect(project.id).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
 		expect(project.tenantId).toBe(tenant)
 
@@ -36,7 +36,7 @@ describe('Integration — hierarchy lifecycle', () => {
 			tenant,
 		)
 		expect(session.id).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
 		expect(session.projectId).toBe(project.id)
 		expect(session.tenantId).toBe(tenant)
@@ -62,7 +62,7 @@ describe('Integration — hierarchy lifecycle', () => {
 			tenant,
 		)
 		expect(subSession.id).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
 		expect(subSession.parentSessionId).toBe(session.id)
 		expect(subSession.childSessionId).toBe(childSession.id)

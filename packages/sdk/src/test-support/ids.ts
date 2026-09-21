@@ -31,6 +31,7 @@ import type {
 	PlanId,
 	PluginId,
 	ProjectId,
+	RecordId,
 	RunId,
 	SandboxId,
 	SessionId,
@@ -40,6 +41,7 @@ import type {
 	TenantId,
 	ToolCallId,
 	TopicId,
+	TurnId,
 	UserId,
 	VaultRef,
 	WorkspaceId,
@@ -65,6 +67,8 @@ export function fixtureUuid(label: string): string {
  */
 export const fixtureId = {
 	run: (suffix: string): RunId => unsafeId<RunId>(fixtureUuid(`run_${suffix}`)),
+	turn: (suffix: string): TurnId => unsafeId<TurnId>(fixtureUuid(`turn_${suffix}`)),
+	record: (suffix: string): RecordId => unsafeId<RecordId>(fixtureUuid(`rec_${suffix}`)),
 	message: (suffix: string): MessageId => unsafeId<MessageId>(fixtureUuid(`msg_${suffix}`)),
 	session: (suffix: string): SessionId => unsafeId<SessionId>(fixtureUuid(`ses_${suffix}`)),
 	toolCall: (suffix: string): ToolCallId => unsafeId<ToolCallId>(fixtureUuid(`call_${suffix}`)),

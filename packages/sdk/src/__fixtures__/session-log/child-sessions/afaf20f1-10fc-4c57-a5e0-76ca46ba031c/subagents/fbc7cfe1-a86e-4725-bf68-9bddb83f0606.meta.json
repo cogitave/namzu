@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "kind": "child-session",
+  "sessionId": "fbc7cfe1-a86e-4725-bf68-9bddb83f0606",
+  "parentSessionId": "afaf20f1-10fc-4c57-a5e0-76ca46ba031c",
+  "parentTurnId": "7030b6ff-7c66-404e-bd18-73eaf223cfb8",
+  "rootSessionId": "afaf20f1-10fc-4c57-a5e0-76ca46ba031c",
+  "depth": 1,
+  "toolCallId": "toolu_fixture_task",
+  "agentType": "reviewer",
+  "description": "Review the diff",
+  "status": "completed",
+  "createdAt": "2026-09-21T09:00:00.000Z",
+  "endedAt": "2026-09-21T09:01:00.000Z"
+}

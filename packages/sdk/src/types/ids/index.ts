@@ -11,6 +11,14 @@ import type { Id } from './brand.js'
  * for values received from JSON, flags, URLs, or other untyped boundaries.
  */
 export type RunId = Id<'RunId'>
+/**
+ * One turn of a session: a user prompt (or a goal round, resident step or
+ * verification step) and everything the agent did to answer it. Recorded in
+ * the session log between `turn_started` and `turn_completed`/`turn_failed`.
+ */
+export type TurnId = Id<'TurnId'>
+/** One line of a session log. Every record carries its own UUIDv7 id. */
+export type RecordId = Id<'RecordId'>
 export type MessageId = Id<'MessageId'>
 export type SessionId = Id<'SessionId'>
 /** Identifies one durable completion goal across its revisions. */

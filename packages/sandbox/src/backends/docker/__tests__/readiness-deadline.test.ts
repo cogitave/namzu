@@ -121,7 +121,7 @@ describe('docker worker readiness deadline', () => {
 		}) as typeof fetch
 		const sandbox = await backend(100).create({ workingDirectory: workDir })
 		expect(sandbox.id).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			/^[0-9a-f]{8}-[0-9a-f]{4}-[47][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
 
 		await expect(

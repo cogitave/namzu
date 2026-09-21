@@ -1,0 +1,266 @@
+---
+type: Reference
+title: Session log
+description: The one append-only, hash-chained JSONL file per session that records everything a session did, its record schema, the turn rules it enforces, and the layout under NAMZU_HOME.
+resource: packages/sdk/src/types/session/records.ts
+tags: [sdk, sessions, turns, persistence, storage, schema]
+status: draft
+generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
+---
+
+# Session log
+
+The kernel's model is **session → turn → message**. A session is one
+conversation with one agent. A turn is one unit of work inside it: a user
+prompt, a goal round, a resident step or a verification step, and everything
+the agent did to answer it. A subagent is a child session, with its own log.
+
+Each session has exactly one log: an append-only JSONL file whose lines are
+records, each linked to the one before it by hash. The log is the source of
+truth. Every other store (the SQLite index, checkpoint documents, the
+`<child>.meta.json` files) can be rebuilt from, or is checked against, the
+logs.
+
+This page describes the schema and the rules. The schema is code:
+`packages/sdk/src/types/session/records.ts` (records and documents),
+`events.ts` (the live events), `turn.ts` (turns, settlement, the
+one-active-turn error) and `checkpoint.ts`. It is **draft** because the writer,
+reader and index that implement these rules land after the schema; until then
+the SDK still records runs in the older layout.
+
+## Where the files are
+
+`NAMZU_HOME` (default `~/.namzu`, resolved by `resolveNamzuHome`) is shared by
+the SDK and the CLI. `SessionPaths` (`packages/sdk/src/session/paths.ts`)
+computes every path below and checks every id that becomes a path segment.
+
+```text
+$NAMZU_HOME/
+├── index.sqlite                        rebuildable index (PRAGMA user_version = 1)
+└── projects/<slug>/
+    ├── project.json                    {"v":1,"kind":"project","projectId":…,"cwd":…,"slug":…,"createdAt":…}
+    ├── memory/   residents/<agent-key>/   worktrees/<label>/
+    ├── <session-id>.jsonl              the session log
+    └── <session-id>/
+        ├── subagents/<child-id>.jsonl, <child-id>.meta.json, <child-id>/subagents/…
+        ├── tool-results/<sha256(tool-use id)>.txt, ….txt.manifest.json
+        ├── checkpoints/<checkpoint-id>.json
+        ├── budgets/<root-turn-id>.json   (root sessions only)
+        ├── tasks/<task-id>.json   feedback/<message-id>.json   goals/<goal-id>.json
+        ├── file-history/
+        └── lease.json                    {"v":1,"kind":"lease","holder":…,"fence":…,"expiresAt":…}
+$TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
+```
+
+- **Slug.** `slugForCwd` replaces every character of the canonical working
+  directory outside `[A-Za-z0-9]` with `-`. A POSIX path starts with `/`, so
+  its slug starts with `-`; `C:\…` gives `C-…`; a UNC path gives `--…`. A slug
+  therefore never looks like a UUID, which is how a reader tells a slug from
+  a legacy `projects/<uuid>/` directory. A slug longer than 200 characters is
+  cut and suffixed with 8 hex digits of the path's SHA-256.
+- **Project id.** `ensureProject` mints the id once, into `project.json`. The
+  document is written complete to a private temporary file and hard-linked
+  into place, which fails if another process got there first, so of two
+  racing processes exactly one mints the id and the other adopts it. If the
+  existing `project.json` names a different directory, the project moves to
+  `<slug>-<first 8 hex of sha256(cwd)>`.
+- **Temporary root.** `tempRoot` uses the numeric uid where the platform has
+  one, otherwise 12 hex digits of the SHA-256 of the user name. On POSIX the
+  directory is mode 0700 and refused if it is a symlink, owned by another
+  uid or open to others. On win32 a symlink or junction is refused.
+- **Nothing generated goes under the working directory.** Project config
+  that people write (`<cwd>/.namzu/agents`, `skills`, `commands`, `plugins`,
+  `MEMORY.md`) is read from there, and never written.
+
+## Ids
+
+Every id the kernel mints is a UUID version 7 (see [Ids](ids.md)): records,
+turns, sessions and checkpoints sort by creation time as plain strings. A
+caller-side id (an AG-UI thread, an A2A context, a desktop session) is never
+used as a namzu id; it is recorded as an origin or external reference and may
+be any string.
+
+## A line, and the chain
+
+One record per line: the record as JSON, then `\n`. A line's hash is the
+SHA-256 of exactly those bytes, the newline included; nothing is
+canonicalised (`recordSha256`, `parseSessionLogLine`,
+`formatSessionLogLine` in `packages/sdk/src/session/log-hash.ts`). A record is
+at most 4 MiB (`SESSION_RECORD_MAX_BYTES`); a larger body is spilled to
+`tool-results/`, and the spill file and its manifest are on disk before the
+record that points at them.
+
+Every record carries this envelope:
+
+| Field | Meaning |
+|---|---|
+| `v` | Schema version, `1` (`SESSION_RECORD_SCHEMA_VERSION`). A reader refuses any other value. |
+| `type` | The discriminant (below). |
+| `id` | The record's own UUIDv7. |
+| `sessionId` | The session this log belongs to. |
+| `turnId` | Present exactly when the record is inside a turn. |
+| `seq` | 1-based and contiguous. |
+| `ts` | ISO-8601 in UTC, with `Z`. |
+| `prev` | `{seq, offset, length, sha256}` of the previous line; `null` only at seq 1. |
+| `prevText` | Optional skip link to the previous record that carries text, for evidence search. |
+| `gen` | The fencing token of the lease the writer held. |
+
+Chain rules:
+
+- Seq 1 is `session_started`, at offset 0, and no other record is.
+- A strict read refuses any break: a `prev` that does not name the previous
+  line's seq, offset, length and hash. A tolerant read stops at the first
+  break and reports how far the log is intact.
+- A torn tail (a last line with no newline, left by a crash mid-append) is
+  truncated when the log is opened, and a `log_repaired` record says how many
+  bytes went and which seq was the last good one.
+- An append whose `gen` is lower than the lease's fence is refused, so a
+  writer that lost its lease cannot interleave with its successor.
+
+## Records
+
+A record is either a **live event that is persisted**, or a **record-only
+type**.
+
+### Persisted events
+
+The live event union (`SessionEvent`, `packages/sdk/src/types/session/events.ts`)
+has 62 type literals. Every one except the four high-volume ones —
+`text_delta`, `tool_input_delta`, `reasoning_delta` and `tool_progress` — is
+appended as a record of the same `type`. The record is the event with
+`sessionId` and `turnId` moved to the envelope and `lineage` dropped (it
+follows from `session_started.parent`). Its payload is the event's.
+
+The turn lifecycle events are checked field by field:
+
+| Type | Payload |
+|---|---|
+| `turn_started` | `userMessageId`, `systemPrompt?`, `config` (model, token budget, timeout and the other durable limits), `origin?`, `budget?` (`{rootSessionId, rootTurnId, accountId}`) |
+| `turn_paused` | `reason`, `checkpointId`, `failure?`, `providerError?`, `explanation?`, `budget?`. Ends a segment; **not** terminal. |
+| `turn_resuming` | `fromCheckpointId`, `resolvedDecisionId?` |
+| `turn_completed` | `result`, `stopReason?`, `cancelCause?`, `budget?`, `settlement` |
+| `turn_failed` | `error`, `failure?`, `providerError?`, `explanation?`, `budget?`, `settlement` |
+| `child_session_spawned` | `childSessionId`, `toolCallId`, `kind`, `description`, `path` (relative to the session directory), `batch?` (`{batchId, name, phase?}`), `budgetAccountId?` |
+| `child_session_messaged` | `childSessionId`, `messageId` |
+| `child_session_idled` | `childSessionId` |
+
+`settlement` is `{status, iterations, usage, cost, durationMs,
+resultMessageId?, resultSource, structuredOutput?, servingProvider?,
+abandonedTaskIds, abandonedJobIds}`. `status` is `completed` or `cancelled`
+on `turn_completed` and `failed` on `turn_failed`: the terminal verdict is the
+record's type. `failure.code` on `turn_failed` is `interrupted` or
+`abandoned` when the session log itself closed the turn (see below).
+
+The other persisted events are checked for their envelope and type, and must
+not carry `lineage`, `generation`, `schemaVersion` or a run id. Events that can
+only happen inside a turn (iterations, messages, tool calls, reviews, plans,
+delegation) must carry `turnId`. Events a host can cause between turns — a
+manual compaction, a background job exiting, an approval-policy change, a
+session hook, task and sandbox bookkeeping — may omit it.
+
+### Record-only types
+
+| Type | Payload |
+|---|---|
+| `session_started` | `projectId`, `tenantId?`, `topicId?`, `cwd`, `agent {id, name, type?}`, `parent?` (`{sessionId, turnId, toolCallId, rootSessionId, depth, kind}` for a child session), `forkedFrom?` (`{sessionId, turnId, checkpointId}`), `origin?` |
+| `session_updated` | `title?`, `titleSource?` (`derived`/`named`), `archived?`, `approvalPolicy?`, `externalRefs? {add?, remove?}` |
+| `message` | `messageId`, `role`, `kind?` (`prompt`, `steering`, `auto-continuation`, `context`), `content` (the message), `spill?` |
+| `message_replaced` | `targetMessageId`, `content`, `reason` (`pin-slot`, `guardrail_blocked`, `guardrail_rewritten`, `review`, `outstanding_work`, `structured_output`, `history-repair`) |
+| `checkpoint_written` | `checkpointId`, `iteration`, `throughSeq`, `throughSha256`, `path`, `docSha256` |
+| `checkpoint_pruned` | `checkpointIds` |
+| `decision_requested` | `decisionId`, `checkpointId`, `request` (what the human is shown), `deadlineAt?` |
+| `decision_resolved` | `decisionId`, `decision`, `resolvedBy` |
+| `decision_expired` | `decisionId` |
+| `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
+| `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost` |
+| `audit` | `auditId`, `actor`, `action`, `outcome`, `cost?`, `reason?` |
+| `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
+| `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
+
+`origin` is `{protocol, externalSessionId?, externalTurnId?, kind?, goalId?,
+round?}`, where `protocol` is `cli`, `sdk`, `ag-ui`, `a2a`, `acp`, `http`,
+`desktop` or `resident`. An external reference is `{protocol, kind, externalId}`
+with `kind` `session`, `thread` or `context`. The index's `external_refs` table
+is derived only from these two, never written directly, so it survives a
+rebuild.
+
+The `compaction` record is what the fold reads. The live
+`compaction_completed`, `compaction_shed` and `compaction_tool_results_cleared`
+events are persisted beside it as history: `compaction_shed` keeps what a pass
+removed in the log for audit and undo.
+
+## Turn rules
+
+- **One active turn per session.** The active turn is the last `turn_started`
+  with no `turn_completed` or `turn_failed` for its `turnId`. It is `paused`
+  when its last segment record is `turn_paused`, `running` while a live lease
+  is held, and `interrupted` otherwise (its process is gone).
+- **Starting another turn is refused** with `TurnInProgressError {sessionId,
+  activeTurnId, state}`. `isTurnInProgressError` recognises one, including
+  from another copy of the package, so a protocol server can map it.
+- **An interrupted turn** is closed only when the caller opts in: beginning
+  the next turn with `abandonInterrupted` first appends
+  `turn_failed` with `failure.code: 'interrupted'`.
+- **A paused turn is never closed implicitly.** It continues under the same
+  `turnId` through `resumeSession`, or is closed by `abandonTurn`, which
+  appends `turn_failed` with `failure.code: 'abandoned'`.
+- **What is a new turn:** a user prompt, a goal round, a resident step and a
+  verification step (`origin.kind` says which). Steering and automatic
+  continuation are `message` records inside the current turn. The prompt that
+  opens a turn is the `message` record right after `turn_started`, named by
+  its `userMessageId`.
+- **Token budget:** a ledger per root turn, keyed by `(rootSessionId,
+  rootTurnId)`. A child session's turns bind to the root turn that spawned
+  them; a resumed turn reuses its key; a new turn opens a new ledger, so a
+  limit that changed between turns is not a conflict.
+
+## The answer, and the fold
+
+`turn_completed.result` is the authoritative answer, after guardrail, review,
+outstanding-work and structured-output overrides. When it differs from the
+text of the turn's last assistant message, the writer first appends
+`message_replaced` for that message, with the answer as its content and the
+override as its reason, and `settlement.resultSource` names the same override.
+
+The context a session carries into its next request — and what a transcript
+or a protocol snapshot shows — is the **fold** of its log:
+
+1. the latest `compaction` record's summary;
+2. then its kept messages;
+3. then every `message` after its `replacesSeqRange`;
+4. with every `message_replaced` applied.
+
+So every reader sees the redacted or rewritten answer, and the raw text stays
+in the log for audit only. A checkpoint's context is the fold of the log up to
+its `throughSeq`, which equals the session's fold at that point because no
+other turn can interleave.
+
+## Documents beside the log
+
+Each has `v` and `kind`, and an unknown version is refused, never migrated.
+
+- **Checkpoint** (`kind: 'checkpoint'`, `parseCheckpoint`): `checkpointId`,
+  `sessionId`, `turnId`, `iteration`, `throughSeq`, `throughSha256`, usage and
+  cost, the budget reference, the iteration and elapsed-time guards, the review
+  attempts already consumed, `latestUserMessageId?`, the compaction working
+  state, the trace to continue, `turnCreatedAt` and `createdAt`. It holds no
+  messages. A restore refuses it when its hash differs from its
+  `checkpoint_written` record's `docSha256`, or when the record at
+  `throughSeq` does not hash to `throughSha256`. A checkpoint from the older
+  layout is refused by name.
+- **Child-session meta** (`kind: 'child-session'`): identity, parent, root,
+  depth, the spawning tool call, agent type, description and status. A
+  convenience; the child's log wins on any disagreement.
+- **Lease** (`kind: 'lease'`): `holder`, `fence`, `expiresAt`.
+- **Project** (`kind: 'project'`): as above.
+
+## Fixtures
+
+`packages/sdk/src/__fixtures__/session-log/` holds one log per case: `valid`,
+`torn-tail`, `repaired`, `broken-chain`, `compaction`, `paused-then-resumed`,
+`abandoned`, `guardrail-replaced`, `child-sessions` (a parent, its child
+under `subagents/`, and the meta file), `batch-annotated` and
+`origin-external-refs`. `build.ts` beside them generates every byte, and
+`session-log-fixtures.test.ts` requires the committed files to equal its
+output, every complete line to round-trip through `SessionRecordSchema`, and
+the chain to hold everywhere except where a case breaks it on purpose.

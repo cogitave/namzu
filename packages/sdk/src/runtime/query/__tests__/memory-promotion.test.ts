@@ -61,7 +61,7 @@ describe('what a finished run leaves behind', () => {
 		expect(promote).toHaveBeenCalledTimes(1)
 		const candidate = promote.mock.calls[0]?.[0] as RunMemoryCandidate
 		expect(candidate.runId).toMatch(
-			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
 		expect(candidate.task).toContain('invoice')
 	})

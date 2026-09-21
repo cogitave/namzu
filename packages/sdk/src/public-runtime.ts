@@ -1458,3 +1458,71 @@ export {
 	runStoredResidentLearningCycle,
 	runStoredResidentLearningFromObservations,
 } from './manager/resident/learning-store.js'
+
+// ─── sessions, turns and the session log ─────────────────────────────────
+//
+// The session → turn → message model. The record schema is described in
+// docs/sdk/session-log.md. The five `index.ts` modules below start empty and
+// are filled by the workstreams that own them.
+
+export {
+	TurnInProgressError,
+	isTurnInProgressError,
+} from './types/session/turn.js'
+export { EPHEMERAL_EVENT_TYPES as EPHEMERAL_SESSION_EVENT_TYPES } from './types/session/events.js'
+export {
+	ChildSessionMetaSchema,
+	CompactionRecordSchema,
+	ExternalRefSchema,
+	MessageRecordSchema,
+	MessageReplacedRecordSchema,
+	OriginSchema,
+	PERSISTED_SESSION_EVENT_TYPES,
+	ProjectDocumentSchema,
+	RecordPointerSchema,
+	SESSION_EVENT_TYPES,
+	SESSION_RECORD_MAX_BYTES,
+	SESSION_RECORD_SCHEMA_VERSION,
+	SESSION_RECORD_TYPES,
+	SessionLeaseDocumentSchema,
+	SessionRecordSchema,
+	SessionStartedRecordSchema,
+	TurnCompletedRecordSchema,
+	TurnFailedRecordSchema,
+	TurnSettlementSchema,
+	TurnStartedRecordSchema,
+	parseSessionRecord,
+} from './types/session/records.js'
+export {
+	CHECKPOINT_DOCUMENT_VERSION,
+	CheckpointDocumentError,
+	CheckpointSchema,
+	parseCheckpoint,
+} from './types/session/checkpoint.js'
+export { NamzuHomeError, resolveNamzuHome } from './session/home.js'
+export {
+	ProjectDocumentError,
+	SessionPathError,
+	SessionPaths,
+	ensureProject,
+	hashedSlugForCwd,
+	slugForCwd,
+	tempRoot,
+} from './session/paths.js'
+export {
+	SessionLogLineError,
+	formatSessionLogLine,
+	parseSessionLogLine,
+	recordSha256,
+} from './session/log-hash.js'
+export {
+	asRecordId,
+	asTurnId,
+	generateRecordId,
+	generateTurnId,
+} from './utils/id.js'
+export * from './store/session-log/index.js'
+export * from './store/session-index/index.js'
+export * from './store/checkpoint/index.js'
+export * from './store/budget/index.js'
+export * from './contracts/session/index.js'

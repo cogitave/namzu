@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { unsafeId } from '../types/ids/brand.js'
@@ -32,6 +32,7 @@ import type {
 	PlanId,
 	PluginId,
 	ProjectId,
+	RecordId,
 	RunId,
 	SandboxId,
 	SessionId,
@@ -41,15 +42,23 @@ import type {
 	TenantId,
 	ToolCallId,
 	TopicId,
+	TurnId,
 	UserId,
 	VaultRef,
 	WorkspaceId,
 } from '../types/ids/index.js'
 import { entityIdPattern } from './id-format.js'
+import { uuidv7 } from './uuidv7.js'
 
-/** Factories supply the nominal type; the wire identity carries no kind. */
+/**
+ * Factories supply the nominal type; the wire identity carries no kind.
+ *
+ * Every factory mints a UUIDv7 (`./uuidv7.ts`), so ids sort by creation time
+ * and ids minted by one process sort in the order it minted them. The checks
+ * below accept any RFC 9562 version, so ids minted before this still read.
+ */
 function generateId<T extends string>(): T {
-	return unsafeId<T>(randomUUID())
+	return unsafeId<T>(uuidv7())
 }
 
 export function generateProjectId(): ProjectId {
@@ -90,6 +99,15 @@ export function generateTopicId(): TopicId {
 }
 
 export function generateRunId(): RunId {
+	return generateId()
+}
+
+export function generateTurnId(): TurnId {
+	return generateId()
+}
+
+/** The id of one session-log record (its `id` field). */
+export function generateRecordId(): RecordId {
 	return generateId()
 }
 
@@ -224,6 +242,8 @@ export function generateDeliverableId(): DeliverableId {
 /** Entity kinds are supplied by a typed field or storage collection. */
 export interface EntityIdByKind {
 	run: RunId
+	turn: TurnId
+	record: RecordId
 	message: MessageId
 	session: SessionId
 	goal: GoalId
@@ -270,6 +290,8 @@ export type EntityIdKind = keyof EntityIdByKind
 
 const ENTITY_KINDS = new Set<EntityIdKind>([
 	'run',
+	'turn',
+	'record',
 	'message',
 	'session',
 	'goal',
@@ -386,6 +408,8 @@ function makeIdParser<K extends EntityIdKind>(kind: K): IdParser<EntityIdByKind[
 }
 
 export const asRunId: IdParser<RunId> = makeIdParser('run')
+export const asTurnId: IdParser<TurnId> = makeIdParser('turn')
+export const asRecordId: IdParser<RecordId> = makeIdParser('record')
 export const asMessageId: IdParser<MessageId> = makeIdParser('message')
 export const asSessionId: IdParser<SessionId> = makeIdParser('session')
 export const asGoalId: IdParser<GoalId> = makeIdParser('goal')

@@ -614,3 +614,61 @@ export type {
 	ResidentLearningObservationRecord,
 	ResidentLearningTarget,
 } from './manager/resident/learning-observation.js'
+
+// ─── sessions, turns and the session log ─────────────────────────────────
+// Declared beside the run-era types until the cutover removes those.
+
+export type * from './types/session/turn.js'
+export type {
+	ChildSessionIdledEvent,
+	ChildSessionLifecycleEvent,
+	ChildSessionMessagedEvent,
+	ChildSessionSpawnedEvent,
+	CoreSessionEvent,
+	PersistedSessionEventType,
+	SessionEvent,
+	SessionEventEnvelope,
+	SessionEventListener,
+	SessionEventType,
+} from './types/session/events.js'
+export type {
+	AuditRecord,
+	BudgetBoundRecord,
+	CheckpointPrunedRecord,
+	CheckpointWrittenRecord,
+	ChildSessionEndedRecord,
+	ChildSessionMeta,
+	CompactionRecord,
+	DecisionExpiredRecord,
+	DecisionRequestedRecord,
+	DecisionResolvedRecord,
+	LogRepairedRecord,
+	MessageRecord,
+	MessageReplacedRecord,
+	ProjectDocument,
+	RecordEnvelope,
+	RecordPointer,
+	SessionDecisionRequest,
+	SessionEventRecord,
+	SessionLeaseDocument,
+	SessionRecord,
+	SessionRecordOnly,
+	SessionRecordOnlyType,
+	SessionRecordSchemaVersion,
+	SessionRecordType,
+	SessionStartedRecord,
+	SessionUpdatedRecord,
+} from './types/session/records.js'
+export type { Checkpoint } from './types/session/checkpoint.js'
+export type { ResolveNamzuHomeOptions } from './session/home.js'
+export type {
+	EnsureProjectOptions,
+	EnsuredProject,
+	SessionLocator,
+	SessionPathsOptions,
+	TempRootOptions,
+} from './session/paths.js'
+export type {
+	ParsedSessionLogLine,
+	SessionLogLineFault,
+} from './session/log-hash.js'

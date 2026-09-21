@@ -9,8 +9,13 @@ status: stable
 
 # Ids
 
-Kernel factories such as `generateProjectId()`, `generateSessionId()` and
-`generateRunId()` mint UUID v4 strings. `projectIdForDirectory(directory)` is
+Kernel factories such as `generateProjectId()`, `generateSessionId()`,
+`generateTurnId()` and `generateRecordId()` mint UUID version 7 strings
+(`packages/sdk/src/utils/uuidv7.ts`): a millisecond timestamp, then a counter
+and randomness, so ids sort by creation time as plain strings, and ids one
+process mints sort in the order it minted them, even within one millisecond
+or when the wall clock steps back. Ids minted as version 4 before this still
+pass every check. `projectIdForDirectory(directory)` is
 the one derived id: a name-based UUID (version 8) over the canonical directory
 path, the same in every process. A host with no Project store to look one up
 in can use it to keep runs in one directory in one Project. Entity type is carried by a nominal

@@ -33,6 +33,8 @@ function pairs(): {
 
 const legacyPrefixes: Record<string, string> = {
 	asRunId: 'run_',
+	asTurnId: 'turn_',
+	asRecordId: 'rec_',
 	asMessageId: 'msg_',
 	asSessionId: 'ses_',
 	asGoalId: 'goal_',
@@ -89,14 +91,14 @@ describe('an id can be checked at runtime', () => {
 	})
 
 	it('accepts every id its own factory mints', () => {
-		// Every generated id is an opaque UUID and round-trips unchanged.
+		// Every generated id is an opaque UUIDv7 and round-trips unchanged.
 		const checked = pairs()
 		expect(checked.length).toBeGreaterThan(20)
 
 		for (const { name, generate, parse } of checked) {
 			const minted = generate()
 			expect(minted, name).toMatch(
-				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+				/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 			)
 			expect(parse(minted), name).toBe(minted)
 		}
@@ -188,5 +190,22 @@ describe('opaque ids retain identity across typed boundaries', () => {
 	it('mints independent identities for every entity kind', () => {
 		const generated = pairs().flatMap(({ generate }) => Array.from({ length: 20 }, generate))
 		expect(new Set(generated).size).toBe(generated.length)
+	})
+
+	it('mints ids that sort in the order they were minted, across every factory', () => {
+		// One shared generator: a turn id minted after a record id sorts after it.
+		const minted = Array.from({ length: 500 }, (_, i) =>
+			i % 2 === 0 ? ids.generateTurnId() : ids.generateRecordId(),
+		)
+		expect([...minted].sort()).toEqual(minted)
+		for (const id of minted) expect(ids.isEntityId(id, 'turn')).toBe(true)
+	})
+
+	it('checks a turn id and a record id like every other kind', () => {
+		expect(() => ids.asTurnId('turn_previous')).toThrow(/Invalid turn id/)
+		expect(() => ids.asRecordId('rec_previous')).toThrow(/Invalid record id/)
+		const value = ids.generateTurnId()
+		expect(ids.asTurnId(value)).toBe(value)
+		expect(ids.isEntityId(value, 'record')).toBe(true)
 	})
 })
