@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-	DiskMemoryStore,
 	DiskResidentAgenda,
+	MarkdownMemoryStore,
 	ResidentHost,
 	type ResidentPursuitStep,
 	type ResidentState,
@@ -327,7 +327,9 @@ describe('resident context reaches real CLI sessions', () => {
 				expect(system(request)[1]).toContain(OBJECTIVE)
 			}
 			// This is the default session tool store, distinct from curated MEMORY.md.
-			expect(await new DiskMemoryStore({ baseDir: join(cwd, '.namzu') }).list()).toEqual({
+			expect(
+				await new MarkdownMemoryStore({ directory: join(cwd, '.namzu', 'memory') }).list(),
+			).toEqual({
 				entries: [],
 				totalCount: 0,
 			})

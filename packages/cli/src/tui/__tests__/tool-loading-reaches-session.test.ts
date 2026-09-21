@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DiskMemoryStore, SearchToolsTool, createUserMessage } from '@namzu/sdk'
+import { MarkdownMemoryStore, SearchToolsTool, createUserMessage } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -316,7 +316,9 @@ describe('explicit tool loading reaches the real session and query', () => {
 				expect(names(requests[1])).toContain('save_memory')
 				// With no stateRoot option the session's projectStateRoot is cwd/.namzu.
 				// The positive allow case proves this is the store the tool actually uses.
-				const memories = await new DiskMemoryStore({ baseDir: join(cwd, '.namzu') }).list()
+				const memories = await new MarkdownMemoryStore({
+					directory: join(cwd, '.namzu', 'memory'),
+				}).list()
 				if (policy === 'explicit allow') {
 					expect(JSON.stringify(requests[2].messages)).toContain('Memory saved:')
 					expect(memories.totalCount).toBe(1)

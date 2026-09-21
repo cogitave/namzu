@@ -17,7 +17,7 @@ The operator application.
 * [Where the CLI stands against its peers](competitive-gaps.md) - What `Claude Code`, `Codex CLI`, `Gemini CLI` and `OpenCode` offer that namzu does not, what namzu does better, and the backlog that follows.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
-* [Memory](memory.md) - The curated files injected into every turn, per project and per user, and the kernel's searchable store; where each lives and what writes to it.
+* [Memory](memory.md) - The curated files injected into every turn, per project and per user, and typed stored memory — one Markdown file per memory, its index in every turn; where each lives and what writes to it.
 * [Run limits](run-limits.md) - Limits for interactive and headless runs, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.

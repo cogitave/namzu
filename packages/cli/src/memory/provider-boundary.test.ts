@@ -1,10 +1,19 @@
 /** Real CLI session -> query -> scripted provider, with only provider I/O replaced. */
-import { mkdirSync, mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+	appendFileSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	symlinkSync,
+	unlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	type ChatCompletionParams,
 	DiskMemoryStore,
+	MarkdownMemoryStore,
 	MockLLMProvider,
 	ProviderRegistry,
 	createUserMessage,
@@ -176,8 +185,7 @@ it.each([undefined, false])('recalls a persisted body-only fact with recall=%s',
 
 it('keeps automatic recall inside its owning project under the same application home', async () => {
 	const owner = await makeSession()
-	await new DiskMemoryStore({
-		baseDir: owner.state.root,
+	await new MarkdownMemoryStore({
 		directory: join(owner.state.root, 'memory', owner.state.projectId),
 	}).create({
 		title: 'Earlier investigation',
@@ -194,4 +202,48 @@ it('keeps automatic recall inside its owning project under the same application 
 	const unrelated = await send(other.session, query)
 	expect(unrelated.system).not.toContain('14 hours')
 	expect(unrelated.system).not.toContain('Retrieved project memory')
+})
+
+it('carries stored memory under its own heading, and moves project notes into it once', async () => {
+	writeFileSync(join(appHome, 'MEMORY.md'), '- GLOBAL_NOTE\n')
+	const curated = join(cwd, '.namzu', 'MEMORY.md')
+	writeFileSync(curated, '# Team notes\n\nKEEP_THIS_PROSE\n\n- run pnpm test before pushing\n')
+	const { session } = await makeSession()
+	expect(session.configNotices.join('\n')).toContain('moved 1 note from')
+
+	const first = await send(session)
+	expect(first.system).toContain('## Stored memories (index)')
+	expect(first.system).toContain(
+		'- [run-pnpm-test-before-pushing](run-pnpm-test-before-pushing.md) — run pnpm test before pushing',
+	)
+	expect(first.system).toContain('## Curated memory (all projects)')
+	expect(first.system).toContain('## Curated memory (this project)')
+	expect(first.system).toContain('KEEP_THIS_PROSE')
+	expect(first.system).not.toContain('Durable memory')
+	// The note moved; the prose and the user-scope file did not.
+	expect(readFileSync(curated, 'utf8')).toBe('# Team notes\n\nKEEP_THIS_PROSE\n')
+	expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toContain(
+		'- run pnpm test before pushing',
+	)
+	expect(readFileSync(join(appHome, 'MEMORY.md'), 'utf8')).toBe('- GLOBAL_NOTE\n')
+
+	// A note typed now is a typed file, type project, and is in the next prompt.
+	const note = 'the staging database is read-only'
+	expect(await session.rememberNote?.(note)).toMatchObject({
+		saved: true,
+		type: 'project',
+		name: 'the-staging-database-is-read-only',
+	})
+	expect((await send(session)).system).toContain('[the-staging-database-is-read-only]')
+	expect(await session.rememberNote?.(note)).toMatchObject({ saved: false, duplicate: true })
+	expect(await session.rememberNote?.('prefers terse answers', 'user')).toMatchObject({
+		type: 'user',
+	})
+
+	// Once: a bullet written by hand after the move stays curated.
+	appendFileSync(curated, '- HAND_WRITTEN_LATER\n')
+	const later = await makeSession()
+	expect(later.session.configNotices.join('\n')).not.toContain('moved')
+	expect(readFileSync(curated, 'utf8')).toContain('- HAND_WRITTEN_LATER')
+	expect((await send(later.session)).system).toContain('HAND_WRITTEN_LATER')
 })

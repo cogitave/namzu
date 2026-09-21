@@ -28,7 +28,7 @@ explain why they cannot run and are checked again when selected.
 | `/exit` | Exit namzu. |
 | `/rename` | Rename this conversation; opens an editor when no name is supplied. /rename clear removes the saved name. |
 | `/fork` | Continue in a copy of this conversation, leaving the original where it is. |
-| `/memory` | Show curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a project fact; put `--user` before `add` to save a user fact. |
+| `/memory` | Show stored and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/plugins` | Inspect plugins, enable/disable them for the idle session, and optionally remember their state after restart. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
 | `/resume` | Resume a past conversation in this project. |

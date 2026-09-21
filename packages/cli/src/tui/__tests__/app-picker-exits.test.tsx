@@ -731,6 +731,36 @@ describe('publishing a picker selection', () => {
 		expect(remember).toHaveBeenCalledExactlyOnceWith(fact, { scope: 'project', cwd: ctx.cwd })
 	})
 
+	it.each([
+		['#STAGING_IS_READ_ONLY', undefined],
+		['/memory add --type feedback STAGING_IS_READ_ONLY', 'feedback'],
+	] as const)('writes %s as a typed memory through the session, not the curated file', async (command, type) => {
+		const append = vi.spyOn(memoryStore, 'appendMemoryWithStatus')
+		const rememberNote = vi.fn(async (_text: string, noteType?: string) => ({
+			saved: true,
+			type: (noteType ?? 'project') as 'project',
+			name: 'staging-is-read-only',
+			path: '/state/memory/staging-is-read-only.md',
+		}))
+		const storedMemoryIndex = vi.fn(async () => ({
+			directory: '/state/memory',
+			index: { text: '- [staging-is-read-only](staging-is-read-only.md) — STAGING_IS_READ_ONLY', total: 1, omitted: 0 },
+		}))
+		vi.spyOn(memoryStore, 'readMemory').mockReturnValue({ user: null, memory: null, project: null })
+		createSession = async () => ({ ...sessionFixture(), rememberNote, storedMemoryIndex })
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(80)
+		await submit(harness, command)
+		await vi.waitFor(() => expect(rememberNote).toHaveBeenCalledWith('STAGING_IS_READ_ONLY', type))
+		await frameShows(harness.lastFrame, '/state/memory/staging-is-read-only.md')
+		expect(append).not.toHaveBeenCalled()
+		await submit(harness, '/memory show')
+		await frameShows(harness.lastFrame, 'Stored memories (1)')
+		expect(harness.lastFrame() ?? '').toContain('[staging-is-read-only](staging-is-read-only.md)')
+	})
+
 	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])('reports saved but clipped memory for %s', async (command) => {
 		const path = '/w/.namzu/MEMORY.md'
 		const remember = vi.spyOn(memoryStore, 'appendMemoryWithStatus').mockReturnValue({ path, scope: 'project', appended: true, includedInPrompt: false })

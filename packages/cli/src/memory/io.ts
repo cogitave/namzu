@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import {
 	constants,
 	closeSync,
@@ -7,6 +8,9 @@ import {
 	openSync,
 	readSync,
 	realpathSync,
+	renameSync,
+	unlinkSync,
+	writeFileSync,
 	writeSync,
 } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -179,5 +183,47 @@ export function appendMemoryFile(location: MemoryLocation, text: string): string
 		return `${existing}${text}`
 	} finally {
 		closeSync(fd)
+	}
+}
+
+/**
+ * Replace a curated file's text atomically, and only if it still holds
+ * `expected` — a note appended by another process since `expected` was read
+ * would otherwise be overwritten. Returns false, writing nothing, when the
+ * file changed or is gone. The replacement is written beside the file and
+ * renamed over the validated, canonical path, private (0600).
+ */
+export function replaceMemoryFile(
+	location: MemoryLocation,
+	expected: string,
+	next: string,
+): boolean {
+	if (Buffer.byteLength(next, 'utf8') > MEMORY_FILE_MAX_BYTES) {
+		throw new Error(`Replacement exceeds the ${MEMORY_FILE_MAX_BYTES}-byte memory file limit.`)
+	}
+	if (readMemoryFile(location) !== expected) return false
+	const path = resolveMemoryPath(location)
+	if (path === null) return false
+	const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+	writeFileSync(temporary, next, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+	try {
+		renameSync(temporary, path)
+	} catch (error) {
+		try {
+			unlinkSync(temporary)
+		} catch {}
+		throw error
+	}
+	return true
+}
+
+/** Keep a copy of `text` at `path` unless one is already there. Private (0600). */
+export function writeMemoryBackup(path: string, text: string): boolean {
+	try {
+		writeFileSync(path, text, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+		return true
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+		throw error
 	}
 }

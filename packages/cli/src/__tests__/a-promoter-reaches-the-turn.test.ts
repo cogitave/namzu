@@ -14,11 +14,18 @@
  * every reachability check and still lose the memory.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DiskMemoryStore, ToolRegistry } from '@namzu/sdk'
+import { DiskMemoryStore, MarkdownMemoryStore, ToolRegistry } from '@namzu/sdk'
 import type { RunId, RunMemoryCandidate, ToolContext } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -127,9 +134,10 @@ describe('the run memory promoter', () => {
 		// use. A promoter wired to a different directory would satisfy the
 		// test above and lose the memory anyway — the model would search one
 		// store while the runtime wrote to another.
-		const store = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const store = new MarkdownMemoryStore({ directory: join(cwd, '.namzu', 'memory') })
 		const page = await store.list()
 		expect(page.totalCount).toBe(1)
+		expect(page.entries[0]?.type).toBe('project')
 		expect(page.entries[0]?.title).toContain('invoice')
 	})
 
@@ -153,6 +161,12 @@ describe('the run memory promoter', () => {
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('cold CLI memory')
 		expect(result.output).not.toBe('No memories found.')
+		// It was found because the session moved the JSON store into Markdown
+		// files, once: the old index is retired, not left to be read twice.
+		const memoryDir = join(cwd, '.namzu', 'memory')
+		expect(existsSync(join(memoryDir, 'index.json'))).toBe(false)
+		expect(existsSync(join(memoryDir, 'index.json.migrated'))).toBe(true)
+		expect(readdirSync(memoryDir)).toContain('cold-cli-memory.md')
 	})
 
 	it('refuses to save over a structurally invalid durable index', async () => {
@@ -192,7 +206,9 @@ describe('the run memory promoter', () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/memory|index/i)
 		expect(readFileSync(indexPath, 'utf-8')).toBe(poisoned)
-		expect(readdirSync(join(memoryDir, 'content'))).toEqual([])
+		// Refused by the Markdown store too: the unmigrated index holds records
+		// it cannot see, so it writes nothing rather than answer without them.
+		expect(readdirSync(memoryDir).filter((name) => name.endsWith('.md'))).toEqual([])
 	})
 
 	it('refuses to read indexed content whose durable shape is invalid', async () => {
@@ -270,7 +286,7 @@ describe('the run memory promoter', () => {
 
 		await promote(candidate({ files: ['src/a.ts'] }))
 
-		const store = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const store = new MarkdownMemoryStore({ directory: join(cwd, '.namzu', 'memory') })
 		// Emptiness, not "the write succeeded". The model reads this store on
 		// later runs, so a record per run is context spent on runs that found
 		// nothing.

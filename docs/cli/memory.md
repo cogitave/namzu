@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Memory
-description: Curated file scopes, bounded reads and save diagnostics, and project-scoped structured memory recalled before each model step.
+description: Operator-curated files read into every turn, and typed stored memory — one Markdown file per memory with a generated index in the prompt — that notes, the memory tools and recall share.
 resource: packages/cli/src/memory/store.ts
 tags: [cli, memory, prompt]
 status: stable
@@ -10,25 +10,31 @@ generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 
 # Memory
 
-There are two kinds, and they do different jobs.
+There are two kinds, and they do different jobs. **Curated memory** is text the
+operator writes, read verbatim into every turn. **Stored memory** is typed
+records, one Markdown file each, that `#note`, `/memory add`, the model's memory
+tools and the end-of-run writers all share; every turn carries its index, and
+recall adds matching records. In the prompt the two never share a heading:
+curated sections are `## About the user`, `## Curated memory (all projects)` and
+`## Curated memory (this project)`; stored memory is `## Stored memories (index)`.
 
 ## Curated memory: read into every turn
 
-Three files, two scopes. Each is markdown the operator may edit by hand.
+Three files, two scopes. Each is markdown the operator writes and edits by hand.
 
 | File | Scope | What belongs there |
 | --- | --- | --- |
-| `<project>/.namzu/MEMORY.md` | project | facts about this repository: how tests run, what a name means here, a decision taken |
-| `~/.namzu/MEMORY.md` | user | facts that hold in every project |
+| `<project>/.namzu/MEMORY.md` | project | what the operator wants every turn in this repository to read |
+| `~/.namzu/MEMORY.md` | user | facts that hold in every project; `/memory --user add` appends here |
 | `~/.namzu/USER.md` | user | who the operator is |
 
 The user paths above use the default application home. An explicit `NAMZU_HOME`
 moves both user files into that application directory. Project files stay bound
 to the checkout.
 
-`/memory`, `/memory show` and `/memory list` display the combined curated memory
-without saving anything. `show` and `list` are aliases for this content view;
-`list` does not enumerate memory-file paths.
+`/memory`, `/memory show` and `/memory list` display stored memory's index lines
+(with the directory the files are in) followed by the combined curated memory,
+without saving anything. `show` and `list` are aliases for this content view.
 
 The terminal report labels each saved section and shows its full file path.
 Each preview is limited to 20 lines and 2,000 characters; an omission notice
@@ -36,8 +42,9 @@ identifies the remaining content and the file to open. Model-directed prompt
 instructions are not printed in this report. The per-turn model prompt retains
 its separate 8,000-character section budget described below.
 
-`#note` and `/memory add <text>` append to the **project** file.
-`/memory --user add <text>` appends to the user file. Bare `add` shows usage
+`#note` and `/memory add <text>` save a typed memory in stored memory (below),
+not in this file. `/memory --user add <text>` still appends a bullet to the user
+file, because stored memory belongs to one project. Bare `add` shows usage
 without writing. The inspection keywords and `add` are case-insensitive; saved
 text keeps its original case. The existing `/memory <text>` and
 `/memory --user <text>` shortcuts remain available for ordinary facts.
@@ -49,8 +56,8 @@ For new files, `<project>` is the nearest checkout root (a `.git` directory or w
 Curated files are read at the start of each send or resume. Editing or deleting a
 file affects that next snapshot, including after a new session or restart. A run
 already in progress keeps its curated snapshot through its model steps. Edit the
-file to correct or remove a note; the slash command appends and inspects, and does
-not offer an update or delete operation.
+file to correct or remove a line; the slash command inspects, and appends only
+with `--user`.
 
 Each section keeps at most the first 8,000 characters in the model prompt, with a
 notice naming the omitted amount. A trailing partial line may be omitted too;
@@ -83,17 +90,72 @@ its scope, repair the link or permissions, convert it to valid UTF-8, or curate
 it below the file limit. The prompt section cap remains 8,000 characters even
 when a file is under 1 MiB.
 
-## Structured project memory: tools and automatic recall
+## Stored memory: typed files, an index in every turn, and recall
 
-The kernel store is separate from the curated markdown files. The CLI binds it
-to the project's generated state directory. `save_memory` creates a record,
-`search_memory` finds records, and `read_memory` reads a complete record.
-`update_memory` corrects a record or archives an obsolete claim;
-`delete_memory` removes it. These tools do not edit the files shown by `/memory`.
-A fresh session in the same project can retrieve persisted records.
+The CLI keeps stored memory in the project's generated state directory —
+`<NAMZU_HOME>/memory/<project-id>/` for a session with an application home
+(the default), `<cwd>/.namzu/memory/` for an embedded session without one — as a
+[`MarkdownMemoryStore`](../sdk/memory.md#markdown-memory-files): one
+`<name>.md` per memory with frontmatter `name`, `description`, `type`,
+`status`, `createdAt`, `updatedAt` and optional `tags`, then the body, and a
+generated `MEMORY.md` index beside them. The files are plain Markdown; edit one
+by hand and the next turn sees it.
+
+| Type | What it holds |
+| --- | --- |
+| `user` | who the operator is and how they like to work |
+| `feedback` | a rule the operator gave, then `Why:` and `How to apply:` lines |
+| `project` | a fact or decision the code and its history do not already say (the default) |
+| `reference` | where to look for something |
+
+`#note <text>` and `/memory add <text>` save a `project` memory named after the
+note (`/memory add --type feedback <text>` picks another type; `--type` is
+refused with `--user`). The terminal names the file written. A note whose exact
+text an active memory already holds is not saved again; the terminal names the
+memory that holds it. A session with no provider has no store, and its notes are
+appended to the curated project file as before.
+
+Every send and resume puts the index in the system prompt under
+`## Stored memories (index)`: one line per active memory,
+`- [name](name.md) — description`, each at most 150 characters, sorted by name,
+at most 200 lines with a final line saying how many more exist and to search for
+them. The section tells the model to read a memory before relying on it, to
+update rather than duplicate, and that memories are point-in-time. The index is
+rendered from the files at that moment. A memory file the store cannot read
+leaves that turn without the index and shows a notice naming the file; the turn
+still runs.
+
+The model's tools work on the same files. `save_memory` creates a memory (a name
+another memory holds is refused and pointed at `update_memory`),
+`search_memory` finds memories, `read_memory` reads one by ID or name, with its
+age and its `[[name]]` links resolved, `update_memory` corrects or archives
+one, and `delete_memory` removes it. A fresh session in the same project reads
+the same files.
+
+### Moving the older memory in, once
+
+The first launch after upgrading moves what the two older shapes held:
+
+- A JSON store in the same directory (`index.json` and `content/`, from earlier
+  releases) is imported record by record with its ids, timestamps and status,
+  then renamed to `index.json.migrated` and `content.migrated`. Until that
+  succeeds, the store refuses to answer rather than answer without those
+  records; a failure is shown at launch and retried at the next.
+- The project's curated `MEMORY.md` gives up its single-line top-level bullets —
+  what `#note` and `/memory add` used to append — as `project` memories. The
+  file as it was is kept beside it as `MEMORY.md.before-typed-memory`, and it is
+  rewritten without those bullets only if nothing appended to it meanwhile.
+  Headings, prose, nested lists and notes that spanned several lines stay where
+  they are. A `migration.json` in the stored-memory directory then records that
+  this was done, so a bullet written into the curated file by hand afterwards
+  stays curated.
+
+Both steps are idempotent: an interrupted launch is finished by the next one,
+and nothing is imported twice. The launch that moved something says so,
+naming the files. `~/.namzu/MEMORY.md` and `USER.md` are never touched.
 
 Automatic recall is enabled by default. Before each model step, the CLI searches
-active project records using terms from the latest operator message, and adds
+active stored memories using terms from the latest operator message, and adds
 at most three matching records within a total 6,000-character budget or the
 smaller available estimated context headroom, including source labels and
 framing. Body text can match even when the title and summary
@@ -102,7 +164,9 @@ This read-only step makes no additional model call and has a one-second
 deadline; an error leaves that step without recalled context and reports the
 failure through the runtime's preparation diagnostic.
 
-Recalled text is marked as historical claims and reference data. Current user
+Recalled text is marked as historical claims and reference data. A memory last
+updated more than a day ago is recalled with its age and a reminder to verify the
+files and functions it names before relying on it. Current user
 directions and fresh evidence take precedence; recall does not create a verified
 fact or an authoritative pin. Edits, archiving and deletion are reflected at the
 next recall step, and the recalled block is not saved as a new user message.
@@ -120,7 +184,8 @@ exact matching rules and alias limitations.
 The default promoter writes useful extracted claims to this store when a run
 settles. `compaction.consolidate: true` selects consolidation instead, so the CLI
 does not run both writers. Writing remains separate from curated file appends
-and from read-only recall; disabling recall does not disable writes. See
+and from read-only recall; disabling recall does not disable writes. A run whose
+learnings match an earlier consolidation's writes nothing. See
 [structured memory](../sdk/memory.md) for search, promotion and recovery limits.
 
 ## Bounded live check

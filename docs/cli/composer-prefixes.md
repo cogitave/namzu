@@ -24,4 +24,4 @@ Bounds: a command that has not ended after 60 seconds is killed with its whole p
 
 ## `#note` — remember
 
-`#always run tests with pnpm` appends the note to this project's memory file (`.namzu/MEMORY.md`), exactly as `/memory add <text>` does, and the row names the file. `/memory --user add <text>` remembers something for every project. See [Memory](memory.md). A `#` with nothing after it is sent as a prompt.
+`#always run tests with pnpm` saves the note as a typed `project` memory — one Markdown file in this project's stored memory — exactly as `/memory add <text>` does, and the row names the file. The next turn's prompt lists it in the stored-memory index. `/memory --user add <text>` remembers something for every project. See [Memory](memory.md). A `#` with nothing after it is sent as a prompt.

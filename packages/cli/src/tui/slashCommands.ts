@@ -30,9 +30,11 @@ import {
 	type AuthorizationRule,
 	type CostInfo,
 	type HostCommandOutcome,
+	type MemoryType,
 	type ReasoningEffort,
 	type SerializableHostCommand,
 	type TokenBudgetSummary,
+	isMemoryType,
 	kernelHostCommands,
 } from '@namzu/sdk'
 
@@ -105,7 +107,13 @@ export type SlashAction =
 	| { kind: 'orchestrate-mode'; enabled: boolean | 'toggle' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
-	| { kind: 'remember'; text: string; scope: 'project' | 'user' }
+	| {
+			kind: 'remember'
+			text: string
+			scope: 'project' | 'user'
+			/** Stored-memory type for a project note; `project` when absent. */
+			memoryType?: MemoryType
+	  }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
 	| { kind: 'plugins'; list: boolean; name?: string }
@@ -901,14 +909,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'memory',
 		help: {
-			usage: ['/memory [show|list]', '/memory add <text>', '/memory --user add <text>'],
+			usage: [
+				'/memory [show|list]',
+				'/memory add [--type user|feedback|project|reference] <text>',
+				'/memory --user add <text>',
+			],
 			details: [
-				'Show and list read saved memory. Add saves a project note; --user saves a note for all projects.',
-				'Direct /memory <text> also saves a note. To save a reserved word as a note, use /memory add show.',
+				'Show and list read stored and curated memory. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
+				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
 			],
 		},
 		description:
-			'Show curated memory, or save a fact with /memory add <text>. Use /memory --user add <text> for every project.',
+			'Show memory, or save a typed project memory with /memory add <text>. Use /memory --user add <text> for every project.',
 		action: (_ctx, args) => {
 			const user = args[0] === '--user'
 			const memoryArgs = user ? args.slice(1) : args
@@ -918,7 +930,23 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return { kind: 'show-memory' }
 			}
 			if (memoryArgs[0]?.toLowerCase() === 'add') {
-				const fact = memoryArgs.slice(1).join(' ').trim()
+				let rest = memoryArgs.slice(1)
+				let memoryType: MemoryType | undefined
+				if (rest[0] === '--type') {
+					const requested = rest[1]?.toLowerCase()
+					if (!isMemoryType(requested) || user) {
+						return {
+							kind: 'message',
+							role: 'system',
+							content: user
+								? '--type applies to project memories; /memory --user add appends to the curated file for all projects.'
+								: 'Usage: /memory add --type user|feedback|project|reference <text>.',
+						}
+					}
+					memoryType = requested
+					rest = rest.slice(2)
+				}
+				const fact = rest.join(' ').trim()
 				if (fact.length === 0) {
 					return {
 						kind: 'message',
@@ -927,7 +955,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 							'Usage: /memory add <text> or /memory --user add <text>. /memory show displays saved memory.',
 					}
 				}
-				return { kind: 'remember', text: fact, scope: user ? 'user' : 'project' }
+				return {
+					kind: 'remember',
+					text: fact,
+					scope: user ? 'user' : 'project',
+					...(memoryType ? { memoryType } : {}),
+				}
 			}
 			return { kind: 'remember', text, scope: user ? 'user' : 'project' }
 		},
