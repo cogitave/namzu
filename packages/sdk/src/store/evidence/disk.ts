@@ -363,13 +363,26 @@ function createSource(
 					// Authenticate the original query first, then seal future cursors
 					// with the narrower key at exactly the same archive position.
 					if (refined) cursor.termsKey = refined.termsKey
-					const { page, cacheHit } = await indexPage(
-						handle,
-						size,
-						scope.sessionId,
-						cursor.position,
-						budget,
-					)
+					let indexed: Awaited<ReturnType<typeof indexPage>>
+					try {
+						indexed = await indexPage(handle, size, scope.sessionId, cursor.position, budget)
+					} catch (error) {
+						if (!(error instanceof EvidencePageLimit)) throw error
+						// This operation's allowance cannot index the next page (one
+						// record can be larger than it). Nothing is claimed about the
+						// records there; the same position is offered again.
+						return {
+							scope,
+							matches: [],
+							nextCursor: seal.pack({ ...cursor }),
+							scannedBytes: budget.bytes,
+							indexedRecords: 0,
+							cacheHit: false,
+							incomplete: true,
+							unavailable: [],
+						}
+					}
+					const { page, cacheHit } = indexed
 					const matches: SessionTextEvidenceMatch[] = []
 					const unavailable: string[] = []
 					let partial = false
