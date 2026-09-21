@@ -343,6 +343,13 @@ export async function rewriteSession(
 	source: InMemorySessionLog,
 	turns: readonly CheckpointScope[],
 	transform: (draft: RecordDraft) => RecordDraft = (draft) => draft,
+	options: {
+		/**
+		 * Cut the log right after the first record this matches, as a
+		 * process killed at that point would have left it.
+		 */
+		readonly through?: (draft: RecordDraft) => boolean
+	} = {},
 ): Promise<InMemorySessionLog> {
 	// Spilled bodies are shared, so a record that names one still finds it.
 	const target = new InMemorySessionLog({
@@ -398,6 +405,7 @@ export async function rewriteSession(
 			entry = await target.append(lease, draft)
 		}
 		hashes.set(entry.pointer.seq, entry.pointer.sha256)
+		if (options.through?.(draft)) break
 	}
 	for (const scope of ledgers.values()) {
 		const ledger = await from?.tokenBudgets.load(scope)

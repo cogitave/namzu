@@ -7,10 +7,12 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import {
+	type CheckpointScope,
+	InMemorySessionCheckpointStore,
+} from '../../../store/checkpoint/index.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
-import type { CheckpointRunScope } from '../../../types/session/durable.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -18,6 +20,7 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+import { checkpointLogView } from '../session-storage.js'
 
 /**
  * Checkpoint retention is housekeeping, and housekeeping does not end a run.
@@ -36,23 +39,29 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-class RefusingPruneStore extends InMemoryCheckpointStore {
+class RefusingPruneStore extends InMemorySessionCheckpointStore {
 	prunes = 0
-	async pruneCheckpoints(_scope: CheckpointRunScope, _keepLast: number): Promise<void> {
+	override async prune(_scope: CheckpointScope, _keepLast: number): Promise<CheckpointId[]> {
 		this.prunes += 1
 		throw new Error('disk says no')
 	}
 }
 
-class CountingDeleteStore extends InMemoryCheckpointStore {
-	deleted: CheckpointId[] = []
-	override async deleteCheckpoint(scope: CheckpointRunScope, id: CheckpointId): Promise<void> {
-		this.deleted.push(id)
-		await super.deleteCheckpoint(scope, id)
+class CountingPruneStore extends InMemorySessionCheckpointStore {
+	pruned: CheckpointId[] = []
+	override async prune(scope: CheckpointScope, keepLast: number): Promise<CheckpointId[]> {
+		const removed = await super.prune(scope, keepLast)
+		this.pruned.push(...removed)
+		return removed
 	}
 }
 
-async function run(checkpointStore: InMemoryCheckpointStore) {
+async function run(
+	makeStore: (log: InMemorySessionLog) => InMemorySessionCheckpointStore,
+): Promise<{
+	result: Awaited<ReturnType<typeof drainQuery>>
+	store: InMemorySessionCheckpointStore
+}> {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-retention-'))
 	dirs.push(root)
 	const tools = new ToolRegistry()
@@ -66,15 +75,18 @@ async function run(checkpointStore: InMemoryCheckpointStore) {
 	const turns = Array.from({ length: 4 }, (_, n) => ({
 		toolCalls: [{ id: `c${n}`, name: 'probe', args: { n } }],
 	}))
-	return drainQuery({
+	const sessionId = generateSessionId()
+	const sessionLog = new InMemorySessionLog({ sessionId })
+	const store = makeStore(sessionLog)
+	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
 		tools,
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'probe four times' }],
 		workingDirectory: root,
-		pathBuilder: new DefaultPathBuilder(join(root, 'state')),
-		checkpointStore,
+		sessionLog,
+		checkpointStore: store,
 		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
@@ -83,25 +95,28 @@ async function run(checkpointStore: InMemoryCheckpointStore) {
 			pruneKeepLast: 1,
 		},
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 	})
+	return { result, store }
 }
 
 describe('checkpoint retention', () => {
 	it('completes the run when every prune throws', async () => {
-		const store = new RefusingPruneStore()
-		const result = await run(store)
-		expect(store.prunes).toBeGreaterThan(1)
+		const { result, store } = await run(
+			(log) => new RefusingPruneStore({ log: checkpointLogView(log) }),
+		)
+		expect((store as RefusingPruneStore).prunes).toBeGreaterThan(1)
 		expect(result.status).toBe('completed')
 		expect(result.result).toBe('done')
 	})
 
-	it('falls back to list-and-delete for a store with no pruneCheckpoints', async () => {
-		const store = new CountingDeleteStore()
-		const result = await run(store)
+	it('prunes through the store as the run goes', async () => {
+		const { result, store } = await run(
+			(log) => new CountingPruneStore({ log: checkpointLogView(log) }),
+		)
 		expect(result.status).toBe('completed')
-		expect(store.deleted.length).toBeGreaterThan(0)
+		expect((store as CountingPruneStore).pruned.length).toBeGreaterThan(0)
 	})
 })
