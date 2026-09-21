@@ -34,6 +34,12 @@ export interface BaseAgentConfig {
 	maxResponseTokens?: number
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
+	/**
+	 * Checkpoint retention for this agent's run. See
+	 * {@link import('../run/config.js').AgentRunConfig.pruneKeepLast}; absent
+	 * keeps every checkpoint, as before.
+	 */
+	pruneKeepLast?: number
 
 	/**
 	 * Durable run/checkpoint layout for this agent invocation.

@@ -147,6 +147,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					maxIterations: config.maxIterations,
 					temperature: config.temperature,
 					maxResponseTokens: config.maxResponseTokens,
+					...(config.pruneKeepLast !== undefined ? { pruneKeepLast: config.pruneKeepLast } : {}),
 					costLimitUsd: config.costLimitUsd,
 					permissionMode: config.permissionMode,
 					env: config.env,

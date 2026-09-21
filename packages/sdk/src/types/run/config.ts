@@ -102,8 +102,12 @@ export interface AgentRunConfig {
 	/**
 	 * After creating an iteration checkpoint, prune the run's checkpoint
 	 * set down to the newest N. Default `undefined` — never prune, today's
-	 * behavior. Each checkpoint copies the full message array, so long
-	 * tool-heavy runs grow O(iterations × history) without this.
+	 * behavior. The disk store keeps a run's messages once, in a per-run
+	 * history log, so a checkpoint costs its own bookkeeping rather than a
+	 * copy of the conversation; a store that writes checkpoints whole (a
+	 * custom one) still grows O(iterations × history) without this. Either
+	 * way the COUNT only ever grows unless a host bounds it here. The CLI
+	 * does.
 	 *
 	 * Oldest-first by `createdAt`, across all of the run's checkpoints — but
 	 * a checkpoint whose park is UNRESOLVED is never collected, whatever its

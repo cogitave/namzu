@@ -49,6 +49,8 @@ The kernel.
 * [The review policy](review-policy.md) - The five modes a run resolves undecided tool calls under, which calls skip review, and how a host supplies the person to ask.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 
+* [Durable run storage](run-storage.md) - Every file a disk-backed run writes, the one authoritative record per concern, checkpoints that reference one stored history, and how their number is bounded.
+
 * [Harness invariants](harness-invariants.md) - Ownership, budget conservation, result recovery and bounded live execution evidence.
 
 * [Token budgets](token-budgets.md) - Shared parent and descendant accounting, durable reservations and explicit recovery boundaries.

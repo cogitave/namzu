@@ -34,6 +34,14 @@ import {
 } from '../evidence/record-chain.js'
 import type { RunEvidenceScope, RunTextEvidenceSource } from '../evidence/types.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
+import {
+	CheckpointHistoryLog,
+	type CheckpointHistorySource,
+	isCheckpointHistoryRef,
+	loadCheckpointHistory,
+	openCheckpointHistory,
+	resolveCheckpointHistory,
+} from './checkpoint-history.js'
 import { readToolExecutionsIn } from './tool-executions.js'
 
 /**
@@ -47,10 +55,16 @@ import { readToolExecutionsIn } from './tool-executions.js'
 const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
 // Older readers must refuse ledger-bound checkpoints instead of dropping their
 // budget authority. Other run-store records retain their existing schema.
+//
+// Version 3 moves a checkpoint's messages into the run's checkpoint history
+// log (see `checkpoint-history.ts`) and stores a reference in their place.
+// Earlier records carry `messages` inline and are read as they always were;
+// a build that predates version 3 refuses a version-3 file rather than read
+// one with no messages.
 const CHECKPOINT_SCHEMA = defineSchema({
 	kind: 'run-checkpoint',
-	current: 2,
-	migrations: { 1: (record) => record },
+	current: 3,
+	migrations: { 1: (record) => record, 2: (record) => record },
 })
 
 /**
@@ -80,10 +94,13 @@ export class RunDiskStore implements RunStore {
 	private evidenceEpoch = randomUUID()
 	private boundRunId: string | undefined
 	private indexLock: Promise<void> = Promise.resolve()
+	private checkpointHistory: CheckpointHistoryLog | undefined
 
 	constructor(config: RunStoreConfig) {
 		this.baseDir = config.baseDir
-		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/run/disk' })
+		this.log = resolveLogger(config.logger).child({
+			[SCOPE_ATTRIBUTE]: 'store/run/disk',
+		})
 	}
 
 	private requireInit(): string {
@@ -105,6 +122,7 @@ export class RunDiskStore implements RunStore {
 		await healTornTranscript(this.runDir)
 		await healTornAuditTrail(this.runDir)
 		this.boundRunId = runId
+		this.checkpointHistory = undefined
 		this.evidenceEpoch = randomUUID()
 		const tail = await transcriptTail(join(this.runDir, 'transcript.jsonl'), runId)
 		this.evidenceTip = tail?.tip
@@ -187,8 +205,17 @@ export class RunDiskStore implements RunStore {
 			if (before.size < tip.offset + tip.length)
 				throw new Error('Evidence transcript was shortened.')
 			return createLinkedRunTextEvidenceSource(
-				{ scope, runDir, indexDir: join(runDir, 'evidence-index'), maxReadBytes },
-				{ tip, identity: `${before.dev}:${before.ino}`, epoch: this.evidenceEpoch },
+				{
+					scope,
+					runDir,
+					indexDir: join(runDir, 'evidence-index'),
+					maxReadBytes,
+				},
+				{
+					tip,
+					identity: `${before.dev}:${before.ino}`,
+					epoch: this.evidenceEpoch,
+				},
 			)
 		})
 		return awaitWithAbort(capture, signal)
@@ -356,6 +383,11 @@ export class RunDiskStore implements RunStore {
 		const dir = this.requireInit()
 		const cpDir = join(dir, 'checkpoints')
 		await mkdir(cpDir, { recursive: true })
+		// The history goes to the run's log, once per distinct message; the
+		// checkpoint keeps a reference to it. See `checkpoint-history.ts`.
+		this.checkpointHistory ??= new CheckpointHistoryLog(cpDir)
+		const { messages, ...rest } = checkpoint
+		const history = await this.checkpointHistory.record(messages)
 		// Stamped, not written bare. Unstamped is read as version 1 by
 		// definition, which is correct only while version 1 is the only
 		// version there has ever been — the moment a second one exists, an
@@ -363,18 +395,32 @@ export class RunDiskStore implements RunStore {
 		// as if it were the older shape, and the refusal that exists to
 		// prevent exactly that never fires. The stamp is what gives the
 		// migration chain something to hang on.
-		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), checkpoint, CHECKPOINT_SCHEMA)
+		// Compact: a checkpoint is read by the store, not by a person, and at
+		// one per iteration the indentation was a third of its bytes.
+		await atomicWriteJson(
+			join(cpDir, `${checkpoint.id}.json`),
+			{ ...rest, history },
+			CHECKPOINT_SCHEMA,
+			'compact',
+		)
 	}
 
 	async readCheckpoint(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
 		asCheckpointId(checkpointId)
 		const dir = this.requireInit()
+		const cpDir = join(dir, 'checkpoints')
+		let content: string
 		try {
-			const content = await readFile(join(dir, 'checkpoints', `${checkpointId}.json`), 'utf-8')
-			return parseCheckpoint(content, `${checkpointId}.json`)
+			content = await readFile(join(cpDir, `${checkpointId}.json`), 'utf-8')
 		} catch (err) {
 			if (isFileNotFound(err)) return null
 			throw err
+		}
+		const history = await openCheckpointHistory(cpDir)
+		try {
+			return await parseCheckpoint(content, `${checkpointId}.json`, history)
+		} finally {
+			await history.close()
 		}
 	}
 
@@ -801,17 +847,33 @@ export async function readCheckpointsIn(runDir: string): Promise<IterationCheckp
 		throw err
 	}
 
+	// One read of the history log for the whole listing, however many
+	// checkpoints reference it; a message two checkpoints share is parsed once.
+	const history = await loadCheckpointHistory(cpDir)
 	const checkpoints: IterationCheckpoint[] = []
-	for (const file of files) {
-		if (!file.endsWith('.json')) continue
-		const content = await readFile(join(cpDir, file), 'utf-8')
-		checkpoints.push(parseCheckpoint(content, file))
+	try {
+		for (const file of files) {
+			if (!file.endsWith('.json')) continue
+			const content = await readFile(join(cpDir, file), 'utf-8')
+			checkpoints.push(await parseCheckpoint(content, file, history))
+		}
+	} finally {
+		await history.close()
 	}
 	return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
 }
 
-async function atomicWriteJson(filePath: string, value: unknown, schema = SCHEMA): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(stamp(schema, value), null, 2))
+async function atomicWriteJson(
+	filePath: string,
+	value: unknown,
+	schema = SCHEMA,
+	layout: 'indented' | 'compact' = 'indented',
+): Promise<void> {
+	const stamped = stamp(schema, value)
+	await atomicWriteFile(
+		filePath,
+		layout === 'compact' ? JSON.stringify(stamped) : JSON.stringify(stamped, null, 2),
+	)
 }
 
 /**
@@ -854,9 +916,13 @@ function hasUsableBudgets(record: Partial<IterationCheckpoint>): boolean {
 	)
 }
 
-function parseCheckpoint(content: string, file: string): IterationCheckpoint {
+async function parseCheckpoint(
+	content: string,
+	file: string,
+	history: CheckpointHistorySource,
+): Promise<IterationCheckpoint> {
 	const parsed = migrate<unknown>(CHECKPOINT_SCHEMA, JSON.parse(content))
-	const record = parsed as Partial<IterationCheckpoint> | null
+	const record = parsed as (Partial<IterationCheckpoint> & { history?: unknown }) | null
 
 	if (
 		record === null ||
@@ -864,7 +930,7 @@ function parseCheckpoint(content: string, file: string): IterationCheckpoint {
 		typeof record.id !== 'string' ||
 		typeof record.iteration !== 'number' ||
 		typeof record.createdAt !== 'number' ||
-		!Array.isArray(record.messages)
+		!(Array.isArray(record.messages) || isCheckpointHistoryRef(record.history))
 	) {
 		throw new Error(
 			`Checkpoint file "${file}" is not a usable checkpoint: it parsed as JSON but is missing the fields a resume needs (id, iteration, createdAt, messages). Refusing rather than resuming from it.`,
@@ -877,7 +943,14 @@ function parseCheckpoint(content: string, file: string): IterationCheckpoint {
 		)
 	}
 
-	return record as IterationCheckpoint
+	if (Array.isArray(record.messages)) return record as IterationCheckpoint
+	const { history: ref, ...rest } = record
+	const messages = await resolveCheckpointHistory(
+		ref as Parameters<typeof resolveCheckpointHistory>[0],
+		history,
+		file,
+	)
+	return { ...rest, messages } as IterationCheckpoint
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
