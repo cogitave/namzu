@@ -185,6 +185,8 @@ export class TurnRecorder {
 	#phase: Phase = 'new'
 	#lease: SessionLease | undefined
 	#ownsLease = false
+	/** The recorder gave its lease up: it is no longer the session's writer. */
+	#released = false
 	#leaseHolder = ''
 	#leaseTtlMs = DEFAULT_TURN_LEASE_TTL_MS
 	#chain: Promise<void> = Promise.resolve()
@@ -613,6 +615,7 @@ export class TurnRecorder {
 		if (!this.#ownsLease || !this.#lease) return
 		const lease = this.#lease
 		this.#ownsLease = false
+		this.#released = true
 		await this.log.release(lease).catch(() => undefined)
 	}
 
@@ -729,6 +732,10 @@ export class TurnRecorder {
 				break
 		}
 		if (this.#phase === 'new' || this.#phase === 'open') return undefined
+		// Once the lease is given up this recorder writes nothing: an object
+		// that outlived the turn (an approval-policy box, a plan manager) may
+		// still emit, and its event is delivered live but not recorded.
+		if (this.#released) return undefined
 		const turnBound = TURN_BOUND_EVENT_TYPES.has(event.type)
 		if (this.#phase === 'closed' && turnBound) return undefined
 		if (this.#phase === 'paused' && turnBound) return undefined
