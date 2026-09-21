@@ -9,11 +9,11 @@ const UNRESOLVABLE_AT_RUNTIME = Math.random() > 0.5 ? 'namzu.a' : 'namzu.b'
 
 // The shape of the real constants table: `as const`, so every property has
 // a string LITERAL type and a computed key reading one folds.
-const ATTRS = { RUN_ID: 'namzu.run.id' } as const
+const ATTRS = { TURN_ID: 'namzu.turn.id' } as const
 // The same table without `as const`. Its properties are `string`, which is
 // not a provable key — a mutable property could be anything at the moment
 // the log call runs, so this must NOT fold.
-const WIDENED = { RUN_ID: 'namzu.run.id' }
+const WIDENED = { TURN_ID: 'namzu.turn.id' }
 
 const compliantAttributes: LogAttributes = { 'namzu.request.id': 'r1' }
 function buildExceptionAttributes(): LogAttributes {
@@ -55,13 +55,13 @@ export function demo(log: Logger, id: string) {
 	const untypedExtra = { rawField: 1 }
 	log.info('j', { 'namzu.ok': true, ...untypedExtra })
 	// A computed key reading an `as const` table — folds to
-	// "namzu.run.id" and passes. This is the shape every real call site
+	// "namzu.turn.id" and passes. This is the shape every real call site
 	// that uses the shared constants table has, and the branch that
 	// resolves it was missing: the gate used to reward the hand-typed
 	// string over the constant, which is exactly backwards.
-	log.info('k', { [ATTRS.RUN_ID]: id })
+	log.info('k', { [ATTRS.TURN_ID]: id })
 	// The same access against a table that is NOT `as const`. Its type is
 	// `string`, so it does not fold and must violate — the fold goes
 	// through the TYPE precisely so that a mutable property is refused.
-	log.info('l', { [WIDENED.RUN_ID]: id })
+	log.info('l', { [WIDENED.TURN_ID]: id })
 }

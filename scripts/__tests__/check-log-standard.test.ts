@@ -305,7 +305,7 @@ describe('checkNamespacedAttributeKeys', () => {
 	// case being added, which is the opposite of what this proves.
 	test('a computed key reading an `as const` table folds; the same access on a widened table does not (dies to: folding by declaration instead of by type, which would accept both)', () => {
 		const keys = namespacedAttributeKeyDetails(program, [FIXTURE])
-		assert.equal(keys.filter((d) => d.includes('namzu.run.id')).length, 0)
+		assert.equal(keys.filter((d) => d.includes('namzu.turn.id')).length, 0)
 		assert.equal(keys.filter((d) => d.includes('computed attribute key')).length, 2)
 	})
 
@@ -323,7 +323,7 @@ describe('checkNamespacedAttributeKeys', () => {
 	//     comment in the script for the measured example.
 	//   - a spread of a plain, un-namespaced object ('j' call: `...untypedExtra`)
 	//   - a computed key reading a table that is NOT `as const` ('l' call:
-	//     `WIDENED.RUN_ID`, whose type is `string`) — the fold goes through
+	//     `WIDENED.TURN_ID`, whose type is `string`) — the fold goes through
 	//     the TYPE so that a mutable property is refused
 	// and, NOT counted among the five, on purpose:
 	//   - a computed key that DOES fold to a literal ('c' call,
@@ -334,7 +334,7 @@ describe('checkNamespacedAttributeKeys', () => {
 	//     to return LogAttributes ('f' and 'g' calls)
 	//   - a spread of a LogAttributes-typed value ('i' call)
 	//   - a computed key reading an `as const` table ('k' call:
-	//     `ATTRS.RUN_ID`) — the real constants-table shape, which the rule
+	//     `ATTRS.TURN_ID`) — the real constants-table shape, which the rule
 	//     used to count as unresolvable while rewarding the hand-typed
 	//     string that says the same thing
 	// A single count assertion cannot show its work per-case, so this
