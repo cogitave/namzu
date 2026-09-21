@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	type RunEvent,
+	type SessionEvent,
 	ToolRegistry,
 	defineTool,
 	generateProjectId,
@@ -137,7 +137,7 @@ describe('Zen through the query kernel', () => {
 			}),
 		)
 		const provider = new ZenProvider({ apiKey: 'kernel-fixture-key', sessionId })
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		for await (const event of query({
 			provider,
 			tools,
@@ -149,7 +149,7 @@ describe('Zen through the query kernel', () => {
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
 			tenantId: generateTenantId(),
-			runConfig: {
+			turnConfig: {
 				model: 'glm-5.3-flash',
 				maxIterations: 3,
 				timeoutMs: 10_000,
@@ -162,7 +162,7 @@ describe('Zen through the query kernel', () => {
 			events.push(event)
 
 		expect(execute).toHaveBeenCalledTimes(1)
-		expect(events.filter((event) => event.type === 'run_failed')).toEqual([])
+		expect(events.filter((event) => event.type === 'turn_failed')).toEqual([])
 		expect(events).toContainEqual(
 			expect.objectContaining({ type: 'tool_executing', toolName: 'double', input: { value: 21 } }),
 		)
@@ -175,7 +175,7 @@ describe('Zen through the query kernel', () => {
 			}),
 		)
 		expect(events).toContainEqual(
-			expect.objectContaining({ type: 'run_completed', result: 'Twice 21 is 42.' }),
+			expect.objectContaining({ type: 'turn_completed', result: 'Twice 21 is 42.' }),
 		)
 		expect(requests).toHaveLength(2)
 		for (const request of requests) {

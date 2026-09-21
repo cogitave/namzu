@@ -98,14 +98,14 @@ function liveGateway(): TaskScheduler {
 					instructions: 'Answer in one short sentence. Do not explain yourself.',
 					maxIterations: 2,
 					tokenBudget: 20_000,
-				}).then((run) => {
+				}).then((outcome) => {
 					const done: TaskHandle = {
 						...handle,
 						state: 'completed',
 						completedAt: Date.now(),
 						result: {
 							status: 'completed',
-							result: run.output ?? '',
+							result: outcome.output ?? '',
 						} as TaskHandle['result'],
 					}
 					handles.set(taskId, done)
@@ -148,7 +148,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 			tools.register(tool)
 		}
 
-		const run = await drainQuery({
+		const turn = await drainQuery({
 			provider: provider(),
 			tools,
 			completionInbox: inbox,
@@ -169,7 +169,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				},
 			],
 			workingDirectory: workingDirectory(),
-			runConfig: {
+			turnConfig: {
 				model: MODEL,
 				timeoutMs: 180_000,
 				tokenBudget: 200_000,
@@ -182,7 +182,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 			tenantId: asTenantId('45d227cd-22df-4444-b508-e6d0ce49f31a'),
 		})
 
-		const transcript = run.messages
+		const transcript = turn.messages
 			.filter((m) => m.role === 'user')
 			.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
 			.join('\n')
@@ -194,12 +194,12 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 		// 2. The model read it. This is the half no fake can establish: the
 		//    worker's token appears in the supervisor's own final answer, and
 		//    the supervisor never had it any other way.
-		expect(run.result ?? '', 'the supervisor never used what it was told').toContain(SECRET)
+		expect(turn.result ?? '', 'the supervisor never used what it was told').toContain(SECRET)
 
 		// 3. It got there without polling, which is the whole complaint the
 		//    fix answers — `agent_task_list` in a sleep loop was the only move
 		//    on the board before this.
-		const listCalls = (run.steps ?? [])
+		const listCalls = (turn.steps ?? [])
 			.flatMap((s) => s.toolCalls ?? [])
 			.filter((c) => c.function.name === 'agent_task_list')
 		expect(listCalls.length, 'the model still had to poll').toBe(0)
@@ -222,7 +222,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 			tools.register(tool)
 		}
 
-		const run = await drainQuery({
+		const turn = await drainQuery({
 			provider: provider(),
 			tools,
 			completionInbox: inbox,
@@ -236,7 +236,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				},
 			],
 			workingDirectory: workingDirectory(),
-			runConfig: {
+			turnConfig: {
 				model: MODEL,
 				timeoutMs: 180_000,
 				tokenBudget: 200_000,
@@ -249,9 +249,9 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 			tenantId: asTenantId('45d227cd-22df-4444-b508-e6d0ce49f31a'),
 		})
 
-		expect(run.result ?? '').toContain(SECRET)
+		expect(turn.result ?? '').toContain(SECRET)
 
-		const transcript = run.messages
+		const transcript = turn.messages
 			.filter((m) => m.role === 'user')
 			.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
 			.join('\n')

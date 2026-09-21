@@ -1162,7 +1162,7 @@ export interface KubernetesBackendConfig {
  *   - `static` — fixed allowlist of hostnames at construction.
  *   - `resolver` — async closure returning the allowlist.
  *     Parameterless **on purpose**: the resolver is a closure that
- *     captures whatever context the host has (tenantId, runId,
+ *     captures whatever context the host has (tenantId, sessionId, turnId,
  *     auth token, etc.) at provider-construction time. Compass-
  *     platform's JWT-minting flow already works this way: the
  *     server knows the tenant when it issues the JWT, and the
@@ -1239,7 +1239,7 @@ export interface SandboxBackend {
  *    is in play.
  *
  * `layout` is **not** here — see the type-level note on
- * {@link SandboxBackend}. Identity-aware fields (tenantId / runId /
+ * {@link SandboxBackend}. Identity-aware fields (tenantId / sessionId / turnId /
  * agentId) are deliberately NOT in this shape either; hosts that
  * need per-tenant sandbox config bake the tenant into the closure
  * that constructs the provider — see the `EgressPolicy` resolver
