@@ -165,7 +165,7 @@ function assertCostIsAttributable(
  * its own, or a chain member declaring one.
  *
  * This is the same shape `advisory/budget.ts` already applies to
- * `AdvisoryBudget.maxCostPerRun`, one layer down, and for the same reason. The
+ * `AdvisoryBudget.maxCostPerTurn`, one layer down, and for the same reason. The
  * run path simply never had it.
  */
 function assertBudgetIsMeasurable(params: QueryParams): void {
@@ -185,7 +185,7 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 			'cost, and tokens with no rate never reach that total — so the budget would read as ' +
 			'satisfied for the whole run and stop nothing. Either pass `pricing` to declare the rate ' +
 			'yourself, add the model to packages/sdk/src/pricing/rates.source.json, or drop ' +
-			'`costLimitUsd` and bound the run with `tokenBudget`, which is measurable here.',
+			'`costLimitUsd` and bound the turn with `tokenBudget`, which is measurable here.',
 		details: { model, providerId: params.provider.id, costLimitUsd: limit },
 	})
 }

@@ -11,7 +11,7 @@
 		"costLimitUsd behaviour on an unrelated commit, with no review and no diff.",
 		"",
 		"Absent is a real answer. A model with no row here reports UNKNOWN cost, not",
-		"zero, and a run that sets runConfig.costLimitUsd against it is refused rather",
+		"zero, and a turn that sets turnConfig.costLimitUsd against it is refused rather",
 		"than run without a budget. So the correct move when a rate cannot be",
 		"established is to leave the row out, never to approximate it.",
 		"",

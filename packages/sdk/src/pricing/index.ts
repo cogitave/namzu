@@ -1,14 +1,14 @@
 /**
- * Rate lookup for a run's tokens.
+ * Rate lookup for a turn's tokens.
  *
  * The kernel had a cost calculation and no data to feed it: `costInfo` moved
  * only when a host passed `pricing` to `query()`, no shipped surface passed
- * one, and so every run reported a total of zero. `runConfig.costLimitUsd` is
+ * one, and so every turn reported a total of zero. `turnConfig.costLimitUsd` is
  * enforced against that same total, which made a declared budget a budget that
  * could never trigger.
  *
  * This is the data. It is IN-TREE and versioned at build time rather than
- * fetched, so a cost number is reproducible from a commit and an offline run
+ * fetched, so a cost number is reproducible from a commit and an offline turn
  * still prices correctly — a runtime fetch gives neither. See
  * `scripts/generate-model-prices.mjs` for why the source is reviewed rather
  * than refreshed, and `rates.source.json` for the rates themselves.

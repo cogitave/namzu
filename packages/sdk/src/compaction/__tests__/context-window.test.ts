@@ -8,7 +8,7 @@ import {
 
 /**
  * The compaction trigger divides "how full is the context" by a window.
- * It used to divide by `runConfig.tokenBudget` — a cumulative spend cap,
+ * It used to divide by `turnConfig.tokenBudget` — a cumulative spend cap,
  * a different quantity entirely — which is why the whole subsystem was
  * inert in every shipped consumer.
  */

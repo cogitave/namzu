@@ -89,7 +89,7 @@ describe('advisory context after actual tool execution', () => {
 							maxContextTokens: 2000,
 						},
 					],
-					budget: { maxCallsPerRun: 1 },
+					budget: { maxCallsPerTurn: 1 },
 					enableAgentTool: mode === 'tool',
 					...(mode === 'trigger'
 						? {

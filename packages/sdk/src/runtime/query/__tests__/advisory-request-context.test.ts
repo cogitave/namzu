@@ -51,7 +51,7 @@ async function fixture(provider: LLMProvider, advisor: LLMProvider) {
 					maxContextTokens: 3000,
 				},
 			],
-			budget: { maxCallsPerRun: 2 },
+			budget: { maxCallsPerTurn: 2 },
 		},
 	} satisfies Parameters<typeof drainQuery>[0]
 }

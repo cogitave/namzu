@@ -10,7 +10,7 @@ import { AdvisorRegistry } from '../registry.js'
 
 /**
  * `AdvisoryBudget` declared six caps and enforced one. The other five were
- * read by nothing: a host could set `maxCostPerRun` and watch an advisor
+ * read by nothing: a host could set `maxCostPerTurn` and watch an advisor
  * spend without limit, and the only signal that the cap was inert was that
  * nothing ever happened.
  *
@@ -56,13 +56,13 @@ function contextWith(budget: Parameters<typeof assertBudgetEnforceable>[0]['budg
 
 describe('a per-run cost cap actually stops the next call', () => {
 	it('allows a call while the accumulated cost is under the cap', () => {
-		const ctx = contextWith({ maxCostPerRun: 1 })
+		const ctx = contextWith({ maxCostPerTurn: 1 })
 		ctx.recordCall(record(0.4))
 		expect(ctx.checkBudget().allowed).toBe(true)
 	})
 
 	it('refuses once the accumulated cost reaches the cap', () => {
-		const ctx = contextWith({ maxCostPerRun: 1 })
+		const ctx = contextWith({ maxCostPerTurn: 1 })
 		ctx.recordCall(record(0.6))
 		ctx.recordCall(record(0.5))
 
@@ -75,7 +75,7 @@ describe('a per-run cost cap actually stops the next call', () => {
 	})
 
 	it('leaves the call cap working alongside it', () => {
-		const ctx = contextWith({ maxCallsPerRun: 1 })
+		const ctx = contextWith({ maxCallsPerTurn: 1 })
 		ctx.recordCall(record(0))
 		expect(ctx.checkBudget().allowed).toBe(false)
 	})
@@ -93,7 +93,7 @@ describe('a cost cap without pricing is refused, not silently inert', () => {
 
 	it('throws when a cost cap is set and an advisor carries no pricing', () => {
 		expect(() =>
-			assertBudgetEnforceable({ advisors: [advisor()], budget: { maxCostPerRun: 5 } }),
+			assertBudgetEnforceable({ advisors: [advisor()], budget: { maxCostPerTurn: 5 } }),
 		).toThrow(/pricing/i)
 	})
 
@@ -101,14 +101,14 @@ describe('a cost cap without pricing is refused, not silently inert', () => {
 		expect(() =>
 			assertBudgetEnforceable({
 				advisors: [advisor({ inputCostPer1M: 1, outputCostPer1M: 2 })],
-				budget: { maxCostPerRun: 5 },
+				budget: { maxCostPerTurn: 5 },
 			}),
 		).not.toThrow()
 	})
 
 	it('says nothing about pricing when no cost cap is set', () => {
 		expect(() =>
-			assertBudgetEnforceable({ advisors: [advisor()], budget: { maxCallsPerRun: 2 } }),
+			assertBudgetEnforceable({ advisors: [advisor()], budget: { maxCallsPerTurn: 2 } }),
 		).not.toThrow()
 	})
 })

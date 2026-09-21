@@ -84,7 +84,7 @@ describe('advisory calls debit the same token authority as the parent query', ()
 				provider: main,
 				advisory: {
 					advisors: [{ id: 'reviewer', name: 'Reviewer', model: 'mock', provider: advisor }],
-					budget: { maxCallsPerRun: 1 },
+					budget: { maxCallsPerTurn: 1 },
 					enableAgentTool: mode === 'tool',
 					...(mode === 'trigger'
 						? {
@@ -140,7 +140,7 @@ describe('advisory calls debit the same token authority as the parent query', ()
 				advisory: {
 					advisors: [{ id: 'reviewer', name: 'Reviewer', model: 'mock', provider: advisor }],
 					enableAgentTool: true,
-					budget: { maxCallsPerRun: quota },
+					budget: { maxCallsPerTurn: quota },
 				},
 			})
 			expect(advisor.requests).toHaveLength(quota)

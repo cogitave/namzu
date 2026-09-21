@@ -45,10 +45,10 @@ export class TriggerEvaluator {
 	}
 
 	private isBudgetExhausted(): boolean {
-		if (this.budget?.maxCallsPerRun === undefined) {
+		if (this.budget?.maxCallsPerTurn === undefined) {
 			return false
 		}
-		return this.callCount >= this.budget.maxCallsPerRun
+		return this.callCount >= this.budget.maxCallsPerTurn
 	}
 
 	private isCooldownSatisfied(trigger: AdvisoryTrigger, currentIteration: number): boolean {

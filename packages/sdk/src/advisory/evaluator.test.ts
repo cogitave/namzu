@@ -7,7 +7,7 @@
  *   - `evaluate(state)` returns every trigger whose condition matches
  *     AND whose cooldown has elapsed. Order reflects the sorted
  *     trigger list.
- *   - Budget exhausted (callCount ≥ maxCallsPerRun) → evaluate returns [].
+ *   - Budget exhausted (callCount ≥ maxCallsPerTurn) → evaluate returns [].
  *   - `recordFiring(id, iteration)` updates both `lastFiredMap` (for
  *     cooldown) and `callCount` (for budget).
  *   - Condition matchers:
@@ -77,13 +77,13 @@ describe('TriggerEvaluator — constructor', () => {
 })
 
 describe('TriggerEvaluator — budget', () => {
-	it('returns [] when callCount >= maxCallsPerRun', () => {
-		const e = new TriggerEvaluator([trigger('a')], { maxCallsPerRun: 1 })
+	it('returns [] when callCount >= maxCallsPerTurn', () => {
+		const e = new TriggerEvaluator([trigger('a')], { maxCallsPerTurn: 1 })
 		e.recordFiring('a', 1)
 		expect(e.evaluate(state({ iteration: 2 }))).toEqual([])
 	})
 
-	it('ignores budget when maxCallsPerRun is not set', () => {
+	it('ignores budget when maxCallsPerTurn is not set', () => {
 		const e = new TriggerEvaluator([trigger('a')])
 		e.recordFiring('a', 1)
 		e.recordFiring('a', 2)
@@ -179,7 +179,7 @@ describe('TriggerEvaluator — condition matchers', () => {
 describe('TriggerEvaluator — recordFiring', () => {
 	it('updates lastFiredMap + callCount', () => {
 		const e = new TriggerEvaluator([trigger('a', { cooldownIterations: 5 })], {
-			maxCallsPerRun: 2,
+			maxCallsPerTurn: 2,
 		})
 		e.recordFiring('a', 1)
 		// cooldown active: no fires in iterations 2–5

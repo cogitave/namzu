@@ -6,7 +6,7 @@
  *   - `recordCall(record)` appends to `callHistory` in call order.
  *   - `getBudgetStatus()`:
  *     - `used` = `callHistory.length`.
- *     - `total` = `budget?.maxCallsPerRun` (undefined when no budget).
+ *     - `total` = `budget?.maxCallsPerTurn` (undefined when no budget).
  *     - `remaining` = total − used when total defined; undefined else.
  *   - `checkBudget()`:
  *     - Allowed when no budget OR remaining > 0.
@@ -81,7 +81,7 @@ describe('AdvisoryContext', () => {
 
 		it('with budget → total + remaining computed', () => {
 			const ctx = new AdvisoryContext(stubRegistry(), stubExecutor(), stubEvaluator(), {
-				maxCallsPerRun: 3,
+				maxCallsPerTurn: 3,
 			})
 			ctx.recordCall(callRecord('a'))
 			expect(ctx.getBudgetStatus()).toEqual({ used: 1, total: 3, remaining: 2 })
@@ -96,7 +96,7 @@ describe('AdvisoryContext', () => {
 
 		it('allowed when remaining > 0', () => {
 			const ctx = new AdvisoryContext(stubRegistry(), stubExecutor(), stubEvaluator(), {
-				maxCallsPerRun: 2,
+				maxCallsPerTurn: 2,
 			})
 			ctx.recordCall(callRecord('a'))
 			expect(ctx.checkBudget()).toEqual({ allowed: true })
@@ -104,7 +104,7 @@ describe('AdvisoryContext', () => {
 
 		it('denied when remaining <= 0', () => {
 			const ctx = new AdvisoryContext(stubRegistry(), stubExecutor(), stubEvaluator(), {
-				maxCallsPerRun: 1,
+				maxCallsPerTurn: 1,
 			})
 			ctx.recordCall(callRecord('a'))
 			const result = ctx.checkBudget()
