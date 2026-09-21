@@ -25,7 +25,7 @@ async function fixture() {
 		title: 'Inspect service configuration',
 		summary: 'One discovery',
 		content: 'cerulean-cache expires after 14 hours',
-		metadata: { runId: generateTurnId() },
+		metadata: { turnId: generateTurnId() },
 	})
 	return { store, entry, recall: createMemoryRecallStep({ store }) }
 }

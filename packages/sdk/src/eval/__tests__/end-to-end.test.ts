@@ -30,7 +30,7 @@ const SESSION_ID = generateSessionId()
  * loop cannot be driven at all).
  */
 
-const RUN_ID = '19214193-f128-49d9-8644-0970a4ebb8eb' as TurnId
+const TURN_ID = '19214193-f128-49d9-8644-0970a4ebb8eb' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -60,14 +60,14 @@ async function driveAgent(turns: unknown[]): Promise<Turn> {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
 	})
 
 	const recorder = {
-		id: RUN_ID,
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,
@@ -110,7 +110,7 @@ async function driveAgent(turns: unknown[]): Promise<Turn> {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -147,7 +147,7 @@ async function driveAgent(turns: unknown[]): Promise<Turn> {
 	while (!next.done) next = await gen.next()
 
 	return {
-		id: RUN_ID,
+		id: TURN_ID,
 		status: 'completed',
 		messages,
 		tokenUsage: recorder.tokenUsage,

@@ -25,7 +25,7 @@ import { drainQuery } from '../index.js'
  *
  * The executor used to hand that callback to a tool for the lifetime of the
  * run. A plugin could retain it, let its visible call settle, and dispatch a
- * second tool after the call — or even after `run_completed`. The same nested
+ * second tool after the call — or even after `turn_completed`. The same nested
  * path also skipped the operator authorization gate entirely, so an allowed
  * `run_code` parent could invoke a child the operator explicitly denied.
  *

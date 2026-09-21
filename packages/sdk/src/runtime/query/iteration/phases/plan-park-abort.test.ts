@@ -37,7 +37,7 @@ function delay(ms: number): Promise<'hung'> {
 	return new Promise((resolve) => setTimeout(() => resolve('hung'), ms))
 }
 
-interface ParkedPlanRun {
+interface ParkedPlanTurn {
 	/** Resolves the moment the host is asked to approve the plan. */
 	parked: Promise<void>
 	/** Resolves with the run's terminal value, or 'hung' if it never settles. */
@@ -47,7 +47,7 @@ interface ParkedPlanRun {
 	abort: () => void
 }
 
-function startRunParkedOnPlanApproval(): ParkedPlanRun {
+function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 	const controller = new AbortController()
 	const events: SessionEvent[] = []
 	const requests: HITLDecisionRequest[] = []
@@ -111,7 +111,7 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 
 describe('a Stop while the run is parked on plan approval', () => {
 	it('resolves the park as cancelled instead of waiting for the host', async () => {
-		const run = startRunParkedOnPlanApproval()
+		const run = startTurnParkedOnPlanApproval()
 
 		await run.parked
 		// The park is real: the host was asked for a plan approval and has not
@@ -127,7 +127,7 @@ describe('a Stop while the run is parked on plan approval', () => {
 	})
 
 	it('reports the cancellation on the event stream', async () => {
-		const run = startRunParkedOnPlanApproval()
+		const run = startTurnParkedOnPlanApproval()
 
 		await run.parked
 		run.abort()

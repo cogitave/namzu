@@ -18,7 +18,7 @@ const SESSION_ID = generateSessionId()
  * existed at all: `bash` defaulted to one hour, MCP stdio to forever.
  */
 
-const RUN_ID = 'a1210bd5-9811-41e1-bbcb-6c63b91947e3' as TurnId
+const TURN_ID = 'a1210bd5-9811-41e1-bbcb-6c63b91947e3' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -96,7 +96,7 @@ function harness(opts: {
 		{
 			sessionId: SESSION_ID,
 			tools,
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -106,7 +106,7 @@ function harness(opts: {
 				? { maxToolConcurrency: opts.maxToolConcurrency }
 				: {}),
 		},
-		new ActivityStore(RUN_ID, {
+		new ActivityStore(TURN_ID, {
 			enabled: true,
 			trackToolCalls: true,
 			trackLlmTurns: true,

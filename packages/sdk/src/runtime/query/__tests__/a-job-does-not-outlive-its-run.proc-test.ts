@@ -186,9 +186,9 @@ describe('a run takes its background jobs with it', () => {
 		const failed = 'error' in outcome || outcome.status !== 'completed'
 		expect(failed).toBe(true)
 
-		const runId = 'error' in outcome ? undefined : outcome.id
-		if (!runId) throw new Error('no run id to check')
-		const mine = registry.list(runId)
+		const turnId = 'error' in outcome ? undefined : outcome.id
+		if (!turnId) throw new Error('no turn id to check')
+		const mine = registry.list(turnId)
 		expect(mine.length).toBeGreaterThan(0)
 		expect(mine.every((job) => job.status === 'killed')).toBe(true)
 	})

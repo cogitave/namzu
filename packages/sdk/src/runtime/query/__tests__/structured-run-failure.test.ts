@@ -10,7 +10,7 @@ import type { SessionEventDraft } from '../events.js'
 import { ResultAssembler } from '../result.js'
 
 /**
- * `run_failed` carried a bare string, and the run boundary flattened the
+ * `turn_failed` carried a bare string, and the run boundary flattened the
  * throwable into it — discarding `code`, `status`, `retryAfterMs`,
  * `retryable`, `details` and the whole cause chain.
  *
@@ -59,7 +59,7 @@ async function failWith(err: unknown): Promise<SessionEvent[]> {
 			stopReason: undefined,
 			markFailed: () => {},
 			getTurn: () => ({ id: RID }) as unknown as Turn,
-			// LOG-14: `handleError` now calls `recordAudit` on the run_failed path,
+			// LOG-14: `handleError` now calls `recordAudit` on the turn_failed path,
 			// which every test in this file reaches.
 			recordAudit: async () => undefined as never,
 		} as unknown as TurnRecorder,
@@ -95,7 +95,7 @@ const failureOf = (events: SessionEvent[]) =>
 	events.find((e): e is Extract<SessionEvent, { type: 'turn_failed' }> => e.type === 'turn_failed')
 		?.failure
 
-describe('what run_failed carries', () => {
+describe('what turn_failed carries', () => {
 	it('keeps the flattened message, for consumers that only render a string', async () => {
 		const events = await failWith(new Error('boom'))
 		const failed = events.find((e) => e.type === 'turn_failed')

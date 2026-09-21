@@ -23,7 +23,7 @@ import { streamProviderTurn } from '../stream-turn.js'
  * that skipped it, which is the opposite of what its frequency deserves.
  */
 
-const RUN_ID = '99cb3afe-b8f6-4a9b-9f17-e906b5edc175' as TurnId
+const TURN_ID = '99cb3afe-b8f6-4a9b-9f17-e906b5edc175' as TurnId
 
 interface Written {
 	instrument: string
@@ -113,7 +113,7 @@ async function runCancelled(): Promise<{
 			events.push(e as SessionEvent)
 		},
 		function* () {},
-		RUN_ID,
+		TURN_ID,
 		1,
 		false,
 		makeLogger(),
@@ -178,7 +178,7 @@ describe('a turn cancelled mid-stream', () => {
 				events.push(event as SessionEvent)
 			},
 			function* () {},
-			RUN_ID,
+			TURN_ID,
 			1,
 			false,
 			makeLogger(),

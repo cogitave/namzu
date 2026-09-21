@@ -29,7 +29,7 @@ const SESSION_ID = generateSessionId()
  * guard against clearing error results silently excluded vetoed ones.
  */
 
-const RUN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as TurnId
+const TURN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -81,13 +81,13 @@ describe('a tool call a probe vetoed', () => {
 			{
 				sessionId: SESSION_ID,
 				tools: makeToolRegistry(),
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+			new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 			async (e: SessionEventDraft) => {
 				emitted.push(e as SessionEvent)
 			},
@@ -132,13 +132,13 @@ describe('a tool call a probe vetoed', () => {
 			{
 				sessionId: SESSION_ID,
 				tools: makeToolRegistry(),
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+			new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 			async () => {},
 			makeLogger(),
 			probes,

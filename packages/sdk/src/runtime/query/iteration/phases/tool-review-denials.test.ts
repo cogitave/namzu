@@ -33,7 +33,7 @@ const SESSION_ID = generateSessionId()
  * never an absent record.
  */
 
-const RUN_ID = '91977d69-9b92-46f6-baa5-d077027fed93' as TurnId
+const TURN_ID = '91977d69-9b92-46f6-baa5-d077027fed93' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -138,13 +138,13 @@ function harness(opts: {
 		{
 			sessionId: SESSION_ID,
 			tools,
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 		},
-		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async () => {},
 		log,
 	)
@@ -155,7 +155,7 @@ function harness(opts: {
 		log,
 		abortController: new AbortController(),
 		recorder: {
-			id: RUN_ID,
+			id: TURN_ID,
 			messages,
 			pushMessage: (m: Message) => {
 				messages.push(m)

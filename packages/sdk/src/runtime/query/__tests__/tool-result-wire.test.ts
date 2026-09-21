@@ -21,7 +21,7 @@ const SESSION_ID = generateSessionId()
  * arrived — the mapper tests passed because they set the fields by hand.
  */
 
-const RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as TurnId
+const TURN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -62,14 +62,14 @@ function executorReturning(result: ToolResult, maxToolOutputChars?: number): Too
 		{
 			sessionId: SESSION_ID,
 			tools,
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 			...(maxToolOutputChars !== undefined ? { maxToolOutputChars } : {}),
 		},
-		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+		new ActivityStore(TURN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		async () => {},
 		makeLogger(),
 	)

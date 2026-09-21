@@ -268,7 +268,7 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 		//
 		// Driven AFTER `drainQuery` returns rather than from inside a hook.
 		// `onContextCreated` fires before the box is handed out — the handout
-		// waits for `run_started`, so that the durable record of a change can
+		// waits for `turn_started`, so that the durable record of a change can
 		// actually be written — so a host cannot reach the box from there.
 		// Both objects outlive the run, and the question this asks is about
 		// the wiring, not about timing.

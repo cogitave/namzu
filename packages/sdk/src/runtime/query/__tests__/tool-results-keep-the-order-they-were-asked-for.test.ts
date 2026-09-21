@@ -40,7 +40,7 @@ const SESSION_ID = generateSessionId()
  * the answers the model reads back.
  */
 
-const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
+const mockTurnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -96,13 +96,13 @@ function executorOver(tools: ToolRegistry): ExecutorFixture {
 		{
 			sessionId: SESSION_ID,
 			tools,
-			turnId: mockRunId,
+			turnId: mockTurnId,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 		},
-		new ActivityStore(mockRunId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(mockTurnId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (event) => {
 			events.push(event as SessionEvent)
 		},
@@ -590,8 +590,8 @@ describe('the ordering a nested dispatch sees', () => {
 		// preparation pass that reordered the calls would split one batch's
 		// cards across two groups.
 		expect(batchIds).toEqual([
-			JSON.stringify([String(mockRunId), 'call_one']),
-			JSON.stringify([String(mockRunId), 'call_one']),
+			JSON.stringify([String(mockTurnId), 'call_one']),
+			JSON.stringify([String(mockTurnId), 'call_one']),
 		])
 	})
 })

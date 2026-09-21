@@ -33,9 +33,9 @@ import { type QueryParams, query } from '../index.js'
 /**
  * A cancelled run is the one path where ORDER is the entire contract.
  *
- * A host folds `message_completed` into its transcript and `run_completed`
+ * A host folds `message_completed` into its transcript and `turn_completed`
  * into its run record. A stream that settles the run before it closes the
- * message leaves a card open forever; one that reports `run_failed` for a
+ * message leaves a card open forever; one that reports `turn_failed` for a
  * deliberate Stop puts an operator's keystroke in the error dashboard. And a
  * cancellation nobody attributed arrives as the same bare `'cancelled'` that a
  * budget stop and an abandoned child do, so the reader cannot tell a decision
@@ -217,7 +217,7 @@ describe('a run cancelled while the provider held the turn', () => {
 			content: 'partial answer',
 		})
 		// The message must be closed BEFORE the run is settled, or a host that
-		// renders on `run_completed` draws a card with no terminator — and the
+		// renders on `turn_completed` draws a card with no terminator — and the
 		// partial text the model already produced is lost with it.
 		expect(messageCompleted).toBeLessThan(runCompleted)
 

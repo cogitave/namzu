@@ -68,7 +68,7 @@ it.each(['query_planning', 'retrieval'] as const)(
 							return {
 								candidates: [
 									{
-										scope: { ...scope, runId: generateTurnId() },
+										scope: { ...scope, turnId: generateTurnId() },
 										seq: 2,
 										part: 0,
 										source: 'tool_completed',

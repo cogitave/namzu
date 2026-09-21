@@ -13,7 +13,7 @@ import { ToolExecutor } from '../executor.js'
 
 const SESSION_ID = generateSessionId()
 
-const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
+const mockTurnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -54,7 +54,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 	let emitEvent: (e: SessionEventDraft) => Promise<void>
 
 	beforeEach(() => {
-		activityStore = new ActivityStore(mockRunId, {
+		activityStore = new ActivityStore(mockTurnId, {
 			enabled: true,
 			trackToolCalls: true,
 			trackLlmTurns: true,
@@ -86,7 +86,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -125,7 +125,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -157,7 +157,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -172,10 +172,10 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 		await exec.executeBatch(twoCallResponse('read', {}, {}, 'wave-b-'))
 
 		expect(new Set(seen.slice(0, 2).map((entry) => entry.batch))).toEqual(
-			new Set([JSON.stringify([String(mockRunId), 'wave-a-1'])]),
+			new Set([JSON.stringify([String(mockTurnId), 'wave-a-1'])]),
 		)
 		expect(new Set(seen.slice(2).map((entry) => entry.batch))).toEqual(
-			new Set([JSON.stringify([String(mockRunId), 'wave-b-1'])]),
+			new Set([JSON.stringify([String(mockTurnId), 'wave-b-1'])]),
 		)
 		expect(seen.map((entry) => entry.call).sort()).toEqual([
 			'wave-a-1',
@@ -229,7 +229,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -414,7 +414,7 @@ describe('ToolExecutor — concurrencySafe batching', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},

@@ -209,7 +209,9 @@ describe('plugin hook cancellation reaches a real query', () => {
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			signal: caller.signal,
-			...(nested ? { depth: 1, parentRunId: generateTurnId() } : {}),
+			...(nested
+				? { depth: 1, parentSessionId: generateSessionId(), parentTurnId: generateTurnId() }
+				: {}),
 		})
 
 		await entered

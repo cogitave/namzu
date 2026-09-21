@@ -40,14 +40,14 @@ registerMock()
 
 const RUN_CONFIG = { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 }
 
-interface RunUnderTest {
+interface TurnUnderTest {
 	generator: AsyncGenerator<SessionEvent, Turn>
 	sessionLog: InMemorySessionLog
 	/** The teardown the run's `finally` block performs. */
 	killOwner: MockInstance
 }
 
-function startRun(): RunUnderTest {
+function startTurn(): TurnUnderTest {
 	const sessionId = generateSessionId()
 	const sessionLog = new InMemorySessionLog({ sessionId })
 	const jobs = new BackgroundJobRegistry()
@@ -103,25 +103,25 @@ function startRun(): RunUnderTest {
  * started, a checkpoint is committed and the log holds a running turn —
  * the state a host would find if it looked while the run was working.
  */
-async function abandonMidFlight(): Promise<RunUnderTest> {
-	const run = startRun()
+async function abandonMidFlight(): Promise<TurnUnderTest> {
+	const run = startTurn()
 
-	let sawRunInFlight = false
+	let sawTurnInFlight = false
 	for await (const event of run.generator) {
 		if (event.type === 'checkpoint_created') {
-			sawRunInFlight = true
+			sawTurnInFlight = true
 			break
 		}
 	}
 
 	// `break` only reaches the `finally` if the run actually got there.
-	expect(sawRunInFlight).toBe(true)
+	expect(sawTurnInFlight).toBe(true)
 	return run
 }
 
 /** Drive a run to its terminal value. A manual drain, because `for await`
  * discards the `Turn` a settled generator returns. */
-async function drain(run: RunUnderTest): Promise<Turn> {
+async function drain(run: TurnUnderTest): Promise<Turn> {
 	const iterator = run.generator[Symbol.asyncIterator]()
 	for (;;) {
 		const next = await iterator.next()
@@ -160,7 +160,7 @@ describe('a consumer that abandons the run', () => {
 	it('leaves a run that completes writing exactly the same number of times', async () => {
 		// The abandonment handling must not add a write where the run already
 		// settled through `finalize()`.
-		const run = startRun()
+		const run = startTurn()
 
 		const settled = await drain(run)
 
@@ -181,7 +181,7 @@ describe('a consumer that abandons the run', () => {
  * checkpoint it belongs to is still the place a resume would start from.
  *
  * The race that produces it is one statement wide. `handleHITLDecision`
- * answers `pause` by emitting `run_paused` and draining it BEFORE it calls
+ * answers `pause` by emitting `turn_paused` and draining it BEFORE it calls
  * `setStopReason('paused')`, so a consumer that breaks on that event leaves a
  * run with an outstanding park, `status: 'running'` and no stop reason at
  * all — the one instant where the in-memory state says nothing about the

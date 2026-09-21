@@ -16,7 +16,7 @@ import { ToolExecutor } from '../executor.js'
 
 const SESSION_ID = generateSessionId()
 
-const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
+const mockTurnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function makeLogger(): Logger {
 	const stub = {
@@ -73,7 +73,7 @@ describe('ToolExecutor plugin hooks', () => {
 	let emitEvent: (e: SessionEventDraft) => Promise<void>
 
 	beforeEach(() => {
-		activityStore = new ActivityStore(mockRunId, {
+		activityStore = new ActivityStore(mockTurnId, {
 			enabled: true,
 			trackToolCalls: true,
 			trackLlmTurns: true,
@@ -90,7 +90,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -129,7 +129,7 @@ describe('ToolExecutor plugin hooks', () => {
 				{
 					sessionId: SESSION_ID,
 					tools,
-					turnId: mockRunId,
+					turnId: mockTurnId,
 					workingDirectory: '/tmp',
 					permissionMode: 'auto',
 					env: {},
@@ -162,7 +162,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -199,7 +199,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -229,7 +229,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -256,7 +256,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -282,7 +282,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -315,7 +315,7 @@ describe('ToolExecutor plugin hooks', () => {
 				{
 					sessionId: SESSION_ID,
 					tools,
-					turnId: mockRunId,
+					turnId: mockTurnId,
 					workingDirectory: root,
 					permissionMode: 'auto',
 					env: {},
@@ -378,7 +378,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -430,7 +430,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -466,7 +466,7 @@ describe('ToolExecutor plugin hooks', () => {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: mockRunId,
+				turnId: mockTurnId,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},

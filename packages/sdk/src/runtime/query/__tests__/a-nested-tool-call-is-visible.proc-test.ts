@@ -37,7 +37,7 @@ const SESSION_ID = generateSessionId()
  * Process-level: the program runs in a real worker thread.
  */
 
-const RUN_ID = '46e8ada9-5274-4684-97e3-5231c5873d07' as TurnId
+const TURN_ID = '46e8ada9-5274-4684-97e3-5231c5873d07' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -118,7 +118,7 @@ async function runProgram(
 				tools,
 				options,
 			),
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -131,7 +131,7 @@ async function runProgram(
 			...(options.toolTimeoutMs !== undefined ? { toolTimeoutMs: options.toolTimeoutMs } : {}),
 			...(options.toolPause ? { toolPause: options.toolPause } : {}),
 		},
-		new ActivityStore(RUN_ID, {
+		new ActivityStore(TURN_ID, {
 			enabled: true,
 			trackToolCalls: true,
 			trackLlmTurns: true,
@@ -465,13 +465,13 @@ describe('a nested failure is reported as one', () => {
 					listNames: vi.fn(() => []),
 					getAvailability: vi.fn(),
 				} as unknown as ToolRegistryContract,
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(RUN_ID, {
+			new ActivityStore(TURN_ID, {
 				enabled: true,
 				trackToolCalls: true,
 				trackLlmTurns: true,

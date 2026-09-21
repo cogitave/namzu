@@ -35,7 +35,7 @@ import { drainQuery } from '../index.js'
  * what this file pins: the translator's queue is flushed in push order, so
  * such an event keeps its place and merely arrives in a later batch. The
  * batch boundaries are not part of the stream contract; the position of
- * `guardrail_triggered` relative to `run_completed` is, and that is what is
+ * `guardrail_triggered` relative to `turn_completed` is, and that is what is
  * asserted below (and what a mutation can break).
  *
  * The runs below are real `query()` calls: the guardrail fires inside the
@@ -124,7 +124,7 @@ describe('an output guardrail that fires', () => {
 		})
 
 		// The whole ordered stream, pinned. Every event between the block's own
-		// `guardrail_triggered` and the terminal `run_completed` is a position
+		// `guardrail_triggered` and the terminal `turn_completed` is a position
 		// the settlement fixes: the block sits after the loop's last
 		// `iteration_completed` (the text it judges already reached the host,
 		// as `text_delta`, while the model produced it) and before

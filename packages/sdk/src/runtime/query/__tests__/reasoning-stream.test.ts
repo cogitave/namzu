@@ -17,7 +17,7 @@ import { streamProviderTurn } from '../iteration/stream-turn.js'
  * stall with zero events while the model was demonstrably working.
  */
 
-const RUN_ID = '99b1ceae-1a8b-4b07-b56e-327eae34f058' as TurnId
+const TURN_ID = '99b1ceae-1a8b-4b07-b56e-327eae34f058' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -54,7 +54,7 @@ async function run(chunks: StreamChunk[]) {
 		{ model: 'm', messages: [] } as never,
 		emitEvent,
 		drainPending,
-		RUN_ID,
+		TURN_ID,
 		1,
 		false,
 		makeLogger(),
@@ -97,7 +97,7 @@ describe('reasoning blocks survive the stream', () => {
 				events.push(event as SessionEvent)
 			},
 			function* () {},
-			RUN_ID,
+			TURN_ID,
 			1,
 			false,
 			makeLogger(),
@@ -221,7 +221,7 @@ describe('reasoning blocks survive the stream', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'reasoning_delta',
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				iteration: 1,
 				messageId: '1424e839-3768-4813-8d3d-e5190867e5d3',
 				blockIndex: 0,
@@ -232,7 +232,7 @@ describe('reasoning blocks survive the stream', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'reasoning_completed',
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				iteration: 1,
 				messageId: '1424e839-3768-4813-8d3d-e5190867e5d3',
 				blockIndex: 0,

@@ -29,7 +29,7 @@ const SESSION_ID = generateSessionId()
  * budget stopped it, burning the whole envelope after the work was done.
  */
 
-const RUN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as TurnId
+const TURN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -83,7 +83,7 @@ function buildCtx(opts: {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
@@ -93,7 +93,7 @@ function buildCtx(opts: {
 		{
 			sessionId: SESSION_ID,
 			tools,
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -105,7 +105,7 @@ function buildCtx(opts: {
 	)
 
 	const recorder = {
-		id: RUN_ID,
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,

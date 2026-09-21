@@ -41,7 +41,7 @@ describe('a run cannot hang', () => {
 
 	it('MCP round trips have a deadline', () => {
 		// stdio — the default transport for local servers — armed no timer at
-		// all, so a wedged server hung the run with no error and no run_failed.
+		// all, so a wedged server hung the run with no error and no turn_failed.
 		expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBeGreaterThan(0)
 		expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000)
 	})

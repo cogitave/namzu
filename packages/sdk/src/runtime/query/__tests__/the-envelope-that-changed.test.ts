@@ -20,7 +20,7 @@ import { drainQuery } from '../index.js'
  * A transcript showed one prompt for a run that had asked several
  * questions.
  *
- * `run_started` records a system prompt once, and tool schemas never
+ * `turn_started` records a system prompt once, and tool schemas never
  * reached the transcript at all. Meanwhile `prepareStep` rewrites the
  * system text, narrows the tool list or swaps the model between
  * iterations, and a step's skills ride an ephemeral trailing system

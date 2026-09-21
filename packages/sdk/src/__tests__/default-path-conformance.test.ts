@@ -33,7 +33,7 @@ const SESSION_ID = generateSessionId()
  * turn, is the conversation still something a provider would accept?
  */
 
-const RUN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as TurnId
+const TURN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as TurnId
 
 /** The CLI's gate, verbatim in shape: read-only allowed, dangerous denied. */
 const CLI_GATE: AuthorizationGateConfig = {
@@ -78,14 +78,14 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
 	})
 
 	const recorder = {
-		id: RUN_ID,
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,
@@ -135,7 +135,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},

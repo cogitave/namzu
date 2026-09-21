@@ -1,5 +1,5 @@
 /**
- * Every retry warning and every fallback swap carries `namzu.run.id`.
+ * Every retry warning and every fallback swap carries `namzu.turn.id`.
  *
  * Before LOG-07, `runtime/query/index.ts` built `withProviderRetry` and
  * `withProviderFallback` off a bare `getRootLogger()` — the two highest-
@@ -53,7 +53,7 @@ function failing(id: string, status: number): LLMProvider & { calls: number } {
 	} as unknown as LLMProvider & { calls: number }
 }
 
-function baseRunConfig(): TurnConfig {
+function baseTurnConfig(): TurnConfig {
 	return {
 		model: 'primary-model',
 		timeoutMs: 5_000,
@@ -66,7 +66,7 @@ function baseRunConfig(): TurnConfig {
 function baseParams(workingDirectory: string) {
 	return {
 		tools: new ToolRegistry(),
-		turnConfig: baseRunConfig(),
+		turnConfig: baseTurnConfig(),
 		agentId: 'agent_correlated',
 		agentName: 'Correlated Agent',
 		workingDirectory,
@@ -105,7 +105,7 @@ describe('retry and fallback records are correlated to the run that produced the
 		return dir
 	}
 
-	it("every retry warning and every fallback swap carries this run's namzu.run.id", async () => {
+	it("every retry warning and every fallback swap carries this run's namzu.turn.id", async () => {
 		const primary = failing('primary', 429)
 		const fallback = new MockLLMProvider({ turns: [{ text: 'the fallback answered' }] })
 

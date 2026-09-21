@@ -178,7 +178,7 @@ describe('a pause at the iteration checkpoint', () => {
 		expect(run.status).toBe('completed')
 	})
 
-	it('emits run_paused through the real loop, naming the checkpoint', async () => {
+	it('emits turn_paused through the real loop, naming the checkpoint', async () => {
 		const { events, session } = await runUntilPaused()
 
 		const paused = events.filter(

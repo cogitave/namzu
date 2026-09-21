@@ -34,7 +34,7 @@ const SESSION_ID = generateSessionId()
  * mismatch surfaced as a ZodError AFTER the run had paid for itself.
  */
 
-const RUN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as TurnId
+const TURN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as TurnId
 
 const SCHEMA = z.object({
 	verdict: z.enum(['pass', 'fail']),
@@ -92,7 +92,7 @@ function harness(opts: {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
@@ -101,7 +101,7 @@ function harness(opts: {
 	const maxIterations = opts.maxIterations ?? 8
 
 	const recorder = {
-		id: RUN_ID,
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,
@@ -146,7 +146,7 @@ function harness(opts: {
 			{
 				sessionId: SESSION_ID,
 				tools,
-				turnId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},

@@ -22,7 +22,7 @@ const SESSION_ID = generateSessionId()
  * alongside the skill it loaded.
  */
 
-const RUN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as TurnId
+const TURN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -70,14 +70,14 @@ function executorWith(
 		{
 			sessionId: SESSION_ID,
 			tools: recordingRegistry(seen),
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 			...(allowedTools ? { allowedTools } : {}),
 		},
-		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (_e: SessionEventDraft) => {},
 		makeLogger(),
 	)

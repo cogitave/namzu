@@ -54,7 +54,7 @@ function failingProvider(code: 'rate_limit' | 'auth', status: number) {
 type Failure = { retryable?: boolean; details?: unknown; code?: string }
 
 async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
-	// The classification rides the `run_failed` EVENT, which is where a
+	// The classification rides the `turn_failed` EVENT, which is where a
 	// host reads it; the settled Run carries only the message.
 	let failure: Failure | undefined
 	await drainQuery(

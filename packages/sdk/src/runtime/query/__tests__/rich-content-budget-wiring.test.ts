@@ -27,7 +27,7 @@ const SESSION_ID = generateSessionId()
  * against an executor built by hand, which is precisely how the gap survived.
  */
 
-const RUN_ID = '9c2a5358-a2bf-4868-9ffc-2a9cc8908f99' as TurnId
+const TURN_ID = '9c2a5358-a2bf-4868-9ffc-2a9cc8908f99' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -76,7 +76,7 @@ function bootstrapReturning(
 			tools,
 			...(maxToolOutputChars !== undefined ? { maxToolOutputChars } : {}),
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
-			turnId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -84,7 +84,7 @@ function bootstrapReturning(
 			...(maxToolContentBytes !== undefined ? { maxToolContentBytes } : {}),
 			...(toolOutputDir ? { toolOutputDir } : {}),
 		},
-		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+		new ActivityStore(TURN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		async () => {},
 		makeLogger(),
 	)
