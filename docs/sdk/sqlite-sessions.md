@@ -44,6 +44,13 @@ SQLite.
 | `resolveExternal(protocol, kind, externalId)`, `listExternalRefs(sessionId)` | Which session a caller-side id (an AG-UI thread, an A2A context, an ACP or desktop session) names. Any string is accepted. |
 | `searchEvidence({ … })` | Full-text search over message and tool text (FTS5 in SQLite), with the session, turn and seq of each hit |
 
+A host server resolves a caller-side id with `resolveExternalSession({ index,
+protocol, externalId })`: an id that is an existing session, then an id a
+session already claimed, then a new session whose `origin` claims it.
+`resolveA2AContext(contextId, index)` does the same for an A2A `contextId` and
+returns the context id to echo on every task and event. Both are exported from
+`@namzu/sdk`.
+
 The index cannot see leases, so an interrupted turn reads `running` here. The
 session log itself (`activeTurn()`) is what tells `running`, `paused` and
 `interrupted` apart.

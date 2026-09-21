@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+// From the package barrel, not `../context.js`: a host outside the SDK can
+// only resolve a context through what `@namzu/sdk` exports.
+import { resolveA2AContext, resolveExternalSession } from '../../../index.js'
 import { ScanSessionIndex } from '../../../store/session-index/scan.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import { startIndexedSession } from '../../__fixtures__/indexed-session.js'
-import { resolveA2AContext } from '../context.js'
 import { mapTurnToA2AEvent } from '../mapper.js'
 import { a2aMessageToCreateTurn, mapTurnToA2ATask } from '../task.js'
 
@@ -40,6 +42,11 @@ async function send(
 }
 
 describe('an A2A context is a session', () => {
+	it('is resolvable from the package entry point', () => {
+		expect(typeof resolveA2AContext).toBe('function')
+		expect(typeof resolveExternalSession).toBe('function')
+	})
+
 	it('maps a context id that is not a UUID onto one session, and reuses it', async () => {
 		const index = new ScanSessionIndex()
 

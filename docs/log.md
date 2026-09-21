@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-22
+
+- **Update** [The session index](sdk/sqlite-sessions.md): a host resolves a caller-side id with `resolveExternalSession`, and an A2A `contextId` with `resolveA2AContext`, both now exported from `@namzu/sdk`.
+
 ## 2026-09-21
 
 - **Update** [Zen](sdk/zen.md) continues a conversation from `first.turn.messages`; [Run the kernel](sdk/quick-start.md)'s `paths` example is compiled by the fence gate now that `runAgent` takes `paths`.

@@ -794,8 +794,10 @@ export {
 	mapTurnToA2AEvent,
 	mapTurnToA2ATask,
 	messageToA2A,
+	resolveA2AContext,
 	turnStatusToA2AState,
 } from './bridge/a2a/index.js'
+export { resolveExternalSession } from './bridge/external-session.js'
 
 // The client half. Until this landed the bridge was a one-way door: this
 // kernel served a card and could read nobody else's, so the delegate seam

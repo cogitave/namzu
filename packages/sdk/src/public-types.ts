@@ -232,7 +232,16 @@ export type {
 	ConnectorToolStrategy,
 } from './connector/tools/index.js'
 
-export type { CreateTurnFromA2A, MapTurnToA2ATaskOptions } from './bridge/a2a/index.js'
+export type {
+	A2AContextResolution,
+	CreateTurnFromA2A,
+	MapTurnToA2ATaskOptions,
+} from './bridge/a2a/index.js'
+export type {
+	ExternalSessionLookup,
+	ExternalSessionResolution,
+	ResolveExternalSessionOptions,
+} from './bridge/external-session.js'
 
 export type { CheckpointRecords, RecordedPark } from './runtime/query/checkpoint.js'
 
