@@ -31,7 +31,8 @@ migration.
   `context.turnId`), the context a guardrail receives, `StepResult`,
   `PrepareStepContext`, `AnswerReviewContext`, probes and provider
   instrumentation, deliverables, plans and approval requests, bus owners,
-  background-job owners, tasks and working memory (`turnId: TurnId`).
+  background-job owners, tasks, working memory and `HandoffLockRejected.details`
+  (`turnId: TurnId`).
   `parentRunId` becomes `parentSessionId` plus `parentTurnId`.
 
 **Core types (rename, same meaning unless noted).**

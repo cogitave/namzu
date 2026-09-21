@@ -40,21 +40,21 @@ export class HandoffVersionConflict extends Error {
 export type HandoffLockRejectedReason = 'active_run' | 'pending_hitl' | 'pending_subsession'
 
 /**
- * Raised when a handoff targets a session whose current Run is non-terminal.
- * Callers must wait for the active Run to terminalize (or cancel it) before
+ * Raised when a handoff targets a session whose current turn is non-terminal.
+ * Callers must wait for the active turn to terminalize (or cancel it) before
  * re-attempting the handoff (session-hierarchy.md §5.1).
  */
 export class HandoffLockRejected extends Error {
 	readonly details: {
 		sessionId: SessionId
 		reason: HandoffLockRejectedReason
-		runId?: TurnId
+		turnId?: TurnId
 	}
 
 	constructor(details: {
 		sessionId: SessionId
 		reason: HandoffLockRejectedReason
-		runId?: TurnId
+		turnId?: TurnId
 	}) {
 		super(`Handoff lock rejected on ${details.sessionId}: ${details.reason}`)
 		this.name = 'HandoffLockRejected'

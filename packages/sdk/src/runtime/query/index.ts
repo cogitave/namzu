@@ -1970,7 +1970,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// Handed over here, and the position is load-bearing in three
 				// directions. It has to follow `wirePlanManager`, or a host that
 				// builds its plan in this callback does it into silence. It has to
-				// follow `recorder.init()` and `run_started`, because plan events append
+				// follow `recorder.init()` and `turn_started`, because plan events append
 				// to that durable run. It also has to follow the pre-model abort fence:
 				// a callback invoked after attachment resolution observed cancellation
 				// would regain withdrawn authority and could replace the cancellation
@@ -1978,7 +1978,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// is the guarantee the callback makes.
 				params.onContextCreated?.({ planManager: ctx.planManager })
 
-				// The box is handed out HERE, after `run_started`, and the position
+				// The box is handed out HERE, after `turn_started`, and the position
 				// is load-bearing rather than tidy. It moved twice:
 				//
 				//  1. Beside the box's construction — a host that called `set`
@@ -1996,7 +1996,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				params.onApprovalPolicy?.(approvalPolicy)
 
 				// History repair happens before the run manager sees the first model
-				// request, but its durable event cannot precede run_started: there is no
+				// request, but its durable event cannot precede turn_started: there is no
 				// writable run log until that event initializes it. Emit the measured
 				// counts here, still before any provider call, so hosts can tell that the
 				// model received a repaired projection rather than the raw history.
@@ -2157,8 +2157,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				}
 
 				// Before the first model call: the cheapest place to refuse, since
-				// nothing has been spent. Previously unreachable — `run_start`
-				// fires with only `{ runId }` and `run_started` carries only the
+				// nothing has been spent. Previously unreachable — `turn_start`
+				// fires with only `{ sessionId, turnId }` and `turn_started` carries only the
 				// system prompt, so no hook could see the user's message.
 				const inputVerdict = await runInputGuardrails(
 					params.inputGuardrails,

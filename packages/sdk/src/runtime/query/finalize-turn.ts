@@ -27,7 +27,7 @@ import type { ResultAssembler } from './result.js'
  * `markCancelled` runs before the assembler, because `completeTurn` marks a
  * `running` run `completed` — the reverse order would overwrite the
  * cancellation the abort signal had already declared. And
- * `memory_consolidated` precedes `run_completed`, so a host folding the
+ * `memory_consolidated` precedes `turn_completed`, so a host folding the
  * stream in order has the memory before the run that produced it.
  *
  * `setSteps` keeps its position too, but on the move's terms rather than on

@@ -332,14 +332,14 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		maxRequestRichContentBytes,
 	}
 
-	// The run's one correlated logger, built before anything below needs
+	// The turn's one correlated logger, built before anything below needs
 	// one — the migration check, the retry/fallback wrappers and `ctx`
-	// itself all read this SAME object, so a retry warning and the run
-	// record it retried for carry the identical `namzu.run.id` instead of
+	// itself all read this SAME object, so a retry warning and the turn
+	// record it retried for carry the identical `namzu.turn.id` instead of
 	// three separate `getRootLogger()` reads that happened to agree by
-	// accident. `runId` is resolved here, once, rather than left to
+	// accident. `turnId` is resolved here, once, rather than left to
 	// `build`'s own `config.turnId ?? generateTurnId()` fallback —
-	// generating it twice would silently hand the log and the run two
+	// generating it twice would silently hand the log and the turn two
 	// different ids.
 	const turnId = params.turnId ?? generateTurnId()
 	if (params.resumeFromCheckpoint && !params.turnId) {

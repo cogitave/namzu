@@ -276,12 +276,8 @@ const actorRef = z.custom<ActorRef>(
 	{ message: 'expected an actor reference' },
 )
 
-/** The request the turn parked on, minus the turn identity the envelope already carries. */
-export type SessionDecisionRequest = HITLDecisionRequest extends infer R
-	? R extends HITLDecisionRequest
-		? Omit<R, 'runId'>
-		: never
-	: never
+/** The request the turn parked on, exactly as the resume handler receives it. */
+export type SessionDecisionRequest = HITLDecisionRequest
 
 const HITL_REQUEST_TYPES = new Set([
 	'plan_approval',
@@ -293,8 +289,7 @@ const decisionRequest = z.custom<SessionDecisionRequest>(
 	(value) =>
 		isPlainObject(value) &&
 		HITL_REQUEST_TYPES.has(value.type as string) &&
-		isEntityId(value.checkpointId, 'checkpoint') &&
-		!('runId' in value),
+		isEntityId(value.checkpointId, 'checkpoint'),
 	{ message: 'expected a decision request' },
 )
 const decision = z.custom<HITLResumeDecision>(

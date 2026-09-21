@@ -1634,7 +1634,7 @@ export class ToolExecutor {
 
 		const startMs = Date.now()
 		// an unhandled throw from `tools.execute(...)` used to
-		// propagate up to `result.ts` as `run_failed` without emitting a
+		// propagate up to `result.ts` as `turn_failed` without emitting a
 		// terminal `tool_completed`, leaving UI cards stuck in `executing`.
 		// Wrap so any throw materialises as an error result.
 		// Typed as the full ToolResult, not a narrowed literal: the narrow
@@ -2157,7 +2157,7 @@ export class ToolExecutor {
 	 * One execution attempt, with a throw materialized as an error result.
 	 *
 	 * an unhandled throw from `tools.execute(...)` used to
-	 * propagate up to `result.ts` as `run_failed` without emitting a
+	 * propagate up to `result.ts` as `turn_failed` without emitting a
 	 * terminal `tool_completed`, leaving UI cards stuck in `executing`.
 	 *
 	 * The return is the full `ToolResult`, not a narrowed literal: the

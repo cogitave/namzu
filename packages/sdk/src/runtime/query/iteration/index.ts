@@ -659,7 +659,7 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 
 					// What the model is about to be ASKED, recorded when it
-					// changed. `run_started` carries one system prompt and tool
+					// changed. `turn_started` carries one system prompt and tool
 					// schemas never reached the transcript at all — while
 					// `prepareStep` rewrites the system text, narrows the tool
 					// list or swaps the model, and a step's skills ride the
@@ -742,7 +742,7 @@ export class IterationOrchestrator {
 					// Phase 4 (ses_001-tool-stream-events): consume the
 					// streaming response natively, emitting message and
 					// tool-input lifecycle events as deltas arrive. The
-					// helper yields RunEvents through drainPending() so SSE
+					// helper yields SessionEvents through drainPending() so SSE
 					// consumers see live progress; its return value is the
 					// aggregated `ChatCompletionResponse` for the legacy
 					// downstream paths (assistantMsg construction, working

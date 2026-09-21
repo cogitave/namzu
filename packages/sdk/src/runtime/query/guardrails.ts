@@ -31,8 +31,8 @@ function normalize<T>(spec: T | { name: string; check: T }): { name?: string; ch
  * Run input guardrails before the first model call.
  *
  * Cheapest possible place to stop a run: nothing has been spent yet. The
- * previous surface could not do this at all — `run_start` fires with only
- * `{ runId }` and the `run_started` event carries only `systemPrompt`, so
+ * previous surface could not do this at all — `turn_start` fires with only
+ * `{ sessionId, turnId }` and the `turn_started` event carries only `systemPrompt`, so
  * the user's prompt was unreachable from any hook.
  */
 export async function runInputGuardrails(
@@ -74,7 +74,7 @@ export async function runInputGuardrails(
  * `text_delta` events reach the host as the model produces them, so a
  * consumer that renders deltas live has already shown text by the time a
  * guardrail sees it. A rewrite therefore has to be treated as a
- * correction, and `run_completed` carries the corrected text. Gating the
+ * correction, and `turn_completed` carries the corrected text. Gating the
  * stream itself would mean buffering every token — trading the streaming
  * UX for the guarantee — which is a decision for the host, not the SDK.
  *
