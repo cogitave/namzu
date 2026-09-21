@@ -375,11 +375,14 @@ export class MarkdownMemoryStore implements MemoryStore {
 				// A file with no `updatedAt` of its own is dated by an mtime a copy
 				// changes, so it is settled only when its id is derived from its
 				// name: then the other file carries that id because this store
-				// renamed the hand-written one, never because it was copied.
+				// renamed the hand-written one, never because it was copied. It
+				// is a leftover only while it is the OLDER file — update dates the
+				// renamed file after the original's mtime — so a newer undated
+				// file is a new hand-written memory reusing the old name.
 				const renamedHandWritten = (
-					a: Pick<LoadedMemory, 'dated' | 'derived'>,
-					b: Pick<LoadedMemory, 'dated' | 'derived'>,
-				) => !a.dated && a.derived && b.dated && !b.derived
+					a: Pick<LoadedMemory, 'dated' | 'derived' | 'entry'>,
+					b: Pick<LoadedMemory, 'dated' | 'derived' | 'entry'>,
+				) => !a.dated && a.derived && b.dated && !b.derived && a.entry.updatedAt < b.entry.updatedAt
 				const settled =
 					(other.dated && record.dated) ||
 					renamedHandWritten(other, record) ||

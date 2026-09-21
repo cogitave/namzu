@@ -728,6 +728,27 @@ describe('recoverable hand edits and interrupted writes', () => {
 		expect(await readFile(join(directory, 'before.md.superseded'), 'utf8')).toBe(old)
 	})
 
+	it('refuses a new hand-written file that reuses a renamed memory’s old name', async () => {
+		const { directory, store } = await fixture()
+		await mkdir(directory, { recursive: true })
+		const oldPath = join(directory, 'foo.md')
+		await writeFile(oldPath, '---\nname: foo\ndescription: d\ntype: project\n---\n\nold\n')
+		const oldTime = new Date(Date.now() - 60_000)
+		await utimes(oldPath, oldTime, oldTime)
+		const [entry] = (await store.list()).entries
+		await store.update(entry?.id as MemoryId, { name: 'bar' })
+		// The rename completed. Later the operator writes an unrelated memory
+		// under the old name: it derives the same id, but it is the newer file.
+		await writeFile(
+			oldPath,
+			'---\nname: foo\ndescription: d\ntype: project\n---\n\nnew unrelated\n',
+		)
+		await expect(store.list()).rejects.toThrow(
+			/foo\.md is invalid: claims id .*bar\.md also claims/,
+		)
+		expect(await readdir(directory)).toContain('bar.md')
+	})
+
 	it('still refuses an undated file that states the id a dated file also states', async () => {
 		const { directory, store } = await fixture()
 		const { entry } = await store.create({ title: 't', summary: 's', content: 'c', name: 'one' })

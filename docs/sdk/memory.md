@@ -147,10 +147,12 @@ store reads the newer and the next write moves the older aside to
 `<name>.md.superseded` rather than deleting it, when the pair is one of two
 shapes: both files state their own `updatedAt` and the two differ; or one is a
 hand-written file with neither `id` nor `updatedAt` — its id derived from its
-own name, its time its modification time — and the other states that id and an
-`updatedAt` of its own that differs. The second shape is what renaming a
-hand-written memory leaves, and nothing but that rename writes a name-derived
-id into a file of another name. Any other pair claiming one id is refused,
+own name, its time its modification time — and the other states that id and a
+later `updatedAt` of its own. The second shape is what an interrupted rename of
+a hand-written memory leaves: the rename dates the new file after the
+original's modification time, so the leftover is always the older of the two.
+When the undated file is the newer one it is a new memory written under a
+renamed memory's old name, and the pair is refused. Any other pair claiming one id is refused,
 naming both files: equal times (a copy), or a file with no `updatedAt` that
 states its `id` — its time is a modification time copying it changes, so it
 cannot show which of the two is newer. A copy whose `updatedAt` was edited to
