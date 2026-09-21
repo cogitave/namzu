@@ -78,6 +78,51 @@ journal and short transactions; readers do not create WAL sidecars.
 The CLI requires Node.js 22.13 or newer for native SQLite. SDK consumers can
 continue using the existing disk or in-memory drivers on Node.js 20.
 
+### Runtime state growth
+
+Every run the CLI starts keeps its newest 10 checkpoints
+(`runConfig.pruneKeepLast`, `packages/cli/src/integrations/state/retention.ts`).
+That includes interactive turns, headless runs, resumed and drained runs, and
+delegated children. The kernel's own default keeps all of them. Nothing in the
+CLI reads an older checkpoint: every resume reads the checkpoint it was handed
+or the newest one. A checkpoint whose approval is still outstanding is never
+pruned, however old. Each checkpoint references the run's single stored
+history instead of copying it; see [Durable run storage](../sdk/run-storage.md).
+
+Retention bounds the count; the run's history log bounds the bytes. Each
+checkpoint, and the settled `messages.json`, references the run's messages in
+`runs/<runId>/history/` instead of copying them, and the lines no record
+references any more are collected once they outweigh the live ones. See
+[Durable run storage](../sdk/run-storage.md).
+
+When a turn completes, the CLI removes the crash dumps in that session's
+`runs/emergency/` that are older than the turn. An interrupted turn or
+`namzu run` writes one, and the CLI never resumes from it: the next turn
+continues the conversation under a new run id, so the kernel's own cleanup,
+which clears a dump when the same run id completes, never reached it.
+
+Measured with `scripts/benchmarks/cli-state-growth.mjs`. It runs the built
+`namzu run` against a local scripted endpoint, and every model turn but the
+last asks for `read` on a different 4 KB file. "Before" is `main` at
+`cf271eb9`, measured on the same machine in the same session:
+
+| Invocations × tool calls | Files before | Bytes before | Files after | Bytes after |
+|---|---|---|---|---|
+| 3 × 50 | 173 | 29,621,057 | 53 | 4,101,738 |
+| 1 × 200 | 209 | 81,982,930 | 20 | 6,283,563 |
+
+Before, checkpoints were 25,675,207 and 76,337,386 of those bytes and
+`messages.json` 933,290 and 458,755. After, checkpoint records are 193,590
+and 195,481 bytes, the history logs 895,274 and 889,932, and `messages.json`
+1,092 and 11,619. A run's largest file is its event log, `transcript.jsonl`.
+Wall time went from 4.4 s to 4.9 s and from 23.6 s to 24.5 s. Most of it is
+retention, which reads the run's checkpoint files after every iteration: in
+`scripts/benchmarks/runtime-state-growth.mjs`, 50 iterations take 519 ms
+without it and 684 ms with `pruneKeepLast: 10`.
+
+Three invocations in one directory leave one Project, and nothing is written
+under the working directory.
+
 ### Previous storage format
 
 This is a new CLI storage format. Existing `projects/` trees are retained as
@@ -138,7 +183,10 @@ Central Project metadata must exist before delegation, and archived Projects
 or parent Sessions refuse new delegation. A first conversation may not yet
 have a Session record; it uses the Session ID already chosen by the caller.
 Embedded sessions without an application state root use their supplied scope
-without creating durable Project records.
+without creating durable Project records. Their generated state still goes to
+the application home, never to `<cwd>/.namzu`. A session created with no scope
+derives its Project from the working directory's checkout, so two sessions in
+one directory share generated memory.
 
 Task storage is also bound to the actual run. Calls that omit an explicit run
 filter use the current run instead of a shared placeholder directory.

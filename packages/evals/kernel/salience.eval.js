@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 /**
@@ -14,6 +14,7 @@ import { join } from "node:path";
  * provider, so a score that moves is the kernel moving.
  */
 import {
+	DefaultPathBuilder,
 	MockLLMProvider,
 	ToolRegistry,
 	autoApproveHandler,
@@ -76,43 +77,53 @@ function turns() {
 }
 
 async function runCase(input) {
-	const run = await drainQuery({
-		provider: new MockLLMProvider({ turns: turns() }),
-		tools: registry(),
-		runConfig: {
-			model: "mock-model",
-			timeoutMs: 30_000,
-			tokenBudget: 1_000_000,
-			maxIterations: 14,
-			maxResponseTokens: 256,
-		},
-		agentId: "agent_sal",
-		agentName: "Salience Agent",
-		workingDirectory: await mkdtemp(join(tmpdir(), "namzu-eval-sal-")),
-		sessionId: generateSessionId(),
-		topicId: generateTopicId(),
-		projectId: generateProjectId(),
-		tenantId: generateTenantId(),
-		messages: [
-			{
-				role: "user",
-				content: "read the billing config and bill the right account",
-				timestamp: 1,
+	// One scratch directory per case, removed when the case ends. Every
+	// case used to leave its directory, and the run state in it, behind.
+	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-sal-"));
+	try {
+		const run = await drainQuery({
+			provider: new MockLLMProvider({ turns: turns() }),
+			tools: registry(),
+			runConfig: {
+				model: "mock-model",
+				timeoutMs: 30_000,
+				tokenBudget: 1_000_000,
+				maxIterations: 14,
+				maxResponseTokens: 256,
 			},
-		],
-		resumeHandler: autoApproveHandler,
-		compactionConfig: {
-			strategy: input.strategy,
-			contextWindowTokens: 8_000,
-			keepRecentMessages: 2,
-			llmVerification: false,
-		},
-	});
-	const finalMessages = run.messages ?? [];
-	return Object.assign(evalRunFromRun(run), {
-		finalMessages,
-		contextChars: contextChars(finalMessages),
-	});
+			agentId: "agent_sal",
+			agentName: "Salience Agent",
+			workingDirectory: scratch,
+			// State under the scratch directory, not the default root: the
+			// directory is removed below, and with it everything the run wrote.
+			pathBuilder: new DefaultPathBuilder(join(scratch, ".namzu")),
+			sessionId: generateSessionId(),
+			topicId: generateTopicId(),
+			projectId: generateProjectId(),
+			tenantId: generateTenantId(),
+			messages: [
+				{
+					role: "user",
+					content: "read the billing config and bill the right account",
+					timestamp: 1,
+				},
+			],
+			resumeHandler: autoApproveHandler,
+			compactionConfig: {
+				strategy: input.strategy,
+				contextWindowTokens: 8_000,
+				keepRecentMessages: 2,
+				llmVerification: false,
+			},
+		});
+		const finalMessages = run.messages ?? [];
+		return Object.assign(evalRunFromRun(run), {
+			finalMessages,
+			contextChars: contextChars(finalMessages),
+		});
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
 }
 
 /** The final history's size, the quantity the next call would have paid for. */

@@ -1,4 +1,6 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { unsafeId } from '../types/ids/brand.js'
 import type {
 	ActivityId,
@@ -52,6 +54,35 @@ function generateId<T extends string>(): T {
 
 export function generateProjectId(): ProjectId {
 	return generateId()
+}
+
+/**
+ * The Project id a directory stands for: the same directory, the same id,
+ * every time and in every process.
+ *
+ * For a host that has no Project store to look one up in. Minting a fresh id
+ * per run instead partitions everything keyed by Project — the durable layout
+ * (`projects/<projectId>/…`), generated memory, task state — per invocation,
+ * so a batch of runs in one directory leaves a Project directory per run and
+ * no run can find what the one before it saved.
+ *
+ * The directory is canonicalised first (absolute, symlinks resolved where the
+ * path exists), so two spellings of one directory agree. The id is a
+ * name-based UUID (RFC 9562 version 8) over that path: opaque, admitted by
+ * every id check, and not reversible to the path.
+ */
+export function projectIdForDirectory(directory: string): ProjectId {
+	let canonical = resolve(directory)
+	try {
+		canonical = realpathSync(canonical)
+	} catch {
+		// A directory that does not exist yet still names a stable Project.
+	}
+	const hex = createHash('sha256').update(`namzu:project-directory:${canonical}`).digest('hex')
+	const variant = (0x8 | (Number.parseInt(hex[16] as string, 16) & 0x3)).toString(16)
+	return unsafeId<ProjectId>(
+		`${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`,
+	)
 }
 
 export function generateTopicId(): TopicId {

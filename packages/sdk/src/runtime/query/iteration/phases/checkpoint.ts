@@ -1,4 +1,6 @@
+import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
+import { toErrorMessage } from '../../../../utils/error.js'
 import { CheckpointManager } from '../../checkpoint.js'
 import {
 	type IterationContext,
@@ -33,9 +35,22 @@ export async function* runIterationCheckpoint(
 
 	// Growth control: keep only the newest N checkpoints when the host asked
 	// for pruning. Default undefined ⇒ never prune (today's behavior).
+	//
+	// A failed prune is logged, not thrown. The checkpoint this iteration
+	// needs was written above; failing to delete OLD ones costs disk, and
+	// ending a live run over disk that can be reclaimed at its next
+	// iteration trades the user's work for housekeeping.
 	const pruneKeepLast = ctx.runConfig.pruneKeepLast
 	if (pruneKeepLast !== undefined && pruneKeepLast >= 1) {
-		await ctx.checkpointMgr.prune(Math.floor(pruneKeepLast))
+		try {
+			await ctx.checkpointMgr.prune(Math.floor(pruneKeepLast))
+		} catch (err) {
+			ctx.log.warn('Checkpoint retention failed; older checkpoints are kept for now', {
+				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.ITERATION]: iterationNum,
+				'exception.message': toErrorMessage(err),
+			})
+		}
 	}
 
 	await ctx.emitEvent({

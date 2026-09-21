@@ -7,7 +7,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
 	EMERGENCY_DIR_NAME,
 	EMERGENCY_EVENTS,
@@ -91,11 +91,11 @@ export class EmergencySaveManager {
 		try {
 			const snapshot = runMgr.toEmergencySnapshot(signal)
 
-			const emergencyDir = join(this.outputDir, '..', EMERGENCY_DIR_NAME)
+			const finalPath = EmergencySaveManager.savePathFor(this.outputDir, snapshot.runId)
+			const emergencyDir = dirname(finalPath)
 			mkdirSync(emergencyDir, { recursive: true })
 
 			tmpPath = join(emergencyDir, `${snapshot.runId}.json.tmp.${randomUUID()}`)
-			const finalPath = join(emergencyDir, `${snapshot.runId}.json`)
 
 			writeFileSync(tmpPath, JSON.stringify(snapshot, null, '\t'), 'utf-8')
 			renameSync(tmpPath, finalPath)
@@ -124,6 +124,15 @@ export class EmergencySaveManager {
 				// Logger itself failed — nothing more we can safely do.
 			}
 		}
+	}
+
+	/**
+	 * Where a run's dump goes: `<runDir>/../emergency/<runId>.json`, beside
+	 * the run directories of its session. One place for the path, so the
+	 * writer and whatever clears it cannot disagree about it.
+	 */
+	static savePathFor(runDir: string, runId: string): string {
+		return join(runDir, '..', EMERGENCY_DIR_NAME, `${runId}.json`)
 	}
 
 	static listSaves(baseDir: string): string[] {

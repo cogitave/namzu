@@ -1,5 +1,6 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
+import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { isCallerAbortError, isProviderRequestError } from '../../provider/errors.js'
 import { TokenBudgetAdmissionError } from '../../provider/token-budget.js'
@@ -36,6 +37,8 @@ export interface ResultAssemblerConfig {
 	 * same answer an unattributed cancellation gives.
 	 */
 	signal?: AbortSignal
+	/** A crash dump the run continues; removed when it completes. See `QueryParams`. */
+	supersedesEmergencySave?: string
 }
 
 export class ResultAssembler {
@@ -250,7 +253,54 @@ export class ResultAssembler {
 	}
 
 	async finalize(): Promise<Run> {
-		await this.config.runMgr.persist()
-		return this.config.runMgr.getRun()
+		const { runMgr, log } = this.config
+		await runMgr.persist()
+		const run = runMgr.getRun()
+		if (run.status === 'completed') {
+			const runDir = runMgr.getRunDir()
+			if (runDir) {
+				clearSupersededEmergencySave(
+					runMgr,
+					log,
+					EmergencySaveManager.savePathFor(runDir, runMgr.id),
+				)
+			}
+			if (this.config.supersedesEmergencySave !== undefined) {
+				clearSupersededEmergencySave(runMgr, log, this.config.supersedesEmergencySave)
+			}
+		}
+		return run
+	}
+}
+
+/**
+ * Remove a crash dump the run has now outlived.
+ *
+ * A dump is what a run that died left behind. Once the same run — resumed
+ * under its own id — or a replay forked from the dump
+ * (`QueryParams.supersedesEmergencySave`) has completed and persisted, that
+ * durable record is newer than the dump and carries the conversation on.
+ * Nothing else removes one, so without this every crash stayed on disk with
+ * the whole conversation in it.
+ *
+ * Only on `completed`. A resume that fails or pauses leaves the dump where it
+ * is; that is still the last record of a moment the run did not survive.
+ * Best-effort: failing to delete a stale file is worth a log line and never
+ * worth retracting an answer.
+ */
+function clearSupersededEmergencySave(runMgr: RunPersistence, log: Logger, path: string): void {
+	try {
+		EmergencySaveManager.clearSave(path)
+		log.info('Emergency save cleared after the run completed', {
+			[NAMZU.RUN_ID]: runMgr.id,
+			'namzu.manager.path': path,
+		})
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+		log.warn('Emergency save could not be cleared', {
+			[NAMZU.RUN_ID]: runMgr.id,
+			'namzu.manager.path': path,
+			'exception.message': toErrorMessage(error),
+		})
 	}
 }

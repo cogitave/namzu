@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
 	CompletionInbox,
 	ToolRegistry,
@@ -10,7 +13,7 @@ import {
 	runAgent,
 } from '@namzu/sdk'
 import type { TaskHandle, TaskScheduler } from '@namzu/sdk'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 import { AnthropicProvider } from '../client.js'
 
@@ -39,6 +42,20 @@ import { AnthropicProvider } from '../client.js'
 
 const KEY = process.env.ANTHROPIC_API_KEY
 const MODEL = process.env.NAMZU_WIRE_TEST_MODEL ?? 'claude-haiku-4-5'
+
+/**
+ * Where these runs work and keep their state. Not `process.cwd()`: a run with
+ * no path builder writes its durable tree under its working directory's
+ * `.namzu`, which put one inside this package.
+ */
+let work: string | undefined
+function workingDirectory(): string {
+	work ??= mkdtempSync(join(tmpdir(), 'namzu-anthropic-live-'))
+	return work
+}
+afterAll(() => {
+	if (work) rmSync(work, { recursive: true, force: true })
+})
 
 /** The fact only the worker can know, so its presence proves delivery. */
 const SECRET = 'PELICAN-7731'
@@ -125,7 +142,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 		for (const tool of buildCoordinatorTools({
 			gateway,
 			completionInbox: inbox,
-			workingDirectory: process.cwd(),
+			workingDirectory: workingDirectory(),
 			allowedAgentIds: ['lookup'],
 		})) {
 			tools.register(tool)
@@ -151,7 +168,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 					timestamp: Date.now(),
 				},
 			],
-			workingDirectory: process.cwd(),
+			workingDirectory: workingDirectory(),
 			runConfig: {
 				model: MODEL,
 				timeoutMs: 180_000,
@@ -199,7 +216,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 		for (const tool of buildCoordinatorTools({
 			gateway,
 			completionInbox: inbox,
-			workingDirectory: process.cwd(),
+			workingDirectory: workingDirectory(),
 			allowedAgentIds: ['lookup'],
 		})) {
 			tools.register(tool)
@@ -218,7 +235,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 					timestamp: Date.now(),
 				},
 			],
-			workingDirectory: process.cwd(),
+			workingDirectory: workingDirectory(),
 			runConfig: {
 				model: MODEL,
 				timeoutMs: 180_000,

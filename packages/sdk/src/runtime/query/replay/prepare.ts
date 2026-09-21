@@ -55,6 +55,15 @@ export interface PreparedReplayState {
 	 * new `RunPersistence` before persisting the first time.
 	 */
 	attribution: ReplayAttribution
+	/**
+	 * The crash dump the replay forks from, when `fromCheckpoint` was
+	 * `'emergency'`. Pass it to `query({ supersedesEmergencySave })` and the
+	 * dump is removed once the replay run completes: at that point the
+	 * replay's own durable record carries the conversation on, and the dump
+	 * would otherwise stay on disk for good. A replay that fails or pauses
+	 * leaves it.
+	 */
+	emergencySavePath?: string
 }
 
 /**
@@ -84,7 +93,16 @@ export async function prepareReplayState(input: PrepareReplayInput): Promise<Pre
 		replayedAt: Date.now(),
 	}
 
-	return { messages, sourceCheckpoint, attribution }
+	return {
+		messages,
+		sourceCheckpoint,
+		attribution,
+		...(input.fromCheckpoint === 'emergency'
+			? {
+					emergencySavePath: emergencySavePath(input.emergencyDir as string, input.runId),
+				}
+			: {}),
+	}
 }
 
 async function resolveCheckpoint(input: PrepareReplayInput): Promise<IterationCheckpoint> {
@@ -137,11 +155,15 @@ async function resolveEmergency(input: PrepareReplayInput): Promise<IterationChe
 			"fromCheckpoint: 'emergency' requires an `emergencyDir` — conventionally sibling of baseDir",
 		)
 	}
-	const path = join(input.emergencyDir, `${input.runId}.json`)
+	const path = emergencySavePath(input.emergencyDir, input.runId)
 	try {
 		const dump = EmergencySaveManager.loadSave(path)
 		return projectEmergencyToCheckpoint(dump)
 	} catch (err) {
 		throw new Error(`No emergency dump found for run ${input.runId} at ${path}`, { cause: err })
 	}
+}
+
+function emergencySavePath(emergencyDir: string, runId: string): string {
+	return join(emergencyDir, `${runId}.json`)
 }

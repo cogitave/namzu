@@ -4,6 +4,7 @@ import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
 import type { TokenBudget } from '../../run/token-budget.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
+import { defaultStateRoot } from '../../session/workspace/state-root.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
@@ -18,6 +19,7 @@ import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { resolveRunStorage } from './stores-held-in-memory.js'
 
 /**
  * Config accepted by {@link RunContextFactory.build}. `sessionId`,
@@ -26,7 +28,7 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
  * Convention #17.
  *
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
- * constructed against `{workingDirectory}/.namzu`.
+ * constructed against `defaultStateRoot()`.
  *
  */
 export interface RunContextConfig {
@@ -208,7 +210,9 @@ export class RunContextFactory {
 		permissionMode.current = seeded
 		const runId = config.runId ?? generateRunId()
 
-		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(join(cwd, '.namzu'))
+		// Never `<cwd>/.namzu`: generated state does not belong in the directory
+		// the agent works in. See `defaultStateRoot`.
+		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
 		const outputDir = pathBuilder.sessionDir(config.projectId, config.sessionId)
 		const runsDir = join(outputDir, 'runs')
 
@@ -230,7 +234,12 @@ export class RunContextFactory {
 			projectId: config.projectId,
 			parentRunId: config.parentRunId,
 			depth: config.depth,
-			checkpointStore: config.checkpointStore,
+			checkpointStore: resolveRunStorage({
+				runStore: config.runStore,
+				pathBuilder: config.pathBuilder,
+				checkpointStore: config.checkpointStore,
+				runId,
+			}).checkpoints,
 			runStore: config.runStore,
 		})
 

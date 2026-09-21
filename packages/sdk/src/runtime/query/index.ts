@@ -139,7 +139,13 @@ export interface QueryParams {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	/** One account shared with the task scheduler and descendant runs. */
 	budget?: TokenBudget
-	/** Canonical tree ledger; defaults to disk beside the root run. */
+	/**
+	 * Canonical tree ledger. Absent, it lives where the run's checkpoints
+	 * live: in the `InMemoryCheckpointStore` that holds them (its
+	 * `tokenBudgets`), whether passed as {@link QueryParams.checkpointStore} or
+	 * held for an in-memory {@link QueryParams.runStore}; otherwise on disk
+	 * beside the root run under {@link QueryParams.pathBuilder}.
+	 */
 	tokenBudgetStore?: TokenBudgetStore
 	/**
 	 * Notice when the model issues the identical tool call repeatedly, and
@@ -209,6 +215,19 @@ export interface QueryParams {
 	 * run settles.
 	 */
 	emergencySave?: boolean
+
+	/**
+	 * A crash dump this run continues, removed when the run completes.
+	 *
+	 * `prepareReplayState({ fromCheckpoint: 'emergency' })` returns it as
+	 * `emergencySavePath`. The replay is a new run with its own id, so the
+	 * cleanup a run does for its OWN dump (`<runDir>/../emergency/<runId>.json`)
+	 * never reaches the dump it forked from; this names it. Removed only when
+	 * the run settles `completed` — a replay that fails or pauses leaves the
+	 * dump, which is still the only record of the moment the original run
+	 * died.
+	 */
+	supersedesEmergencySave?: string
 
 	/**
 	 * Durability for questions raised by a tool that closed over its
@@ -560,7 +579,7 @@ export interface QueryParams {
 
 	/**
 	 * Optional path layout override. Defaults to a {@link DefaultPathBuilder}
-	 * rooted at `{workingDirectory}/.namzu`. First-call filesystem migration
+	 * rooted at `defaultStateRoot()`. First-call filesystem migration
 	 * runs against this builder's root too, so an injected layout never touches
 	 * the fallback working-directory store as a side effect.
 	 */
@@ -568,8 +587,12 @@ export interface QueryParams {
 
 	/**
 	 * Optional checkpoint persistence override. Absent ⇒ iteration
-	 * checkpoints go to the disk layout under the run's output directory
-	 * (today's behavior). A host injects a scope-keyed
+	 * checkpoints go to the disk layout under the run's output directory —
+	 * except when {@link QueryParams.runStore} is an `InMemoryRunStore` and no
+	 * `pathBuilder` is given, where that run store holds them for the run it
+	 * is bound to and releases them when it is used for another run. Either
+	 * way an `InMemoryCheckpointStore` also keeps the run's token ledger.
+	 * A host injects a scope-keyed
 	 * {@link CheckpointStore} (e.g. Postgres-backed) so mid-turn resume
 	 * survives machines that lose their local disk.
 	 */
@@ -604,6 +627,11 @@ export interface QueryParams {
 	 * The sibling of {@link QueryParams.checkpointStore}, and it should always
 	 * have been one: checkpoints could be pointed at durable storage and the
 	 * evidence could not.
+	 *
+	 * An `InMemoryRunStore` with no `pathBuilder` keeps the whole run in
+	 * memory: its checkpoints and ledger (unless named), released when the
+	 * store is used for a different run id, and — through `SupervisorAgent`
+	 * or an `AgentTaskContext.childStorage` — its delegated children.
 	 */
 	runStore?: RunStore
 
@@ -1281,6 +1309,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// already knows THAT it was cancelled; the origin lives on the abort
 		// reason and nothing else carries it this far.
 		signal: ctx.abortController.signal,
+		...(params.supersedesEmergencySave !== undefined
+			? { supersedesEmergencySave: params.supersedesEmergencySave }
+			: {}),
 	})
 
 	let advisoryCtx: AdvisoryContext | undefined

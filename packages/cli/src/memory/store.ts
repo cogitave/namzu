@@ -106,10 +106,26 @@ export function readMemory(home?: string, cwd?: string): MemoryContent {
 		root: userRoot,
 		path: join(userRoot, 'MEMORY.md'),
 	}))
-	const project = cwd
-		? read(join(resolve(cwd), '.namzu', 'MEMORY.md'), () => projectLocation(cwd))
-		: null
+	// Started in the home directory, the project's `.namzu/MEMORY.md` IS the
+	// user's `MEMORY.md` — same file, read twice, injected under two headings
+	// into every prompt. It is the user's file; it is read once, as that.
+	const project =
+		cwd && !isUserMemoryFile(join(resolve(cwd), '.namzu', 'MEMORY.md'), userRoot)
+			? read(join(resolve(cwd), '.namzu', 'MEMORY.md'), () => projectLocation(cwd))
+			: null
 	return { user, memory, project, ...(diagnostics.length > 0 ? { diagnostics } : {}) }
+}
+
+/** Whether a project memory path names the user's own `MEMORY.md`, symlinks resolved. */
+function isUserMemoryFile(projectPath: string, userRoot: string): boolean {
+	const canonical = (path: string): string => {
+		try {
+			return realpathSync(path)
+		} catch {
+			return resolve(path)
+		}
+	}
+	return canonical(projectPath) === canonical(join(userRoot, 'MEMORY.md'))
 }
 
 function capped(text: string, file: string): string {

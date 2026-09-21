@@ -11,10 +11,10 @@ import type { Skill } from '../types/skills/index.js'
 import type { StructuredOutputConfig } from '../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
 import {
-	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	projectIdForDirectory,
 } from '../utils/id.js'
 
 /**
@@ -38,6 +38,11 @@ import {
 export interface AgentIdentity {
 	sessionId?: SessionId
 	topicId?: TopicId
+	/**
+	 * Omitted: derived from `workingDirectory` by {@link projectIdForDirectory},
+	 * so every run in one directory shares a Project. The other three are
+	 * minted per call when omitted.
+	 */
 	projectId?: ProjectId
 	tenantId?: TenantId
 }
@@ -259,10 +264,14 @@ export const DEFAULT_TIMEOUT_MS = 300_000
  * ```
  */
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
+	const workingDirectory = options.workingDirectory ?? process.cwd()
 	const identity: Required<AgentIdentity> = {
 		sessionId: options.sessionId ?? generateSessionId(),
 		topicId: options.topicId ?? generateTopicId(),
-		projectId: options.projectId ?? generateProjectId(),
+		// Derived from the working directory, not minted: a minted Project put
+		// every call in a Project of its own, so a batch of runs in one
+		// directory left one `projects/<id>/` tree per run.
+		projectId: options.projectId ?? projectIdForDirectory(workingDirectory),
 		tenantId: options.tenantId ?? generateTenantId(),
 	}
 
@@ -296,7 +305,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				? { sandboxTeardownTimeoutMs: options.sandboxTeardownTimeoutMs }
 				: {}),
 			messages,
-			workingDirectory: options.workingDirectory ?? process.cwd(),
+			workingDirectory,
 			runConfig: {
 				model: options.model,
 				...(options.sandbox ? { sandbox: options.sandbox } : {}),

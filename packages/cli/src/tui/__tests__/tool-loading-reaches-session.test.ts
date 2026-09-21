@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DiskMemoryStore, SearchToolsTool, createUserMessage } from '@namzu/sdk'
+import { SearchToolsTool, createUserMessage } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { sessionMemoryStore } from '../../__fixtures__/session-memory.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import * as mcp from '../../integrations/mcp/servers.js'
 import {
@@ -314,9 +315,10 @@ describe('explicit tool loading reaches the real session and query', () => {
 				expect(requests, JSON.stringify(events)).toHaveLength(3)
 				expect(names(requests[0])).not.toContain('save_memory')
 				expect(names(requests[1])).toContain('save_memory')
-				// With no stateRoot option the session's projectStateRoot is cwd/.namzu.
-				// The positive allow case proves this is the store the tool actually uses.
-				const memories = await new DiskMemoryStore({ baseDir: join(cwd, '.namzu') }).list()
+				// With no stateRoot option the session keeps memory in the application
+				// home, partitioned by the directory's Project. The positive allow case
+				// proves this is the store the tool actually uses.
+				const memories = await sessionMemoryStore(cwd).list()
 				if (policy === 'explicit allow') {
 					expect(JSON.stringify(requests[2].messages)).toContain('Memory saved:')
 					expect(memories.totalCount).toBe(1)

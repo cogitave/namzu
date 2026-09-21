@@ -11,10 +11,11 @@
  * Scripted provider, so a score that moves is the kernel moving.
  */
 
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	DefaultPathBuilder,
 	MockLLMProvider,
 	ToolRegistry,
 	autoApproveHandler,
@@ -50,35 +51,45 @@ function registry() {
 }
 
 async function runCase(input) {
-	const run = await drainQuery({
-		provider: new MockLLMProvider({ turns: input.turns }),
-		tools: registry(),
-		runConfig: {
-			model: "mock-model",
-			timeoutMs: 30_000,
-			tokenBudget: 1_000_000,
-			maxIterations: 6,
-			maxResponseTokens: 256,
-		},
-		agentId: "agent_ctx",
-		agentName: "Context Agent",
-		workingDirectory: await mkdtemp(join(tmpdir(), "namzu-eval-ctx-")),
-		sessionId: generateSessionId(),
-		topicId: generateTopicId(),
-		projectId: generateProjectId(),
-		tenantId: generateTenantId(),
-		messages: [{ role: "user", content: "go", timestamp: 1 }],
-		resumeHandler: autoApproveHandler,
-		...(input.compactionConfig
-			? { compactionConfig: input.compactionConfig }
-			: {}),
-		...(input.contextReducer ? { contextReducer: input.contextReducer } : {}),
-	});
+	// One scratch directory per case, removed when the case ends. Every
+	// case used to leave its directory, and the run state in it, behind.
+	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-ctx-"));
+	try {
+		const run = await drainQuery({
+			provider: new MockLLMProvider({ turns: input.turns }),
+			tools: registry(),
+			runConfig: {
+				model: "mock-model",
+				timeoutMs: 30_000,
+				tokenBudget: 1_000_000,
+				maxIterations: 6,
+				maxResponseTokens: 256,
+			},
+			agentId: "agent_ctx",
+			agentName: "Context Agent",
+			workingDirectory: scratch,
+			// State under the scratch directory, not the default root: the
+			// directory is removed below, and with it everything the run wrote.
+			pathBuilder: new DefaultPathBuilder(join(scratch, ".namzu")),
+			sessionId: generateSessionId(),
+			topicId: generateTopicId(),
+			projectId: generateProjectId(),
+			tenantId: generateTenantId(),
+			messages: [{ role: "user", content: "go", timestamp: 1 }],
+			resumeHandler: autoApproveHandler,
+			...(input.compactionConfig
+				? { compactionConfig: input.compactionConfig }
+				: {}),
+			...(input.contextReducer ? { contextReducer: input.contextReducer } : {}),
+		});
 
-	const evalRun = evalRunFromRun(run);
-	// The scorers below need the final history, which `EvalRun` does not
-	// carry. Attached rather than widening the shared type for one suite.
-	return Object.assign(evalRun, { finalMessages: run.messages ?? [] });
+		const evalRun = evalRunFromRun(run);
+		// The scorers below need the final history, which `EvalRun` does not
+		// carry. Attached rather than widening the shared type for one suite.
+		return Object.assign(evalRun, { finalMessages: run.messages ?? [] });
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
 }
 
 const call = (id) => ({ id, name: "fetch_a_lot", rawArguments: "{}" });

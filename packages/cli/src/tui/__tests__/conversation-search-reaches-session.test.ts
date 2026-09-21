@@ -6,7 +6,6 @@ import { AnthropicProvider } from '@namzu/anthropic'
 import { CodexProvider } from '@namzu/openai'
 import {
 	type ChatCompletionParams,
-	DiskMemoryStore,
 	type LLMProvider,
 	type Message,
 	MockLLMProvider,
@@ -30,6 +29,7 @@ import {
 } from '../../integrations/sessions/conversation-search.js'
 import { CliPathBuilder } from '../../integrations/sessions/paths.js'
 
+import { sessionMemoryStore } from '../../__fixtures__/session-memory.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	type DetectedProvider,
@@ -1363,7 +1363,7 @@ it.each([true, false])(
 	async (identifierGrounding) => {
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-grounding-session-'))
 		roots.push(cwd)
-		const store = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const store = sessionMemoryStore(cwd)
 		await store.create({
 			title: 'opal9 connection',
 			summary: 'A historical fact',

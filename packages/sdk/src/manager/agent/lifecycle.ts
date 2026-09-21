@@ -8,6 +8,7 @@ import {
 } from '../../session/handoff/capacity.js'
 import type { SessionSummaryMaterializer } from '../../session/summary/materialize.js'
 import type { WorkspaceBackendRegistry } from '../../session/workspace/registry.js'
+import { InMemoryRunStore } from '../../store/run/memory.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
 import type {
 	AgentLifecycleEvent,
@@ -511,6 +512,7 @@ export class AgentManager {
 				projectId: context.projectId,
 				parentActor: childParentActor,
 				...(resolvedDenies.length > 0 ? { toolDenies: resolvedDenies } : {}),
+				...(context.childStorage ? { childStorage: context.childStorage } : {}),
 			}
 
 			agentTask = Object.assign(queuedTask ?? {}, {
@@ -748,6 +750,31 @@ export class AgentManager {
 				]
 			}
 			if (options.personaOverride) childConfig.persona = options.personaOverride
+
+			// The parent's storage choice, stamped after the builder for the
+			// same reason as everything above: a `configBuilder` cannot forward
+			// a field it was never told about. Without it a child of a run held
+			// in memory had no run store and no path builder, so it built disk
+			// stores under `defaultStateRoot()` and left its evidence, its
+			// checkpoints and their history there — a tree its parent never
+			// asked for, with nothing that removes it.
+			//
+			// A fresh run store per child, never the parent's: an
+			// `InMemoryRunStore` is bound to one run, and rebinding the
+			// parent's would drop the parent's evidence. A child config that
+			// names a run store or a path builder of its own chose where it
+			// goes, and keeps it.
+			const inherited = context.childStorage
+			if (
+				inherited?.kind === 'memory' &&
+				childConfig.runStore === undefined &&
+				childConfig.pathBuilder === undefined
+			) {
+				childConfig.runStore = new InMemoryRunStore()
+				if (inherited.checkpointStore && childConfig.checkpointStore === undefined) {
+					childConfig.checkpointStore = inherited.checkpointStore
+				}
+			}
 
 			// Outside the branch, like the scope above it and for the same reason:
 			// a `configBuilder` cannot forward a field it was never told about.

@@ -8,7 +8,9 @@ import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
+import type { CheckpointStore } from '../run/checkpoint-store.js'
 import type { StopReason } from '../run/stop-reason.js'
+import type { RunStore } from '../run/store.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
 import type { TaskStore } from '../task/index.js'
 import type { ToolAvailability } from '../tool/index.js'
@@ -34,15 +36,41 @@ export interface BaseAgentConfig {
 	maxResponseTokens?: number
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
+	/**
+	 * Checkpoint retention for this agent's run. See
+	 * {@link import('../run/config.js').AgentRunConfig.pruneKeepLast}; absent
+	 * keeps every checkpoint, as before.
+	 */
+	pruneKeepLast?: number
 
 	/**
 	 * Durable run/checkpoint layout for this agent invocation.
 	 *
-	 * Absent preserves the kernel default rooted at the run's working
-	 * directory. Hosts with a central application home pass one builder here;
-	 * every concrete agent forwards it to the same `query()` boundary.
+	 * Absent: the kernel default rooted at `defaultStateRoot()`, unless
+	 * {@link BaseAgentConfig.runStore} is an `InMemoryRunStore`, in which case
+	 * the run writes nothing to disk. Hosts with a central application home
+	 * pass one builder here; every concrete agent forwards it to the same
+	 * `query()` boundary.
 	 */
 	pathBuilder?: PathBuilder
+
+	/**
+	 * Where this agent's run keeps its evidence. See `QueryParams.runStore`.
+	 *
+	 * An `InMemoryRunStore` with no `pathBuilder` keeps the whole run in
+	 * memory: its checkpoints and its token ledger too, and every child it
+	 * delegates to (`AgentTaskContext.childStorage`). A run store is bound to
+	 * one run at a time, so a host that runs agents concurrently gives each
+	 * run its own.
+	 */
+	runStore?: RunStore
+
+	/**
+	 * Where this agent's run keeps its checkpoints. See
+	 * `QueryParams.checkpointStore`. With an `InMemoryCheckpointStore` the
+	 * run's token ledger is kept in it too, unless a ledger store is named.
+	 */
+	checkpointStore?: CheckpointStore
 
 	/**
 	 * Run-level sandbox limits and workspace ownership.

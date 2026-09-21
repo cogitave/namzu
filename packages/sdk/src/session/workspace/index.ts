@@ -18,6 +18,7 @@ export type {
 } from './driver.js'
 
 export { DefaultPathBuilder } from './path-builder.js'
+export { defaultStateRoot } from './state-root.js'
 export type { PathBuilder } from './path-builder.js'
 
 export { WorkspaceBackendRegistry } from './registry.js'

@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { TokenBudget } from '../../run/token-budget.js'
 import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
+import { defaultStateRoot } from '../../session/workspace/state-root.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { openTokenBudget } from '../../store/run/token-budget-disk.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
@@ -8,6 +9,7 @@ import type { RunId } from '../../types/ids/index.js'
 import type { RunState } from '../../types/run/state.js'
 import { validateTokenBudgetBinding } from '../../types/run/token-budget-store.js'
 import type { QueryParams } from './index.js'
+import { resolveRunStorage } from './stores-held-in-memory.js'
 
 /** Resolve one authority before any model request or recovered tool dispatch. */
 export async function resolveQueryBudget(
@@ -16,10 +18,17 @@ export async function resolveQueryBudget(
 	selected?: RunState,
 ): Promise<TokenBudget> {
 	let saved: Pick<IterationCheckpoint, 'budgetBinding' | 'budgetAccountId'> | undefined = selected
+	// Checkpoints and ledger resolved together: the ledger lives where the
+	// run's checkpoints live, so a resume that finds one finds the other.
+	const storage = resolveRunStorage({
+		runStore: params.runStore,
+		pathBuilder: params.pathBuilder,
+		checkpointStore: params.checkpointStore,
+		tokenBudgetStore: params.tokenBudgetStore,
+		runId,
+	})
 	if (params.resumeFromCheckpoint && !saved) {
-		const paths =
-			params.pathBuilder ??
-			new DefaultPathBuilder(join(params.workingDirectory ?? process.cwd(), '.namzu'))
+		const paths = params.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
 		const scope = {
 			tenantId: params.tenantId,
 			projectId: params.projectId,
@@ -28,7 +37,7 @@ export async function resolveQueryBudget(
 			parentRunId: params.parentRunId,
 		}
 		const store =
-			params.checkpointStore ??
+			storage.checkpoints ??
 			new DiskCheckpointStore(
 				{
 					baseDir: join(paths.sessionDir(params.projectId, params.sessionId), 'runs'),
@@ -104,7 +113,7 @@ export async function resolveQueryBudget(
 		)
 	}
 	const budget = await openTokenBudget({
-		store: params.tokenBudgetStore,
+		store: storage.tokenBudget,
 		pathBuilder: params.pathBuilder,
 		workingDirectory: params.workingDirectory,
 		scope: binding?.scope ?? {

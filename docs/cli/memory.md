@@ -46,6 +46,11 @@ Multiword facts such as `/memory show errors clearly` remain notes.
 
 For new files, `<project>` is the nearest checkout root (a `.git` directory or worktree `.git` file), or the working directory when outside a repository. Launching from `packages/cli` therefore reads and writes the checkout's memory. An existing `.namzu/MEMORY.md` in the working directory takes precedence, including an empty file, so old directory-specific notes remain accessible. Create that file explicitly to keep directory-specific memory. This changes the default destination for a new note from a repository subdirectory; it does not move existing files.
 
+Started in the home directory with no `NAMZU_HOME`, the project's
+`.namzu/MEMORY.md` and the user's `~/.namzu/MEMORY.md` are one file. It is read
+once, as the user memory, and is not injected a second time under the project
+heading.
+
 Curated files are read at the start of each send or resume. Editing or deleting a
 file affects that next snapshot, including after a new session or restart. A run
 already in progress keeps its curated snapshot through its model steps. Edit the

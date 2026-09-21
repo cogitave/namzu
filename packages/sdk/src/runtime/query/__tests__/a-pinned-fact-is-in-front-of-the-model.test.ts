@@ -212,8 +212,13 @@ it('replaces then removes the last pin after checkpoint restoration and compacti
 
 	// Round-trip JSON into a fresh store: the ownership needed for deletion
 	// cannot depend on the first query's object identities or closures.
+	// The ledger the checkpoint references lives beside it, so it is copied
+	// too, as a restart that moves the checkpoint store would.
 	const restoredStore = new InMemoryCheckpointStore()
 	await restoredStore.writeCheckpoint(scope, JSON.parse(JSON.stringify(checkpoint)))
+	const ledger = await checkpointStore.tokenBudgets.load(scope)
+	if (!ledger) throw new Error('Expected the ledger beside the checkpoints')
+	await restoredStore.tokenBudgets.save(scope, JSON.parse(JSON.stringify(ledger)))
 	const resumed = new MockLLMProvider({
 		turns: [
 			{ error: { message: 'context_length_exceeded: force a compacted resume', status: 400 } },
@@ -247,6 +252,9 @@ it('replaces then removes the last pin after checkpoint restoration and compacti
 	expect(historySlots(deletionCheckpoint.messages).join('')).toContain('REGION_NEW')
 	const afterDeletionStore = new InMemoryCheckpointStore()
 	await afterDeletionStore.writeCheckpoint(scope, JSON.parse(JSON.stringify(deletionCheckpoint)))
+	const afterDeletionLedger = await restoredStore.tokenBudgets.load(scope)
+	if (!afterDeletionLedger) throw new Error('Expected the ledger beside the checkpoints')
+	await afterDeletionStore.tokenBudgets.save(scope, JSON.parse(JSON.stringify(afterDeletionLedger)))
 	const afterDeletion = new MockLLMProvider({ turns: [{ text: 'Resumed without pins.' }] })
 	await drainQuery({
 		...params,

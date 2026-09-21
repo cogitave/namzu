@@ -24,6 +24,21 @@ export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
 }
 
 /**
+ * Where a delegated child keeps its run state, as its parent chose it.
+ *
+ * `memory`: the parent's run store is in memory and it named no path builder,
+ * so the child runs in memory too. {@link AgentManager.sendMessage} gives the
+ * child a fresh `InMemoryRunStore` (a run store is bound to one run) and, when
+ * the parent named one, the parent's `checkpointStore`, so the child writes
+ * nothing under `defaultStateRoot()`. A child config that already names a
+ * `runStore` or a `pathBuilder` keeps what it names.
+ */
+export interface ChildRunStorage {
+	readonly kind: 'memory'
+	readonly checkpointStore?: import('../run/checkpoint-store.js').CheckpointStore
+}
+
+/**
  * Context carried into {@link AgentManager.sendMessage}. `tenantId`,
  * `topicId`, `sessionId`, `projectId`, and `parentActor` are required —
  * the spawn path is the ingress point for the session hierarchy; callers
@@ -100,6 +115,16 @@ export interface AgentTaskContext {
 	 * this exists to prevent.
 	 */
 	readonly toolDenies?: readonly string[]
+
+	/**
+	 * Where the parent keeps its run state, handed to every child it
+	 * delegates to. See {@link ChildRunStorage}. `SupervisorAgent` sets it
+	 * from its own `runStore` and `pathBuilder`; a host that builds its own
+	 * context for a `LocalTaskScheduler` beside an in-memory `query()` sets it
+	 * the same way. Absent: children resolve their storage from their own
+	 * config, as before.
+	 */
+	readonly childStorage?: ChildRunStorage
 
 	/** Isolation boundary. Required per session-hierarchy.md §12.1. */
 	tenantId: TenantId

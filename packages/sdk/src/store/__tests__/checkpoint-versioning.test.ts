@@ -84,9 +84,18 @@ describe('a checkpoint on disk', () => {
 		) as {
 			schemaVersion?: number
 		}
-		expect(raw.schemaVersion).toBe(2)
+		expect(raw.schemaVersion).toBe(3)
 		const previousReader = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
-		expect(() => migrate(previousReader, raw)).toThrow('schema version 2')
+		expect(() => migrate(previousReader, raw)).toThrow('schema version 3')
+		// The build before the message history moved out of the file must
+		// refuse it too: read as version 2 it would be a checkpoint with no
+		// messages, which that build's parser rejects only by luck.
+		const inlineReader = defineSchema({
+			kind: 'run-checkpoint',
+			current: 2,
+			migrations: { 1: (record) => record },
+		})
+		expect(() => migrate(inlineReader, raw)).toThrow('schema version 3')
 	})
 
 	it('round-trips through the stamp without losing anything', async () => {

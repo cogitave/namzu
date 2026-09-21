@@ -131,6 +131,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.outputGuardrails ? { outputGuardrails: config.outputGuardrails } : {}),
 				...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
 				...(config.pathBuilder ? { pathBuilder: config.pathBuilder } : {}),
+				// Forwarded so a run store in memory keeps the whole run there;
+				// dropped here, the run built disk stores under the state root.
+				...(config.runStore ? { runStore: config.runStore } : {}),
 				...(config.parentSpan ? { parentSpan: config.parentSpan } : {}),
 				runConfig: {
 					model: config.model,
@@ -147,6 +150,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					maxIterations: config.maxIterations,
 					temperature: config.temperature,
 					maxResponseTokens: config.maxResponseTokens,
+					...(config.pruneKeepLast !== undefined ? { pruneKeepLast: config.pruneKeepLast } : {}),
 					costLimitUsd: config.costLimitUsd,
 					permissionMode: config.permissionMode,
 					env: config.env,

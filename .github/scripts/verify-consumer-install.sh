@@ -207,6 +207,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Generated state never reaches the operator's own state directory.
+#
+# An SDK entry point with no path builder writes under `defaultStateRoot()`:
+# `NAMZU_STATE_DIR` when set, else `$XDG_STATE_HOME/namzu` on Linux. Both are
+# pointed into the consumer directory, which `cleanup` removes, so whatever a
+# fixture here does write — the eval run, a fixture against an older SDK —
+# lands in scratch rather than in `~/.local/state/namzu`, one tree per CI run
+# with no retention. The packed live fixture goes further and asserts it wrote
+# nothing at all; see `run_live_fixture`.
+STATE_SCRATCH="$CONSUMER_DIR/generated-state"
+export XDG_STATE_HOME="$STATE_SCRATCH/xdg"
+export NAMZU_STATE_DIR="$STATE_SCRATCH/namzu"
+
 # ---------------------------------------------------------------------------
 # A refusal has to be readable.
 # ---------------------------------------------------------------------------
@@ -680,8 +693,33 @@ if (failures.length > 0) {
 console.log('✅ packed @namzu/live completed one SDK-backed turn with public exports, events and run-store state intact')
 EOF
 
+# The fixture keeps its run in an `InMemoryRunStore` and names no path builder,
+# so the run's token ledger and checkpoints are held in memory with it. It runs
+# twice, once for each way the state root resolves — through `XDG_STATE_HOME`
+# with `NAMZU_STATE_DIR` unset, and through `NAMZU_STATE_DIR` — and each root is
+# required to be empty afterwards. Before this, every run of the gate left a
+# `projects/<id>/sessions/<id>/runs/<id>/token-budget.json` in the operator's
+# `~/.local/state/namzu`.
+run_live_fixture() {
+  local root leftover
+  rm -rf "$STATE_SCRATCH"
+  mkdir -p "$XDG_STATE_HOME" "$NAMZU_STATE_DIR"
+  env -u NAMZU_STATE_DIR node assert-live-runtime.mjs
+  node assert-live-runtime.mjs
+  for root in "$XDG_STATE_HOME" "$NAMZU_STATE_DIR"; do
+    leftover=$(find "$root" -mindepth 1 -print -quit)
+    if [ -n "$leftover" ]; then
+      echo "    ✗ The in-memory live fixture wrote generated state under $root:"
+      find "$root" -type f | sed 's/^/      /'
+      exit 1
+    fi
+  done
+  echo "    ✓ no generated state under XDG_STATE_HOME or NAMZU_STATE_DIR"
+}
+
 echo "    → packed live + shipping SDK"
-node assert-live-runtime.mjs
+CURRENT_STEP="@namzu/live packed runtime leaves no generated state"
+run_live_fixture
 
 # The peer range promises the first SDK version in the supported major too,
 # not only the workspace head. Exercise that exact lower bound with the same
