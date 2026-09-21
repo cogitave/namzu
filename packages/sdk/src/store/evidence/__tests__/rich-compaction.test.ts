@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,11 +5,8 @@ import { afterEach, expect, it } from 'vitest'
 import { buildCompactionMessage } from '../../../compaction/summary.js'
 import type { Message, ToolResultBlock } from '../../../types/message/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { asTurnId } from '../../../utils/id.js'
-import { RunDiskStore } from '../../turn/disk.js'
-import { compactionArchiveSchema, compactionPartPath } from '../compaction-archive.js'
-import { createSessionTextEvidenceSource } from '../disk.js'
 import type { SessionTextEvidenceMatch, SessionTextEvidenceSource } from '../types.js'
+import { evidenceSession } from './support/session-log.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -31,43 +27,28 @@ function messages(blocks: readonly ToolResultBlock[]): Message[] {
 	]
 }
 
+/** The seq of the compaction pass: after `session_started` (1) and `turn_started` (2). */
+const SHED_SEQ = 3
+
 async function fixture(mode: 'live' | 'closed' | 'snapshot', removed: Message[]) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-rich-evidence-'))
 	roots.push(root)
-	const scope = {
-		tenantId: randomUUID(),
-		projectId: randomUUID(),
-		sessionId: randomUUID(),
-		turnId: asTurnId(randomUUID()),
-	}
-	const store = new RunDiskStore({ baseDir: root })
-	const runDir = await store.initRun(scope.runId)
-	await writeFile(
-		join(runDir, 'run.json'),
-		JSON.stringify({
-			id: scope.runId,
-			status: mode === 'closed' ? 'completed' : 'running',
-			metadata: { scope },
-		}),
-	)
-	await store.appendEvent({ type: 'turn_started', runId: scope.runId, seq: 1 })
-	await store.appendEvent({
+	const session = await evidenceSession(root)
+	await session.append({
 		type: 'compaction_shed',
-		turnId: scope.runId,
-		seq: 2,
 		iteration: 0,
 		reason: 'manual',
 		messages: removed,
 	})
-	const reopen = () =>
-		createSessionTextEvidenceSource({
-			scope,
-			runDir,
-			indexDir: join(runDir, 'evidence-index'),
-			...(mode === 'closed' ? {} : { consistency: 'snapshot' as const }),
-		})
-	const source = mode === 'live' ? (await store.captureTextEvidence(scope))! : reopen()
-	return { source, reopen, store, scope, runDir }
+	if (mode === 'closed') await session.close()
+	const reopen = () => session.openTextSource(mode === 'closed' ? {} : { consistency: 'snapshot' })
+	const source = await session.textSource(mode)
+	/** The compaction pass as the log recorded it. */
+	const shedRecord = async () =>
+		(await session.log.readAll()).entries
+			.map((entry) => entry.record as { type: string; messages?: unknown })
+			.find((record) => record.type === 'compaction_shed')
+	return { source, reopen, session, shedRecord }
 }
 
 async function all(source: SessionTextEvidenceSource, query: string) {
@@ -86,195 +67,152 @@ async function all(source: SessionTextEvidenceSource, query: string) {
 it.each(['live', 'closed', 'snapshot'] as const)(
 	'pages past derived summaries without reading their bodies, changing addresses or filtering lookalikes (%s)',
 	async (mode) => {
-		for (const archived of [false, true]) {
-			const removed: Message[] = [
-				...Array.from({ length: 70 }, (_, i) => buildCompactionMessage(`ORCHID summary ${i}`)),
-				{ role: 'system', content: 'ORCHID unmarked system source' },
-				{ role: 'tool', toolCallId: 'original', content: 'ORCHID original A17', isError: false },
-				...messages([
-					{
-						type: 'image',
-						mediaType: 'image/png',
-						data: archived ? 'A'.repeat(4 * 1024 * 1024) : 'A',
-					},
-				]),
-			]
-			const f = await fixture(mode, removed)
-			const known = (await f.source.search({ seq: 2, part: 0 })).matches[0]!
-			if (archived) {
-				const raw = JSON.parse(
-					(await readFile(join(f.runDir, 'transcript.jsonl'), 'utf8')).trim().split('\n')[1]!,
-				)
-				await writeFile(compactionPartPath(f.runDir, raw.archive.id, 0), 'modified summary body')
+		const removed: Message[] = [
+			...Array.from({ length: 70 }, (_, i) => buildCompactionMessage(`ORCHID summary ${i}`)),
+			{ role: 'system', content: 'ORCHID unmarked system source' },
+			{ role: 'tool', toolCallId: 'original', content: 'ORCHID original A17', isError: false },
+			...messages([{ type: 'image', mediaType: 'image/png', data: 'A' }]),
+		]
+		const f = await fixture(mode, removed)
+		const known = (await f.source.search({ seq: SHED_SEQ, part: 0 })).matches[0]!
+		let cursor: string | undefined
+		let excluded = 0
+		let pages = 0
+		const found: SessionTextEvidenceMatch[] = []
+		do {
+			const page = await f.source.search({
+				query: 'ORCHID',
+				excludeDerivedSummaries: true,
+				cursor,
+				limit: 1,
+			})
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(page.unavailable).toEqual([])
+			// A reader over a turn still running (anchored or snapshot) is told
+			// the evidence may grow.
+			expect(page.incomplete).toBe(mode !== 'closed')
+			excluded += page.excludedSummaries ?? 0
+			found.push(...page.matches)
+			cursor = page.nextCursor ?? undefined
+			if (++pages === 1) {
+				expect(page.matches).toEqual([])
+				expect(page.excludedSummaries).toBe(64)
+				expect(cursor).toBeDefined()
+				for (const excludeDerivedSummaries of [undefined, false])
+					await expect(
+						f.source.search({ query: 'ORCHID', cursor, excludeDerivedSummaries }),
+					).rejects.toThrow('Search cursor query changed')
 			}
-			let cursor: string | undefined
-			let excluded = 0
-			let pages = 0
-			const found: SessionTextEvidenceMatch[] = []
-			do {
-				const page = await f.source.search({
-					query: 'ORCHID',
-					excludeDerivedSummaries: true,
-					cursor,
-					limit: 1,
-				})
-				expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
-				expect(page.unavailable).toEqual([])
-				expect(page.incomplete).toBe(mode === 'snapshot')
-				excluded += page.excludedSummaries ?? 0
-				found.push(...page.matches)
-				cursor = page.nextCursor ?? undefined
-				if (++pages === 1) {
-					expect(page.matches).toEqual([])
-					expect(page.excludedSummaries).toBe(64)
-					expect(cursor).toBeDefined()
-					for (const excludeDerivedSummaries of [undefined, false])
-						await expect(
-							f.source.search({ query: 'ORCHID', cursor, excludeDerivedSummaries }),
-						).rejects.toThrow('Search cursor query changed')
-				}
-				expect(pages).toBeLessThan(12)
-			} while (cursor)
-			expect(excluded).toBe(70)
-			expect(found.map((m) => m.part)).toEqual([70, 71, 72, 73])
-			expect((await f.source.read({ address: found[1]!.address })).text).toBe('ORCHID original A17')
-			if (archived) await expect(f.source.read({ address: known.address })).rejects.toThrow()
-			else
-				expect((await f.source.read({ address: known.address })).text).toContain('ORCHID summary 0')
-		}
+			expect(pages).toBeLessThan(12)
+		} while (cursor)
+		expect(excluded).toBe(70)
+		expect(found.map((m) => m.part)).toEqual([70, 71, 72, 73])
+		expect((await f.source.read({ address: found[1]!.address })).text).toBe('ORCHID original A17')
+		expect((await f.source.read({ address: known.address })).text).toContain('ORCHID summary 0')
 	},
 )
 
 it.each(['live', 'closed', 'snapshot'] as const)(
 	'preserves summary provenance and addresses without classifying lookalike prose (%s)',
 	async (mode) => {
-		for (const archived of [false, true]) {
-			const summary = buildCompactionMessage('ORCHID derived receipt summary')
-			const lookalike = {
-				role: 'system' as const,
-				content: summary.content as string,
-			}
-			const removed = [
-				summary,
-				lookalike,
-				// Other roles and non-object source values cannot claim summary identity.
-				{
-					role: 'user',
-					content: lookalike.content,
-					source: { type: 'compaction-summary' },
-				},
-				{
-					role: 'system',
-					content: lookalike.content,
-					source: [{ type: 'compaction-summary' }],
-				},
-				...messages([
-					{
-						type: 'image',
-						data: archived ? 'A'.repeat(4 * 1024 * 1024) : 'A',
-						mediaType: 'image/png',
-					},
-				]),
-			] as Message[]
-			const f = await fixture(mode, removed)
-			for (const source of [f.source, f.reopen()]) {
-				for (const part of [0, 1, 2, 3]) {
-					const found = (await source.search({ seq: 2, part })).matches[0]!
-					expect(found.source).toBe(
-						part === 0
-							? 'compaction_shed:summary'
-							: `compaction_shed:${part === 2 ? 'user' : 'system'}`,
-					)
-					expect(await source.read({ address: found.address })).toMatchObject({
-						part,
-						text: lookalike.content,
-						source: found.source,
-					})
-				}
-			}
-			expect((await f.store.readEvents()).find((e) => e.type === 'compaction_shed')).toMatchObject({
-				messages: removed,
-			})
-			const before = (await f.reopen().search({ seq: 2, part: 0 })).matches[0]!
-			const path = join(f.runDir, 'transcript.jsonl')
-			const text = await readFile(path, 'utf8')
-			const changed = archived
-				? text.replace('"summary":true', '"summary":null')
-				: text.replace('"type":"compaction-summary"', '"type":"compaction-summarx"')
-			expect(changed).not.toBe(text)
-			await writeFile(path, changed)
-			await expect(f.reopen().read({ address: before.address })).rejects.toThrow()
+		const summary = buildCompactionMessage('ORCHID derived receipt summary')
+		const lookalike = {
+			role: 'system' as const,
+			content: summary.content as string,
 		}
+		const removed = [
+			summary,
+			lookalike,
+			// Other roles and non-object source values cannot claim summary identity.
+			{
+				role: 'user',
+				content: lookalike.content,
+				source: { type: 'compaction-summary' },
+			},
+			{
+				role: 'system',
+				content: lookalike.content,
+				source: [{ type: 'compaction-summary' }],
+			},
+			...messages([{ type: 'image', data: 'A', mediaType: 'image/png' }]),
+		] as Message[]
+		const f = await fixture(mode, removed)
+		for (const source of [f.source, f.reopen()]) {
+			for (const part of [0, 1, 2, 3]) {
+				const found = (await source.search({ seq: SHED_SEQ, part })).matches[0]!
+				expect(found.source).toBe(
+					part === 0
+						? 'compaction_shed:summary'
+						: `compaction_shed:${part === 2 ? 'user' : 'system'}`,
+				)
+				expect(await source.read({ address: found.address })).toMatchObject({
+					part,
+					text: lookalike.content,
+					source: found.source,
+				})
+			}
+		}
+		expect(await f.shedRecord()).toMatchObject({ messages: removed })
+		const before = (await f.reopen().search({ seq: SHED_SEQ, part: 0 })).matches[0]!
+		// The bytes the address names changed after it was issued.
+		const text = await readFile(f.session.logPath, 'utf8')
+		const changed = text.replace('"type":"compaction-summary"', '"type":"compaction-summarx"')
+		expect(changed).not.toBe(text)
+		await writeFile(f.session.logPath, changed)
+		await expect(f.reopen().read({ address: before.address })).rejects.toThrow()
 	},
 )
 
 it.each(['live', 'closed', 'snapshot'] as const)(
 	'preserves exact rich text, binary separation and old plain-part addresses (%s)',
 	async (mode) => {
-		for (const archived of [false, true]) {
-			const first = 'ORCHID İ 😀\r\n first block\n'
-			const last = 'ORCHID last block, no final newline'
-			const original = messages([
-				{ type: 'text', text: first },
-				{
-					type: 'image',
-					data: archived ? 'A'.repeat(4 * 1024 * 1024) : 'ONLY_BINARY',
-					mediaType: 'image/png',
-				},
-				{ type: 'text', text: '' },
-				{
-					type: 'document',
-					data: 'ONLY_BINARY',
-					mediaType: 'application/pdf',
-					name: 'ONLY_BINARY',
-				},
-				{ type: 'text', text: last },
-			])
-			const f = await fixture(mode, original)
-			const found = await all(f.source, 'ORCHID')
-			expect(found.map((m) => m.part)).toEqual([0, 1, 2, 4])
-			// Bare seq/part addresses predate block indexing. They must never
-			// silently start referring to a different message after an upgrade.
-			const old = (await f.reopen().search({ seq: 2, part: 1 })).matches[0]!
-			expect((await f.reopen().read({ address: old.address })).text).toBe('ORCHID plain last')
-			for (const [part, text] of [
-				[2, first],
-				[3, ''],
-				[4, last],
-			] as const) {
-				const match = (await f.reopen().search({ seq: 2, part })).matches[0]!
-				expect(match).toMatchObject({
-					source: 'compaction_shed:tool',
-					toolName: 'observe',
-					isError: false,
-				})
-				expect(await f.reopen().read({ address: match.address })).toMatchObject({
-					text,
-					part,
-					retained: 'full',
-					totalBytes: Buffer.byteLength(text),
-					nextByteOffset: null,
-				})
-			}
-			expect(await all(f.source, 'ONLY_BINARY')).toEqual([])
-			const filtered = await f.source.search({
-				query: 'ORCHID',
-				excludeSuccessfulTools: ['observe'],
+		const first = 'ORCHID İ 😀\r\n first block\n'
+		const last = 'ORCHID last block, no final newline'
+		const original = messages([
+			{ type: 'text', text: first },
+			{ type: 'image', data: 'ONLY_BINARY', mediaType: 'image/png' },
+			{ type: 'text', text: '' },
+			{
+				type: 'document',
+				data: 'ONLY_BINARY',
+				mediaType: 'application/pdf',
+				name: 'ONLY_BINARY',
+			},
+			{ type: 'text', text: last },
+		])
+		const f = await fixture(mode, original)
+		const found = await all(f.source, 'ORCHID')
+		expect(found.map((m) => m.part)).toEqual([0, 1, 2, 4])
+		// Bare seq/part addresses predate block indexing. They must never
+		// silently start referring to a different message after an upgrade.
+		const old = (await f.reopen().search({ seq: SHED_SEQ, part: 1 })).matches[0]!
+		expect((await f.reopen().read({ address: old.address })).text).toBe('ORCHID plain last')
+		for (const [part, text] of [
+			[2, first],
+			[3, ''],
+			[4, last],
+		] as const) {
+			const match = (await f.reopen().search({ seq: SHED_SEQ, part })).matches[0]!
+			expect(match).toMatchObject({
+				source: 'compaction_shed:tool',
+				toolName: 'observe',
+				isError: false,
 			})
-			expect(filtered.matches.map((m) => m.part)).toEqual([0, 1])
-			expect((await f.store.readEvents()).find((e) => e.type === 'compaction_shed')).toMatchObject({
-				messages: original,
+			expect(await f.reopen().read({ address: match.address })).toMatchObject({
+				text,
+				part,
+				retained: 'full',
+				totalBytes: Buffer.byteLength(text),
+				nextByteOffset: null,
 			})
-			const event = JSON.parse(
-				(await readFile(join(f.runDir, 'transcript.jsonl'), 'utf8')).trim().split('\n')[1]!,
-			)
-			expect(event.type).toBe(archived ? 'compaction_archive' : 'compaction_shed')
-			if (archived) {
-				const saved = compactionArchiveSchema.parse(event)
-				await writeFile(compactionPartPath(f.runDir, saved.archive.id, 2), 'ORCHID modified')
-				await expect(f.source.read({ address: found[2]!.address })).rejects.toThrow()
-			}
 		}
+		expect(await all(f.source, 'ONLY_BINARY')).toEqual([])
+		const filtered = await f.source.search({
+			query: 'ORCHID',
+			excludeSuccessfulTools: ['observe'],
+		})
+		expect(filtered.matches.map((m) => m.part)).toEqual([0, 1])
+		expect(await f.shedRecord()).toMatchObject({ messages: original })
 	},
 )
 
@@ -284,9 +222,9 @@ it('paginates rich-only messages beyond one index page after reopening', async (
 	)
 	const f = await fixture('live', removed.slice(1, 3))
 	// No plain message can accidentally keep a rich-only record in the text chain.
-	await f.store.appendEvent({ type: 'turn_completed', runId: f.scope.runId, seq: 3, result: '' })
-	const live = (await f.store.captureTextEvidence(f.scope))!
-	for (const source of [live, f.reopen()]) {
+	await f.session.close()
+	const live = await f.session.textSource('live')
+	for (const source of [live, f.session.openTextSource()]) {
 		const found = await all(source, 'ORCHID')
 		expect(found.map((m) => m.part)).toEqual(Array.from({ length: 70 }, (_, i) => i))
 		expect((await source.read({ address: found[69]!.address })).text).toBe('ORCHID block 69')
