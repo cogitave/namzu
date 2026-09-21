@@ -14,7 +14,6 @@ import { setTimeout } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { sessionDatabasePath, sessionStore } from '../sessions/database.js'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { openSessions } from '../sessions/store.js'
@@ -98,19 +97,23 @@ describe('concurrent first use of CLI identities', () => {
 		expect(readdirSync(paths.stateRoot)).toEqual(['identity.json'])
 	}, 30_000)
 
-	it('shares one SQLite project and deterministic topic across simultaneous first launches', async () => {
+	it('shares one project document and deterministic topic across simultaneous first launches', async () => {
 		const paths = workspace()
 		loadIdentity(paths.stateRoot)
 		const results = await initializeConcurrently(
 			'topic',
 			paths,
-			sessionDatabasePath(paths.stateRoot),
+			join(paths.stateRoot, 'projects', 'project.json'),
 		)
 		for (const result of results) expect(result).toEqual(results[0])
 		const handle = await openSessions(paths.cwd, { stateRoot: paths.stateRoot })
 		expect(results[0]).toEqual({ projectId: handle.projectId, topicId: handle.topicId })
-		expect(await sessionStore(paths.stateRoot, true).listProjects(handle.tenantId)).toHaveLength(1)
-		expect(existsSync(join(paths.stateRoot, 'projects'))).toBe(false)
-		expect(existsSync(join(handle.controlRoot, 'topic.json'))).toBe(false)
+		expect(readdirSync(join(paths.stateRoot, 'projects'))).toEqual([handle.slug])
+		expect(
+			JSON.parse(
+				readFileSync(join(paths.stateRoot, 'projects', handle.slug, 'project.json'), 'utf8'),
+			),
+		).toMatchObject({ projectId: handle.projectId })
+		expect(existsSync(join(paths.stateRoot, 'state'))).toBe(false)
 	}, 30_000)
 })
