@@ -76,8 +76,7 @@ describe('runShellHook', () => {
 		)
 		expect(outcome.exitCode).toBe(0)
 		const json = JSON.parse(outcome.stdout.slice(0, outcome.stdout.indexOf(' env=')))
-		expect(json).toMatchObject({ event: 'turn_start', session_id: SESSION, turn_id: TURN })
-		expect(json).not.toHaveProperty('run_id')
+		expect(json).toEqual({ event: 'turn_start', cwd: CWD, session_id: SESSION, turn_id: TURN })
 		expect(outcome.stdout).toContain(`env=${SESSION}/${TURN}`)
 	})
 
@@ -89,15 +88,14 @@ describe('runShellHook', () => {
 			try {
 				const outcome = await runShellHook(
 					{
-						command:
-							'cat; printf " env=%s/%s/%s" "$NAMZU_SESSION_ID" "${NAMZU_TURN_ID-unset}" "${NAMZU_RUN_ID-unset}"',
+						command: 'cat; printf " env=%s/%s" "$NAMZU_SESSION_ID" "${NAMZU_TURN_ID-unset}"',
 					},
 					{ cwd: CWD, sessionId: SESSION, event },
 				)
 				expect(outcome.exitCode).toBe(0)
 				const json = JSON.parse(outcome.stdout.slice(0, outcome.stdout.indexOf(' env=')))
 				expect(json).toEqual({ event, cwd: CWD, session_id: SESSION })
-				expect(outcome.stdout).toContain(`env=${SESSION}/unset/unset`)
+				expect(outcome.stdout).toContain(`env=${SESSION}/unset`)
 			} finally {
 				if (inherited === undefined) Reflect.deleteProperty(process.env, 'NAMZU_TURN_ID')
 				else process.env.NAMZU_TURN_ID = inherited
@@ -116,11 +114,14 @@ describe('runShellHook', () => {
 			},
 		)
 		const json = JSON.parse(outcome.stdout)
-		expect(json).toMatchObject({
+		expect(json).toEqual({
+			event: 'subagent_stop',
+			cwd: CWD,
+			session_id: SESSION,
+			turn_id: TURN,
 			parent_session_id: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a00',
 			parent_turn_id: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a01',
 		})
-		expect(json).not.toHaveProperty('parent_run_id')
 	})
 
 	it('captures the exit code and stderr', async () => {
