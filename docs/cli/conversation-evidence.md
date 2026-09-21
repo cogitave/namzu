@@ -4,6 +4,8 @@ title: Conversation evidence search
 description: Bounded retrieval of original recorded output after conversation compaction or restart.
 resource: packages/cli/src/integrations/sessions/conversation-search.ts
 tags: [cli, compaction, tools, sessions]
+status: stable
+generated: { by: human:bahadirarda, at: 2026-09-09T00:00:00Z }
 ---
 
 # Conversation evidence search
@@ -11,10 +13,11 @@ tags: [cli, compaction, tools, sessions]
 The interactive host, `run --resume` / `run --continue`, persistent
 `run-stream --session`, and durable `drain` provide `search_conversation` for recovering exact
 identifiers or phrases from durable output of the current conversation. It
-searches recorded assistant completions, tool results, and textual messages
-preserved in compaction events. Replacing the session's projected history does
-not replace these run transcripts; reopening the conversation can still find
-the recorded text without repeating an external action or making a model call.
+searches the conversation's [session log](../sdk/session-log.md): recorded
+assistant messages, tool results, and textual messages preserved in
+compaction records. Compacting the conversation replaces what the model is
+shown, never the log; reopening the conversation can still find the recorded
+text without repeating an external action or making a model call.
 
 Cancellation covers live boundary capture as well as the following text scan.
 A tool deadline revokes that tool's capture while other calls can continue;
@@ -48,18 +51,17 @@ and retrieved summary candidates. Remaining pages return to the general scan
 after the focused one ends. Positive `excludedSummaries` reports skipped part
 visits, not matched passages or unique facts. Explicit cursor continuation
 restores that selection and explains it in tool guidance; a new literal search
-includes summaries. Older inline records can also carry an explicit system
-summary marker; the bounded legacy scanner honors that marker, never prose.
+includes summaries. Classification reads the explicit summary marker, never
+prose.
 
 Scoped retrieval also reads text blocks from compacted rich tool results. Each
 block remains exact text with its own `part`; images and documents are not
 stringified into the search corpus. Plain-string message parts keep their old
 addresses, followed by block-text parts in original message/block order. Thus
 `part` is an address ordinal, not a message index. This works with newly written
-large compaction archives and inline records, after reopening the conversation.
-Older archives retain only the parts captured when written. The unindexed
-legacy scanner reports a skipped block array as incomplete; it does not claim
-that no matching rich text exists. See [SDK retention boundaries](../sdk/retained-tool-evidence.md#large-compaction-records).
+large compaction records, after reopening the conversation. A scan that skips
+a block array reports the page as incomplete; it does not claim that no
+matching rich text exists. See [SDK retention boundaries](../sdk/retained-tool-evidence.md#large-compaction-records).
 
 When these tools are mounted, ordinary, resumed and resident CLI turns receive
 stable guidance to recover an earlier observation if its detail is missing or
@@ -83,9 +85,9 @@ tests named historical recovery after compaction and restart.
 
 `drain` binds these tools to the persisted Session, Project and tenant passed
 to the command. It does not create a new workspace Project or choose history
-from the current folder. Retrieval uses the CLI application's conversation
-hierarchy and the active writer's capture capability; `--store` names a
-checkpoint queue, not an arbitrary directory the model may search. Completed
+from the current folder. Retrieval uses that session's log and the active
+writer's capture capability; `--store` names the application home being
+drained, not an arbitrary directory the model may search. Completed
 observations in a resumed batch remain retrievable even when another call in
 that batch was interrupted.
 
@@ -110,13 +112,13 @@ prove that a model saw or understood text omitted from its visible preview.
 Search matches and `read_conversation` pages include optional `recordedAt`, the
 stored event's recorder wall-clock Unix milliseconds. Automatic recall carries
 that same value into selected passages and included duplicate occurrences. It
-survives exact retained-output reads and process restart, and is available for
-both indexed and older unindexed transcripts when the event has a valid stamp.
-Missing or invalid stamps stay unknown; file mtime, run-start time and UUID order
-are not substitutes. For `compaction_shed` it dates the copy, not the original
-observation. Within a run, sequence remains authoritative even if a clock regresses.
-Across runs, clocks may differ, so these stamps alone do not prove causal order
-or when a fact became true. Retrieval continues to rank by lexical relevance.
+survives exact retained-output reads and process restart. It comes from the
+record's `ts`; a missing or invalid stamp stays unknown, and file mtime,
+turn-start time and UUID order are not substitutes. For `compaction_shed` it
+dates the copy, not the original observation. Within a session, the record's
+`seq` remains authoritative even if a clock regresses; across sessions, clocks
+may differ, so these stamps alone do not prove causal order or when a fact
+became true. Retrieval continues to rank by lexical relevance.
 
 Search matches and located read pages also carry `recordKind`, using the same
 SDK classification as automatic recall: `assistant_message`, `user_message`,
@@ -141,7 +143,7 @@ model. An empty request with neither query nor cursor is invalid.
 
 Automatic recall uses complete Unicode letter/number/underscore tokens with the
 same lowercase matching keys as SDK relevance scoring. Its continuation restores
-that matching mode too, including in older unindexed transcripts. Thus `in`
+that matching mode too. Thus `in`
 inside `Packing` does not consume an automatic candidate slot, and token `3`
 does not select `13000`. A new explicit `search_conversation({query: ...})`
 retains literal substring matching; the model-facing tool adds no mode argument.
@@ -162,8 +164,8 @@ skips successful outputs from `search_conversation` and `read_conversation`
 before filling the candidate allowance. It still searches original observations,
 failed retrievals and records with unknown tool name or success status. Paired
 compaction tool results in scoped indexes retain their tool name and explicit
-error status; copies keep their compaction source/time. Legacy unindexed
-compaction messages and archives without this metadata remain unknown.
+error status; copies keep their compaction source/time. A record without this
+metadata remains unknown.
 
 New explicit `search_conversation({query: ...})` calls use the same retrieval
 filter by default. This prevents one search from finding an earlier search's
@@ -215,19 +217,19 @@ Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
 retain exact case matching. This is Unicode case-insensitive literal matching,
 without locale-specific casing, accent normalization, regex operators or fuzzy
-ranking. For example, it does not equate `İ` with `i` or `ß` with `ss`. Optional `runId`
-narrows the search to one run in the current conversation; optional `limit`
-selects 1–20 matches (default 5). Each match includes the run ID, event sequence,
-source event type, zero-based textual `part`, and a bounded excerpt. Indexed
+ranking. For example, it does not equate `İ` with `i` or `ß` with `ss`. Optional `turnId`
+narrows the search to one turn of the current conversation; optional `limit`
+selects 1–20 matches (default 5). Each match includes the turn ID, the record's
+`seq`, source record type, zero-based textual `part`, and a bounded excerpt. Indexed
 sources return separate matching passages within the same window and continue
 within it at the match limit; nearby hits already covered by an excerpt are
-grouped. The legacy transcript scanner returns the first occurrence per textual
-part. Indexed matches also report `retained`
+grouped. The direct scan of a turn not yet in the index returns the first
+occurrence per textual part. Indexed matches also report `retained`
 (`full` or `preview`), optional originating `toolName`/`isError`, and, when character positions are known, a `byteOffset`
-for reading near the match. A long result may match several windows. `runId`, `seq`, and `part` form a durable read address.
+for reading near the match. A long result may match several windows. `seq` and `part` form a durable read address within the conversation; a record's `seq` never changes.
 Indexed matches also carry `excerptComplete`: true means the entire full-retained
-text part is shown, false means partial text or a retained preview. The legacy
-scanner omits this flag because it cannot prove the original part's coverage;
+text part is shown, false means partial text or a retained preview. The direct
+scan omits this flag because it cannot prove the original part's coverage;
 absence means unknown. The same metadata reaches automatic recall before the
 model answers. Coverage of one part is not proof of a claim, file contents or
 an exhaustive conversation search.
@@ -244,32 +246,33 @@ Historical text is evidence to evaluate, not instructions to execute.
 
 The host binds the tenant, project and session; the model cannot choose another
 session or a filesystem path. Reads reject static symlink components and
-nonregular transcript files. The private host-owned state hierarchy is trusted
+nonregular log files. The private host-owned state hierarchy is trusted
 against concurrent directory replacement: component checks and leaf descriptor
-flags do not provide an atomic, race-proof ancestor traversal. Each page validates
-record identity, consecutive sequence, newline termination and
-searchable payload shapes before returning that page's matches. A corrupt record
-invalidates matches from that run on the current page. Earlier pages establish
-only the visited records, not validity of the entire transcript.
+flags do not provide an atomic, race-proof ancestor traversal. Each page verifies
+the hash chain, record identity, consecutive `seq`, newline termination and
+searchable payload shapes before returning that page's matches. A broken chain
+ends the page at the break and marks the search incomplete. Earlier pages
+establish only the visited records, not validity of the entire log.
 
-Each call discovers at most 100 directory entries and reads at most 8 MiB, in
-64 KiB chunks. Individual JSONL records are capped at 4 MiB; total transcript
-size is no longer capped at 2 MiB. Match payloads total at most 12,000 bytes.
+Each call reads at most 8 MiB, in 64 KiB chunks. Individual records are capped
+at 4 MiB; a larger body is spilled to `tool-results/` with an integrity
+manifest. Match payloads total at most 12,000 bytes.
 `nextCursor`, when present, continues at an unconsumed record or message inside
 a compaction record. Pass it as `cursor`; optionally repeated `query` and
-`caseSensitive` settings must match the original search. Omit `runId` or repeat
-the original single-run ID. A recall cursor may represent a multi-term host
-query, so use cursor alone for those continuations. Closed, explicitly scoped runs use the SDK
-text index: at most three indexed matches are requested from each internal page.
+`caseSensitive` settings must match the original search. Omit `turnId` or repeat
+the original one. A recall cursor may represent a multi-term host query, so use
+cursor alone for those continuations. Settled turns use the session index's
+full-text search (`SessionIndex.searchEvidence`): at most three indexed matches
+are requested from each internal page.
 An internal page boundary alone does not end the public response. The host can
 follow up to seven additional internal continuations per call while the public
 match, serialized-output and read allowances have room. Scope and source checks
-run again for each page. An unchanged internal cursor yields immediately rather
+are applied again for each page. An unchanged internal cursor yields immediately rather
 than consuming the continuation allowance on repeated work. When an indexed
-run is completely searched, literal search and automatic multi-term discovery
-both advance to the next run within the shared read and directory-discovery
-limits. This includes matching runs: a small matching record does not require
-another model round trip merely to visit the next run. The requested `limit`
+turn is completely searched, literal search and automatic multi-term discovery
+both advance to the next turn within the shared read limit. This includes
+matching turns: a small matching record does not require another model round
+trip merely to visit the next turn. The requested `limit`
 still caps matches across the public page. Before each SDK call, the host
 reserves 4,000 serialized bytes per requested match for its 512-character
 excerpt, JSON escaping and bounded metadata. It requests at most three matches
@@ -287,65 +290,53 @@ keeping the same ceilings. The [indexed-page experiment](../../research/conversa
 records fewer public calls with increased accounted reads in its fixture;
 packing pages is not a guarantee of lower total I/O or model cost.
 
-The 48-character handle binds the host scope, query, case sensitivity and file snapshot. It expires
-after ten minutes, process restart or eviction from a 128-entry cache. Restart
-the search if the cursor expires. Changed files are reported as unavailable;
-restart to search the new snapshot. Verified append-only growth is allowed for
-the requesting live invocation; its cursor still ends at the captured boundary. The short CLI cursor is process-local. The SDK keeps a derived authenticated
-index beside each closed run (`evidence-index/`), reused after restart. This
-index is disposable; the run transcript and retained outputs remain primary.
+The 48-character handle binds the host scope, query, case sensitivity and the
+log position it was taken at. It expires after ten minutes, process restart or
+eviction from a 128-entry cache. Restart the search if the cursor expires. A log
+that no longer matches the position (truncated or rewritten below it) is
+reported as unavailable; restart to search the new state. Append-only growth is
+allowed: a record's `seq` and hash never change once written. The short CLI
+cursor is process-local. The full-text index lives in `index.sqlite`, is derived
+from the logs and rebuilt after restart when needed; the session log and
+retained outputs remain primary.
 
-Results include `scannedRuns`, `scannedBytes`, `unavailableRuns` and `incomplete`.
-Run counts describe distinct runs visited or found unavailable in the current
-call, even when several internal pages visit one run. Read bytes include all
-internal operations. If a later internal page fails validation, the current
-response discards matches already collected from that run; other runs' matches
-remain. A continuation also preserves omissions seen
-earlier in that same scan, including when an automatic live scan hands off to
-this tool. Finishing its remaining pages does not erase a prior preview or
-unavailable original. A final page may therefore have `unavailableRuns: 0`, no
-`nextCursor`, and `incomplete: true`: it found no new unavailable run, but the
+Results include `scannedTurns`, `scannedBytes`, `unavailableTurns` and
+`incomplete`. Turn counts describe distinct turns visited or found unavailable
+in the current call, even when several internal pages visit one turn. Read bytes
+include all internal operations. If a later internal page fails validation, the
+current response discards matches already collected from that turn; other turns'
+matches remain. A continuation also preserves omissions seen earlier in that
+same scan, including when an automatic live scan hands off to this tool.
+Finishing its remaining pages does not erase a prior preview or unavailable
+original. A final page may therefore have `unavailableTurns: 0`, no
+`nextCursor`, and `incomplete: true`: it found no new unavailable turn, but the
 whole continued scan still cannot establish absence. Omissions from a separate
 closed-history scan do not mark an otherwise healthy live scan as incomplete.
 
 If an SDK operation fails before returning
 its byte count, `scannedBytes` conservatively charges the remaining 8 MiB
-ceiling and yields instead of attempting another run in that call. `incomplete` remains true while another page
-exists or if any run or partial evidence was omitted. An authenticated full spill
+ceiling and yields instead of attempting another turn in that call. `incomplete` remains true while another page
+exists or if any turn or partial evidence was omitted. An authenticated full spill
 does not become incomplete merely because its model-visible preview was truncated. Follow continuation even
 when the current page has zero matches. Incomplete absence is not proof that
-missing evidence does not exist. Directory discovery also continues: after the
-current batch's runs have been visited, the next call discovers up to 100 more
-entries. Empty batches containing no run IDs still return a continuation. Run
-IDs are sorted within each batch; discovery order is the filesystem's order,
-not chronology or relevance ranking. An exact `runId` bypasses enumeration.
+missing evidence does not exist. Turns are visited newest first; an exact
+`turnId` restricts the search to that turn.
 
-Directory continuations retain a private descriptor and cached name pages,
-bounded to 32 scans and 128 pages per process. Concurrent use of the same
-continuation returns the same page. Names are discovery hints, never ownership
-authority or cached evidence: each run still passes the regular scope and
-source checks. A changed or replaced run directory invalidates further
-discovery and requires a new search. Exhaustion closes the descriptor;
-expiration, eviction and CLI Session shutdown release abandoned scans. Cursors
-are process-local and do not survive restart. An exactly full directory batch
-may require one final empty page to establish exhaustion.
-
-This surface searches only runs physically owned by the selected conversation.
-It does not traverse fork ancestry, delegated sessions, arbitrary artifact
-paths, binary attachments or memory records. The SDK validates a closed run's
-explicit tenant/project/Session/run ownership and authenticates original tool
-text retained outside the JSONL preview. Changed or missing authenticated
+This surface searches only the selected conversation's own log. It does not
+traverse fork ancestry, child sessions, arbitrary artifact paths, binary
+attachments or memory records. The SDK validates each record's session and
+turn against the authorized scope and authenticates original tool text
+retained outside the record. Changed or missing authenticated
 artifacts are unavailable; search never silently substitutes their previews.
 For the requesting live invocation, the CLI uses the SDK writer's captured
 boundary and searches newest records first. Later appends preserve existing
 search/read continuations, including when compaction happens between calls.
 Only that invocation's host-provided capability is accepted, and its scope must
-match the authorized conversation. For other explicitly scoped runs with `idle`,
-`pending` or `running` metadata, the CLI uses the SDK's snapshot consistency mode.
-This includes interrupted runs whose process exited before terminal status was
-recorded. It recovers authenticated original output without assuming whether a
-writer is alive, acquiring its execution lease, resuming actions or changing the
-stored status. The transcript and metadata are checked before and after every
+match the authorized conversation. For a turn that has no terminal record — a
+paused turn, or one interrupted when its process exited — the CLI uses the SDK's
+snapshot consistency mode. It recovers authenticated original output without
+assuming whether a writer is alive, acquiring the session's lease, resuming
+actions or closing the turn. The log's head is checked before and after every
 operation. Changes invalidate the snapshot cursor/address and require a fresh
 search. Unlike the requesting writer's captured boundary, these snapshots do
 not preserve cursors across concurrent appends.
@@ -353,7 +344,7 @@ not preserve cursors across concurrent appends.
 The CLI validates every indexed search/read page as well as its source. Explicit
 search and automatic recall share owner, remaining read-budget and match-shape
 checks. The entire match batch is checked before any address is cached. A page
-with a different tenant, project, session or run, invalid counters, oversized
+with a different tenant, project, session or turn, invalid counters, oversized
 text or contradictory completeness is unavailable; its text is not returned to
 the model. Search reports incomplete coverage and charges the remaining read
 allowance when an invalid response leaves the operation's cost uncertain.
@@ -361,16 +352,15 @@ These checks enforce the captured-source contract. Matching owner fields alone
 does not authenticate arbitrary text supplied by a custom host source; the
 built-in SDK readers still provide stored-byte integrity verification.
 
-An incomplete final JSONL fragment is excluded using a bounded backward scan,
-charged to the existing 8 MiB allowance. The original transcript is not repaired
-or truncated. Nonterminal snapshot search remains `incomplete: true`, even with
+An incomplete final line (a torn tail) is excluded using a bounded backward scan,
+charged to the existing 8 MiB allowance. A reader never repairs or truncates the
+log; only the next writer that takes the session's lease does, and records it. Nonterminal snapshot search remains `incomplete: true`, even with
 no continuation; a full exact read establishes the selected recorded text, not
 that the interrupted task finished. A complete but malformed record still
 fails validation. An unbounded or absent complete prefix is unavailable.
 
-Unsupported stores and older unscoped records retain the bounded transcript
-scan. Contradictory ownership or an unknown scoped status is refused. An indexed
-or snapshot cursor cannot downgrade to that scanner when its source becomes
+Contradictory ownership or an unknown record type is refused. An indexed or
+snapshot cursor cannot downgrade to another source when its source becomes
 ineligible; an existing live cursor still requires its original writer.
 
 Without a retained authenticated original, a recorded tool preview stays a
@@ -382,25 +372,25 @@ after its full text and integrity manifest are saved. The original spill
 threshold remains 40,000 characters; smaller results are unchanged. This limits
 repeated preview cost without removing the exact source searched here. Set
 [`compaction.retainedToolPreviewChars: 0`](context-and-compaction.md) to keep
-the earlier preview size. Existing transcripts are not rewritten, and failed
+the earlier preview size. Records already written are never rewritten, and failed
 retention falls back to the ordinary output budget.
 
 ## Exact retained text
 
-`read_conversation({ runId, seq, part?, byteOffset? })` returns exact retained text rather
+`read_conversation({ seq, part?, byteOffset? })` returns exact retained text rather
 than a summary or search excerpt. `part` defaults to zero; compaction events
 can contain several textual messages with different part indices. The tool
 shares search's host-bound ownership and filesystem checks. It never reads
-caller-selected paths or follows an `outputSpillPath` from a transcript.
+caller-selected paths or follows a spill path from a record.
 After an indexed, snapshot or live search returns a match, the CLI temporarily retains its
 authenticated SDK address under this conversation's root, tenant, project,
-session, run, sequence and part. A following read can go directly to that source
+session, turn, sequence and part. A following read can go directly to that source
 instead of locating the same record again from the first index page. It still
 reopens the source, checks current ownership and authenticates the record and
 requested text; a changed closed source is refused, not silently substituted.
 Only locations are retained, not text or authorization. The process holds at most
 128 locations for ten minutes, and releases them when the conversation host closes.
-After expiry, eviction or process restart, the durable run/sequence/part address
+After expiry, eviction or process restart, the durable sequence/part address
 still works through bounded lookup pages. A read advances through up to eight
 SDK lookup pages within the same shared 8 MiB allowance, instead of yielding
 solely because an intermediate index page is empty. Each operation reopens the
@@ -411,7 +401,7 @@ Its saved position resumes on the next
 call, including when the text has been located but reading it needs a fresh
 budget. The ceiling bounds both I/O and work on very small pages; it does not
 guarantee that every address returns text in one call.
-If a former live owner is gone, a fresh read can locate its closed run or
+If a former live owner is gone, a fresh read can locate its settled turn or
 nonterminal snapshot normally; an already-issued live read cursor
 retains its existing owner requirement.
 
@@ -426,8 +416,8 @@ to read from the beginning. Copy the returned value exactly: rounding or estimat
 a byte position can split a UTF-8 character and is refused. The read tool's error
 guidance points back to the exact search position without exposing private paths.
 Repeat that initial offset unchanged with subsequent
-cursor calls. The tool returns `offset` in UTF-16 units, not bytes. A legacy
-record without a character index must be read sequentially from zero.
+cursor calls. The tool returns `offset` in UTF-16 units, not bytes. A
+record without a character index is read sequentially from zero.
 
 Each call scans at most 8 MiB and returns at most 6,000 UTF-16 code units,
 without splitting surrogate pairs. `text` may be empty while scanning toward
@@ -435,23 +425,22 @@ the target. Continue with `nextCursor` and the same address until `complete`
 is true. `offset` and `totalChars` use UTF-16 code units; `complete` means the
 selected retained part has been delivered, not that the entire original tool
 output or conversation was retained. Indexed reads set `retainedPreview` from
-the selected source. Legacy scans conservatively flag any truncation marker
-encountered, including earlier events. `totalChars` is omitted when unavailable.
+the selected source. `totalChars` is omitted when unavailable.
 
 The 4 MiB record cap still applies. Cursors share the bounded ten-minute cache
 and file-snapshot checks used by search. A read cursor is separate from a search
 cursor. Closing the host releases both kinds of cursor. After restart or expiry, begin again from the durable address without
 a cursor. Text pages revalidate their source record, so reading many pages of
-one large JSONL record trades repeated bounded I/O for avoiding an in-memory
+one large record trades repeated bounded I/O for avoiding an in-memory
 payload cache. Indexed spill reads verify just the selected chunks and manifest.
 Both tools remain ready when deferred tool loading is selected. Stateless
-headless runs without a host-owned conversation do not acquire these tools. Unrecorded bytes and binary attachments are not reconstructed.
+headless invocations without a host-owned conversation do not acquire these tools. Unrecorded bytes and binary attachments are not reconstructed.
 
 ## Terminal presentation
 
 Successful archive calls show compact source and coverage summaries in the TUI.
 Search displays the number of matches on this page, incomplete traversal and
-unavailable runs, with at most three shortened excerpts. It does not turn an
+unavailable turns, with at most three shortened excerpts. It does not turn an
 empty page into proof of historical absence. Read distinguishes a partial page,
 lookup still in progress, a final page starting at a later offset, and a selected
 retained part returned from its beginning. These are delivery states, not task
