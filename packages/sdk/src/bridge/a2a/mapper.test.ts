@@ -1,8 +1,9 @@
 /**
  * Current-code invariants asserted (2026-04-21, ses_006 Phase 2):
  *
- *   - `mapRunToA2AEvent(event, contextId?)` is a one-way mapper: RunEvent →
- *     A2AStreamEvent | null. There is no reverse mapper (§2.7).
+ *   - `mapTurnToA2AEvent(event, contextId?)` is a one-way mapper: SessionEvent →
+ *     A2AStreamEvent | null. There is no reverse mapper (§2.7). `taskId` is
+ *     the event's turn; `contextId` the session (the peer's id when given).
  *   - For events in MAPPING, the returned object is either a
  *     TaskStatusUpdateEvent (with a `status` field) or a
  *     TaskArtifactUpdateEvent (with an `artifact` field).
@@ -10,10 +11,10 @@
  *     tool_executing, sub-session lifecycle, etc.), the mapper returns
  *     null — this is NOT a bug, it is the "bridge does not surface this"
  *     contract. Asserting the null-set here pins the contract.
- *   - `run_started` / `run_completed` / `run_failed` / `iteration_started`
- *     / `run_paused` produce TaskStatusUpdateEvent with stable states:
+ *   - `turn_started` / `turn_completed` / `turn_failed` / `iteration_started`
+ *     / `turn_paused` produce TaskStatusUpdateEvent with stable states:
  *     running / completed / failed / running / input-required.
- *   - `run_completed.final` is true; every non-terminal status event has
+ *   - `turn_completed.final` is true; every non-terminal status event has
  *     `final: false`.
  *   - `llm_response` with null/empty `content` returns null; with content
  *     returns a running status event.
@@ -29,41 +30,83 @@
 import { describe, expect, it } from 'vitest'
 
 import { fixtureId } from '../../test-support/ids.js'
-import type { CheckpointId, PlanId, RunId, TaskId } from '../../types/ids/index.js'
-import type { RunEvent } from '../../types/run/events.js'
+import type { CheckpointId, PlanId, SessionId, TaskId, TurnId } from '../../types/ids/index.js'
+import type { SessionEvent } from '../../types/session/events.js'
 
-import { mapRunToA2AEvent, mapSessionToA2AEvent } from './mapper.js'
+import { mapSessionToA2AEvent, mapTurnToA2AEvent } from './mapper.js'
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const SID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as SessionId
+const TID = '0199b3a0-0000-7000-8000-00000000000a' as TurnId
+/** The fields `turn_started` requires and these tests do not look at. */
+const STARTED = {
+	userMessageId: fixtureId.message('prompt'),
+	config: { model: 'm', tokenBudget: 1, timeoutMs: 1 },
+}
+const SETTLEMENT = {
+	status: 'completed' as const,
+	iterations: 1,
+	usage: {
+		promptTokens: 0,
+		completionTokens: 0,
+		totalTokens: 0,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+	},
+	cost: {
+		inputCostPer1M: 0,
+		outputCostPer1M: 0,
+		totalCost: 0,
+		cacheDiscount: 0,
+		unpricedTokens: 0,
+	},
+	durationMs: 0,
+	resultSource: 'model' as const,
+	abandonedTaskIds: [],
+	abandonedJobIds: [],
+}
 
 function isStatusEvent(
-	e: ReturnType<typeof mapRunToA2AEvent>,
-): e is Extract<NonNullable<ReturnType<typeof mapRunToA2AEvent>>, { status: unknown }> {
+	e: ReturnType<typeof mapTurnToA2AEvent>,
+): e is Extract<NonNullable<ReturnType<typeof mapTurnToA2AEvent>>, { status: unknown }> {
 	return !!e && 'status' in e
 }
 
 function isArtifactEvent(
-	e: ReturnType<typeof mapRunToA2AEvent>,
-): e is Extract<NonNullable<ReturnType<typeof mapRunToA2AEvent>>, { artifact: unknown }> {
+	e: ReturnType<typeof mapTurnToA2AEvent>,
+): e is Extract<NonNullable<ReturnType<typeof mapTurnToA2AEvent>>, { artifact: unknown }> {
 	return !!e && 'artifact' in e
 }
 
-describe('mapRunToA2AEvent — mapped variants', () => {
-	it('run_started → running / not final / contextId threaded', () => {
-		const event: RunEvent = { type: 'run_started', runId: RID }
-		const a2a = mapRunToA2AEvent(event, 'ctx_42')
+describe('mapTurnToA2AEvent — mapped variants', () => {
+	it('turn_started → running / not final / contextId threaded', () => {
+		const event: SessionEvent = { type: 'turn_started', sessionId: SID, turnId: TID, ...STARTED }
+		const a2a = mapTurnToA2AEvent(event, 'ctx_42')
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('running')
 			expect(a2a.final).toBe(false)
 			expect(a2a.contextId).toBe('ctx_42')
-			expect(a2a.taskId).toBe(RID)
+			expect(a2a.taskId).toBe(TID)
 		}
 	})
 
-	it('run_completed → completed / final / message carries the result', () => {
-		const event: RunEvent = { type: 'run_completed', runId: RID, result: 'done' }
-		const a2a = mapRunToA2AEvent(event)
+	it('with no contextId from the peer, the session is the context', () => {
+		// A context is a session, never the project. A host that created the
+		// session for a peer that sent no context id returns this id to it.
+		const a2a = mapTurnToA2AEvent({ type: 'turn_started', sessionId: SID, turnId: TID, ...STARTED })
+		expect(a2a?.contextId).toBe(SID)
+		expect(a2a?.taskId).toBe(TID)
+	})
+
+	it('turn_completed → completed / final / message carries the result', () => {
+		const event: SessionEvent = {
+			type: 'turn_completed',
+			sessionId: SID,
+			turnId: TID,
+			result: 'done',
+			settlement: SETTLEMENT,
+		}
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('completed')
@@ -72,9 +115,15 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		}
 	})
 
-	it('run_failed → failed / final / message carries the error', () => {
-		const event: RunEvent = { type: 'run_failed', runId: RID, error: 'boom' }
-		const a2a = mapRunToA2AEvent(event)
+	it('turn_failed → failed / final / message carries the error', () => {
+		const event: SessionEvent = {
+			type: 'turn_failed',
+			sessionId: SID,
+			turnId: TID,
+			error: 'boom',
+			settlement: { ...SETTLEMENT, status: 'failed' },
+		}
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('failed')
@@ -84,8 +133,13 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 	})
 
 	it('iteration_started → running / not final / message names the iteration', () => {
-		const event: RunEvent = { type: 'iteration_started', runId: RID, iteration: 3 }
-		const a2a = mapRunToA2AEvent(event)
+		const event: SessionEvent = {
+			type: 'iteration_started',
+			sessionId: SID,
+			turnId: TID,
+			iteration: 3,
+		}
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('running')
@@ -98,15 +152,16 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 	})
 
 	it('message_completed with content → running status + text part', () => {
-		const event: RunEvent = {
+		const event: SessionEvent = {
 			type: 'message_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 0,
 			messageId: fixtureId.message('a'),
 			stopReason: 'end_turn',
 			content: 'hi',
 		}
-		const a2a = mapRunToA2AEvent(event)
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('running')
@@ -115,38 +170,41 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 	})
 
 	it('message_completed without content → null (no aggregated text to surface)', () => {
-		const event: RunEvent = {
+		const event: SessionEvent = {
 			type: 'message_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 0,
 			messageId: fixtureId.message('b'),
 			stopReason: 'tool_use',
 		}
-		expect(mapRunToA2AEvent(event)).toBeNull()
+		expect(mapTurnToA2AEvent(event)).toBeNull()
 	})
 
 	it('message_completed with empty-string content → null (falsy)', () => {
-		const event: RunEvent = {
+		const event: SessionEvent = {
 			type: 'message_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 0,
 			messageId: fixtureId.message('c'),
 			stopReason: 'end_turn',
 			content: '',
 		}
-		expect(mapRunToA2AEvent(event)).toBeNull()
+		expect(mapTurnToA2AEvent(event)).toBeNull()
 	})
 
 	it('tool_completed → artifact with toolName + toolUseId + isError metadata', () => {
-		const event: RunEvent = {
+		const event: SessionEvent = {
 			type: 'tool_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			toolUseId: 'toolu_a',
 			toolName: 'read_file',
 			result: 'ok',
 			isError: false,
 		}
-		const a2a = mapRunToA2AEvent(event)
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isArtifactEvent(a2a)).toBe(true)
 		if (isArtifactEvent(a2a)) {
 			expect(a2a.artifact.artifactId).toMatch(/^tool-read_file-\d+$/)
@@ -161,13 +219,14 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 	})
 
 	it('tool_review_requested → input-required + data part with review mime type', () => {
-		const event: RunEvent = {
+		const event: SessionEvent = {
 			type: 'tool_review_requested',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 2,
 			toolCalls: [{ id: 'tc1', name: 'write_file', input: {}, isDestructive: true }],
 		}
-		const a2a = mapRunToA2AEvent(event)
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('input-required')
@@ -183,9 +242,10 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 	})
 
 	it('plan_ready → input-required + data part with plan mime type', () => {
-		const event: RunEvent = {
+		const event: SessionEvent = {
 			type: 'plan_ready',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
 			title: 'Migrate tables',
 			summary: 'Three steps',
@@ -200,7 +260,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 				},
 			],
 		}
-		const a2a = mapRunToA2AEvent(event)
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('input-required')
@@ -217,10 +277,11 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		}
 	})
 
-	it('run_paused → input-required + reason in text part', () => {
-		const event: RunEvent = {
-			type: 'run_paused',
-			runId: RID,
+	it('turn_paused → input-required + reason in text part', () => {
+		const event: SessionEvent = {
+			type: 'turn_paused',
+			sessionId: SID,
+			turnId: TID,
 			checkpointId: 'ckpt_1' as CheckpointId,
 			reason: 'waiting for review',
 			failure: {
@@ -230,7 +291,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 				details: { providerCode: 'rate_limit', retryAfterMs: 5_000 },
 			},
 		}
-		const a2a = mapRunToA2AEvent(event)
+		const a2a = mapTurnToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
 			expect(a2a.status.state).toBe('input-required')
@@ -247,10 +308,11 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		}
 	})
 
-	it('run_paused metadata does not invent absent failure details', () => {
-		const a2a = mapRunToA2AEvent({
-			type: 'run_paused',
-			runId: RID,
+	it('turn_paused metadata does not invent absent failure details', () => {
+		const a2a = mapTurnToA2AEvent({
+			type: 'turn_paused',
+			sessionId: SID,
+			turnId: TID,
 			checkpointId: 'ckpt_without_details' as CheckpointId,
 			reason: 'transient provider stop',
 			failure: {
@@ -271,21 +333,35 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 	})
 })
 
-describe('mapRunToA2AEvent — explicit null set', () => {
-	const nullEvents: RunEvent[] = [
-		{ type: 'iteration_completed', runId: RID, iteration: 1, hasToolCalls: false },
-		{ type: 'tool_executing', runId: RID, toolUseId: 'toolu_x', toolName: 'x', input: {} },
-		{ type: 'tool_review_completed', runId: RID, decision: 'approved' },
+describe('mapTurnToA2AEvent — explicit null set', () => {
+	const nullEvents: SessionEvent[] = [
+		{ type: 'iteration_completed', sessionId: SID, turnId: TID, iteration: 1, hasToolCalls: false },
+		{
+			type: 'tool_executing',
+			sessionId: SID,
+			turnId: TID,
+			toolUseId: 'toolu_x',
+			toolName: 'x',
+			input: {},
+		},
+		{ type: 'tool_review_completed', sessionId: SID, turnId: TID, decision: 'approved' },
 		{
 			type: 'checkpoint_created',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			checkpointId: 'ckpt_1' as CheckpointId,
 			iteration: 1,
 		},
-		{ type: 'run_resuming', runId: RID, fromCheckpointId: 'ckpt_1' as CheckpointId },
+		{
+			type: 'turn_resuming',
+			sessionId: SID,
+			turnId: TID,
+			fromCheckpointId: 'ckpt_1' as CheckpointId,
+		},
 		{
 			type: 'token_usage_updated',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			usage: {
 				promptTokens: 0,
 				completionTokens: 0,
@@ -301,11 +377,22 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 				unpricedTokens: 0,
 			},
 		},
-		{ type: 'plan_approved', runId: RID, planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId },
-		{ type: 'plan_rejected', runId: RID, planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId },
+		{
+			type: 'plan_approved',
+			sessionId: SID,
+			turnId: TID,
+			planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
+		},
+		{
+			type: 'plan_rejected',
+			sessionId: SID,
+			turnId: TID,
+			planId: 'f892ba68-03a6-484b-94ed-6368b6ba644a' as PlanId,
+		},
 		{
 			type: 'agent_pending',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			parentAgentId: 'a',
 			childAgentId: 'b',
@@ -313,10 +400,12 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 		},
 		{
 			type: 'agent_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			result: {
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				status: 'completed',
 				iterations: 1,
 				durationMs: 1,
@@ -339,21 +428,28 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 		},
 		{
 			type: 'agent_failed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			error: 'e',
 		},
 		{
 			type: 'agent_canceled',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+		},
+		{
+			type: 'child_session_idled',
+			sessionId: SID,
+			childSessionId: '0199b3a0-0000-7000-8000-0000000000c1' as SessionId,
 		},
 	]
 
 	it.each(nullEvents.map((e) => [e.type, e] as const))(
 		'%s returns null (bridge does not surface)',
 		(_name, event) => {
-			expect(mapRunToA2AEvent(event)).toBeNull()
+			expect(mapTurnToA2AEvent(event)).toBeNull()
 		},
 	)
 })
@@ -366,10 +462,11 @@ describe('delegation stays off the A2A wire', () => {
 	// grouping those children carry is caption text for an operator's screen
 	// — it creates no dependencies, barriers or serial execution, and a peer
 	// has no screen of ours to put it on.
-	const delegation: RunEvent[] = [
+	const delegation: SessionEvent[] = [
 		{
 			type: 'agent_pending',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			parentAgentId: 'supervisor',
 			childAgentId: 'worker',
@@ -381,13 +478,15 @@ describe('delegation stays off the A2A wire', () => {
 		},
 		{
 			type: 'agent_failed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 			error: 'e',
 		},
 		{
 			type: 'agent_canceled',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
 		},
 	]
@@ -395,19 +494,19 @@ describe('delegation stays off the A2A wire', () => {
 	it.each(delegation.map((e) => [e.type, e] as const))(
 		'%s stays unmapped, display labels and all',
 		(_name, event) => {
-			expect(mapRunToA2AEvent(event)).toBeNull()
+			expect(mapTurnToA2AEvent(event)).toBeNull()
 		},
 	)
 })
 
 describe('mapSessionToA2AEvent (deprecated alias)', () => {
-	it('is the same function reference as mapRunToA2AEvent', () => {
+	it('is the same function reference as mapTurnToA2AEvent', () => {
 		// toEqual against paired invocations races the ISO timestamp
 		// inside `statusEvent()` across a millisecond boundary; CI
 		// flaked once with 1 ms drift (see PR #11 Build & Test (22)
 		// 2026-04-22T11:13). Identity check is deterministic and
 		// asserts the deprecation shim strictly — not just a "similar
 		// output" check.
-		expect(mapSessionToA2AEvent).toBe(mapRunToA2AEvent)
+		expect(mapSessionToA2AEvent).toBe(mapTurnToA2AEvent)
 	})
 })

@@ -15,7 +15,8 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createToolPresenter } from '../../../registry/tool/presentation.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import type { MCPJsonRpcMessage, MCPTransport } from '../../../types/connector/mcp.js'
-import type { RunEvent } from '../../../types/run/events.js'
+import type { SessionEvent } from '../../../types/session/events.js'
+import { TurnInProgressError } from '../../../types/session/turn.js'
 import { ACPServer, type AcpAgentGateway } from '../server.js'
 
 /**
@@ -75,6 +76,8 @@ function build(
 	})
 	return { ...wire, server }
 }
+
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 async function settle(): Promise<void> {
 	await new Promise((resolve) => setImmediate(resolve))
@@ -255,24 +258,27 @@ describe('session/new', () => {
 
 describe('session/prompt', () => {
 	it('streams updates and answers with the stop reason', async () => {
-		const RID = fixtureId.run('acp')
+		const SID = fixtureId.session('acp')
+		const TID = fixtureId.turn('acp')
 		const fixture = build({
 			gateway: {
 				prompt: async ({ onEvent }) => {
 					onEvent({
 						type: 'text_delta',
-						runId: RID,
+						sessionId: SID,
+						turnId: TID,
 						iteration: 0,
 						messageId: fixtureId.message('a'),
 						text: 'hello ',
-					} as RunEvent)
+					} as SessionEvent)
 					onEvent({
 						type: 'text_delta',
-						runId: RID,
+						sessionId: SID,
+						turnId: TID,
 						iteration: 0,
 						messageId: fixtureId.message('a'),
 						text: 'peer',
-					} as RunEvent)
+					} as SessionEvent)
 					return { stopReason: 'end_turn' }
 				},
 			},
@@ -567,11 +573,12 @@ describe('this module never compares a tool name', () => {
 				prompt: async ({ onEvent }) => {
 					onEvent({
 						type: 'tool_executing',
-						runId: fixtureId.run('acp'),
+						sessionId: fixtureId.session('acp'),
+						turnId: fixtureId.turn('acp'),
 						toolUseId: 'toolu_1',
 						toolName: 'edit',
 						input: { path: 'a.txt', before: 'one', after: 'two' },
-					} as RunEvent)
+					} as SessionEvent)
 					return { stopReason: 'end_turn' }
 				},
 			},
@@ -858,7 +865,9 @@ describe('defaults', () => {
 		await settle()
 
 		const id = (wire.sent.find((m) => m.id === 2)?.result as { sessionId: string }).sessionId
-		expect(id).toMatch(/^acp_/)
+		// A namzu session id (UUIDv7), so the gateway can open the session log
+		// under the very id the client holds.
+		expect(id).toMatch(UUID_V7)
 
 		// And a second session does not collide with the first, which is the
 		// only property a caller can rely on.
@@ -969,7 +978,7 @@ describe('the session-id namespace', () => {
 		})
 	})
 
-	it('keeps a loaded live session while default generation skips its reserved id', async () => {
+	it('keeps a loaded live session, under the client’s opaque id, beside a generated one', async () => {
 		const loadRelease = deferred<void>()
 		let loadedSignal: AbortSignal | undefined
 		const wire = pair()
@@ -981,7 +990,7 @@ describe('the session-id namespace', () => {
 					return [{ role: 'user', content: 'durable turn' }]
 				},
 				prompt: async ({ sessionId, signal, history }) => {
-					if (sessionId === 'acp_1') {
+					if (sessionId === 'client-session-1') {
 						loadedSignal = signal
 						expect(history).toEqual([{ role: 'user', content: 'durable turn' }])
 						await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve()))
@@ -1003,12 +1012,13 @@ describe('the session-id namespace', () => {
 		})
 		await settle()
 
-		// Reserve `acp_1` before the store's first await settles.
+		// Reserve the client's id before the store's first await settles. It is
+		// not a namzu id and does not have to be: the bridge treats it as opaque.
 		wire.deliver({
 			jsonrpc: '2.0',
 			id: 2,
 			method: 'session/load',
-			params: { sessionId: 'acp_1', cwd: process.cwd() },
+			params: { sessionId: 'client-session-1', cwd: process.cwd() },
 		})
 		await settle()
 		wire.deliver({
@@ -1018,24 +1028,25 @@ describe('the session-id namespace', () => {
 			params: { cwd: process.cwd() },
 		})
 		await settle()
-		expect(wire.sent.find((m) => m.id === 3)?.result).toEqual({ sessionId: 'acp_2' })
+		const generated = (wire.sent.find((m) => m.id === 3)?.result as { sessionId: string }).sessionId
+		expect(generated).toMatch(UUID_V7)
 
 		loadRelease.resolve()
 		await settle()
-		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({ sessionId: 'acp_1' })
+		expect(wire.sent.find((m) => m.id === 2)?.result).toEqual({ sessionId: 'client-session-1' })
 
 		wire.deliver({
 			jsonrpc: '2.0',
 			id: 4,
 			method: 'session/prompt',
-			params: { sessionId: 'acp_1', prompt: 'hold' },
+			params: { sessionId: 'client-session-1', prompt: 'hold' },
 		})
 		await settle()
 		wire.deliver({
 			jsonrpc: '2.0',
 			id: 5,
 			method: 'session/prompt',
-			params: { sessionId: 'acp_2', prompt: 'independent' },
+			params: { sessionId: generated, prompt: 'independent' },
 		})
 		await settle()
 		expect(wire.sent.find((m) => m.id === 5)?.result).toEqual({ stopReason: 'end_turn' })
@@ -1044,7 +1055,7 @@ describe('the session-id namespace', () => {
 			jsonrpc: '2.0',
 			id: 6,
 			method: 'session/cancel',
-			params: { sessionId: 'acp_1' },
+			params: { sessionId: 'client-session-1' },
 		})
 		await settle()
 		expect(loadedSignal?.aborted).toBe(true)
@@ -1138,5 +1149,94 @@ describe('the session-id namespace', () => {
 			sessionId: '54968feb-b0db-4ca1-a3c6-7659d5302f75',
 		})
 		expect(attempts).toBe(2)
+	})
+})
+
+describe('one active turn per session, and sessions the store does not have', () => {
+	it('answers a prompt the session log refused with INVALID_REQUEST naming the active turn', async () => {
+		// Another process may hold a turn on the same session. The log refuses
+		// the new turn, and the peer is told what is in the way rather than
+		// receiving an internal error.
+		const activeTurnId = fixtureId.turn('elsewhere')
+		let calls = 0
+		const fixture = build({
+			gateway: {
+				prompt: async ({ sessionId }) => {
+					calls += 1
+					throw new TurnInProgressError({
+						sessionId: sessionId as never,
+						activeTurnId,
+						state: 'paused',
+					})
+				},
+			},
+		})
+		await handshake(fixture)
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'again' },
+		})
+		await settle()
+
+		const error = fixture.sent.find((m) => m.id === 3)?.error
+		expect(error?.code).toBe(ACP_ERROR_CODES.INVALID_REQUEST)
+		expect(error?.message).toContain(activeTurnId)
+		expect(error?.message).toContain('paused')
+
+		// The refusal did not leave this connection's prompt slot taken: the
+		// next prompt reaches the gateway again.
+		fixture.deliver({
+			jsonrpc: '2.0',
+			id: 4,
+			method: 'session/prompt',
+			params: { sessionId: '7532c215-cbb2-46ec-9aaf-02bc9c60d6af', prompt: 'later' },
+		})
+		await settle()
+		expect(calls).toBe(2)
+	})
+
+	it('refuses to load a session the store does not have, naming the id', async () => {
+		const wire = pair()
+		const server = new ACPServer({
+			transport: wire.transport,
+			gateway: {
+				load: async () => undefined,
+				prompt: async () => ({ stopReason: 'end_turn' }),
+			},
+			commands: new HostCommandRegistry(),
+			presenter: createToolPresenter(new ToolRegistry()),
+			agentInfo: { name: 'namzu', version: '0.0.0-test' },
+		})
+		await server.start()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'initialize',
+			params: { capabilities: [ACP_PERMISSION_CAPABILITY] },
+		})
+		await settle()
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 2,
+			method: 'session/load',
+			params: { sessionId: 'never-seen', cwd: process.cwd() },
+		})
+		await settle()
+
+		expect(wire.sent.find((m) => m.id === 2)?.error).toMatchObject({
+			code: ACP_ERROR_CODES.INVALID_PARAMS,
+			message: expect.stringContaining('"never-seen"'),
+		})
+		// Refused, and the id is free again rather than stuck reserved.
+		wire.deliver({
+			jsonrpc: '2.0',
+			id: 3,
+			method: 'session/prompt',
+			params: { sessionId: 'never-seen', prompt: 'x' },
+		})
+		await settle()
+		expect(wire.sent.find((m) => m.id === 3)?.error?.code).toBe(ACP_ERROR_CODES.INVALID_PARAMS)
 	})
 })

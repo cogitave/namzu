@@ -25,7 +25,9 @@ import type {
 	AcpSessionUpdate,
 } from '../../types/acp/index.js'
 import type { MCPJsonRpcMessage, MCPTransport } from '../../types/connector/mcp.js'
-import type { RunEvent } from '../../types/run/events.js'
+import type { SessionEvent } from '../../types/session/events.js'
+import { isTurnInProgressError } from '../../types/session/turn.js'
+import { generateSessionId } from '../../utils/id.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import type { AcpClientFilesystem } from './filesystem.js'
 import type {
@@ -61,7 +63,13 @@ import { toAcpSessionUpdate, toAcpStopReason } from './update.js'
 /** What the bridge needs from the runtime, taken as an interface. */
 export interface AcpAgentGateway {
 	/**
-	 * Run one prompt, streaming events, and resolve with the stop reason.
+	 * Run one prompt as one turn of the session, streaming its events, and
+	 * resolve with the stop reason.
+	 *
+	 * A session has one active turn at a time. A gateway whose session log
+	 * refuses the turn because another is active (in this process or another)
+	 * throws the `TurnInProgressError`; the bridge answers the prompt with
+	 * `INVALID_REQUEST` naming the active turn.
 	 *
 	 * Deliberately not `AgentManagerContract` itself. This bridge needs one
 	 * verb, and a session front end holding the whole manager could cancel
@@ -73,7 +81,7 @@ export interface AcpAgentGateway {
 		readonly sessionId: string
 		readonly prompt: string
 		readonly cwd: string
-		readonly onEvent: (event: RunEvent) => void
+		readonly onEvent: (event: SessionEvent) => void
 		readonly signal: AbortSignal
 		/**
 		 * Ask the human in front of the client about a tool batch.
@@ -95,7 +103,7 @@ export interface AcpAgentGateway {
 	}): Promise<{
 		readonly stopReason?: string
 		/**
-		 * The exact conversation to use for the next prompt, after the run has
+		 * The exact conversation to use for the next prompt, after the turn has
 		 * settled. Omit it when the gateway does not own durable history.
 		 */
 		readonly history?: readonly unknown[]
@@ -107,8 +115,13 @@ export interface AcpAgentGateway {
 	 * Optional: a gateway with no session store cannot resume, and saying so
 	 * by not implementing this is better than returning an empty history that
 	 * a client cannot tell apart from a session that really had no turns.
+	 *
+	 * Resolves `undefined` when the store has no session by that id, which
+	 * the bridge answers with `INVALID_PARAMS` naming the id. The id is the
+	 * client's and may be any string: a namzu session id, or one the gateway
+	 * maps to a session through the index's `acp` / `session` refs.
 	 */
-	load?(sessionId: string): Promise<readonly unknown[]>
+	load?(sessionId: string): Promise<readonly unknown[] | undefined>
 }
 
 export interface AcpServerOptions {
@@ -124,7 +137,11 @@ export interface AcpServerOptions {
 	readonly commands: HostCommandRegistry
 	readonly presenter: ToolPresenter
 	readonly agentInfo: { readonly name: string; readonly version: string }
-	/** Injectable so a test does not depend on a random id. */
+	/**
+	 * The id `session/new` answers with. Defaults to a new namzu session id
+	 * (UUIDv7). A host may return any string; the bridge treats it as opaque,
+	 * and injecting it also keeps a test off a random id.
+	 */
 	readonly newSessionId?: () => string
 	readonly log?: Logger
 }
@@ -169,7 +186,6 @@ export class ACPServer {
 	private initialized = false
 	private stopped = false
 	private clientCapabilities: readonly string[] = []
-	private sessionSeq = 0
 
 	/**
 	 * The method table, authored INDEPENDENTLY of `ACP_METHODS`.
@@ -231,7 +247,7 @@ export class ACPServer {
 	 * Ask the client something and wait for its answer.
 	 *
 	 * The direction this bridge did not have. A notification is fire and
-	 * forget; a permission prompt is a question the run cannot proceed past,
+	 * forget; a permission prompt is a question the turn cannot proceed past,
 	 * so it needs an id, a place to park the promise, and a `dispatch` that
 	 * recognises a response frame.
 	 */
@@ -277,7 +293,7 @@ export class ACPServer {
 			// A frame with no method is the client ANSWERING something this side
 			// asked. Before permission requests existed there was nothing out on
 			// the wire, so ignoring it was right; now dropping it would leave the
-			// asker waiting forever and the run parked with nobody coming.
+			// asker waiting forever and the turn parked with nobody coming.
 			if (message.id !== undefined && this.pending.has(message.id)) {
 				const waiting = this.pending.get(message.id)
 				if (message.error) {
@@ -402,6 +418,12 @@ export class ACPServer {
 		const token = this.reserveSessionId(params.sessionId)
 		try {
 			const history = await this.options.gateway.load(params.sessionId)
+			if (history === undefined) {
+				throw new AcpError(
+					ACP_ERROR_CODES.INVALID_PARAMS,
+					`There is no session "${params.sessionId}" to load. Create a new session instead.`,
+				)
+			}
 			if (!Array.isArray(history)) {
 				throw new AcpError(
 					ACP_ERROR_CODES.INTERNAL_ERROR,
@@ -435,9 +457,12 @@ export class ACPServer {
 			return { sessionId, token: this.reserveSessionId(sessionId) }
 		}
 
+		// A namzu session id, so the gateway can open the session log under the
+		// very id the client holds. A collision with an open or reserved id is
+		// astronomically unlikely, and minting again is cheaper than reasoning
+		// about it.
 		for (;;) {
-			this.sessionSeq += 1
-			const sessionId = `acp_${this.sessionSeq}`
+			const sessionId: string = generateSessionId()
 			if (this.sessions.has(sessionId) || this.reservedSessionIds.has(sessionId)) continue
 			return { sessionId, token: this.reserveSessionId(sessionId) }
 		}
@@ -550,6 +575,15 @@ export class ACPServer {
 			}
 		} catch (error) {
 			if (controller.signal.aborted) return { stopReason: 'cancelled' }
+			// The session log refused the turn: another one is active, perhaps
+			// started by another process on the same session. A client error, not
+			// an internal one, and it says what to do.
+			if (isTurnInProgressError(error)) {
+				throw new AcpError(
+					ACP_ERROR_CODES.INVALID_REQUEST,
+					`Session "${params.sessionId}" already has an active turn (${error.activeTurnId}, ${error.state}). Wait for it to settle, or resume or abandon it, before sending another prompt.`,
+				)
+			}
 			throw error
 		} finally {
 			session.promptInFlight = false

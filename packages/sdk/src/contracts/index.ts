@@ -4,7 +4,11 @@
 //   - contracts/* — snake_case wire fields, stable for HTTP and protocol clients.
 //   - types/*     — camelCase domain shapes, may include internal-only fields.
 // When a wire type is just a rename of a domain type, that's intentional (e.g.
-// `RunStopReason` aliases `types/run/events.StopReason`).
+// `TurnStopReason` is the domain stop reason under its wire name).
+//
+// The session and turn shapes (`WireTurn`, `WireTurnStatus`,
+// `CreateTurnRequest`, `CreateEphemeralSessionRequest`, `SessionStreamEvent`
+// and their schemas) are defined in `./session/` and re-exported here.
 
 export type {
 	ISOTimestamp,
@@ -12,17 +16,8 @@ export type {
 	AgentInfo,
 	ToolCallInfo,
 	CreateMessageRequest,
-	WireRunStatus,
-	RunStopReason,
-	WireRun,
-	RunHierarchyNode,
+	SessionTreeNode,
 	ApiPermissionMode,
-	RunConfig,
-	RunUsage,
-	CreateRunRequest,
-	CreateStatelessRunRequest,
-	StreamEventType,
-	StreamEvent,
 	PaginationParams,
 	PaginatedResponse,
 	ApiErrorType,
@@ -31,14 +26,12 @@ export type {
 
 export {
 	ProjectIdSchema,
-	RunIdSchema,
 	MessageIdSchema,
-	RunConfigSchema,
 	CreateMessageSchema,
-	CreateRunSchema,
-	CreateStatelessRunSchema,
 	PaginationSchema,
 	zodErrorToApiError,
 } from './schemas.js'
+
+export * from './session/index.js'
 
 export * from './a2a.js'

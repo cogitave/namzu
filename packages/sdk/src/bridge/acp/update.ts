@@ -1,16 +1,16 @@
 import type { ToolPresenter } from '../../registry/tool/presentation.js'
 import type { AcpSessionUpdate, AcpStopReason } from '../../types/acp/index.js'
-import type { RunEvent } from '../../types/run/events.js'
-import type { StopReason } from '../../types/run/index.js'
+import type { SessionEvent } from '../../types/session/events.js'
+import type { StopReason } from '../../types/session/stop-reason.js'
 
 /**
- * Internal run events, in the peer's vocabulary.
+ * Internal session events, in the peer's vocabulary.
  *
  * Mirrors `bridge/sse/mapper.ts`: one pure function over one event,
  * returning `null` for the events this protocol has no word for. Pure so a
- * test can assert the whole mapping without a run, and `null` rather than a
+ * test can assert the whole mapping without a turn, and `null` rather than a
  * thrown error because "this protocol does not carry that" is an ordinary
- * answer — a run emits far more than any one peer surface renders.
+ * answer — a turn emits far more than any one peer surface renders.
  *
  * **No tool name is compared anywhere in this file.** Every tool call is
  * rendered by the presenter the registry built, which asks the TOOL how it
@@ -51,13 +51,13 @@ export function toAcpStopReason(reason: StopReason | string | undefined): AcpSto
 }
 
 /**
- * One run event as a session update, or `null`.
+ * One session event as a session update, or `null`.
  *
  * Takes the presenter rather than reaching for a registry, so this stays
  * pure and so a caller with a narrowed registry gets that narrowing.
  */
 export function toAcpSessionUpdate(
-	event: RunEvent,
+	event: SessionEvent,
 	presenter: ToolPresenter,
 ): AcpSessionUpdate | null {
 	switch (event.type) {
@@ -93,10 +93,10 @@ export function toAcpSessionUpdate(
 				}),
 			}
 
-		case 'run_completed':
+		case 'turn_completed':
 			return { kind: 'turn_ended', stopReason: toAcpStopReason(event.stopReason) }
 
-		case 'run_failed':
+		case 'turn_failed':
 			return { kind: 'turn_ended', stopReason: 'error' }
 
 		default:

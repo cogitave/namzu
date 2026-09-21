@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`every RunEvent has a decided place on the A2A wire > lists what it declines, so a new decline is visible in review 1`] = `
+exports[`every SessionEvent has a decided place on the A2A wire > lists what it declines, so a new decline is visible in review 1`] = `
 [
   "activity_created",
   "activity_updated",
@@ -12,6 +12,9 @@ exports[`every RunEvent has a decided place on the A2A wire > lists what it decl
   "background_job_exited",
   "capability_warning",
   "checkpoint_created",
+  "child_session_idled",
+  "child_session_messaged",
+  "child_session_spawned",
   "compaction_completed",
   "compaction_failed",
   "compaction_shed",
@@ -34,13 +37,9 @@ exports[`every RunEvent has a decided place on the A2A wire > lists what it decl
   "reasoning_delta",
   "reasoning_started",
   "request_envelope",
-  "run_resuming",
   "sandbox_created",
   "sandbox_destroyed",
   "sandbox_exec",
-  "subsession_idled",
-  "subsession_messaged",
-  "subsession_spawned",
   "task_created",
   "task_updated",
   "text_delta",
@@ -52,11 +51,12 @@ exports[`every RunEvent has a decided place on the A2A wire > lists what it decl
   "tool_input_started",
   "tool_progress",
   "tool_review_completed",
+  "turn_resuming",
   "user_question_answered",
 ]
 `;
 
-exports[`every RunEvent has a decided place on the A2A wire > pins the shape of everything it maps 1`] = `
+exports[`every SessionEvent has a decided place on the A2A wire > pins the shape of everything it maps 1`] = `
 {
   "activity_created": null,
   "activity_updated": null,
@@ -68,6 +68,9 @@ exports[`every RunEvent has a decided place on the A2A wire > pins the shape of 
   "background_job_exited": null,
   "capability_warning": null,
   "checkpoint_created": null,
+  "child_session_idled": null,
+  "child_session_messaged": null,
+  "child_session_spawned": null,
   "compaction_completed": null,
   "compaction_failed": null,
   "compaction_shed": null,
@@ -114,38 +117,9 @@ exports[`every RunEvent has a decided place on the A2A wire > pins the shape of 
   "reasoning_delta": null,
   "reasoning_started": null,
   "request_envelope": null,
-  "run_completed": [
-    "contextId",
-    "final",
-    "status",
-    "taskId",
-  ],
-  "run_failed": [
-    "contextId",
-    "final",
-    "status",
-    "taskId",
-  ],
-  "run_paused": [
-    "contextId",
-    "final",
-    "metadata",
-    "status",
-    "taskId",
-  ],
-  "run_resuming": null,
-  "run_started": [
-    "contextId",
-    "final",
-    "status",
-    "taskId",
-  ],
   "sandbox_created": null,
   "sandbox_destroyed": null,
   "sandbox_exec": null,
-  "subsession_idled": null,
-  "subsession_messaged": null,
-  "subsession_spawned": null,
   "task_created": null,
   "task_updated": null,
   "text_delta": null,
@@ -163,6 +137,32 @@ exports[`every RunEvent has a decided place on the A2A wire > pins the shape of 
   "tool_progress": null,
   "tool_review_completed": null,
   "tool_review_requested": [
+    "contextId",
+    "final",
+    "status",
+    "taskId",
+  ],
+  "turn_completed": [
+    "contextId",
+    "final",
+    "status",
+    "taskId",
+  ],
+  "turn_failed": [
+    "contextId",
+    "final",
+    "status",
+    "taskId",
+  ],
+  "turn_paused": [
+    "contextId",
+    "final",
+    "metadata",
+    "status",
+    "taskId",
+  ],
+  "turn_resuming": null,
+  "turn_started": [
     "contextId",
     "final",
     "status",
