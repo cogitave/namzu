@@ -73,6 +73,7 @@ import {
 	type SandboxEgressProfile,
 	SandboxEgressProfileError,
 	egressProfileCoversEntry,
+	egressProfileHasPorts,
 } from '../../egress/profile.js'
 
 import {
@@ -562,6 +563,14 @@ export interface EgressProxyContainerConfig {
 	 * network alias, which is the name the sandbox actually dials.
 	 */
 	readonly selfNames?: readonly string[]
+	/**
+	 * The egress profile's rules, every one of them, when the profile carries
+	 * ports. Present only then, and only in the V2 configuration
+	 * ({@link EGRESS_PROXY_CONFIG_V2_ENV}): the proxy computes a host's
+	 * allowed ports as the union over every rule that matches it, so a rule
+	 * without ports is listed too.
+	 */
+	readonly hostPorts?: readonly { readonly host: string; readonly ports?: readonly number[] }[]
 }
 
 /**
@@ -577,7 +586,10 @@ export interface EgressProxyContainerConfig {
  * own allowlist to be widened. See `docs/sdk/sandbox-egress.md`.
  */
 export function egressProxyContainerConfig(
-	config: Pick<DockerBackendInternalConfig, 'brokeredCredentials' | 'allowInwardFor'>,
+	config: Pick<
+		DockerBackendInternalConfig,
+		'brokeredCredentials' | 'allowInwardFor' | 'egressProfile'
+	>,
 	allowedHosts: readonly string[],
 	port: number,
 ): EgressProxyContainerConfig {
@@ -587,7 +599,27 @@ export function egressProxyContainerConfig(
 		credentials: config.brokeredCredentials ?? [],
 		...(config.allowInwardFor ? { allowInwardFor: config.allowInwardFor } : {}),
 		selfNames: [PROXY_HOST_ALIAS],
+		...(usesPortRules(config) && config.egressProfile
+			? { hostPorts: config.egressProfile.hosts }
+			: {}),
 	}
+}
+
+/**
+ * Whether the proxy has port rules to enforce: a profile with at least one
+ * rule that carries `ports`. Only then is the configuration sent as V2, and
+ * only then is the image's label checked, so every other policy starts the
+ * proxy with exactly the V1 configuration and argv it always had.
+ */
+export function usesPortRules(config: Pick<DockerBackendInternalConfig, 'egressProfile'>): boolean {
+	return config.egressProfile !== undefined && egressProfileHasPorts(config.egressProfile)
+}
+
+/** The environment variable the proxy's configuration travels in. See {@link usesPortRules}. */
+export function egressProxyConfigEnvName(
+	config: Pick<DockerBackendInternalConfig, 'egressProfile'>,
+): string {
+	return usesPortRules(config) ? EGRESS_PROXY_CONFIG_V2_ENV : EGRESS_PROXY_CONFIG_ENV
 }
 
 /**
@@ -618,6 +650,23 @@ function renderLabelArgs(labels: Readonly<Record<string, string>> | undefined): 
  * that pair rather than a literal written twice.
  */
 const EGRESS_PROXY_CONFIG_ENV = 'NAMZU_EGRESS_PROXY_CONFIG'
+
+/**
+ * The V2 configuration, which adds port rules. Sent INSTEAD of the V1 one,
+ * never beside it: an image that predates port rules reads only V1, finds it
+ * unset and exits, so it fails closed rather than enforcing hosts without
+ * ports. `egress-proxy/server.mjs` is the reader.
+ */
+export const EGRESS_PROXY_CONFIG_V2_ENV = 'NAMZU_EGRESS_PROXY_CONFIG_V2'
+
+/**
+ * The image label saying which configuration version the proxy image reads.
+ * `egress-proxy/Dockerfile` sets it to `2`. Checked with `docker image
+ * inspect` before a proxy with port rules is started, because the other
+ * signal, the container exiting, can arrive after the readiness check has
+ * already passed.
+ */
+export const EGRESS_PROXY_IMAGE_CONFIG_LABEL = 'ai.namzu.egress-proxy.config'
 
 /** Everything {@link renderEgressProxyRunArgs} renders, as a value. */
 export interface EgressProxyArgvInput {
@@ -706,7 +755,7 @@ export function renderEgressProxyRunArgs(input: EgressProxyArgvInput): string[] 
 		// anything with access to the daemon, through `docker inspect`, and
 		// `docs/sdk/sandbox-egress.md` says so.
 		'--env',
-		EGRESS_PROXY_CONFIG_ENV,
+		egressProxyConfigEnvName(config),
 		config.egressProxyImage,
 	]
 }
@@ -1476,6 +1525,16 @@ async function spawnDockerSandbox(
 		// does that itself — so an abort before this point reaches the same
 		// place by the same route.
 		if (proxyPlanned && options.egress) {
+			// Before anything is started, and only when there are port rules:
+			// an image that cannot read them is refused by name here, rather
+			// than started and left to exit after the readiness check passed.
+			if (usesPortRules(config)) {
+				await assertEgressProxyImageReadsPortRules(
+					docker,
+					config.egressProxyImage as string,
+					options.signal,
+				)
+			}
 			egressProxyContainer = egressProxyContainerName(id)
 			// Resolved once, here, rather than per request — see
 			// `egressProxyContainerConfig` for what that costs and why it is paid.
@@ -2011,7 +2070,7 @@ async function startEgressProxyContainer(input: EgressProxyContainerInput): Prom
 	// `docker` CLI's own. See `renderEgressProxyRunArgs` for why it does not
 	// travel in the argv.
 	const proxyEnvironment = {
-		[EGRESS_PROXY_CONFIG_ENV]: JSON.stringify(
+		[egressProxyConfigEnvName(config)]: JSON.stringify(
 			egressProxyContainerConfig(config, allowedHosts, EGRESS_PROXY_PORT_INSIDE_CONTAINER),
 		),
 	}
@@ -2112,6 +2171,47 @@ async function assertEgressProxyContainerIsRunning(
 			`The egress proxy container '${containerName}' is not running after being started, so this sandbox has no boundary to reach and no other route out.`,
 		),
 		'Almost always the image: it either lacks the compiled module (build the package before the image — `pnpm --filter @namzu/sandbox build`) or the entrypoint refused its configuration. `docker logs <container>` has the line the entrypoint wrote; the container is started with --rm, so an already-exited one is gone and its output with it.',
+	)
+}
+
+/**
+ * Refuse an egress proxy image that does not declare it reads port rules.
+ *
+ * Reads {@link EGRESS_PROXY_IMAGE_CONFIG_LABEL} off the image with `docker
+ * image inspect`, which needs the image to be present on the daemon: `docker
+ * run` would pull a missing image, and this check does not, so an image that
+ * has never been pulled is refused with that in the hint. Anything other than
+ * `2` or higher, including an unreadable answer, is a refusal.
+ */
+async function assertEgressProxyImageReadsPortRules(
+	docker: string,
+	image: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	let label = ''
+	try {
+		label = await runOnce(
+			docker,
+			[
+				'image',
+				'inspect',
+				'--format',
+				`{{ index .Config.Labels "${EGRESS_PROXY_IMAGE_CONFIG_LABEL}" }}`,
+				image,
+			],
+			signal,
+		)
+	} catch {
+		signal?.throwIfAborted()
+		label = ''
+	}
+	const version = Number(label.trim())
+	if (Number.isInteger(version) && version >= 2) return
+	throw withHint(
+		new Error(
+			`The egress proxy image '${image}' does not declare that it reads port rules (label ${EGRESS_PROXY_IMAGE_CONFIG_LABEL} is ${JSON.stringify(label.trim())}, and 2 is needed), and this sandbox's egress profile carries ports. Refusing rather than starting a proxy that would exit on a configuration it cannot read.`,
+		),
+		'Rebuild the image from packages/sandbox/egress-proxy/Dockerfile (`pnpm --filter @namzu/sandbox build`, then `docker build -f packages/sandbox/egress-proxy/Dockerfile -t <tag> packages/sandbox`), and pull it onto the daemon first if it lives in a registry. A profile without ports needs no rebuild.',
 	)
 }
 

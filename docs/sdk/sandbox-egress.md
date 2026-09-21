@@ -112,6 +112,35 @@ images on a runner that has a daemon, so the Dockerfiles are known to build.
 `deny-all` and `allow-all` need none of this beyond the internal network
 `deny-all` already required.
 
+### Port rules
+
+An [egress profile](sandbox-egress-profiles.md) whose rules carry `ports` is
+enforced by the proxy on **the port the socket is about to open**: a plain-HTTP
+request that names no port is dialled on 443 when it is upgraded to HTTPS (the
+default), and a `CONNECT` that names no port on 443, so those are the ports
+checked, not the ones the request spells. The check sits beside the allowlist
+check, before any brokered credential is looked up, and a refusal is named:
+`Egress denied: <host>:<port> is not an allowed port.` A host's allowed ports
+are the union over every profile rule that matches it, a matching rule without
+ports allowing every port, which is the same rule the kubernetes translation
+gets from Cilium. `EgressProxyOptions.allowedPorts` is the option on the proxy
+itself; absent, nothing about ports is checked, as before.
+
+The configuration then travels as `NAMZU_EGRESS_PROXY_CONFIG_V2`, which adds
+`hostPorts` (every rule of the profile, with or without ports) and refuses a
+field it does not know rather than ignoring it. It is sent **instead of**
+`NAMZU_EGRESS_PROXY_CONFIG`, never beside it, so an image built before port
+rules finds its only variable unset and exits: that fails closed. The usual
+case is caught before that: the image carries the label
+`ai.namzu.egress-proxy.config="2"`, and before starting a proxy with port rules
+the backend reads it with `docker image inspect` and refuses an image without
+it, naming the rebuild. A single inspect after `docker run --detach` could not
+guarantee the refusal, because an old image can exit after that inspect has
+passed. `docker image inspect` does not pull, so an image that lives in a
+registry has to be pulled onto the daemon first. **Rebuild the proxy image
+before using `ports`**; a profile without ports sends the V1 configuration and
+argv exactly as before, and needs nothing.
+
 Two more things are refused rather than started: `egressProxyUpstreamNetwork`
 set to `'none'`, and set to the internal network itself — either leaves the
 proxy with no default route, which is a boundary in front of nothing while the

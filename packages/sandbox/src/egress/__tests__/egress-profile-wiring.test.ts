@@ -171,12 +171,12 @@ describe('docker and runsc', () => {
 		).not.toThrow()
 	})
 
-	it('refuses ports, which the egress proxy does not check', () => {
-		const error = refusal(() =>
-			createSandboxProvider({ backend: docker, layout, egressProfile: withPorts }),
-		)
-		expect(error.code).toBe('unsupported')
-		expect(error.path).toBe('hosts[0].ports')
+	it('accepts ports, and hands the profile to the backend that enforces them', async () => {
+		await createSandboxProvider({ backend: docker, layout, egressProfile: withPorts }).create()
+		expect(created[0]?.egress).toEqual({ kind: 'static', allowedHosts: ['api.example.com'] })
+		expect((built[0]?.config as DockerBackendInternalConfig).egressProfile?.hosts).toEqual([
+			{ host: 'api.example.com', ports: [443] },
+		])
 	})
 })
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { translateEgressPolicy } from '../../backends/kubernetes/egress-policy.js'
 import {
 	type SandboxEgressProfile,
 	SandboxEgressProfileError,
@@ -277,5 +278,39 @@ describe('kubernetesEgressFromProfile — the existing config, nothing new', () 
 		expect(() => kubernetesEgressFromProfile({ name: 'p', hosts: [{ host: '*' }] })).toThrow(
 			SandboxEgressProfileError,
 		)
+	})
+})
+
+describe('the union rule, on both backends', () => {
+	it('emits one Cilium rule per profile rule, so Cilium unions them as the proxy does', async () => {
+		const profile = defineEgressProfile({
+			name: 'p',
+			hosts: [
+				{ host: 'api.example.com', ports: [443] },
+				{ host: '.example.com', ports: [8443] },
+			],
+		})
+		const config = kubernetesEgressFromProfile(profile, { engine: 'cilium' })
+		const translated = await translateEgressPolicy(
+			config.policy,
+			'cilium',
+			{ namespace: 'ns', name: 'namzu-task-egress', sandboxTemplateName: 'namzu-task' },
+			config.ciliumNarrowing,
+		)
+		const spec = (translated.manifest as { spec: { egress: unknown[] } }).spec
+		// The DNS rule first, then one rule per profile rule. `api.example.com`
+		// is selected by both host rules, so Cilium admits it on 443 and 8443:
+		// exactly what `egressProfileAllowsPort` says the proxy admits.
+		expect(spec.egress.slice(1)).toEqual([
+			{
+				toFQDNs: [{ matchName: 'api.example.com' }],
+				toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+			},
+			{
+				toFQDNs: [{ matchName: 'example.com' }, { matchPattern: '*.example.com' }],
+				toPorts: [{ ports: [{ port: '8443', protocol: 'TCP' }] }],
+			},
+		])
+		expect(egressProfilePortsFor(profile, 'api.example.com')).toEqual([443, 8443])
 	})
 })

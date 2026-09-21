@@ -200,8 +200,15 @@ export function egressProfilePortsFor(
 	profile: SandboxEgressProfile,
 	host: string,
 ): readonly number[] | 'any' {
+	return portsForRules(profile.hosts, host)
+}
+
+function portsForRules(
+	rules: readonly SandboxEgressHostRule[],
+	host: string,
+): readonly number[] | 'any' {
 	const ports = new Set<number>()
-	for (const rule of profile.hosts) {
+	for (const rule of rules) {
 		if (!isHostAllowed(host, [rule.host])) continue
 		if (rule.ports === undefined) return 'any'
 		for (const port of rule.ports) ports.add(port)
@@ -221,6 +228,18 @@ export function egressProfileAllowsPort(
 ): boolean {
 	const ports = egressProfilePortsFor(profile, host)
 	return ports === 'any' || ports.includes(port)
+}
+
+/**
+ * An `EgressProxyOptions.allowedPorts` function for a list of profile rules,
+ * with the same union rule as {@link egressProfileAllowsPort}. This is how the
+ * egress proxy container turns the rules it is handed into a port check, so
+ * the proxy and the profile cannot disagree about what a rule means.
+ */
+export function egressPortsForRules(
+	rules: readonly SandboxEgressHostRule[],
+): (host: string) => readonly number[] | 'any' {
+	return (host) => portsForRules(rules, host)
 }
 
 /** Whether any rule of the profile carries `ports`. */

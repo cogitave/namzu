@@ -30,6 +30,8 @@ export interface ParsedEgressProxyConfig {
 	readonly allowInwardFor?: readonly string[]
 	readonly upgradeToHttps?: boolean
 	readonly selfNames?: readonly string[]
+	/** Present only in a V2 configuration: every rule of the egress profile. */
+	readonly hostPorts?: readonly { readonly host: string; readonly ports?: readonly number[] }[]
 }
 
 /**
@@ -51,4 +53,34 @@ export interface ParsedEgressProxyConfig {
  * cannot produce, and the messages they may say, are asserted on it directly.
  * The day the two ends disagree, one of those fails.
  */
-export declare function parseProxyConfig(raw: string | undefined): ParsedEgressProxyConfig
+export declare function parseProxyConfig(
+	raw: string | undefined,
+	envName?: string,
+): ParsedEgressProxyConfig
+
+/**
+ * Read a V2 policy (`NAMZU_EGRESS_PROXY_CONFIG_V2`): a V1 policy plus
+ * `hostPorts`. Refuses a field it does not know rather than ignoring it.
+ */
+export declare function parseProxyConfigV2(raw: string | undefined): ParsedEgressProxyConfig
+
+/** V2 when the environment carries it, otherwise V1; never both. */
+export declare function readProxyConfig(
+	env: Readonly<Record<string, string | undefined>>,
+): ParsedEgressProxyConfig
+
+/** The running proxy `startEgressProxy` returns: only what a caller may drive. */
+export interface StartedEgressProxy {
+	readonly port: number
+	close(): Promise<void>
+}
+
+/**
+ * Start the boundary from a parsed configuration. `loadProxy` replaces the
+ * compiled boundary module, which only a test does; with port rules, the
+ * module must export `egressPortsForRules` or the start is refused.
+ */
+export declare function startEgressProxy(
+	config: ParsedEgressProxyConfig,
+	loadProxy?: () => Promise<Record<string, unknown>>,
+): Promise<StartedEgressProxy>

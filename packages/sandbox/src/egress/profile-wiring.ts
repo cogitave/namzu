@@ -17,7 +17,6 @@ import {
 	defineEgressProfile,
 	egressPolicyFromProfile,
 	egressProfileCoversEntry,
-	egressProfileHasPorts,
 } from './profile.js'
 import type { BrokeredCredential } from './proxy.js'
 
@@ -92,16 +91,10 @@ export function resolveProviderEgress(config: {
 			const container = config.backend as {
 				readonly brokeredCredentials?: readonly BrokeredCredential[]
 			}
+			// Ports are enforced by the proxy container on the port it dials; the
+			// backend checks the proxy image's label before starting it, since
+			// that needs the daemon.
 			assertBrokeredCredentialsFitProfile(profile, container.brokeredCredentials, backend)
-			if (profile.hosts.length > 0 && egressProfileHasPorts(profile)) {
-				const index = profile.hosts.findIndex((rule) => rule.ports !== undefined)
-				throw new SandboxEgressProfileError(
-					'unsupported',
-					`hosts[${index}].ports`,
-					'cannot be enforced yet: the docker egress proxy does not check ports',
-					backend,
-				)
-			}
 			return { egress: egressPolicyFromProfile(profile), profile }
 		}
 	}

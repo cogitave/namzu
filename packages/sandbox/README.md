@@ -771,7 +771,10 @@ what a backend cannot honour: ports on firecracker, any profile on the ACI
 standby pool, a profile beside `defaultEgress`, and a brokered credential for a
 host outside the profile. On kubernetes, put
 `kubernetesEgressFromProfile(profile, { engine: 'cilium' })` in
-`backend.egress`, which also covers workspaces. A profile carries no
+`backend.egress`, which also covers workspaces. On docker and runsc the egress
+proxy enforces a rule's `ports` on the port it dials; rebuild the proxy image
+from `egress-proxy/Dockerfile` first, since the backend refuses an image
+without its `ai.namzu.egress-proxy.config="2"` label. A profile carries no
 credentials and has no wildcard. See
 [docs/sdk/sandbox-egress-profiles.md](../../docs/sdk/sandbox-egress-profiles.md).
 

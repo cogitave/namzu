@@ -52,6 +52,15 @@ ARG NODE_VERSION=22
 
 FROM node:${NODE_VERSION}-bookworm-slim
 
+# Which configuration version this image's entrypoint reads. `2` adds port
+# rules (`NAMZU_EGRESS_PROXY_CONFIG_V2`). The docker backend reads this label
+# with `docker image inspect` before starting a proxy whose egress profile
+# carries ports, and refuses an image without it, because the other signal (the
+# container exiting on a configuration it cannot read) can arrive after the
+# backend's readiness check has passed. See EGRESS_PROXY_IMAGE_CONFIG_LABEL in
+# `src/backends/docker/index.ts`.
+LABEL ai.namzu.egress-proxy.config="2"
+
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \

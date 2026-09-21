@@ -82,7 +82,7 @@ built. Every refusal is a `SandboxEgressProfileError` with `backend` set.
 
 | Backend | What the profile becomes | Refused |
 |---|---|---|
-| docker, runsc | `deny-all` for no hosts, otherwise a `static` allowlist through the egress proxy | ports (the proxy does not check them yet); a `brokeredCredentials` entry whose host the profile does not allow |
+| docker, runsc | `deny-all` for no hosts, otherwise a `static` allowlist through the egress proxy, which also enforces ports | a `brokeredCredentials` entry whose host the profile does not allow; ports on a proxy image without the `ai.namzu.egress-proxy.config="2"` label (at `create()`, before any container starts) |
 | firecracker | `deny-all` for no hosts, otherwise the orchestrator's `allowlist` | any rule with `ports`: the orchestrator's network policy has no field for them |
 | kubernetes | nothing: use `kubernetesEgressFromProfile` for `backend.egress` | any `egressProfile` on the provider |
 | ACI standby pool | nothing | any profile: a claim carries no per-sandbox egress |
@@ -97,6 +97,14 @@ egress proxy, so `ContainerBackendConfig.brokeredCredentials` stays where it
 is; what a profile adds is a check that each credential's host is one the
 profile allows, since the proxy would refuse every request such a credential is
 for.
+
+Ports are enforced by the egress proxy on the port it actually dials (443 for
+an upgraded `http://host/` and for a portless `CONNECT`), before any brokered
+credential is looked up. A profile with ports needs a proxy image rebuilt from
+this version's `egress-proxy/Dockerfile`, which carries the label the backend
+checks; see
+[Container-tier egress](sandbox-egress.md#port-rules). A live
+`setNetworkPolicy()` narrows the hosts, and the ports stay the profile's.
 
 Under a profile, a live `setNetworkPolicy()` may narrow within the profile but
 never widen past it. Each entry must be covered by a rule: a plain host by any

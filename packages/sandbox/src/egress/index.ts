@@ -7,6 +7,7 @@ export {
 export type { AddressResolver, ScreeningLookupOptions } from './address.js'
 export { isHostAllowed, splitAuthority } from './allowlist.js'
 export { EgressProxy } from './proxy.js'
+export { egressPortsForRules } from './profile.js'
 export type {
 	BrokeredCredential,
 	EgressProxyOptions,
