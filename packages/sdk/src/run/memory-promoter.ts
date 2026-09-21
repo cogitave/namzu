@@ -9,6 +9,7 @@ import {
 	holdsKnowledgeDigest,
 	knowledgeDigest,
 } from '../store/memory/digest.js'
+import { RUN_MEMORY_SOURCE } from '../store/memory/origin.js'
 import type { MemoryStore } from '../types/memory/index.js'
 import type { PromoteMemory, RunMemoryCandidate } from '../types/run/memory-promotion.js'
 
@@ -28,8 +29,13 @@ const KNOWLEDGE = [
 	['environment', 'Environment'],
 ] as const satisfies readonly (readonly [keyof RunMemoryCandidate, string])[]
 
-/** Tag every record this promoter writes, so a host can find or prune them. */
-export const RUN_MEMORY_TAG = 'run-memory'
+/**
+ * Tag every record this promoter writes, so a host can find or prune them.
+ * Also its `metadata.source`, which keeps the record out of a Markdown
+ * store's generated index: a record written after every run is not one
+ * anybody chose to load into every prompt.
+ */
+export const RUN_MEMORY_TAG = RUN_MEMORY_SOURCE
 
 export interface MemoryPromoterOptions {
 	/** Where records go. The same store `save_memory` writes through. */

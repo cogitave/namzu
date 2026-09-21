@@ -19,6 +19,7 @@ import {
 	holdsKnowledgeDigest,
 	knowledgeDigest,
 } from '../store/memory/digest.js'
+import { CONSOLIDATION_KIND } from '../store/memory/origin.js'
 import type { CreateMemoryParams, MemoryStore } from '../types/memory/index.js'
 import type { WorkingState } from './types.js'
 
@@ -54,7 +55,7 @@ export async function isConsolidated(
 		store,
 		[CONSOLIDATION_TAG],
 		digest,
-		(metadata) => metadata?.kind === 'consolidation',
+		(metadata) => metadata?.kind === CONSOLIDATION_KIND,
 	)
 }
 
@@ -107,7 +108,7 @@ export function consolidationEntry(
 		metadata: {
 			runId: meta.runId,
 			consolidatedAt: meta.at,
-			kind: 'consolidation',
+			kind: CONSOLIDATION_KIND,
 			knowledgeDigest: digest,
 		},
 	}

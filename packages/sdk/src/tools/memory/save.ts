@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MemoryContentRejectedError, MemoryNameConflictError } from '../../store/memory/naming.js'
+import { AGENT_MEMORY_SOURCE } from '../../store/memory/origin.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
@@ -37,7 +38,7 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 					...(name !== undefined ? { name } : {}),
 					...(description !== undefined ? { description } : {}),
 					...(type !== undefined ? { type } : {}),
-					metadata: { source: 'agent-memory', runId: context.runId },
+					metadata: { source: AGENT_MEMORY_SOURCE, runId: context.runId },
 				})
 
 				return {

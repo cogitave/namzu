@@ -116,13 +116,21 @@ memory that holds it. A session with no provider has no store, and its notes are
 appended to the curated project file as before.
 
 Every send and resume puts the index in the system prompt under
-`## Stored memories (index)`: one line per active memory,
-`- [name](name.md) — description`, each at most 150 characters (a note's name
-is its first words, at most 32 characters, so the description keeps most of
-the line), sorted by name,
-at most 200 lines with a final line saying how many more exist and to search for
-them. The section tells the model to read a memory before relying on it, to
-update rather than duplicate, and that memories are point-in-time. The index is
+`## Stored memories (index)`: one line per active memory you or the model
+saved, `- [name](name.md) — description`, each at most 150 characters (a note's
+name is its first words, at most 32 characters, so the description keeps most
+of the line), at most 200 lines with a final line saying how many more exist and
+to search for them. What the runtime writes after a run by itself — the run
+promoter's record, or consolidation's with `compaction.consolidate` — is kept in
+the same directory and found by recall and `search_memory`, but never listed:
+it is written after almost every run, and a system prompt that changed with it
+would lose its prompt cache nearly every turn. Your `feedback` and `user`
+memories (notes, `/memory add --type`, hand-written files) come first, then the
+model's, then the rest, by name within each; the order changes only when a
+listed memory does, and the 200-line cap drops `project` and `reference` lines
+before any of yours. The section tells the model to read a memory before relying on it, to
+update rather than duplicate, that memories are point-in-time, and that what
+earlier runs recorded on their own is found with `search_memory`. The index is
 rendered from the files at that moment. A memory file the store cannot read
 leaves that turn without the index and shows a notice naming the file; the turn
 still runs.
@@ -154,13 +162,29 @@ top-level bullets the launch says how many and offers `/memory import-notes`,
 once per curated file (the checkout's file and a subdirectory's own
 `.namzu/MEMORY.md` are offered separately). Until you run it they stay curated
 and reach every turn as before. `/memory import-notes` moves them into
-`project` memories, keeps the file as it was beside it as
-`MEMORY.md.before-typed-memory`, and rewrites it without them only if nothing
-changed it meanwhile. A bullet in a list directly under a Markdown heading
-(`## Conventions` then `- use tabs`) stays, as do prose, nested lists and notes
-that spanned several lines. Running it again moves nothing twice.
+`project` memories, keeps the file's text before the move beside it as
+`MEMORY.md.before-typed-memory` (a later run whose text differs writes
+`MEMORY.md.before-typed-memory-2`, and so on; no copy is overwritten), and
+rewrites it without them only if nothing changed it meanwhile.
+
+What stays, exactly:
+
+- a bullet in a list that starts on the line directly under a Markdown heading
+  (`## Conventions` then `- use tabs`). A blank line ends that list, so
+  `# Project memory`, a blank line, then `- note` — what `#note` left in a file
+  with a heading — is offered, and so is a bullet after a blank line that
+  follows a heading's list. A note appended straight onto a heading's list,
+  with no blank line between, cannot be told from the list and stays;
+- a bullet followed by a line that is neither blank nor a bullet: a note that
+  spanned several lines, or a bullet with a nested list;
+- prose, headings and nested bullets.
+
+A bullet directly under a line of prose is offered, since `#note` produced
+that too when the file ended in prose. The report counts the top-level bullets
+that stayed. Running it again moves nothing twice.
 A `migration.json` in the stored-memory directory records, per curated file,
-that it was offered and when it was moved. `~/.namzu/MEMORY.md` and `USER.md`
+that it was offered, when it was moved, and how many memories its bullets
+became. `~/.namzu/MEMORY.md` and `USER.md`
 are never touched.
 
 Automatic recall is enabled by default. Before each model step, the CLI searches

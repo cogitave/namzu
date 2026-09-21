@@ -141,6 +141,25 @@ describe('the run memory promoter', () => {
 		expect(page.entries[0]?.title).toContain('invoice')
 	})
 
+	it('keeps what it writes out of the index, so the next turn’s system prompt is unchanged', async () => {
+		const { createAgentSession } = await import('../tui/agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd })
+		const turn = async () => {
+			for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+				// drain
+			}
+			return queryCalls.at(-1) ?? {}
+		}
+		const first = await turn()
+		const promote = first.promoteMemory as (c: RunMemoryCandidate) => Promise<void>
+		await promote(candidate({ userRequirements: ['never email an invoice twice'] }))
+		const store = new MarkdownMemoryStore({ directory: join(cwd, '.namzu', 'memory') })
+		expect((await store.list()).totalCount).toBe(1)
+		expect((await store.readIndex()).text).toBe('')
+		// A run's record changes nothing the prompt cache is keyed on.
+		expect((await turn()).systemPrompt).toBe(first.systemPrompt)
+	})
+
 	it('finds persisted memory on the first search of a new CLI session', async () => {
 		const writer = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
 		await writer.create({

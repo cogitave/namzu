@@ -89,6 +89,12 @@ interface LoadedMemory {
 	readonly entry: MemoryIndexEntry
 	readonly content: MemoryContent
 	readonly path: string
+	/**
+	 * The file states its own `updatedAt`. Every file this store writes does;
+	 * a hand-written one may not, and then its time is the file's mtime, which
+	 * a copy resets — so it cannot tell an interrupted rename from a copy.
+	 */
+	readonly dated: boolean
 }
 
 type Loaded = ReadonlyMap<MemoryId, LoadedMemory>
@@ -157,6 +163,9 @@ function timestamp(
 function text(value: FrontmatterJson | undefined, file: string, key: string): string | undefined {
 	if (value === undefined) return undefined
 	if (typeof value !== 'string') invalidFile(file, `${key} must be a string`)
+	// A quoted value can spell one as `\u0000`; it would reach the index and
+	// the prompt that carries it.
+	if (value.includes('\0')) invalidFile(file, `${key} contains a NUL character`)
 	return value
 }
 
@@ -170,7 +179,7 @@ function decodeMemoryFile(
 	file: string,
 	fileName: string,
 	mtimeMs: number,
-): { entry: MemoryIndexEntry; content: MemoryContent } {
+): { entry: MemoryIndexEntry; content: MemoryContent; dated: boolean } {
 	let parsed: ReturnType<typeof parseMemoryFile>
 	try {
 		parsed = parseMemoryFile(raw, file)
@@ -211,6 +220,7 @@ function decodeMemoryFile(
 			: Array.isArray(rawTags) && rawTags.every((tag) => typeof tag === 'string')
 				? (rawTags as string[])
 				: invalidFile(file, 'tags must be a list of strings')
+	if (tags.some((tag) => tag.includes('\0'))) invalidFile(file, 'tags contain a NUL character')
 	const rawId = v.get('id')
 	const id = rawId === undefined ? derivedMemoryId(name) : rawId
 	if (!isEntityId(id, 'memory')) invalidFile(file, 'id must be a UUID')
@@ -229,6 +239,7 @@ function decodeMemoryFile(
 	const updatedAt = timestamp(v.get('updatedAt'), mtimeMs, file, 'updatedAt')
 
 	return {
+		dated: v.has('updatedAt'),
 		entry: {
 			id,
 			name,
@@ -261,10 +272,13 @@ function decodeMemoryFile(
  * private (0600) files; a file that does not parse, a name that does not match
  * its file, a symlink, two files claiming one id with the same `updatedAt`, or
  * a record stamped by a newer build is refused with the file named, never
- * skipped. Two files claiming one id with different `updatedAt` are what an
- * interrupted rename leaves: the newer is read, and the next write moves the
- * older aside to `<name>.md.superseded`. Content the loader would refuse — a
- * NUL character, a file over {@link MEMORY_FILE_MAX_BYTES} — is refused with
+ * skipped. Two files claiming one id, both stating their own `updatedAt` and
+ * those different, are what an interrupted rename leaves: the newer is read,
+ * and the next write moves the older aside to `<name>.md.superseded`. When
+ * either file has no `updatedAt` of its own — hand-written, so its time is an
+ * mtime a copy resets — the two are refused like a copy. Content the loader
+ * would refuse — a NUL character in the body, title, summary, description or
+ * tags, a file over {@link MEMORY_FILE_MAX_BYTES} — is refused with
  * {@link MemoryContentRejectedError} before it is written. A store that
  * quietly dropped the one file it could not read would present the model an
  * incomplete memory as a complete one.
@@ -348,8 +362,10 @@ export class MarkdownMemoryStore implements MemoryStore {
 			if (other) {
 				// Two files, one id. When one was written later it is the rename
 				// that finished writing and did not get to unlink the other; keep
-				// it. Equal timestamps mean a copy, which nothing here can settle.
-				if (other.entry.updatedAt === record.entry.updatedAt) {
+				// it. Equal timestamps mean a copy, which nothing here can settle,
+				// and so does a file with no `updatedAt` of its own: this store
+				// always writes one, and an mtime is what a copy changes.
+				if (!other.dated || !record.dated || other.entry.updatedAt === record.entry.updatedAt) {
 					invalidFile(path, `claims id ${record.entry.id}, which ${other.path} also claims`)
 				}
 				const [newer, older] =
@@ -417,7 +433,16 @@ export class MarkdownMemoryStore implements MemoryStore {
 		const path = this.memoryPath(dir, name)
 		// What `load` refuses is refused here, before the write: one file the
 		// loader will not read makes every later operation in the directory fail.
-		if (content.content.includes('\0')) throw new MemoryContentRejectedError('nul_byte')
+		const fields = [
+			content.content,
+			entry.title,
+			entry.summary,
+			entry.description ?? '',
+			...entry.tags,
+		]
+		if (fields.some((field) => field.includes('\0'))) {
+			throw new MemoryContentRejectedError('nul_byte')
+		}
 		const file = formatMemoryFile(
 			{
 				name,
@@ -446,9 +471,9 @@ export class MarkdownMemoryStore implements MemoryStore {
 		return path
 	}
 
-	/** Rewrite `MEMORY.md` from `entries` when its text would change. */
-	private async writeIndex(dir: string, entries: readonly MemoryIndexEntry[]): Promise<void> {
-		const { text } = renderMemoryIndex(entries, {
+	/** Rewrite `MEMORY.md` from `records` when its text would change. */
+	private async writeIndex(dir: string, records: readonly MemoryRecord[]): Promise<void> {
+		const { text } = renderMemoryIndex(records, {
 			maxLines: Number.POSITIVE_INFINITY,
 		})
 		const next = `${MEMORY_INDEX_FILE_HEADER}\n${text ? `${text}\n` : ''}`
@@ -459,6 +484,18 @@ export class MarkdownMemoryStore implements MemoryStore {
 
 	private entries(loaded: Loaded): MemoryIndexEntry[] {
 		return [...loaded.values()].map((memory) => memory.entry)
+	}
+
+	/** Every loaded record, with `changed` put in place of (or beside) its id's. */
+	private records(loaded: Loaded, changed?: MemoryRecord): MemoryRecord[] {
+		const records: MemoryRecord[] = []
+		for (const memory of loaded.values()) {
+			if (memory.entry.id !== changed?.entry.id) {
+				records.push({ entry: memory.entry, content: memory.content })
+			}
+		}
+		if (changed) records.push(changed)
+		return records
 	}
 
 	async create(
@@ -500,7 +537,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 			}
 			const path = await this.writeMemory(dir, entry, content)
 			try {
-				await this.writeIndex(dir, [...entries, entry])
+				await this.writeIndex(dir, this.records(loaded, { entry, content }))
 			} catch (error) {
 				// The memory is written and readable; only the generated index is
 				// behind, and the next write rebuilds it from the files.
@@ -579,10 +616,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 			// the newer (this one's updatedAt is later) and a write sets the
 			// older aside. The other order could lose the memory.
 			if (path !== existing.path) await unlink(existing.path)
-			await this.writeIndex(
-				dir,
-				entries.map((candidate) => (candidate.id === id ? entry : candidate)),
-			)
+			await this.writeIndex(dir, this.records(loaded, { entry, content }))
 			this.log.info('Memory updated', { 'namzu.memory.id': id })
 			return structuredClone(entry)
 		})
@@ -599,7 +633,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 			}
 			await this.writeIndex(
 				dir,
-				this.entries(loaded).filter((entry) => entry.id !== id),
+				this.records(loaded).filter((record) => record.entry.id !== id),
 			)
 			this.log.info('Memory deleted', { 'namzu.memory.id': id })
 			return true
@@ -619,13 +653,15 @@ export class MarkdownMemoryStore implements MemoryStore {
 	}
 
 	/**
-	 * The index a prompt carries: one line per active memory, capped at
-	 * `maxLines` (default 200) with a note pointing to search for the rest.
-	 * Rendered from the memory files under the lock, so it is current even
-	 * when a file was edited by hand since the last write.
+	 * The index a prompt carries: one line per active memory someone chose to
+	 * keep — never a record the runtime derived from a run — operator
+	 * `feedback` and `user` memories first, capped at `maxLines` (default 200)
+	 * with a note pointing to search for the rest. Rendered from the memory
+	 * files under the lock, so it is current even when a file was edited by
+	 * hand since the last write. See {@link renderMemoryIndex}.
 	 */
 	async readIndex(options: { readonly maxLines?: number } = {}): Promise<RenderedMemoryIndex> {
-		return this.withLoaded(async (_dir, loaded) => renderMemoryIndex(this.entries(loaded), options))
+		return this.withLoaded(async (_dir, loaded) => renderMemoryIndex(this.records(loaded), options))
 	}
 
 	/**
@@ -671,7 +707,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 				tags: [...record.entry.tags],
 			}
 			await this.writeMemory(dir, entry, record.content)
-			await this.writeIndex(dir, [...entries, entry])
+			await this.writeIndex(dir, this.records(loaded, { entry, content: record.content }))
 			this.log.info('Memory imported', { 'namzu.memory.id': entry.id })
 			return 'imported'
 		}, true)

@@ -104,7 +104,7 @@ export function composeStoredMemoryPrompt(index: RenderedMemoryIndex): string | 
 	return [
 		'## Stored memories (index)',
 		'',
-		'Memories saved in earlier sessions, one line each: `- [name](name.md) — description`. Read one with read_memory (by name) when it bears on the task. Correct or archive a wrong one with update_memory rather than saving a second copy. Memories are point-in-time: verify a file, function or flag a memory names against the current code before relying on it.',
+		'Memories saved in earlier sessions, one line each: `- [name](name.md) — description`. Read one with read_memory (by name) when it bears on the task. Correct or archive a wrong one with update_memory rather than saving a second copy. Memories are point-in-time: verify a file, function or flag a memory names against the current code before relying on it. What earlier runs recorded on their own is not listed here; search_memory finds it.',
 		'',
 		index.text,
 	].join('\n')
@@ -129,9 +129,19 @@ export interface MemoryMigrationReport {
 export interface CuratedNotesImport {
 	readonly path: string
 	readonly moved: number
-	/** Bullets left because they are a heading's list, the operator's own section. */
+	/**
+	 * Top-level bullets left in the file: those in a list that starts on the
+	 * line after a heading (the operator's own section), and those followed by
+	 * a line that is neither blank nor a bullet (a note that runs on, or a
+	 * bullet with a nested list). Prose and nested bullets always stay and are
+	 * not counted.
+	 */
 	readonly kept: number
-	/** Where the file's text before the move was kept, when anything moved. */
+	/**
+	 * Where the file's text before this run's move was kept. Every run that
+	 * finds bullets writes one: `MEMORY.md.before-typed-memory`, or a numbered
+	 * name beside it when an earlier run's copy of different text is there.
+	 */
 	readonly backupPath?: string
 }
 
@@ -205,15 +215,24 @@ const HEADING = /^#{1,6}\s/
  *
  * `appendMemory` wrote `- <note>` at the end of the file and never a heading,
  * so what cannot be one of its notes stays:
- * - a bullet followed by a non-bullet, non-blank line — a note typed over
- *   several lines was appended with its later lines unindented, and they
- *   cannot be told apart from the operator's prose;
- * - a bullet whose list sits directly under a Markdown heading — that list is
- *   a section the operator wrote (`## Conventions` then `- use tabs`), and
- *   taking its bullets would leave the heading empty and lose the grouping.
+ * - a bullet followed by a line that is neither blank nor a bullet — a note
+ *   typed over several lines was appended with its later lines unindented,
+ *   and they cannot be told apart from the operator's prose; a bullet with a
+ *   nested list stays for the same reason;
+ * - a bullet in a list that starts on the line directly under a Markdown
+ *   heading — that list is a section the operator wrote (`## Conventions`
+ *   then `- use tabs`), and taking its bullets would leave the heading empty
+ *   and lose the grouping. A blank line ends that list: bullets after it are
+ *   what `appendMemory` leaves at the end of a file whose last section is a
+ *   heading, so they are offered.
  *
- * Nothing here can prove a bullet was a `#note`; the rules only keep what
- * provably was not. That is why moving is the operator's call, not a launch's.
+ * Everything else — a bullet after a blank line, at the top of the file, or
+ * directly under a line of prose (which `appendMemory` also produced when
+ * the file ended in prose) — is offered. A note appended straight onto a
+ * heading's list, with no blank line between, cannot be told from the list
+ * and stays. Nothing here can prove a bullet was a `#note`; the rules only
+ * keep what provably was not. That is why moving is the operator's call, not
+ * a launch's.
  */
 export function splitCuratedBullets(text: string): {
 	bullets: string[]
@@ -224,7 +243,8 @@ export function splitCuratedBullets(text: string): {
 	const bullets: string[] = []
 	const out: string[] = []
 	let kept = 0
-	// The nearest preceding line that is neither blank nor a bullet.
+	// What the current list hangs from: a heading directly above it, or
+	// anything else. A blank line starts over, so it ends a heading's list.
 	let context: 'start' | 'heading' | 'other' = 'start'
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? ''
@@ -237,12 +257,12 @@ export function splitCuratedBullets(text: string): {
 				bullets.push(match[1].trim())
 				continue
 			}
-			if (ends) kept++
+			kept++
 			out.push(line)
 			continue
 		}
-		if (bare.trim() !== '' && !/^\s+- /.test(bare))
-			context = HEADING.test(bare) ? 'heading' : 'other'
+		if (bare.trim() === '') context = 'start'
+		else if (!/^\s+- /.test(bare)) context = HEADING.test(bare) ? 'heading' : 'other'
 		out.push(line)
 	}
 	const rest = out.join('\n').replace(/\n{3,}/g, '\n\n')
@@ -410,8 +430,9 @@ export async function importCuratedNotes(options: {
 		if (await moveBullet(store, bullet, sourceDigest, location.path)) count++
 		moved.add(sourceDigest)
 	}
-	const backupPath = `${location.path}${BACKUP_SUFFIX}`
-	writeMemoryBackup(backupPath, text)
+	// This run's text, always: a second run moving bullets appended since the
+	// first must not claim the first run's copy as "the file as it was".
+	const backupPath = writeMemoryBackup(`${location.path}${BACKUP_SUFFIX}`, text)
 	// A concurrent run that already rewrote it to the same text has done this
 	// run's work; anything else is an edit to keep.
 	if (!replaceMemoryFile(location, text, rest) && readMemoryFile(location) !== rest) {
@@ -419,9 +440,14 @@ export async function importCuratedNotes(options: {
 			`${location.path} changed while its notes were being moved; the memories were saved, run /memory import-notes again to remove them from the file`,
 		)
 	}
+	const earlier = (await readMarker(directory).catch(() => ({}) as MigrationMarker)).curatedFiles?.[
+		location.path
+	]
 	await markCuratedFile(directory, location.path, {
 		movedAt: new Date().toISOString(),
-		moved: bullets.length,
+		// Memories this file's bullets became, across runs: what was created,
+		// not what was found (an interrupted run's bullets are not counted twice).
+		moved: (earlier?.moved ?? 0) + count,
 	})
 	return { path: location.path, moved: count, kept, backupPath }
 }
@@ -452,10 +478,10 @@ export function describeMemoryMigration(
 export function describeCuratedNotesImport(result: CuratedNotesImport, directory: string): string {
 	const keptNote =
 		result.kept > 0
-			? ` ${result.kept} bullet${result.kept === 1 ? '' : 's'} under a heading stayed: a heading's list is a section you wrote.`
+			? ` ${result.kept} bullet${result.kept === 1 ? '' : 's'} stayed: a list starting directly under a heading is a section you wrote, and a bullet followed by a line that is not a bullet may run on into it. Prose and nested bullets always stay.`
 			: ''
 	if (!result.backupPath) {
 		return `No single-line notes to move in ${result.path}.${keptNote}`
 	}
-	return `Moved ${result.moved} note${result.moved === 1 ? '' : 's'} from ${result.path} into typed memory files in ${directory}; the file as it was is kept at ${result.backupPath}.${keptNote}`
+	return `Moved ${result.moved} note${result.moved === 1 ? '' : 's'} from ${result.path} into typed memory files in ${directory}; the file as it was before this move is kept at ${result.backupPath}.${keptNote}`
 }

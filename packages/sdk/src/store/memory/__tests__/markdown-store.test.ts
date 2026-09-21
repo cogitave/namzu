@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { MemoryId } from '../../../types/ids/index.js'
+import type { MemoryRecord, MemoryType } from '../../../types/memory/index.js'
 import { DiskMemoryStore } from '../disk.js'
 import {
 	MEMORY_INDEX_LINE_MAX_CHARS,
 	MEMORY_INDEX_MAX_LINES,
 	memoryIndexLine,
+	renderMemoryIndex,
 } from '../index-file.js'
 import { formatMemoryFile, parseMemoryFile } from '../markdown-format.js'
 import { MEMORY_FILE_MAX_BYTES, MEMORY_INDEX_FILE, MarkdownMemoryStore } from '../markdown.js'
@@ -63,7 +65,20 @@ describe('MarkdownMemoryStore keeps one Markdown file per memory', () => {
 	})
 
 	it('round-trips bodies with leading and trailing blank lines byte for byte', async () => {
-		for (const body of ['', '\n', 'x\n', '\nx', '\n\nx\n\n', '---\nnot a fence\n---', 'a\r\nb']) {
+		for (const body of [
+			'',
+			'\n',
+			'x\n',
+			'\nx',
+			'\n\nx\n\n',
+			'---\nnot a fence\n---',
+			'a\r\nb',
+			'a\r',
+			'\r',
+			'a\r\r',
+			'a\r\n',
+			'\ra',
+		]) {
 			const fields = {
 				name: 'n',
 				description: 'd',
@@ -250,6 +265,35 @@ describe('the generated MEMORY.md index', () => {
 		)
 	}, 60_000)
 
+	it('never lists a record the runtime derived, and a derived write leaves the index as it was', async () => {
+		const { directory, store } = await fixture()
+		await store.create({ title: 't', summary: 'Chosen', content: 'c', name: 'chosen' })
+		const before = await readFile(join(directory, MEMORY_INDEX_FILE), 'utf8')
+		const promoted = await store.create({
+			title: 'Fix the flaky test',
+			summary: 'Decisions: retry once',
+			content: '# Fix the flaky test',
+			tags: ['run-memory'],
+			metadata: { source: 'run-memory', runId: 'run_1' },
+		})
+		const consolidated = await store.create({
+			title: 'Learned: fix the flaky test',
+			summary: '1 decision from run run_1.',
+			content: 'retry once',
+			tags: ['learning'],
+			metadata: { kind: 'consolidation', runId: 'run_1' },
+		})
+		expect(await readFile(join(directory, MEMORY_INDEX_FILE), 'utf8')).toBe(before)
+		expect(await store.readIndex()).toEqual({
+			text: '- [chosen](chosen.md) — Chosen',
+			total: 1,
+			omitted: 0,
+		})
+		// Still in the store, found by search.
+		const found = (await store.list({ query: 'flaky' })).entries.map((entry) => entry.id)
+		expect(found).toEqual(expect.arrayContaining([promoted.entry.id, consolidated.entry.id]))
+	})
+
 	it('reflects a hand edit on the next read without a write', async () => {
 		const { directory, store } = await fixture()
 		const { entry } = await store.create({
@@ -265,6 +309,67 @@ describe('the generated MEMORY.md index', () => {
 		)
 		expect((await store.readIndex()).text).toBe('- [edited](edited.md) — new')
 		expect((await store.getRecord(entry.id))?.entry.description).toBe('new')
+	})
+})
+
+describe('the index cap never drops an operator feedback or user memory for another', () => {
+	let n = 0
+	function record(name: string, type: MemoryType, source?: string): MemoryRecord {
+		const id = `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}` as MemoryId
+		return {
+			entry: {
+				id,
+				name,
+				description: name,
+				type,
+				title: name,
+				summary: name,
+				tags: [],
+				status: 'active',
+				createdAt: 0,
+				updatedAt: 0,
+			},
+			content: {
+				id,
+				content: name,
+				format: 'markdown',
+				...(source ? { metadata: { source } } : {}),
+			},
+		}
+	}
+
+	it('orders operator feedback and user first, then the model’s, then the rest, by name within each', () => {
+		const records = [
+			record('aaa-project', 'project'),
+			record('bbb-reference', 'reference'),
+			record('ccc-model-feedback', 'feedback', 'agent-memory'),
+			record('zzz-operator-feedback', 'feedback', 'operator-note'),
+			record('yyy-hand-written-user', 'user'),
+			record('aab-model-project', 'project', 'agent-memory'),
+		]
+		const { text } = renderMemoryIndex(records)
+		expect(text.split('\n').map((line) => /\[(.+?)\]/.exec(line)?.[1])).toEqual([
+			'yyy-hand-written-user',
+			'zzz-operator-feedback',
+			'ccc-model-feedback',
+			'aaa-project',
+			'aab-model-project',
+			'bbb-reference',
+		])
+		// Stable: the same records in another order render the same text.
+		expect(renderMemoryIndex([...records].reverse()).text).toBe(text)
+	})
+
+	it('drops project memories, not operator feedback, at the cap', () => {
+		const records = [
+			...Array.from({ length: 5 }, (_, i) => record(`a-project-${i}`, 'project')),
+			record('z-operator-feedback', 'feedback'),
+		]
+		const index = renderMemoryIndex(records, { maxLines: 3 })
+		expect(index.text.split('\n')[0]).toBe(
+			'- [z-operator-feedback](z-operator-feedback.md) — z-operator-feedback',
+		)
+		expect(index).toMatchObject({ total: 6, omitted: 3 })
 	})
 })
 
@@ -348,6 +453,33 @@ describe('hand-written and malformed files', () => {
 		)
 		await writeFile(join(directory, 'two.md'), copy)
 		await expect(store.list()).rejects.toThrow(`claims id ${entry.id}`)
+	})
+
+	it('refuses a hand copy with no updatedAt of its own rather than setting the older aside', async () => {
+		const { directory, store } = await fixture()
+		await mkdir(directory, { recursive: true })
+		const id = '0b6c2a4e-1111-4222-8333-444455556666'
+		const one = `---\nname: one\ndescription: d\ntype: project\nid: ${id}\n---\n\nbody\n`
+		await writeFile(join(directory, 'one.md'), one)
+		await new Promise((resolve) => setTimeout(resolve, 20))
+		await writeFile(join(directory, 'two.md'), one.replace('name: one', 'name: two'))
+		await expect(store.list()).rejects.toThrow(`claims id ${id}`)
+		await expect(store.create({ title: 't', summary: 's', content: 'c' })).rejects.toThrow(
+			`claims id ${id}`,
+		)
+		const files = await readdir(directory)
+		expect(files).toEqual(expect.arrayContaining(['one.md', 'two.md']))
+		expect(files.some((file) => file.includes('superseded'))).toBe(false)
+	})
+
+	it('refuses a NUL character a quoted frontmatter value spells out', async () => {
+		const { directory, store } = await fixture()
+		await mkdir(directory, { recursive: true })
+		await writeFile(
+			join(directory, 'nul.md'),
+			'---\nname: nul\ndescription: "a\\u0000b"\ntype: project\n---\n\nbody\n',
+		)
+		await expect(store.list()).rejects.toThrow('description contains a NUL character')
 	})
 
 	it.skipIf(process.platform === 'win32')('refuses a symlinked memory file', async () => {
@@ -482,6 +614,22 @@ describe('what the loader refuses is never written', () => {
 			reason: 'nul_byte',
 		})
 		expect((await store.list()).totalCount).toBe(0)
+	})
+
+	it.each([
+		['title', { title: 'a\u0000b' }],
+		['summary', { summary: 'a\u0000b' }],
+		['description', { description: 'a\u0000b' }],
+		['a tag', { tags: ['a\u0000b'] }],
+	])('refuses a NUL character in %s before writing', async (_label, field) => {
+		const { store } = await fixture()
+		await expect(
+			store.create({ title: 'nul', summary: 's', content: 'c', ...field }),
+		).rejects.toMatchObject({ reason: 'nul_byte' })
+		expect((await store.list()).totalCount).toBe(0)
+		const { entry } = await store.create({ title: 'ok', summary: 's', content: 'c' })
+		await expect(store.update(entry.id, field)).rejects.toMatchObject({ reason: 'nul_byte' })
+		expect((await store.readIndex()).text).not.toContain('\u0000')
 	})
 
 	it('refuses an oversized import without writing it, so later imports still run', async () => {

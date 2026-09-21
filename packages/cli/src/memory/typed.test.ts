@@ -49,11 +49,13 @@ describe('splitCuratedBullets', () => {
 			'  - nested',
 			'',
 		].join('\n')
-		const { bullets, rest } = splitCuratedBullets(text)
+		const { bullets, rest, kept } = splitCuratedBullets(text)
 		expect(bullets).toEqual(['one', 'two'])
 		expect(rest).toBe(
 			'# Notes\n\nSome prose.\n- multi-line note\nits unindented second line\n- parent\n  - nested\n',
 		)
+		// Both top-level bullets that stayed are counted; the nested one is not.
+		expect(kept).toBe(2)
 	})
 
 	it('leaves nothing when the file held only bullets', () => {
@@ -62,7 +64,28 @@ describe('splitCuratedBullets', () => {
 
 	it("leaves a heading's list where it is: that is a section the operator wrote", () => {
 		const text = '## Conventions\n- use tabs\n- never push\n\n## Later\n\n- blank line first\n'
-		expect(splitCuratedBullets(text)).toEqual({ bullets: [], rest: text, kept: 3 })
+		expect(splitCuratedBullets(text)).toEqual({
+			bullets: ['blank line first'],
+			rest: '## Conventions\n- use tabs\n- never push\n\n## Later\n',
+			kept: 2,
+		})
+	})
+
+	it('offers the notes appendMemory left after a heading and a blank line', () => {
+		expect(splitCuratedBullets('# Project memory\n\n- note one\n- note two\n')).toEqual({
+			bullets: ['note one', 'note two'],
+			rest: '# Project memory\n',
+			kept: 0,
+		})
+	})
+
+	it("ends a heading's list at a blank line, so notes appended after it are offered", () => {
+		const text = '## Conventions\n- use tabs\n\n- appended note\n'
+		expect(splitCuratedBullets(text)).toEqual({
+			bullets: ['appended note'],
+			rest: '## Conventions\n- use tabs\n',
+			kept: 1,
+		})
 	})
 
 	it('takes notes appended after prose even when a heading comes earlier', () => {
@@ -227,7 +250,49 @@ describe('importCuratedNotes', () => {
 			cwd,
 		})
 		expect(result).toEqual({ path: curated, moved: 0, kept: 1 })
-		expect(describeCuratedNotesImport(result, directory)).toContain('under a heading stayed')
+		expect(describeCuratedNotesImport(result, directory)).toContain(
+			'1 bullet stayed: a list starting directly under a heading',
+		)
 		expect(readFileSync(curated, 'utf8')).toBe('## Conventions\n- use tabs\n')
+	})
+
+	it('keeps each run’s own text, and records the memories actually created', async () => {
+		const directory = tempRoot()
+		const cwd = tempRoot()
+		mkdirSync(join(cwd, '.namzu'))
+		const curated = join(cwd, '.namzu', 'MEMORY.md')
+		const store = new MarkdownMemoryStore({ directory })
+		writeFileSync(curated, '# Project memory\n\n- first note\n')
+		const first = await importCuratedNotes({ store, directory, cwd })
+		expect(first).toMatchObject({ moved: 1, backupPath: `${curated}.before-typed-memory` })
+		// A note appended since, and one the first run already moved, copied back.
+		writeFileSync(curated, '# Project memory\n\n- first note\n- second note\n')
+		const second = await importCuratedNotes({ store, directory, cwd })
+		expect(second).toMatchObject({ moved: 1, backupPath: `${curated}.before-typed-memory-2` })
+		expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toBe(
+			'# Project memory\n\n- first note\n',
+		)
+		expect(readFileSync(`${curated}.before-typed-memory-2`, 'utf8')).toBe(
+			'# Project memory\n\n- first note\n- second note\n',
+		)
+		expect(describeCuratedNotesImport(second, directory)).toContain(
+			`before this move is kept at ${curated}.before-typed-memory-2`,
+		)
+		const marker = JSON.parse(readFileSync(join(directory, 'migration.json'), 'utf8'))
+		expect(marker.curatedFiles[curated].moved).toBe(2)
+		expect((await store.list()).totalCount).toBe(2)
+	})
+
+	it('offers notes appended after a heading at launch', async () => {
+		const directory = tempRoot()
+		const cwd = tempRoot()
+		mkdirSync(join(cwd, '.namzu'))
+		writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), '# Project memory\n\n- note one\n- note two\n')
+		const report = await migrateMemoryOnce({
+			store: new MarkdownMemoryStore({ directory }),
+			directory,
+			cwd,
+		})
+		expect(report.notesOffer?.count).toBe(2)
 	})
 })

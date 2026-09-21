@@ -6,7 +6,9 @@
  * - `~/.namzu/MEMORY.md` — facts that hold in every project. User scope.
  * - `<project>/.namzu/MEMORY.md` — facts about this repository, written by the
  *   operator. Project scope. It used to be where `#note` appended; those
- *   bullets move into stored memory once (see `migrateMemoryOnce`).
+ *   bullets stay until the operator runs `/memory import-notes`, which moves
+ *   them into stored memory (`importCuratedNotes`). A launch only offers it
+ *   (`migrateMemoryOnce`).
  *
  * Each section is capped before injection. A memory file grows for months;
  * an uncapped one would spend the context every turn on the part nobody

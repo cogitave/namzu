@@ -6,6 +6,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	openSync,
+	readFileSync,
 	readSync,
 	realpathSync,
 	renameSync,
@@ -217,13 +218,30 @@ export function replaceMemoryFile(
 	return true
 }
 
-/** Keep a copy of `text` at `path` unless one is already there. Private (0600). */
-export function writeMemoryBackup(path: string, text: string): boolean {
-	try {
-		writeFileSync(path, text, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-		return true
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
-		throw error
+/**
+ * Keep a copy of `text` at `path`, or at `path-2`, `path-3`… when an earlier
+ * copy of different text holds the name, and return where it is. An existing
+ * copy is never overwritten; one that already holds exactly `text` — a
+ * concurrent run's — is reused. Private (0600).
+ */
+export function writeMemoryBackup(path: string, text: string): string {
+	for (let n = 1; ; n++) {
+		const candidate = n === 1 ? path : `${path}-${n}`
+		try {
+			writeFileSync(candidate, text, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+			return candidate
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+			// Compared only when it is a plain file of this size: a symlink or a
+			// FIFO under that name is somebody else's, never read.
+			const existing = lstatSync(candidate)
+			if (
+				existing.isFile() &&
+				existing.size === Buffer.byteLength(text, 'utf8') &&
+				readFileSync(candidate, 'utf8') === text
+			) {
+				return candidate
+			}
+		}
 	}
 }

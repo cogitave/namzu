@@ -124,9 +124,10 @@ function parseValue(raw: string, file: string, line: number): FrontmatterJson {
  * Split a memory file into frontmatter values and body.
  *
  * The body is everything after the closing fence, less ONE leading newline
- * (the blank line the writer puts there) and ONE trailing newline (the one
- * the writer adds). Removing exactly one of each, not trimming, is what makes
- * a body that itself begins or ends with blank lines round-trip.
+ * (the blank line the writer puts there) and ONE trailing newline, `\n` or
+ * `\r\n` (the one the writer adds; it writes `\r\n` after a body ending in
+ * `\r`). Removing exactly one of each, not trimming, is what makes a body
+ * that itself begins or ends with blank lines, or with a `\r`, round-trip.
  */
 export function parseMemoryFile(raw: string, file: string): ParsedMemoryFile {
 	const text = raw.startsWith('\uFEFF') ? raw.slice(1) : raw
@@ -267,6 +268,9 @@ export function formatMemoryFile(fields: MemoryFileFields, body: string): string
 	if (fields.summary !== fields.description) put('summary', fields.summary)
 	if (fields.format !== 'markdown') put('format', fields.format)
 	if (fields.metadata !== undefined) lines.push(`metadata: ${JSON.stringify(fields.metadata)}`)
-	lines.push('---', '', body, '')
-	return lines.join('\n')
+	lines.push('---', '', body)
+	// The reader removes one trailing `\n` or `\r\n`, the second so a
+	// hand-written CRLF file reads cleanly. A body that itself ends in `\r`
+	// would lose it to that `\r\n`, so it is closed with one of its own.
+	return `${lines.join('\n')}${body.endsWith('\r') ? '\r\n' : '\n'}`
 }

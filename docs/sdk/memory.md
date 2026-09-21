@@ -116,14 +116,16 @@ strings and block lists. A value opening with `[` or `{` that is not JSON is
 read as a plain string, so `description: [WIP] deploy notes` works; a field
 that needs a list or an object (`tags`, `metadata`) then refuses it by type.
 An unknown or repeated key, a block scalar, an unterminated `"` string, a name
-that differs from its file name, two files claiming one id with the same
-`updatedAt`, a symlinked or non-regular file, a file over 256 KiB
-(`MEMORY_FILE_MAX_BYTES`), a NUL byte, invalid UTF-8, or a file stamped with a
-newer `schemaVersion` fails the operation with a `storage_error` naming the
-file, rather than presenting a smaller store as complete.
+that differs from its file name, two files claiming one id that are not an
+interrupted rename (below), a symlinked or non-regular file, a file over 256 KiB
+(`MEMORY_FILE_MAX_BYTES`), a NUL byte — in the file, or spelled `\u0000` in a
+quoted `title`, `summary`, `description` or tag — invalid UTF-8, or a file
+stamped with a newer `schemaVersion` fails the operation with a `storage_error`
+naming the file, rather than presenting a smaller store as complete.
 
 The store never writes what it would refuse to read. `create`, `update` and
-`importRecord` refuse a body containing a NUL character, or a record whose file
+`importRecord` refuse a NUL character in the body, title, summary, description
+or a tag, or a record whose file
 would exceed 256 KiB in UTF-8, with `MemoryContentRejectedError` — a
 `NamzuError` with code `invalid_config` and `reason` `'too_large'` or
 `'nul_byte'` — before anything is written. `save_memory` and `update_memory`
@@ -140,22 +142,39 @@ Files are written by atomic rename with mode `0600`; the directory is created
 so the two never interleave on one directory. A rename writes the new file
 before removing the old one, and an update's `updatedAt` is always later than
 the one it replaces. A crash between the two writes leaves two files claiming
-one id with different `updatedAt`: the store reads the newer, and the next
-write moves the older aside to `<name>.md.superseded` rather than deleting it.
-Two files with one id and the same `updatedAt` — a copied file — are refused by
-name.
+one id, each stating its own `updatedAt`, the two different: the store reads the
+newer, and the next write moves the older aside to `<name>.md.superseded` rather
+than deleting it. Any other pair claiming one id is refused, naming both files:
+the same `updatedAt` (a copy), or a file with no `updatedAt` of its own — a
+hand-written file's time is its modification time, which copying it changes, so
+it cannot show which of the two is newer. A copy whose `updatedAt` was edited to
+differ is indistinguishable from an interrupted rename and is treated as one.
+A body round-trips byte for byte, a trailing `\r` included.
 
 `MEMORY.md` is regenerated after every write: a header comment, then one line per
-active memory, sorted by name, as `- [name](name.md) — description`, each line
+active memory someone chose to keep, as `- [name](name.md) — description`. A
+record the runtime derived — `metadata.source: 'run-memory'` (the run promoter)
+or `metadata.kind: 'consolidation'` — is never listed: it is written after
+almost every run, and listing it would change a prompt that carries the index
+nearly every turn, invalidating its cache from there on. Such records stay in
+the store, found by `list`, `search_memory` and recall. The lines are ordered
+`feedback` and `user` memories not saved by the model first (the model's
+`save_memory` stamps `metadata.source: 'agent-memory'`), then the model's
+`feedback` and `user` memories, then everything else, by name within each, so
+an unchanged set of memories renders identical text and the cap below drops
+`project` and `reference` memories before an operator's `feedback` or `user`
+one. Each line is
 at most 150 characters (`MEMORY_INDEX_LINE_MAX_CHARS`): the description is
 clipped to the room the link leaves, and dropped when a name near the 64-character
 limit leaves less than two characters. It is never read back; editing it has no effect, and
 a hand edit to a memory file reaches it at the next write.
 `readIndex({ maxLines })` renders the same lines from the current files for a
 prompt, capped at `maxLines` (default `MEMORY_INDEX_MAX_LINES`, 200) with a final
-line saying how many more memories exist and to use `search_memory` for them.
-`renderMemoryIndex(entries, { maxLines })` is the same rendering over any
-entries. The host decides where the index goes in its prompt.
+line saying how many more memories exist and to use `search_memory` for them;
+`total` counts the memories the index covers, derived records excluded.
+`renderMemoryIndex(records, { maxLines })` is the same rendering over any
+`MemoryRecord`s — it reads each record's metadata to tell who wrote it. The host
+decides where the index goes in its prompt.
 
 `importRecord(record, { type })` brings in a record from another store keeping
 its id, timestamps, status and metadata. It is idempotent by id — a record
@@ -395,6 +414,12 @@ run's decisions, discoveries and failures — not its run id or task — plus
 and skips the write, with no `memory_consolidated` event, when a consolidation
 with that digest already exists, archived included. The same best-effort caveat
 applies.
+
+In a `MarkdownMemoryStore`, neither writer's records enter the generated
+`MEMORY.md` index (`metadata.source: 'run-memory'` and
+`metadata.kind: 'consolidation'` mark them): a host that loads the index into
+every prompt keeps the same prompt when a run writes one. They are reached
+through recall and `search_memory`.
 
 The CLI uses promotion by default. Its explicit `compaction.consolidate` option
 selects consolidation into the same store instead of running both writers.

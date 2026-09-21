@@ -920,7 +920,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			details: [
 				'Show and list read stored and curated memory. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
-				"import-notes moves the single-line bullets of the project's curated MEMORY.md, the notes #note used to append there, into typed memory files; a heading's list stays, and the file as it was is kept beside it.",
+				"import-notes moves the single-line bullets of the project's curated MEMORY.md, the notes #note used to append there, into typed memory files; a list starting directly under a heading stays, and the file as it was before the move is kept beside it.",
 			],
 		},
 		description:
