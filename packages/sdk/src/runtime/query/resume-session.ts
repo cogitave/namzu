@@ -9,6 +9,7 @@ import type {
 	TurnState,
 } from '../../types/session/index.js'
 import { type QueryParams, drainQueryWithSelectedResumeState } from './index.js'
+import { resolveSessionStorage } from './session-storage.js'
 import { type TurnStateScope, loadSelectedTurnContext } from './turn-state.js'
 
 /** What came of a {@link resumeSession} call. */
@@ -42,8 +43,13 @@ export interface ResumeSessionParams
 	readonly scope: TurnStateScope
 	/** The session log the turn lives in. */
 	readonly sessionLog: SessionLog
-	/** Required to find the checkpoint; also threaded into the resumed turn. */
-	readonly checkpointStore: SessionCheckpointStore
+	/**
+	 * Where the turn's checkpoints are; also threaded into the resumed turn.
+	 * Default: the store beside `sessionLog` — in memory for an in-memory
+	 * log, otherwise under `paths` (or the working directory's project under
+	 * `NAMZU_HOME`), the same store `query()` wrote them to.
+	 */
+	readonly checkpointStore?: SessionCheckpointStore
 	/** The lease this worker took with `claimSession` before resuming. */
 	readonly lease?: SessionLease
 	/**
@@ -67,16 +73,19 @@ export interface ResumeSessionParams
  * is waiting for (`pendingDecision`).
  */
 export async function resumeSession(params: ResumeSessionParams): Promise<ResumeOutcome> {
-	const {
-		scope,
-		sessionLog,
-		checkpointStore,
-		checkpointId,
-		pendingDecision,
-		listener,
-		onEventReplay,
-		...rest
-	} = params
+	const { scope, sessionLog, checkpointId, pendingDecision, listener, onEventReplay, ...rest } =
+		params
+	const checkpointStore =
+		params.checkpointStore ??
+		(
+			await resolveSessionStorage({
+				sessionId: scope.sessionId,
+				...(scope.parentSessionId ? { parentSessionId: scope.parentSessionId } : {}),
+				sessionLog,
+				...(params.paths ? { paths: params.paths } : {}),
+				...(params.workingDirectory ? { workingDirectory: params.workingDirectory } : {}),
+			})
+		).checkpoints
 
 	const selected = await loadSelectedTurnContext(sessionLog, checkpointStore, scope, checkpointId)
 	const state = selected?.state
