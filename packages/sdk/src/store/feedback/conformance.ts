@@ -1,4 +1,4 @@
-import type { MessageId, RunId } from '../../types/ids/index.js'
+import type { MessageId, SessionId } from '../../types/ids/index.js'
 import type { MessageFeedbackStore } from './types.js'
 
 /**
@@ -13,8 +13,8 @@ import type { MessageFeedbackStore } from './types.js'
  *
  * The rules here are the ones no type states: that a stale write is refused
  * and changes nothing, that exactly one of two racing writers wins, that a
- * rating aimed at a message the run never produced is refused, and that a
- * listing answers for the run it was asked about and no other.
+ * rating aimed at a message the session log does not hold is refused, and that
+ * a listing answers for the session it was asked about and no other.
  *
  * Takes its runner as an argument for the same reason the checkpoint suite
  * does: this file imports no test framework, so the package gains no test
@@ -34,11 +34,11 @@ export interface FeedbackConformanceOptions {
 	/** A fresh store, plus the ids its message check will accept. */
 	readonly makeStore: () => Promise<{
 		store: MessageFeedbackStore
-		runId: RunId
+		sessionId: SessionId
 		knownMessageId: MessageId
-		/** Syntactically valid and never produced by `runId`. */
+		/** Syntactically valid and absent from `sessionId`'s log. */
 		unknownMessageId: MessageId
-		otherRunId: RunId
+		otherSessionId: SessionId
 		otherKnownMessageId: MessageId
 	}>
 }
@@ -48,10 +48,10 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 
 	describe(`message feedback contract: ${options.label}`, () => {
 		it('starts a record at version 1', async () => {
-			const { store, runId, knownMessageId } = await makeStore()
+			const { store, sessionId, knownMessageId } = await makeStore()
 
 			const record = await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: knownMessageId,
 				rating: 'good',
 				expectedVersion: 0,
@@ -65,9 +65,9 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			// Re-read after the throw, deliberately. A store that threw AFTER
 			// writing would satisfy "it throws" and have already lost the
 			// first rater's answer.
-			const { store, runId, knownMessageId } = await makeStore()
+			const { store, sessionId, knownMessageId } = await makeStore()
 			await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: knownMessageId,
 				rating: 'good',
 				expectedVersion: 0,
@@ -76,7 +76,7 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			let threw = false
 			try {
 				await store.putMessageFeedback({
-					runId,
+					sessionId,
 					messageId: knownMessageId,
 					rating: 'bad',
 					expectedVersion: 0,
@@ -88,7 +88,7 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			}
 
 			expect(threw).toBe(true)
-			const listed = await store.listMessageFeedback({ runId })
+			const listed = await store.listMessageFeedback({ sessionId })
 			expect(listed).toHaveLength(1)
 			expect(listed[0]?.rating).toBe('good')
 			expect(listed[0]?.ownerVersion).toBe(1)
@@ -99,11 +99,11 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			// read "no feedback yet" actually hold. Under last-write-wins both
 			// succeed and the surviving version is 1 by coincidence rather
 			// than by exclusion, so the version is asserted numerically.
-			const { store, runId, knownMessageId } = await makeStore()
+			const { store, sessionId, knownMessageId } = await makeStore()
 			const attempts = ['good', 'bad'].map((rating) =>
 				store
 					.putMessageFeedback({
-						runId,
+						sessionId,
 						messageId: knownMessageId,
 						rating: rating as 'good' | 'bad',
 						expectedVersion: 0,
@@ -117,15 +117,15 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 
 			expect(outcomes.filter((o) => o === 'ok')).toHaveLength(1)
 			expect(outcomes.filter((o) => o === 'refused')).toHaveLength(1)
-			const listed = await store.listMessageFeedback({ runId })
+			const listed = await store.listMessageFeedback({ sessionId })
 			expect(listed).toHaveLength(1)
 			expect(listed[0]?.ownerVersion).toBe(1)
 		})
 
 		it('lets exactly one of two racing updates advance a stored version', async () => {
-			const { store, runId, knownMessageId } = await makeStore()
+			const { store, sessionId, knownMessageId } = await makeStore()
 			await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: knownMessageId,
 				rating: 'good',
 				expectedVersion: 0,
@@ -137,7 +137,7 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			].map((candidate) =>
 				store
 					.putMessageFeedback({
-						runId,
+						sessionId,
 						messageId: knownMessageId,
 						...candidate,
 						expectedVersion: 1,
@@ -154,7 +154,7 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			expect(outcomes.filter((outcome) => outcome.kind === 'refused')).toHaveLength(1)
 			const winner = winners[0]
 			if (winner?.kind !== 'ok') throw new Error('expected one feedback update winner')
-			const listed = await store.listMessageFeedback({ runId })
+			const listed = await store.listMessageFeedback({ sessionId })
 			expect(listed).toHaveLength(1)
 			expect(listed[0]?.ownerVersion).toBe(2)
 			expect(listed[0]?.rating).toBe(winner.record.rating)
@@ -162,16 +162,16 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 		})
 
 		it('advances the version on a correct update', async () => {
-			const { store, runId, knownMessageId } = await makeStore()
+			const { store, sessionId, knownMessageId } = await makeStore()
 			await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: knownMessageId,
 				rating: 'good',
 				expectedVersion: 0,
 			})
 
 			const second = await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: knownMessageId,
 				rating: 'bad',
 				note: 'changed my mind',
@@ -183,50 +183,52 @@ export function defineMessageFeedbackConformance(options: FeedbackConformanceOpt
 			expect(second.note).toBe('changed my mind')
 		})
 
-		it('refuses a message the run never produced, and writes nothing', async () => {
-			const { store, runId, unknownMessageId } = await makeStore()
+		it('refuses a message the session log does not hold, and writes nothing', async () => {
+			const { store, sessionId, unknownMessageId } = await makeStore()
 
 			let threw = false
 			try {
 				await store.putMessageFeedback({
-					runId,
+					sessionId,
 					messageId: unknownMessageId,
 					rating: 'good',
 					expectedVersion: 0,
 				})
-			} catch {
+			} catch (err) {
 				threw = true
+				expect((err as Error).name).toBe('UnknownMessageError')
 			}
 
 			expect(threw).toBe(true)
-			expect(await store.listMessageFeedback({ runId })).toHaveLength(0)
+			expect(await store.listMessageFeedback({ sessionId })).toHaveLength(0)
 		})
 
-		it('answers for the run it was asked about and no other', async () => {
-			const { store, runId, knownMessageId, otherRunId, otherKnownMessageId } = await makeStore()
+		it('answers for the session it was asked about and no other', async () => {
+			const { store, sessionId, knownMessageId, otherSessionId, otherKnownMessageId } =
+				await makeStore()
 			await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: knownMessageId,
 				rating: 'good',
 				expectedVersion: 0,
 			})
 			await store.putMessageFeedback({
-				runId: otherRunId,
+				sessionId: otherSessionId,
 				messageId: otherKnownMessageId,
 				rating: 'bad',
 				expectedVersion: 0,
 			})
 
-			const mine = await store.listMessageFeedback({ runId })
+			const mine = await store.listMessageFeedback({ sessionId })
 
 			expect(mine).toHaveLength(1)
 			expect(mine[0]?.messageId).toBe(knownMessageId)
 		})
 
-		it('lists nothing for a run with no feedback', async () => {
-			const { store, otherRunId } = await makeStore()
+		it('lists nothing for a session with no feedback', async () => {
+			const { store, otherSessionId } = await makeStore()
 
-			expect(await store.listMessageFeedback({ runId: otherRunId })).toHaveLength(0)
+			expect(await store.listMessageFeedback({ sessionId: otherSessionId })).toHaveLength(0)
 		})
 	})
 }
