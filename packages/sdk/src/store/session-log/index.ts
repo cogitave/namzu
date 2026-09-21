@@ -57,6 +57,7 @@ export {
 	type ClaimSessionOptions,
 	DiskSessionLeaseStore,
 	InMemorySessionLeaseStore,
+	type LeaseClaimContext,
 	type SessionLease,
 	type SessionLeaseStore,
 	StaleSessionLeaseError,
