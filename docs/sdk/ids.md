@@ -10,7 +10,10 @@ status: stable
 # Ids
 
 Kernel factories such as `generateProjectId()`, `generateSessionId()` and
-`generateRunId()` mint UUID v4 strings. Entity type is carried by a nominal
+`generateRunId()` mint UUID v4 strings. `projectIdForDirectory(directory)` is
+the one derived id: a name-based UUID (version 8) over the canonical directory
+path, the same in every process. A host with no Project store to look one up
+in can use it to keep runs in one directory in one Project. Entity type is carried by a nominal
 TypeScript brand and by the record's schema and location. A Session ID cannot
 be passed where a Run ID is required without explicitly bypassing the type
 system. The serialized UUID does not encode its entity type.

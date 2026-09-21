@@ -41,11 +41,14 @@ or inference charge. The kernel still executes its normal run lifecycle,
 including budgets and persistence. The [SDK README](../../packages/sdk/README.md#run-a-tool)
 also contains a complete example that executes a local tool through this loop.
 
-`runAgent` generates missing `tenantId`, `projectId`, `topicId` and `sessionId`
-values and returns all four as `identity`. They correlate the run; generating
-them does not create Project, Topic or Session records in a session store.
-A host using store-backed delegation supplies the identity from its actual
-records.
+`runAgent` fills in missing identity and returns all four fields as
+`identity`. `tenantId`, `topicId` and `sessionId` are generated per call.
+`projectId` is derived from `workingDirectory` by `projectIdForDirectory`, so
+every run in one directory is filed under one Project and the durable layout
+(`projects/<projectId>/…`) gains one tree per directory rather than one per
+call. None of this creates Project, Topic or Session records in a session
+store. A host using store-backed delegation supplies the identity from its
+actual records.
 
 `runAgent` defaults to 16 main-loop iterations, 200,000 cumulative tokens and
 five minutes. Set `maxIterations: 0`, `tokenBudget: 0` and `timeoutMs: 0` to
@@ -55,7 +58,7 @@ disable those guards explicitly. Usage and cancellation remain active; see
 To continue a conversation, spread the returned `identity` into the next
 `runAgent` call and pass the prior `run.messages` plus a new user message as
 `prompt`. Reusing identity alone does not load history. Omitting identity starts
-an independent run scope.
+a new session in the working directory's Project.
 
 For inference, install a provider driver and select its model explicitly.
 For more runtime configuration, use `ReactiveAgent` or `query`. Unlike

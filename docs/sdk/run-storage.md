@@ -138,3 +138,23 @@ crash left a dump behind. A resume that fails or pauses keeps the dump, which
 is still the last record of a moment the run did not survive. A replay that
 forks a new run from a dump does not remove it; that run has its own id, and
 the dump still belongs to the run that crashed.
+
+## One Project per directory
+
+Every path above is keyed by Project, so an id minted per run gives every run
+a Project tree of its own. `runAgent` minted one per call. When no `projectId`
+is passed, it now derives one from `workingDirectory` with
+`projectIdForDirectory`, so a batch of runs in one directory, such as an eval
+or a benchmark, shares one tree. `query` and `drainQuery` take identity
+explicitly, as before.
+
+The 79 `prj_*` trees measured in one home directory (250–500 MB each, from
+2026-09-10 and -11) have the `projects/<id>/sessions/` shape of this layout.
+Their prefixed ids come from a build older than the switch to UUID ids on
+2026-09-06; batches of that period ran from frozen copies of the CLI. Which
+call site minted them cannot be recovered from the deleted tree. The current
+headless CLI is not one: it resolves one Project per checkout, and three
+`namzu run` invocations in one directory leave one Project
+(`scripts/benchmarks/cli-state-growth.mjs`). The call sites that still minted
+one per call were `runAgent` and the CLI's scope-less `createAgentSession`.
+Both now derive it from the directory.
