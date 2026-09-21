@@ -830,6 +830,10 @@ export class AgentManager {
 				taskId,
 			)
 			if (childLog) {
+				await this.startChildSessionLog(childLog, spawnRecord, context, options, taskId, {
+					id: agent.metadata.id,
+					name: agent.metadata.name,
+				})
 				childConfig.sessionLog = childLog
 				spawnRecord.releaseLog = registerChildSessionLog(childLog)
 			}
@@ -1060,6 +1064,51 @@ export class AgentManager {
 			sessionId: spawnRecord.childSessionId,
 			ancestors: spawnRecord.ancestry,
 		})
+	}
+
+	/**
+	 * Open a child session placed by this manager with its `session_started`,
+	 * naming where it sits in the tree (`parent`: the spawning session, turn
+	 * and tool call, the root session, the depth, and the kind of spawn).
+	 *
+	 * Written here, before the child runs, because only the manager knows all
+	 * of it: a child's config carries its parent session and turn but not the
+	 * tool call or the root. The child's own turn then finds the log started
+	 * and appends after it. A log that already has records is left alone.
+	 */
+	private async startChildSessionLog(
+		log: SessionLog,
+		spawnRecord: ChildSpawnRecord,
+		context: AgentTaskContext,
+		options: SendMessageOptions,
+		taskId: TaskId,
+		agent: { readonly id: string; readonly name: string },
+	): Promise<void> {
+		const lease = await log.claim({ holder: `namzu:agent-manager:${taskId}`, ttlMs: 30_000 })
+		if (lease === null) {
+			throw new Error(`Child session ${spawnRecord.childSessionId} is already leased`)
+		}
+		try {
+			if ((await log.head()) !== null) return
+			await log.append(lease, {
+				type: 'session_started',
+				projectId: context.projectId,
+				tenantId: spawnRecord.tenantId,
+				topicId: context.topicId,
+				cwd: options.input.workingDirectory ?? process.cwd(),
+				agent: { id: agent.id, name: agent.name, type: options.agentId },
+				parent: {
+					sessionId: spawnRecord.parentSessionId,
+					turnId: spawnRecord.parentTurnId,
+					toolCallId: spawnToolCallId(taskId),
+					rootSessionId: spawnRecord.rootSessionId,
+					depth: spawnRecord.childDepth,
+					kind: 'agent_spawn',
+				},
+			})
+		} finally {
+			await log.release(lease)
+		}
 	}
 
 	cancel(taskId: TaskId, cause?: CancelCause): void {

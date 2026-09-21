@@ -69,12 +69,16 @@ async function recordTurn(
 ): Promise<void> {
 	const lease = await log.claim({ holder: 'test', ttlMs: 60_000 })
 	if (!lease) throw new Error('claim failed')
-	await log.append(lease, {
-		type: 'session_started',
-		projectId: config.projectId,
-		cwd: '/work',
-		agent: { id: 'nester', name: 'Nester' },
-	} as SessionRecordDraft)
+	// As the recorder does: `session_started` only on an empty log. A child's
+	// log arrives already started by the manager that placed it.
+	if ((await log.head()) === null) {
+		await log.append(lease, {
+			type: 'session_started',
+			projectId: config.projectId,
+			cwd: '/work',
+			agent: { id: 'nester', name: 'Nester' },
+		} as SessionRecordDraft)
+	}
 	await log.beginTurn(lease, {
 		turnId,
 		userMessageId: generateMessageId(),
@@ -274,7 +278,8 @@ describe('a delegation three levels deep', () => {
 		expect(h.paths.sessionLog(greatLocator)).toBe(
 			join(rootDir, 'subagents', child, 'subagents', grandchild, 'subagents', `${great}.jsonl`),
 		)
-		for (const locator of [childLocator, grandLocator, greatLocator]) {
+		const spawners = [h.root.id, child, grandchild]
+		for (const [index, locator] of [childLocator, grandLocator, greatLocator].entries()) {
 			const log = DiskSessionLog.at(h.paths, locator)
 			const read = await log.readAll()
 			expect(read.intact).toBe(true)
@@ -283,6 +288,14 @@ describe('a delegation three levels deep', () => {
 				'turn_started',
 				'turn_completed',
 			])
+			// The child's own log says where it sits in the tree.
+			const started = read.entries[0]?.record
+			expect(started?.type === 'session_started' && started.parent).toMatchObject({
+				sessionId: spawners[index],
+				rootSessionId: h.root.id,
+				depth: index + 1,
+				kind: 'agent_spawn',
+			})
 		}
 
 		// Each meta document names its parent, root, depth and outcome.

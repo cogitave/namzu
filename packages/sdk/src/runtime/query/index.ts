@@ -13,6 +13,7 @@ import type { ContextReducer } from '../../compaction/reducer.js'
 import { serializeState as serializeWorkingState } from '../../compaction/serializer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import { type CompactionConfig, CompactionConfigSchema } from '../../config/runtime.js'
+import { childSessionLog } from '../../manager/agent/child-session.js'
 import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
@@ -926,10 +927,27 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 	// Everything from here to the turn body can refuse (a capability the
 	// provider lacks, a sandbox mode it does not offer); the lease the
 	// prelude took is given back on the way out.
+	let unsubscribeChildSessions: (() => void) | undefined
 	try {
 		const unsubscribeTaskStore = params.taskStore
 			? eventTranslator.wireTaskStore(params.taskStore, ctx.sessionId)
 			: undefined
+		// The children this turn delegates to are recorded in this session's
+		// log: `child_session_spawned` when one starts, `child_session_ended`
+		// (read from the child's own log) when it goes idle. That is what lets
+		// the parent list and replay its children once the process is gone.
+		unsubscribeChildSessions = taskScheduler?.onChildSessionEvent?.((event) => {
+			// Looked up now, while the manager still holds the child's spawn record.
+			const childLog =
+				event.type === 'child_session_idled' ? childSessionLog(event.childSessionId) : undefined
+			void ctx.recorder.recordChildSessionEvent(event, childLog).catch((err: unknown) => {
+				ctx.log.warn('A child session record could not be appended', {
+					[NAMZU.TURN_ID]: ctx.turnId,
+					'namzu.child_session.id': event.childSessionId,
+					'exception.message': err instanceof Error ? err.message : String(err),
+				})
+			})
+		})
 
 		if (params.taskStore) {
 			const taskTools = buildTaskTools(params.taskStore, {
@@ -2311,6 +2329,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			if (!settled) await settleAbandonedTurn(ctx.recorder, eventTranslator, ctx.log)
 		}
 	} finally {
+		unsubscribeChildSessions?.()
 		// The lease `open()` took in the prelude; a caller-supplied lease is the
 		// caller's to give back.
 		await ctx.recorder.release()

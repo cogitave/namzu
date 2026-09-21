@@ -5,11 +5,10 @@ import {
 	InMemorySessionStore,
 	MockLLMProvider,
 	type SessionEvent,
-	type SessionId,
 	SessionPaths,
-	type ToolContext,
 	ToolRegistry,
-	type TurnId,
+	createUserMessage,
+	drainQuery,
 	generateSessionId,
 	generateTurnId,
 	openSessionIndex,
@@ -30,16 +29,6 @@ function directory() {
 	const dir = mkdtempSync(join(tmpdir(), 'namzu-parent-scope-'))
 	dirs.push(dir)
 	return dir
-}
-function context(sessionId: SessionId, turnId: TurnId, cwd: string): ToolContext {
-	return {
-		sessionId,
-		turnId,
-		workingDirectory: cwd,
-		abortSignal: new AbortController().signal,
-		env: {},
-		log() {},
-	}
 }
 
 describe('delegation belongs to the actual parent', () => {
@@ -76,17 +65,51 @@ describe('delegation belongs to the actual parent', () => {
 			},
 		})
 		try {
-			const results = await Promise.all(
-				[fixture.scope.turnId, secondTurnId].flatMap((turnId) =>
-					[1, 2].map(() =>
-						runtime.agentTool.execute(
-							{ description: 'inspect', prompt: 'report' },
-							context(parents.get(turnId)?.sessionId as SessionId, turnId, cwd),
-						),
-					),
-				),
+			// Each parent is a real turn, run the way the TUI runs one: its own
+			// session log under the layout, the delegation gateway for that turn,
+			// and a model that launches two agents in one step. The parent's log
+			// is what records its children, so the children are listed from it
+			// below rather than from anything this process remembers.
+			const turns = await Promise.all(
+				[fixture.scope.turnId, secondTurnId].map(async (turnId) => {
+					const parent = parents.get(turnId) as SubagentParent
+					const tools = new ToolRegistry()
+					tools.register(runtime.agentTool)
+					const call = (id: string) => ({
+						id,
+						name: runtime.agentTool.name,
+						rawArguments: JSON.stringify({ description: 'inspect', prompt: 'report' }),
+					})
+					return drainQuery({
+						provider: new MockLLMProvider({
+							turns: [
+								{ toolCalls: [call(`${turnId}-a`), call(`${turnId}-b`)] },
+								{ text: 'both reported' },
+							],
+						}),
+						tools,
+						turnConfig: {
+							model: 'mock',
+							timeoutMs: 30_000,
+							tokenBudget: 0,
+							maxIterations: 4,
+							maxResponseTokens: 256,
+						},
+						agentId: 'namzu',
+						agentName: 'Namzu',
+						workingDirectory: cwd,
+						sessionId: parent.sessionId,
+						turnId,
+						topicId: parent.topic.id,
+						projectId: parent.project.id,
+						tenantId: parent.project.tenantId,
+						paths,
+						taskScheduler: await runtime.gatewayForTurn(turnId),
+						messages: [createUserMessage('delegate')],
+					})
+				}),
 			)
-			expect(results.every((result) => result.success)).toBe(true)
+			expect(turns.map((turn) => turn.status)).toEqual(['completed', 'completed'])
 			expect(providerSessions).toHaveLength(4)
 			expect(providerSessions.filter((id) => id === first.sessionId)).toHaveLength(2)
 			expect(providerSessions.filter((id) => id === second.sessionId)).toHaveLength(2)

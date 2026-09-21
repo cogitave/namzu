@@ -2,7 +2,7 @@ import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { CancelCause } from '../session/cancel-cause.js'
-import type { SessionEventListener } from '../session/events.js'
+import type { ChildSessionLifecycleEvent, SessionEventListener } from '../session/events.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
@@ -199,4 +199,21 @@ export interface TaskScheduler {
 	 * about it is not the child speaking.
 	 */
 	onTaskProgress?(callback: (taskId: TaskId) => void): () => void
+
+	/**
+	 * Tell me when a child session this gateway launched starts, messages or
+	 * goes idle, as the `child_session_*` events its manager emits.
+	 *
+	 * The parent turn records these into its own session log — the
+	 * `child_session_spawned` record, and `child_session_ended` when the
+	 * child goes idle — so a finished delegation can be listed and replayed
+	 * from the parent's log after the process is gone. A host listener given
+	 * to the gateway sees the same events for display; this is the channel
+	 * the kernel reads them on.
+	 *
+	 * OPTIONAL for the same reason as {@link onTaskProgress}: a host gateway
+	 * that cannot observe its children still works, and its parent log simply
+	 * names no children.
+	 */
+	onChildSessionEvent?(callback: (event: ChildSessionLifecycleEvent) => void): () => void
 }

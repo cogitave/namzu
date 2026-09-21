@@ -2,6 +2,7 @@
 
 ## 2026-09-21
 
+- **Update** [Delegation events](sdk/delegation-events.md): the parent turn records `child_session_spawned` and `child_session_ended` itself, through the scheduler's optional `onChildSessionEvent`; the manager starts a child's log with `session_started.parent`.
 - **Update** [Zen](sdk/zen.md): the Go catalogue carries `grok-4.7`; four ids the pages route without a models.dev entry are recorded as omissions until their limits are published.
 - **Creation** [Session storage](cli/session-storage.md): every file the CLI and SDK keep under `NAMZU_HOME` — `projects/<slug>/`, one `<session-id>.jsonl` per session and what sits in `<session-id>/`, `index.sqlite`, the per-user scratch directory — and which are safe to delete. Nothing is written under the working directory.
 - **Creation** [`namzu drain`](cli/drain.md), draft: one bounded pass that finds parked turns through `SessionIndex.listPendingDecisions`, claims each session's lease, continues the same turn with `resumeSession`, and keeps the 0/1/64/77 exit codes. Draft until the rebuilt command lands.

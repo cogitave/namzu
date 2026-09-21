@@ -4,6 +4,7 @@ import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../types/agen
 import type { AgentTaskState } from '../types/agent/task.js'
 import type { SessionId, TaskId, TurnId } from '../types/ids/index.js'
 import { type CancelCause, TurnCancelled } from '../types/session/cancel-cause.js'
+import type { ChildSessionLifecycleEvent } from '../types/session/events.js'
 import type { TurnExecutionStatus } from '../types/session/turn.js'
 import { generateSessionId, generateTaskId, generateTurnId } from '../utils/id.js'
 
@@ -311,6 +312,11 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 			this.listeners.delete(callback)
 			localOff?.()
 		}
+	}
+
+	/** The local gateway's children; a foreign delegate's work has no child session here. */
+	onChildSessionEvent(callback: (event: ChildSessionLifecycleEvent) => void): () => void {
+		return this.config.local?.onChildSessionEvent?.(callback) ?? (() => {})
 	}
 }
 

@@ -12,7 +12,7 @@ import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
 import type { CancelCause } from '../types/session/cancel-cause.js'
-import type { SessionEventListener } from '../types/session/events.js'
+import type { ChildSessionLifecycleEvent, SessionEventListener } from '../types/session/events.js'
 import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -64,6 +64,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
 	/** See {@link onTaskProgress}. */
 	private readonly progressListeners = new Set<(taskId: TaskId) => void>()
+	private readonly childSessionListeners = new Set<(event: ChildSessionLifecycleEvent) => void>()
 	/**
 	 * One non-blocking delivery chain per observer.
 	 *
@@ -184,6 +185,26 @@ export class LocalTaskScheduler implements TaskScheduler {
 				this.deliverEvent(this.listener, event, 'scheduler')
 				if (options.onEvent !== this.listener) {
 					this.deliverEvent(options.onEvent, event, 'task')
+				}
+				// The parent turn's own record of its children. Synchronous and
+				// before anything else can settle, so `child_session_ended` is
+				// queued ahead of the parent's next record.
+				if (
+					event.type === 'child_session_spawned' ||
+					event.type === 'child_session_messaged' ||
+					event.type === 'child_session_idled'
+				) {
+					for (const notify of this.childSessionListeners) {
+						try {
+							notify(event)
+						} catch (err) {
+							resolveLogger(this.log)
+								.child({ [SCOPE_ATTRIBUTE]: 'scheduler/local' })
+								.warn('Child session observer failed', {
+									'exception.message': toErrorMessage(err),
+								})
+						}
+					}
 				}
 				// No id yet means nothing is waiting on this task: the caller
 				// does not hold the handle, so an idle bound cannot be running
@@ -418,6 +439,13 @@ export class LocalTaskScheduler implements TaskScheduler {
 		this.completionListeners.add(callback)
 		return () => {
 			this.completionListeners.delete(callback)
+		}
+	}
+
+	onChildSessionEvent(callback: (event: ChildSessionLifecycleEvent) => void): () => void {
+		this.childSessionListeners.add(callback)
+		return () => {
+			this.childSessionListeners.delete(callback)
 		}
 	}
 }

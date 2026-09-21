@@ -87,7 +87,17 @@ not in the listener's stream.
   beside `<child-id>.meta.json`, which names the parent session, the parent
   turn, the root session, depth, the spawning tool call, agent type,
   description and status. A child's own children nest the same way. The meta
-  file is a convenience: the child's log wins on any disagreement.
+  file is a convenience: the child's log wins on any disagreement. The agent
+  manager writes the child's `session_started` before the child runs, with
+  `parent: { sessionId, turnId, toolCallId, rootSessionId, depth, kind }`.
+
+The parent's records are written by the parent turn itself. `query()` reads
+them from its task scheduler's optional `onChildSessionEvent(callback)`, which
+`LocalTaskScheduler` implements; a host scheduler that leaves it out still
+delegates, and its parent log names no children. The spawn is recorded only
+inside the turn that spawned the child. The ended record is read from the
+child's own last `turn_completed` or `turn_failed`, and carries the spawning
+turn's id only while that turn is still open.
 
 Reading them back needs no directory walk. `SessionIndex.listChildren(parent)`
 returns a `ChildSessionSummary` per child — its session, the parent turn and

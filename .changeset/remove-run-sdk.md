@@ -89,6 +89,13 @@ and `child_session_idled`. Every event drops `runId`, carries `sessionId`, and
 carries `turnId` inside a turn. The other 54 literals are unchanged.
 `isEphemeralEvent` is now exported at runtime.
 
+**Delegation records.** The parent turn appends `child_session_spawned` and
+`child_session_ended` to its own log, reading them from the task scheduler's
+new optional `onChildSessionEvent(callback)`. `LocalTaskScheduler` and
+`DelegatingTaskScheduler` implement it. A host `TaskScheduler` that does not
+still delegates, but its parent log names no children, so `SessionIndex`
+cannot list them: implement it to keep them listable.
+
 **Storage.**
 
 - `RunStore`, `RunDiskStore`, `InMemoryRunStore` and `RunStoreConfig` are

@@ -51,6 +51,7 @@ import {
 	accumulateUnpricedCost,
 } from '../../utils/cost.js'
 import { asCheckpointId, generateAuditEventId, generateMessageId } from '../../utils/id.js'
+import { childSessionEnded } from '../agent/child-session.js'
 
 /** Which provider and model a cost is priced against. */
 export interface PricingSubject {
@@ -749,6 +750,46 @@ export class TurnRecorder {
 		if (event.type === 'turn_paused') this.#phase = 'paused'
 		if (event.type === 'turn_completed' || event.type === 'turn_failed') this.#phase = 'closed'
 		return entry
+	}
+
+	/**
+	 * Record a child session's lifecycle event from this session's own
+	 * delegation: `child_session_spawned` inside the spawning turn, and on
+	 * `child_session_idled` the idle record plus `child_session_ended`, read
+	 * from the child's own terminal record so the two cannot disagree
+	 * (`childLog`; absent when the child's log is not reachable, and then no
+	 * ended record is written).
+	 *
+	 * The spawning turn's id is carried only while that turn is still open.
+	 * Queued in order with every other record, so a child that settles before
+	 * its parent's turn does is recorded before the parent's `turn_completed`.
+	 * Resolves `undefined` for an event of another session, or once the lease
+	 * is given up.
+	 */
+	recordChildSessionEvent(
+		event: Extract<
+			SessionEvent,
+			{ type: 'child_session_spawned' | 'child_session_messaged' | 'child_session_idled' }
+		>,
+		childLog?: SessionLog,
+	): Promise<SessionLogEntry | undefined> {
+		if (event.sessionId !== this.sessionId || this.#released) return Promise.resolve(undefined)
+		if (this.#phase === 'new' || this.#phase === 'open') return Promise.resolve(undefined)
+		const spawningTurnOpen = this.#phase === 'active' && event.turnId === this.turnId
+		if (event.type === 'child_session_spawned') {
+			// Belongs to the turn that spawned it, and only while that turn is open.
+			if (!spawningTurnOpen) return Promise.resolve(undefined)
+			return this.appendEvent(event)
+		}
+		const turnId = spawningTurnOpen ? this.turnId : undefined
+		this.#syncMessages()
+		const idled = this.#enqueue(() => this.#append(eventDraft(event, turnId)))
+		if (event.type !== 'child_session_idled' || !childLog) return idled
+		return this.#enqueue(async () => {
+			const ended = await childSessionEnded(childLog)
+			if (!ended) return undefined
+			return this.#append(turnId ? { ...ended, turnId } : ended)
+		})
 	}
 
 	/**
