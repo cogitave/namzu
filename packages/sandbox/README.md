@@ -783,7 +783,8 @@ credentials and has no wildcard. See
 `ensureSandboxSeed(sandbox, defineSandboxSeed({ name, repositories }), { root })`
 makes git repositories present under `root`, doing only what is missing: every
 call checks each repository (origin, and that its pinned or recorded commit is
-an ancestor of HEAD), refuses drift without touching anything, clones what is
+an ancestor of HEAD; a changed `ref` is drift unless the checkout already holds
+it), refuses drift without touching anything, clones what is
 missing into a partial directory and moves it into place. `root` is required:
 put it on a kubernetes workspace's disk mount, or `layout.scratch` on docker,
 never the docker outputs root. URLs with credentials, `ssh://` and `git@` are

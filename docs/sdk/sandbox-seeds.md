@@ -68,25 +68,44 @@ absent.
 1. **Check every repository**, in one `exec`: the directory exists, is a git
    repository, its `remote.origin.url` is the seed's URL, and the pinned
    `commit` (or the commit a `ref` resolved to when it was cloned) is an
-   ancestor of its HEAD.
+   ancestor of its HEAD. The recorded commit counts only when it was recorded
+   under the `ref` the seed names now. When it was not (the `ref` changed, or
+   there is no marker), the ref itself must be in the repository, as the
+   remote-tracking branch or the tag a clone of it leaves, and on HEAD's line
+   of history.
 2. **Drift is refused before anything is cloned** (`code: 'drift'`), so a
    refusal leaves the root as it was. A different origin, a rewritten history,
-   or a directory that is not a repository are all drift. With
+   a checkout of another branch or tag than the seed's `ref`, or a directory
+   that is not a repository are all drift. Changing a seed's `ref` from `main`
+   to `release` therefore refuses on a disk cloned from `main` (a shallow clone
+   has no `release`) instead of reporting the old checkout `present`; remove
+   the directory to have the next call clone the new ref. A `ref` the checkout
+   already holds, such as naming `main` for a clone of the default branch
+   `main`, is accepted and recorded. With
    `onDrift: 'report'` the repository is reported `drifted` and left alone.
    Nothing is ever deleted or re-cloned.
 3. **Clone what is missing** into `<dir>.namzu-partial-<nonce>`, check out the
    pinned commit if there is one, and move it into place with `mv -T`. A
    `ref` is cloned at depth `depth ?? 1`; a pinned `commit` is cloned with its
    history, and `depth` beside it is refused.
-4. **Write the marker** `<root>/.namzu/seed/<name>.json` (the seed's digest and
-   the commit each repository resolved to) to a temporary file and move it into
-   place.
+4. **Write the marker** `<root>/.namzu/seed/<name>.json` (the seed's digest,
+   the commit each repository resolved to and the `ref` it resolved from) to a
+   temporary file named by a random nonce of this call and move it into place.
+   The name is not the shell's PID: sandboxes sharing one disk often run the
+   step as the same PID, each in its own PID namespace.
 5. **Remove partial clones older than one hour** under each repository's parent
    directory.
 
 The report is `{ digest, repositories: [{ name, status, commit }] }`, `status`
 one of `cloned`, `present` and `drifted`. `sandboxSeedDigest(seed)` is the
 digest on its own: SHA-256 over the normalised seed, independent of key order.
+The digest is informational; a matching digest is never a reason to skip a
+check, and a changed one does not by itself mean drift.
+
+A repository's directory is its own: `defineSandboxSeed` refuses a `dir` inside
+or around another repository's (`vendor` beside `vendor/lib`, since cloning the
+inner one first would occupy the outer), and a `dir` under `.namzu/`, which
+holds the marker.
 
 `signal` cancels the call and `timeoutMs` is handed to every `exec`; size it
 for the largest repository, since a clone is one `exec`.
@@ -95,7 +114,8 @@ for the largest repository, since a clone is one `exec`.
 
 The marker lives in guest-writable storage, so an agent can forge it. It is
 never the reason a repository is skipped: step 1 runs on every call whatever
-the marker says, and the marker only supplies the commit a `ref` resolved to.
+the marker says, and the marker only supplies the commit a `ref` resolved to,
+used only for the `ref` it was recorded under.
 A marker value that is not a full commit id is ignored rather than passed to
 git, where it could be read as an option.
 
@@ -121,7 +141,8 @@ repositories are out of scope.
 Two hosts may prepare the same workspace disk at once, and neither takes a
 lock. Each clones into its own partial directory; whichever `mv -T` lands
 first wins, and the other removes only its own partial and checks the winner's
-clone like any present repository. The partial sweep in step 5 only removes
+clone like any present repository; if what landed does not match, the error
+says what it is (another origin, another ref, not a repository). The partial sweep in step 5 only removes
 partials older than an hour, which only a crashed call leaves, so a peer's
 clone still in progress survives it.
 
@@ -130,11 +151,14 @@ clone still in progress survives it.
 `packages/sandbox/src/seed/__tests__/ensure.test.ts` runs the function against
 a real `sh` and `git` on local bare repositories, with no network: a fresh
 clone, a second call that only checks, an added repository, a pinned commit
-and a rewritten history under it, drift refused and reported with nothing
+and a rewritten history under it, a changed `ref` refused as drift with the
+old checkout kept, a `ref` the checkout already holds accepted, a tag found in
+the repository with no marker, drift refused and reported with nothing
 changed, a directory that is not a repository, a forged marker (a missing
 repository is still cloned; a foreign commit is drift; a non-commit value never
 reaches git), a stale partial swept while a fresh one survives, two concurrent
-calls, a missing root, a missing `git`, a guest that cannot run `sh`, a failed
+calls, forty concurrent calls each in its own PID namespace (skipped where
+`unshare -rpf` is not allowed), nested and reserved directories refused, a missing root, a missing `git`, a guest that cannot run `sh`, a failed
 clone, and each URL refusal. The contract suite
 (`src/testing/sandbox-conformance.ts`) has a `seed` case that runs when a
 caller passes `seed: { url, root }`; no run in this repository passes one yet,

@@ -50,6 +50,17 @@ function git(cwd: string, ...args: string[]): string {
 	}).trim()
 }
 
+/** Whether this machine lets an unprivileged process open a PID namespace. */
+function unshareWorks(): boolean {
+	try {
+		return (
+			execFileSync('unshare', ['-rpf', 'sh', '-c', 'echo $$'], { encoding: 'utf8' }).trim() === '1'
+		)
+	} catch {
+		return false
+	}
+}
+
 interface FakeSandbox extends Sandbox {
 	readonly scripts: string[]
 }
@@ -58,6 +69,7 @@ function fakeSandbox(
 	remotes: string,
 	extraEnv: Record<string, string> = {},
 	spawnCommand?: (command: string) => string,
+	unshare = false,
 ): FakeSandbox {
 	const scripts: string[] = []
 	const sandbox = {
@@ -72,7 +84,8 @@ function fakeSandbox(
 			if (command === 'sh' && args[0] === '-c') scripts.push(args.slice(1).join('\n'))
 			return new Promise<SandboxExecResult>((resolve, reject) => {
 				const started = Date.now()
-				const child = spawn(spawnCommand ? spawnCommand(command) : command, args, {
+				const argv = unshare ? ['-rpf', command, ...args] : args
+				const child = spawn(spawnCommand ? spawnCommand(command) : command, argv, {
 					env: {
 						...process.env,
 						GIT_CONFIG_NOSYSTEM: '1',
@@ -168,6 +181,7 @@ describe('ensureSandboxSeed', () => {
 			seed: 'dev',
 			digest: sandboxSeedDigest(seed),
 			commits: { app: secondCommit },
+			refs: { app: '' },
 		})
 		expect(readdirSync(root).filter((name) => name.includes('namzu-partial'))).toEqual([])
 	})
@@ -225,6 +239,75 @@ describe('ensureSandboxSeed', () => {
 		expect(git(orphan, 'rev-parse', 'HEAD')).toBe(rewritten)
 	})
 
+	it('treats a changed ref as drift and keeps the old checkout, never reporting it present', async () => {
+		// A branch 'old' at the first commit, beside main at the second.
+		const bare = join(remotes, 'app.git')
+		git(bare, 'branch', 'old', firstCommit)
+		const onRef = (ref: string): SandboxSeed => ({
+			name: 'dev',
+			repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref }],
+		})
+		const sandbox = fakeSandbox(remotes)
+		const first = await ensureSandboxSeed(sandbox, onRef('main'), { root })
+		expect(first.repositories[0]).toEqual({ name: 'app', status: 'cloned', commit: secondCommit })
+
+		await expect(ensureSandboxSeed(sandbox, onRef('old'), { root })).rejects.toMatchObject({
+			code: 'drift',
+			repository: 'app',
+			message: expect.stringMatching(/app does not hold the seed's ref/),
+		})
+		const reported = await ensureSandboxSeed(sandbox, onRef('old'), { root, onDrift: 'report' })
+		expect(reported.repositories).toEqual([
+			{ name: 'app', status: 'drifted', commit: secondCommit },
+		])
+		expect(readFileSync(join(root, 'app', 'README'), 'utf8')).toBe('app two\n')
+		// The marker does not claim the old checkout for the new ref.
+		const marker = JSON.parse(readFileSync(join(root, '.namzu/seed/dev.json'), 'utf8'))
+		expect(marker.commits).toEqual({})
+		expect(clones(sandbox)).toBe(1)
+
+		// Back on main, it is the same checkout again.
+		const back = await ensureSandboxSeed(sandbox, onRef('main'), { root })
+		expect(back.repositories[0]?.status).toBe('present')
+	})
+
+	it('accepts a ref the checkout already holds, and records it', async () => {
+		const sandbox = fakeSandbox(remotes)
+		await ensureSandboxSeed(sandbox, seed, { root })
+		const named: SandboxSeed = {
+			name: 'dev',
+			repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref: 'main' }],
+		}
+		const report = await ensureSandboxSeed(sandbox, named, { root })
+		expect(report.repositories[0]).toEqual({ name: 'app', status: 'present', commit: secondCommit })
+		const marker = JSON.parse(readFileSync(join(root, '.namzu/seed/dev.json'), 'utf8'))
+		expect(marker).toMatchObject({ commits: { app: secondCommit }, refs: { app: 'main' } })
+		expect(clones(sandbox)).toBe(1)
+	})
+
+	it('clones a tag, and holds a later call to it', async () => {
+		git(join(remotes, 'app.git'), 'tag', 'v1', firstCommit)
+		const tagged: SandboxSeed = {
+			name: 'dev',
+			repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref: 'v1' }],
+		}
+		const sandbox = fakeSandbox(remotes)
+		const first = await ensureSandboxSeed(sandbox, tagged, { root })
+		expect(first.repositories[0]).toEqual({ name: 'app', status: 'cloned', commit: firstCommit })
+		// Without the marker the tag is found in the repository itself.
+		rmSync(join(root, '.namzu/seed/dev.json'))
+		const again = await ensureSandboxSeed(sandbox, tagged, { root })
+		expect(again.repositories[0]).toEqual({ name: 'app', status: 'present', commit: firstCommit })
+		// And main is not the tag's checkout.
+		await expect(
+			ensureSandboxSeed(
+				sandbox,
+				{ ...tagged, repositories: [{ ...tagged.repositories[0]!, ref: 'main' }] },
+				{ root },
+			),
+		).rejects.toMatchObject({ code: 'drift' })
+	})
+
 	it('refuses drift by default, changing nothing, and reports it on request', async () => {
 		const foreign = join(root, 'app')
 		git(work, 'clone', '--quiet', join(remotes, 'lib.git'), foreign)
@@ -277,13 +360,19 @@ describe('ensureSandboxSeed', () => {
 		const markerPath = join(root, '.namzu/seed/dev.json')
 
 		// A commit id that is not in the repository's history is drift.
-		writeFileSync(markerPath, JSON.stringify({ commits: { app: 'f'.repeat(40) } }))
+		writeFileSync(
+			markerPath,
+			JSON.stringify({ commits: { app: 'f'.repeat(40) }, refs: { app: '' } }),
+		)
 		await expect(ensureSandboxSeed(sandbox, seed, { root })).rejects.toMatchObject({
 			code: 'drift',
 		})
 
 		// A value that is not a commit id never reaches git as an argument.
-		writeFileSync(markerPath, JSON.stringify({ commits: { app: '--upload-pack=touch /tmp/x' } }))
+		writeFileSync(
+			markerPath,
+			JSON.stringify({ commits: { app: '--upload-pack=touch /tmp/x' }, refs: { app: '' } }),
+		)
 		const report = await ensureSandboxSeed(sandbox, seed, { root })
 		expect(report.repositories[0]?.status).toBe('present')
 		expect(sandbox.scripts.join('\n')).not.toContain('--upload-pack')
@@ -316,6 +405,28 @@ describe('ensureSandboxSeed', () => {
 		expect(readdirSync(root).filter((name) => name.includes('namzu-partial'))).toEqual([])
 		expect(git(join(root, 'app'), 'rev-parse', 'HEAD')).toBe(secondCommit)
 	})
+
+	it('names the marker temporary by the call, not by the shell PID', async () => {
+		const sandbox = fakeSandbox(remotes)
+		await ensureSandboxSeed(sandbox, seed, { root })
+		// Sandboxes sharing one disk often run the script as the same PID, each
+		// in its own PID namespace, so '$$' would name one file for both.
+		expect(sandbox.scripts.join('\n')).not.toContain('$$')
+	})
+
+	it.skipIf(!unshareWorks())(
+		'lets concurrent calls from separate PID namespaces write the marker',
+		async () => {
+			// Every exec runs as PID 1 in a namespace of its own, as in containers.
+			const isolated = () => fakeSandbox(remotes, {}, () => 'unshare', true)
+			await ensureSandboxSeed(isolated(), seed, { root })
+			const results = await Promise.allSettled(
+				Array.from({ length: 40 }, () => ensureSandboxSeed(isolated(), seed, { root })),
+			)
+			expect(results.filter((result) => result.status === 'rejected')).toEqual([])
+		},
+		60_000,
+	)
 
 	it('refuses a missing or relative root', async () => {
 		for (const bad of [undefined, '', 'relative/path', '/a/../b']) {
@@ -413,6 +524,40 @@ describe('defineSandboxSeed', () => {
 		[{ ...repo, name: 'Bad' }, /not a DNS-1123 label/],
 	])('refuses %j', (bad, message) => {
 		expect(() => defineSandboxSeed({ name: 's', repositories: [bad] })).toThrow(message)
+	})
+
+	it.each([
+		[
+			[
+				{ ...repo, dir: 'vendor' },
+				{ ...repo, name: 'lib', dir: 'vendor/lib' },
+			],
+			/are nested/,
+		],
+		[
+			[
+				{ ...repo, name: 'lib', dir: 'vendor/lib' },
+				{ ...repo, dir: 'vendor' },
+			],
+			/are nested/,
+		],
+		[[{ ...repo, dir: '.namzu/app' }], /reserved/],
+		[[{ ...repo, dir: '.namzu' }], /reserved/],
+		[[{ ...repo, dir: 'app.namzu-partial-x' }], /reserved/],
+	])('refuses the directories %j', (repositories, message) => {
+		expect(() => defineSandboxSeed({ name: 's', repositories })).toThrow(message)
+	})
+
+	it('accepts sibling directories that share a prefix', () => {
+		expect(() =>
+			defineSandboxSeed({
+				name: 's',
+				repositories: [
+					{ ...repo, dir: 'vendor/lib' },
+					{ ...repo, name: 'lib2', dir: 'vendor/lib2' },
+				],
+			}),
+		).not.toThrow()
 	})
 
 	it('refuses a repeated name, a shared directory and an empty seed', () => {

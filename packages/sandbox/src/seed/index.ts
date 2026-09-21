@@ -18,8 +18,17 @@
  * storage, so an agent can forge it. It is never the reason a repository is
  * skipped: every call checks each repository directly (it exists, its origin is
  * the seed's URL, and the pinned or recorded commit is an ancestor of its
- * HEAD), and the marker only remembers which commit a `ref` resolved to. A
- * marker value that is not a commit id is ignored rather than passed to git.
+ * HEAD), and the marker only remembers which commit a `ref` resolved to, and
+ * under which `ref`. A marker value that is not a commit id is ignored rather
+ * than passed to git.
+ *
+ * A CHANGED `ref` IS NOT THE SAME SEED. The recorded commit is used only when
+ * it was recorded under the `ref` the seed names now. Otherwise the check looks
+ * in the repository itself: the ref must exist there (as a remote-tracking
+ * branch or a tag, which is what a clone of it leaves) and lie on HEAD's line
+ * of history. A checkout of another branch or tag fails that, and is drift
+ * like any other, so a seed whose `ref` moved never reports the old checkout as
+ * `present`. A digest match is never a reason to skip a check either.
  *
  * NO CREDENTIAL ENTERS THE GUEST. URLs with a user name or password, `ssh://`
  * and `git@host:path` are refused, since each would put a secret or a private
@@ -53,11 +62,19 @@ export interface SandboxSeedRepository {
 	 * or password, no `ssh://`, no `git@host:path`.
 	 */
 	readonly url: string
-	/** A branch or tag. Resolved once, when cloned, and the commit recorded. */
+	/**
+	 * A branch or tag. Resolved once, when cloned, and the commit recorded with
+	 * the ref. Changing it later is drift unless the checkout on disk already
+	 * holds that ref on its line of history (see the module doc).
+	 */
 	readonly ref?: string
 	/** A full commit id to pin. Wins over `ref`, and is checked on every call. */
 	readonly commit?: string
-	/** Directory relative to the seed root. Default `name`. No `..`, not absolute. */
+	/**
+	 * Directory relative to the seed root. Default `name`. No `..`, not
+	 * absolute, not under `.namzu/` (the marker's directory), and neither
+	 * inside nor containing another repository's directory.
+	 */
 	readonly dir?: string
 	/**
 	 * Clone depth. Default 1. Refused together with `commit`, because a pinned
@@ -79,8 +96,8 @@ export interface SandboxSeedRepositoryReport {
 	readonly name: string
 	/**
 	 * `cloned` by this call; `present` and matching the seed; `drifted`, its
-	 * origin or history no longer matching, reported under `onDrift: 'report'`
-	 * and left exactly as it was.
+	 * origin, `ref` or history no longer matching, reported under
+	 * `onDrift: 'report'` and left exactly as it was.
 	 */
 	readonly status: 'cloned' | 'present' | 'drifted'
 	/** The repository's HEAD commit. */
@@ -140,6 +157,7 @@ const PATH_SEGMENT = /^[A-Za-z0-9._-]+$/
 const DRIFT_STATES: ReadonlyMap<string, string> = new Map([
 	['origin', 'has a different origin URL'],
 	['history', 'no longer contains its pinned or recorded commit'],
+	['ref', "does not hold the seed's ref; it is a checkout of another branch or tag"],
 	['occupied', 'is a directory that is not a git repository'],
 ])
 
@@ -189,6 +207,12 @@ function refuseDir(dir: string, where: string): string {
 			`${where} ${JSON.stringify(dir)} must be a relative path of plain segments (letters, digits, '.', '_', '-'), with no '..'`,
 		)
 	}
+	if (segments[0] === '.namzu' || segments.some((segment) => segment.includes('.namzu-partial-'))) {
+		throw new SandboxSeedError(
+			'invalid',
+			`${where} ${JSON.stringify(dir)} is reserved: .namzu/ holds the seed marker, and '.namzu-partial-' names a clone in progress`,
+		)
+	}
 	return dir
 }
 
@@ -197,8 +221,8 @@ function refuseDir(dir: string, where: string): string {
  * (`code: 'invalid'`): a name that is not a DNS-1123 label, no repositories,
  * a repository name repeated, a URL outside the rules in the module doc, a
  * `ref` that is not a plain branch or tag name, a `commit` that is not a full
- * commit id, a `dir` that is absolute or climbs, two repositories in one
- * directory, and `depth` that is not a positive integer or is set beside
+ * commit id, a `dir` that is absolute, climbs or is under `.namzu/`, two
+ * repositories in one directory or one inside the other, and `depth` that is not a positive integer or is set beside
  * `commit`.
  */
 export function defineSandboxSeed(input: SandboxSeed): SandboxSeed {
@@ -212,7 +236,7 @@ export function defineSandboxSeed(input: SandboxSeed): SandboxSeed {
 		throw new SandboxSeedError('invalid', 'repositories must list at least one repository')
 	}
 	const names = new Set<string>()
-	const dirs = new Set<string>()
+	const dirs: string[] = []
 	const repositories = input.repositories.map((repo, index): SandboxSeedRepository => {
 		const where = `repositories[${index}]`
 		if (typeof repo?.name !== 'string' || !DNS_1123_LABEL.test(repo.name)) {
@@ -262,13 +286,22 @@ export function defineSandboxSeed(input: SandboxSeed): SandboxSeed {
 			}
 		}
 		const dir = refuseDir(repo.dir ?? repo.name, `${where}.dir`)
-		if (dirs.has(dir)) {
+		if (dirs.includes(dir)) {
 			throw new SandboxSeedError(
 				'invalid',
 				`${where}.dir ${JSON.stringify(dir)} is used by another repository`,
 			)
 		}
-		dirs.add(dir)
+		// A clone creates its parent directories, so a repository inside
+		// another's directory would occupy it before that one is cloned.
+		const nested = dirs.find((other) => other.startsWith(`${dir}/`) || dir.startsWith(`${other}/`))
+		if (nested !== undefined) {
+			throw new SandboxSeedError(
+				'invalid',
+				`${where}.dir ${JSON.stringify(dir)} and ${JSON.stringify(nested)} are nested; each repository needs a directory of its own, neither inside the other`,
+			)
+		}
+		dirs.push(dir)
 		return Object.freeze({
 			name: repo.name,
 			url,
@@ -321,19 +354,30 @@ rm -rf "$probe"
 [ "$ok" = 1 ] || { printf 'missing mv -T\\n'; exit 3; }
 `
 
-// Arguments, per repository: dir, url, expected commit ('' for none).
+// Arguments, per repository: dir, url, expected commit ('' for none), ref to
+// find in the repository when there is no expected commit ('' for none).
+// Prints '<state> <head>', and for 'present' the commit it held HEAD to ('-'
+// for none).
 const CHECK = `
-while [ "$#" -ge 3 ]; do
-	dir=$1; url=$2; want=$3; shift 3
+while [ "$#" -ge 4 ]; do
+	dir=$1; url=$2; want=$3; ref=$4; shift 4
 	if [ ! -e "$dir" ]; then printf 'missing -\\n'; continue; fi
 	if [ ! -e "$dir/.git" ]; then printf 'occupied -\\n'; continue; fi
 	origin=$(git -C "$dir" config --get remote.origin.url 2>/dev/null || true)
 	head=$(git -C "$dir" rev-parse --verify --quiet HEAD 2>/dev/null || printf -- '-')
 	if [ "$origin" != "$url" ]; then printf 'origin %s\\n' "$head"; continue; fi
-	if [ -n "$want" ] && ! git -C "$dir" merge-base --is-ancestor "$want" HEAD 2>/dev/null; then
+	if [ -z "$want" ] && [ -n "$ref" ]; then
+		tip=$(git -C "$dir" rev-parse --verify --quiet "refs/remotes/origin/$ref^{commit}" 2>/dev/null ||
+			git -C "$dir" rev-parse --verify --quiet "refs/tags/$ref^{commit}" 2>/dev/null || true)
+		if [ -z "$tip" ]; then printf 'ref %s\\n' "$head"; continue; fi
+		if git -C "$dir" merge-base --is-ancestor "$tip" HEAD 2>/dev/null; then want=$tip
+		elif git -C "$dir" merge-base --is-ancestor HEAD "$tip" 2>/dev/null; then want=$head
+		else printf 'history %s\\n' "$head"; continue
+		fi
+	elif [ -n "$want" ] && ! git -C "$dir" merge-base --is-ancestor "$want" HEAD 2>/dev/null; then
 		printf 'history %s\\n' "$head"; continue
 	fi
-	printf 'present %s\\n' "$head"
+	printf 'present %s %s\\n' "$head" "\${want:--}"
 done
 `
 
@@ -352,13 +396,18 @@ head=$(git -C "$partial" rev-parse HEAD)
 if mv -T "$partial" "$dir" 2>/dev/null; then printf 'cloned %s\\n' "$head"; else rm -rf -- "$partial"; printf 'raced %s\\n' "$head"; fi
 `
 
-// Arguments: marker path, content, then the parent directories to sweep.
+// Arguments: marker path, content, this call's nonce, then the parent
+// directories to sweep. The temporary name carries the nonce, not the shell's
+// PID: two sandboxes sharing one disk often run this as the same PID, each in
+// its own PID namespace.
 const FINISH = `
 set -e
-marker=$1; content=$2; shift 2
-tmp="$marker.tmp.$$"
-printf '%s' "$content" > "$tmp"
-mv -f -- "$tmp" "$marker"
+marker=$1; content=$2; nonce=$3; shift 3
+tmp="$marker.tmp.$nonce"
+if ! { printf '%s' "$content" > "$tmp" && mv -f -- "$tmp" "$marker"; }; then
+	rm -f -- "$tmp"
+	exit 1
+fi
 for parent in "$@"; do
 	[ -d "$parent" ] || continue
 	find "$parent" -mindepth 1 -maxdepth 1 -type d -name '*.namzu-partial-*' -mmin +${STALE_PARTIAL_MINUTES} -exec rm -rf -- {} + 2>/dev/null || true
@@ -367,8 +416,15 @@ done
 
 interface Marker {
 	readonly commits: Readonly<Record<string, string>>
+	/** The `ref` each commit was recorded under, `''` for the default branch. */
+	readonly refs: Readonly<Record<string, string>>
 }
 
+/**
+ * The recorded commit of each repository whose record was made under the ref
+ * the seed names now. A record made under another ref says nothing about this
+ * one, so it is dropped and the repository is checked against the ref itself.
+ */
 function readMarker(raw: string, seed: SandboxSeed): Map<string, string> {
 	const commits = new Map<string, string>()
 	let parsed: unknown
@@ -378,14 +434,23 @@ function readMarker(raw: string, seed: SandboxSeed): Map<string, string> {
 		return commits
 	}
 	const recorded = (parsed as Partial<Marker> | null)?.commits
+	const refs = (parsed as Partial<Marker> | null)?.refs
 	if (recorded === null || typeof recorded !== 'object') return commits
+	if (refs === null || typeof refs !== 'object') return commits
 	for (const repo of seed.repositories) {
 		const value = (recorded as Record<string, unknown>)[repo.name]
+		const ref = (refs as Record<string, unknown>)[repo.name]
+		if (ref !== (repo.ref ?? '')) continue
 		// Guest-writable: a value that is not a commit id is ignored rather
 		// than handed to git, where it could be read as an option.
 		if (typeof value === 'string' && COMMIT_ID.test(value)) commits.set(repo.name, value)
 	}
 	return commits
+}
+
+/** The ref CHECK looks for in the repository: none when a commit is pinned or recorded. */
+function refToFind(repo: SandboxSeedRepository, want: string): string {
+	return want === '' ? (repo.ref ?? '') : ''
 }
 
 function joinPath(root: string, dir: string): string {
@@ -466,7 +531,8 @@ export async function ensureSandboxSeed(
 	const expected = defined.repositories.map((repo) => repo.commit ?? recorded.get(repo.name) ?? '')
 	const checkArgs: string[] = []
 	defined.repositories.forEach((repo, index) => {
-		checkArgs.push(paths[index] as string, repo.url, expected[index] as string)
+		const want = expected[index] as string
+		checkArgs.push(paths[index] as string, repo.url, want, refToFind(repo, want))
 	})
 	const checked = await exec(CHECK, checkArgs)
 	if (checked.exitCode !== 0) {
@@ -477,11 +543,11 @@ export async function ensureSandboxSeed(
 	}
 	const lines = checked.stdout.trim().split('\n')
 	const states = defined.repositories.map((repo, index) => {
-		const [state, head] = (lines[index] ?? '').split(' ')
+		const [state, head, held] = (lines[index] ?? '').split(' ')
 		if (!DRIFT_STATES.has(state ?? '') && state !== 'missing' && state !== 'present') {
 			throw new SandboxSeedError('invalid', `unreadable check result for ${repo.name}`, repo.name)
 		}
-		return { state, head: head ?? '-' }
+		return { state, head: head ?? '-', held: held !== undefined && held !== '-' ? held : undefined }
 	})
 
 	// 3. Drift is refused before anything is cloned, so a refusal leaves the
@@ -505,18 +571,23 @@ export async function ensureSandboxSeed(
 	// 4. Clone what is missing, each into its own partial directory.
 	const reports: SandboxSeedRepositoryReport[] = []
 	const commits: Record<string, string> = {}
+	const refs: Record<string, string> = {}
+	const record = (repo: SandboxSeedRepository, commit: string): void => {
+		commits[repo.name] = commit
+		refs[repo.name] = repo.ref ?? ''
+	}
 	for (const [index, repo] of defined.repositories.entries()) {
-		const state = states[index] as { state: string; head: string }
+		const state = states[index] as { state: string; head: string; held: string | undefined }
 		const path = paths[index] as string
 		if (state.state === 'present') {
 			reports.push({ name: repo.name, status: 'present', commit: state.head })
-			commits[repo.name] = recorded.get(repo.name) ?? state.head
+			record(repo, state.held ?? state.head)
 			continue
 		}
 		if (DRIFT_STATES.has(state.state)) {
 			reports.push({ name: repo.name, status: 'drifted', commit: state.head })
 			const known = recorded.get(repo.name)
-			if (known !== undefined) commits[repo.name] = known
+			if (known !== undefined) record(repo, known)
 			continue
 		}
 		const nonce = randomBytes(6).toString('hex')
@@ -543,18 +614,21 @@ export async function ensureSandboxSeed(
 		}
 		if (outcome === 'cloned') {
 			reports.push({ name: repo.name, status: 'cloned', commit: head })
-			commits[repo.name] = repo.commit ?? head
+			record(repo, repo.commit ?? head)
 			continue
 		}
-		// A peer moved its clone into place first. Ours is gone; check theirs
-		// the same way any present repository is checked.
-		const recheck = await exec(CHECK, [path, repo.url, repo.commit ?? ''])
-		const [again, peerHead] = recheck.stdout.trim().split(' ')
+		// Something took the directory while this call cloned: a peer moved
+		// its clone into place first. Ours is gone; check what is there the
+		// same way any present repository is checked, and say what it is.
+		const want = repo.commit ?? ''
+		const recheck = await exec(CHECK, [path, repo.url, want, refToFind(repo, want)])
+		const [again, peerHead, held] = recheck.stdout.trim().split(' ')
 		if (again !== 'present') {
+			const what = DRIFT_STATES.get(again ?? '') ?? 'could not be checked'
 			if (onDrift === 'refuse') {
 				throw new SandboxSeedError(
 					'drift',
-					`${repo.name} was prepared by another host and does not match this seed. Nothing was changed`,
+					`${repo.name} appeared while this call was cloning it, and ${what}. This call's own clone was removed; nothing else was changed`,
 					repo.name,
 				)
 			}
@@ -562,13 +636,14 @@ export async function ensureSandboxSeed(
 			continue
 		}
 		reports.push({ name: repo.name, status: 'present', commit: peerHead ?? '-' })
-		commits[repo.name] = repo.commit ?? peerHead ?? head
+		record(repo, repo.commit ?? (held !== undefined && held !== '-' ? held : (peerHead ?? head)))
 	}
 
 	// 5. The marker, written whole and moved into place; then stale partials.
-	const content = JSON.stringify({ seed: defined.name, digest, commits })
+	const content = JSON.stringify({ seed: defined.name, digest, commits, refs })
 	const parents = [...new Set(paths.map(parentOf))]
-	const finished = await exec(FINISH, [markerPath, content, ...parents])
+	const finishNonce = randomBytes(6).toString('hex')
+	const finished = await exec(FINISH, [markerPath, content, finishNonce, ...parents])
 	if (finished.exitCode !== 0) {
 		throw new SandboxSeedError(
 			'invalid',
