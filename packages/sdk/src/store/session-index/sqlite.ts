@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, join } from 'node:path'
 import type { DatabaseSync, SQLInputValue, StatementSync } from 'node:sqlite'
@@ -250,24 +250,58 @@ function processAlive(pid: number): boolean {
 }
 
 /**
+ * How long a temporary file must go unmodified before a sweep may call it
+ * abandoned. A live rebuild commits once per session log, so its file (or
+ * its journal) is touched far more often than this.
+ */
+export const ABANDONED_REBUILD_AFTER_MS = 60 * 60 * 1000
+
+/** Last modification of `path` in ms, or null when it is gone. */
+async function modifiedAt(path: string): Promise<number | null> {
+	try {
+		return (await stat(path)).mtimeMs
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+		throw error
+	}
+}
+
+/**
  * Remove the temporary files (and their journals) that a rebuild of the index
- * at `path` left behind when its process died before its own cleanup ran. A
- * file whose process still runs is that process's rebuild and is left alone.
+ * at `path` left behind when its process died before its own cleanup ran.
+ *
+ * A file is abandoned only when both hold: no process with its pid runs here,
+ * and neither it nor its journal changed for {@link ABANDONED_REBUILD_AFTER_MS}.
+ * The pid alone is not enough. A process in another PID namespace (a
+ * container or sandbox sharing this home) writes a pid that means nothing
+ * here, and its rebuild is live however dead the pid looks.
  */
 async function sweepAbandonedRebuilds(path: string): Promise<void> {
+	const directory = dirname(path)
 	const prefix = `${basename(path)}.tmp-`
 	let names: string[]
 	try {
-		names = await readdir(dirname(path))
+		names = await readdir(directory)
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
 		throw error
 	}
+	// One entry per rebuild: its file and its journal go together.
+	const stems = new Set<string>()
 	for (const name of names) {
 		if (!name.startsWith(prefix)) continue
 		const pid = Number(/^(\d+)-/.exec(name.slice(prefix.length))?.[1])
 		if (!Number.isSafeInteger(pid) || pid <= 0 || processAlive(pid)) continue
-		await rm(join(dirname(path), name), { force: true })
+		stems.add(name.endsWith('-journal') ? name.slice(0, -'-journal'.length) : name)
+	}
+	const cutoff = Date.now() - ABANDONED_REBUILD_AFTER_MS
+	for (const stem of stems) {
+		const file = join(directory, stem)
+		const journal = `${file}-journal`
+		const touched = [await modifiedAt(file), await modifiedAt(journal)]
+		if (touched.some((at) => at !== null && at > cutoff)) continue
+		await rm(file, { force: true })
+		await rm(journal, { force: true })
 	}
 }
 
@@ -319,7 +353,8 @@ export interface RebuildSqliteSessionIndexOptions extends SqliteSessionIndexOpti
  * never a partial one. When two processes rebuild at once both finish and
  * one complete index remains: a process that finds a current index already
  * renamed into place discards its temporary file. A temporary file left by
- * a process that died mid-rebuild is removed by the next rebuild or open.
+ * a process that died mid-rebuild is removed by a later rebuild or open, once
+ * it has gone unmodified for {@link ABANDONED_REBUILD_AFTER_MS}.
  *
  * Returns whether this call's file became the index.
  */

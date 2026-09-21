@@ -9,6 +9,7 @@ import {
 	rmSync,
 	truncateSync,
 	unlinkSync,
+	utimesSync,
 	writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -21,7 +22,11 @@ import { SESSION_RECORD_MAX_BYTES } from '../../../types/session/records.js'
 import { SESSION_INDEX_VERSION, type SessionIndex, openSessionIndex } from '../index.js'
 import { discoverSessionLogs } from '../rebuild.js'
 import { ScanSessionIndex } from '../scan.js'
-import { SqliteSessionIndex, rebuildSqliteSessionIndex } from '../sqlite.js'
+import {
+	ABANDONED_REBUILD_AFTER_MS,
+	SqliteSessionIndex,
+	rebuildSqliteSessionIndex,
+} from '../sqlite.js'
 import { SLUG, dump, homeWithFixtures, syntheticLog } from './support.js'
 
 let root: string
@@ -272,16 +277,40 @@ describe('SqliteSessionIndex: rebuild, never migrate', () => {
 		const dead = spawnSync(process.execPath, ['-e', '']).pid
 		const abandoned = [`index.sqlite.tmp-${dead}-0190`, `index.sqlite.tmp-${dead}-0190-journal`]
 		const live = `index.sqlite.tmp-${process.pid}-0191`
+		const stale = (Date.now() - ABANDONED_REBUILD_AFTER_MS - 60_000) / 1000
 		for (const name of [...abandoned, live, 'unrelated.tmp-1-0192']) {
 			writeFileSync(join(home, name), 'partial')
+			utimesSync(join(home, name), stale, stale)
 		}
 		const second = await SqliteSessionIndex.open({ home, path })
 		second.close()
 		const left = () => readdirSync(home).filter((name) => name.includes('.tmp-'))
 		expect(left().sort()).toEqual([live, 'unrelated.tmp-1-0192'])
 		writeFileSync(join(home, abandoned[0] as string), 'partial')
+		utimesSync(join(home, abandoned[0] as string), stale, stale)
 		expect(await rebuildSqliteSessionIndex({ home, path, force: true })).toBe(true)
 		expect(left().sort()).toEqual([live, 'unrelated.tmp-1-0192'])
+	})
+
+	it('leaves a recently written temporary file whose pid means nothing here', async () => {
+		// Another PID namespace sharing this home (a container, a sandbox)
+		// writes a pid that is dead here while its rebuild is live.
+		const first = await SqliteSessionIndex.open({ home, path })
+		first.close()
+		const foreign = spawnSync(process.execPath, ['-e', '']).pid
+		const stale = (Date.now() - ABANDONED_REBUILD_AFTER_MS - 60_000) / 1000
+		const busy = `index.sqlite.tmp-${foreign}-0193`
+		// A file itself stale, whose journal was written just now: still live.
+		const journalled = `index.sqlite.tmp-${foreign}-0194`
+		writeFileSync(join(home, busy), 'partial')
+		writeFileSync(join(home, journalled), 'partial')
+		utimesSync(join(home, journalled), stale, stale)
+		writeFileSync(join(home, `${journalled}-journal`), 'partial')
+		const second = await SqliteSessionIndex.open({ home, path })
+		second.close()
+		expect(await rebuildSqliteSessionIndex({ home, path, force: true })).toBe(true)
+		const left = readdirSync(home).filter((name) => name.includes('.tmp-'))
+		expect(left.sort()).toEqual([busy, journalled, `${journalled}-journal`])
 	})
 
 	it('never reads a UUID-named project directory, the old layout', async () => {
