@@ -26,7 +26,7 @@ and preserves output beyond the inline limit in its
 
 Namzu already has progress events and a bounded observer queue: one report
 in flight, one latest pending report, an 8 KiB message limit and closure before
-completion. The CLI matches progress and completion by tool-use ID and run ID,
+completion. The CLI matches progress and completion by tool-use ID and turn ID,
 ignoring late progress. Codex also requires the matching call ID in its
 [execution model](https://github.com/openai/codex/blob/ac192cd7937b0d73edc6dffe009940ae53782dd4/codex-rs/tui/src/exec_cell/model.rs#L115).
 Those boundaries should survive further presentation work.
