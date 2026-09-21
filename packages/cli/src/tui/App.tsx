@@ -1290,6 +1290,12 @@ export function App({
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
+	/**
+	 * A prompt that holds the turn slot while it waits at the turn boundary,
+	 * before it has an abort controller. An interrupt or a conversation switch
+	 * takes the slot back by clearing this; the prompt then drops itself.
+	 */
+	const admissionRef = useRef<object | null>(null)
 	/** Identity of the turn allowed to notify when it settles. */
 	const activeTurnTokenRef = useRef<object | null>(null)
 	/** A tool can reserve a switch; only the owning turn's finalizer may publish it. */
@@ -1713,7 +1719,12 @@ export function App({
 						title: 'Batches',
 						values: ['loading'],
 						options: [
-							{ label: 'Loading…', description: 'Reading saved batches…', disabledReason: 'Loading…' },
+							{
+								label: 'Loading…',
+								description: 'Reading saved batches…',
+								// A disabled row shows its reason in place of its description.
+								disabledReason: 'Reading saved batches…',
+							},
 						],
 					}
 				: undefined
@@ -3745,6 +3756,18 @@ export function App({
 			resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
 		const ac = abortRef.current
 		if (!ac) {
+			// A prompt still at the turn boundary: nothing has begun, so taking
+			// the slot back is the whole interrupt. It drops itself when its
+			// await returns.
+			if (admissionRef.current) {
+				admissionRef.current = null
+				const activeSessionId = scopeRef.current?.sessionId
+				if (activeSessionId) goalActivation.disarm(activeSessionId)
+				wakeGoalDriver()
+				discardQueued()
+				setState('idle')
+				return true
+			}
 			if (cancelledSwitch) discardQueued()
 			return cancelledSwitch
 		}
@@ -4862,6 +4885,11 @@ export function App({
 			// state idle while the admission read was pending let a second submit
 			// start beside it and broke the queue's FIFO ownership.
 			setState('thinking')
+			// Both awaits below can span an interrupt, a `/clear` or a `/resume`,
+			// and neither has an abort controller yet for them to cancel. The
+			// token is what they take back instead.
+			const admission = {}
+			admissionRef.current = admission
 			let durableScope: SessionScope | undefined
 			try {
 				durableScope = await materializeConversation()
@@ -4885,6 +4913,9 @@ export function App({
 				try {
 					await requireWritableConversation(turnSessions, destination, 'start conversation turn')
 				} catch (err) {
+					// Taken back meanwhile: the slot is no longer this prompt's.
+					if (admissionRef.current !== admission) return
+					admissionRef.current = null
 					if (prompt.kind === 'goal' && prompt.goalRound) {
 						goalActivation.disarm(prompt.goalRound.sessionId, prompt.goalRound)
 						wakeGoalDriver()
@@ -4897,6 +4928,12 @@ export function App({
 					return
 				}
 			}
+			// Interrupted, or the conversation changed, while this prompt waited at
+			// the boundary. Whoever took the slot back already freed it and said
+			// so, and a turn of the new conversation may hold it now; this prompt
+			// is dropped rather than begun under that conversation.
+			if (admissionRef.current !== admission) return
+			admissionRef.current = null
 			// `@path` mentions: the visible human message keeps the readable token,
 			// but the model receives the file contents inlined. An automatic goal
 			// prompt is already host-authored context and is never reinterpreted as
