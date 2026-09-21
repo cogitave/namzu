@@ -40,11 +40,12 @@ function capturingLogger(): { logger: Logger; records: CapturedRecord[] } {
 class TestAgent extends AbstractAgent<BaseAgentConfig, BaseAgentResult> {
 	readonly type = 'reactive' as const
 
-	async run(_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> {
-		const runId = this.createRunId()
-		this.bindRun(runId)
+	async run(_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> {
+		const sessionId = this.resolveSessionId(config.sessionId)
+		const turnId = this.createTurnId()
+		this.bindTurn(sessionId, turnId)
 		this.log.info('agent layer reached')
-		return this.createEmptyResult(runId, Date.now())
+		return this.createEmptyResult(sessionId, turnId, Date.now())
 	}
 }
 

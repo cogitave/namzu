@@ -1,10 +1,13 @@
-import type {
-	ConformanceDescribe,
-	ConformanceExpect,
-	ConformanceIt,
-} from '../store/run/conformance.js'
+import type { SessionLogConformanceOptions } from '../store/session-log/conformance.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { ProviderRetryConfig } from './retry.js'
+
+/** Shape of the `describe` a runner supplies; the same one every SDK conformance suite takes. */
+type ConformanceDescribe = SessionLogConformanceOptions['describe']
+/** Shape of the `it` a runner supplies. */
+type ConformanceIt = SessionLogConformanceOptions['it']
+/** Shape of the `expect` a runner supplies. */
+type ConformanceExpect = SessionLogConformanceOptions['expect']
 
 /**
  * The driver contract, as a suite every driver package runs.

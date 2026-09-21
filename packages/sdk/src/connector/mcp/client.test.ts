@@ -12,7 +12,7 @@ import { createMcpEraCache } from './era.js'
  * `client.ts` had zero test coverage, and three ways to hang a run:
  *
  * - `request()` armed no timer, so a wedged stdio server left every caller
- *   pending forever — no error, no `run_failed`, just a process that stopped.
+ *   pending forever — no error, no `turn_failed`, just a process that stopped.
  * - Pending requests were only rejected by `disconnect()`, so a transport
  *   that dropped on its own leaked them.
  * - A frame carrying BOTH an id and a method (a server-initiated request:

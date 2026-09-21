@@ -45,7 +45,7 @@ export interface CompactionResult {
 	 * Tokens spent by this host-triggered pass's optional verifier call.
 	 *
 	 * A zero record means no verifier model call ran. The manual path has no
-	 * `RunManager` to account for side-channel usage, so returning it is the
+	 * `TurnRecorder` to account for side-channel usage, so returning it is the
 	 * only way a host can include that real provider work in its own ledger.
 	 */
 	readonly usage: TokenUsage

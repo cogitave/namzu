@@ -8,7 +8,9 @@ import { generateProjectId, generateTenantId } from '../../utils/id.js'
 import { DiskResidentAgenda } from './agenda.js'
 import type { ResidentLearningObservation } from './learning-observation.js'
 import {
+	RESIDENT_LEARNING_STORE_VERSION,
 	type ResidentLearningDiscoveryOptions,
+	ResidentLearningStoreVersionError,
 	SqliteResidentLearningStore,
 	runStoredResidentLearningFromObservations,
 } from './learning-store.js'
@@ -29,7 +31,8 @@ function observation(
 ): ResidentLearningObservation {
 	return {
 		...target,
-		runId: randomUUID(),
+		sessionId: randomUUID(),
+		turnId: randomUUID(),
 		taskKey: 'task-a@input-hash',
 		outcome: 'failed',
 		usageComplete: true,
@@ -81,7 +84,7 @@ describe('resident learning observations and admission', () => {
 		const f = await fixture()
 		const a = observation()
 		await f.store.observe(a)
-		await f.store.observe({ ...a, runId: a.runId.toUpperCase() })
+		await f.store.observe({ ...a, turnId: a.turnId.toUpperCase() })
 		await expect(f.store.observe({ ...a, outcome: 'passed' })).rejects.toThrow('different content')
 		await f.store.observe(observation({ taskKey: 'task-b' }))
 		const bytes = readFileSync(f.storage.databasePath)
@@ -122,7 +125,7 @@ describe('resident learning observations and admission', () => {
 		expect(await f.store.selectObservation([target])).toBeNull()
 		const later = observation()
 		await f.store.observe(later)
-		expect(await f.store.selectObservation([target])).toMatchObject({ runId: later.runId })
+		expect(await f.store.selectObservation([target])).toMatchObject({ turnId: later.turnId })
 	})
 	it('claims once before generation, retains interruption, and prevents task retries after reopen', async () => {
 		const f = await fixture()
@@ -234,20 +237,46 @@ describe('resident learning observations and admission', () => {
 			expect(await other.selectObservation([target])).toBeNull()
 		}
 	})
-	it('reads the previous journal without mutation and upgrades on an observation write', async () => {
+	it('keeps one observation per session, turn, evaluator and skill', async () => {
 		const f = await fixture()
-		await f.store.observe(observation())
+		const a = observation()
+		await f.store.observe(a)
+		// The same turn id under another session is another execution.
+		await f.store.observe({ ...a, sessionId: randomUUID() })
+		await expect(f.store.observe({ ...a, outcome: 'passed' })).rejects.toThrow('different content')
 		const db = new DatabaseSync(f.storage.databasePath)
-		db.exec('DROP TABLE observation_attempts; DROP TABLE observations; PRAGMA user_version=1;')
+		const indexed = db
+			.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='observations'")
+			.get() as { sql: string }
+		const usage = db
+			.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='usage_receipts'")
+			.get() as { sql: string }
 		db.close()
-		const before = readFileSync(f.storage.databasePath)
-		const reader = new SqliteResidentLearningStore({ ...f.storage, readOnly: true })
-		expect(await reader.observations()).toEqual([])
-		expect(await reader.selectObservation([target])).toBeNull()
-		expect(readFileSync(f.storage.databasePath)).toEqual(before)
-		await f.store.observe(observation())
-		expect(await reader.observations()).toHaveLength(1)
+		expect(indexed.sql).toContain(
+			'UNIQUE(tenant_id, project_id, agent_key, session_id, turn_id, evaluator_revision, skill_name)',
+		)
+		expect(usage.sql).toContain('PRIMARY KEY(cycle_id, turn_id)')
+		expect(await f.store.observations()).toHaveLength(2)
 	})
+	it.each([1, 2])(
+		'refuses a version-%i database, which keyed observations by run, without touching it',
+		async (version) => {
+			const f = await fixture()
+			await f.store.observe(observation())
+			const db = new DatabaseSync(f.storage.databasePath)
+			db.exec(`PRAGMA user_version=${version};`)
+			db.close()
+			const before = readFileSync(f.storage.databasePath)
+			const reader = new SqliteResidentLearningStore({ ...f.storage, readOnly: true })
+			await expect(reader.observations()).rejects.toBeInstanceOf(ResidentLearningStoreVersionError)
+			await expect(f.store.observe(observation())).rejects.toMatchObject({
+				name: 'ResidentLearningStoreVersionError',
+				found: version,
+				expected: RESIDENT_LEARNING_STORE_VERSION,
+			})
+			expect(readFileSync(f.storage.databasePath)).toEqual(before)
+		},
+	)
 	it('does not invoke generation with no eligible work or cancelled authorization', async () => {
 		const f = await fixture()
 		await f.store.observe(observation({ outcome: 'execution-error' }))

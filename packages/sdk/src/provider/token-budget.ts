@@ -1,5 +1,5 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
-import type { TokenBudget } from '../run/token-budget.js'
+import type { SessionTokenBudget } from '../store/budget/ledger.js'
 import { type TokenUsage, mergeTokenUsage } from '../types/common/index.js'
 import { ProviderError, classifyProviderError } from '../types/provider/errors.js'
 import type { LLMProvider, StreamChunk } from '../types/provider/index.js'
@@ -38,7 +38,7 @@ function rejectedBeforeGeneration(error: unknown): boolean {
  * stream retains its marker: an absent receipt cannot establish zero spend.
  * Driver-internal retries remain one request whose billing the driver reports.
  */
-export function withTokenBudget(provider: LLMProvider, budget: TokenBudget): LLMProvider {
+export function withTokenBudget(provider: LLMProvider, budget: SessionTokenBudget): LLMProvider {
 	async function* chatStream(
 		params: Parameters<LLMProvider['chatStream']>[0],
 	): AsyncIterable<StreamChunk> {

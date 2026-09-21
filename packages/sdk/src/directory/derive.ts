@@ -1,7 +1,7 @@
 import type { RunAgentOptions } from '../agents/runAgent.js'
 import { ToolRegistry } from '../registry/tool/execute.js'
 
-import type { DeriveRunOptionsInput, DirectoryManifest } from './types.js'
+import type { DeriveTurnOptionsInput, DirectoryManifest } from './types.js'
 
 /**
  * Turn a loaded project into the options `runAgent` takes.
@@ -11,9 +11,9 @@ import type { DeriveRunOptionsInput, DirectoryManifest } from './types.js'
  * spreads `overrides` or stops using this function — there is no behaviour
  * reachable only through the convention.
  */
-export function deriveRunOptions(
+export function deriveTurnOptions(
 	manifest: DirectoryManifest,
-	input: DeriveRunOptionsInput,
+	input: DeriveTurnOptionsInput,
 ): RunAgentOptions {
 	if (manifest.modules === 'skip') {
 		// The manifest is structurally complete and its tools were never
@@ -21,7 +21,7 @@ export function deriveRunOptions(
 		// to do with the project. Running it would produce an agent with no
 		// capabilities and no indication why.
 		throw new Error(
-			'This manifest was loaded with modules: "skip", so no tool was imported and none can be registered. Load with modules: "evaluate" before deriving run options.',
+			'This manifest was loaded with modules: "skip", so no tool was imported and none can be registered. Load with modules: "evaluate" before deriving runAgent options.',
 		)
 	}
 

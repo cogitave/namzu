@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
-import type { MessageId, RunId } from '../../../types/ids/index.js'
+import { SessionPaths, slugForCwd } from '../../../session/paths.js'
+import type { MessageId, SessionId } from '../../../types/ids/index.js'
 import { defineMessageFeedbackConformance } from '../conformance.js'
 import { DiskMessageFeedbackStore } from '../disk.js'
 import { InMemoryMessageFeedbackStore } from '../memory.js'
@@ -18,10 +20,13 @@ import { InMemoryMessageFeedbackStore } from '../memory.js'
  * only arrangement where a property proven for one is proven for both.
  */
 
-const RUN = 'f9abe873-4a55-4c2a-887b-8f5d4b0d7521' as RunId
-const OTHER_RUN = '3e6e241d-274e-4704-ac23-a75b2a8316d9' as RunId
-const KNOWN = 'ded9f694-9455-4eab-b278-0964a9360c87' as MessageId
-const OTHER_KNOWN = '7e9df8cc-a9b1-453c-b3d6-f7bba439d57c' as MessageId
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../../__fixtures__/session-log')
+
+// Two real session logs from the shared fixtures, and a message each holds.
+const SESSION = '1b898770-f856-497c-a28f-8a3f5aefb0b1' as SessionId // valid.jsonl
+const OTHER_SESSION = 'e92ded9b-4935-4c71-8f44-47187b18593d' as SessionId // guardrail-replaced.jsonl
+const KNOWN = '18f2480c-1892-471c-8d5c-9c043b583e76' as MessageId
+const OTHER_KNOWN = '511af24c-b424-49e9-994b-5f3ccee67e5d' as MessageId
 const UNKNOWN = '992a95ec-bc31-4162-bc12-f96fce830cd6' as MessageId
 
 const dirs: string[] = []
@@ -31,21 +36,21 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-/** A transcript naming exactly the messages a run produced. */
-async function writeTranscript(runsDir: string, runId: RunId, messageIds: MessageId[]) {
-	const dir = join(runsDir, runId)
-	await mkdir(dir, { recursive: true })
-	await writeFile(
-		join(dir, 'transcript.jsonl'),
-		`${messageIds
-			.map((messageId, i) =>
-				JSON.stringify({ seq: i + 1, type: 'text_delta', runId, messageId, text: 'x' }),
-			)
-			.join('\n')}\n`,
+/** A project layout holding the two fixture logs where `SessionPaths` puts them. */
+async function layout(): Promise<SessionPaths> {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-'))
+	dirs.push(root)
+	const paths = new SessionPaths({ home: root, slug: slugForCwd('/work/fixture') })
+	await mkdir(paths.projectDir(), { recursive: true })
+	await copyFile(join(FIXTURES, 'valid.jsonl'), paths.sessionLog({ sessionId: SESSION }))
+	await copyFile(
+		join(FIXTURES, 'guardrail-replaced.jsonl'),
+		paths.sessionLog({ sessionId: OTHER_SESSION }),
 	)
+	return paths
 }
 
-const knownIds = new Set<string>([`${RUN} ${KNOWN}`, `${OTHER_RUN} ${OTHER_KNOWN}`])
+const knownIds = new Set<string>([`${SESSION} ${KNOWN}`, `${OTHER_SESSION} ${OTHER_KNOWN}`])
 
 defineMessageFeedbackConformance({
 	describe,
@@ -53,16 +58,16 @@ defineMessageFeedbackConformance({
 	expect: expect as never,
 	label: 'in-memory',
 	makeStore: async () => ({
-		// The same set the disk store derives from a transcript, stated
+		// The same set the disk store derives from the session logs, stated
 		// directly. A memory store that accepted everything would pass the
 		// other six rules and fail exactly the one about refusing.
-		store: new InMemoryMessageFeedbackStore(async (runId, messageId) =>
-			knownIds.has(`${runId} ${messageId}`),
+		store: new InMemoryMessageFeedbackStore(async (sessionId, messageId) =>
+			knownIds.has(`${sessionId} ${messageId}`),
 		),
-		runId: RUN,
+		sessionId: SESSION,
 		knownMessageId: KNOWN,
 		unknownMessageId: UNKNOWN,
-		otherRunId: OTHER_RUN,
+		otherSessionId: OTHER_SESSION,
 		otherKnownMessageId: OTHER_KNOWN,
 	}),
 })
@@ -72,44 +77,51 @@ defineMessageFeedbackConformance({
 	it,
 	expect: expect as never,
 	label: 'disk',
-	makeStore: async () => {
-		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-'))
-		dirs.push(root)
-		const runsDir = join(root, 'runs')
-		// Derived from a real transcript, not from a list handed to the store
+	makeStore: async () => ({
+		// Derived from real session logs, not from a list handed to the store
 		// — which is the property the disk implementation is actually for.
-		await writeTranscript(runsDir, RUN, [KNOWN])
-		await writeTranscript(runsDir, OTHER_RUN, [OTHER_KNOWN])
-		return {
-			store: new DiskMessageFeedbackStore({ rootDir: join(root, 'feedback'), runsDir }),
-			runId: RUN,
-			knownMessageId: KNOWN,
-			unknownMessageId: UNKNOWN,
-			otherRunId: OTHER_RUN,
-			otherKnownMessageId: OTHER_KNOWN,
-		}
-	},
+		store: new DiskMessageFeedbackStore({ paths: await layout() }),
+		sessionId: SESSION,
+		knownMessageId: KNOWN,
+		unknownMessageId: UNKNOWN,
+		otherSessionId: OTHER_SESSION,
+		otherKnownMessageId: OTHER_KNOWN,
+	}),
 })
 
-describe('a feedback store with nothing to validate against', () => {
-	it('refuses every write rather than accepting everything', async () => {
-		// A store built without a `runsDir` cannot tell a real message from a
-		// fabricated one. Accepting on the grounds that it cannot check is
-		// the quiet degradation `refuse-do-not-degrade` exists to stop — and
-		// it is the shape a host reaches for first, because omitting one
-		// config field is easier than wiring a run directory.
-		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-novalidate-'))
-		dirs.push(root)
-		const store = new DiskMessageFeedbackStore({ rootDir: root })
+describe('feedback on disk lives with its session', () => {
+	it('writes under <session-id>/feedback/, beside the log it was checked against', async () => {
+		const paths = await layout()
+		const store = new DiskMessageFeedbackStore({ paths })
+		await store.putMessageFeedback({
+			sessionId: SESSION,
+			messageId: KNOWN,
+			rating: 'good',
+			expectedVersion: 0,
+		})
+		const names = await readdir(paths.feedback({ sessionId: SESSION }))
+		expect(names).toContain('.revisions')
+		expect(names).toContain(`${KNOWN}.json`)
+	})
 
+	it('refuses a message of another session, and a session with no log at all', async () => {
+		const paths = await layout()
+		const store = new DiskMessageFeedbackStore({ paths })
 		await expect(
 			store.putMessageFeedback({
-				runId: RUN,
+				sessionId: SESSION,
+				messageId: OTHER_KNOWN,
+				rating: 'good',
+				expectedVersion: 0,
+			}),
+		).rejects.toMatchObject({ name: 'UnknownMessageError' })
+		await expect(
+			store.putMessageFeedback({
+				sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
 				messageId: KNOWN,
 				rating: 'good',
 				expectedVersion: 0,
 			}),
 		).rejects.toThrow(/No message/)
-		expect(await store.listMessageFeedback({ runId: RUN })).toHaveLength(0)
 	})
 })

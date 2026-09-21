@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import { WorkerCodeRuntime } from '../../../execution/code-runtime/worker.js'
 import type { ToolContext, ToolResult } from '../../../types/tool/index.js'
-import { generateRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { buildRunCodeTool } from '../run-code.js'
 
 function context(result: ToolResult, over: Partial<ToolContext> = {}): ToolContext {
 	return {
-		runId: generateRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},

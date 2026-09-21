@@ -16,7 +16,8 @@ function tool(name: string, overrides: Partial<ToolDefinition> = {}): ToolDefini
 
 function context(allowedTools?: readonly string[]): ToolContext {
 	return {
-		runId: 'a9ec0823-6aee-4a42-8ee9-b279763a694d' as ToolContext['runId'],
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as ToolContext['sessionId'],
+		turnId: 'a9ec0823-6aee-4a42-8ee9-b279763a694d' as ToolContext['turnId'],
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},

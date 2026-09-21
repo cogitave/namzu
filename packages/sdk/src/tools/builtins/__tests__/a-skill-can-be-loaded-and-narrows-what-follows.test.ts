@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { SkillRegistryRef, ToolContext } from '../../../types/tool/index.js'
 import { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from '../skill.js'
 
@@ -53,7 +53,8 @@ function contextFor(
 	overrides: Partial<ToolContext> = {},
 ): ToolContext {
 	return {
-		runId: '651d7ad7-a79e-4783-85bb-5bcd9da09f20' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: '651d7ad7-a79e-4783-85bb-5bcd9da09f20' as TurnId,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},

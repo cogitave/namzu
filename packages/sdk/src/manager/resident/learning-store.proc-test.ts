@@ -110,7 +110,8 @@ process.kill(process.pid,'SIGKILL');
 it('separate processes claim a learning task once and reopening does not replay an unfinished experiment', async () => {
 	const f = fixture()
 	const observation = {
-		runId: randomUUID(),
+		sessionId: randomUUID(),
+		turnId: randomUUID(),
 		skillName: 'source-check',
 		evaluatorRevision: 'fixture-v1',
 		baselineRevision: 'none',
@@ -152,6 +153,6 @@ catch(error){console.error(error.message);process.exitCode=3;}
 	expect(await reopened.list()).toHaveLength(1)
 	expect((await reopened.list())[0]).toMatchObject({ status: 'running', result: null })
 	expect(await reopened.selectObservation([observation])).toBeNull()
-	await reopened.observe({ ...observation, runId: randomUUID() })
+	await reopened.observe({ ...observation, turnId: randomUUID() })
 	expect(await reopened.selectObservation([observation])).toBeNull()
 })

@@ -26,7 +26,7 @@ import { buildCoordinatorTools } from '../../../tools/coordinator/index.js'
 import { buildMemoryTools } from '../../../tools/memory/index.js'
 import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { ComputerUseHost } from '../../../types/computer-use/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { ToolRegistry } from '../execute.js'
@@ -263,7 +263,8 @@ function everyShippedTool(): ToolDefinition[] {
 			allowedAgentIds: ['a-worker'],
 			getPlanManager: () => undefined,
 			resumeHandler: () => Promise.reject(new Error('not used')),
-			runId: '302e1709-cddd-42e2-b4f7-56186ce7faa2' as RunId,
+			sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+			turnId: '302e1709-cddd-42e2-b4f7-56186ce7faa2' as TurnId,
 		} as Parameters<typeof buildCoordinatorTools>[0]),
 	]
 }

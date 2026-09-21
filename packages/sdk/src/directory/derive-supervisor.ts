@@ -71,7 +71,7 @@ function delegatePlan(entry: SubAgentEntry, fallbackModel: string): DelegatePlan
 /**
  * Turn a project that declares delegates into a supervisor configuration.
  *
- * The counterpart to `deriveRunOptions` for the multi-agent shape, and the
+ * The counterpart to `deriveTurnOptions` for the multi-agent shape, and the
  * same contract: it converts, it does not run. `SupervisorAgent` needs an
  * `agentIds` roster and a manager that can spawn them; this supplies the
  * roster from the directory and leaves the manager to the host.
@@ -95,7 +95,7 @@ export function deriveSupervisorOptions(
 		// result would be a coordinator that cannot coordinate — and the
 		// caller asked for a supervisor, which means they expected delegates.
 		throw new Error(
-			`${manifest.root} declares no delegates, so there is nothing for a supervisor to coordinate. Add directories under agents/, or use deriveRunOptions for a single agent.`,
+			`${manifest.root} declares no delegates, so there is nothing for a supervisor to coordinate. Add directories under agents/, or use deriveTurnOptions for a single agent.`,
 		)
 	}
 

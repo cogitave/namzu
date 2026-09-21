@@ -112,8 +112,8 @@ function truncateMessages(messages: readonly Message[], budget: number): string 
  * The verifier runs outside the iteration loop, so its usage never reached
  * `runMgr.accumulateUsage` and the guard could not see it — and it fires
  * exactly when the context is largest, making it the most expensive call
- * the run does not count. A one-method sink keeps the compaction layer
- * from depending on `RunPersistence`.
+ * the turn does not count. A one-method sink keeps the compaction layer
+ * from depending on `TurnRecorder`.
  */
 export type UsageSink = (usage: TokenUsage) => void
 

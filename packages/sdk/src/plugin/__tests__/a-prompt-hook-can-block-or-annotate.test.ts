@@ -29,7 +29,7 @@ describe('a shell hook on the prompt', () => {
 	})
 
 	it('prints to the operator, not the model, on every other event', () => {
-		expect(shellHookVerdict('run_start', entry, ok('noise'))).toEqual({ action: 'continue' })
+		expect(shellHookVerdict('turn_start', entry, ok('noise'))).toEqual({ action: 'continue' })
 		expect(shellHookVerdict('session_start', entry, blocked('no'))).toEqual({ action: 'continue' })
 	})
 
@@ -43,8 +43,8 @@ describe('a shell hook on the prompt', () => {
 			'pre_compact',
 			'post_compact',
 			'subagent_stop',
-			'run_start',
-			'run_end',
+			'turn_start',
+			'turn_end',
 		])
 	})
 })
@@ -62,15 +62,15 @@ describe('applying lifecycle results', () => {
 
 	it('refuses an annotation anywhere else', () => {
 		expect(() =>
-			applyLifecycleHookResults('run_start', [{ action: 'annotate', text: 'a' }]),
+			applyLifecycleHookResults('turn_start', [{ action: 'annotate', text: 'a' }]),
 		).toThrow(/only user_prompt_submit/)
 	})
 
-	it('turns a skip on the prompt into a blocked run, and rejects it elsewhere', () => {
+	it('turns a skip on the prompt into a blocked turn, and rejects it elsewhere', () => {
 		expect(() =>
 			applyLifecycleHookResults('user_prompt_submit', [{ action: 'skip', reason: 'no' }]),
 		).toThrow(/Prompt blocked by hook: no/)
-		expect(() => applyLifecycleHookResults('run_end', [{ action: 'skip', reason: 'no' }])).toThrow(
+		expect(() => applyLifecycleHookResults('turn_end', [{ action: 'skip', reason: 'no' }])).toThrow(
 			/unsupported action 'skip'/,
 		)
 	})

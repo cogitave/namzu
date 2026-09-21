@@ -23,7 +23,8 @@ function tool(name: string, description = 'Fixture capability.') {
 
 function context(toolRegistry: ToolRegistryRef, allowedTools?: readonly string[]): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as ToolContext['runId'],
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as ToolContext['sessionId'],
+		turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as ToolContext['turnId'],
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},

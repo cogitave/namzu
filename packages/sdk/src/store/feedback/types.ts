@@ -1,11 +1,11 @@
-import type { MessageId, RunId } from '../../types/ids/index.js'
+import type { MessageId, SessionId } from '../../types/ids/index.js'
 
 /**
  * Was that answer any good — recorded per message, durably.
  *
  * Nothing in this tree stored a per-message judgment, and every ingredient
- * for one already existed: `MessageId` is a branded type, run events carry
- * it, and the versioned-store idiom with compare-and-set is established in
+ * for one already existed: `MessageId` is a branded type, the session log's
+ * `message` records carry it, and the versioned-store idiom with compare-and-set is established in
  * three neighbouring stores. So every consumer — the CLI, a gateway, a
  * future UI — had to invent its own side table to answer the most basic
  * question there is, which is also the input to session review, support
@@ -24,7 +24,8 @@ import type { MessageId, RunId } from '../../types/ids/index.js'
 export type FeedbackRating = 'good' | 'bad'
 
 export interface MessageFeedback {
-	readonly runId: RunId
+	/** The session whose log holds the rated message. */
+	readonly sessionId: SessionId
 	readonly messageId: MessageId
 	readonly rating: FeedbackRating
 	/** Whatever the rater wanted to say. Absent is different from empty. */
@@ -43,7 +44,7 @@ export interface MessageFeedback {
 }
 
 export interface PutMessageFeedbackInput {
-	readonly runId: RunId
+	readonly sessionId: SessionId
 	readonly messageId: MessageId
 	readonly rating: FeedbackRating
 	readonly note?: string
@@ -59,26 +60,26 @@ export interface PutMessageFeedbackInput {
 
 export interface MessageFeedbackStore {
 	putMessageFeedback(input: PutMessageFeedbackInput): Promise<MessageFeedback>
-	listMessageFeedback(query: { readonly runId: RunId }): Promise<readonly MessageFeedback[]>
+	listMessageFeedback(query: { readonly sessionId: SessionId }): Promise<readonly MessageFeedback[]>
 }
 
 /** A write whose `expectedVersion` no longer matches what is stored. */
 export class StaleFeedbackError extends Error {
 	readonly details: {
-		runId: RunId
+		sessionId: SessionId
 		messageId: MessageId
 		expectedVersion: number
 		actualVersion: number
 	}
 
 	constructor(details: {
-		runId: RunId
+		sessionId: SessionId
 		messageId: MessageId
 		expectedVersion: number
 		actualVersion: number
 	}) {
 		super(
-			`Stale feedback for ${details.messageId} in ${details.runId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}`,
+			`Stale feedback for ${details.messageId} in session ${details.sessionId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}`,
 		)
 		this.name = 'StaleFeedbackError'
 		this.details = details
@@ -86,7 +87,7 @@ export class StaleFeedbackError extends Error {
 }
 
 /**
- * A rating aimed at a message the named run never produced.
+ * A rating aimed at a message the named session's log does not hold.
  *
  * Refused rather than stored, per `refuse-do-not-degrade`. A feedback table
  * is read later to answer "which answers were bad" — a row pointing at a
@@ -95,11 +96,11 @@ export class StaleFeedbackError extends Error {
  * nothing at write time and poisons every read after it.
  */
 export class UnknownMessageError extends Error {
-	readonly details: { runId: RunId; messageId: MessageId }
+	readonly details: { sessionId: SessionId; messageId: MessageId }
 
-	constructor(details: { runId: RunId; messageId: MessageId }) {
+	constructor(details: { sessionId: SessionId; messageId: MessageId }) {
 		super(
-			`No message ${details.messageId} in run ${details.runId}: feedback must name a message the run actually produced.`,
+			`No message ${details.messageId} in session ${details.sessionId}: feedback must name a message the session log holds.`,
 		)
 		this.name = 'UnknownMessageError'
 		this.details = details

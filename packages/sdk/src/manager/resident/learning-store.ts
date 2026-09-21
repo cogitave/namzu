@@ -52,10 +52,11 @@ const OBSERVATIONS_SCHEMA = `
 CREATE TABLE observations (
   ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
   tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, agent_key TEXT NOT NULL,
-  run_id TEXT NOT NULL, evaluator_revision TEXT NOT NULL, skill_name TEXT NOT NULL,
+  session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+  evaluator_revision TEXT NOT NULL, skill_name TEXT NOT NULL,
   baseline_revision TEXT NOT NULL, task_key TEXT NOT NULL,
   eligible INTEGER NOT NULL, body TEXT NOT NULL,
-  UNIQUE(tenant_id, project_id, agent_key, run_id, evaluator_revision, skill_name)
+  UNIQUE(tenant_id, project_id, agent_key, session_id, turn_id, evaluator_revision, skill_name)
 );
 CREATE INDEX observations_select ON observations(
   tenant_id, project_id, agent_key, skill_name, evaluator_revision, baseline_revision, eligible, ordinal
@@ -92,10 +93,33 @@ CREATE TABLE artifacts (
   bytes INTEGER NOT NULL, PRIMARY KEY(cycle_id, name)
 );
 CREATE TABLE usage_receipts (
-  cycle_id TEXT NOT NULL REFERENCES cycles(id), run_id TEXT NOT NULL,
-  PRIMARY KEY(cycle_id, run_id)
+  cycle_id TEXT NOT NULL REFERENCES cycles(id),
+  session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+  PRIMARY KEY(cycle_id, turn_id)
 );
 `
+
+/**
+ * The schema this store writes and reads. Versions 1 and 2 keyed observations
+ * and receipts by a run id; a database at either (or any other version) is
+ * refused, never migrated — its rows name executions that no longer exist.
+ */
+export const RESIDENT_LEARNING_STORE_VERSION = 3
+
+/** A learning database this version of the store does not read. */
+export class ResidentLearningStoreVersionError extends Error {
+	override readonly name = 'ResidentLearningStoreVersionError'
+	readonly found: number
+	readonly expected: number
+
+	constructor(databasePath: string, found: number) {
+		super(
+			`Learning database ${databasePath} is at schema version ${found}; this store reads version ${RESIDENT_LEARNING_STORE_VERSION} only. Databases before version 3 are not read: move the file aside and start a new learning database.`,
+		)
+		this.found = found
+		this.expected = RESIDENT_LEARNING_STORE_VERSION
+	}
+}
 
 /** @experimental Private parent directories and backup policy remain host responsibilities. */
 export interface SqliteResidentLearningStoreOptions {
@@ -235,11 +259,13 @@ export class SqliteResidentLearningStore {
 							.get()
 					)
 						throw new Error('Refusing to initialize a nonempty learning database.')
-					db.exec(`${SCHEMA} ${OBSERVATIONS_SCHEMA} PRAGMA user_version = 2;`)
-				} else if (version === 1 && write) {
-					db.exec(`${OBSERVATIONS_SCHEMA} PRAGMA user_version = 2;`)
-				} else if (version !== 1 && version !== 2)
-					throw new Error(`Unsupported learning database version ${version}.`)
+					db.exec(
+						`${SCHEMA} ${OBSERVATIONS_SCHEMA} PRAGMA user_version = ${RESIDENT_LEARNING_STORE_VERSION};`,
+					)
+				} else if (version === 0)
+					throw new Error('Learning database is not initialized; open it for writing first.')
+				else if (version !== RESIDENT_LEARNING_STORE_VERSION)
+					throw new ResidentLearningStoreVersionError(this.databasePath, version)
 				const value = operation(db)
 				db.exec('COMMIT')
 				return value
@@ -272,19 +298,20 @@ export class SqliteResidentLearningStore {
 			const scope = [this.scope.tenantId, this.scope.projectId, this.scope.agentKey]
 			const previous = db
 				.prepare(
-					'SELECT body FROM observations WHERE tenant_id=? AND project_id=? AND agent_key=? AND run_id=? AND evaluator_revision=? AND skill_name=?',
+					'SELECT body FROM observations WHERE tenant_id=? AND project_id=? AND agent_key=? AND session_id=? AND turn_id=? AND evaluator_revision=? AND skill_name=?',
 				)
-				.get(...scope, value.runId, value.evaluatorRevision, value.skillName)
+				.get(...scope, value.sessionId, value.turnId, value.evaluatorRevision, value.skillName)
 			if (previous) {
 				if (previous.body !== body)
 					throw new Error('Learning observation already has different content.')
 				return
 			}
 			db.prepare(`INSERT INTO observations
-				(tenant_id, project_id, agent_key, run_id, evaluator_revision, skill_name, baseline_revision, task_key, eligible, body)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+				(tenant_id, project_id, agent_key, session_id, turn_id, evaluator_revision, skill_name, baseline_revision, task_key, eligible, body)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
 				...scope,
-				value.runId,
+				value.sessionId,
+				value.turnId,
 				value.evaluatorRevision,
 				value.skillName,
 				value.baselineRevision,
@@ -498,7 +525,8 @@ export class SqliteResidentLearningStore {
 			if (event.kind === 'usage') {
 				const receipt = z
 					.object({
-						runId: uuid,
+						sessionId: uuid,
+						turnId: uuid,
 						tokens: z.number().int().nonnegative().safe().nullable(),
 						costUsd: z.number().nonnegative().finite().nullable(),
 					})
@@ -509,7 +537,9 @@ export class SqliteResidentLearningStore {
 					!Number.isFinite(row.cost_usd + (receipt.costUsd ?? 0))
 				)
 					throw new Error('Learning consumption overflow.')
-				db.prepare('INSERT INTO usage_receipts VALUES (?, ?)').run(event.cycleId, receipt.runId)
+				db.prepare(
+					'INSERT INTO usage_receipts (cycle_id, session_id, turn_id) VALUES (?, ?, ?)',
+				).run(event.cycleId, receipt.sessionId, receipt.turnId)
 				db.prepare(
 					'UPDATE cycles SET tokens = tokens + ?, cost_usd = cost_usd + ?, receipts = receipts + 1, unknown_tokens = unknown_tokens + ?, unknown_costs = unknown_costs + ? WHERE id = ?',
 				).run(

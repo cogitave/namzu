@@ -8,7 +8,7 @@ import {
 import { buildProbeContext } from '../probe/context.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../probe/registry.js'
 import type { AgentBusEvent, AgentBusEventListener } from '../types/bus/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId } from '../types/ids/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 
@@ -95,14 +95,14 @@ export class AgentBus {
 		})
 	}
 
-	cleanupAgent(runId: RunId): void {
-		this.log.info('cleaning up agent resources', { [NAMZU.RUN_ID]: runId })
-		const locksReleased = this.locks.releaseAll(runId)
-		const ownershipsReleased = this.ownership.releaseAll(runId)
-		this.breaker.reset(runId)
+	cleanupAgent(sessionId: SessionId): void {
+		this.log.info('cleaning up agent resources', { [NAMZU.SESSION_ID]: sessionId })
+		const locksReleased = this.locks.releaseAll(sessionId)
+		const ownershipsReleased = this.ownership.releaseAll(sessionId)
+		this.breaker.reset(sessionId)
 
 		this.log.info('agent cleanup complete', {
-			[NAMZU.RUN_ID]: runId,
+			[NAMZU.SESSION_ID]: sessionId,
 			'namzu.bus.locks_released': locksReleased,
 			'namzu.bus.ownerships_released': ownershipsReleased,
 		})

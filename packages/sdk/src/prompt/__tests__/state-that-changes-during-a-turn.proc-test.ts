@@ -15,9 +15,9 @@ import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { PromptContributionRegistry } from '../contributions.js'
 
 /**
- * State that changes DURING a run.
+ * State that changes DURING a turn.
  *
- * `static` is cached for the run and `dynamic` is part of the system
+ * `static` is cached for the turn and `dynamic` is part of the system
  * prompt, so neither can carry a budget running down or a queue draining:
  * one is served the first iteration's value forever, and the other is read
  * as a standing instruction rather than as a status. `turn` rides the
@@ -65,7 +65,7 @@ async function runWith(contributions: PromptContributionRegistry, turns: number)
 	await drainQuery({
 		provider,
 		tools,
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -118,7 +118,7 @@ describe('a turn contribution reports on every iteration', () => {
 
 	it('is NOT in the cached system prompt', async () => {
 		// The refusal that makes the placement mean something. In the system
-		// prompt it would be cached for the run or read as a standing
+		// prompt it would be cached for the turn or read as a standing
 		// instruction, and the state it reports would go stale silently.
 		const contributions = new PromptContributionRegistry()
 		contributions.register({ id: 'turnly', placement: 'turn', render: () => 'TURN TEXT' })

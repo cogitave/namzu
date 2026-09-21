@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../run/token-budget.js'
+import { SessionTokenBudget } from '../../store/budget/ledger.js'
 import type { TokenUsage } from '../../types/common/index.js'
 import { ProviderError } from '../../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../../types/provider/index.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { collectChatCompletion } from '../collect-chat-completion.js'
 import { withTokenBudget } from '../token-budget.js'
 
@@ -14,6 +14,7 @@ const usage = (tokens: number): TokenUsage => ({
 	cachedTokens: 0,
 	cacheWriteTokens: 0,
 })
+const rootScope = () => ({ rootSessionId: generateSessionId(), rootTurnId: generateTurnId() })
 const params: ChatCompletionParams = { model: 'mock', messages: [] }
 function provider(stream: () => AsyncIterable<StreamChunk>): LLMProvider {
 	return { id: 'mock', name: 'mock', chatStream: stream }
@@ -25,7 +26,7 @@ describe('provider calls use the shared token account', () => {
 		const lateReceipt = new Promise<void>((resolve) => {
 			lateSaved = resolve
 		})
-		const budget = TokenBudget.create(1_000, generateRunId(), {
+		const budget = SessionTokenBudget.create(1_000, rootScope(), {
 			save: async (snapshot) => {
 				if (snapshot.requests[0]?.usage?.totalTokens === 180) lateSaved()
 			},
@@ -80,7 +81,7 @@ describe('provider calls use the shared token account', () => {
 
 	it('persists admission before contacting the driver and merges streaming receipts once', async () => {
 		let persisted = false
-		const budget = TokenBudget.create(1_000, generateRunId(), {
+		const budget = SessionTokenBudget.create(1_000, rootScope(), {
 			save: async (snapshot) => {
 				if (snapshot.requests.length) persisted = true
 			},
@@ -103,7 +104,7 @@ describe('provider calls use the shared token account', () => {
 	})
 
 	it('retains partial measured usage and blocks fresh requests after a broken stream', async () => {
-		const budget = TokenBudget.create(1_000, generateRunId())
+		const budget = SessionTokenBudget.create(1_000, rootScope())
 		let calls = 0
 		const wrapped = withTokenBudget(
 			provider(async function* () {
@@ -125,7 +126,7 @@ describe('provider calls use the shared token account', () => {
 	})
 
 	it('releases a request rejected before generation without minting spend', async () => {
-		const budget = TokenBudget.create(1_000, generateRunId())
+		const budget = SessionTokenBudget.create(1_000, rootScope())
 		const wrapped = withTokenBudget(
 			provider(async function* () {
 				yield* []
@@ -139,7 +140,7 @@ describe('provider calls use the shared token account', () => {
 	})
 
 	it('does not turn a missing usage receipt into a zero-cost successful request', async () => {
-		const budget = TokenBudget.create(1_000, generateRunId())
+		const budget = SessionTokenBudget.create(1_000, rootScope())
 		const wrapped = withTokenBudget(
 			provider(async function* () {
 				yield { id: 'a', delta: { content: 'answer' }, finishReason: 'stop' }

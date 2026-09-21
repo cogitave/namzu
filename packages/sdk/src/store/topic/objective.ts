@@ -18,10 +18,10 @@ import {
 import { defineSchema } from '../schema.js'
 
 /**
- * Where an objective lives between runs.
+ * Where an objective lives between rounds.
  *
  * Beside `TopicStateStore` rather than inside it, for the reason that store
- * gives for living beside the Topic: permission mode and the next-run queue
+ * gives for living beside the Topic: permission mode and the next-turn queue
  * change several times inside one conversation, and an objective's phase
  * changes once per round. Sharing a `revision` would make a round
  * completing conflict with a mode toggle — two facts about one topic that
@@ -258,6 +258,11 @@ abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 		verdict: ObjectiveRoundVerdict,
 		opts: { revision: number },
 	): Promise<TopicObjective> {
+		if ((verdict.sessionId === undefined) !== (verdict.turnId === undefined)) {
+			throw new Error(
+				`Objective ${id}: a round verdict names both sessionId and turnId, or neither.`,
+			)
+		}
 		return await backendFor(this).transact(id, (existing) => {
 			if (!existing) throw missing(id)
 			assertTenant(existing, tenantId)
@@ -267,7 +272,11 @@ abstract class ObjectiveStoreBase implements TopicObjectiveStore {
 				revision: existing.revision + 1,
 				phase: verdict.phase ?? existing.phase,
 				...(verdict.blockedReason ? { blockedReason: verdict.blockedReason } : {}),
-				...(verdict.runId ? { lastRunId: verdict.runId } : {}),
+				// Both or neither (checked above): a turn id means nothing without
+				// the session whose log it is in.
+				...(verdict.sessionId && verdict.turnId
+					? { lastTurn: { sessionId: verdict.sessionId, turnId: verdict.turnId } }
+					: {}),
 				updatedAt: this.now(),
 			}
 			return { record, result: record }

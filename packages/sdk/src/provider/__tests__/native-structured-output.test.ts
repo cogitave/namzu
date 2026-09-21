@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { streamProviderTurn } from '../../runtime/query/iteration/stream-turn.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { TurnId } from '../../types/ids/index.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../../types/provider/index.js'
 import { resolveLogger } from '../../utils/logger.js'
 import { resolveProviderCapabilities } from '../capabilities.js'
@@ -63,7 +63,7 @@ describe('native structured output route admission', () => {
 						request,
 						async () => {},
 						function* () {},
-						'run' as RunId,
+						'turn' as TurnId,
 						1,
 						false,
 						resolveLogger(undefined),
@@ -82,7 +82,7 @@ describe('native structured output route admission', () => {
 				request,
 				async () => {},
 				function* () {},
-				'run' as RunId,
+				'turn' as TurnId,
 				1,
 				false,
 				resolveLogger(undefined),

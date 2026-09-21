@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolResult } from '../../../types/tool/index.js'
 import { RUN_CODE_TOOL_NAME, buildRunCodeTool } from '../run-code.js'
 
 /**
- * A program the model wrote, reaching no further than the run.
+ * A program the model wrote, reaching no further than the turn.
  *
  * Twenty tool calls to filter a list is twenty model turns at full context
  * size. The same work is one loop. That argument only holds if the loop
@@ -23,7 +23,8 @@ function contextWith(
 	dispatched: { calls: { name: string; input: unknown }[] } = { calls: [] },
 ): ToolContext {
 	return {
-		runId: 'run_code' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5c' as TurnId,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -36,7 +37,7 @@ function contextWith(
 	}
 }
 
-describe('a program calls the run’s own tools', () => {
+describe('a program calls the turn’s own tools', () => {
 	it('reaches a tool and gets its output', async () => {
 		const dispatched = { calls: [] as { name: string; input: unknown }[] }
 		const result = await tool.execute(
@@ -141,7 +142,7 @@ describe('the program has nothing else', () => {
 		expect(result.output).toContain('undefined,undefined,undefined')
 	})
 
-	it('says so when the run offers no dispatch at all', async () => {
+	it('says so when the turn offers no dispatch at all', async () => {
 		const result = await tool.execute(
 			{ code: 'return 1', tools: [] },
 			contextWith({ dispatchTool: undefined }),
@@ -152,7 +153,7 @@ describe('the program has nothing else', () => {
 	})
 })
 
-describe('a program that misbehaves is a failed tool call, not a stuck run', () => {
+describe('a program that misbehaves is a failed tool call, not a stuck turn', () => {
 	it('is stopped at the timeout, keeping what it printed', async () => {
 		// A program that printed its progress and then hung has told the
 		// model where it got to; discarding that leaves it retrying from the

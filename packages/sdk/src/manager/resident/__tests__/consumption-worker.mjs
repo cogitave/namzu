@@ -13,7 +13,7 @@ process.once('message', async () => {
       const pursuit = state.pursuits.find(p => p.id === pursuitId)
       if (!pursuit) throw new Error('Missing pursuit.')
       const claim = await agenda.execution(pursuitId).claim(pursuit.state, Date.now())
-      const receipt = {runId: randomUUID(), ownTokens: 120, treeTokens: 180, ownCostUsd: null,
+      const receipt = {sessionId: randomUUID(), turnId: randomUUID(), ownTokens: 120, treeTokens: 180, ownCostUsd: null,
         unpricedOwnTokens: null, usageFinal: false, cleanup: 'unknown', verification: 'unconfirmed'}
       await writeFile(join(root, `${claim.claimId}.json`), JSON.stringify(receipt))
       process.send({claim})

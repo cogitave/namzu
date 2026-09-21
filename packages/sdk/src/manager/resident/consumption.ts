@@ -24,7 +24,9 @@ const settlementSchema = z.object({
 })
 const receiptSchema = z
 	.object({
-		runId: z.string().uuid(),
+		/** The resident step's turn: one receipt per turn, whose session holds its log. */
+		sessionId: z.string().uuid(),
+		turnId: z.string().uuid(),
 		/** Own usage includes retry and side-call spend; never add cache buckets again. */
 		ownTokens: count.nullable(),
 		treeTokens: count.nullable(),
@@ -74,7 +76,7 @@ export interface ResidentConsumptionOptions {
 export interface ResidentConsumptionAttempt extends ResidentAdmission {
 	readonly settlement: ResidentSettlement | null
 	readonly receipt: ResidentConsumptionReceipt | null
-	readonly receiptStatus: 'available' | 'missing' | 'invalid' | 'deferred' | 'duplicate-run'
+	readonly receiptStatus: 'available' | 'missing' | 'invalid' | 'deferred' | 'duplicate-turn'
 }
 
 /** @experimental An evidence projection, not a bill or an enforced spending cap. */
@@ -253,13 +255,13 @@ export async function inspectResidentConsumption(
 		})
 	}
 	// A copied root receipt must not authenticate two claims. Exclude BOTH records.
-	const runCounts = new Map<string, number>()
+	const turnCounts = new Map<string, number>()
 	for (const { receipt } of attempts)
 		if (receipt)
-			runCounts.set(uuidKey(receipt.runId), (runCounts.get(uuidKey(receipt.runId)) ?? 0) + 1)
+			turnCounts.set(uuidKey(receipt.turnId), (turnCounts.get(uuidKey(receipt.turnId)) ?? 0) + 1)
 	const checked = attempts.map((attempt) =>
-		attempt.receipt && (runCounts.get(uuidKey(attempt.receipt.runId)) ?? 0) > 1
-			? { ...attempt, receipt: null, receiptStatus: 'duplicate-run' as const }
+		attempt.receipt && (turnCounts.get(uuidKey(attempt.receipt.turnId)) ?? 0) > 1
+			? { ...attempt, receipt: null, receiptStatus: 'duplicate-turn' as const }
 			: attempt,
 	)
 	const recorded = { ownTokens: 0, treeTokens: 0, ownCostUsd: 0, unpricedOwnTokens: 0 }

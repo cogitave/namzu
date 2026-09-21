@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 
 import type { MemoryStore } from '../../types/memory/index.js'
 
-/** Tag prefix both run-memory writers put their content digest under. */
+/** Tag prefix both derived-memory writers (the session memory promoter and consolidation) put their content digest under. */
 export const KNOWLEDGE_TAG_PREFIX = 'knowledge:'
 
 export function knowledgeDigest(value: unknown): string {

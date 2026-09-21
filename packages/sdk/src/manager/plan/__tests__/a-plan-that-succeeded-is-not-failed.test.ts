@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { PlanManager } from '../lifecycle.js'
 
 /**
@@ -18,10 +18,13 @@ import { PlanManager } from '../lifecycle.js'
  * answering "failed" settles that by inventing a result.
  */
 
-const RUN = '41cdc522-e63c-4fdd-8d6f-5bad2dc62763' as RunId
+const TURN = {
+	sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+	turnId: '41cdc522-e63c-4fdd-8d6f-5bad2dc62763' as TurnId,
+}
 
 function planWithSteps(count: number): PlanManager {
-	const manager = new PlanManager(RUN)
+	const manager = new PlanManager(TURN)
 	manager.startGenerating('a plan')
 	for (let i = 0; i < count; i += 1) {
 		manager.addStep({
@@ -83,7 +86,7 @@ describe('a plan settles on what its steps actually reported', () => {
 	})
 
 	it('still returns null when there is no plan at all', () => {
-		expect(new PlanManager(RUN).completePlan()).toBeNull()
+		expect(new PlanManager(TURN).completePlan()).toBeNull()
 	})
 })
 
@@ -97,7 +100,7 @@ describe('plan approval event settlement', () => {
 		const listenerStarted = new Promise<void>((resolve) => {
 			reportListenerStarted = resolve
 		})
-		const manager = new PlanManager(RUN, async () => ({ approved: true }))
+		const manager = new PlanManager(TURN, async () => ({ approved: true }))
 		manager.startGenerating('a plan')
 		manager.markReady()
 		manager.on(async (event) => {
@@ -120,7 +123,7 @@ describe('plan approval event settlement', () => {
 	})
 
 	it('keeps listener failures isolated from the approval decision', async () => {
-		const manager = new PlanManager(RUN, async () => ({ approved: true }))
+		const manager = new PlanManager(TURN, async () => ({ approved: true }))
 		manager.startGenerating('a plan')
 		manager.markReady()
 		manager.on(async () => {

@@ -111,12 +111,11 @@ export function calculateCost(usage: TokenUsage, pricing: ModelPricing): CostInf
  * as though it described the whole total would be exactly the wrong claim.
  *
  * This predicate is only sound while every writer of a `CostInfo` goes through
- * this module or states the truth in its vocabulary. One did not:
- * `projectEmergencyToCheckpoint` wrote `ZERO_COST` beside a real, non-zero
- * `tokenUsage`, which is byte-identical to a fresh total — so a run resumed
- * from an emergency dump would have adopted its next turn's rate card as
- * covering spend that happened before the crash. That projection now records
- * the pre-crash tokens as unpriced, which is both true and, usefully, not
+ * this module or states the truth in its vocabulary. A writer that put
+ * `ZERO_COST` beside a real, non-zero `tokenUsage` would be byte-identical to a
+ * fresh total, and a resumed turn would adopt its next rate card as covering
+ * spend that happened before the resume. Spend whose price is unknown is
+ * recorded as unpriced instead, which is both true and, usefully, not
  * fresh-shaped.
  */
 function isFresh(current: CostInfo): boolean {

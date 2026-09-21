@@ -2,10 +2,10 @@ import { fixtureUuid } from '../test-support/ids.js'
 /**
  * Current-code invariants asserted (2026-04-21, ses_006 Phase 1):
  *
- *   - `canExecute(runId)` on an unknown runId returns true (no breaker
+ *   - `canExecute(sessionId)` on an unknown sessionId returns true (no breaker
  *     means no constraint).
- *   - `recordFailure(runId)` lazily creates a breaker entry in `closed`
- *     state for unknown runIds; `recordSuccess(runId)` is a no-op when
+ *   - `recordFailure(sessionId)` lazily creates a breaker entry in `closed`
+ *     state for unknown sessionIds; `recordSuccess(sessionId)` is a no-op when
  *     no entry exists.
  *   - Consecutive failures: after `failureThreshold` calls in a row
  *     without intervening success, `state` → `open`, `trippedAt` set,
@@ -30,20 +30,20 @@ import { fixtureUuid } from '../test-support/ids.js'
  *   - `recordFailure` while `open`: no additional events; state stays
  *     open (consecutive counter does NOT advance from `recordFailure`
  *     while open in the current implementation either — see test).
- *   - `reset(runId)` forces the breaker to `closed` regardless of prior
+ *   - `reset(sessionId)` forces the breaker to `closed` regardless of prior
  *     state; emits `breaker_reset`; clears `consecutiveFailures` and
  *     `trippedAt` but preserves `lastFailureAt` / `lastSuccessAt`.
  *   - `listTripped()` returns snapshots for every breaker in `open` or
  *     `half_open`; closed breakers are excluded.
- *   - Breaker entries are keyed per-`RunId`; state does not leak across
- *     runs. No per-tenant dimension (design.md §2.1 aspirational).
+ *   - Breaker entries are keyed per-`SessionId`; state does not leak across
+ *     sessions. No per-tenant dimension (design.md §2.1 aspirational).
  */
 
 import fc from 'fast-check'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentBusEvent } from '../types/bus/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId } from '../types/ids/index.js'
 import type { Logger } from '../utils/logger.js'
 
 import { CircuitBreaker } from './breaker.js'
@@ -53,8 +53,8 @@ function makeLogger(): Logger {
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-function runId(n: number): RunId {
-	return fixtureUuid(`run_${n}`) as RunId
+function sessionId(n: number): SessionId {
+	return fixtureUuid(`session_${n}`) as SessionId
 }
 
 const THRESHOLD = 5
@@ -74,28 +74,28 @@ describe('CircuitBreaker', () => {
 	})
 
 	describe('canExecute', () => {
-		it('returns true for an unknown runId (no breaker entry yet)', () => {
-			expect(breaker.canExecute(runId(1))).toBe(true)
+		it('returns true for an unknown sessionId (no breaker entry yet)', () => {
+			expect(breaker.canExecute(sessionId(1))).toBe(true)
 		})
 	})
 
 	describe('recordFailure', () => {
-		it('lazily creates a closed breaker entry for unknown runIds', () => {
-			breaker.recordFailure(runId(1))
-			const snap = breaker.getSnapshot(runId(1))
+		it('lazily creates a closed breaker entry for unknown sessionIds', () => {
+			breaker.recordFailure(sessionId(1))
+			const snap = breaker.getSnapshot(sessionId(1))
 			expect(snap?.state).toBe('closed')
 			expect(snap?.consecutiveFailures).toBe(1)
 		})
 
 		it('trips after exactly `failureThreshold` consecutive failures', () => {
 			for (let i = 0; i < THRESHOLD - 1; i++) {
-				breaker.recordFailure(runId(1))
+				breaker.recordFailure(sessionId(1))
 			}
-			expect(breaker.getSnapshot(runId(1))?.state).toBe('closed')
+			expect(breaker.getSnapshot(sessionId(1))?.state).toBe('closed')
 			expect(events.filter((e) => e.type === 'breaker_tripped')).toHaveLength(0)
 
-			breaker.recordFailure(runId(1))
-			expect(breaker.getSnapshot(runId(1))?.state).toBe('open')
+			breaker.recordFailure(sessionId(1))
+			expect(breaker.getSnapshot(sessionId(1))?.state).toBe('open')
 			const trippedEvents = events.filter((e) => e.type === 'breaker_tripped')
 			expect(trippedEvents).toHaveLength(1)
 			if (trippedEvents[0]?.type === 'breaker_tripped') {
@@ -104,11 +104,11 @@ describe('CircuitBreaker', () => {
 		})
 
 		it('trips exactly once — further failures in `open` emit no new breaker_tripped', () => {
-			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(runId(1))
+			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(sessionId(1))
 			events.length = 0
 
-			breaker.recordFailure(runId(1))
-			breaker.recordFailure(runId(1))
+			breaker.recordFailure(sessionId(1))
+			breaker.recordFailure(sessionId(1))
 			expect(events).toEqual([])
 		})
 
@@ -116,8 +116,8 @@ describe('CircuitBreaker', () => {
 			fc.assert(
 				fc.property(fc.integer({ min: THRESHOLD, max: THRESHOLD * 4 }), (n) => {
 					const local = new CircuitBreaker(makeLogger(), () => {}, THRESHOLD, RESET_MS)
-					for (let i = 0; i < n; i++) local.recordFailure(runId(999))
-					expect(local.getSnapshot(runId(999))?.state).toBe('open')
+					for (let i = 0; i < n; i++) local.recordFailure(sessionId(999))
+					expect(local.getSnapshot(sessionId(999))?.state).toBe('open')
 				}),
 				{ numRuns: 25 },
 			)
@@ -127,8 +127,8 @@ describe('CircuitBreaker', () => {
 			fc.assert(
 				fc.property(fc.integer({ min: 0, max: THRESHOLD - 1 }), (n) => {
 					const local = new CircuitBreaker(makeLogger(), () => {}, THRESHOLD, RESET_MS)
-					for (let i = 0; i < n; i++) local.recordFailure(runId(888))
-					const snap = local.getSnapshot(runId(888))
+					for (let i = 0; i < n; i++) local.recordFailure(sessionId(888))
+					const snap = local.getSnapshot(sessionId(888))
 					if (n === 0) {
 						expect(snap).toBeUndefined()
 					} else {
@@ -141,28 +141,28 @@ describe('CircuitBreaker', () => {
 	})
 
 	describe('recordSuccess', () => {
-		it('is a no-op on an unknown runId — no breaker entry created', () => {
-			breaker.recordSuccess(runId(42))
-			expect(breaker.getSnapshot(runId(42))).toBeUndefined()
+		it('is a no-op on an unknown sessionId — no breaker entry created', () => {
+			breaker.recordSuccess(sessionId(42))
+			expect(breaker.getSnapshot(sessionId(42))).toBeUndefined()
 			expect(events).toEqual([])
 		})
 
 		it('resets consecutiveFailures to 0 without changing closed state', () => {
-			breaker.recordFailure(runId(1))
-			breaker.recordFailure(runId(1))
-			breaker.recordSuccess(runId(1))
-			const snap = breaker.getSnapshot(runId(1))
+			breaker.recordFailure(sessionId(1))
+			breaker.recordFailure(sessionId(1))
+			breaker.recordSuccess(sessionId(1))
+			const snap = breaker.getSnapshot(sessionId(1))
 			expect(snap?.state).toBe('closed')
 			expect(snap?.consecutiveFailures).toBe(0)
 			expect(snap?.lastSuccessAt).toBeDefined()
 		})
 
 		it('is discarded (warned, no state change) when called while breaker is open', () => {
-			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(runId(1))
+			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(sessionId(1))
 			events.length = 0
 
-			breaker.recordSuccess(runId(1))
-			expect(breaker.getSnapshot(runId(1))?.state).toBe('open')
+			breaker.recordSuccess(sessionId(1))
+			expect(breaker.getSnapshot(sessionId(1))?.state).toBe('open')
 			expect(events).toEqual([])
 		})
 	})
@@ -171,28 +171,28 @@ describe('CircuitBreaker', () => {
 		it('transitions to half_open after resetTimeoutMs elapsed; emits breaker_half_open', () => {
 			vi.useFakeTimers()
 			const trip = new CircuitBreaker(makeLogger(), (e) => events.push(e), THRESHOLD, RESET_MS)
-			for (let i = 0; i < THRESHOLD; i++) trip.recordFailure(runId(1))
+			for (let i = 0; i < THRESHOLD; i++) trip.recordFailure(sessionId(1))
 			events.length = 0
 
-			expect(trip.canExecute(runId(1))).toBe(false)
+			expect(trip.canExecute(sessionId(1))).toBe(false)
 
 			vi.advanceTimersByTime(RESET_MS - 1)
-			expect(trip.canExecute(runId(1))).toBe(false)
+			expect(trip.canExecute(sessionId(1))).toBe(false)
 
 			vi.advanceTimersByTime(1)
-			expect(trip.canExecute(runId(1))).toBe(true)
-			expect(trip.getSnapshot(runId(1))?.state).toBe('half_open')
-			expect(events).toEqual([{ type: 'breaker_half_open', agentRunId: runId(1) }])
+			expect(trip.canExecute(sessionId(1))).toBe(true)
+			expect(trip.getSnapshot(sessionId(1))?.state).toBe('half_open')
+			expect(events).toEqual([{ type: 'breaker_half_open', agentSessionId: sessionId(1) }])
 		})
 
 		it('canExecute in half_open keeps returning true until success or failure resolves', () => {
 			vi.useFakeTimers()
 			const trip = new CircuitBreaker(makeLogger(), () => {}, THRESHOLD, RESET_MS)
-			for (let i = 0; i < THRESHOLD; i++) trip.recordFailure(runId(1))
+			for (let i = 0; i < THRESHOLD; i++) trip.recordFailure(sessionId(1))
 			vi.advanceTimersByTime(RESET_MS)
-			trip.canExecute(runId(1)) // flip to half_open
-			expect(trip.canExecute(runId(1))).toBe(true)
-			expect(trip.canExecute(runId(1))).toBe(true)
+			trip.canExecute(sessionId(1)) // flip to half_open
+			expect(trip.canExecute(sessionId(1))).toBe(true)
+			expect(trip.canExecute(sessionId(1))).toBe(true)
 		})
 	})
 
@@ -200,33 +200,33 @@ describe('CircuitBreaker', () => {
 		function setupHalfOpen(): CircuitBreaker {
 			vi.useFakeTimers()
 			const b = new CircuitBreaker(makeLogger(), (e) => events.push(e), THRESHOLD, RESET_MS)
-			for (let i = 0; i < THRESHOLD; i++) b.recordFailure(runId(1))
+			for (let i = 0; i < THRESHOLD; i++) b.recordFailure(sessionId(1))
 			vi.advanceTimersByTime(RESET_MS)
-			b.canExecute(runId(1)) // flip
+			b.canExecute(sessionId(1)) // flip
 			events.length = 0
 			return b
 		}
 
 		it('recordSuccess in half_open closes the breaker + emits probe_success then reset', () => {
 			const b = setupHalfOpen()
-			b.recordSuccess(runId(1))
-			expect(b.getSnapshot(runId(1))?.state).toBe('closed')
-			expect(b.getSnapshot(runId(1))?.consecutiveFailures).toBe(0)
+			b.recordSuccess(sessionId(1))
+			expect(b.getSnapshot(sessionId(1))?.state).toBe('closed')
+			expect(b.getSnapshot(sessionId(1))?.consecutiveFailures).toBe(0)
 			expect(events).toEqual([
-				{ type: 'breaker_probe_success', agentRunId: runId(1) },
-				{ type: 'breaker_reset', agentRunId: runId(1) },
+				{ type: 'breaker_probe_success', agentSessionId: sessionId(1) },
+				{ type: 'breaker_reset', agentSessionId: sessionId(1) },
 			])
 		})
 
 		it('recordFailure in half_open re-trips + emits probe_failure then tripped', () => {
 			const b = setupHalfOpen()
-			b.recordFailure(runId(1))
-			expect(b.getSnapshot(runId(1))?.state).toBe('open')
+			b.recordFailure(sessionId(1))
+			expect(b.getSnapshot(sessionId(1))?.state).toBe('open')
 			expect(events).toEqual([
-				{ type: 'breaker_probe_failure', agentRunId: runId(1) },
+				{ type: 'breaker_probe_failure', agentSessionId: sessionId(1) },
 				{
 					type: 'breaker_tripped',
-					agentRunId: runId(1),
+					agentSessionId: sessionId(1),
 					consecutiveFailures: THRESHOLD + 1,
 				},
 			])
@@ -235,40 +235,40 @@ describe('CircuitBreaker', () => {
 
 	describe('reset', () => {
 		it('forces a tripped breaker back to closed + emits breaker_reset', () => {
-			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(runId(1))
+			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(sessionId(1))
 			events.length = 0
 
-			breaker.reset(runId(1))
-			const snap = breaker.getSnapshot(runId(1))
+			breaker.reset(sessionId(1))
+			const snap = breaker.getSnapshot(sessionId(1))
 			expect(snap?.state).toBe('closed')
 			expect(snap?.consecutiveFailures).toBe(0)
 			expect(snap?.trippedAt).toBeUndefined()
-			expect(events).toEqual([{ type: 'breaker_reset', agentRunId: runId(1) }])
+			expect(events).toEqual([{ type: 'breaker_reset', agentSessionId: sessionId(1) }])
 		})
 
-		it('is a no-op on an unknown runId (no event)', () => {
-			breaker.reset(runId(999))
+		it('is a no-op on an unknown sessionId (no event)', () => {
+			breaker.reset(sessionId(999))
 			expect(events).toEqual([])
 		})
 	})
 
-	describe('per-runId isolation', () => {
-		it('tripping one runId does not affect another', () => {
-			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(runId(1))
-			expect(breaker.getSnapshot(runId(1))?.state).toBe('open')
-			expect(breaker.canExecute(runId(2))).toBe(true)
-			expect(breaker.getSnapshot(runId(2))).toBeUndefined()
+	describe('per-sessionId isolation', () => {
+		it('tripping one sessionId does not affect another', () => {
+			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(sessionId(1))
+			expect(breaker.getSnapshot(sessionId(1))?.state).toBe('open')
+			expect(breaker.canExecute(sessionId(2))).toBe(true)
+			expect(breaker.getSnapshot(sessionId(2))).toBeUndefined()
 		})
 	})
 
 	describe('listTripped', () => {
 		it('returns only open + half_open breakers; excludes closed', () => {
-			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(runId(1))
-			breaker.recordFailure(runId(2))
+			for (let i = 0; i < THRESHOLD; i++) breaker.recordFailure(sessionId(1))
+			breaker.recordFailure(sessionId(2))
 
 			const tripped = breaker.listTripped()
 			expect(tripped).toHaveLength(1)
-			expect(tripped[0]?.agentRunId).toBe(runId(1))
+			expect(tripped[0]?.agentSessionId).toBe(sessionId(1))
 			expect(tripped[0]?.state).toBe('open')
 		})
 	})
