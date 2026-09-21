@@ -17,7 +17,7 @@ import {
 } from '../../../utils/id.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
-import { query } from '../index.js'
+import { drainQuery, query } from '../index.js'
 import { terminalRecords } from './support/session.js'
 
 /**
@@ -260,5 +260,37 @@ describe('a consumer that walks away while a human is being asked', () => {
 		expect(await terminalRecords(sessionLog)).toEqual([])
 		expect((await sessionLog.activeTurn())?.state).toBe('paused')
 		expect(deriveTurnStatus({ status: 'running', park: park?.pending })).toBe('awaiting_hitl')
+	})
+})
+
+describe('a new turn named by the host', () => {
+	it('is refused when the session already holds a turn under that id', async () => {
+		const sessionId = generateSessionId()
+		const sessionLog = new InMemorySessionLog({ sessionId })
+		const turnId = generateTurnId()
+		const base = {
+			provider: new MockLLMProvider({ turns: [{ text: 'done' }] } as never),
+			tools: new ToolRegistry(),
+			agentId: 'a',
+			agentName: 'A',
+			workingDirectory: process.cwd(),
+			sessionLog,
+			turnConfig: RUN_CONFIG,
+			projectId: generateProjectId(),
+			sessionId,
+			topicId: generateTopicId(),
+			tenantId: generateTenantId(),
+			resumeHandler: async () => ({ action: 'continue' as const }),
+		}
+		const first = await drainQuery({ ...base, turnId, messages: [{ role: 'user', content: 'go' }] })
+		expect(first.status).toBe('completed')
+
+		// Two `turn_started` records under one id would read as one turn.
+		await expect(
+			drainQuery({ ...base, turnId, messages: [{ role: 'user', content: 'again' }] }),
+		).rejects.toThrow(/already exists/)
+		expect(
+			(await sessionLog.readAll()).entries.filter((entry) => entry.record.type === 'turn_started'),
+		).toHaveLength(1)
 	})
 })

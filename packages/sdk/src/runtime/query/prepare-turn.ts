@@ -870,6 +870,29 @@ function withoutRecordedPrefix(
 }
 
 /**
+ * A new turn named by the host must not reuse the id of a turn the session
+ * already holds: two `turn_started` records under one id would be one turn
+ * to every reader. Only checked when the host names the id; a generated one
+ * is new by construction.
+ */
+async function assertTurnIdIsNew(
+	params: QueryParams,
+	turnId: TurnId,
+	storage: SessionStorage,
+): Promise<void> {
+	if (params.turnId === undefined) return
+	for await (const { record } of storage.log.read({ mode: 'tolerant' })) {
+		if (record.type === 'turn_started' && record.turnId === turnId) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: `Turn ${turnId} already exists in session ${params.sessionId}. A new turn needs a new id; to continue that turn, pass resumeFromCheckpoint.`,
+				details: { sessionId: params.sessionId, turnId },
+			})
+		}
+	}
+}
+
+/**
  * One active turn per session (spec §4.5). A new turn is refused while
  * another is running, paused or interrupted — unless it is interrupted and
  * the caller opted into closing it. A resume must name the active turn.
@@ -897,8 +920,10 @@ async function assertTurnMayStart(
 			details: { sessionId: params.sessionId, turnId },
 		})
 	}
-	if (!active) return
-	if (active.state === 'interrupted' && params.abandonInterrupted) return
+	if (!active) return assertTurnIdIsNew(params, turnId, storage)
+	if (active.state === 'interrupted' && params.abandonInterrupted) {
+		return assertTurnIdIsNew(params, turnId, storage)
+	}
 	throw new TurnInProgressError({
 		sessionId: params.sessionId,
 		activeTurnId: active.turnId,
