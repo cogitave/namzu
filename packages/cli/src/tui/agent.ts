@@ -79,6 +79,7 @@ import {
 	type SessionLease,
 	type SessionLog,
 	SessionPaths,
+	type SessionStartedRecord,
 	type SessionTokenBudgetSummary,
 	type Skill,
 	type SkillRegistry,
@@ -1434,6 +1435,18 @@ export interface AgentSessionOptions {
 	 */
 	readonly scope?: SessionScope
 	/**
+	 * The session this agent's turns are recorded into when {@link scope} is
+	 * absent: a protocol gateway (ACP) resolves its client's id to a session
+	 * first and hands the result here. Ignored when `scope` is given.
+	 */
+	readonly sessionId?: SessionId
+	/**
+	 * Who started the session, written into its `session_started` record the
+	 * first time a turn runs in it: the protocol and, for a gateway, the
+	 * client's own id for it. Absent: `{ protocol: 'cli' }`.
+	 */
+	readonly origin?: SessionStartedRecord['origin']
+	/**
 	 * The directory the agent works in: what every filesystem tool resolves a
 	 * relative path against and where sub-agents run. Generated task and memory
 	 * state follows {@link stateRoot}. Defaults to the process's own directory.
@@ -1660,7 +1673,7 @@ export async function createAgentSession(
 	} catch (error) {
 		return emptySession(`Project state is unavailable: ${describeError(error)}`, 'environment')
 	}
-	const scope = options.scope ?? mintScope(projectId)
+	const scope = options.scope ?? mintScope(projectId, options.sessionId)
 	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
@@ -3385,11 +3398,17 @@ export async function createAgentSession(
 								...turnScope,
 								cwd,
 								agent: { id: 'namzu', name: 'namzu' },
+								...(options.origin ? { origin: options.origin } : {}),
 							})
 						} else {
 							await ensureSessionStarted(
 								DiskSessionLog.at(paths, { sessionId: turnScope.sessionId }),
-								{ ...turnScope, cwd, agent: { id: 'namzu', name: 'namzu' } },
+								{
+									...turnScope,
+									cwd,
+									agent: { id: 'namzu', name: 'namzu' },
+									...(options.origin ? { origin: options.origin } : {}),
+								},
 							)
 						}
 						try {
@@ -3982,9 +4001,9 @@ function lastUserText(messages: readonly Message[]): string {
  * not see what the first had saved. The session, topic and tenant stay
  * minted — nothing here has a store to find existing ones in.
  */
-function mintScope(projectId: ProjectId): SessionScope {
+function mintScope(projectId: ProjectId, sessionId?: SessionId): SessionScope {
 	return {
-		sessionId: generateSessionId(),
+		sessionId: sessionId ?? generateSessionId(),
 		topicId: generateTopicId(),
 		projectId,
 		tenantId: generateTenantId(),
