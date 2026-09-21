@@ -28,7 +28,7 @@ generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 
 Code navigation for an agent — definitions, references, symbols and
 diagnostics — served by a real language server rather than by grep. One
-server per language, routed by file extension, disposed with the run.
+server per language, routed by file extension, disposed with the session.
 If either protocol stream closes while the process remains alive, in-flight
 and later calls fail immediately and the process remains owned until disposal.
 
@@ -58,7 +58,7 @@ const codeNavigation = new RoutingCodeNavigationProvider({
 const registry = new ToolRegistry()
 for (const tool of getCodeNavigationTools(codeNavigation)) registry.register(tool)
 
-// …and when the run is over:
+// …and when the session is over:
 await codeNavigation.dispose()
 ```
 

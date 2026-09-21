@@ -59,11 +59,11 @@ at low reasoning effort. The terminal capture contains only example code.
 
 Read on if any of these is your afternoon:
 
-- The run has to be **attributable** — a tenant, a project, a session, and an
+- The work has to be **attributable** — a tenant, a project, a session, and an
   auditable trail of what it did and what it cost.
-- The run has to be **bounded** — tokens, money, wall clock, and iterations,
+- The work has to be **bounded** — tokens, money, wall clock, and iterations,
   enforced rather than hoped for.
-- The run has to **survive** — a process restart, a deploy, an operator
+- The work has to **survive** — a process restart, a deploy, an operator
   pressing Ctrl-C, a question that needs a human before it can continue.
 - One agent has to **delegate** to another, and that is where it broke.
 - The model gets **tools**, and you would rather it not get your machine.
@@ -76,7 +76,7 @@ that.
 
 ## Install
 
-The kernel runs standalone against a scriptable mock driver, so the first run
+The kernel runs standalone against a scriptable mock driver, so the first turn
 needs no key and no network:
 
 ```bash
@@ -93,25 +93,27 @@ import { ProviderRegistry, runAgent } from '@namzu/sdk'
 
 const { provider } = ProviderRegistry.create({ type: 'mock', responseText: 'Paris.' })
 
-const { output, run, identity } = await runAgent({
+const { output, turn, identity } = await runAgent({
   provider,
   model: 'mock-model',
   prompt: 'What is the capital of France?',
 })
 
 console.log(output)          // 'Paris.'
-console.log(run.stopReason)  // 'end_turn'
+console.log(turn.stopReason) // 'end_turn'
 console.log(identity)        // { sessionId, topicId, projectId, tenantId }
 ```
 
 That is not a chat call with extra steps. It generated a session identity,
-applied the default budgets, ran the tool scheduler, and left the whole run on
-disk under `.namzu/projects/<project>/sessions/<session>/runs/<run>/` —
-`run.json`, `messages.json`, `transcript.jsonl` and a human-readable
-`report.md`. A `checkpoints/` directory joins them once an iteration's tool
-batch is accepted and the run goes on to another iteration — one JSON per
-checkpoint — so the tool loop below writes them and the quickstart above, which
-ends on its first turn, writes none.
+applied the default budgets, ran the tool scheduler, and recorded the turn in
+the session's log: one append-only, hash-chained JSONL file at
+`~/.namzu/projects/<slug>/<session-id>.jsonl` (`NAMZU_HOME` moves the root),
+where the slug is the working directory's path with every character outside
+`[A-Za-z0-9]` replaced by `-`. Nothing is written into the working directory
+itself. A `<session-id>/checkpoints/` directory joins the log once an
+iteration's tool batch is accepted and the turn goes on to another iteration —
+one JSON per checkpoint — so the tool loop below writes them and the quickstart
+above, which ends on its first iteration, writes none.
 
 `identity` comes back so the next turn continues the same session:
 
@@ -122,7 +124,7 @@ const second = await runAgent({
   provider,
   model: 'mock-model',
   ...identity,
-  prompt: [...run.messages, createUserMessage('And of Japan?')],
+  prompt: [...turn.messages, createUserMessage('And of Japan?')],
 })
 ```
 
@@ -161,7 +163,7 @@ tools.register(
   }),
 )
 
-const { output, run } = await runAgent({
+const { output, turn } = await runAgent({
   provider,
   model: 'mock-model',
   tools,
@@ -169,7 +171,7 @@ const { output, run } = await runAgent({
 })
 
 console.log(output)                                        // 'It is 17C in Paris.'
-console.log(run.messages.filter((m) => m.role === 'tool'))  // the executed tool result
+console.log(turn.messages.filter((m) => m.role === 'tool')) // the executed tool result
 ```
 
 The mock plays its turns in order, so a tool loop is scripted rather than
@@ -203,11 +205,11 @@ agent/
 ```
 
 ```typescript
-import { deriveRunOptions, loadDirectory, runAgent } from '@namzu/sdk'
+import { deriveTurnOptions, loadDirectory, runAgent } from '@namzu/sdk'
 
 const { manifest } = await loadDirectory('./agent')
 const { output } = await runAgent(
-  deriveRunOptions(manifest, { provider, model: 'mock-model', prompt: 'Hi' }),
+  deriveTurnOptions(manifest, { provider, model: 'mock-model', prompt: 'Hi' }),
 )
 ```
 
@@ -283,7 +285,7 @@ to the slots you asked for, so it never means more than it checked.
 - **Config is static.** `agent.ts` exports a plain object, not a factory. Read
   an environment variable inside it if you need to; there is no hook.
 - **Delegates go one level.** A delegate may not declare delegates of its own.
-- **A skipped load cannot be run.** `deriveRunOptions` throws on a
+- **A skipped load cannot be run.** `deriveTurnOptions` throws on a
   `modules: 'skip'` manifest rather than handing back an agent whose tools are
   all missing for a reason unrelated to the project.
 - **The working directory becomes the folder itself**, not its parent, so file
@@ -353,26 +355,30 @@ into a hard API error. `findDanglingMessages` scans for both halves of that
 break, and `findSafeTrimIndex` picks a cut that does not create one. The
 window size itself is resolved by longest-prefix match on the model id, with
 a deliberately conservative default for an unrecognised model: compacting too
-early costs one summarisation pass, and compacting too late ends the run with
+early costs one summarisation pass, and compacting too late ends the turn with
 nothing recoverable.
 → `packages/sdk/src/compaction/dangling.ts`, `compaction/context-window.ts`
 
-**A run that outlives the process that started it.**
-The run writes a checkpoint carrying the history, the budgets, the working
-state and the trace context at the end of each iteration it continues past; a
-run that ends on its first turn writes none. `resumeRun` joins one of those
-snapshots back onto a live loop in a *different* process. It returns three
-outcomes rather than a nullable run, because the two failures mean opposite
-things: "no checkpoint" is a dead end, while "parked awaiting a decision" is
-the run working exactly as designed and waiting for a human. On `SIGINT` or
-`SIGTERM` an opt-in emergency save writes the run out before the process
-leaves.
-→ `runtime/query/resume-run.ts`, `runtime/query/checkpoint.ts`, `manager/run/emergency.ts`
+**A turn that outlives the process that started it.**
+Every message, tool call and decision is appended to the session's log as it
+happens, each line hash-chained to the one before it, so a crash loses at most
+the line being written — and a torn last line is repaired on the next open.
+The turn writes a checkpoint carrying the budgets, the working state and the
+trace context, and the log position its context folds from, at the end of each
+iteration it continues past. `resumeSession` joins one of those checkpoints
+back onto a live loop in a *different* process, under the same turn id. It
+returns three outcomes rather than a nullable turn, because the two failures
+mean opposite things: "no checkpoint" is a dead end, while "parked awaiting a
+decision" is the turn working exactly as designed and waiting for a human. A
+session has one active turn at a time, so a second process cannot start a
+turn that interleaves with a parked or interrupted one; it is refused with
+`TurnInProgressError` until the turn is resumed or `abandonTurn` closes it.
+→ `store/session-log/`, `runtime/query/resume-session.ts`, `store/checkpoint/`
 
 **Delegation that cannot quietly corrupt itself.**
-Work is a five-layer hierarchy — project, topic, session, sub-session, run —
-and each layer's opaque UUID has its own nominal type, so handing a
-session id to something expecting a run id does not compile. Depth and width
+Work is a hierarchy — project, topic, session, child session, turn — and each
+layer's opaque UUID has its own nominal type, so handing a session id to
+something expecting a turn id does not compile. Depth and width
 caps are checked *before* any write, and the width check plus the write that
 invalidates it are held in one critical section keyed on the parent: without
 that, two concurrent spawns both read the same count, both saw room, and a cap
@@ -389,7 +395,7 @@ dropped on the floor.
 **A budget that survives being divided.**
 Five dimensions are checked every iteration — cancellation, wall clock, token
 budget, cost, and iteration count — each producing a named stop reason rather
-than an exception, with a warning tier before the hard stop so a run can react
+than an exception, with a warning tier before the hard stop so a turn can react
 while it still can. Dividing that budget across a delegation tree is where it
 gets interesting.
 A child gets a slice of its parent's remaining tokens, computed inside the
@@ -402,7 +408,7 @@ thousandth of its budget. A spawn whose allocation rounds to zero is refused
 outright rather than granted, because zero means *unlimited* downstream — so
 the naive arithmetic hands the most depleted parent in the tree an unbounded
 child.
-→ `manager/agent/lifecycle.ts`, `run/LimitChecker.ts`
+→ `manager/agent/lifecycle.ts`, `turn/LimitChecker.ts`
 
 **A refusal the model can actually act on.**
 A permission gate that answers only "denied" produces thrashing: the model
@@ -413,7 +419,7 @@ that sentence goes back to the model inside the tool result. Approvals are
 scoped by the approver rather than fixed: a grant can cover one exact
 invocation or an entire tool, and the key is built from arguments serialised
 with sorted properties, so the same call never gets asked about twice merely
-because two fields swapped order. Grants live for the run and are never
+because two fields swapped order. Grants live for the turn and are never
 persisted.
 → `verification/gate.ts`, `runtime/query/tool-grants.ts`
 
@@ -434,7 +440,7 @@ kept in code: one environment enforces filesystem, network and process
 isolation; another enforces network and process only and reports
 `filesystem: false` **on purpose**, because it unshares a mount namespace
 without remounting anything and a private mount table is not confinement. If a
-run requires a control the host cannot supply, the kernel refuses to start it
+turn requires a control the host cannot supply, the kernel refuses to start it
 rather than proceeding while the caller believes it is confined. A security
 control that is accepted and silently not applied is worse than one that was
 never offered.
@@ -454,7 +460,7 @@ schema is rendered once and converted per dialect at the driver; and a driver
 that cannot honour a requested capability must refuse rather than drop it.
 → `provider/model-version.ts`, `provider/strict-schema.ts`, `registry/tool/dialect.ts`, `provider/thinking-support.ts`
 
-**Correcting a run that is already going.**
+**Correcting a turn that is already going.**
 Watching an agent head the wrong way, the two obvious options are both bad:
 cancelling discards every tool result already paid for, and rejecting through
 the review gate only works if a call happens to be pending and can only say
@@ -483,7 +489,7 @@ is standalone. Nothing in the kernel depends back on any leaf package.
 
 | Package | What it is |
 |---|---|
-| `@namzu/sdk` | The kernel: run loop, tools, sessions, budgets, compaction, checkpoints, permission gate, connectors, telemetry |
+| `@namzu/sdk` | The kernel: turn loop, session log, tools, budgets, compaction, checkpoints, permission gate, connectors, telemetry |
 | `@namzu/cli` | The terminal agent, and the operator commands. Also importable as a library |
 | `@namzu/sandbox` | Sandbox providers beyond the in-kernel one |
 | `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
@@ -537,7 +543,7 @@ to pass: a **public-surface baseline diff** (a symbol cannot vanish from the
 package barrel unnoticed); **per-module coverage floors** plus a rule that
 every source folder is explicitly classified for test presence; a
 **behaviour-regression eval suite**; **process-level tests** run in a real
-separate process, because an in-process test cannot prove a run survives on
+separate process, because an in-process test cannot prove a turn survives on
 its own event-loop footprint; a **consumer-install check** that catches
 peer-range drift before a publish rather than at the registry; package-manifest
 validation; and an audit that refuses a list of third-party product names in

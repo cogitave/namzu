@@ -3,7 +3,7 @@ type: Reference
 title: "@namzu/ollama"
 description: >-
   Implements the kernel's `LLMProvider` interface over a local Ollama
-  server, so a run can be driven by a model on your own machine with no key
+  server, so a turn can be driven by a model on your own machine with no key
   and no egress.
 tags: [readme, package, provider, ollama]
 status: stable
@@ -27,7 +27,7 @@ generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 ---
 
 Implements the kernel's `LLMProvider` interface over a local Ollama server,
-so a run can be driven by a model on your own machine with no key and no
+so a turn can be driven by a model on your own machine with no key and no
 egress. Installed only if you use it — the kernel has no preferred vendor
 and no driver is a dependency of it.
 
@@ -62,7 +62,7 @@ for await (const chunk of provider.chatStream({
 ```
 
 `chatStream` is the only model entry point; a non-streaming call is that
-stream collected. In practice the kernel's run loop calls it and hands you
+stream collected. In practice the kernel's turn loop calls it and hands you
 events.
 
 ## Documentation

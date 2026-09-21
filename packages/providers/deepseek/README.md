@@ -74,7 +74,7 @@ as ordered `image_url` data-URL parts. Images returned by tools keep their
 tool-call/result sequence remains valid. PNG, JPEG, WebP and GIF are accepted.
 
 The SDK's accumulated request-rich-content budget still applies before this
-projection and leaves durable `Run.messages` unchanged. This driver currently
+projection and leaves the turn's durable messages unchanged. This driver currently
 uses inline base64 only; it does not upload through the Files API or claim to
 normalize or decode caller-supplied image bytes. Documents, unresolved stored
 refs, unsupported image types, and images sent to either text model are refused

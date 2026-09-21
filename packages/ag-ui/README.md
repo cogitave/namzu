@@ -9,7 +9,11 @@ exercise the official `@ag-ui/client` `HttpAgent` at the same version.
 pnpm add @namzu/ag-ui @namzu/sdk zod@^3
 ```
 
-Node.js 20 or later and `@namzu/sdk >=36.0.0` are required.
+Node.js 20 or later and `@namzu/sdk >=44.0.0` are required.
+
+**Compatibility.** `@namzu/ag-ui` before 1.0.0 breaks on `@namzu/sdk >=44`,
+where the kernel's run events were renamed. Use `@namzu/ag-ui >=1` with
+`@namzu/sdk` 44.
 
 ## Connect your existing kernel configuration
 
@@ -33,8 +37,13 @@ configuration supplies providers, model, tools, stores, permissions, and native
 tenant/project/topic/session identity.
 
 Map an authenticated tenant plus `input.threadId` to a server-owned native
-session. AG-UI IDs are opaque correlation strings: do not cast them to Namzu
-UUID types or use them as storage paths. `input.forwardedProps`, `context`,
+session: an AG-UI thread is a Namzu session, and each AG-UI run is a new turn
+in it. AG-UI IDs are opaque correlation strings: do not cast them to Namzu
+UUID types or use them as storage paths. The client's `runId` is recorded as
+the turn's `origin.externalTurnId` and echoed back verbatim on `RUN_*`
+events; it never becomes a Namzu id. A session has one active turn at a time,
+so a second run on a thread while its turn is still running or paused ends
+with `RUN_ERROR` code `NAMZU_TURN_IN_PROGRESS`. `input.forwardedProps`, `context`,
 messages, and state remain client-controlled data. They do not establish
 identity or tool permissions.
 
@@ -49,7 +58,7 @@ inside `createQuery`. The adapter publishes a bounded, detached `MESSAGES_SNAPSH
 before native query events. This affects the client display only; select model
 history independently. Calls after the factory returns are rejected to preserve
 active message and tool lifecycles. State and custom events can still stream
-throughout the run. This does not enable interrupt resumption.
+throughout the turn. This does not enable interrupt resumption.
 
 ## Consume events directly
 
@@ -89,9 +98,10 @@ request; persist it in your application when continuity is required.
 | State and application events | Snapshots, validated JSON patches, and named custom events |
 | Frontend tools | Nonempty request `tools` is rejected with HTTP 422 |
 | AG-UI approval resume | Nonempty `resume` is rejected with HTTP 422 |
-| Native pause | `namzu.run.paused` custom event followed by `RUN_ERROR`; native resumption remains host-owned |
+| Native pause | `namzu.turn.paused` custom event followed by `RUN_ERROR` code `NAMZU_TURN_PAUSED`; native resumption (`resumeSession`) remains host-owned |
+| Concurrent runs on a thread | `RUN_ERROR` code `NAMZU_TURN_IN_PROGRESS`; the active turn is untouched |
 | Transport | POST with JSON input and SSE output; no protobuf, SSE replay, or AG-UI reconnect endpoint |
-| Internal events | Child-run trees, prompts, raw events, reasoning, and provider signatures are not forwarded |
+| Internal events | Child sessions, prompts, raw events, reasoning, and provider signatures are not forwarded |
 
 Defaults are a **4 MiB HTTP request body**, **1 MiB per JSON event** and
 **128 pending application events**. Configure `maxRequestBytes`,

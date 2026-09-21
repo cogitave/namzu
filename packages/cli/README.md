@@ -112,27 +112,30 @@ once in PowerShell or Git Bash using the Node installation that owns Namzu.
 For a custom global prefix, include `--prefix "<existing-prefix>"`. Restart
 Namzu afterward; the updated CLI includes the corrected npm launcher.
 
-Generated CLI state now lives below the application home: `~/.namzu` by
-default, or the existing real directory named by `NAMZU_HOME`. New directories
-inside the same checkout share one Project, keyed by its canonical root; a
-standalone directory is its own project. Worktrees and nested repositories
-remain separate. Existing central bindings for individual subdirectories keep
-their own histories. Bash, Write and Edit still use the selected working
-directory while transcripts, runs, memory and tasks live centrally. A local
-`.namzu` holds authored `commands`, `plugins`, `skills` and `MEMORY.md`.
-Older project-local runtime and global `cli.json` pointers are inventory data;
-the CLI does not automatically adopt or migrate them. See
-[Project and session state](../../docs/cli/project-state.md) for identity and
-compatibility details.
+Generated CLI state lives below the application home: `~/.namzu` by default,
+or the existing real directory named by `NAMZU_HOME`. Each working directory
+gets `projects/<slug>/`, where the slug is its canonical path with every
+character outside `[A-Za-z0-9]` replaced by `-`; a project id is minted once
+into `projects/<slug>/project.json`. A session is one append-only log,
+`projects/<slug>/<session-id>.jsonl`, with its child sessions, checkpoints,
+tasks and file-history snapshots under `<session-id>/`; memory, resident state
+and worktrees are under `projects/<slug>/` too. `~/.namzu/index.sqlite` is an
+index rebuilt from the logs, so deleting it loses nothing. Bash, Write and
+Edit still use the selected working directory, and nothing generated is
+written there: a local `.namzu` holds only the `agents`, `commands`,
+`plugins`, `skills` and `MEMORY.md` you author. See
+[Session storage](../../docs/cli/session-storage.md) for the layout and
+[Project and session state](../../docs/cli/project-state.md) for identity.
 
-`namzu state` inventories the current workspace's legacy `.namzu` tree and the
-resolved application-home tree without loading either config cascade or
-changing either tree. It reports authored/configuration/runtime/control bytes, canonical
-sessions and runs, raw checkpoint and emergency-save files, attachment pairs,
-privacy boundaries, and project binding health. JSON and YAML use the global
-`--format` flag. The snapshot is best-effort and unlocked: origin-only sessions
-are candidates for investigation, never an automatic deletion claim, and the
-command does not repair, move, chmod, or delete anything.
+`namzu state` inventories the application-home tree without loading a config
+cascade or changing anything. It reports authored/configuration/runtime/control
+bytes, sessions and turns, checkpoint files, attachment pairs, privacy
+boundaries and project health, and a `legacy` category (report `version: 2`)
+listing state an earlier CLI wrote — the old top-level `sessions/`, `state/`,
+`checkpoints/` and similar directories, and every `projects/<uuid>/` — which
+this version never reads. JSON and YAML use the global `--format` flag. The
+snapshot is best-effort and unlocked, and the command does not repair, move,
+chmod, or delete anything.
 
 Desktop control is separate from attaching a clipboard image. Ctrl+V/Alt+V
 adds an image to the current prompt; the TUI's `computer_use` tool lets the
@@ -202,7 +205,7 @@ provider/model flags work with `run-stream`.
 The picker lists each service's supported models from the provider catalogue;
 an explicit model selection is saved using the existing preferences flow.
 Go requests carry the actual Namzu conversation ID in `x-opencode-session`,
-stable across turns and resumed runs. Delegated work shares its invoking
+stable across turns and resumed turns. Delegated work shares its invoking
 conversation's upstream session; switching conversations changes that ID.
 
 Bare `/help` opens the session's complete command vocabulary as a keyboard
@@ -327,7 +330,7 @@ reported by `namzu doctor`.
 The coding session defaults that provider to the canonical working directory.
 Each turn owns and tears down a fresh sandbox handle, while the caller-owned
 project files survive and remain visible to later turns and delegated agents.
-Set `sandbox.workspace` to `ephemeral` only when a disposable per-run tree is
+Set `sandbox.workspace` to `ephemeral` only when a disposable per-turn tree is
 the intended behavior; `/status` reports which mode is active.
 
 The default sandbox exposes Bash as a foreground, serialized operation. It does
@@ -344,8 +347,8 @@ Bare `/export` opens a destination chooser for the complete verified Markdown
 conversation. Copy to clipboard sends one bounded terminal request and reports
 that the request may be ignored by terminal policy; Save to file opens a
 prefilled filename editor and never overwrites an existing file. `/export <path>`
-remains the direct file shortcut. Both routes read the durable turn/run
-evidence rather than reconstructing source from the painted transcript.
+remains the direct file shortcut. Both routes read the session log rather than
+reconstructing source from the painted transcript.
 
 Repository policy stays live for the whole session. The CLI starts with the
 applicable `AGENTS.md` chain, discovers nested instruction files after
@@ -360,7 +363,7 @@ both scopes. Project plugins are not read before the project trust gate, and
 plugin paths are canonicalized against the trusted project or user-home root;
 links that leave that scope and symlinked manifests are refused. Plugin
 settings cannot be activated by an environment-selected profile. The
-same plugin hooks and skills reach interactive turns, headless runs, durable
+same plugin hooks and skills reach interactive turns, headless turns, durable
 resumes, and ACP sessions; session shutdown settles live work before unloading
 them.
 
@@ -372,9 +375,12 @@ namzu run-stream "refactor the parser" | jq -c 'select(.type == "tool_call")'
 ```
 
 `run` prints a result; `run-stream` emits one structured event per line as the
-run happens, so a script can act on a tool call before the run is over. Both
+turn happens, so a script can act on a tool call before the turn is over. Both
 take `--verbose`/`--quiet`, and both write logs to stderr so stdout stays a
-clean protocol stream.
+clean protocol stream. A session has one active turn at a time: either command
+aimed at a session whose turn is still running or paused exits 75 and names
+that turn. See [Exit codes](../../docs/cli/run-exit-codes.md) and
+[`run-stream`](../../docs/cli/run-stream.md).
 
 Recoverable provider stops are explicit `paused` events carrying their
 checkpoint and any structured retry guidance. The interactive transcript shows
