@@ -179,7 +179,7 @@ it.each(['tenantId', 'projectId', 'agentKey', 'pursuitId', 'throughRevision'] as
 it('refuses another executor and never advances a mutated source boundary', async () => {
 	const f = fixture()
 	const recall = f.create()
-	await expect(recall({ ...f.context, turnId: generateTurnId() })).rejects.toThrow('different run')
+	await expect(recall({ ...f.context, turnId: generateTurnId() })).rejects.toThrow('different turn')
 	f.scope.throughRevision++
 	await expect(recall(f.context)).rejects.toThrow('boundary')
 	expect(f.search).not.toHaveBeenCalled()

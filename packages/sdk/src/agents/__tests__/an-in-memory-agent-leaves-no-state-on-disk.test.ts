@@ -1,8 +1,8 @@
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, realpathSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
@@ -43,7 +43,18 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  */
 
 const dirs: string[] = []
+
+// A home of this file's own. The suite's shared `NAMZU_HOME` is written by
+// every other test file running beside this one, so a snapshot of it could
+// never say that THIS agent added nothing.
+beforeEach(async () => {
+	const home = await mkdtemp(join(realpathSync(tmpdir()), 'namzu-in-memory-home-'))
+	dirs.push(home)
+	vi.stubEnv('NAMZU_HOME', home)
+})
+
 afterEach(async () => {
+	vi.unstubAllEnvs()
 	await removeTempDirs(dirs)
 	dirs.length = 0
 })

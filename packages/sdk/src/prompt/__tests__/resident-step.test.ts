@@ -321,12 +321,12 @@ it('preserves resident state and project policy when older conversation is compa
 	const manager = new WorkingStateManager(compactionConfig)
 	manager.addDecision('Checked the current acceptance receipt.')
 	await runCompactionCheck({
-		runConfig: { tokenBudget: 0 },
+		turnConfig: { tokenBudget: 0 },
 		compactionConfig,
 		workingStateManager: manager,
 		log: NOOP_LOGGER,
-		runMgr: {
-			id: 'f732fe15-0558-4154-b4e4-42033ead15ed' as TurnId,
+		recorder: {
+			turnId: 'f732fe15-0558-4154-b4e4-42033ead15ed' as TurnId,
 			currentIteration: 3,
 			messages,
 			clearLastPromptTokens: () => {},

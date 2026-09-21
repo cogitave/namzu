@@ -80,9 +80,14 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 		}
 
 		// Start one run on each shell; neither resolves, and neither should
-		// refuse. A shared shell would reject the second synchronously.
+		// refuse. A shared shell would reject the second synchronously. Each
+		// run gets its own session: a session admits one writer at a time, and
+		// the lock under test is the shell's, not the session's.
 		const a = first.run({ messages: [], workingDirectory: '/tmp' } as never, config as never)
-		const b = second.run({ messages: [], workingDirectory: '/tmp' } as never, config as never)
+		const b = second.run(
+			{ messages: [], workingDirectory: '/tmp' } as never,
+			{ ...config, sessionId: '0199a7c0-5b1e-7c2d-8e3f-4a5b6c7d8e9f' } as never,
+		)
 
 		await expect(
 			Promise.race([
