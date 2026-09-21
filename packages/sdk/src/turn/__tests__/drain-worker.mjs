@@ -2,63 +2,56 @@
  * A drainer process, for the multi-process `drainParkedTurns` test.
  *
  * A separate FILE rather than an inline closure because it has to import the
- * BUILT drain loop and store, and because the whole point is that the
+ * BUILT drain loop and session log, and because the whole point is that the
  * contenders share nothing but the directory. Two drainers inside one
- * process are arbitrated by the event loop, not by the store — so a
- * single-process test reports "each run exactly once" against an
- * implementation with no exclusion in it at all. This is the same reason
- * `claim-worker.mjs` exists one directory over, and the same reason it could
- * not simply be reused: that worker races raw `claimRun` calls, and what is
- * under test here is the loop that composes claim, work and release.
+ * process are arbitrated by the event loop, not by the lease — so a
+ * single-process test reports "each turn exactly once" against an
+ * implementation with no exclusion in it at all.
  *
- * Each run it takes gets a checkpoint recording the holder and the
- * fence in its messages, written WITH that fence. That record tells which
- * process did which run; the fence is what the store checks. A drainer that
- * passed the entry but not the claim would write unfenced checkpoints that
- * still look right in a listing.
+ * Each turn it takes is resumed (`turn_resuming`), gets an assistant message
+ * naming the holder and the fence it was written under, has its park answered
+ * and is completed — every record appended under the drain's lease. The
+ * message tells which process did which turn; the record's `gen` is the fence
+ * the log actually accepted it under.
  *
  * Usage:
- *   node drain-worker.mjs <dist> <baseDir> <tenant> <project> <session>
- *                         <holder> <ttlMs> <mode> [barrierEpochMs]
+ *   node drain-worker.mjs <dist> <home> <slug> <tenant> <holder> <ttlMs> <mode>
+ *                         [barrierEpochMs]
  *
- * mode `drain` — take everything, write a checkpoint per run, exit.
- * mode `hang`  — take the first run, write its checkpoint, then never
- *                finish. The parent kills it to simulate a worker that dies
- *                holding a lease.
+ * mode `drain` — take everything, finish each turn, exit.
+ * mode `hang`  — take the first turn, resume it and write its marker, then
+ *                never finish. The parent kills it to simulate a worker that
+ *                dies holding a lease.
  */
 
-const [, , dist, baseDir, tenantId, projectId, sessionId, holder, ttlMs, mode, barrierMs] =
-	process.argv
+const [, , dist, home, slug, tenantId, holder, ttlMs, mode, barrierMs] = process.argv
 
-const from = (rel) => new URL(rel, `file://${dist.replace(/\\/g, '/')}/`).href
-const { DiskCheckpointStore } = await import(from('store/run/checkpoint-disk.js'))
-const { drainParkedTurns } = await import(from('run/drain.js'))
-const { generateCheckpointId } = await import(from('utils/id.js'))
+const sdk = await import(new URL('index.js', `file://${dist.replace(/\\/g, '/')}/`).href)
 
-const store = new DiskCheckpointStore({ baseDir }, { tenantId, projectId, sessionId })
+const paths = new sdk.SessionPaths({ home, slug })
+const index = await sdk.ScanSessionIndex.load(home)
 
-let seq = 0
-function checkpoint(runId, marker) {
-	seq += 1
+function marker(kind, fence) {
 	return {
-		id: generateCheckpointId(),
-		turnId,
-		iteration: 2,
-		messages: [{ role: 'assistant', content: JSON.stringify({ marker: 'drain-worker', ...marker }) }],
-		tokenUsage: {
-			promptTokens: 1,
-			completionTokens: 1,
-			totalTokens: 2,
-			cachedTokens: 0,
-			cacheWriteTokens: 0,
+		type: 'message',
+		messageId: sdk.generateMessageId(),
+		role: 'assistant',
+		content: {
+			role: 'assistant',
+			content: JSON.stringify({ marker: 'drain-worker', kind, holder, fence }),
 		},
-		costInfo: { totalCost: 0 },
-		// The disk store REFUSES a checkpoint whose budget state is malformed
-		// rather than resuming from it, so a worker that omitted this would
-		// exercise the refusal path on every run and none of the drain.
-		guardState: { iterationCount: 2, elapsedMs: 10 },
-		createdAt: Date.now() + seq,
 	}
+}
+
+const settlement = {
+	status: 'completed',
+	iterations: 1,
+	usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 },
+	cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+	durationMs: 1,
+	resultSource: 'model',
+	abandonedTaskIds: [],
+	abandonedJobIds: [],
 }
 
 // A barrier past node's startup, which varies by tens of milliseconds —
@@ -69,62 +62,68 @@ if (barrierMs) {
 	if (wait > 0) await new Promise((r) => setTimeout(r, wait))
 }
 
-/** Whether the store refused a deliberately superseded write, per run. */
+/** Whether the log refused a deliberately superseded write, per turn. */
 const probes = []
 
-const result = await drainParkedTurns({
-	store,
-	scope: { tenantId, projectId, sessionId },
-	holder,
-	ttlMs: Number(ttlMs),
-	// An approval inbox's filter. It is also what makes the pass
-	// exactly-once: answering a park is what takes the run off this queue.
-	park: ['outstanding'],
-	onRun: async (entry, claim) => {
-		const kind = mode === 'hang' ? 'started' : 'done'
-		// A marker naming who did the work and under which holding.
-		//
-		// The fence is passed, but note what that on its OWN can and cannot
-		// show: a fenced write and an unfenced one are byte-identical in
-		// effect when the presented fence is the current one, so no assertion
-		// about this checkpoint can distinguish them. Dropping `claim.fence`
-		// here is an equivalent mutation, measured. The probe below is what
-		// makes the fence path observable during a drain.
-		await store.writeCheckpoint(
-			entry,
-			checkpoint(entry.runId, { kind, holder, fence: claim.fence }),
-			claim.fence,
-		)
-		// A deliberately superseded write, at a fence below every holding this
-		// run has ever had. It MUST be refused, and it must leave nothing
-		// behind — that is the enforcement a stalled worker meets, exercised
-		// here at the moment of an ordinary drain rather than only in the
-		// dead-holder scenario.
-		try {
-			await store.writeCheckpoint(entry, checkpoint(entry.runId, { kind: 'probe', holder, fence: 0 }), 0)
-			probes.push({ runId: entry.runId, fencedOut: false })
-		} catch {
-			probes.push({ runId: entry.runId, fencedOut: true })
-		}
-		if (mode === 'hang') {
-			// Tell the parent the lease is held and the work is under way, then
-			// stop being a process that will ever finish. The park stays
-			// outstanding, which is what makes the run reclaimable.
-			process.stdout.write(`${JSON.stringify({ holding: entry.runId, fence: claim.fence })}\n`)
-			await new Promise(() => {})
-		}
-		// Answer the park, the way `CheckpointManager.resolvePending` does: the
-		// SAME checkpoint id, rewritten with `resolvedAt`. A resolution written
-		// as a new checkpoint would leave the original park outstanding and the
-		// run on the queue forever.
-		const parkedId = entry.park.checkpointId
-		const parked = await store.readCheckpoint(entry, parkedId)
-		await store.writeCheckpoint(
-			entry,
-			{ ...parked, pending: { ...parked.pending, resolvedAt: Date.now() } },
-			claim.fence,
-		)
-	},
-})
+const result = await pass()
+
+async function pass() {
+	return sdk.drainParkedTurns({
+		index,
+		tenantId,
+		holder,
+		ttlMs: Number(ttlMs),
+		// An approval inbox's filter. It is also what makes the pass
+		// exactly-once: answering a park is what takes the turn off this queue.
+		park: ['outstanding'],
+		onTurn: async (entry, lease) => {
+			const log = sdk.DiskSessionLog.at(paths, { sessionId: entry.sessionId })
+			const parked = entry.park
+			await log.append(lease, {
+				type: 'turn_resuming',
+				turnId: entry.turnId,
+				fromCheckpointId: parked.checkpointId,
+			})
+			await log.append(lease, {
+				...marker(mode === 'hang' ? 'started' : 'done', lease.fence),
+				turnId: entry.turnId,
+			})
+			// A deliberately superseded write, at a fence below every holding
+			// this session has ever had. It MUST be refused, and it must leave
+			// nothing behind — the enforcement a stalled worker meets, exercised
+			// at the moment of an ordinary drain rather than only in the
+			// dead-holder scenario.
+			try {
+				await log.append({ ...lease, fence: 0 }, { ...marker('probe', 0), turnId: entry.turnId })
+				probes.push({ turnId: entry.turnId, fencedOut: false })
+			} catch {
+				probes.push({ turnId: entry.turnId, fencedOut: true })
+			}
+			if (mode === 'hang') {
+				// Tell the parent the lease is held and the work is under way, then
+				// stop being a process that will ever finish. The park stays
+				// outstanding, which is what makes the turn reclaimable.
+				process.stdout.write(`${JSON.stringify({ holding: entry.turnId, lease })}\n`)
+				await new Promise(() => {})
+			}
+			// Answer the park and settle the turn: doing the work is what takes
+			// the turn off the queue.
+			await log.append(lease, {
+				type: 'decision_resolved',
+				turnId: entry.turnId,
+				decisionId: parked.checkpointId,
+				decision: { action: 'approve_tools' },
+				resolvedBy: { kind: 'system', role: 'sys_drain_worker', tenantId },
+			})
+			await log.append(lease, {
+				type: 'turn_completed',
+				turnId: entry.turnId,
+				result: 'drained',
+				settlement,
+			})
+		},
+	})
+}
 
 process.stdout.write(`${JSON.stringify({ holder, probes, ...result })}\n`)
+index.close()

@@ -12,7 +12,7 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
  *
  * An awaited promise does not keep Node alive. If the deadline timer is
  * `unref()`'d and a third-party `destroy()` has no active handle of its own,
- * the process exits zero after `run_completed` but before `drainQuery()`
+ * the process exits zero after `turn_completed` but before `drainQuery()`
  * returns. A test runner supplies unrelated handles and cannot observe that,
  * so this case must run in a bare child against the built package entry.
  */
@@ -79,6 +79,6 @@ describe('sandbox teardown keeps its own process alive', () => {
 		expect(out, `the run exited before teardown settled:\n${out}`).toContain('RESULT ')
 		expect(out).toContain('"status":"completed"')
 		expect(out).toContain('"result":"done"')
-		expect(out).toContain('"last":"run_completed"')
+		expect(out).toContain('"last":"turn_completed"')
 	})
 })

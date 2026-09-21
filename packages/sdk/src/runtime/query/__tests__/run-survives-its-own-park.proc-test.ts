@@ -124,6 +124,6 @@ describe('a run outlives its own HITL park', () => {
 		// The run reached its own end rather than the process reaching it first.
 		expect(out, `the run did not complete:\n${out}`).toContain('RESULT ')
 		expect(out).toContain('"status":"completed"')
-		expect(out).toContain('"last":"run_completed"')
+		expect(out).toContain('"last":"turn_completed"')
 	}, 90_000)
 })
