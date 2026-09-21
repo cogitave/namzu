@@ -141,13 +141,19 @@ Files are written by atomic rename with mode `0600`; the directory is created
 `0700`. Operations take the same `operation.lock` as `DiskMemoryStore` (below),
 so the two never interleave on one directory. A rename writes the new file
 before removing the old one, and an update's `updatedAt` is always later than
-the one it replaces. A crash between the two writes leaves two files claiming
-one id, each stating its own `updatedAt`, the two different: the store reads the
-newer, and the next write moves the older aside to `<name>.md.superseded` rather
-than deleting it. Any other pair claiming one id is refused, naming both files:
-the same `updatedAt` (a copy), or a file with no `updatedAt` of its own — a
-hand-written file's time is its modification time, which copying it changes, so
-it cannot show which of the two is newer. A copy whose `updatedAt` was edited to
+the one it replaces — for a hand-written file, later than its modification
+time. A crash between the two writes leaves two files claiming one id, and the
+store reads the newer and the next write moves the older aside to
+`<name>.md.superseded` rather than deleting it, when the pair is one of two
+shapes: both files state their own `updatedAt` and the two differ; or one is a
+hand-written file with neither `id` nor `updatedAt` — its id derived from its
+own name, its time its modification time — and the other states that id and an
+`updatedAt` of its own that differs. The second shape is what renaming a
+hand-written memory leaves, and nothing but that rename writes a name-derived
+id into a file of another name. Any other pair claiming one id is refused,
+naming both files: equal times (a copy), or a file with no `updatedAt` that
+states its `id` — its time is a modification time copying it changes, so it
+cannot show which of the two is newer. A copy whose `updatedAt` was edited to
 differ is indistinguishable from an interrupted rename and is treated as one.
 A body round-trips byte for byte, a trailing `\r` included.
 
@@ -172,7 +178,11 @@ a hand edit to a memory file reaches it at the next write.
 prompt, capped at `maxLines` (default `MEMORY_INDEX_MAX_LINES`, 200) with a final
 line saying how many more memories exist and to use `search_memory` for them;
 `total` counts the memories the index covers, derived records excluded.
-`renderMemoryIndex(records, { maxLines })` is the same rendering over any
+`readIndex({ derived: true })` renders the other half instead — only the active,
+named records the runtime derived, newest first, with `total` counting them —
+for a host that shows an operator what runs recorded; it changes with every run
+and does not belong in a prompt.
+`renderMemoryIndex(records, { maxLines, derived })` is the same rendering over any
 `MemoryRecord`s — it reads each record's metadata to tell who wrote it. The host
 decides where the index goes in its prompt.
 

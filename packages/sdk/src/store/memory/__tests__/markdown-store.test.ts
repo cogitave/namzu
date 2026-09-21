@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	readdir,
+	stat,
+	symlink,
+	utimes,
+	writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -276,6 +285,7 @@ describe('the generated MEMORY.md index', () => {
 			tags: ['run-memory'],
 			metadata: { source: 'run-memory', runId: 'run_1' },
 		})
+		await new Promise((resolve) => setTimeout(resolve, 5))
 		const consolidated = await store.create({
 			title: 'Learned: fix the flaky test',
 			summary: '1 decision from run run_1.',
@@ -292,6 +302,14 @@ describe('the generated MEMORY.md index', () => {
 		// Still in the store, found by search.
 		const found = (await store.list({ query: 'flaky' })).entries.map((entry) => entry.id)
 		expect(found).toEqual(expect.arrayContaining([promoted.entry.id, consolidated.entry.id]))
+		// An operator can list them on their own, newest first.
+		const derived = await store.readIndex({ derived: true })
+		expect(derived).toMatchObject({ total: 2, omitted: 0 })
+		expect(derived.text.split('\n')).toEqual([
+			expect.stringContaining(`[${consolidated.entry.name}]`),
+			expect.stringContaining(`[${promoted.entry.name}]`),
+		])
+		expect(derived.text).not.toContain('chosen')
 	})
 
 	it('reflects a hand edit on the next read without a write', async () => {
@@ -685,6 +703,41 @@ describe('recoverable hand edits and interrupted writes', () => {
 		expect(files).not.toContain('before.md')
 		expect(files).toContain('before.md.superseded')
 		expect(await readFile(join(directory, 'before.md.superseded'), 'utf8')).toBe(old)
+	})
+
+	it('recovers an interrupted rename of a hand-written file by its mtime', async () => {
+		const { directory, store } = await fixture()
+		await mkdir(directory, { recursive: true })
+		const old = '---\nname: before\ndescription: d\ntype: project\n---\n\nold\n'
+		const oldPath = join(directory, 'before.md')
+		await writeFile(oldPath, old)
+		const oldTime = new Date(Date.now() - 60_000)
+		await utimes(oldPath, oldTime, oldTime)
+		const [entry] = (await store.list()).entries
+		await store.update(entry?.id as MemoryId, { name: 'after', content: 'new' })
+		// The crash: the renamed file is written, the hand-written one never
+		// unlinked, so it keeps its old mtime.
+		await writeFile(oldPath, old)
+		await utimes(oldPath, oldTime, oldTime)
+		expect((await store.getRecord(entry?.id as MemoryId))?.content.content).toBe('new')
+		expect((await store.list()).entries.map((candidate) => candidate.name)).toEqual(['after'])
+		expect((await store.readIndex()).text).toContain('[after](after.md)')
+		await store.create({ title: 'other', summary: 's', content: 'c' })
+		const files = await readdir(directory)
+		expect(files).not.toContain('before.md')
+		expect(await readFile(join(directory, 'before.md.superseded'), 'utf8')).toBe(old)
+	})
+
+	it('still refuses an undated file that states the id a dated file also states', async () => {
+		const { directory, store } = await fixture()
+		const { entry } = await store.create({ title: 't', summary: 's', content: 'c', name: 'one' })
+		await writeFile(
+			join(directory, 'two.md'),
+			`---\nname: two\ndescription: d\ntype: project\nid: ${entry.id}\n---\n\nbody\n`,
+		)
+		await expect(store.list()).rejects.toThrow(
+			new RegExp(`two\\.md is invalid: claims id ${entry.id}, which .*one\\.md also claims`),
+		)
 	})
 })
 

@@ -95,6 +95,11 @@ interface LoadedMemory {
 	 * a copy resets — so it cannot tell an interrupted rename from a copy.
 	 */
 	readonly dated: boolean
+	/**
+	 * The file states no `id`, so its id is derived from its name. Only this
+	 * store's rename of such a file writes that id into a file of another name.
+	 */
+	readonly derived: boolean
 }
 
 type Loaded = ReadonlyMap<MemoryId, LoadedMemory>
@@ -179,7 +184,7 @@ function decodeMemoryFile(
 	file: string,
 	fileName: string,
 	mtimeMs: number,
-): { entry: MemoryIndexEntry; content: MemoryContent; dated: boolean } {
+): { entry: MemoryIndexEntry; content: MemoryContent; dated: boolean; derived: boolean } {
 	let parsed: ReturnType<typeof parseMemoryFile>
 	try {
 		parsed = parseMemoryFile(raw, file)
@@ -240,6 +245,7 @@ function decodeMemoryFile(
 
 	return {
 		dated: v.has('updatedAt'),
+		derived: rawId === undefined,
 		entry: {
 			id,
 			name,
@@ -272,11 +278,14 @@ function decodeMemoryFile(
  * private (0600) files; a file that does not parse, a name that does not match
  * its file, a symlink, two files claiming one id with the same `updatedAt`, or
  * a record stamped by a newer build is refused with the file named, never
- * skipped. Two files claiming one id, both stating their own `updatedAt` and
- * those different, are what an interrupted rename leaves: the newer is read,
- * and the next write moves the older aside to `<name>.md.superseded`. When
- * either file has no `updatedAt` of its own — hand-written, so its time is an
- * mtime a copy resets — the two are refused like a copy. Content the loader
+ * skipped. Two files claiming one id are what an interrupted rename leaves
+ * when both state their own, different `updatedAt`, or when one is a
+ * hand-written file with neither an `id` nor an `updatedAt` — its id derived
+ * from its name, its time its mtime — and the other states that id and a
+ * different `updatedAt`: only a rename of the hand-written file writes its
+ * derived id under another name. The newer is read, and the next write moves
+ * the older aside to `<name>.md.superseded`. Any other pair — an undated file
+ * that states its id, or equal times — is refused like a copy. Content the loader
  * would refuse — a NUL character in the body, title, summary, description or
  * tags, a file over {@link MEMORY_FILE_MAX_BYTES} — is refused with
  * {@link MemoryContentRejectedError} before it is written. A store that
@@ -362,10 +371,20 @@ export class MarkdownMemoryStore implements MemoryStore {
 			if (other) {
 				// Two files, one id. When one was written later it is the rename
 				// that finished writing and did not get to unlink the other; keep
-				// it. Equal timestamps mean a copy, which nothing here can settle,
-				// and so does a file with no `updatedAt` of its own: this store
-				// always writes one, and an mtime is what a copy changes.
-				if (!other.dated || !record.dated || other.entry.updatedAt === record.entry.updatedAt) {
+				// it. Equal timestamps mean a copy, which nothing here can settle.
+				// A file with no `updatedAt` of its own is dated by an mtime a copy
+				// changes, so it is settled only when its id is derived from its
+				// name: then the other file carries that id because this store
+				// renamed the hand-written one, never because it was copied.
+				const renamedHandWritten = (
+					a: Pick<LoadedMemory, 'dated' | 'derived'>,
+					b: Pick<LoadedMemory, 'dated' | 'derived'>,
+				) => !a.dated && a.derived && b.dated && !b.derived
+				const settled =
+					(other.dated && record.dated) ||
+					renamedHandWritten(other, record) ||
+					renamedHandWritten(record, other)
+				if (!settled || other.entry.updatedAt === record.entry.updatedAt) {
 					invalidFile(path, `claims id ${record.entry.id}, which ${other.path} also claims`)
 				}
 				const [newer, older] =
@@ -658,9 +677,13 @@ export class MarkdownMemoryStore implements MemoryStore {
 	 * `feedback` and `user` memories first, capped at `maxLines` (default 200)
 	 * with a note pointing to search for the rest. Rendered from the memory
 	 * files under the lock, so it is current even when a file was edited by
-	 * hand since the last write. See {@link renderMemoryIndex}.
+	 * hand since the last write. See {@link renderMemoryIndex}. `derived: true`
+	 * lists the records the runtime derived instead, newest first — for an
+	 * operator's inspection, never for a prompt.
 	 */
-	async readIndex(options: { readonly maxLines?: number } = {}): Promise<RenderedMemoryIndex> {
+	async readIndex(
+		options: { readonly maxLines?: number; readonly derived?: boolean } = {},
+	): Promise<RenderedMemoryIndex> {
 		return this.withLoaded(async (_dir, loaded) => renderMemoryIndex(this.records(loaded), options))
 	}
 

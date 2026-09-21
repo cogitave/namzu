@@ -50,7 +50,8 @@ export interface RenderedMemoryIndex {
 	/**
 	 * Memories the index covers: active, named, and not derived by the
 	 * runtime (see `memoryOrigin`). Derived records are in the store and found
-	 * by search, never counted here.
+	 * by search, never counted here — unless the index was rendered with
+	 * `derived: true`, when it covers only them.
 	 */
 	readonly total: number
 	/** How many of those `text` does not list. */
@@ -79,26 +80,35 @@ function tier(record: MemoryRecord): number {
  * renders byte-identical text — a prompt that carries it keeps its cache
  * until a memory someone chose to keep changes — and the cap drops `project`
  * and `reference` memories before any operator `feedback` or `user` one.
+ *
+ * `derived: true` renders the other half instead: the active, named records
+ * the runtime derived, newest first, for an operator inspecting what runs
+ * recorded. That listing is not for a prompt; it changes with every run.
  */
 export function renderMemoryIndex(
 	records: readonly MemoryRecord[],
-	options: { readonly maxLines?: number } = {},
+	options: { readonly maxLines?: number; readonly derived?: boolean } = {},
 ): RenderedMemoryIndex {
 	const maxLines = options.maxLines ?? MEMORY_INDEX_MAX_LINES
 	if (!Number.isSafeInteger(maxLines) && maxLines !== Number.POSITIVE_INFINITY) {
 		throw new Error('maxLines must be a positive integer')
 	}
 	if (maxLines < 1) throw new Error('maxLines must be a positive integer')
+	const derived = options.derived === true
+	const byName = (a: { name: string }, b: { name: string }) =>
+		a.name < b.name ? -1 : a.name > b.name ? 1 : 0
 	const listed = records
 		.filter(
 			(record) =>
 				record.entry.status === 'active' &&
 				record.entry.name &&
-				memoryOrigin(record.content.metadata) !== 'derived',
+				(memoryOrigin(record.content.metadata) === 'derived') === derived,
 		)
 		.map((record) => ({ tier: tier(record), name: record.entry.name ?? '', entry: record.entry }))
 		.sort((a, b) =>
-			a.tier !== b.tier ? a.tier - b.tier : a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+			derived
+				? b.entry.updatedAt - a.entry.updatedAt || byName(a, b)
+				: a.tier - b.tier || byName(a, b),
 		)
 	const shown = listed.slice(0, maxLines).map((row) => memoryIndexLine(row.entry))
 	const omitted = listed.length - shown.length
