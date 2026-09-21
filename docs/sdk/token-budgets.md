@@ -133,6 +133,15 @@ A host restoring in another directory or process must supply the same
 `tokenBudgetStore` as well as its `checkpointStore`, or resolve both through the
 same `PathBuilder`. Moving only the message checkpoint does not move the ledger.
 
+A `query()` whose `runStore` is an `InMemoryRunStore` and which passes none of
+`tokenBudgetStore`, `checkpointStore` and `pathBuilder` keeps its ledger in an
+`InMemoryTokenBudgetStore` held by that run store instead of on disk, like the
+run's evidence and checkpoints. With an explicit `checkpointStore` the ledger
+stays on disk, because a resume from those checkpoints in a fresh process
+needs it. `InMemoryTokenBudgetStore` is exported for a
+host that wants the same thing explicitly; it refuses the same regressions the
+disk store refuses.
+
 Checkpoint schema 2 and run-state version 4 carry `budgetBinding` and
 `budgetAccountId`. The binding selects the canonical ledger and account; it does
 not carry a replacement balance. Reading an older message checkpoint therefore

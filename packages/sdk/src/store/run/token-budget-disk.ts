@@ -157,7 +157,8 @@ export async function openTokenBudget(options: OpenTokenBudgetOptions): Promise<
 	return account
 }
 
-function validateScope(scope: TokenBudgetScope): TokenBudgetScope {
+/** @internal Shared with the in-memory store so the two refuse the same records. */
+export function validateScope(scope: TokenBudgetScope): TokenBudgetScope {
 	return {
 		tenantId: asTenantId(scope.tenantId),
 		projectId: asProjectId(scope.projectId),
@@ -175,7 +176,11 @@ function sameScope(left: TokenBudgetScope, right: TokenBudgetScope): boolean {
 	)
 }
 
-function validateSnapshotScope(snapshot: unknown, scope: TokenBudgetScope): TokenBudgetSnapshot {
+/** @internal */
+export function validateSnapshotScope(
+	snapshot: unknown,
+	scope: TokenBudgetScope,
+): TokenBudgetSnapshot {
 	const checked = validateTokenBudgetSnapshot(snapshot)
 	if (checked.rootRunId !== scope.runId) throw new Error('Token budget root run mismatch')
 	return checked
@@ -187,7 +192,8 @@ function rootLimit(snapshot: TokenBudgetSnapshot): number {
 	return account.limit
 }
 
-function assertSameRoot(before: TokenBudgetSnapshot, after: TokenBudgetSnapshot): void {
+/** @internal */
+export function assertSameRoot(before: TokenBudgetSnapshot, after: TokenBudgetSnapshot): void {
 	if (before.rootAccountId !== after.rootAccountId) {
 		throw new Error('Cannot replace an existing token budget with a different root')
 	}

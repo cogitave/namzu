@@ -1401,6 +1401,7 @@ export { WORKING_STATE_MIME } from './connector/mcp/adapter.js'
 
 export { TokenBudget, validateTokenBudgetSnapshot } from './run/token-budget.js'
 export { DiskTokenBudgetStore, openTokenBudget } from './store/run/token-budget-disk.js'
+export { InMemoryTokenBudgetStore } from './store/run/token-budget-memory.js'
 export { validateTokenBudgetBinding } from './types/run/token-budget-store.js'
 
 export { snapshotRequestContext, diffRequestContext } from './runtime/query/request-context.js'

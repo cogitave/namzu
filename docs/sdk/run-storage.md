@@ -43,6 +43,22 @@ from different working directories now share one run directory, where before
 each working directory had its own. Pass a `pathBuilder` when two such runs
 must stay apart.
 
+A run whose `runStore` is an `InMemoryRunStore` and which names no
+`pathBuilder` writes nothing under `<root>`. Its token ledger and its
+checkpoints (with their history log) are held in memory by that run store
+(`packages/sdk/src/runtime/query/stores-held-in-memory.ts`), so they die with
+the process as its evidence does; reusing the same `InMemoryRunStore` instance
+lets a later call in the same process resume from them. An explicit
+`tokenBudgetStore` still wins, and a `pathBuilder` puts both back on disk
+under the root it names. A host that passes its own `checkpointStore` keeps
+the disk ledger: it may resume in a fresh process with a fresh run store, and
+a checkpoint binds its run to the ledger by reference, so a ledger held by the
+old run store would make that resume fail. Such a host passes a
+`tokenBudgetStore` beside its checkpoint store to move the ledger too. Before
+this, a run with an in-memory run store kept its evidence in memory and wrote
+`token-budget.json` and its checkpoints under `defaultStateRoot()`, one tree
+per run with no retention.
+
 ## What each file is for
 
 One record is authoritative for each concern.

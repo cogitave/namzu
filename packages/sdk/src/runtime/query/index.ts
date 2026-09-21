@@ -139,7 +139,13 @@ export interface QueryParams {
 	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	/** One account shared with the task scheduler and descendant runs. */
 	budget?: TokenBudget
-	/** Canonical tree ledger; defaults to disk beside the root run. */
+	/**
+	 * Canonical tree ledger. Defaults to disk beside the root run under
+	 * {@link QueryParams.pathBuilder} — except when {@link QueryParams.runStore}
+	 * is an `InMemoryRunStore` and neither a `pathBuilder` nor a
+	 * `checkpointStore` is given, where the ledger is held in memory by that
+	 * run store, like the run's evidence.
+	 */
 	tokenBudgetStore?: TokenBudgetStore
 	/**
 	 * Notice when the model issues the identical tool call repeatedly, and
@@ -573,7 +579,7 @@ export interface QueryParams {
 
 	/**
 	 * Optional path layout override. Defaults to a {@link DefaultPathBuilder}
-	 * rooted at `{workingDirectory}/.namzu`. First-call filesystem migration
+	 * rooted at `defaultStateRoot()`. First-call filesystem migration
 	 * runs against this builder's root too, so an injected layout never touches
 	 * the fallback working-directory store as a side effect.
 	 */
@@ -581,8 +587,11 @@ export interface QueryParams {
 
 	/**
 	 * Optional checkpoint persistence override. Absent ⇒ iteration
-	 * checkpoints go to the disk layout under the run's output directory
-	 * (today's behavior). A host injects a scope-keyed
+	 * checkpoints go to the disk layout under the run's output directory —
+	 * except when {@link QueryParams.runStore} is an `InMemoryRunStore` and no
+	 * `pathBuilder` is given, where they are held in memory by that run store,
+	 * and so is the token ledger.
+	 * A host injects a scope-keyed
 	 * {@link CheckpointStore} (e.g. Postgres-backed) so mid-turn resume
 	 * survives machines that lose their local disk.
 	 */
