@@ -3,6 +3,7 @@ import type { SessionStatusState } from '../read-model/index.js'
 import { ReadModelRegistry } from '../read-model/registry.js'
 import {
 	type SessionLog,
+	SpillIntegrityError,
 	SpillUnavailableError,
 	foldSessionMessages,
 } from '../store/session-log/index.js'
@@ -107,7 +108,11 @@ export class SessionQuery {
 					readSpill: (ref) => this.options.log.readSpill(ref),
 				})
 			} catch (error) {
-				if (error instanceof SpillUnavailableError || error instanceof SyntaxError)
+				if (
+					error instanceof SpillUnavailableError ||
+					error instanceof SpillIntegrityError ||
+					error instanceof SyntaxError
+				)
 					throw new SessionTranscriptUnavailableError({ reason: 'spill-unavailable', cause: error })
 				throw error
 			}

@@ -1,66 +1,121 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TurnId } from '../../types/ids/index.js'
+import {
+	InMemoryLogMedium,
+	InMemorySessionLog,
+	type SessionLease,
+	type SessionLog,
+} from '../../store/session-log/index.js'
+import type { MessageId, ProjectId, SessionId, TenantId, TopicId } from '../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { SessionRecord, RunMessageSnapshot, RunStore } from '../../types/session/index.js'
+import {
+	generateCheckpointId,
+	generateMessageId,
+	generateSessionId,
+	generateTurnId,
+} from '../../utils/id.js'
 import { SessionQuery, SessionTranscriptUnavailableError } from '../index.js'
 
 /**
- * Asking a finished run what happened.
+ * Asking a session what happened.
  *
- * The stores could each answer part of it and nothing could answer the
- * question. `readEvents` gives a log; `writeMessages` persisted a history;
- * and the two disagree BY DESIGN once compaction has run — the persisted
- * history is what survived, and what compaction removed lives only in the
- * log. `compaction_shed` has carried "exactly the messages the pass
- * removed" since NZ-RUNREC-06, shadowed there precisely so it would not be
- * lost, and nothing read it back. Evidence nobody can retrieve is evidence
- * nobody kept.
+ * The log's fold is what survived compaction; what compaction removed lives
+ * only in the log's `compaction_shed` records, "exactly the messages the pass
+ * removed". Evidence nobody can retrieve is evidence nobody kept, so the
+ * query reads both back from the one log.
  */
 
-const RUN = '22951021-e8cd-4454-815c-4a420d9d53fe' as TurnId
+type Draft = Parameters<SessionLog['append']>[1]
 
-let seq = 0
-const event = (type: string, over: Record<string, unknown> = {}): SessionRecord =>
-	({ type, runId: RUN, seq: ++seq, timestamp: 1_000 + seq, ...over }) as SessionRecord
-
-const reset = () => {
-	seq = 0
+/** A session log with one open turn, and a way to append records to it. */
+async function openTurn(options: { spillAboveBytes?: number } = {}) {
+	const sessionId = generateSessionId()
+	const log = new InMemorySessionLog({
+		sessionId,
+		...(options.spillAboveBytes !== undefined ? { spillAboveBytes: options.spillAboveBytes } : {}),
+	})
+	const lease = (await log.claim({ holder: 'test', ttlMs: 60_000 })) as SessionLease
+	await log.append(lease, {
+		type: 'session_started',
+		projectId: '4dfa889d-312b-4570-a8e3-e1ccd3f2274b' as ProjectId,
+		tenantId: '2c8e25c0-8fc7-4427-8e9e-f338d6e51c02' as TenantId,
+		topicId: '07c17470-7e89-4c5e-9680-2d10d92ac22a' as TopicId,
+		cwd: '/tmp',
+		agent: { id: 'a', name: 'A' },
+	} as Draft)
+	const turnId = generateTurnId()
+	await log.beginTurn(lease, {
+		turnId,
+		userMessageId: generateMessageId(),
+		config: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
+	})
+	const append = (draft: Record<string, unknown>) =>
+		log.append(lease, { turnId, ...draft } as Draft)
+	const message = async (content: Message): Promise<MessageId> => {
+		const messageId = generateMessageId()
+		await append({ type: 'message', messageId, role: content.role, content })
+		return messageId
+	}
+	const shed = (messages: Message[], over: Record<string, unknown> = {}) =>
+		append({ type: 'compaction_shed', iteration: 1, reason: 'threshold', messages, ...over })
+	const complete = () =>
+		append({
+			type: 'turn_completed',
+			result: 'done',
+			settlement: {
+				status: 'completed',
+				iterations: 1,
+				usage: {
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+				durationMs: 1,
+				resultSource: 'model',
+				abandonedTaskIds: [],
+				abandonedJobIds: [],
+			},
+		})
+	/** A park: the turn asks a human, naming a checkpoint. */
+	const park = () => {
+		const checkpointId = generateCheckpointId()
+		return append({
+			type: 'decision_requested',
+			decisionId: checkpointId,
+			checkpointId,
+			request: { type: 'tool_review', sessionId, turnId, checkpointId, toolCalls: [] },
+		})
+	}
+	return { sessionId, log, lease, turnId, append, message, shed, complete, park }
 }
 
-function storeWith(
-	events: SessionRecord[],
-	snapshot: RunMessageSnapshot = { kind: 'unavailable', reason: 'not-persisted' },
-): RunStore {
-	return {
-		async readEvents() {
-			return events
-		},
-		async readMessages() {
-			return snapshot
-		},
-	} as unknown as RunStore
+/** The same bytes in a new medium, with the given edit applied to them. */
+async function copyWith(
+	log: InMemorySessionLog,
+	sessionId: SessionId,
+	edit: (text: string) => string,
+): Promise<InMemorySessionLog> {
+	const size = await log.medium.size()
+	const text = Buffer.from(await log.medium.read(0, size)).toString('utf8')
+	const medium = new InMemoryLogMedium()
+	await medium.append(Buffer.from(edit(text), 'utf8'), 0)
+	return new InMemorySessionLog({ sessionId, medium })
 }
-
-const shed = (messages: Message[], over: Record<string, unknown> = {}) =>
-	event('compaction_shed', { iteration: 1, reason: 'threshold', messages, ...over })
 
 describe('what compaction removed can be read back', () => {
 	it('returns every shed pass, oldest first', async () => {
-		reset()
+		const turn = await openTurn()
 		const first = [createUserMessage('the first thing')]
 		const second = [createUserMessage('the second thing')]
-		const query = new SessionQuery({
-			store: storeWith([
-				event('turn_started'),
-				shed(first, { iteration: 3 }),
-				event('iteration_started', { iteration: 4 }),
-				shed(second, { iteration: 7, reason: 'overflow' }),
-			]),
-		})
+		await turn.shed(first, { iteration: 3 })
+		await turn.append({ type: 'iteration_started', iteration: 4 })
+		await turn.shed(second, { iteration: 7, reason: 'overflow' })
 
-		const passes = await query.shedHistory()
+		const passes = await new SessionQuery({ log: turn.log }).shedHistory()
 
 		expect(passes.map((p) => p.iteration)).toEqual([3, 7])
 		expect(passes.map((p) => p.reason)).toEqual(['threshold', 'overflow'])
@@ -68,190 +123,160 @@ describe('what compaction removed can be read back', () => {
 	})
 
 	it('carries the log position, for a caller correlating with events', async () => {
-		reset()
-		const query = new SessionQuery({
-			store: storeWith([event('turn_started'), shed([createUserMessage('gone')])]),
-		})
+		const turn = await openTurn()
+		const entry = await turn.shed([createUserMessage('gone')])
 
-		expect((await query.shedHistory())[0]?.seq).toBe(2)
+		expect((await new SessionQuery({ log: turn.log }).shedHistory())[0]?.seq).toBe(entry.record.seq)
 	})
 
-	it('says nothing for a run that never compacted', async () => {
-		reset()
-		const query = new SessionQuery({ store: storeWith([event('turn_started')]) })
-
-		expect(await query.shedHistory()).toEqual([])
+	it('says nothing for a session that never compacted', async () => {
+		const turn = await openTurn()
+		expect(await new SessionQuery({ log: turn.log }).shedHistory()).toEqual([])
 	})
 })
 
 describe('the full transcript is complete', () => {
-	it('reads the surviving snapshot from the bound store when none is supplied', async () => {
-		reset()
+	it('folds the surviving conversation from the log when none is supplied', async () => {
+		const turn = await openTurn()
 		const gone = createUserMessage('the durable instruction')
-		const survived = [createAssistantMessage('the durable summary')]
-		const events = [event('turn_started'), shed([gone]), event('turn_completed')]
-		const query = new SessionQuery({
-			store: storeWith(events, {
-				kind: 'available',
-				throughEventSeq: 3,
-				messages: survived,
-			}),
+		await turn.message(gone)
+		await turn.shed([gone])
+		await turn.append({
+			type: 'compaction',
+			compactionId: generateMessageId(),
+			strategy: 'context-rewrite',
+			trigger: 'auto',
+			replacesSeqRange: [1, 4],
+			summary: [],
+			keptMessageIds: [],
+			tokensBefore: 0,
+			tokensAfter: 0,
 		})
+		await turn.message(createAssistantMessage('the durable summary'))
+		await turn.complete()
 
-		expect((await query.fullTranscript()).map((message) => message.content)).toEqual([
+		const full = await new SessionQuery({ log: turn.log }).fullTranscript()
+
+		expect(full.map((message) => message.content)).toEqual([
 			'the durable instruction',
 			'the durable summary',
 		])
 	})
 
-	it('refuses a terminal run whose message publication was interrupted', async () => {
-		reset()
-		const events = [
-			event('turn_started'),
-			shed([createUserMessage('recoverable only from the log')]),
-			event('turn_completed'),
-		]
-		const query = new SessionQuery({ store: storeWith(events) })
+	it('refuses a log that does not chain', async () => {
+		const turn = await openTurn()
+		await turn.message(createUserMessage('what was said'))
+		await turn.shed([createUserMessage('what was shed')])
+		await turn.complete()
+		// A record changed after it was written: its hash no longer chains.
+		const broken = await copyWith(turn.log, turn.sessionId, (text) =>
+			text.replace('what was said', 'what was NOT said'),
+		)
 
-		const refusal = await query.fullTranscript().catch((error: unknown) => error)
+		const refusal = await new SessionQuery({ log: broken })
+			.fullTranscript()
+			.catch((error: unknown) => error)
 
 		expect(refusal).toBeInstanceOf(SessionTranscriptUnavailableError)
-		expect(refusal).toMatchObject({
-			reason: 'message-snapshot-not-persisted',
-			eventHeadSeq: 3,
-		})
+		expect(refusal).toMatchObject({ reason: 'log-integrity' })
 	})
 
-	it('refuses a stale snapshot left by an earlier pause of the same run', async () => {
-		reset()
-		const events = [
-			event('turn_started'),
-			event('turn_paused', {
-				checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c',
-				reason: 'retry',
-			}),
-			event('turn_resuming', { fromCheckpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
-			event('turn_completed'),
-		]
-		const query = new SessionQuery({
-			store: storeWith(events, {
-				kind: 'available',
-				throughEventSeq: 2,
-				messages: [createUserMessage('only complete through the pause')],
-			}),
-		})
+	it('refuses a transcript whose spilled message body is gone', async () => {
+		const turn = await openTurn({ spillAboveBytes: 64 })
+		await turn.message(createUserMessage(`a long body ${'x'.repeat(512)}`))
+		await turn.complete()
+		// The same log without its spill store: the record names a body the
+		// reader cannot find.
+		const withoutSpills = await copyWith(turn.log, turn.sessionId, (text) => text)
 
-		const refusal = await query.fullTranscript().catch((error: unknown) => error)
-		expect(refusal).toMatchObject({
-			reason: 'message-snapshot-out-of-sync',
-			eventHeadSeq: 4,
-			snapshotThroughEventSeq: 2,
-		})
-	})
+		const refusal = await new SessionQuery({ log: withoutSpills })
+			.fullTranscript()
+			.catch((error: unknown) => error)
 
-	it('keeps legacy messages readable but refuses to call their transcript complete', async () => {
-		reset()
-		const events = [event('turn_started'), event('turn_completed')]
-		const query = new SessionQuery({
-			store: storeWith(events, {
-				kind: 'legacy-unverified',
-				messages: [createUserMessage('from an older sdk')],
-			}),
-		})
-
-		await expect(query.fullTranscript()).rejects.toMatchObject({
-			reason: 'message-snapshot-unverified',
-		})
+		expect(refusal).toBeInstanceOf(SessionTranscriptUnavailableError)
+		expect(refusal).toMatchObject({ reason: 'spill-unavailable' })
 	})
 
 	it('carries a message compaction removed AND the ones that survived', async () => {
 		// The question somebody reconstructing an incident is actually asking.
-		reset()
+		const turn = await openTurn()
 		const gone = createUserMessage('the instruction that was shed')
 		const survived = [createAssistantMessage('a summary'), createUserMessage('and then')]
-		const query = new SessionQuery({
-			store: storeWith([event('turn_started'), shed([gone])]),
-		})
+		await turn.shed([gone])
 
-		const full = await query.fullTranscript(survived)
+		const full = await new SessionQuery({ log: turn.log }).fullTranscript(survived)
 
 		expect(full).toHaveLength(3)
-		expect(full[0]).toBe(gone)
+		expect(full[0]).toEqual(gone)
 		expect(full.slice(1)).toEqual(survived)
 	})
 
 	it('returns the SAME array when nothing was shed', async () => {
 		// So the common case costs one log read and no allocation.
-		reset()
+		const turn = await openTurn()
 		const messages = [createUserMessage('hello')]
-		const query = new SessionQuery({ store: storeWith([event('turn_started')]) })
 
-		expect(await query.fullTranscript(messages)).toBe(messages)
+		expect(await new SessionQuery({ log: turn.log }).fullTranscript(messages)).toBe(messages)
 	})
 
 	it('keeps two passes in the order they happened', async () => {
-		reset()
-		const a = createUserMessage('A')
-		const b = createUserMessage('B')
-		const query = new SessionQuery({
-			store: storeWith([event('turn_started'), shed([a]), shed([b])]),
-		})
+		const turn = await openTurn()
+		await turn.shed([createUserMessage('A')])
+		await turn.shed([createUserMessage('B')])
 
-		const full = await query.fullTranscript([createUserMessage('C')])
+		const full = await new SessionQuery({ log: turn.log }).fullTranscript([createUserMessage('C')])
 
 		expect(full.map((m) => m.content)).toEqual(['A', 'B', 'C'])
 	})
 })
 
 describe('status comes from the read model, not a second fold', () => {
-	it('answers about a finished run', async () => {
-		// Two folds of one log are two chances to disagree, and a run that
+	it('answers about a finished turn', async () => {
+		// Two folds of one log are two chances to disagree, and a turn that
 		// reads differently depending on which surface asked is what this
 		// seam exists to remove.
-		reset()
-		const query = new SessionQuery({
-			store: storeWith([event('turn_started'), event('turn_completed')]),
-		})
+		const turn = await openTurn()
+		await turn.complete()
 
-		expect(await query.status()).toBe('succeeded')
+		expect(await new SessionQuery({ log: turn.log }).status()).toBe('succeeded')
 	})
 
-	it('answers about a run waiting on a human', async () => {
-		reset()
-		const query = new SessionQuery({
-			store: storeWith([event('turn_started'), event('tool_review_requested', { toolCalls: [] })]),
-		})
+	it('answers about a turn waiting on a human', async () => {
+		const turn = await openTurn()
+		await turn.park()
 
-		expect(await query.status()).toBe('awaiting_hitl')
+		expect(await new SessionQuery({ log: turn.log }).status()).toBe('awaiting_hitl')
 	})
 
 	it('hands back the whole projected state for a caller that wants the park', async () => {
-		reset()
-		const query = new SessionQuery({
-			store: storeWith([event('turn_started'), event('tool_review_requested', { toolCalls: [] })]),
-		})
+		const turn = await openTurn()
+		await turn.park()
 
-		const state = await query.statusState()
+		const state = await new SessionQuery({ log: turn.log }).statusState()
 
 		expect(state.execution).toBe('running')
 		expect(state.park).toBeDefined()
 	})
 
-	it('says queued for a run whose log is empty', async () => {
-		reset()
-		expect(await new SessionQuery({ store: storeWith([]) }).status()).toBe('queued')
+	it('says queued for a session whose log is empty', async () => {
+		const log = new InMemorySessionLog({ sessionId: generateSessionId() })
+		expect(await new SessionQuery({ log }).status()).toBe('queued')
 	})
 })
 
-describe('the events themselves', () => {
-	it('are handed back oldest first, as the store gave them', async () => {
-		// Not re-sorted. A log that needs sorting was written by two
-		// processes, and hiding that produces a plausible transcript of a run
-		// that never happened.
-		reset()
-		const events = [event('turn_started'), event('iteration_started', { iteration: 1 })]
-		const query = new SessionQuery({ store: storeWith(events) })
+describe('the records themselves', () => {
+	it('are handed back oldest first, as the log holds them', async () => {
+		// Not re-sorted: the log is one append-only sequence.
+		const turn = await openTurn()
+		await turn.append({ type: 'iteration_started', iteration: 1 })
 
-		expect(await query.events()).toBe(events)
+		const records = await new SessionQuery({ log: turn.log }).records()
+
+		expect(records.map((record) => record.type)).toEqual([
+			'session_started',
+			'turn_started',
+			'iteration_started',
+		])
+		expect(records.map((record) => record.seq)).toEqual([1, 2, 3])
 	})
 })
