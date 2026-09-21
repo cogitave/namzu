@@ -128,6 +128,13 @@ cannot list them: implement it to keep them listable.
   recorder and read with `foldSessionMessages`. A custom `SessionStore` drops
   those methods. `SqliteSessionStore` and `SqliteSessionStoreConfig` are
   removed; `SessionIndex` replaces them.
+- Tasks live under `<session-id>/tasks/<task-id>.json`, one store per
+  session: `DiskTaskStoreConfig` is `{ paths, session, tenantId?, logger? }`,
+  and a store opened on another session's tasks throws
+  `TaskSessionMismatchError`. Each task records the turn that created it;
+  `selectTaskContext(tasks, { turnId, turnStartedAt })` gives the tasks a turn
+  sees (every open task, plus those it closed). The task tools take a
+  `TaskToolScope` of `{ sessionId, turnId, turnStartedAt }`.
 - `MessageFeedbackStore` is keyed by `(sessionId, messageId)` under
   `<session-id>/feedback/`, and feedback on a message the session log does not
   hold throws `UnknownMessageError`.

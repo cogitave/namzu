@@ -232,7 +232,13 @@ export type {
 	ConnectorToolStrategy,
 } from './connector/tools/index.js'
 
-export type { CreateTurnFromA2A } from './bridge/a2a/index.js'
+export type { CreateTurnFromA2A, MapTurnToA2ATaskOptions } from './bridge/a2a/index.js'
+
+export type { CheckpointRecords, RecordedPark } from './runtime/query/checkpoint.js'
+
+export type { TaskContextScope } from './store/task/context.js'
+
+export type { TaskToolScope } from './tools/task/index.js'
 
 export type { MappedStreamEvent } from './bridge/sse/index.js'
 

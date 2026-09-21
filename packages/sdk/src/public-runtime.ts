@@ -496,6 +496,10 @@ export {
 	renderMemoryIndex,
 	slugifyMemoryName,
 } from './store/index.js'
+// The task-context rule (open tasks from any turn, plus the ones this turn
+// closed), and the refusal of a task store bound to another session.
+export { selectTaskContext } from './store/task/context.js'
+export { TaskSessionMismatchError } from './store/task/disk.js'
 // Cross-process possession of a session: its `lease.json`. Listing what is
 // waiting (pending decisions, turns, children) is `SessionIndex`'s job, which
 // comes through `./store/session-index/index.js` at the end of this file.
