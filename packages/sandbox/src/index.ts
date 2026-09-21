@@ -92,6 +92,8 @@ import {
 // local name and `ContainerBackendConfig.brokeredCredentials` needs one to
 // point at. The public export is unchanged and stays type-only.
 import type { BrokeredCredential } from './egress/index.js'
+import { resolveProviderEgress } from './egress/profile-wiring.js'
+import type { SandboxEgressProfile } from './egress/profile.js'
 
 // Re-export the layout types so consumers of `@namzu/sandbox` can
 // import them without also depending on `@namzu/sdk`. The canonical
@@ -1181,6 +1183,18 @@ export type {
 	EgressProxyOptions,
 	RunningEgressProxy,
 } from './egress/index.js'
+export {
+	defineEgressProfile,
+	egressProfileAllowsPort,
+	kubernetesEgressFromProfile,
+	SandboxEgressProfileError,
+} from './egress/profile.js'
+export type {
+	KubernetesEgressProfileEnforcement,
+	SandboxEgressHostRule,
+	SandboxEgressProfile,
+	SandboxEgressProfileErrorCode,
+} from './egress/profile.js'
 
 export type EgressPolicy =
 	| { readonly kind: 'deny-all' }
@@ -1294,6 +1308,18 @@ export type SandboxProviderConfig =
 
 interface SandboxProviderConfigBase {
 	readonly defaultEgress?: EgressPolicy
+	/**
+	 * A named, validated host allowlist with optional ports, instead of
+	 * `defaultEgress`. Validated here, synchronously, before any I/O, and
+	 * refused (`SandboxEgressProfileError`) where the backend cannot honour all
+	 * of it: beside `defaultEgress`; on the kubernetes backend, whose egress is
+	 * config-level (use `kubernetesEgressFromProfile` for `backend.egress`); on
+	 * the ACI standby pool; and ports on firecracker. On docker and runsc a
+	 * brokered credential for a host outside the profile is refused, and a live
+	 * `setNetworkPolicy` may only narrow within the profile. No hosts is
+	 * `deny-all`. See `docs/sdk/sandbox-egress-profiles.md`.
+	 */
+	readonly egressProfile?: SandboxEgressProfile
 	readonly defaultTimeoutMs?: number
 	readonly defaultMemoryLimitMb?: number
 	readonly defaultMaxProcesses?: number
@@ -1324,7 +1350,10 @@ interface SandboxProviderConfigBase {
  * of a provider that confines nothing.
  */
 export function createSandboxProvider(config: SandboxProviderConfig): SandboxProvider {
-	const backend = pickBackend(config)
+	// Before the backend is built, so a profile the backend cannot honour is
+	// refused with nothing constructed.
+	const resolvedEgress = resolveProviderEgress(config)
+	const backend = pickBackend(config, resolvedEgress.profile)
 	const id = `namzu-${backend.tier}-${backend.name}`
 	const name = `@namzu/sandbox: ${describeBackend(config.backend)}`
 	return {
@@ -1339,7 +1368,7 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 			return await backend.create({
 				...(perCall?.signal !== undefined ? { signal: perCall.signal } : {}),
 				workingDirectory: perCall?.workingDirectory ?? '/workspace',
-				...(config.defaultEgress !== undefined ? { egress: config.defaultEgress } : {}),
+				...(resolvedEgress.egress !== undefined ? { egress: resolvedEgress.egress } : {}),
 				...(perCall?.timeoutMs !== undefined
 					? { timeoutMs: perCall.timeoutMs }
 					: config.defaultTimeoutMs !== undefined
@@ -1361,7 +1390,10 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 	}
 }
 
-function pickBackend(config: SandboxProviderConfig): SandboxBackend {
+function pickBackend(
+	config: SandboxProviderConfig,
+	egressProfile: SandboxEgressProfile | undefined,
+): SandboxBackend {
 	const backend = config.backend
 	// Checked ahead of the `docker` default below: `ACIStandbyPoolBackendConfig`
 	// is a real arm of `SandboxProviderConfig` (see the discriminated union
@@ -1434,6 +1466,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.writableRootfsPaths !== undefined
 				? { writableRootfsPaths: backend.writableRootfsPaths }
 				: {}),
+			...(egressProfile !== undefined ? { egressProfile } : {}),
 		})
 	}
 	if (backend.tier === 'container' && backend.runtime === 'runsc') {
@@ -1468,6 +1501,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.writableRootfsPaths !== undefined
 				? { writableRootfsPaths: backend.writableRootfsPaths }
 				: {}),
+			...(egressProfile !== undefined ? { egressProfile } : {}),
 		})
 	}
 	// `microvm:self-hosted` targeting the OWNED Azure Firecracker

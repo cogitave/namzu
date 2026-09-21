@@ -4,8 +4,10 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { defineEgressProfile } from '../../../egress/profile.js'
 import { REMOTE_EXECUTION_PROTOCOL_VERSION } from '../../remote-execution-controller.js'
 import { buildDockerBackend, resolveLayout } from '../index.js'
+import type { DockerBackendInternalConfig } from '../index.js'
 
 /**
  * `setNetworkPolicy` on the docker backend, against a daemon that keeps state.
@@ -108,7 +110,7 @@ describe('docker setNetworkPolicy — one swap at a time, each verifying its own
 		rmSync(workDir, { recursive: true, force: true })
 	})
 
-	function backend() {
+	function backend(overrides: Partial<DockerBackendInternalConfig> = {}) {
 		return buildDockerBackend({
 			image: 'namzu-sandbox:latest',
 			egressProxyImage: 'namzu-egress-proxy:latest',
@@ -118,6 +120,7 @@ describe('docker setNetworkPolicy — one swap at a time, each verifying its own
 			dockerBinary: dockerShim,
 			readyTimeoutMs: 200,
 			readyPollIntervalMs: 5,
+			...overrides,
 		})
 	}
 
@@ -283,6 +286,37 @@ describe('docker setNetworkPolicy — one swap at a time, each verifying its own
 		// started one.
 		expect(readdirSync(state)).toEqual([])
 		expect(countCalls('run')).toBe(3)
+	})
+
+	it('under an egress profile, narrows within it and refuses a host outside it', async () => {
+		const egressProfile = defineEgressProfile({
+			name: 'p',
+			hosts: [{ host: 'api.example.com' }, { host: '.example.org' }],
+		})
+		const sandbox = await backend({ egressProfile }).create({
+			workingDirectory: workDir,
+			egress: { kind: 'static', allowedHosts: ['api.example.com', '.example.org'] },
+		})
+		try {
+			const runsAfterCreate = countCalls('run')
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: ['api.example.com', 'wider.example.net'] }),
+			).rejects.toMatchObject({
+				name: 'SandboxEgressProfileError',
+				code: 'invalid-host',
+				path: 'allowedHosts[1]',
+			})
+			// A domain entry is refused unless a domain rule covers all of it.
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: ['.api.example.com'] }),
+			).rejects.toMatchObject({ code: 'invalid-host', path: 'allowedHosts[0]' })
+			expect(countCalls('run')).toBe(runsAfterCreate)
+
+			await sandbox.setNetworkPolicy?.({ allowedHosts: ['docs.example.org'] })
+			expect(proxiesInForce()).toEqual([['docs.example.org']])
+		} finally {
+			await sandbox.destroy()
+		}
 	})
 
 	it('refuses a call made after destroy without queueing it', async () => {

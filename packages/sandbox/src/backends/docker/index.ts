@@ -68,6 +68,12 @@ import {
 	withHint,
 } from '@namzu/sdk'
 import type { BrokeredCredential } from '../../egress/index.js'
+import { assertBrokeredCredentialsFitProfile } from '../../egress/profile-wiring.js'
+import {
+	type SandboxEgressProfile,
+	SandboxEgressProfileError,
+	egressProfileCoversEntry,
+} from '../../egress/profile.js'
 
 import {
 	ContainerSandboxLayoutValidationError,
@@ -306,6 +312,16 @@ export interface DockerBackendInternalConfig {
 	 * credentials with a route to the internet.
 	 */
 	readonly labels?: Readonly<Record<string, string>>
+
+	/**
+	 * The egress profile the provider was built with, already validated by
+	 * `defineEgressProfile`. The create-time policy is derived from it by the
+	 * provider; the backend reads it for what a policy cannot carry. Under a
+	 * profile, a brokered credential for a host outside it is refused at
+	 * construction, and a live `setNetworkPolicy` may only name hosts the
+	 * profile covers.
+	 */
+	readonly egressProfile?: SandboxEgressProfile
 }
 
 const DEFAULT_DOCKER_BINARY = 'docker'
@@ -326,6 +342,13 @@ export function buildDockerBackend(config: DockerBackendInternalConfig): Sandbox
 	// argv is built, because that is the only place a caller cannot skip them.
 	assertCpuLimitIsRenderable(config.cpuLimit)
 	assertRootfsOptionsAreCoherent(config)
+	if (config.egressProfile !== undefined) {
+		assertBrokeredCredentialsFitProfile(
+			config.egressProfile,
+			config.brokeredCredentials,
+			config.runtime === 'runsc' ? 'runsc' : 'docker',
+		)
+	}
 	const readiness = resolveReadinessOptions(
 		'docker',
 		config.readyTimeoutMs,
@@ -1655,6 +1678,21 @@ async function spawnDockerSandbox(
 			// Copied now, so a caller that mutates its array while the call waits
 			// its turn does not change what the call applies.
 			const requested: readonly string[] = Object.freeze([...policy.allowedHosts])
+			// Under a profile, a live change narrows within it and never widens
+			// past it: the profile is what the host declared this sandbox may
+			// reach, and a call that names more is refused before it is queued.
+			const profile = config.egressProfile
+			if (profile !== undefined) {
+				requested.forEach((entry, index) => {
+					if (egressProfileCoversEntry(profile, entry)) return
+					throw new SandboxEgressProfileError(
+						'invalid-host',
+						`allowedHosts[${index}]`,
+						`${JSON.stringify(entry)} is outside egress profile ${JSON.stringify(profile.name)}; setNetworkPolicy may narrow within the profile, not widen past it`,
+						config.runtime === 'runsc' ? 'runsc' : 'docker',
+					)
+				})
+			}
 			// Calls are SERIALIZED per sandbox, first in first out, and each one
 			// applies and verifies its OWN policy. Overlapping swaps used to
 			// interleave remove, run, attach and inspect against one container

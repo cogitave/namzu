@@ -761,6 +761,20 @@ Both methods are capability-checked. A backend that cannot preserve the same
 isolation and ownership boundary omits them; callers must not fall back to a
 host process or a different sandbox.
 
+## Egress profiles
+
+`defineEgressProfile({ name, hosts: [{ host, ports? }] })` is one named,
+validated allowlist a host can give any backend. `createSandboxProvider({
+egressProfile })` turns it into `deny-all` (no hosts) or a `static` allowlist
+on docker, runsc and firecracker, and refuses at construction, before any I/O,
+what a backend cannot honour: ports on firecracker, any profile on the ACI
+standby pool, a profile beside `defaultEgress`, and a brokered credential for a
+host outside the profile. On kubernetes, put
+`kubernetesEgressFromProfile(profile, { engine: 'cilium' })` in
+`backend.egress`, which also covers workspaces. A profile carries no
+credentials and has no wildcard. See
+[docs/sdk/sandbox-egress-profiles.md](../../docs/sdk/sandbox-egress-profiles.md).
+
 ## Firecracker network policy
 
 At microVM creation, the Firecracker backend maps the resolved egress decision

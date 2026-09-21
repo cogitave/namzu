@@ -172,6 +172,11 @@ past the guard, not that the guest was slow.
 
 ## What this tier does not have
 
+- No port rules in an egress profile. `createSandboxProvider({ egressProfile })`
+  maps a profile's hosts to the orchestrator's `allowlist` (no hosts to `none`),
+  and refuses a rule with `ports` at construction: the orchestrator's network
+  policy names hosts and has no field for ports. See
+  [Sandbox egress profiles](sandbox-egress-profiles.md).
 - No `transport` passthrough. `VsockTransportOptions` has more fields than this
   config exposes (`connectTimeoutMs`, `readIdleTimeoutMs`, `heartbeatMs`, the
   write-size bounds), and none of them is forwarded through
