@@ -21,99 +21,108 @@ describe('CLI delegation uses the parent token limit', () => {
 		{ maxIterations: 2, override: 0, launchCaps: true, requests: 43, success: true },
 		{ maxIterations: 0, override: 2, requests: 2, success: false },
 		{ maxIterations: 2, requests: 2, success: false },
-	])('parallel children honor explicit limits and record them in their logs: %j', async (test) => {
-		const cwd = mkdtempSync(join(tmpdir(), 'namzu-unlimited-children-'))
-		directories.push(cwd)
-		const parent = await subagentParentFixture(cwd)
-		const stateRoot = join(cwd, 'state')
-		const providers: MockLLMProvider[] = []
-		const runtime = await createSubagentRuntime({
-			cwd,
-			model: 'mock',
-			tokenBudget: 'launchCaps' in test ? 1 : 0,
-			...('launchCaps' in test ? { timeoutMs: 1 } : {}),
-			maxIterations: test.maxIterations,
-			...('override' in test
-				? { resolveLimits: () => ({ maxIterations: test.override, tokenBudget: 0, timeoutMs: 0 }) }
-				: {}),
-			resolveResumeHandler: () => async (request) =>
-				request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
-			resolveParent: parent.resolveParent,
-			paths: new SessionPaths({ home: stateRoot, slug: '-work-parent-budget' }),
-			buildProvider: () => {
-				const provider = new MockLLMProvider({
-					nextTurn: (_request, index) => ({
-						...(index < 42
-							? { toolCalls: [{ name: 'observe', args: { index } }] }
-							: { text: 'done' }),
-						usage: { promptTokens: 10_000, completionTokens: 1 },
-					}),
-				})
-				providers.push(provider)
-				return provider
-			},
-			buildTools: () => {
-				const tools = new ToolRegistry()
-				tools.register({
-					name: 'observe',
-					description: 'Observe a sample',
-					inputSchema: mcpJsonSchemaToZod({
-						type: 'object',
-						properties: { index: { type: 'number' } },
-						required: ['index'],
-					}),
-					execute: async () => ({ success: true, output: 'observed' }),
-				})
-				return tools
-			},
-		})
-		try {
-			const results = await Promise.all(
-				[0, 1].map((index) =>
-					runtime.agentTool.execute(
-						{
-							description: `inspect ${index}`,
-							prompt: `observe sequence ${index}`,
-						},
-						{
-							sessionId: parent.scope.sessionId,
-							turnId: parent.scope.turnId,
-							workingDirectory: cwd,
-							abortSignal: new AbortController().signal,
-							env: {},
-							log() {},
-						},
+	])(
+		'parallel children honor explicit limits and record them in their logs: %j',
+		async (test) => {
+			const cwd = mkdtempSync(join(tmpdir(), 'namzu-unlimited-children-'))
+			directories.push(cwd)
+			const parent = await subagentParentFixture(cwd)
+			const stateRoot = join(cwd, 'state')
+			const providers: MockLLMProvider[] = []
+			const runtime = await createSubagentRuntime({
+				cwd,
+				model: 'mock',
+				tokenBudget: 'launchCaps' in test ? 1 : 0,
+				...('launchCaps' in test ? { timeoutMs: 1 } : {}),
+				maxIterations: test.maxIterations,
+				...('override' in test
+					? {
+							resolveLimits: () => ({ maxIterations: test.override, tokenBudget: 0, timeoutMs: 0 }),
+						}
+					: {}),
+				resolveResumeHandler: () => async (request) =>
+					request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
+				resolveParent: parent.resolveParent,
+				paths: new SessionPaths({ home: stateRoot, slug: '-work-parent-budget' }),
+				buildProvider: () => {
+					const provider = new MockLLMProvider({
+						nextTurn: (_request, index) => ({
+							...(index < 42
+								? { toolCalls: [{ name: 'observe', args: { index } }] }
+								: { text: 'done' }),
+							usage: { promptTokens: 10_000, completionTokens: 1 },
+						}),
+					})
+					providers.push(provider)
+					return provider
+				},
+				buildTools: () => {
+					const tools = new ToolRegistry()
+					tools.register({
+						name: 'observe',
+						description: 'Observe a sample',
+						inputSchema: mcpJsonSchemaToZod({
+							type: 'object',
+							properties: { index: { type: 'number' } },
+							required: ['index'],
+						}),
+						execute: async () => ({ success: true, output: 'observed' }),
+					})
+					return tools
+				},
+			})
+			try {
+				const results = await Promise.all(
+					[0, 1].map((index) =>
+						runtime.agentTool.execute(
+							{
+								description: `inspect ${index}`,
+								prompt: `observe sequence ${index}`,
+							},
+							{
+								sessionId: parent.scope.sessionId,
+								turnId: parent.scope.turnId,
+								workingDirectory: cwd,
+								abortSignal: new AbortController().signal,
+								env: {},
+								log() {},
+							},
+						),
 					),
-				),
-			)
-			expect(
-				results.map((result) => result.success),
-				JSON.stringify(results),
-			).toEqual([test.success, test.success])
-			expect(
-				providers.map((provider) => provider.requests.length),
-				JSON.stringify(results),
-			).toEqual([test.requests, test.requests])
-			const children = await childTurnRecords(stateRoot)
-			expect(children).toHaveLength(2)
-			for (const child of children) {
-				expect(child.started?.config).toMatchObject({
-					tokenBudget: 0,
-					maxIterations: ('override' in test ? test.override : test.maxIterations) ?? 0,
-					timeoutMs: 0,
-				})
-				expect(child.terminal?.budget).toMatchObject({
-					limit: 0,
-					ownTokens: test.requests * 10_001,
-					treeTokens: test.requests * 10_001,
-					remainingTokens: null,
-					unresolvedRequests: 0,
-				})
+				)
+				expect(
+					results.map((result) => result.success),
+					JSON.stringify(results),
+				).toEqual([test.success, test.success])
+				expect(
+					providers.map((provider) => provider.requests.length),
+					JSON.stringify(results),
+				).toEqual([test.requests, test.requests])
+				const children = await childTurnRecords(stateRoot)
+				expect(children).toHaveLength(2)
+				for (const child of children) {
+					expect(child.started?.config).toMatchObject({
+						tokenBudget: 0,
+						maxIterations: ('override' in test ? test.override : test.maxIterations) ?? 0,
+						timeoutMs: 0,
+					})
+					expect(child.terminal?.budget).toMatchObject({
+						limit: 0,
+						ownTokens: test.requests * 10_001,
+						treeTokens: test.requests * 10_001,
+						remainingTokens: null,
+						unresolvedRequests: 0,
+					})
+				}
+			} finally {
+				await runtime.close()
 			}
-		} finally {
-			await runtime.close()
-		}
-	})
+			// Two children of 43 model calls each, every record appended and synced
+			// to a disk log: about eight seconds alone, and twice that beside the
+			// rest of the suite.
+		},
+		60_000,
+	)
 	it.each([
 		{ tokenBudget: 1_000, expectedChildBudget: 111 },
 		{ tokenBudget: undefined, expectedChildBudget: 0 },
