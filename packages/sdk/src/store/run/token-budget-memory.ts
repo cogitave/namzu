@@ -12,10 +12,12 @@ import { assertSameRoot, validateScope, validateSnapshotScope } from './token-bu
  * other sees the same answers. Records are copied on the way in and out, so a
  * caller holding a snapshot cannot change what the store holds.
  *
- * `query()` uses one of these, held by the run store, when a host passes an
- * {@link import('./memory.js').InMemoryRunStore} and none of
- * `tokenBudgetStore`, `checkpointStore` or `pathBuilder`: a run whose evidence
- * and checkpoints die with the process does not leave its ledger on disk.
+ * `query()` and the agents keep a run's ledger in one of these whenever the
+ * run's checkpoints are in an
+ * {@link import('./checkpoint-memory.js').InMemoryCheckpointStore} and the
+ * host passed no `tokenBudgetStore`: each such checkpoint store carries one
+ * (`tokenBudgets`), so the ledger lives, and dies, with the checkpoints that
+ * reference it.
  */
 export class InMemoryTokenBudgetStore implements TokenBudgetStore {
 	private readonly records = new Map<string, TokenBudgetSnapshot>()

@@ -140,11 +140,11 @@ export interface QueryParams {
 	/** One account shared with the task scheduler and descendant runs. */
 	budget?: TokenBudget
 	/**
-	 * Canonical tree ledger. Defaults to disk beside the root run under
-	 * {@link QueryParams.pathBuilder} — except when {@link QueryParams.runStore}
-	 * is an `InMemoryRunStore` and neither a `pathBuilder` nor a
-	 * `checkpointStore` is given, where the ledger is held in memory by that
-	 * run store, like the run's evidence.
+	 * Canonical tree ledger. Absent, it lives where the run's checkpoints
+	 * live: in the `InMemoryCheckpointStore` that holds them (its
+	 * `tokenBudgets`), whether passed as {@link QueryParams.checkpointStore} or
+	 * held for an in-memory {@link QueryParams.runStore}; otherwise on disk
+	 * beside the root run under {@link QueryParams.pathBuilder}.
 	 */
 	tokenBudgetStore?: TokenBudgetStore
 	/**
@@ -589,8 +589,9 @@ export interface QueryParams {
 	 * Optional checkpoint persistence override. Absent ⇒ iteration
 	 * checkpoints go to the disk layout under the run's output directory —
 	 * except when {@link QueryParams.runStore} is an `InMemoryRunStore` and no
-	 * `pathBuilder` is given, where they are held in memory by that run store,
-	 * and so is the token ledger.
+	 * `pathBuilder` is given, where that run store holds them for the run it
+	 * is bound to and releases them when it is used for another run. Either
+	 * way an `InMemoryCheckpointStore` also keeps the run's token ledger.
 	 * A host injects a scope-keyed
 	 * {@link CheckpointStore} (e.g. Postgres-backed) so mid-turn resume
 	 * survives machines that lose their local disk.
@@ -626,6 +627,11 @@ export interface QueryParams {
 	 * The sibling of {@link QueryParams.checkpointStore}, and it should always
 	 * have been one: checkpoints could be pointed at durable storage and the
 	 * evidence could not.
+	 *
+	 * An `InMemoryRunStore` with no `pathBuilder` keeps the whole run in
+	 * memory: its checkpoints and ledger (unless named), released when the
+	 * store is used for a different run id, and — through `SupervisorAgent`
+	 * or an `AgentTaskContext.childStorage` — its delegated children.
 	 */
 	runStore?: RunStore
 

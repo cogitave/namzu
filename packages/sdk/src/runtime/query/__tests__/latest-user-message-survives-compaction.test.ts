@@ -414,8 +414,13 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 		true,
 	)
 	expect(checkpoint.latestUserMessage).toEqual(current)
+	// A restart copies what the checkpoint store holds: the checkpoint and the
+	// token ledger it references, which lives beside it.
 	const restoredStore = new InMemoryCheckpointStore()
 	await restoredStore.writeCheckpoint(storedScope, JSON.parse(JSON.stringify(checkpoint)))
+	const ledger = await checkpointStore.tokenBudgets.load(storedScope)
+	if (!ledger) throw new Error('Expected the ledger beside the checkpoints')
+	await restoredStore.tokenBudgets.save(storedScope, JSON.parse(JSON.stringify(ledger)))
 	const provider = new MockLLMProvider({ turns: [{ text: 'Resumed.' }] })
 	const reviewed: (string | undefined)[] = []
 	const resumed = await drainQuery({

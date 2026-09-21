@@ -17,6 +17,7 @@ import {
 	toClaimSummary,
 	toDurableRunEntry,
 } from './listing.js'
+import { InMemoryTokenBudgetStore } from './token-budget-memory.js'
 
 /**
  * Process-local {@link CheckpointStore}, keyed by the full five-layer scope.
@@ -35,6 +36,19 @@ import {
  * partner that proves the listing contract is not a filesystem in disguise.
  */
 export class InMemoryCheckpointStore implements CheckpointStore {
+	/**
+	 * The token ledgers of the runs whose checkpoints this store holds.
+	 *
+	 * A checkpoint binds its run to a ledger by reference, and a resume that
+	 * finds the checkpoint and not the ledger is refused ("The token budget
+	 * ledger required by this run is missing"). So `query()` and the agents
+	 * keep the ledger of a run whose checkpoints are in this store here, beside
+	 * them, unless the host passes a `tokenBudgetStore` of its own. A resume
+	 * with the same checkpoint store finds both; a host that copies the
+	 * checkpoints somewhere else copies this too.
+	 */
+	readonly tokenBudgets = new InMemoryTokenBudgetStore()
+
 	/** `tenant/project/session/run` → checkpoint id → checkpoint. */
 	private readonly runs = new Map<string, Map<CheckpointId, IterationCheckpoint>>()
 	/** Same key → the run's scope, so a listing can rebuild an addressable entry. */

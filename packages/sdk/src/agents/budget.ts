@@ -1,4 +1,5 @@
 import { TokenBudget } from '../run/token-budget.js'
+import { resolveRunStorage } from '../runtime/query/stores-held-in-memory.js'
 import { openTokenBudget } from '../store/run/token-budget-disk.js'
 import type { AgentInput, BaseAgentConfig } from '../types/agent/base.js'
 import type { RunId } from '../types/ids/index.js'
@@ -32,6 +33,14 @@ export async function resolveAgentBudget(
 			? await openTokenBudget({
 					scope: { tenantId, projectId, sessionId, runId },
 					limit: config.tokenBudget,
+					// Where this agent's run keeps its checkpoints, so its ledger
+					// sits beside them — in memory for an in-memory run store.
+					store: resolveRunStorage({
+						runStore: config.runStore,
+						pathBuilder: config.pathBuilder,
+						checkpointStore: config.checkpointStore,
+						runId,
+					}).tokenBudget,
 					pathBuilder: config.pathBuilder,
 					workingDirectory: input.workingDirectory,
 				})

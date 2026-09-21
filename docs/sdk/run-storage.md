@@ -44,20 +44,60 @@ each working directory had its own. Pass a `pathBuilder` when two such runs
 must stay apart.
 
 A run whose `runStore` is an `InMemoryRunStore` and which names no
-`pathBuilder` writes nothing under `<root>`. Its token ledger and its
-checkpoints (with their history log) are held in memory by that run store
-(`packages/sdk/src/runtime/query/stores-held-in-memory.ts`), so they die with
-the process as its evidence does; reusing the same `InMemoryRunStore` instance
-lets a later call in the same process resume from them. An explicit
-`tokenBudgetStore` still wins, and a `pathBuilder` puts both back on disk
-under the root it names. A host that passes its own `checkpointStore` keeps
-the disk ledger: it may resume in a fresh process with a fresh run store, and
-a checkpoint binds its run to the ledger by reference, so a ledger held by the
-old run store would make that resume fail. Such a host passes a
-`tokenBudgetStore` beside its checkpoint store to move the ledger too. Before
-this, a run with an in-memory run store kept its evidence in memory and wrote
-`token-budget.json` and its checkpoints under `defaultStateRoot()`, one tree
-per run with no retention.
+`pathBuilder` writes nothing under `<root>`, and neither do the children it
+delegates to. The rules live in one place,
+`resolveRunStorage` (`packages/sdk/src/runtime/query/stores-held-in-memory.ts`),
+which the run context, the query's budget resolution and the composite agents'
+budget resolution all call:
+
+- **Checkpoints.** An explicit `checkpointStore` wins. Otherwise such a run's
+  checkpoints (with their history) are held in memory by its run store, for
+  the run that store is bound to.
+- **Token ledger.** An explicit `tokenBudgetStore` wins. Otherwise the ledger
+  lives where the checkpoints live. If they are in an `InMemoryCheckpointStore`,
+  whether the host passed it or the run store holds it, the ledger is in that
+  store's `tokenBudgets`. If they are on disk, it is on disk beside them. A
+  checkpoint binds its run to the ledger by reference, so the two travel
+  together. A resume with the same checkpoint store and a fresh run store finds
+  both, and a host that copies a checkpoint store to simulate or survive a
+  restart copies its `tokenBudgets` too. A host checkpoint store of another
+  kind (Postgres, say) still gets the disk ledger under the `pathBuilder`, or
+  `<root>` without one, unless it passes a `tokenBudgetStore` beside it.
+- **Scoped to one run.** What an `InMemoryRunStore` holds for a run is released
+  when the same store is used for a different run id, as
+  `InMemoryRunStore.initRun` releases that run's evidence. A long-lived host
+  reusing one run store holds one run's checkpoints and ledger, not one per
+  run. A later call in the same process can still resume the current run (same
+  run id). A run the store has moved past cannot be resumed from it
+  (`Cannot restore a token budget from a missing checkpoint.`). A host that
+  wants to come back to several runs gives each its own run store or passes a
+  `checkpointStore`. Within a run, `runConfig.pruneKeepLast` bounds the held
+  checkpoints exactly as it bounds them on disk, and nothing prunes by default
+  on either.
+- **Delegated children.** `BaseAgentConfig` takes `runStore` and
+  `checkpointStore`, which `ReactiveAgent` and `SupervisorAgent` forward to
+  `query()`. A supervisor held in memory puts `childStorage: { kind: 'memory' }`
+  on the spawn context (`AgentTaskContext.childStorage`), with its
+  `checkpointStore` when it named one. `AgentManager` then gives each child a
+  fresh `InMemoryRunStore`, and that checkpoint store, unless the child's config
+  already names a `runStore` or a `pathBuilder`. A host that drives `query()`
+  with its own `LocalTaskScheduler` builds that context itself and sets
+  `childStorage` the same way. A child therefore no longer falls back to
+  `DefaultPathBuilder(defaultStateRoot())`.
+
+Measured with a probe that reuses one `InMemoryRunStore` for 40 runs, each
+with two tool calls. The heap retained after the tenth run did not grow
+through the fortieth (+3.3 MB after 10, +3.5 MB after 40). Before, it grew
+with every run (+4.7 MB after 10, +9.8 MB after 40): one run store kept one
+checkpoint store and one ledger for good, holding every run's checkpoints. Five runs
+with an explicit `InMemoryCheckpointStore` wrote 0 files under `<root>`, where
+before each wrote a `token-budget.json`. An in-memory `SupervisorAgent`
+delegating to one `ReactiveAgent` child wrote 0 files, where before the two
+wrote 23.
+
+Before 2026-09-21, a run with an in-memory run store kept its evidence in
+memory and wrote `token-budget.json` and its checkpoints under
+`defaultStateRoot()`, one tree per run with no retention.
 
 ## What each file is for
 

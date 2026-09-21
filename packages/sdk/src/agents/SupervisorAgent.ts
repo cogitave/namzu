@@ -2,6 +2,7 @@ import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
+import { resolveRunStorage } from '../runtime/query/stores-held-in-memory.js'
 import { CompletionInbox } from '../scheduler/completion-inbox.js'
 import { LocalTaskScheduler } from '../scheduler/local.js'
 import { ASK_USER_QUESTION_TOOL_NAME, buildCoordinatorTools } from '../tools/coordinator/index.js'
@@ -141,6 +142,13 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			throw new Error('Injected task scheduler must share the supervisor token budget authority')
 		}
 
+		const childStorage = resolveRunStorage({
+			runStore: config.runStore,
+			pathBuilder: config.pathBuilder,
+			checkpointStore: config.checkpointStore,
+			runId,
+		}).children
+
 		let gateway: TaskScheduler
 		if (configuredScheduler) {
 			gateway = configuredScheduler
@@ -184,6 +192,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				sessionId,
 				projectId,
 				parentActor,
+				// A supervisor held in memory delegates to workers held in
+				// memory; without this each worker wrote a disk tree under
+				// `defaultStateRoot()` its supervisor never asked for.
+				...(childStorage ? { childStorage } : {}),
 			}
 			// The only hop between the config and the gateway's policy. Omit it
 			// and the field is settable, documented, and read by nothing —
@@ -419,6 +431,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 						? { workingMemoryProvider: config.workingMemoryProvider }
 						: {}),
 					...(config.pathBuilder ? { pathBuilder: config.pathBuilder } : {}),
+					...(config.runStore ? { runStore: config.runStore } : {}),
+					...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
 				},
 				listener,
 			)

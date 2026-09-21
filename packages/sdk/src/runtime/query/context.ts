@@ -19,7 +19,7 @@ import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { storesHeldInMemory } from './stores-held-in-memory.js'
+import { resolveRunStorage } from './stores-held-in-memory.js'
 
 /**
  * Config accepted by {@link RunContextFactory.build}. `sessionId`,
@@ -234,10 +234,12 @@ export class RunContextFactory {
 			projectId: config.projectId,
 			parentRunId: config.parentRunId,
 			depth: config.depth,
-			checkpointStore:
-				config.checkpointStore ??
-				storesHeldInMemory(config.runStore, config.pathBuilder, config.checkpointStore)
-					?.checkpoints,
+			checkpointStore: resolveRunStorage({
+				runStore: config.runStore,
+				pathBuilder: config.pathBuilder,
+				checkpointStore: config.checkpointStore,
+				runId,
+			}).checkpoints,
 			runStore: config.runStore,
 		})
 

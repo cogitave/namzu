@@ -7,7 +7,6 @@ import type { InputGuardrailSpec, OutputGuardrailSpec } from '../guardrail/index
 import type { ResumeHandler } from '../hitl/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { LLMProvider } from '../provider/index.js'
-import type { CheckpointStore } from '../run/checkpoint-store.js'
 import type { BeforeStep, PrepareStepChain, StepResult, StopCondition } from '../run/index.js'
 import type { SandboxProvider } from '../sandbox/index.js'
 import type { Skill } from '../skills/index.js'
@@ -127,7 +126,6 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	structuredOutput?: StructuredOutputConfig
 	inputGuardrails?: readonly InputGuardrailSpec[]
 	outputGuardrails?: readonly OutputGuardrailSpec[]
-	checkpointStore?: CheckpointStore
 
 	/**
 	 * Span this run should hang off, when it is a delegated one. Absent for

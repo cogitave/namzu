@@ -86,7 +86,13 @@ export class InMemoryRunStore implements RunStore {
 		// the rest of the run, so storing it by reference would make every
 		// historical read return the run's present state — a transcript that
 		// silently rewrites itself is worse than no transcript.
-		this.meta = structuredClone(run)
+		//
+		// Less the run config's `logger`: a live object with functions on it,
+		// which `structuredClone` refuses (`DataCloneError`), and not evidence.
+		// Every agent class puts one there, so without this an agent run on an
+		// in-memory store failed at its first write.
+		const { logger: _logger, ...config } = run.metadata.config
+		this.meta = structuredClone({ ...run, metadata: { ...run.metadata, config } })
 	}
 
 	async writeMessages(run: Run, throughEventSeq: number): Promise<void> {

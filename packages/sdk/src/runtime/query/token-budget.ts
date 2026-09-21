@@ -9,7 +9,7 @@ import type { RunId } from '../../types/ids/index.js'
 import type { RunState } from '../../types/run/state.js'
 import { validateTokenBudgetBinding } from '../../types/run/token-budget-store.js'
 import type { QueryParams } from './index.js'
-import { storesHeldInMemory } from './stores-held-in-memory.js'
+import { resolveRunStorage } from './stores-held-in-memory.js'
 
 /** Resolve one authority before any model request or recovered tool dispatch. */
 export async function resolveQueryBudget(
@@ -18,11 +18,15 @@ export async function resolveQueryBudget(
 	selected?: RunState,
 ): Promise<TokenBudget> {
 	let saved: Pick<IterationCheckpoint, 'budgetBinding' | 'budgetAccountId'> | undefined = selected
-	const heldInMemory = storesHeldInMemory(
-		params.runStore,
-		params.pathBuilder,
-		params.checkpointStore,
-	)
+	// Checkpoints and ledger resolved together: the ledger lives where the
+	// run's checkpoints live, so a resume that finds one finds the other.
+	const storage = resolveRunStorage({
+		runStore: params.runStore,
+		pathBuilder: params.pathBuilder,
+		checkpointStore: params.checkpointStore,
+		tokenBudgetStore: params.tokenBudgetStore,
+		runId,
+	})
 	if (params.resumeFromCheckpoint && !saved) {
 		const paths = params.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
 		const scope = {
@@ -33,8 +37,7 @@ export async function resolveQueryBudget(
 			parentRunId: params.parentRunId,
 		}
 		const store =
-			params.checkpointStore ??
-			heldInMemory?.checkpoints ??
+			storage.checkpoints ??
 			new DiskCheckpointStore(
 				{
 					baseDir: join(paths.sessionDir(params.projectId, params.sessionId), 'runs'),
@@ -110,7 +113,7 @@ export async function resolveQueryBudget(
 		)
 	}
 	const budget = await openTokenBudget({
-		store: params.tokenBudgetStore ?? heldInMemory?.tokenBudget,
+		store: storage.tokenBudget,
 		pathBuilder: params.pathBuilder,
 		workingDirectory: params.workingDirectory,
 		scope: binding?.scope ?? {
