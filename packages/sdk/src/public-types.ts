@@ -168,6 +168,10 @@ export type {
 	DiskMemoryStoreConfig,
 	DiskTaskStoreConfig,
 	Identifiable,
+	MarkdownMemoryStoreConfig,
+	MemoryContentRejection,
+	MemoryImportOutcome,
+	RenderedMemoryIndex,
 	Timestamped,
 } from './store/index.js'
 

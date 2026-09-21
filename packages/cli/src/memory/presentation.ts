@@ -1,3 +1,5 @@
+import type { RenderedMemoryIndex } from '@namzu/sdk'
+
 import {
 	type AppendMemoryResult,
 	MEMORY_SECTION_MAX_CHARS,
@@ -6,6 +8,7 @@ import {
 	projectMemoryFilePath,
 	userFilePath,
 } from './store.js'
+import type { TypedNoteResult } from './typed.js'
 
 export const MEMORY_PREVIEW_MAX_CHARS = 2_000
 export const MEMORY_PREVIEW_MAX_LINES = 20
@@ -57,4 +60,38 @@ export function renderMemorySaveResult(result: AppendMemoryResult, text: string)
 		return `Saved to ${result.path}, but this note will not be fully included in the next prompt because the section exceeds ${MEMORY_SECTION_MAX_CHARS.toLocaleString('en-US')} characters. Curate that file to include the note.`
 	}
 	return `Remembered ${result.scope === 'user' ? 'for every project' : 'for this project'} (${result.path}): ${text}`
+}
+
+/** What `#note` and `/memory add` report after writing a typed memory. */
+export function renderTypedNoteResult(result: TypedNoteResult, text: string): string {
+	if (result.duplicate) {
+		return `Already remembered as ${result.name ?? 'an existing memory'}${result.path ? ` (${result.path})` : ''}; nothing new was saved.`
+	}
+	if (!result.saved) return 'No memory added. Use /memory add <text>.'
+	return `Remembered for this project as a ${result.type} memory${result.path ? ` (${result.path})` : ''}: ${text}`
+}
+
+/**
+ * The stored-memory part of `/memory`, or null when there is none: the index
+ * lines every turn carries, then what runs recorded on their own under its
+ * own label and count, since those never reach the prompt's index and would
+ * otherwise be invisible here.
+ */
+export function renderStoredMemorySection(
+	directory: string,
+	index: RenderedMemoryIndex,
+	derived?: RenderedMemoryIndex,
+): string | null {
+	const sections: string[] = []
+	if (index.text) {
+		sections.push(
+			`Stored memories (${index.total}), in every turn's index\n${directory}\n\n${preview(index.text, directory)}`,
+		)
+	}
+	if (derived?.text) {
+		sections.push(
+			`Recorded by runs (${derived.total}), not in the index; search_memory finds them\n${directory}\n\n${preview(derived.text, directory)}`,
+		)
+	}
+	return sections.length > 0 ? sections.join('\n\n') : null
 }

@@ -1,21 +1,26 @@
 import { z } from 'zod'
+import { MemoryContentRejectedError, MemoryNameConflictError } from '../../store/memory/naming.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { asMemoryId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
+import { memoryFieldsSchema } from './fields.js'
+import { resolveMemoryReference } from './resolve.js'
 
 export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
 		name: 'update_memory',
 		description:
-			'Correct an existing memory in place, or archive an obsolete claim so it is no longer recalled. Use the ID from search_memory; current evidence should determine corrections.',
+			'Correct an existing memory in place, or archive an obsolete claim so it is no longer recalled. Prefer this to saving a second memory about the same thing. Identify it by the ID from search_memory or by its name from the memory index; current evidence should determine corrections.',
 		inputSchema: z.object({
-			id: z.string().describe('Memory ID to correct or archive'),
+			id: z
+				.string()
+				.describe('Memory ID, or the memory name from the index, to correct or archive'),
 			title: z.string().min(1).optional(),
 			summary: z.string().min(1).optional(),
 			content: z.string().min(1).optional(),
 			tags: z.array(z.string()).optional(),
 			status: z.enum(['active', 'archived']).optional(),
+			...memoryFieldsSchema,
 		}),
 		category: 'custom',
 		permissions: [],
@@ -30,10 +35,37 @@ export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 					error: 'No memory update supplied',
 				}
 			}
-			const memoryId = asMemoryId(id)
+			const reference = await resolveMemoryReference(store, id)
+			if (!reference.found) {
+				return {
+					success: false,
+					output: `No memory is named ${id}. Find it with search_memory, or save it with save_memory if it does not exist.`,
+					error: 'Memory not found',
+				}
+			}
+			const memoryId = reference.id
 			// Patch only requested fields in one store operation. A read/merge of
 			// provenance here would overwrite metadata from a concurrent writer.
-			const entry = await store.update(memoryId, updates)
+			let entry: Awaited<ReturnType<MemoryStore['update']>>
+			try {
+				entry = await store.update(memoryId, updates)
+			} catch (error) {
+				if (error instanceof MemoryContentRejectedError) {
+					return {
+						success: false,
+						output: error.message,
+						error: 'Memory content rejected',
+						data: { reason: error.reason },
+					}
+				}
+				if (!(error instanceof MemoryNameConflictError)) throw error
+				return {
+					success: false,
+					output: `Another memory is already named "${error.memoryName}" (${error.existingId}). Choose a different name, or update that memory instead.`,
+					error: 'Memory name already exists',
+					data: { existingId: error.existingId, name: error.memoryName },
+				}
+			}
 			if (!entry)
 				return {
 					success: false,
@@ -42,8 +74,12 @@ export function buildUpdateMemoryTool(store: MemoryStore): ToolDefinition {
 				}
 			return {
 				success: true,
-				output: `Memory updated: ${id} — ${entry.title} (${entry.status}).`,
-				data: { id, status: entry.status },
+				output: `Memory updated: ${memoryId}${entry.name ? ` (${entry.name})` : ''} — ${entry.title} (${entry.status}).`,
+				data: {
+					id: memoryId,
+					status: entry.status,
+					...(entry.name ? { name: entry.name } : {}),
+				},
 			}
 		},
 	})

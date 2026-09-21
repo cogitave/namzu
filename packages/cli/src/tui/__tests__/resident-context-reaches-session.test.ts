@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-	DiskMemoryStore,
 	DiskResidentAgenda,
 	ResidentHost,
 	type ResidentPursuitStep,
@@ -12,6 +11,7 @@ import {
 	generateTenantId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { sessionMemoryStore } from '../../__fixtures__/session-memory.js'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
@@ -327,7 +327,7 @@ describe('resident context reaches real CLI sessions', () => {
 				expect(system(request)[1]).toContain(OBJECTIVE)
 			}
 			// This is the default session tool store, distinct from curated MEMORY.md.
-			expect(await new DiskMemoryStore({ baseDir: join(cwd, '.namzu') }).list()).toEqual({
+			expect(await sessionMemoryStore(cwd).list()).toEqual({
 				entries: [],
 				totalCount: 0,
 			})

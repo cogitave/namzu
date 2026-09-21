@@ -63,8 +63,10 @@ Generated state lives under `~/.namzu`, or `NAMZU_HOME` when configured:
   transcripts and artifacts. There is no parent Project directory.
 - `cli/` holds titles and desktop mappings. Desktop keys include their Project
   identity, so two workspaces can use the same external window key independently.
-- `memory/<projectId>/` isolates generated memories by workspace. This partition
-  is created when the agent opens its memory tools, not when listing sessions.
+- `memory/<projectId>/` isolates stored memories by workspace: one Markdown file
+  per memory and a generated `MEMORY.md` index (see [Memory](memory.md)). This
+  partition is created when the agent opens its memory tools, not when listing
+  sessions.
 - `residents/<projectId>/<agent>/` holds explicitly created resident state.
 - `checkpoints/<sessionId>/`, `delegation-history/<sessionId>/`, `goals/` and
   `tenants/` retain their own session, run or tenant ownership boundaries.

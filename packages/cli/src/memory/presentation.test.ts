@@ -8,6 +8,7 @@ import {
 	MEMORY_PREVIEW_MAX_CHARS,
 	MEMORY_PREVIEW_MAX_LINES,
 	renderMemoryReport,
+	renderStoredMemorySection,
 } from './presentation.js'
 import { memoryFilePath, projectMemoryFilePath, userFilePath } from './store.js'
 
@@ -69,5 +70,33 @@ describe('renderMemoryReport', () => {
 		expect(report).toContain(`${kept}\n\n[6 more characters omitted.`)
 		expect(report).not.toContain('\ud83d')
 		expect(report).not.toContain('tail')
+	})
+})
+
+describe('renderStoredMemorySection', () => {
+	const none = { text: '', total: 0, omitted: 0 }
+	const runs = {
+		text: '- [fixed-the-flake](fixed-the-flake.md) — Decisions: retry once',
+		total: 1,
+		omitted: 0,
+	}
+
+	it('shows what runs recorded under its own label and count, even when nothing else is stored', () => {
+		const section = renderStoredMemorySection('/state/memory', none, runs)
+		expect(section).toBe(
+			'Recorded by runs (1), not in the index; search_memory finds them\n/state/memory\n\n- [fixed-the-flake](fixed-the-flake.md) — Decisions: retry once',
+		)
+	})
+
+	it('lists the index first, then the run records, each with its own count', () => {
+		const index = { text: '- [a](a.md) — A\n- [b](b.md) — B', total: 2, omitted: 0 }
+		const section = renderStoredMemorySection('/state/memory', index, runs) ?? ''
+		expect(section.indexOf("Stored memories (2), in every turn's index")).toBe(0)
+		expect(section).toContain('Recorded by runs (1)')
+		expect(section.indexOf('[b](b.md)')).toBeLessThan(section.indexOf('Recorded by runs'))
+	})
+
+	it('is null when nothing is stored', () => {
+		expect(renderStoredMemorySection('/state/memory', none, none)).toBeNull()
 	})
 })

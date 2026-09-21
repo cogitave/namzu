@@ -40,7 +40,6 @@ import {
 	type CompletionInbox,
 	type CostInfo,
 	DiskCheckpointStore,
-	DiskMemoryStore,
 	DiskTaskStore,
 	type DurableRunEntry,
 	EVENT_NAME_ATTRIBUTE,
@@ -49,7 +48,9 @@ import {
 	GuardedFetchProvider,
 	type LLMProvider,
 	type LogAttributes,
+	MarkdownMemoryStore,
 	type MemoryStore,
+	type MemoryType,
 	type Message,
 	type ModelInfo,
 	type PluginLifecycleManager,
@@ -62,6 +63,7 @@ import {
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ReasoningEffort,
+	type RenderedMemoryIndex,
 	type ResidentHistorySource,
 	type ResidentStepPromptOptions,
 	type ResidentToolEvidenceSource,
@@ -236,6 +238,15 @@ import { type SubagentRuntime, createSubagentRuntime } from '../integrations/sub
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
+import {
+	type TypedNoteResult,
+	composeStoredMemoryPrompt,
+	describeCuratedNotesImport,
+	describeMemoryMigration,
+	importCuratedNotes,
+	migrateMemoryOnce,
+	saveTypedNote,
+} from '../memory/typed.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { projectRunConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -781,6 +792,29 @@ export interface AgentSession {
 	 */
 	readonly configNotices: readonly string[]
 	/**
+	 * Save an operator note (`#note`, `/memory add`) as a typed memory file in
+	 * this session's stored memory, default type `project`. Absent on a session
+	 * with no store, where notes go to the curated project file as before.
+	 */
+	readonly rememberNote?: (text: string, type?: MemoryType) => Promise<TypedNoteResult>
+	/**
+	 * Copy the project's curated bullets into stored memory
+	 * (`/memory import-notes`), returning the operator's report. The curated
+	 * file is never changed.
+	 */
+	readonly importCuratedNotes?: () => Promise<string>
+	/**
+	 * What `/memory` shows of stored memory, and where the files are: `index`,
+	 * the always-loaded index uncapped — every active memory someone chose to
+	 * keep — and `derived`, the active records runs recorded on their own (the
+	 * run promoter, consolidation), which the prompt's index leaves out.
+	 */
+	readonly storedMemoryIndex?: () => Promise<{
+		readonly directory: string
+		readonly index: RenderedMemoryIndex
+		readonly derived: RenderedMemoryIndex
+	}>
+	/**
 	 * Whether "approve all" has been chosen at a prompt during this session.
 	 *
 	 * A FUNCTION, not a boolean, and that is the whole point of it. The latch
@@ -1249,7 +1283,9 @@ const NAMZU_IDENTITY = [
  */
 interface BuiltTools {
 	readonly registry: ToolRegistry
-	readonly memoryStore: DiskMemoryStore
+	readonly memoryStore: MarkdownMemoryStore
+	/** The directory the store keeps its files in; injectable through `projectStateRoot`. */
+	readonly memoryDirectory: string
 }
 
 function foregroundOnlyBash(tool: ToolDefinition): ToolDefinition {
@@ -1326,22 +1362,24 @@ function buildToolRegistry(
 			registry.register(withCheckpoints(tool, checkpoints))
 		}
 	}
-	// SDK memory: the agent gets search_memory / read_memory / save_memory over
-	// a structured store in this Project's generated-state directory, always
-	// partitioned by Project. An unpartitioned store sat at `<root>/memory`
-	// itself, which — once the root is the application home, or the working
-	// directory IS the home — is shared by every workspace that ever ran.
-	// Separate from the user-curated MEMORY.md that is injected into the prompt.
+	// Stored memory: the agent gets search_memory / read_memory / save_memory
+	// over typed Markdown files, one per memory, in this Project's
+	// generated-state directory, always partitioned by Project. An
+	// unpartitioned store sat at `<root>/memory` itself, which — once the root
+	// is the application home, or the working directory IS the home — is shared
+	// by every workspace that ever ran. The directory is the one the JSON store
+	// used, so `migrateMemoryOnce` finds that store's records where they are.
+	// Separate from the operator-curated files, which are prompt text.
 	const memoryRoot = ensurePrivateStateDirectory(projectStateRoot, 'memory')
 	const directory = ensurePrivateStateDirectory(memoryRoot, projectId)
-	const memoryStore = new DiskMemoryStore({ baseDir: projectStateRoot, directory })
+	const memoryStore = new MarkdownMemoryStore({ directory })
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
 	// read makes a new process report every persisted memory as absent.
 	registry.register(buildMemoryTools(memoryStore))
 	// query() mounts search_tools only if a deferred roster actually exists,
 	// after runtime tools are registered. Ordinary CLI task tools are active.
-	return { registry, memoryStore }
+	return { registry, memoryStore, memoryDirectory: directory }
 }
 
 /** Refresh plugin skill metadata before each provider operation. */
@@ -1964,13 +2002,41 @@ export async function createAgentSession(
 		join(ensurePrivateStateDirectory(projectStateRoot, 'checkpoints'), scope.sessionId),
 		cwd,
 	)
-	const { registry, memoryStore } = buildToolRegistry(
+	const { registry, memoryStore, memoryDirectory } = buildToolRegistry(
 		projectStateRoot,
 		backgroundJobs,
 		checkpoints,
 		scope.projectId,
 		options.toolResultScreens,
 	)
+	// Once per store, idempotently: a launch that finds nothing to move moves
+	// nothing, and one interrupted halfway is finished by the next. A failure
+	// is a notice, never a refusal to start — the curated files and the store
+	// both still work without it.
+	const memoryMigrationNotices = await migrateMemoryOnce({
+		store: memoryStore,
+		directory: memoryDirectory,
+		cwd,
+	})
+		.then((report) => describeMemoryMigration(report, memoryDirectory))
+		.catch((error: unknown) => [
+			`Stored memory migration did not run: ${error instanceof Error ? error.message : String(error)}`,
+		])
+	/**
+	 * The stored-memory index for this turn's prompt, or null. A store that
+	 * refuses to read (a malformed memory file) costs the turn its index and
+	 * the operator a notice, not the turn.
+	 */
+	const storedMemoryPrompt = async (): Promise<{ prompt: string | null; notice?: string }> => {
+		try {
+			return { prompt: composeStoredMemoryPrompt(await memoryStore.readIndex()) }
+		} catch (error) {
+			return {
+				prompt: null,
+				notice: `Stored memory index not loaded: ${error instanceof Error ? error.message : String(error)}`,
+			}
+		}
+	}
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
 	// SDK's computer_use definition, so even an installed, healthy package was
@@ -2699,7 +2765,12 @@ export async function createAgentSession(
 				: undefined
 			const curatedMemory = readMemory(undefined, cwd)
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
-			const memoryPrompt = composeMemoryPrompt(curatedMemory)
+			const storedMemory = await storedMemoryPrompt()
+			if (storedMemory.notice) cliLogger().warn(storedMemory.notice)
+			const memoryPrompt =
+				[composeMemoryPrompt(curatedMemory), storedMemory.prompt]
+					.filter((part): part is string => Boolean(part))
+					.join('\n\n') || null
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
@@ -3023,7 +3094,22 @@ export async function createAgentSession(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
 			...fallbackPlan.notices,
+			...memoryMigrationNotices,
 		],
+		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
+		importCuratedNotes: async () =>
+			describeCuratedNotesImport(
+				await importCuratedNotes({ store: memoryStore, directory: memoryDirectory, cwd }),
+				memoryDirectory,
+			),
+		storedMemoryIndex: async () => ({
+			directory: memoryDirectory,
+			index: await memoryStore.readIndex({ maxLines: Number.POSITIVE_INFINITY }),
+			derived: await memoryStore.readIndex({
+				maxLines: Number.POSITIVE_INFINITY,
+				derived: true,
+			}),
+		}),
 		webSearchSummary: webSearchLabel(options.web, nativeSearchAvailable),
 		close: () => operations.close(),
 		errorHint: null,
@@ -3086,7 +3172,14 @@ export async function createAgentSession(
 						for (const notice of formatMemoryDiagnostics(curatedMemory)) {
 							yield { kind: 'context' as const, text: notice, shed: false }
 						}
-						const memoryPrompt = composeMemoryPrompt(curatedMemory)
+						const storedMemory = await storedMemoryPrompt()
+						if (storedMemory.notice) {
+							yield { kind: 'context' as const, text: storedMemory.notice, shed: false }
+						}
+						const memoryPrompt =
+							[composeMemoryPrompt(curatedMemory), storedMemory.prompt]
+								.filter((part): part is string => Boolean(part))
+								.join('\n\n') || null
 						currentOnQuestion = opts?.onQuestion
 						const [environmentFacts, turnSnapshot] = await Promise.all([
 							readEnvironmentFacts(cwd),

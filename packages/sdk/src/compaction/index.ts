@@ -98,5 +98,5 @@ export type {
 export { DEFAULT_SOFT_TARGET, planSalienceWorkingSet } from './plan.js'
 
 // Episodic → semantic: what a run learned, as the entry a later run searches.
-export { CONSOLIDATION_TAG, consolidationEntry } from './consolidation.js'
+export { CONSOLIDATION_TAG, consolidationEntry, isConsolidated } from './consolidation.js'
 export type { ConsolidationMeta } from './consolidation.js'

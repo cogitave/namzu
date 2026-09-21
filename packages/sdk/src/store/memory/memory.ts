@@ -12,6 +12,12 @@ import type {
 import { assertMemoryStatus } from '../../types/memory/index.js'
 import { generateMemoryId } from '../../utils/id.js'
 import { InMemoryMemoryIndex, searchMemoryEntries } from './index.js'
+import {
+	MemoryNameConflictError,
+	assertOptionalMemoryFields,
+	nameHolder,
+	withOptionalFields,
+} from './naming.js'
 
 export class InMemoryMemoryStore implements MemoryStore {
 	private content = new Map<string, MemoryContent>()
@@ -20,18 +26,26 @@ export class InMemoryMemoryStore implements MemoryStore {
 	async create(
 		params: CreateMemoryParams,
 	): Promise<{ entry: MemoryIndexEntry; content: MemoryContent }> {
+		assertOptionalMemoryFields(params)
+		if (params.name !== undefined) {
+			const holder = nameHolder(this.index.allEntries(), params.name)
+			if (holder) throw new MemoryNameConflictError(params.name, holder.id)
+		}
 		const id = generateMemoryId()
 		const now = Date.now()
 
-		const entry: MemoryIndexEntry = {
-			id,
-			title: params.title,
-			summary: params.summary,
-			tags: params.tags ? [...params.tags] : [],
-			status: 'active',
-			createdAt: now,
-			updatedAt: now,
-		}
+		const entry: MemoryIndexEntry = withOptionalFields(
+			{
+				id,
+				title: params.title,
+				summary: params.summary,
+				tags: params.tags ? [...params.tags] : [],
+				status: 'active',
+				createdAt: now,
+				updatedAt: now,
+			},
+			params,
+		)
 
 		const memoryContent: MemoryContent = {
 			id,
@@ -58,19 +72,27 @@ export class InMemoryMemoryStore implements MemoryStore {
 
 	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
 		if (updates.status !== undefined) assertMemoryStatus(updates.status)
+		assertOptionalMemoryFields(updates)
 		const existing = this.index.getEntry(id)
 		if (!existing) return undefined
+		if (updates.name !== undefined) {
+			const holder = nameHolder(this.index.allEntries(), updates.name, id)
+			if (holder) throw new MemoryNameConflictError(updates.name, holder.id)
+		}
 
 		const now = Date.now()
 
-		const updated: MemoryIndexEntry = {
-			...existing,
-			title: updates.title ?? existing.title,
-			summary: updates.summary ?? existing.summary,
-			tags: updates.tags ? [...updates.tags] : existing.tags,
-			status: updates.status ?? existing.status,
-			updatedAt: now,
-		}
+		const updated: MemoryIndexEntry = withOptionalFields(
+			{
+				...existing,
+				title: updates.title ?? existing.title,
+				summary: updates.summary ?? existing.summary,
+				tags: updates.tags ? [...updates.tags] : existing.tags,
+				status: updates.status ?? existing.status,
+				updatedAt: now,
+			},
+			updates,
+		)
 
 		this.index.set(updated)
 

@@ -55,11 +55,12 @@ describe('composeMemoryPrompt', () => {
 		const onlyUser = composeMemoryPrompt({ user: 'role: dev', memory: null, project: null })
 		expect(onlyUser).toContain('## About the user')
 		expect(onlyUser).toContain('role: dev')
-		expect(onlyUser).not.toContain('## Durable memory')
+		expect(onlyUser).not.toContain('## Curated memory (all projects)')
 
 		const both = composeMemoryPrompt({ user: 'role: dev', memory: '- likes tabs', project: null })
 		expect(both).toContain('## About the user')
-		expect(both).toContain('## Durable memory')
+		expect(both).toContain('## Curated memory (all projects)')
+		expect(both).not.toContain('Durable memory')
 		expect(both).toContain('- likes tabs')
 	})
 })
@@ -117,7 +118,9 @@ describe('project memory', () => {
 			expect(path).toBe(join(cwd, '.namzu', 'MEMORY.md'))
 			expect(readMemory(home, cwd).project).toBe('- tests run with pnpm')
 			expect(readMemory(home).project).toBeNull()
-			expect(composeMemoryPrompt(readMemory(home, cwd))).toContain('## Project memory')
+			expect(composeMemoryPrompt(readMemory(home, cwd))).toContain(
+				'## Curated memory (this project)',
+			)
 			expect(() => appendMemory('x', { scope: 'project', home })).toThrow(/working directory/)
 		} finally {
 			removeTempDir(cwd)

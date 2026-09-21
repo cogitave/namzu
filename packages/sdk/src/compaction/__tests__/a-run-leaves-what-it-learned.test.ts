@@ -35,7 +35,13 @@ describe('consolidationEntry', () => {
 		expect(entry.summary).toBe(
 			'1 decision, 1 discovery, 1 failure from run 37ddff8e-e13f-4e57-937f-d048fa323f5e.',
 		)
-		expect(entry.tags).toEqual([CONSOLIDATION_TAG, 'run:37ddff8e-e13f-4e57-937f-d048fa323f5e'])
+		expect(entry.tags).toEqual([
+			CONSOLIDATION_TAG,
+			'run:37ddff8e-e13f-4e57-937f-d048fa323f5e',
+			`knowledge:${entry.metadata?.knowledgeDigest}`,
+		])
+		expect(entry.metadata?.knowledgeDigest).toMatch(/^[0-9a-f]{64}$/)
+		expect(entry.type).toBe('project')
 		expect(entry.content).toContain('## Decisions\n\n- normalise with NFKD')
 		expect(entry.content).toContain('## Discoveries\n\n- node --test refuses')
 		expect(entry.content).toContain('## Failures and what was done about them')

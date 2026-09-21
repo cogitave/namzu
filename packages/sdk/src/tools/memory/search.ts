@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { describeMemoryAge } from '../../store/memory/links.js'
 import type {
 	MemoryIndex,
 	MemorySearchParams,
@@ -14,7 +15,7 @@ function defineSearchMemoryTool(search: SearchMemory): ToolDefinition {
 	return defineTool({
 		name: 'search_memory',
 		description:
-			'Search active stored memories by relevant words or tags. The built-in store ranks matches in titles, summaries and full content. Returns titles and summaries; use read_memory for evidence. Set status to archived to inspect obsolete records.',
+			'Search active stored memories by relevant words or tags. The built-in store ranks matches in names, titles, descriptions, summaries and full content. Returns the title, name, type, age and description of each match; use read_memory for evidence. Set status to archived to inspect obsolete records.',
 		inputSchema: z.object({
 			query: z.string().optional().describe('Relevant words or identifiers to search'),
 			tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
@@ -43,10 +44,13 @@ function defineSearchMemoryTool(search: SearchMemory): ToolDefinition {
 				}
 			}
 
-			const lines = result.entries.map(
-				(e, i) =>
-					`${i + 1}. [${e.id}] ${e.title} — ${e.summary}${e.tags.length > 0 ? ` [${e.tags.join(', ')}]` : ''}`,
-			)
+			const now = Date.now()
+			const lines = result.entries.map((e, i) => {
+				const kind = [e.name, e.type, describeMemoryAge(e.updatedAt, now)]
+					.filter(Boolean)
+					.join(', ')
+				return `${i + 1}. [${e.id}] ${e.title} (${kind}) — ${e.description ?? e.summary}${e.tags.length > 0 ? ` [${e.tags.join(', ')}]` : ''}`
+			})
 
 			const output =
 				result.totalCount > result.entries.length

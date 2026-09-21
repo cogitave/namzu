@@ -1,5 +1,5 @@
 import type { Span } from '@opentelemetry/api'
-import { consolidationEntry } from '../../compaction/consolidation.js'
+import { consolidationEntry, isConsolidated } from '../../compaction/consolidation.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { RunEvent, StepResult } from '../../types/run/index.js'
@@ -168,17 +168,25 @@ export async function* finalizeRun(finalization: RunFinalization): AsyncGenerato
 		})
 		if (entry) {
 			try {
-				const { entry: saved } = await params.consolidateInto.create(entry)
-				await eventTranslator.emitEvent({
-					type: 'memory_consolidated',
-					runId: ctx.runId,
-					memoryId: saved.id,
-					title: entry.title,
-					decisions: workingStateManager.getState().decisions.length,
-					discoveries: workingStateManager.getState().discoveries.length,
-					failures: workingStateManager.getState().failures.length,
-				})
-				yield* eventTranslator.drainPending()
+				// Same knowledge, same record: a later run that learned what an
+				// earlier one already wrote down — archived included — adds nothing.
+				if (await isConsolidated(params.consolidateInto, entry)) {
+					ctx.log.info('consolidation skipped: this knowledge is already in the memory store', {
+						[NAMZU.RUN_ID]: ctx.runId,
+					})
+				} else {
+					const { entry: saved } = await params.consolidateInto.create(entry)
+					await eventTranslator.emitEvent({
+						type: 'memory_consolidated',
+						runId: ctx.runId,
+						memoryId: saved.id,
+						title: entry.title,
+						decisions: workingStateManager.getState().decisions.length,
+						discoveries: workingStateManager.getState().discoveries.length,
+						failures: workingStateManager.getState().failures.length,
+					})
+					yield* eventTranslator.drainPending()
+				}
 			} catch (error) {
 				ctx.log.warn('consolidation into the memory store failed', {
 					[NAMZU.RUN_ID]: ctx.runId,

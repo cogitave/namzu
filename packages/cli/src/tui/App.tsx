@@ -27,6 +27,7 @@ import {
 	HostCommandRegistry,
 	type Message,
 	type MessageAttachment,
+	type MemoryType,
 	type MessageId,
 	type ReasoningEffort,
 	RunCancelled,
@@ -113,7 +114,12 @@ import { type OrchestrationRun, liveOrchestrationRuns } from '../integrations/su
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
-import { renderMemoryReport, renderMemorySaveResult } from '../memory/presentation.js'
+import {
+	renderMemoryReport,
+	renderMemorySaveResult,
+	renderStoredMemorySection,
+	renderTypedNoteResult,
+} from '../memory/presentation.js'
 import { appendMemoryWithStatus, readMemory } from '../memory/store.js'
 import {
 	type PermissionMode,
@@ -5554,6 +5560,28 @@ export function App({
 		],
 	)
 
+	// `#note` and `/memory add`: a typed memory file in the session's stored
+	// memory, default type `project`. A session without a store — no provider
+	// yet — appends to the curated project file the way every note used to.
+	const rememberProjectNote = useCallback(
+		async (note: string, type?: MemoryType): Promise<void> => {
+			try {
+				if (session?.rememberNote) {
+					pushMessage('system', renderTypedNoteResult(await session.rememberNote(note, type), note))
+					return
+				}
+				const saved = appendMemoryWithStatus(note, { scope: 'project', cwd: ctx.cwd })
+				pushMessage('system', renderMemorySaveResult(saved, note))
+			} catch (err) {
+				pushMessage(
+					'system',
+					`Could not save memory: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		},
+		[ctx.cwd, pushMessage, session],
+	)
+
 	const handleSubmit = useCallback(
 		(
 			value: string,
@@ -5602,15 +5630,7 @@ export function App({
 			// and both leave a row the model reads on its next turn.
 			if (value.startsWith('#') && value.slice(1).trim().length > 0) {
 				const note = value.slice(1).trim()
-				try {
-					const saved = appendMemoryWithStatus(note, { scope: 'project', cwd: ctx.cwd })
-					pushMessage('system', renderMemorySaveResult(saved, note))
-				} catch (err) {
-					pushMessage(
-						'system',
-						`Could not save memory: ${err instanceof Error ? err.message : String(err)}`,
-					)
-				}
+				void rememberProjectNote(note)
 				return
 			}
 			const escaped = shellEscapeCommand(value)
@@ -6116,6 +6136,10 @@ export function App({
 						return
 					}
 					case 'remember':
+						if (slash.scope === 'project') {
+							void rememberProjectNote(slash.text, slash.memoryType)
+							return
+						}
 						try {
 							const saved = appendMemoryWithStatus(slash.text, { scope: slash.scope, cwd: ctx.cwd })
 							pushMessage(
@@ -6129,10 +6153,48 @@ export function App({
 							)
 						}
 						return
+					case 'import-notes': {
+						if (!session?.importCuratedNotes) {
+							pushMessage(
+								'system',
+								'Stored memory is not open yet; /memory import-notes works once a session has started.',
+							)
+							return
+						}
+						void session.importCuratedNotes().then(
+							(report) => pushMessage('system', report),
+							(err: unknown) =>
+								pushMessage(
+									'system',
+									`Notes were not copied: ${err instanceof Error ? err.message : String(err)}`,
+								),
+						)
+						return
+					}
 					case 'show-memory': {
-						pushMessage(
-							'system',
-							renderMemoryReport(readMemory(undefined, ctx.cwd), { cwd: ctx.cwd }),
+						const curated = renderMemoryReport(readMemory(undefined, ctx.cwd), { cwd: ctx.cwd })
+						const stored = session?.storedMemoryIndex
+						if (!stored) {
+							pushMessage('system', curated)
+							return
+						}
+						void stored().then(
+							({ directory, index, derived }) => {
+								const section = renderStoredMemorySection(directory, index, derived)
+								pushMessage(
+									'system',
+									section
+										? curated.startsWith('No saved memory.')
+											? section
+											: `${section}\n\n${curated}`
+										: curated,
+								)
+							},
+							(err: unknown) =>
+								pushMessage(
+									'system',
+									`${curated}\n\nStored memories not loaded: ${err instanceof Error ? err.message : String(err)}`,
+								),
 						)
 						return
 					}
@@ -6641,6 +6703,7 @@ export function App({
 			openAgentRunsPicker,
 			pushMessage,
 			rawOutput,
+			rememberProjectNote,
 			removeStoredCredential,
 			resetTranscript,
 			runConversationExport,

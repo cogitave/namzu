@@ -14,7 +14,14 @@
  * every reachability check and still lose the memory.
  */
 
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -22,7 +29,11 @@ import { ToolRegistry } from '@namzu/sdk'
 import type { RunId, RunMemoryCandidate, ToolContext } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sessionMemoryDir, sessionMemoryStore } from '../__fixtures__/session-memory.js'
+import {
+	sessionLegacyMemoryStore,
+	sessionMemoryDir,
+	sessionMemoryStore,
+} from '../__fixtures__/session-memory.js'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 
@@ -131,11 +142,31 @@ describe('the run memory promoter', () => {
 		const store = sessionMemoryStore(cwd)
 		const page = await store.list()
 		expect(page.totalCount).toBe(1)
+		expect(page.entries[0]?.type).toBe('project')
 		expect(page.entries[0]?.title).toContain('invoice')
 	})
 
+	it('keeps what it writes out of the index, so the next turn’s system prompt is unchanged', async () => {
+		const { createAgentSession } = await import('../tui/agent.js')
+		const session = await createAgentSession(prefs, detectedAnthropic(), { cwd })
+		const turn = async () => {
+			for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
+				// drain
+			}
+			return queryCalls.at(-1) ?? {}
+		}
+		const first = await turn()
+		const promote = first.promoteMemory as (c: RunMemoryCandidate) => Promise<void>
+		await promote(candidate({ userRequirements: ['never email an invoice twice'] }))
+		const store = sessionMemoryStore(cwd)
+		expect((await store.list()).totalCount).toBe(1)
+		expect((await store.readIndex()).text).toBe('')
+		// A run's record changes nothing the prompt cache is keyed on.
+		expect((await turn()).systemPrompt).toBe(first.systemPrompt)
+	})
+
 	it('finds persisted memory on the first search of a new CLI session', async () => {
-		const writer = sessionMemoryStore(cwd)
+		const writer = sessionLegacyMemoryStore(cwd)
 		await writer.create({
 			title: 'cold CLI memory',
 			summary: 'must survive a new session',
@@ -154,6 +185,12 @@ describe('the run memory promoter', () => {
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('cold CLI memory')
 		expect(result.output).not.toBe('No memories found.')
+		// It was found because the session moved the JSON store into Markdown
+		// files, once: the old index is retired, not left to be read twice.
+		const memoryDir = sessionMemoryDir(cwd)
+		expect(existsSync(join(memoryDir, 'index.json'))).toBe(false)
+		expect(existsSync(join(memoryDir, 'index.json.migrated'))).toBe(true)
+		expect(readdirSync(memoryDir)).toContain('cold-cli-memory.md')
 	})
 
 	it('refuses to save over a structurally invalid durable index', async () => {
@@ -193,11 +230,13 @@ describe('the run memory promoter', () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/memory|index/i)
 		expect(readFileSync(indexPath, 'utf-8')).toBe(poisoned)
-		expect(readdirSync(join(memoryDir, 'content'))).toEqual([])
+		// Refused by the Markdown store too: the unmigrated index holds records
+		// it cannot see, so it writes nothing rather than answer without them.
+		expect(readdirSync(memoryDir).filter((name) => name.endsWith('.md'))).toEqual([])
 	})
 
 	it('refuses to read indexed content whose durable shape is invalid', async () => {
-		const writer = sessionMemoryStore(cwd)
+		const writer = sessionLegacyMemoryStore(cwd)
 		const { entry } = await writer.create({
 			title: 'poisoned content',
 			summary: 'the index entry itself is valid',
