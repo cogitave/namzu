@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { DiskTokenBudgetStore, openTokenBudget } from '../../../store/run/token-budget-disk.js'
+import {
+	InMemorySessionTokenBudgetStore,
+	openSessionTokenBudget,
+} from '../../../store/budget/index.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { TokenUsage } from '../../../types/common/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
@@ -40,12 +44,9 @@ async function recovery(mode: 'retry' | 'fallback' | 'auth', measured: number) {
 		sessionId: generateSessionId(),
 		turnId: generateTurnId(),
 	}
-	const baseDir = join(workingDirectory, 'ledgers')
-	const budget = await openTokenBudget({
-		store: new DiskTokenBudgetStore({ baseDir }),
-		scope,
-		limit: 1_000,
-	})
+	const ledgerScope = { rootSessionId: scope.sessionId, rootTurnId: scope.turnId }
+	const store = new InMemorySessionTokenBudgetStore()
+	const budget = await openSessionTokenBudget({ store, scope: ledgerScope, limit: 1_000 })
 	let calls = 0
 	const primary: LLMProvider = {
 		id: 'primary',
@@ -63,6 +64,7 @@ async function recovery(mode: 'retry' | 'fallback' | 'auth', measured: number) {
 	const run = await drainQuery({
 		...scope,
 		topicId: generateTopicId(),
+		sessionLog: new InMemorySessionLog({ sessionId: scope.sessionId }),
 		workingDirectory,
 		provider: primary,
 		budget,
@@ -74,7 +76,7 @@ async function recovery(mode: 'retry' | 'fallback' | 'auth', measured: number) {
 		agentName: 'Recovery budget',
 		messages: [createUserMessage('Answer the request.')],
 	})
-	const recorded = await new DiskTokenBudgetStore({ baseDir }).load(scope)
+	const recorded = await store.load(ledgerScope)
 	return { calls, fallback, run, recorded }
 }
 
