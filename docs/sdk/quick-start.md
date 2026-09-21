@@ -83,9 +83,13 @@ const result = await runAgent({
 })
 ```
 
-The host owns those paths and their permissions. An omitted builder retains the
-SDK's existing `{workingDirectory}/.namzu` layout; the CLI supplies its separate
-application layout. The SDK also accepts the existing `runStore` and
+The host owns those paths and their permissions. An omitted builder puts
+generated state under `defaultStateRoot()`: `NAMZU_STATE_DIR` when set, else the
+per-user state directory (`$XDG_STATE_HOME/namzu` or `~/.local/state/namzu` on
+Linux, `~/Library/Application Support/namzu/state` on macOS,
+`%LOCALAPPDATA%\namzu\state` on Windows). It is never the working directory
+and never the CLI's `~/.namzu`; before 2026-09-21 it was
+`{workingDirectory}/.namzu`. The CLI supplies its separate application layout. The SDK also accepts the existing `runStore` and
 `checkpointStore` contracts for custom evidence and checkpoint persistence.
 Set both when both kinds of records must use another backend. Injecting a store
 does not replace every other runtime path; use a builder as well when the
