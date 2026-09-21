@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -7,7 +7,9 @@ import {
 	ProviderRegistry,
 	type ResidentStepContext,
 	type ToolRegistryContract,
-	generateRunId,
+	type TurnId,
+	generateSessionId,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -16,21 +18,27 @@ import type { CommandContext } from '../../commands/types.js'
 import { PROVIDER_REGISTRY } from '../providers/index.js'
 import { openSessions } from '../sessions/store.js'
 import { createResidentSessionStep } from './session-step.js'
+import { findResidentProject } from './storage.js'
 import { residentToolEvidence } from './tool-evidence.js'
 
 const registries = new Map<string, ToolRegistryContract>()
-const emergencyModes: (boolean | undefined)[] = []
 vi.mock('@namzu/sdk', async (original) => {
 	const actual = await original<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
 		query: (params: Parameters<typeof actual.query>[0]) => {
-			if (params.runId) registries.set(params.runId, params.tools)
-			emergencyModes.push(params.emergencySave)
+			if (params.turnId) registries.set(params.turnId, params.tools)
 			return actual.query(params)
 		},
 	}
 })
+
+/** The slug the CLI filed the workspace's project under: where each step's log lands. */
+async function projectSlug(home: string, cwd: string): Promise<string> {
+	const project = await findResidentProject(home, await realpath(cwd))
+	if (!project) throw new Error('The workspace project is not filed under projects/.')
+	return project.slug
+}
 vi.mock('../../tui/agent.js', async (original) => {
 	const actual = await original<typeof import('../../tui/agent.js')>()
 	return {
@@ -56,7 +64,6 @@ const roots: string[] = []
 afterEach(() => {
 	vi.restoreAllMocks()
 	registries.clear()
-	emergencyModes.length = 0
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
@@ -73,6 +80,7 @@ it.each([
 		const cwd = join(root, 'workspace')
 		await mkdir(cwd)
 		const sessions = await openSessions(cwd, { stateRoot: join(root, 'home') })
+		const slug = await projectSlug(sessions.root, cwd)
 		const agenda = new DiskResidentAgenda(join(root, 'agenda'), {
 			tenantId: sessions.tenantId,
 			agentKey: 'reviewer',
@@ -111,6 +119,7 @@ it.each([
 			sessions,
 			agenda,
 			artifactsRoot,
+			projectSlug: slug,
 			contextProfile,
 			toolLoading: 'deferred',
 			flags: parseRunFlags(['--permission-mode', 'plan', '--max-iterations', '10']),
@@ -132,6 +141,7 @@ it.each([
 		const source = residentToolEvidence(
 			agenda.history((await execution.read())!, firstRevision),
 			sessions,
+			slug,
 			artifactsRoot,
 		)
 		let page = await source.search({ query: 'DELTA' })
@@ -146,6 +156,7 @@ it.each([
 		const reopenedSource = residentToolEvidence(
 			agenda.history((await execution.read())!, firstRevision),
 			sessions,
+			slug,
 			artifactsRoot,
 		)
 		const continued = await reopenedSource.search({ cursor: tokenPage.nextCursor })
@@ -155,7 +166,7 @@ it.each([
 		const bounded = await source.search({ query: 'DELTA', maxReadBytes: 2 * 1024 * 1024 })
 		expect(bounded.evidence?.matches[0]?.excerpt).toContain(receipt)
 		expect(bounded.chargedBytes).toBe(
-			bounded.historyBytes + 2 * 65_536 + (bounded.evidence?.scannedBytes ?? 0),
+			bounded.historyBytes + 3 * 65_536 + (bounded.evidence?.scannedBytes ?? 0),
 		)
 		expect(bounded.chargedBytes).toBeLessThanOrEqual(2 * 1024 * 1024)
 		const boundedRead = await source.read({
@@ -214,7 +225,6 @@ it.each([
 				JSON.stringify(reader.requests[2]?.messages.filter((message) => message.role === 'tool')),
 			).toContain(receipt)
 		}
-		expect(emergencyModes.every((enabled) => enabled === false)).toBe(true)
 		expect(reader.requests[0]?.tools?.map((tool) => tool.function.name)).toContain(
 			'search_resident_tools',
 		)
@@ -226,14 +236,15 @@ it.each([
 		)
 		expect(new Set(receipts.map((receipt) => receipt.sessionId)).size).toBe(2)
 		expect(receipts.every((receipt) => receipt.cleanup === 'confirmed')).toBe(true)
-		for (const [runId, registry] of registries) {
+		for (const [turnId, registry] of registries) {
 			const tool = registry.get('search_resident_tools')
 			if (!tool) continue
-			for (const requestingRun of [runId, generateRunId()]) {
+			for (const requestingTurn of [turnId as TurnId, generateTurnId()]) {
 				const denied = await tool.execute(
 					{},
 					{
-						runId: requestingRun as ReturnType<typeof generateRunId>,
+						sessionId: generateSessionId(),
+						turnId: requestingTurn,
 						workingDirectory: cwd,
 						env: {},
 						log() {},
@@ -243,19 +254,9 @@ it.each([
 				expect(denied.success).toBe(false)
 			}
 		}
+		// The evidence was read from the step's own session log, filed under the project.
 		expect(
-			(
-				await readdir(
-					join(
-						sessions.root,
-						'sessions',
-						receipts[0].sessionId,
-						'runs',
-						receipts[0].runId,
-						'evidence-index',
-					),
-				)
-			).length,
+			(await stat(join(sessions.root, 'projects', slug, `${receipts[0].sessionId}.jsonl`))).size,
 		).toBeGreaterThan(0)
 		const wrongFinish = join(artifactsRoot, firstClaim.claimId!, 'finish.json')
 		await writeFile(
@@ -276,6 +277,7 @@ it.each([false, true])(
 		const cwd = join(root, 'workspace')
 		await mkdir(cwd)
 		const sessions = await openSessions(cwd, { stateRoot: join(root, 'home') })
+		const slug = await projectSlug(sessions.root, cwd)
 		const agendaRoot = join(root, 'agenda')
 		const agenda = new DiskResidentAgenda(agendaRoot, {
 			tenantId: sessions.tenantId,
@@ -304,6 +306,7 @@ it.each([false, true])(
 				sessions,
 				agenda: currentAgenda,
 				artifactsRoot,
+				projectSlug: slug,
 				flags: parseRunFlags(['--max-iterations', '4']),
 				toolLoading: 'deferred',
 			})
@@ -313,8 +316,8 @@ it.each([false, true])(
 			await execution.settle(claim, result, Date.now())
 			return claim
 		}
-		const original = `DELTA initial observation: OLD-${generateRunId()}`
-		const corrected = `DELTA corrected observation: NEW-${generateRunId()}`
+		const original = `DELTA initial observation: OLD-${generateTurnId()}`
+		const corrected = `DELTA corrected observation: NEW-${generateTurnId()}`
 		const observe = () =>
 			new MockLLMProvider({
 				turns: [
@@ -386,7 +389,6 @@ it.each([false, true])(
 		expect(records.map((record) => record.excerpt).join('\n')).toContain(corrected)
 		expect(records.map((record) => record.excerpt).join('\n')).not.toContain('UNVERIFIED-CODE')
 		expect(new Set(records.map((record) => record.sessionId)).size).toBe(2)
-		expect(emergencyModes).toEqual([false, false, false])
 		const ordered = [...records].sort((a, b) => a.revision - b.revision)
 		expect(ordered[0].excerpt).toContain(original)
 		expect(ordered.at(-1).excerpt).toContain(corrected)

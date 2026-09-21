@@ -2,25 +2,41 @@
  * `namzu drain` — the caller the cross-process claim never had.
  *
  * The tests that matter here are the REACHABILITY ones. Every piece this
- * command composes was already covered by its own unit tests when nothing
- * called any of it, so a suite that only re-tested the pieces would stay
+ * command composes (the index, the session lease, the resume) is covered by
+ * its own unit tests, so a suite that only re-tested the pieces would stay
  * green through the exact defect this command exists to fix. So: delete the
- * `drainRuns` call and the first block fails; delete `claimFence` from the
+ * `claimSession` call and the first block fails; drop the lease from the
  * resume and the second block fails; delete the command from the registry
  * and the third fails.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { CommandContext } from '../types.js'
 
-const drainRuns = vi.fn()
-const constructedStores: unknown[] = []
-const agentSpies = vi.hoisted(() => ({ createAgentSession: vi.fn(), getSession: vi.fn() }))
+const TENANT = '6ab233e0-9e27-4517-8861-61d4b85f396e'
+const PROJECT = '3f488113-b658-4c23-833c-69d1e9072a19'
+const SESSION = '02b19846-c793-4e21-9c6e-21962a7d2de5'
+const TURN = '0199a8d2-37dd-7f8e-9e13-4e57937fd048'
+const TOPIC = '66b7abae-e8da-4a77-9f42-3405e7b7d5f5'
+const LEASE = { holder: 'w', fence: 7, expiresAt: Date.now() + 60_000 }
 
-vi.mock('../../integrations/sessions/database.js', () => ({
-	sessionStore: () => ({ getSession: agentSpies.getSession }),
+const spies = vi.hoisted(() => ({
+	createAgentSession: vi.fn(),
+	getSession: vi.fn(),
+	listPendingDecisions: vi.fn(),
+	closeIndex: vi.fn(),
+	activeTurn: vi.fn(),
+	claimSession: vi.fn(),
+	releaseSession: vi.fn(),
+	readSessionStart: vi.fn(),
+	logAt: vi.fn(),
 }))
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
@@ -28,14 +44,25 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	return {
 		...actual,
 		configureLogger: () => {},
-		drainRuns: (params: unknown) => drainRuns(params),
-		DiskCheckpointStore: class {
-			constructor(config: unknown, attribution: unknown) {
-				constructedStores.push({ config, attribution })
-			}
+		openSessionIndex: async () => ({
+			getSession: spies.getSession,
+			listPendingDecisions: spies.listPendingDecisions,
+			close: spies.closeIndex,
+		}),
+		DiskSessionLog: {
+			at: (...args: unknown[]) => {
+				spies.logAt(...args)
+				return { sessionId: SESSION, activeTurn: spies.activeTurn }
+			},
 		},
+		claimSession: spies.claimSession,
+		releaseSession: spies.releaseSession,
 	}
 })
+
+vi.mock('../../integrations/resident/session-log-reads.js', () => ({
+	readSessionStart: spies.readSessionStart,
+}))
 
 // Standing in a trusted folder is the ordinary production state; the refusal
 // for an untrusted one is the headless trust gate's own test.
@@ -45,29 +72,41 @@ vi.mock('../../integrations/trust/store.js', () => ({
 }))
 
 // Declared WITH its parameter, so `mock.calls[0][0]` is a value rather than
-// a tuple index that does not exist. A zero-arg `vi.fn` types the call tuple
-// as `[]`, and the fence assertion below — the one this file exists for —
-// would have had to be written against `undefined`.
-const resumeDurable = vi.fn(async (_params: { entry: { runId: string }; claimFence?: number }) => ({
-	resumed: true as const,
-	run: { status: 'completed' },
-	state: {},
-}))
+// a tuple index that does not exist.
+const resumeDurable = vi.fn(
+	async (_params: {
+		entry: { turnId: string; sessionId: string }
+		lease?: unknown
+		sessionLog?: unknown
+	}): Promise<unknown> => ({
+		resumed: true as const,
+		turn: { status: 'completed' },
+		state: {},
+	}),
+)
 
 const sessionStub = fakeAgentSession({
 	resumeDurable: resumeDurable as unknown as ReturnType<typeof fakeAgentSession>['resumeDurable'],
 })
-agentSpies.createAgentSession.mockResolvedValue(sessionStub)
+spies.createAgentSession.mockResolvedValue(sessionStub)
 
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 3, providers: [{ id: 'mock' }], subagents: { active: [] } },
 		detected: [],
 	})),
-	createAgentSession: agentSpies.createAgentSession,
+	createAgentSession: spies.createAgentSession,
 }))
 
 const { drainCommand, parseDrainFlags, resolveDrainScope } = await import('../drain.js')
+
+// `--store` must already be a namzu home: the drain refuses to create state
+// in a directory it was pointed at.
+const HOME = mkdtempSync(join(tmpdir(), 'namzu-drain-home-'))
+mkdirSync(join(HOME, 'projects'))
+afterAll(() => removeTempDir(HOME))
+
+const SCOPE_ARGS = ['--store', HOME, '--tenant', TENANT, '--project', PROJECT, '--session', SESSION]
 
 function contextCapturing(): {
 	ctx: CommandContext
@@ -90,85 +129,58 @@ function contextCapturing(): {
 	return { ctx, printed, errors, info }
 }
 
-const SCOPE_ARGS = [
-	'--store',
-	'/tmp/runs',
-	'--tenant',
-	'6ab233e0-9e27-4517-8861-61d4b85f396e',
-	'--project',
-	'3f488113-b658-4c23-833c-69d1e9072a19',
-	'--session',
-	'02b19846-c793-4e21-9c6e-21962a7d2de5',
-]
-
-const ENTRY = {
-	tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
-	projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
-	sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
-	runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
-	checkpointCount: 2,
-	latestCheckpointId: '7802b395-981e-430a-86c7-058cb79dbaf9',
-	latestCheckpointAt: 5,
-}
-
-agentSpies.getSession.mockResolvedValue({
-	id: ENTRY.sessionId,
-	projectId: ENTRY.projectId,
-	tenantId: ENTRY.tenantId,
-	topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
-})
-
-const CLAIM = { holder: 'w', fence: 7, expiresAt: Date.now() + 60_000 }
-
-/** A `drainRuns` that yields one run to whatever `onRun` it was handed. */
-function drainsOneRun(): void {
-	drainRuns.mockImplementation(async (params: { onRun: (e: unknown, c: unknown) => unknown }) => {
-		await params.onRun(ENTRY, CLAIM)
-		return {
-			listed: 1,
-			drained: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
-			skipped: [],
-			stale: [],
-			failed: [],
-			unreleased: [],
-			stopped: false,
-		}
+beforeEach(() => {
+	for (const spy of Object.values(spies)) spy.mockReset()
+	resumeDurable.mockClear()
+	spies.createAgentSession.mockResolvedValue(sessionStub)
+	spies.getSession.mockResolvedValue({
+		id: SESSION,
+		slug: '-workspace',
+		projectId: PROJECT,
+		rootId: SESSION,
+		depth: 0,
+		logPath: join(HOME, 'projects', '-workspace', `${SESSION}.jsonl`),
 	})
-}
+	spies.readSessionStart.mockResolvedValue({
+		type: 'session_started',
+		seq: 1,
+		sessionId: SESSION,
+		projectId: PROJECT,
+		tenantId: TENANT,
+		topicId: TOPIC,
+	})
+	spies.listPendingDecisions.mockResolvedValue([])
+	spies.activeTurn.mockResolvedValue({ turnId: TURN, state: 'interrupted', paused: false })
+	spies.claimSession.mockResolvedValue(LEASE)
+	spies.releaseSession.mockResolvedValue(undefined)
+})
 
 describe('refusing a pass whose scope nobody named', () => {
 	it('refuses without a store rather than defaulting to a path', () => {
-		const flags = parseDrainFlags(['--tenant', '6ab233e0-9e27-4517-8861-61d4b85f396e'])
+		const flags = parseDrainFlags(['--tenant', TENANT])
 		expect(flags.store).toBeNull()
 	})
 
-	it('refuses a listing with no tenant', () => {
+	it('refuses a drain with no tenant', () => {
 		expect(resolveDrainScope({ tenant: null, project: 'p', session: 's' })).toMatchObject({
 			error: expect.stringContaining('--tenant is required'),
 		})
 	})
 
-	it('refuses a disk store it cannot attribute', () => {
+	it('refuses a scope without its project and session', () => {
 		expect(resolveDrainScope({ tenant: 't', project: null, session: 's' })).toMatchObject({
 			error: expect.stringContaining('--project and --session'),
 		})
 	})
 
 	// Present but MISTYPED, which is the case the two refusals above cannot
-	// reach and the one an operator actually hits. `--tenant prj_a` used to be
-	// asserted straight into a `TenantId` and handed to the store, which then
-	// listed nothing — and "no runs" is the same output as a scope that really
-	// is empty, so the typo was invisible.
+	// reach and the one an operator actually hits.
 	it.each([
-		['tenant', { tenant: 'tnt_old', project: ENTRY.projectId, session: ENTRY.sessionId }, 'tenant'],
-		[
-			'project',
-			{ tenant: ENTRY.tenantId, project: 'prj_old', session: ENTRY.sessionId },
-			'project',
-		],
+		['tenant', { tenant: 'tnt_old', project: PROJECT, session: SESSION }, 'tenant'],
+		['project', { tenant: TENANT, project: 'prj_old', session: SESSION }, 'project'],
 		[
 			'session',
-			{ tenant: ENTRY.tenantId, project: ENTRY.projectId, session: 'ses_unsupported_identifier' },
+			{ tenant: TENANT, project: PROJECT, session: 'ses_unsupported_identifier' },
 			'session',
 		],
 	])(
@@ -183,28 +195,15 @@ describe('refusing a pass whose scope nobody named', () => {
 	)
 
 	it('accepts UUIDs in every scope field', () => {
-		expect(
-			resolveDrainScope({
-				tenant: '17697cab-7e61-4b71-be7c-ea8e4c418a35',
-				project: '912b9ccc-bd50-44fc-80fd-0229154e8a81',
-				session: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d',
-			}),
-		).toEqual({
-			tenantId: '17697cab-7e61-4b71-be7c-ea8e4c418a35',
-			projectId: '912b9ccc-bd50-44fc-80fd-0229154e8a81',
-			sessionId: '1aa5bf90-15f2-4704-97fc-8df4943e1e3d',
+		expect(resolveDrainScope({ tenant: TENANT, project: PROJECT, session: SESSION })).toEqual({
+			tenantId: TENANT,
+			projectId: PROJECT,
+			sessionId: SESSION,
 		})
 	})
 
 	it('collects an unrecognised flag, and the value it stranded', () => {
-		// Both, not just the flag. This command takes no positional arguments,
-		// so `tnt_x` really is unrecognised once `--tenat` failed to consume
-		// it — and reporting only the typo would leave the operator reading a
-		// refusal that does not mention the id they thought they passed.
-		expect(parseDrainFlags(['--tenat', '6ab233e0-9e27-4517-8861-61d4b85f396e']).unknown).toEqual([
-			'--tenat',
-			'6ab233e0-9e27-4517-8861-61d4b85f396e',
-		])
+		expect(parseDrainFlags(['--tenat', TENANT]).unknown).toEqual(['--tenat', TENANT])
 	})
 
 	it('reads a value written with an equals sign', () => {
@@ -216,116 +215,134 @@ describe('refusing a pass whose scope nobody named', () => {
 })
 
 describe('the command refuses before it opens anything', () => {
-	it('exits 64 with no --store, and never reaches the drain', async () => {
-		drainRuns.mockClear()
+	it('exits 64 with no --store, and never claims', async () => {
 		const { ctx, errors } = contextCapturing()
-		const code = await drainCommand.handler({
-			ctx,
-			rawArgs: ['--tenant', '6ab233e0-9e27-4517-8861-61d4b85f396e'],
-		})
+		const code = await drainCommand.handler({ ctx, rawArgs: ['--tenant', TENANT] })
 		expect(code).toBe(64)
 		expect(errors[0]).toContain('--store is required')
-		expect(drainRuns).not.toHaveBeenCalled()
+		expect(spies.claimSession).not.toHaveBeenCalled()
 	})
 
 	it('exits 64 on a lease that has already expired', async () => {
-		drainRuns.mockClear()
 		const { ctx, errors } = contextCapturing()
 		const code = await drainCommand.handler({ ctx, rawArgs: [...SCOPE_ARGS, '--ttl', '0'] })
 		expect(code).toBe(64)
 		expect(errors[0]).toContain('--ttl must be a positive number')
-		expect(drainRuns).not.toHaveBeenCalled()
+		expect(spies.claimSession).not.toHaveBeenCalled()
+	})
+
+	it('exits 64 on a concurrency that is not a whole number above zero', async () => {
+		const { ctx, errors } = contextCapturing()
+		const code = await drainCommand.handler({
+			ctx,
+			rawArgs: [...SCOPE_ARGS, '--max-concurrent', '0'],
+		})
+		expect(code).toBe(64)
+		expect(errors[0]).toContain('--max-concurrent')
+	})
+
+	it('exits 64 on a --store that is not a namzu home, creating nothing there', async () => {
+		const empty = mkdtempSync(join(tmpdir(), 'namzu-drain-empty-'))
+		try {
+			const { ctx, errors } = contextCapturing()
+			const args = [...SCOPE_ARGS]
+			args[1] = empty
+			expect(await drainCommand.handler({ ctx, rawArgs: args })).toBe(64)
+			expect(errors.join(' ')).toContain('holds no projects/ directory')
+			expect(spies.createAgentSession).not.toHaveBeenCalled()
+		} finally {
+			removeTempDir(empty)
+		}
+	})
+})
+
+describe('the session is checked before a provider is built', () => {
+	it.each([
+		['an unindexed session', () => spies.getSession.mockResolvedValueOnce(undefined)],
+		[
+			'a session under another project',
+			() =>
+				spies.getSession.mockResolvedValueOnce({
+					id: SESSION,
+					slug: '-workspace',
+					projectId: '193cc60e-d8ca-49c5-86e8-30428312e4c8',
+					rootId: SESSION,
+					depth: 0,
+				}),
+		],
+		[
+			'a child session',
+			() =>
+				spies.getSession.mockResolvedValueOnce({
+					id: SESSION,
+					slug: '-workspace',
+					projectId: PROJECT,
+					rootId: '193cc60e-d8ca-49c5-86e8-30428312e4c8',
+					depth: 1,
+				}),
+		],
+		[
+			'a session opened under another tenant',
+			() =>
+				spies.readSessionStart.mockResolvedValueOnce({
+					type: 'session_started',
+					seq: 1,
+					sessionId: SESSION,
+					projectId: PROJECT,
+					tenantId: '193cc60e-d8ca-49c5-86e8-30428312e4c8',
+					topicId: TOPIC,
+				}),
+		],
+		['a session with no log', () => spies.readSessionStart.mockResolvedValueOnce(null)],
+	])('refuses %s with 64', async (_case, arrange) => {
+		arrange()
+		const { ctx, errors } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(64)
+		expect(errors.join(' ')).toContain('cannot resolve the drain session')
+		expect(spies.createAgentSession).not.toHaveBeenCalled()
+		expect(spies.claimSession).not.toHaveBeenCalled()
+		expect(spies.closeIndex).toHaveBeenCalled()
 	})
 })
 
 describe('the drain is actually reached', () => {
-	it.each(['id', 'tenantId', 'projectId'] as const)(
-		'refuses a persisted Session whose %s differs from the requested conversation',
-		async (field) => {
-			agentSpies.createAgentSession.mockClear()
-			agentSpies.getSession.mockResolvedValueOnce({
-				id: ENTRY.sessionId,
-				tenantId: ENTRY.tenantId,
-				projectId: ENTRY.projectId,
-				topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
-				[field]: '193cc60e-d8ca-49c5-86e8-30428312e4c8',
-			})
-			const { ctx } = contextCapturing()
-			expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(64)
-			expect(agentSpies.createAgentSession).not.toHaveBeenCalled()
-		},
-	)
-	it('refuses a checkpoint-only scope without its persisted Session before creating a provider', async () => {
-		agentSpies.createAgentSession.mockClear()
-		agentSpies.getSession.mockResolvedValueOnce(null)
-		const { ctx, errors } = contextCapturing()
-		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(64)
-		expect(errors.join(' ')).toContain('cannot resolve the drain session')
-		expect(agentSpies.createAgentSession).not.toHaveBeenCalled()
-	})
-
-	it('drains the scope the operator named, under a holder and a lease', async () => {
-		drainRuns.mockClear()
-		agentSpies.createAgentSession.mockClear()
-		drainsOneRun()
+	it('claims the session the operator named, under a holder and a lease', async () => {
 		const { ctx } = contextCapturing()
-
 		const code = await drainCommand.handler({
 			ctx,
 			rawArgs: [...SCOPE_ARGS, '--holder', 'w_one', '--ttl', '1000', '--max-concurrent', '3'],
 		})
-
 		expect(code).toBe(0)
-		expect(drainRuns).toHaveBeenCalledTimes(1)
-		expect(drainRuns.mock.calls[0]?.[0]).toMatchObject({
-			scope: {
-				tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
-				projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
-				sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
-			},
-			holder: 'w_one',
-			ttlMs: 1000,
-			maxConcurrent: 3,
-		})
-		expect(agentSpies.createAgentSession).toHaveBeenCalledTimes(1)
-		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
-			stateRoot: process.env.NAMZU_HOME,
-			scope: {
-				tenantId: '6ab233e0-9e27-4517-8861-61d4b85f396e',
-				projectId: '3f488113-b658-4c23-833c-69d1e9072a19',
-				sessionId: '02b19846-c793-4e21-9c6e-21962a7d2de5',
-				topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
-			},
+		expect(spies.claimSession).toHaveBeenCalledTimes(1)
+		expect(spies.claimSession.mock.calls[0]?.[0]).toBe(SESSION)
+		expect(spies.claimSession.mock.calls[0]?.[1]).toMatchObject({ holder: 'w_one', ttlMs: 1000 })
+		expect(spies.releaseSession).toHaveBeenCalledWith(SESSION, LEASE, expect.anything())
+		expect(spies.createAgentSession).toHaveBeenCalledTimes(1)
+		expect(spies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
+			stateRoot: HOME,
+			scope: { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, topicId: TOPIC },
 		})
 	})
 
 	it('mints a per-process holder when none was named', async () => {
-		drainRuns.mockClear()
-		drainsOneRun()
 		const { ctx } = contextCapturing()
 		await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-		const holder = (drainRuns.mock.calls[0]?.[0] as { holder: string }).holder
-		// The claim contract says `holder` must be unique per PROCESS: two
-		// workers sharing one string take live, unexpired claims from each
-		// other instantly. A constant default would be exactly that bug.
+		const holder = (spies.claimSession.mock.calls[0]?.[1] as { holder: string }).holder
+		// The lease contract says `holder` must be unique per PROCESS.
 		expect(holder).toContain(String(process.pid))
 	})
 
-	it('keeps configured run limits when constructing the resume host', async () => {
-		agentSpies.createAgentSession.mockClear()
-		drainsOneRun()
+	it('keeps configured turn limits when constructing the resume host', async () => {
 		const { ctx } = contextCapturing()
 		const limits = { tokenBudget: 35000, maxIterations: 6 }
 		await drainCommand.handler({
 			ctx: { ...ctx, config: { ...ctx.config, limits } },
 			rawArgs: SCOPE_ARGS,
 		})
-		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({ limits })
+		expect(spies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({ limits })
 	})
 
-	it('binds history and retrieval settings to the persisted conversation without opening another project', async () => {
-		agentSpies.createAgentSession.mockClear()
-		drainsOneRun()
+	it('binds retrieval settings to the resume host', async () => {
 		const { ctx } = contextCapturing()
 		const config = {
 			...ctx.config,
@@ -334,14 +351,7 @@ describe('the drain is actually reached', () => {
 			web: { search: 'off' as const },
 		}
 		expect(await drainCommand.handler({ ctx: { ...ctx, config }, rawArgs: SCOPE_ARGS })).toBe(0)
-		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
-			conversationSessions: {
-				root: process.env.NAMZU_HOME,
-				store: { getSession: agentSpies.getSession },
-				projectId: ENTRY.projectId,
-				tenantId: ENTRY.tenantId,
-				topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
-			},
+		expect(spies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
 			compaction: config.compaction,
 			memory: config.memory,
 			web: config.web,
@@ -349,138 +359,116 @@ describe('the drain is actually reached', () => {
 	})
 })
 
-describe('the resume is actually reached, carrying the fence', () => {
-	it('continues each claimed run under the fence of the claim it was given', async () => {
-		drainRuns.mockClear()
-		resumeDurable.mockClear()
-		drainsOneRun()
+describe('the resume is actually reached, carrying the lease', () => {
+	it('continues the active turn under the lease it claimed, in the same session log', async () => {
 		const { ctx } = contextCapturing()
-
-		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-
-		expect(code).toBe(0)
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
 		expect(resumeDurable).toHaveBeenCalledTimes(1)
-		const params = resumeDurable.mock.calls[0]?.[0] as unknown as {
-			entry: { runId: string }
-			claimFence: number
-		}
-		expect(params.entry.runId).toBe('37ddff8e-e13f-4e57-937f-d048fa323f5e')
-		// Deleting `claimFence` here leaves every durable write the resumed run
-		// makes unfenced — so a drainer stalled past its lease overwrites the
-		// record of whoever took the run over, with no error anywhere. This
-		// assertion is the only thing standing between that and green.
-		expect(params.claimFence).toBe(7)
-	})
-
-	it('reports a parked run instead of resuming past the question', async () => {
-		drainRuns.mockClear()
-		resumeDurable.mockClear()
-		resumeDurable.mockResolvedValueOnce({
-			resumed: false,
-			reason: 'awaiting-decision',
-		} as unknown as Awaited<ReturnType<typeof resumeDurable>>)
-		drainsOneRun()
-		const { ctx, printed } = contextCapturing()
-
-		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-
-		expect(code).toBe(0)
-		expect(printed[0]).toMatchObject({
-			awaitingDecision: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
-			resumed: 0,
+		const params = resumeDurable.mock.calls[0]?.[0]
+		expect(params?.entry).toEqual({
+			tenantId: TENANT,
+			projectId: PROJECT,
+			sessionId: SESSION,
+			turnId: TURN,
 		})
+		// Dropping the lease leaves every record the resumed turn appends
+		// unfenced, so a drainer stalled past its lease writes over whoever
+		// took the session over. This assertion stands between that and green.
+		expect(params?.lease).toBe(LEASE)
+		expect(params?.sessionLog).toMatchObject({ sessionId: SESSION })
 	})
 
-	it('reports a run with nothing to continue as its own outcome', async () => {
-		drainRuns.mockClear()
-		resumeDurable.mockClear()
-		resumeDurable.mockResolvedValueOnce({
-			resumed: false,
-			reason: 'no-checkpoint',
-		} as unknown as Awaited<ReturnType<typeof resumeDurable>>)
-		drainsOneRun()
+	it('reports a turn parked on a decision without claiming the session', async () => {
+		spies.listPendingDecisions.mockResolvedValueOnce([
+			{ decisionId: 'd', sessionId: SESSION, turnId: TURN, checkpointId: 'c' },
+		])
 		const { ctx, printed } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
+		expect(spies.claimSession).not.toHaveBeenCalled()
+		expect(resumeDurable).not.toHaveBeenCalled()
+		expect(printed[0]).toMatchObject({ awaitingDecision: [TURN], resumed: 0 })
+	})
 
+	it('reports a turn the resume finds waiting on a decision', async () => {
+		resumeDurable.mockResolvedValueOnce({ resumed: false, reason: 'awaiting-decision' })
+		const { ctx, printed } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
+		expect(printed[0]).toMatchObject({ awaitingDecision: [TURN], resumed: 0 })
+	})
+
+	it('reports a turn with nothing to continue as its own outcome', async () => {
+		resumeDurable.mockResolvedValueOnce({ resumed: false, reason: 'no-checkpoint' })
+		const { ctx, printed } = contextCapturing()
 		await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-
 		// Distinct from `awaitingDecision`: one is a question waiting on a
-		// person and the other is a dead end, and an operator who cannot tell
-		// them apart either chases a human who owes nothing or ignores one who
-		// does.
-		expect(printed[0]).toMatchObject({
-			noCheckpoint: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
-			awaitingDecision: [],
-		})
+		// person and the other is a dead end.
+		expect(printed[0]).toMatchObject({ noCheckpoint: [TURN], awaitingDecision: [] })
+	})
+
+	it('skips a session another process holds, and resumes nothing', async () => {
+		spies.claimSession.mockResolvedValueOnce(null)
+		const { ctx, printed } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
+		expect(resumeDurable).not.toHaveBeenCalled()
+		expect(spies.releaseSession).not.toHaveBeenCalled()
+		expect(printed[0]).toMatchObject({ heldByOthers: [TURN], resumed: 0 })
+	})
+
+	it('reports a turn settled between the listing and the claim as already handled', async () => {
+		spies.activeTurn
+			.mockResolvedValueOnce({ turnId: TURN, state: 'interrupted', paused: false })
+			.mockResolvedValueOnce(null)
+		const { ctx, printed } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
+		expect(resumeDurable).not.toHaveBeenCalled()
+		expect(spies.releaseSession).toHaveBeenCalledTimes(1)
+		expect(printed[0]).toMatchObject({ alreadyHandled: [TURN] })
+	})
+
+	it('reports an empty pass when the session has no active turn', async () => {
+		spies.activeTurn.mockResolvedValueOnce(null)
+		const { ctx, printed } = contextCapturing()
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
+		expect(spies.claimSession).not.toHaveBeenCalled()
+		expect(printed[0]).toMatchObject({ listed: 0, resumed: 0 })
 	})
 })
 
 describe('what the pass reports', () => {
 	it.each(['failed', 'cancelled'])(
-		'does not report a resumed %s run as success',
+		'does not report a resumed %s turn as success',
 		async (status) => {
-			resumeDurable.mockResolvedValueOnce({ resumed: true, run: { status }, state: {} })
-			drainsOneRun()
+			resumeDurable.mockResolvedValueOnce({ resumed: true, turn: { status }, state: {} })
 			const { ctx, errors, info } = contextCapturing()
 			expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(1)
-			expect(errors.join(' ')).toContain(`Resumed run ended with status "${status}"`)
+			expect(errors.join(' ')).toContain(`Resumed turn ended with status "${status}"`)
 			expect(info.some((message) => message.startsWith('✔'))).toBe(false)
+			expect(spies.releaseSession).toHaveBeenCalledTimes(1)
 		},
 	)
-	it('exits 1 and names the run when work failed', async () => {
-		drainRuns.mockClear()
-		drainRuns.mockResolvedValueOnce({
-			listed: 2,
-			drained: [],
-			skipped: [],
-			stale: [],
-			failed: [{ runId: '98f4c7fe-b91e-4662-8e97-3fb709d90a6a', error: 'provider refused' }],
-			unreleased: [],
-			stopped: false,
-		})
+
+	it('exits 1 and names the turn when work failed', async () => {
+		resumeDurable.mockRejectedValueOnce(new Error('provider refused'))
 		const { ctx, errors } = contextCapturing()
-
-		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-
-		expect(code).toBe(1)
-		expect(errors.join(' ')).toContain('98f4c7fe-b91e-4662-8e97-3fb709d90a6a: provider refused')
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(1)
+		expect(errors.join(' ')).toContain(`${TURN}: provider refused`)
 	})
 
-	it('surfaces a refusal from the drain rather than reporting an empty pass', async () => {
-		drainRuns.mockClear()
-		drainRuns.mockRejectedValueOnce(new Error('does not implement `claimRun`'))
+	it('surfaces a refusal from the log rather than reporting an empty pass', async () => {
+		spies.activeTurn.mockRejectedValueOnce(new Error('Session log chain is broken at seq 4'))
 		const { ctx, errors } = contextCapturing()
-
-		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-
-		// "Nothing was parked" and "this store cannot arbitrate a queue" are
-		// opposite facts, and a command that reported the first for the second
-		// would have an operator believe their inbox is empty.
-		expect(code).toBe(1)
-		expect(errors.join(' ')).toContain('claimRun')
+		// "Nothing was parked" and "this log cannot be read" are opposite facts.
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(1)
+		expect(errors.join(' ')).toContain('chain is broken')
 	})
 
 	it('reports a lease it could not hand back', async () => {
-		drainRuns.mockClear()
-		drainRuns.mockResolvedValueOnce({
-			listed: 1,
-			drained: ['37ddff8e-e13f-4e57-937f-d048fa323f5e'],
-			skipped: [],
-			stale: [],
-			failed: [],
-			unreleased: [{ runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e', error: 'disk went away' }],
-			stopped: false,
-		})
+		spies.releaseSession.mockRejectedValueOnce(new Error('disk went away'))
 		const { ctx, errors, printed } = contextCapturing()
-
-		const code = await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })
-
-		// The work landed, so this is not a failure — but the run is invisible
-		// to the next reader until the lease lapses, and that is a fact an
-		// operator watching throughput has to be given.
-		expect(code).toBe(0)
+		// The work landed, so this is not a failure — but the session is
+		// unavailable to the next reader until the lease lapses.
+		expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(0)
 		expect(errors.join(' ')).toContain('lease not released')
-		expect(printed[0]).toMatchObject({
-			unreleased: [{ runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' }],
-		})
+		expect(printed[0]).toMatchObject({ unreleased: [{ turnId: TURN }] })
 	})
 })

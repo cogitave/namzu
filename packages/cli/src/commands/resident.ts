@@ -358,6 +358,7 @@ export const residentCommand: CommandDef = {
 						learningDisclosure: flags.learningDisclosure,
 						verification,
 						artifactsRoot: resident.artifactsRoot,
+						projectSlug: resident.slug,
 					})
 					if (flags.action === 'start') {
 						const owner = await startResidentRunner({

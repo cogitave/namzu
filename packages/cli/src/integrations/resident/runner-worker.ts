@@ -70,6 +70,7 @@ async function main(): Promise<number> {
 			learningDisclosure: launch.learningDisclosure,
 			verification: launch.verification,
 			artifactsRoot: resident.artifactsRoot,
+			projectSlug: resident.slug,
 		})
 		lifecycleStarted = true
 		const result = await runOwnedResident({

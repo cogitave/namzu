@@ -4,14 +4,6 @@ import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { CommandContext } from '../types.js'
 
-vi.mock('@namzu/sdk', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('@namzu/sdk')>()
-	return {
-		...actual,
-		drainRuns: async () => ({}),
-	}
-})
-
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
 	trustDir: () => {},
