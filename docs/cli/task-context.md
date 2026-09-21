@@ -27,7 +27,11 @@ Tasks belong to the session and are durable: each is a file under
 restart and a resume. Only records matching both the session and tenant are
 eligible. The projection shows every task still open, whichever turn created
 it, plus the tasks closed during the current turn; a task closed in an earlier
-turn is not shown. This is distinct from project memory, which spans
+turn is not shown. "The current turn" starts at the kernel's
+`PrepareStepContext.turnStartedAt`, which a resumed turn takes from its
+`turn_started` record, so a turn parked in one process and resumed by another
+(`namzu drain`, `/resume` after a restart) still shows the tasks it closed
+before the pause. This is distinct from project memory, which spans
 sessions.
 
 The projection prioritizes in-progress tasks, then failed tasks, then pending

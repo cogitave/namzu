@@ -43,14 +43,20 @@ export interface PreparationTextResult {
  * the next step should be shaped. Without it, a turn's tool surface, model
  * and sampling parameters are fixed at `query()` time, so a phased agent —
  * research with search tools, then write with file tools, then verify with
- * a cheaper model — had to be built as three separate runs, each losing
+ * a cheaper model — had to be built as three separate turns, each losing
  * the prior one's context.
  */
 export interface PrepareStepContext {
 	readonly sessionId: SessionId
 	readonly turnId: TurnId
 	/**
-	 * Optional run-owned inference for context preparation. At most one call per
+	 * When the turn began, in epoch milliseconds. A resumed turn keeps the
+	 * time of its `turn_started` record, whichever process wrote it, so a
+	 * step can tell what happened in this turn before it paused.
+	 */
+	readonly turnStartedAt?: number
+	/**
+	 * Optional turn-owned inference for context preparation. At most one call per
 	 * stage invocation; cannot be called after that stage returns. Uses the turn's
 	 * metered provider/fallback chain and the model selected by preceding stages.
 	 * Only supplied text is sent (12,000 characters total); no tools or history
@@ -231,7 +237,7 @@ export interface PrepareStepResult {
  *
  * A throw fails OPEN — the step proceeds with the turn's configured values.
  * Same reasoning as `stopWhen` and deliberately opposite to a guardrail: a
- * broken step-shaping hook should not kill an otherwise healthy run, and
+ * broken step-shaping hook should not kill an otherwise healthy turn, and
  * unlike a safety check, nothing unsafe gets through when it is skipped.
  */
 export type PrepareStep = (
@@ -263,7 +269,7 @@ export interface StepVeto {
  *
  * A throw fails CLOSED, deliberately opposite to `prepareStep` above.
  * They are different kinds of hook: a broken step-SHAPER should not kill
- * an otherwise healthy run, because nothing unsafe gets through when it is
+ * an otherwise healthy turn, because nothing unsafe gets through when it is
  * skipped. A broken step-REFUSER skipped is a refusal that did not happen,
  * which is the thing it exists to prevent.
  */

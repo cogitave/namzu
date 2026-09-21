@@ -68,7 +68,7 @@ const SCOPE: TurnStateScope = {
 
 const PAUSE = {
 	name: 'target_environment',
-	prompt: 'which environment should this run against?',
+	prompt: 'which environment should this turn against?',
 	options: [
 		{ id: 'staging', label: 'Staging' },
 		{ id: 'production', label: 'Production' },
@@ -202,7 +202,7 @@ describe('the resume gate, on the id the general seam actually parks under', () 
 describe('a pause raised from a host-authored tool survives the process', () => {
 	/**
 	 * A tool that parks on its own question, recording what the seam handed
-	 * back so the test can read it from outside the run.
+	 * back so the test can read it from outside the turn.
 	 */
 	function deployTool(seen: { outcome?: ToolPauseOutcome }): ToolRegistry {
 		const tools = new ToolRegistry()
@@ -267,7 +267,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 	 * its answer leaves behind: everything up to and including the
 	 * `decision_requested` of the tool's question, nothing after. The turn
 	 * reads as interrupted with its question outstanding — the human was
-	 * still looking at the card. Cutting a copy of a real run's log, rather
+	 * still looking at the card. Cutting a copy of a real turn's log, rather
 	 * than aborting mid-await, keeps the test from being one that can hang.
 	 */
 	async function killedAtQuestion(sessionLog: InMemorySessionLog): Promise<{
@@ -323,7 +323,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 	it('records a durable park with no host-supplied recorder', async () => {
 		const { park } = await parkOnce()
 
-		// Break 2. Without the run's own binding this wrote nothing at all,
+		// Break 2. Without the turn's own binding this wrote nothing at all,
 		// so a host queue had no question to show and a resume had no
 		// checkpoint to find — the pause was an in-process `await` and
 		// nothing said so.
@@ -347,7 +347,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		const questionId = request.type === 'user_question' ? request.question.questionId : ''
 
 		// A second runtime: new provider, new registry, new tool instance,
-		// nothing carried in memory from the run that parked. The session log,
+		// nothing carried in memory from the turn that parked. The session log,
 		// its checkpoints and ledger, and the decision are the only things
 		// that cross.
 		const seen: { outcome?: ToolPauseOutcome } = {}
@@ -416,6 +416,33 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		expect(fold.entries().some((entry) => entry.messageId === parkedId)).toBe(true)
 	})
 
+	it('tells a resumed turn’s steps when the turn began, not when this process did', async () => {
+		const { log, park } = await parkOnce()
+		const request = park.pending.request
+		const questionId = request.type === 'user_question' ? request.question.questionId : ''
+		const started = (await log.readAll()).entries
+			.map((entry) => entry.record)
+			.find((record) => record.type === 'turn_started' && record.turnId === SCOPE.turnId)
+		expect(started).toBeDefined()
+		const seen: (number | undefined)[] = []
+
+		await resumeSession({
+			...(await baseParams(log)),
+			scope: SCOPE,
+			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
+			tools: deployTool({}),
+			pendingDecision: answerWith(questionId, 'staging'),
+			prepareStep: (context) => {
+				seen.push(context.turnStartedAt)
+				return undefined
+			},
+			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
+		})
+
+		expect(seen.length).toBeGreaterThan(0)
+		expect(seen.every((at) => at === Date.parse(started?.ts ?? ''))).toBe(true)
+	})
+
 	it('delivers an answer through run_code using the durable ancestor call id', async () => {
 		const firstSeen: { outcome?: ToolPauseOutcome } = {}
 		const program = 'return await call("deploy", {})'
@@ -473,14 +500,14 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		expect(asked).not.toHaveBeenCalledWith('user_question')
 	})
 
-	it('binds the recorder the host supplied, and releases it when the run settles', async () => {
-		// The run owning a fallback must not mean the run ignoring the host.
+	it('binds the recorder the host supplied, and releases it when the turn settles', async () => {
+		// The turn owning a fallback must not mean the turn ignoring the host.
 		// `SupervisorAgent`'s built-in question tool closed over THIS object
-		// before the run existed, so a run that quietly bound its own instead
+		// before the turn existed, so a turn that quietly bound its own instead
 		// would stop recording that tool's parks — and every test of that
 		// tool builds the coordinator directly, so none of them would notice.
 		//
-		// Written because the mutation "the run ignores a host-supplied
+		// Written because the mutation "the turn ignores a host-supplied
 		// recorder" survived the whole suite.
 		const parks = new QuestionParkBinding()
 		const bind = vi.spyOn(parks, 'bind')
@@ -497,14 +524,14 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		})
 
 		expect(bind).toHaveBeenCalledTimes(1)
-		// Released on the way out, so a later run cannot write into a
+		// Released on the way out, so a later turn cannot write into a
 		// finished one through the same object.
 		expect(unbind).toHaveBeenCalledTimes(1)
 	})
 
 	it('reads a carried answer out of the channel the host supplied', async () => {
 		// The other half of the same rule, and the same mutation survived it:
-		// a run that answers only out of its own channel strands every answer
+		// a turn that answers only out of its own channel strands every answer
 		// a host filled in before calling.
 		const answers = new PendingAnswers()
 		answers.set(PAUSED_ON_CALL_1, answerWith(PAUSED_ON_CALL_1, 'production'))

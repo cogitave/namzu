@@ -96,6 +96,28 @@ it('shows open tasks from earlier turns and tasks closed in this turn, not those
 	expect(snapshot.unfinished).toBe(1)
 })
 
+it('keeps what a resumed turn closed before its pause, in whichever process resumes it', async () => {
+	const open = task({ subject: 'Still open' })
+	const closedBeforePause = task({
+		status: 'completed',
+		completedAt: 150,
+		subject: 'Closed before the pause',
+	})
+	// A fresh step instance, as a process resuming the turn builds one: its
+	// own clock is past the task's close, and the kernel's recorded start of
+	// the turn is before it.
+	const step = createTaskContextStep(
+		store(async () => [open, closedBeforePause]),
+		tenantId,
+		() => 200,
+	)
+	const snapshot = data((await step(context(10000, { turnStartedAt: 100 })))?.system ?? '')
+	expect(snapshot.tasks.map((row: { subject: string }) => row.subject)).toEqual([
+		'Still open',
+		'Closed before the pause',
+	])
+})
+
 it('orders active and failed tasks, counts unresolved dependencies, and caps the snapshot', async () => {
 	const done = task({ status: 'completed', completedAt: 0 })
 	const failed = task({ status: 'failed' })

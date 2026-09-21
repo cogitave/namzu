@@ -220,6 +220,8 @@ export class TurnRecorder {
 	 * these needs no re-basing, so no `compaction` record is written for it.
 	 */
 	#foldIdsAtResume: readonly MessageId[] | undefined
+	/** When a resumed turn began: its `turn_started` record, not this process's start. */
+	#resumedTurnStartedAt: number | undefined
 
 	constructor(config: TurnRecorderConfig) {
 		this.#config = config
@@ -715,16 +717,35 @@ export class TurnRecorder {
 		// The log may hold records past the checkpoint (a crash after it); the
 		// fold is re-based on the context the resume restores, once it has been
 		// pushed, unless that context is the one the log already folds to.
-		this.#foldIdsAtResume = await this.#foldIds()
+		this.#foldIdsAtResume = await this.#readResumedLog()
 		this.#rebasePending = true
 		return entry
 	}
 
-	/** The fold's message ids at the log's head, or `undefined` when one has no record. */
-	async #foldIds(): Promise<readonly MessageId[] | undefined> {
+	/**
+	 * When the turn began. For a resumed turn this is its `turn_started`
+	 * record's time, so "closed in this turn" still counts what the turn did
+	 * before it paused, in whichever process that was.
+	 */
+	get turnStartedAt(): number {
+		return this.#resumedTurnStartedAt ?? this.#turn.startedAt
+	}
+
+	/**
+	 * Read the log once on resume: the fold's message ids at its head
+	 * (`undefined` when one has no record), and when this turn began.
+	 */
+	async #readResumedLog(): Promise<readonly MessageId[] | undefined> {
 		await this.flush()
 		const fold = new SessionMessageFold()
-		for await (const entry of this.log.read()) fold.apply(entry.record as SessionRecord)
+		for await (const entry of this.log.read()) {
+			const record = entry.record as SessionRecord
+			if (record.type === 'turn_started' && record.turnId === this.turnId) {
+				const at = Date.parse(record.ts)
+				if (Number.isFinite(at)) this.#resumedTurnStartedAt = at
+			}
+			fold.apply(record)
+		}
 		if (fold.spilledSummary) return undefined
 		const ids: MessageId[] = []
 		for (const entry of fold.entries()) {
@@ -1186,6 +1207,20 @@ export function eventDraft(
 	} = event as SessionEvent & Record<string, unknown>
 	const draft = JSON.parse(JSON.stringify(payload)) as Record<string, unknown>
 	return { ...draft, ...(turnId ? { turnId } : {}) } as Parameters<SessionLog['append']>[1]
+}
+
+/** When `turnId` began, from its `turn_started` record; `undefined` when the log has none. */
+export async function recordedTurnStart(
+	log: SessionLog,
+	turnId: TurnId,
+): Promise<number | undefined> {
+	for await (const entry of log.read()) {
+		const record = entry.record as SessionRecord
+		if (record.type !== 'turn_started' || record.turnId !== turnId) continue
+		const at = Date.parse(record.ts)
+		return Number.isFinite(at) ? at : undefined
+	}
+	return undefined
 }
 
 /**

@@ -14,7 +14,7 @@ import { serializeState as serializeWorkingState } from '../../compaction/serial
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import { type CompactionConfig, CompactionConfigSchema } from '../../config/runtime.js'
 import { childSessionLog } from '../../manager/agent/child-session.js'
-import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
+import { type TurnRecorder, recordedTurnStart } from '../../manager/session/turn-recorder.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type { ProviderChainMember } from '../../provider/fallback.js'
@@ -162,7 +162,7 @@ export interface QueryParams {
 	repeatCallAdvisory?: boolean
 
 	/**
-	 * Tool names this run may not use, subtracted from its effective list.
+	 * Tool names this turn may not use, subtracted from its effective list.
 	 * See {@link import('../../types/agent/base.js').BaseAgentConfig.deniedTools}.
 	 */
 	deniedTools?: readonly string[]
@@ -174,7 +174,7 @@ export interface QueryParams {
 	provider: LLMProvider
 	/**
 	 * Transient-failure policy for model calls. A single 429 or 503 used to
-	 * terminate a run outright — no driver in the estate retries. Defaults
+	 * terminate a turn outright — no driver in the estate retries. Defaults
 	 * to {@link DEFAULT_PROVIDER_RETRY}; pass `false` to opt out (e.g. when
 	 * the host already wraps the provider with its own policy).
 	 *
@@ -202,16 +202,16 @@ export interface QueryParams {
 
 	/**
 	 * Durability for questions raised by a tool that closed over its
-	 * binding before the run existed.
+	 * binding before the turn existed.
 	 *
 	 * The built-in `ask_user_question` is built with the agent's tool
 	 * registry, so only whoever builds the tools can hand it one — that is
-	 * what lets a single tool instance be durable inside a run and inert
+	 * what lets a single tool instance be durable inside a turn and inert
 	 * outside one. Without it, THAT tool's park is only a suspended
 	 * `await`: kill the process while somebody is looking at the card and
 	 * the answer can never be applied.
 	 *
-	 * Not required for `ToolContext.requestPause`. The run builds that
+	 * Not required for `ToolContext.requestPause`. The turn builds that
 	 * seam per call and binds its own recorder when none is passed, so a
 	 * pause raised from a host-authored tool is durable on every surface
 	 * rather than only on the one agent class that supplies this.
@@ -232,9 +232,9 @@ export interface QueryParams {
 	 * The registry a re-entered `ask_user_question` reads its answer from.
 	 *
 	 * Same shape, same reason and same limit as {@link questionParks}: it
-	 * exists for a tool that closed over the instance before the run did,
-	 * and without it a resumed run re-asks that tool's question. A pause
-	 * from `ToolContext.requestPause` needs none, because the run fills
+	 * exists for a tool that closed over the instance before the turn did,
+	 * and without it a resumed turn re-asks that tool's question. A pause
+	 * from `ToolContext.requestPause` needs none, because the turn fills
 	 * its own on the resume path.
 	 */
 	pendingAnswers?: PendingAnswers
@@ -242,29 +242,29 @@ export interface QueryParams {
 	/** Default per-tool execution deadline. See {@link ToolDefinition.timeoutMs}. */
 	toolTimeoutMs?: number
 	/**
-	 * Where background jobs this run starts are held, and killed.
+	 * Where background jobs this turn starts are held, and killed.
 	 *
-	 * Host-owned so it can outlive one run — a registry built per run could
-	 * never be the thing that kills a run's jobs when the run is already
-	 * gone. This run's jobs are torn down in the `finally` below; another
-	 * run's are untouched. The registry launches host processes, so a run
+	 * Host-owned so it can outlive one turn — a registry built per run could
+	 * never be the thing that kills a turn's jobs when the turn is already
+	 * gone. This turn's jobs are torn down in the `finally` below; another
+	 * run's are untouched. The registry launches host processes, so a turn
 	 * that also supplies a {@link sandboxProvider} does not expose it to tools:
 	 * background execution is refused rather than silently bypassing the sandbox.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
 	/**
-	 * Which owner the run's background jobs belong to. Absent, the run id:
-	 * jobs are stopped when the run ends. A host that wants a job to
+	 * Which owner the turn's background jobs belong to. Absent, the turn id:
+	 * jobs are stopped when the turn ends. A host that wants a job to
 	 * outlive the turn that started it — a dev server started in one turn
 	 * and read in the next — passes its session id here and calls
-	 * `backgroundJobs.killOwner(sessionId)` when the session ends; the run
+	 * `backgroundJobs.killOwner(sessionId)` when the session ends; the turn
 	 * then stops nothing at its end and still tells the model when a job
 	 * finishes.
 	 */
 	backgroundJobOwner?: string
 
 	/**
-	 * What else goes in this run's prompt.
+	 * What else goes in this turn's prompt.
 	 *
 	 * `static` and `dynamic` contributions reach the system prompt through
 	 * `PromptBuilder`; `turn` contributions reach the ephemeral trailing
@@ -277,8 +277,8 @@ export interface QueryParams {
 	 * Where the `skill` tool loads from.
 	 *
 	 * Separate from `skills`, which is the LIST that goes in the prompt
-	 * manifest. A run can have the manifest without the tool — that is what
-	 * every run did before the tool existed — and the two are wired
+	 * manifest. A turn can have the manifest without the tool — that is what
+	 * every turn did before the tool existed — and the two are wired
 	 * independently on purpose: a host may want the guidance visible without
 	 * granting a way to pull bodies in mid-run.
 	 */
@@ -287,19 +287,19 @@ export interface QueryParams {
 	/**
 	 * Where a message's stored attachments are resolved from.
 	 *
-	 * Absent is fine for every run whose attachments are inline, which is
-	 * every run that existed before this. A message carrying a ref with no
+	 * Absent is fine for every turn whose attachments are inline, which is
+	 * every turn that existed before this. A message carrying a ref with no
 	 * store REFUSES rather than dropping the attachment.
 	 */
 	attachmentStore?: import('../../store/attachment/index.js').AttachmentStore
 	/**
-	 * Maximum wall-clock time for resolving the run's stored attachments.
+	 * Maximum wall-clock time for resolving the turn's stored attachments.
 	 * Defaults to one minute; `0` retains the prior unbounded wait.
 	 */
 	attachmentResolveTimeoutMs?: number
 
 	/**
-	 * How this run reaches the web.
+	 * How this turn reaches the web.
 	 *
 	 * `fetch` and `search` are independent, and this kernel ships only the
 	 * first — see `connector/web` for why choosing a search backend here
@@ -325,7 +325,7 @@ export interface QueryParams {
 
 	/**
 	 * Model-visible size cap for a single tool result. Over-budget output is
-	 * spilled to the run directory and replaced with a head+tail preview
+	 * spilled to the turn directory and replaced with a head+tail preview
 	 * naming the path, so nothing is lost and tokens are paid only if the
 	 * agent decides the rest is worth re-reading. Set `0` to disable.
 	 */
@@ -334,9 +334,9 @@ export interface QueryParams {
 	 * Screens to run against every tool result, where the registry was not
 	 * built with its own.
 	 *
-	 * This is the run's half of a boundary whose only other door is the
+	 * This is the turn's half of a boundary whose only other door is the
 	 * registry constructor — and a registry is usually the HOST's, assembled
-	 * before the run exists, so a run-config option is the only way a run
+	 * before the turn exists, so a run-config option is the only way a turn
 	 * screens a registry it did not build. A registry built WITH
 	 * `resultGuardrails` states its own policy and wins, `[]` included.
 	 *
@@ -382,7 +382,7 @@ export interface QueryParams {
 	 *
 	 * Before this the only halt was `GuardCoordinator`, which sees four
 	 * numeric budgets and never the messages — so a terminal
-	 * `submit_answer` tool could not end a run, and the model had to be
+	 * `submit_answer` tool could not end a turn, and the model had to be
 	 * prompt-begged to stop with `maxIterations: 200` as the only backstop.
 	 *
 	 * Helpers: `stepCountIs`, `hasToolCall`, `anyOf`.
@@ -390,30 +390,30 @@ export interface QueryParams {
 	stopWhen?: StopCondition
 
 	/**
-	 * Judge the answer the run is about to settle with, and hand it back
+	 * Judge the answer the turn is about to settle with, and hand it back
 	 * with feedback when it is not good enough.
 	 *
 	 * `stopWhen` is only consulted after tools have run, so there was no
-	 * seam at the point the model stops calling them: the run finalized
+	 * seam at the point the model stops calling them: the turn finalized
 	 * with whatever it had. Verify-then-fix — run the build, feed the
-	 * failure back, let it try again — meant starting a new run and
+	 * failure back, let it try again — meant starting a new turn and
 	 * re-supplying the context the first one had already assembled.
 	 *
 	 * Bounded by {@link maxAnswerReviews}. Never called on the forced-final
 	 * turn, which exists to extract a closing summary under pressure.
-	 * Exceptions or malformed verdicts fail the run; cancellation stops waiting.
+	 * Exceptions or malformed verdicts fail the turn; cancellation stops waiting.
 	 */
 	reviewAnswer?: ReviewAnswer
 
 	/**
-	 * Decide what this run should leave behind when it settles.
+	 * Decide what this turn should leave behind when it settles.
 	 *
 	 * See {@link PromoteMemory}. Absent means nothing is offered and the
 	 * run behaves exactly as it did.
 	 */
 	promoteMemory?: PromoteMemory
 
-	/** Corrections allowed before the run stops. Nonnegative safe integer; default 3. Consumed rejections survive checkpoints. */
+	/** Corrections allowed before the turn stops. Nonnegative safe integer; default 3. Consumed rejections survive checkpoints. */
 	maxAnswerReviews?: number
 
 	/** Called with each completed step, as it completes. */
@@ -423,11 +423,11 @@ export interface QueryParams {
 	 * Shape each step before the model is called: narrow the tool surface,
 	 * swap the model, add one-step guidance, change sampling.
 	 *
-	 * `stopWhen` let a run decide TO STOP from what its steps produced;
+	 * `stopWhen` let a turn decide TO STOP from what its steps produced;
 	 * this is the other half — deciding how the next step should look.
 	 * Without it, the tool surface and model are fixed at `query()` time,
 	 * so a phased agent (research with search tools, write with file tools,
-	 * verify with a cheaper model) had to be three separate runs, each
+	 * verify with a cheaper model) had to be three separate turns, each
 	 * starting blind to the last one's context.
 	 *
 	 * Narrowing `activeTools` costs a prompt-cache prefix, since tools
@@ -436,7 +436,7 @@ export interface QueryParams {
 	 * `allowed_tools`, and moving `tool_choice` invalidates cached MESSAGE
 	 * blocks too, which is a strictly worse trade for the same effect.
 	 *
-	 * Fails open — a throw leaves the step with the run's configuration.
+	 * Fails open — a throw leaves the step with the turn's configuration.
 	 */
 	prepareStep?: PrepareStepChain
 	/**
@@ -453,7 +453,7 @@ export interface QueryParams {
 	structuredOutput?: StructuredOutputConfig
 
 	/**
-	 * Checks run BEFORE the first model call. A block settles the run as
+	 * Checks run BEFORE the first model call. A block settles the turn as
 	 * `input_guardrail` having spent nothing.
 	 *
 	 * namzu's three tool gates all point one way — they protect the world
@@ -462,7 +462,7 @@ export interface QueryParams {
 	inputGuardrails?: readonly InputGuardrailSpec[]
 
 	/**
-	 * Checks run against the FINAL result. A block settles the run as
+	 * Checks run against the FINAL result. A block settles the turn as
 	 * `output_guardrail`; a `rewrite` replaces the text (so a PII policy
 	 * can redact rather than discard the whole answer).
 	 *
@@ -495,7 +495,7 @@ export interface QueryParams {
 	 * out-of-band — typically in a different process.
 	 *
 	 * Recording a park makes the request survive a restart; this is what
-	 * makes the ANSWER survive one. Without it a resumed run repairs the
+	 * makes the ANSWER survive one. Without it a resumed turn repairs the
 	 * unanswered `tool_use` blocks away and lets the model re-decide, so a
 	 * human's "yes, delete that row" degrades into "ask the model again and
 	 * hope it asks for the same thing".
@@ -515,34 +515,34 @@ export interface QueryParams {
 	 * A park is only worth persisting if a human is actually looking at it:
 	 * a programmatic handler answers in microseconds, and the iteration
 	 * gate runs on every iteration, so recording every park unconditionally
-	 * would take a long run from one full-history checkpoint write per
+	 * would take a long turn from one full-history checkpoint write per
 	 * iteration to three. Set `0` to record every park (tests, or a host
 	 * that wants an unconditional audit trail).
 	 */
 	parkRecordDelayMs?: number
 
 	/**
-	 * Span this run should hang off, when it is a delegated one.
+	 * Span this turn should hang off, when it is a delegated one.
 	 *
 	 * A spawned sub-agent is part of its parent's work, and a trace that
 	 * shows the delegation is the whole reason to trace a supervisor at
-	 * all. Absent for a top-level run, which correctly starts its own root.
+	 * all. Absent for a top-level turn, which correctly starts its own root.
 	 */
 	parentSpan?: import('@opentelemetry/api').Span
 
-	/** Session scope for the run. Required — every run is attributed to a Session. */
+	/** Session scope for the turn. Required — every turn is attributed to a Session. */
 	sessionId: SessionId
 
 	/**
-	 * Topic the Session lives under. Required — every run carries the full
-	 * five-layer scope (Tenant → Project → Topic → Session → Run).
+	 * Topic the Session lives under. Required — every turn carries the full
+	 * five-layer scope (Tenant → Project → Topic → Session → Turn).
 	 * Denormalized from `session.topicId`; callers build this alongside
 	 * `sessionId` so the query pipeline never needs a second SessionStore
 	 * round-trip to recover it.
 	 */
 	topicId: TopicId
 
-	/** Long-lived goal scope for the run. Required. */
+	/** Long-lived goal scope for the turn. Required. */
 	projectId: ProjectId
 
 	/** Isolation boundary (Convention #17). Required. */
@@ -580,17 +580,17 @@ export interface QueryParams {
 	sessionLog?: SessionLog
 
 	/**
-	 * Where a reconnecting consumer left off, so this run's stream can start by
+	 * Where a reconnecting consumer left off, so this turn's stream can start by
 	 * handing back what it missed.
 	 *
 	 * The case this serves is the one that exists without a network hop: the
-	 * process holding the run died, and the consumer watching it is coming back
-	 * to a run that has to be resumed. Pair it with `resumeFromCheckpoint` — or
+	 * process holding the turn died, and the consumer watching it is coming back
+	 * to a turn that has to be resumed. Pair it with `resumeFromCheckpoint` — or
 	 * reach it through {@link import('./resume-session.js').resumeSession}, which is the
 	 * surface that does both — and the missed durable events are yielded, in
-	 * order, before the resumed run emits anything of its own.
+	 * order, before the resumed turn emits anything of its own.
 	 *
-	 * On a run with no log to catch up on the cursor is answered honestly rather
+	 * On a turn with no log to catch up on the cursor is answered honestly rather
 	 * than ignored: a `sinceSeq` above what exists is `cursor_ahead`, not
 	 * silence.
 	 *
@@ -605,13 +605,13 @@ export interface QueryParams {
 	 * What became of {@link QueryParams.eventCursor}.
 	 *
 	 * A callback rather than an event on the stream, because the answer is about
-	 * the SUBSCRIPTION and not about the run — and rather than a throw, because
-	 * a stale cursor is a client's problem and must not be able to stop a run
+	 * the SUBSCRIPTION and not about the turn — and rather than a throw, because
+	 * a stale cursor is a client's problem and must not be able to stop a turn
 	 * from continuing. A host that receives `unavailable` re-derives from the
 	 * transcript; one that receives nothing at all would splice a hole into its
 	 * state and never know.
 	 *
-	 * Called once, before the run's first event, and only when a cursor was
+	 * Called once, before the turn's first event, and only when a cursor was
 	 * supplied.
 	 */
 	onEventReplay?: (replay: SessionLogReplay) => void
@@ -669,10 +669,10 @@ export interface QueryParams {
 	taskScheduler?: import('../../types/agent/scheduler.js').TaskScheduler
 
 	/**
-	 * Text queued for this run since its last turn, drained at the boundary.
+	 * Text queued for this turn since its last turn, drained at the boundary.
 	 *
 	 * A callback because the queue belongs to whoever accepts the messages,
-	 * and an array captured here would be whatever was queued before the run
+	 * and an array captured here would be whatever was queued before the turn
 	 * started. See `BaseAgentConfig.inboundMessages` for what it closes.
 	 */
 	inboundMessages?: () => import('../../types/message/index.js').Message[]
@@ -685,7 +685,7 @@ export interface QueryParams {
 	waitForInbound?: (signal: AbortSignal) => Promise<void>
 
 	/**
-	 * Live project policy for this run. Unlike `inboundMessages`, snapshot
+	 * Live project policy for this turn. Unlike `inboundMessages`, snapshot
 	 * replacement is durable state and never implies another model turn.
 	 */
 	projectInstructionContext?: ProjectInstructionContext
@@ -695,7 +695,7 @@ export interface QueryParams {
 	 *
 	 * Supplies the permission mode when `turnConfig.permissionMode` names
 	 * none, and receives the flip when a plan is approved. Absent is the
-	 * ordinary case: a run with no topic state behaves exactly as it did.
+	 * ordinary case: a turn with no topic state behaves exactly as it did.
 	 */
 	topicStateStore?: import('../../store/topic/state.js').TopicStateStore
 
@@ -720,11 +720,11 @@ export interface QueryParams {
 	approvalPolicyName?: string
 
 	/**
-	 * Receive this run's approval-policy box, so it can be swapped mid-run.
+	 * Receive this turn's approval-policy box, so it can be swapped mid-run.
 	 *
 	 * The box is built HERE rather than passed in, unlike
 	 * {@link permissionModeRef}, because changing the policy emits a durable
-	 * event and only the run holds the emitter. A host that constructed its
+	 * event and only the turn holds the emitter. A host that constructed its
 	 * own box would be able to change the policy without recording it, which
 	 * is the one thing this must not allow.
 	 */
@@ -751,11 +751,11 @@ export interface QueryParams {
 	compactionConfig?: CompactionConfig
 
 	/**
-	 * Where what the run learned is written when it ends: its decisions,
+	 * Where what the turn learned is written when it ends: its decisions,
 	 * discoveries and failures, as one entry tagged `learning`. Episodic
-	 * memory (the working state) dies with the run; this is the bridge to
-	 * the semantic store a later run searches. Absent means nothing is
-	 * written. A store that fails is logged and never fails the run.
+	 * memory (the working state) dies with the turn; this is the bridge to
+	 * the semantic store a later turn searches. Absent means nothing is
+	 * written. A store that fails is logged and never fails the turn.
 	 */
 	consolidateInto?: MemoryStore
 
@@ -763,13 +763,13 @@ export interface QueryParams {
 	 * Optional neutral working-memory seam. When set, the iteration loop
 	 * re-renders the provider's string into a single pinned leading system
 	 * message every turn (the primacy-edge, compaction-preserved slot).
-	 * Absent ⇒ `refreshWorkingMemory` early-returns and the run path is
+	 * Absent ⇒ `refreshWorkingMemory` early-returns and the turn path is
 	 * byte-identical.
 	 */
 	workingMemoryProvider?: WorkingMemoryProvider
 
 	/**
-	 * Replace context reduction for this run.
+	 * Replace context reduction for this turn.
 	 *
 	 * Outranks `compactionConfig.strategy`, and the built-in structured pass
 	 * does not also run: two mechanisms editing one history in the same pass
@@ -787,10 +787,10 @@ export interface QueryParams {
 	sandboxProvider?: SandboxProvider
 
 	/**
-	 * Maximum time the run waits for sandbox teardown, in milliseconds.
+	 * Maximum time the turn waits for sandbox teardown, in milliseconds.
 	 *
 	 * Defaults to 30 seconds. A fresh private signal is passed to `destroy()`;
-	 * the run also races the returned promise so an implementation that ignores
+	 * the turn also races the returned promise so an implementation that ignores
 	 * cancellation cannot pin `drainQuery()`. Set `0` to retain an unbounded
 	 * teardown wait.
 	 */
@@ -819,7 +819,7 @@ export interface QueryParams {
  * The plan re-appends the exact assistant with real/denied/recovered results.
  * Generic history repair must not synthesize a competing result first. Any
  * partial results for that turn are removed too; the executor reconstructs
- * them from the durable run transcript through `recoveredResults`.
+ * them from the durable turn transcript through `recoveredResults`.
  */
 function withoutOwnedResumeTurn(
 	messages: readonly Message[],
@@ -953,7 +953,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			const taskTools = buildTaskTools(params.taskStore, {
 				sessionId: ctx.sessionId,
 				turnId: ctx.turnId,
-				turnStartedAt: ctx.recorder.getTurn().startedAt,
+				// A resumed turn began when its `turn_started` was recorded, maybe
+				// in another process: tasks it closed before the pause are still
+				// "closed in this turn".
+				turnStartedAt:
+					(params.resumeFromCheckpoint
+						? await recordedTurnStart(ctx.recorder.log, ctx.turnId)
+						: undefined) ?? ctx.recorder.getTurn().startedAt,
 			})
 			const overrides = params.runtimeToolOverrides
 			for (const tool of taskTools) {
@@ -974,7 +980,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 		// Registered HERE, before the first turn, not when the model is nearly
 		// done. Tools render at prefix position 0, so injecting one late would
-		// invalidate the whole prompt cache for the rest of the run — the same
+		// invalidate the whole prompt cache for the rest of the turn — the same
 		// reason the forced-final turn keeps its tools array and uses
 		// `toolChoice: 'none'` instead of dropping it.
 		if (
@@ -1067,7 +1073,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		}
 
 		// Denied names are subtracted LAST, after the allow-list is resolved
-		// against the registry — so a deny reaches a run that named no
+		// against the registry — so a deny reaches a turn that named no
 		// allow-list at all, which is the ordinary case for a delegated child.
 		// Applied to `effectiveAllowedTools`, which `query()` binds to both the
 		// request tool list AND the `ToolExecutor`: narrowing only the request
@@ -1089,7 +1095,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// The two halves of a durable pause, owned by the RUN when the host
 		// does not own them.
 		//
-		// `SupervisorAgent` builds both before the run exists, because the
+		// `SupervisorAgent` builds both before the turn exists, because the
 		// tools it builds close over them, and it passes them in. Nothing else
 		// could: neither type is exported from `public-runtime.ts`, so a host
 		// on `ReactiveAgent`, `drainQuery` or `resumeSession` had no way to supply
@@ -1118,7 +1124,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// spill it, so the ordinary output budget applies.
 		const toolOutputDir = () => ctx.toolResultsDir
 		// The same invocation-owned capability serves tools and optional preparation.
-		// Local cancellation cannot override the run's cancellation or settled state.
+		// Local cancellation cannot override the turn's cancellation or settled state.
 		const captureSessionEvidence = async (maxReadBytes?: number, signal?: AbortSignal) => {
 			const combined = signal
 				? AbortSignal.any([ctx.abortController.signal, signal])
@@ -1129,7 +1135,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			return source
 		}
 
-		// Whose jobs this run speaks for: its own by default, the session's when
+		// Whose jobs this turn speaks for: its own by default, the session's when
 		// the host said so. Resolved before the tools are built, because the
 		// wait-intent recorder below is bound into them.
 		const jobOwner = params.backgroundJobOwner ?? ctx.turnId
@@ -1138,7 +1144,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// to ask whether its text has been read yet.
 		const jobNotices = params.backgroundJobs ? new SteeringBinding() : undefined
 		// Jobs the model told `wait_for_job` it is waiting on, which is the only
-		// thing that can hold this run open for a job. Built only where there is a
+		// thing that can hold this turn open for a job. Built only where there is a
 		// registry, so a host with no background mode carries no recorder and the
 		// bound ref has no `markAwaited` to offer.
 		const awaitedJobs = params.backgroundJobs
@@ -1164,9 +1170,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
 				...(params.backgroundJobOwner ? { backgroundJobOwner: params.backgroundJobOwner } : {}),
 				...(awaitedJobs ? { onJobAwaited: (id: string) => awaitedJobs.expect(id) } : {}),
-				// The `skill` tool's registry. Threaded from the run rather than
+				// The `skill` tool's registry. Threaded from the turn rather than
 				// held by the tool, because a tool that reached for a module-level
-				// registry would answer about whatever the last run configured.
+				// registry would answer about whatever the last turn configured.
 				...(params.skillRegistry ? { skills: params.skillRegistry } : {}),
 				...(params.web ? { web: params.web } : {}),
 				...(params.fileReadTracker ? { fileReadTracker: params.fileReadTracker } : {}),
@@ -1195,8 +1201,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.maxToolContentBytes !== undefined
 					? { maxToolContentBytes: params.maxToolContentBytes }
 					: {}),
-				// Overflow lands beside the run's other artifacts, so it is
-				// cleaned up with the run and reachable by the model's own
+				// Overflow lands beside the turn's other artifacts, so it is
+				// cleaned up with the turn and reachable by the model's own
 				// `read`/`grep` without a new affordance.
 				toolOutputDir,
 				captureSessionEvidence,
@@ -1205,7 +1211,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				recordAudit: (input) => ctx.recorder.recordAudit(input),
 				// The durable pause, reachable from any tool rather than from the
 				// four kernel-owned points that used to own it. Built here from
-				// the machinery the run already holds; the recorder binds a few
+				// the machinery the turn already holds; the recorder binds a few
 				// lines below, and until it does a pause is in-process only —
 				// the same degradation the built-in question tool has.
 				toolPause: (toolUseId) =>
@@ -1225,8 +1231,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 		// A background job's exit reaches the model as a notice on its next tool
 		// result, and the host as an event — without either polling. Subscribed
-		// for the owner the run's jobs are bound to, so a session-owned job that
-		// ends during this run is reported here too.
+		// for the owner the turn's jobs are bound to, so a session-owned job that
+		// ends during this turn is reported here too.
 		const unsubscribeJobExits = params.backgroundJobs?.onExit((job) => {
 			if (job.owner !== jobOwner) return
 			const outcome =
@@ -1263,7 +1269,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			toolExecutor.setWorkingStateManager(workingStateManager)
 		}
 
-		// The run's own registry when the host passed none, so a hook's
+		// The turn's own registry when the host passed none, so a hook's
 		// annotation has somewhere to land.
 		const promptContributions = params.promptContributions ?? new PromptContributionRegistry()
 
@@ -1292,7 +1298,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			turnId: ctx.turnId,
 		})
 
-		// Every checkpoint carries compaction's accumulated state, so a run that
+		// Every checkpoint carries compaction's accumulated state, so a turn that
 		// comes back in a new process can adopt it (see the restore block).
 		// Without it, compaction's own justification for dropping the prior
 		// `[COMPACTED CONTEXT]` block — that `serializeState` is cumulative —
@@ -1310,7 +1316,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			emitEvent: eventTranslator.emitEvent,
 			drainPending: () => eventTranslator.drainPending(),
 			// Read at settle time, not now: checkpoints are written per
-			// iteration, so the answer changes as the run proceeds.
+			// iteration, so the answer changes as the turn proceeds.
 			resumeCheckpointId: () => checkpointMgr.lastCheckpointId,
 			// Read only to recover WHY a cancellation happened. The run loop
 			// already knows THAT it was cancelled; the origin lives on the abort
@@ -1320,7 +1326,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 		let advisoryCtx: AdvisoryContext | undefined
 		if (params.advisory && params.advisory.advisors.length > 0) {
-			// Advisors are model calls owned by this run even when they use a
+			// Advisors are model calls owned by this turn even when they use a
 			// different provider. Sending the raw definitions into the registry
 			// lets a triggered or model-requested consultation bypass both the
 			// finite stream-silence bound and Stop. Bind every advisor provider at
@@ -1339,7 +1345,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			}))
 			const advisorRegistry = new AdvisorRegistry(boundedAdvisors, params.advisory.defaultAdvisorId)
 			// A budget the runtime cannot measure is refused here rather than
-			// silently ignored for the length of the run.
+			// silently ignored for the length of the turn.
 			assertBudgetEnforceable(params.advisory)
 			const advisoryExecutor = new AdvisoryExecutor(
 				ctx.log,
@@ -1357,7 +1363,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				params.advisory.budget,
 			)
 
-			// What the run looks like when the MODEL consults an advisor, as
+			// What the turn looks like when the MODEL consults an advisor, as
 			// opposed to when a trigger does. The trigger path has always passed
 			// this; the tool path passed an empty context, so an advisor the model
 			// asked for help saw the question and nothing else.
@@ -1424,7 +1430,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			abortController: ctx.abortController,
 			log: ctx.log,
 			// Read through the box on every call, so a swap lands on the next
-			// question rather than the next run.
+			// question rather than the next turn.
 			resumeHandler: (request) => approvalPolicy.current.handler(request),
 			takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
 			promptContributions,
@@ -1436,10 +1442,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			taskGateway: taskScheduler,
 			completionInbox: params.completionInbox,
 			taskStore: params.taskStore,
-			// Run-scoped. An approval is a statement about this run's work;
-			// carrying one into a later run would be reuse nobody agreed to.
+			// Turn-scoped. An approval is a statement about this turn's work;
+			// carrying one into a later turn would be reuse nobody agreed to.
 			toolGrants: new ToolGrantSet(),
-			// Run-scoped for the same reason. A repeat count carried into a later
+			// Turn-scoped for the same reason. A repeat count carried into a later
 			// run is a claim about work nobody repeated, and a module-level map
 			// would leak exactly that way.
 			...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
@@ -1478,8 +1484,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 		const tracer = getTracer()
 
-		// Whether the run reached its settle. Read by the `finally` below, and
-		// the only thing that distinguishes a run that finished from one whose
+		// Whether the turn reached its settle. Read by the `finally` below, and
+		// the only thing that distinguishes a turn that finished from one whose
 		// consumer walked away — see `settleAbandonedTurn`.
 		let settled = false
 
@@ -1494,13 +1500,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			const runStartedAt = Date.now()
 
 			// Read before the span is minted, because a parent can only be set
-			// at creation. A resumed run used to start a brand-new trace with no
+			// at creation. A resumed turn used to start a brand-new trace with no
 			// link to the one that crashed, so the failure and its recovery
-			// could not be put on one timeline — the run id correlated them well
+			// could not be put on one timeline — the turn id correlated them well
 			// enough to find both by query and not well enough to see a single
-			// waterfall, and for a replay fork (which mints a new run id) not
+			// waterfall, and for a replay fork (which mints a new turn id) not
 			// even that. An explicit caller-supplied parent still wins: it is
-			// the more specific statement about where this run belongs.
+			// the more specific statement about where this turn belongs.
 			const resumedTrace = selectedResumeState
 				? selectedResumeState.traceContext
 				: params.resumeFromCheckpoint
@@ -1512,7 +1518,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				{},
 				parentContext(params.parentSpan ?? resumedTrace),
 			)
-			// Hand the run span to the loop so every iteration parents to it.
+			// Hand the turn span to the loop so every iteration parents to it.
 			iterationOrchestrator.setRootSpan(rootSpan)
 			// Every checkpoint from here on records the trace it was taken
 			// inside, so the next resume can join this one.
@@ -1523,7 +1529,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// A question raised from inside a tool becomes a real checkpoint
 			// here. It used to park under a synthetic id nothing ever wrote, so
 			// the checkpoint did not exist: nothing on disk said a human owed
-			// this run an answer, and a remote host could not observe the
+			// this turn an answer, and a remote host could not observe the
 			// question at all.
 			questionParks.bind({
 				record: async (question) => {
@@ -1635,9 +1641,9 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				})
 
 				// The operator's prompt, before the model sees it. A hook may
-				// refuse it — the run ends here, before a prompt is built — or add
+				// refuse it — the turn ends here, before a prompt is built — or add
 				// to what the model is told; the addition rides the prompt as a
-				// dynamic contribution so every iteration of the run carries it.
+				// dynamic contribution so every iteration of the turn carries it.
 				if (params.pluginManager) {
 					const hookResults = await params.pluginManager.executeHooks(
 						'user_prompt_submit',
@@ -1711,10 +1717,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 					// Budgets are properties of the RUN, not of the process hosting
 					// it. The checkpoint already carried all three; they were
-					// written and then discarded on the way back in, so a run
+					// written and then discarded on the way back in, so a turn
 					// recalled at $4.80 of a $5 cap came back with a fresh $5 and
 					// a fresh timeout clock. Restore before the first iteration so
-					// a resumed run that is already over budget stops immediately.
+					// a resumed turn that is already over budget stops immediately.
 					ctx.recorder.restoreUsage(
 						checkpoint.document.tokenUsage,
 						checkpoint.document.costInfo,
@@ -1727,7 +1733,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					// because it is the only surviving record of the history the
 					// first pass deleted — and without this, the NEXT compaction
 					// would drop it and replace it with a summary covering only
-					// what happened after the resume, silently losing the run's
+					// what happened after the resume, silently losing the turn's
 					// first hour.
 					if (workingStateManager && checkpoint.document.workingState && compactionConfig) {
 						const revived = restoreWorkingState(checkpoint.document.workingState, compactionConfig)
@@ -1767,10 +1773,10 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					// tool a `user_question` park is inside. An `iteration_checkpoint`
 					// park has neither, so it returns no plan, and the unpark further
 					// down — which ran only when there was one — never fired for it.
-					// A run that parked on the cadence, was resumed with
+					// A turn that parked on the cadence, was resumed with
 					// `{action: 'continue'}` and went on to finish its work therefore
 					// kept reporting an OUTSTANDING park to `findPendingCheckpoint`,
-					// so a second resume of the finished run was refused with
+					// so a second resume of the finished turn was refused with
 					// `awaiting-decision` for a decision already taken, and because
 					// `prune` skips an unresolved park the row could no longer be
 					// collected by anything.
@@ -1785,14 +1791,14 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					// treats it too. `answersParkOf` is the whole map, park type to
 					// answering decision, so an arm cannot go missing by being
 					// absent from a condition again — which is how the plan arm
-					// leaked a finished run's park.
+					// leaked a finished turn's park.
 					//
 					// Resolving it does not depend on the resumed process being able
 					// to act on it, and that is deliberate: the plan's own fate is a
 					// separate defect (nothing restores a plan on the resume path at
 					// all, so the new process has none to approve, execute or
 					// reject) and making the resolution wait for it would leave the
-					// row outstanding for exactly the runs that need it cleared.
+					// row outstanding for exactly the turns that need it cleared.
 					const parked = projectedCheckpoint.pending
 					answeredParkId =
 						params.pendingDecision &&
@@ -1851,8 +1857,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						})
 					}
 
-					// The ledger is process state and a resumed run starts with an empty
-					// one, so until something reads a file again this run knows nothing
+					// The ledger is process state and a resumed turn starts with an empty
+					// one, so until something reads a file again this turn knows nothing
 					// about files the conversation already wrote in full — and re-reads
 					// them. Rebuilt from the REPAIRED history, which is what the model
 					// is about to be shown, rather than from the checkpoint's own
@@ -1874,7 +1880,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						)
 					} catch (err: unknown) {
 						// A ledger that could not be rebuilt is the empty one every resume
-						// used to get, so the run continues without its witnesses and the
+						// used to get, so the turn continues without its witnesses and the
 						// model reads what it needs. Failing the resume over it would trade
 						// a conversation that works for one that does not, to protect an
 						// optimisation. Said out loud all the same, because a seeding that
@@ -1909,7 +1915,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					//
 					// AFTER the restored history rather than before it: on a
 					// resume the conversation already exists, and a message left
-					// for "the next run" is the newest thing said, not the oldest.
+					// for "the next turn" is the newest thing said, not the oldest.
 					for (const queued of queuedForThisRun) ctx.recorder.pushMessage(queued)
 				} else if (params.continuationMode) {
 					for (const msg of initialMessages) pushRestored(msg, historyIds)
@@ -1917,12 +1923,12 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					pushSystemMessages()
 					for (const msg of initialMessages) {
 						if (msg.role === 'system') {
-							// A fresh run rebuilds its current static/dynamic prompt above,
+							// A fresh turn rebuilds its current static/dynamic prompt above,
 							// so arbitrary historical system messages stay out. These two
 							// are different: they are conversation STATE, and dropping them
 							// deletes the only surviving record of compacted history or the
 							// produced-artifact ledger. A compaction summary arriving from a
-							// prior run is pinned because this new WorkingStateManager cannot
+							// prior turn is pinned because this new WorkingStateManager cannot
 							// prove it has reconstructed equivalent state yet.
 							if (isCompactionMessage(msg.content)) {
 								// Pinned by the prelude already; a copy would lose its record id.
@@ -1965,11 +1971,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				yield* eventTranslator.drainPending()
 
 				// Pre-run materialization can observe cancellation before TurnContext
-				// exists. The exact input has now been seeded and the run is writable;
+				// exists. The exact input has now been seeded and the turn is writable;
 				// hand the cancellation to the normal terminal path before invoking
 				// any host callback, guardrail, plugin, sandbox, or provider. Those
 				// boundaries are not all cooperative and must not regain withdrawn
-				// authority merely because the run record still had to be created.
+				// authority merely because the turn record still had to be created.
 				ctx.abortController.signal.throwIfAborted()
 
 				// Handed over here, and the position is load-bearing in three
@@ -1988,19 +1994,19 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				//
 				//  1. Beside the box's construction — a host that called `set`
 				//     synchronously reached `eventTranslator` inside its temporal
-				//     dead zone and killed the run before it started.
+				//     dead zone and killed the turn before it started.
 				//  2. Beside the translator's construction — the translator existed,
-				//     but the run directory did not, so the durable append hit
+				//     but the turn directory did not, so the durable append hit
 				//     ENOENT on `transcript.jsonl`.
 				//
 				// Both were found by the test that takes the box and immediately
 				// swaps the policy, which is not an exotic host: it is the shape of
 				// "start unattended" wiring. A policy change is durably recorded
-				// before it takes effect, so the handout cannot precede the run
+				// before it takes effect, so the handout cannot precede the turn
 				// being writable.
 				params.onApprovalPolicy?.(approvalPolicy)
 
-				// History repair happens before the run manager sees the first model
+				// History repair happens before the turn manager sees the first model
 				// request, but its durable event cannot precede turn_started: there is no
 				// writable run log until that event initializes it. Emit the measured
 				// counts here, still before any provider call, so hosts can tell that the
@@ -2076,7 +2082,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						throw new NamzuError({
 							code: 'invalid_config',
 							message:
-								"sandbox.workspace is 'working-directory' but this run has no workingDirectory. Pass one, or use the default 'ephemeral' — the kernel will not fall back to a temp directory, because that would confine a directory you did not name.",
+								"sandbox.workspace is 'working-directory' but this turn has no workingDirectory. Pass one, or use the default 'ephemeral' — the kernel will not fall back to a temp directory, because that would confine a directory you did not name.",
 							details: { workspace: 'working-directory' },
 						})
 					}
@@ -2106,7 +2112,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						teardownTimeoutMs: sandboxTeardownTimeoutMs,
 						onLateTeardown: (result) => {
 							if (result.kind === 'destroyed') {
-								ctx.log.info('Late sandbox allocation was destroyed after the run stopped', {
+								ctx.log.info('Late sandbox allocation was destroyed after the turn stopped', {
 									[NAMZU.TURN_ID]: ctx.turnId,
 								})
 								return
@@ -2120,7 +2126,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					if (acquisition.kind !== 'created') {
 						if (acquisition.createPending) {
 							ctx.log.warn(
-								'Sandbox creation was unsettled when the run stopped; any returned handle will be released, but a remote allocation hidden behind a lost response requires provider-side reconciliation or a fleet reaper',
+								'Sandbox creation was unsettled when the turn stopped; any returned handle will be released, but a remote allocation hidden behind a lost response requires provider-side reconciliation or a fleet reaper',
 								{
 									[NAMZU.TURN_ID]: ctx.turnId,
 									'namzu.sandbox.provider_id': params.sandboxProvider.id,
@@ -2131,14 +2137,14 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 							ctx.recorder.markCancelled()
 						} else {
 							ctx.recorder.setStopReason('timeout')
-							ctx.log.warn('Sandbox creation exhausted the run timeout', {
+							ctx.log.warn('Sandbox creation exhausted the turn timeout', {
 								[NAMZU.TURN_ID]: ctx.turnId,
 								'namzu.sandbox.provider_id': params.sandboxProvider.id,
 								...errorAttributes(acquisition.error),
 							})
 						}
 						yield* resultAssembler.completeTurn(rootSpan)
-						// The run HAS settled, so the outer `finally` must not read
+						// The turn HAS settled, so the outer `finally` must not read
 						// this as an abandonment — it would persist a second time.
 						settled = true
 						return await resultAssembler.finalize()
@@ -2221,7 +2227,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					})
 					// Hand the recorded answer to the already-built tool. The tool
 					// closed over its registry when the agent was constructed,
-					// long before this run existed, so the answers are copied in
+					// long before this turn existed, so the answers are copied in
 					// rather than passed down.
 					if (pendingResume.answers) {
 						for (const [questionId, answer] of pendingResume.answers.entries()) {
@@ -2250,7 +2256,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// applied to a batch above. The other is the cadence arm, for which
 				// `planPendingResume` rightly produces no plan because the loop
 				// resuming IS its decision being carried out (`answeredParkId`, set
-				// on the restore path). Resolving only the first left a finished run
+				// on the restore path). Resolving only the first left a finished turn
 				// reporting `awaiting-decision` forever.
 				//
 				// What is RECORDED depends on which of the two produced the plan. A
@@ -2260,8 +2266,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// answer must not be written down as what ended the park. The park is
 				// still resolved: the question is moot, and leaving it outstanding
 				// would have `findPendingCheckpoint` serve it as the newest
-				// outstanding park, so a host resuming it would rewind this run to
-				// the checkpoint the crash happened on and re-execute a batch the run
+				// outstanding park, so a host resuming it would rewind this turn to
+				// the checkpoint the crash happened on and re-execute a batch the turn
 				// has long since moved past.
 				const resolvedCheckpointId = pendingResume?.checkpointId ?? answeredParkId
 				const recordedDecision =
@@ -2321,8 +2327,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				})
 			}
 
-			// Reached only by a run that settled on its own terms. `finalize()` is
-			// the only thing in this body that writes the durable half of the run,
+			// Reached only by a turn that settled on its own terms. `finalize()` is
+			// the only thing in this body that writes the durable half of the turn,
 			// and a `return` completion arriving from a consumer (`break` out of
 			// `for await`, `gen.return()`) runs the `finally` above and stops short
 			// of here. The flag is what tells the two apart, and this is one of

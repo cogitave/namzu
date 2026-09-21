@@ -46,6 +46,10 @@ export const currentState: PrepareStep = ({ messages, prepared }) => ({
 })
 ```
 
+The context names the step's `sessionId`, `turnId` and `turnStartedAt` (epoch
+milliseconds). A resumed turn keeps the time of its `turn_started` record, so a
+step in the resuming process can still tell what the turn did before it paused.
+
 Pass the callback as `prepareStep`, or as a stage in its ordered array, to
 `query`/`drainQuery`. Later stages see the accumulated `prepared.context` and its
 estimated token cost in `contextBudget.remainingTokens`. They may compose it,

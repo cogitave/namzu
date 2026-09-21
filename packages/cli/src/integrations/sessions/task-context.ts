@@ -10,9 +10,12 @@ const HEADER =
  * them. No inference, no durable prompt writes.
  *
  * A task records the turn that created it, not the one that closed it, so
- * "closed in this turn" is read from the clock: the step notes when it first
- * ran for a turn, and a task completed at or after that moment was closed by
- * this turn.
+ * "closed in this turn" is read from the clock: a task completed at or after
+ * the turn began was closed by this turn. The turn's start is the kernel's
+ * `turnStartedAt`, which a resumed turn carries over from its `turn_started`
+ * record, so a turn resumed in another process still counts what it closed
+ * before the pause. A host that supplies no start falls back to the moment
+ * this step first ran for the turn.
  */
 export function createTaskContextStep(
 	store: TaskStore,
@@ -21,14 +24,21 @@ export function createTaskContextStep(
 ): PrepareStep {
 	let reading: Promise<Task[]> | undefined
 	const turnStarts = new Map<string, number>()
-	return async ({ sessionId, turnId, prepared, contextBudget, signal }) => {
+	return async ({
+		sessionId,
+		turnId,
+		turnStartedAt: recordedStart,
+		prepared,
+		contextBudget,
+		signal,
+	}) => {
 		signal?.throwIfAborted()
 		if (!turnStarts.has(turnId)) {
-			turnStarts.set(turnId, now())
+			turnStarts.set(turnId, recordedStart ?? now())
 			// Bound the map: only the current turn's start is ever read.
 			while (turnStarts.size > 16) turnStarts.delete(turnStarts.keys().next().value as string)
 		}
-		const turnStartedAt = turnStarts.get(turnId) as number
+		const turnStartedAt = recordedStart ?? (turnStarts.get(turnId) as number)
 		const budget = Math.min(2400, Math.floor(contextBudget?.remainingTokens ?? 2400))
 		if (budget < 700 || reading) return undefined
 		let timer: ReturnType<typeof setTimeout> | undefined

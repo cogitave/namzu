@@ -29,7 +29,7 @@ import { stepContextMessage } from './step-context.js'
  * Three of these read state the loop replaces or grows as it runs, so they
  * arrive as accessors rather than as values — `latestUserMessage` is replaced
  * on every operator turn and `steps` gains a member per step, and a captured
- * copy of either would describe an earlier return. `ctx` is the run's own
+ * copy of either would describe an earlier return. `ctx` is the turn's own
  * context object, passed through rather than re-derived, because
  * `selectContextModel` WRITES two of its fields (`contextModel` and
  * `activeProviderContextWindow`) for the compaction pass to read.
@@ -98,6 +98,7 @@ export function stepContext(
 	return {
 		sessionId: ctx.recorder.sessionId,
 		turnId: ctx.recorder.turnId,
+		turnStartedAt: ctx.recorder.turnStartedAt,
 		stepNumber,
 		messages: ctx.recorder.messages,
 		...(ctx.captureSessionEvidence ? { captureSessionEvidence: ctx.captureSessionEvidence } : {}),
@@ -218,7 +219,7 @@ export async function prepareStep(
 			// honest reading of "only these tools" when none of them exist,
 			// and is not what a reader of "ignoring them" would expect.
 			//
-			// Widening back to the run's list would be worse: it grants
+			// Widening back to the turn's list would be worse: it grants
 			// exactly the tools the caller asked to exclude, on the grounds
 			// that their own list failed. A step that can call nothing is
 			// constrained; a step that can call everything is a control
