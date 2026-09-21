@@ -161,9 +161,9 @@ A body round-trips byte for byte, a trailing `\r` included.
 
 `MEMORY.md` is regenerated after every write: a header comment, then one line per
 active memory someone chose to keep, as `- [name](name.md) — description`. A
-record the runtime derived — `metadata.source: 'run-memory'` (the run promoter)
+record the runtime derived — `metadata.source: 'session-memory'` (the session memory promoter)
 or `metadata.kind: 'consolidation'` — is never listed: it is written after
-almost every run, and listing it would change a prompt that carries the index
+almost every turn, and listing it would change a prompt that carries the index
 nearly every turn, invalidating its cache from there on. Such records stay in
 the store, found by `list`, `search_memory` and recall. The lines are ordered
 `feedback` and `user` memories not saved by the model first (the model's
@@ -182,7 +182,7 @@ line saying how many more memories exist and to use `search_memory` for them;
 `total` counts the memories the index covers, derived records excluded.
 `readIndex({ derived: true })` renders the other half instead — only the active,
 named records the runtime derived, newest first, with `total` counting them —
-for a host that shows an operator what runs recorded; it changes with every run
+for a host that shows an operator what turns recorded; it changes with every turn
 and does not belong in a prompt.
 `renderMemoryIndex(records, { maxLines, derived })` is the same rendering over any
 `MemoryRecord`s — it reads each record's metadata to tell who wrote it. The host
@@ -277,8 +277,8 @@ true now and cannot be worked out from the code, git history or files; for
 instead of a duplicate.
 
 Saving through the tool records `metadata.source: 'agent-memory'` and the
-calling `runId`; updates preserve that creation metadata and modify only the
-requested fields. The tool-call transcript records the updating run. These
+calling `sessionId` and `turnId`; updates preserve that creation metadata and
+modify only the requested fields. The session log records the updating turn. These
 identify origin, not truth. A direct store caller supplies its own metadata. Neither metadata
 such as a claimed expiry time nor conflicting text triggers automatic deletion,
 archiving or contradiction resolution. Correct or archive obsolete claims using
@@ -324,13 +324,13 @@ its current body. Custom stores without this method cannot promise the same
 atomic snapshot. Edits, archiving and deletion are reconsidered on each step;
 there is no persistent recall cache. An error or timeout is reported by the
 runtime's preparation diagnostic and that request proceeds without this stage's
-recalled context. The hook also observes the run's `signal` to stop waiting on
+recalled context. The hook also observes the turn's `signal` to stop waiting on
 cancellation. A store call already in progress may finish after a timeout or
 cancellation; its late result is not inserted into a later request. While an
 optional recall is still outstanding, other recall hooks using the same store
 object skip their pass. The slot is released only when the underlying pass
 settles, including after errors. This prevents a timed-out read from accumulating
-more optional reads on subsequent steps or runs. It does not cancel disk I/O,
+more optional reads on subsequent steps or turns. It does not cancel disk I/O,
 coordinate separate store objects/processes, or throttle explicit memory tools.
 No result is shared across callers; a later admitted pass uses its own current
 query and reads fresh records.
@@ -353,7 +353,7 @@ such as `v2` can still match unrelated records. Explicit memory tools retain
 ordinary broad search and remain available to investigate such cases.
 
 The block labels its contents as untrusted historical claims, includes record
-IDs, names and types when present, update times, and a source run when recorded.
+IDs, names and types when present, update times, and a source session and turn when recorded.
 A description, when present, stands in for the summary. A record last updated
 longer ago than `ageNoticeAfterMs` (default one day) also carries an `age` such
 as `"12 days old"`, and the block then ends with `MEMORY_VERIFY_NOTICE`: memories
@@ -371,14 +371,15 @@ SDK hosts opt in by supplying the hook.
 ### Exercise recall without a provider
 
 This example invokes the same preparation hook directly, with no model or
-network request. In an agent run the runtime supplies its context instead.
+network request. In an agent turn the runtime supplies its context instead.
 
 ```ts
 import {
   InMemoryMemoryStore,
   createMemoryRecallStep,
   createUserMessage,
-  generateRunId,
+  generateSessionId,
+  generateTurnId,
 } from '@namzu/sdk'
 
 const store = new InMemoryMemoryStore()
@@ -389,7 +390,8 @@ const { entry } = await store.create({
 })
 const recall = createMemoryRecallStep({ store, maxChars: 2000 })
 const context = {
-  runId: generateRunId(),
+  sessionId: generateSessionId(),
+  turnId: generateTurnId(),
   stepNumber: 1,
   messages: [createUserMessage('What is the cerulean-cache expiry?')],
   steps: [],
@@ -403,7 +405,7 @@ await store.update(entry.id, { status: 'archived' })
 console.log(await recall(context)) // undefined: archived records are excluded.
 ```
 
-## Promotion after a run
+## Promotion after a turn
 
 `createMemoryPromoter({ store })`, supplied through `promoteMemory`, persists
 useful extracted user requirements, decisions, discoveries, failures and
@@ -411,7 +413,7 @@ environment claims. It does not save a record for a candidate with none of those
 claims. `maxPerCategory` defaults to 20. Summaries carry actual claims; the full
 record also carries extraction omissions and files touched when present.
 
-Promoted records carry the `run-memory` tag, source run, a digest of the selected
+Promoted records carry the `session-memory` tag, the `session:<id>` and `turn:<id>` tags, a digest of the selected
 claim sections, `type: 'project'`, and `verification: 'unverified'`. The promoter trims claims and
 removes exact duplicates within a category. If the same ordered claim sections
 already exist with matching tags and digest, it skips saving them again, even
@@ -421,23 +423,23 @@ reordered claims and contradictions are not reconciled automatically.
 
 Consolidation (`consolidateInto`) deduplicates the same way. `consolidationEntry`
 adds a `knowledge:<digest>` tag and `metadata.knowledgeDigest`, computed over the
-run's decisions, discoveries and failures — not its run id or task — plus
+turn's decisions, discoveries and failures — not its turn id or task — plus
 `type: 'project'`. Before writing, the runtime asks `isConsolidated(store, entry)`
 and skips the write, with no `memory_consolidated` event, when a consolidation
 with that digest already exists, archived included. The same best-effort caveat
 applies.
 
 In a `MarkdownMemoryStore`, neither writer's records enter the generated
-`MEMORY.md` index (`metadata.source: 'run-memory'` and
+`MEMORY.md` index (`metadata.source: 'session-memory'` and
 `metadata.kind: 'consolidation'` mark them): a host that loads the index into
-every prompt keeps the same prompt when a run writes one. They are reached
+every prompt keeps the same prompt when a turn writes one. They are reached
 through recall and `search_memory`.
 
 The CLI uses promotion by default. Its explicit `compaction.consolidate` option
 selects consolidation into the same store instead of running both writers.
 SDK hosts configure promotion and consolidation separately. Neither writing
 mechanism enables recall by itself, and neither turns an extracted claim into
-verified current state. [Pinned facts](pinned-facts.md) and the run's
+verified current state. [Pinned facts](pinned-facts.md) and the turn's
 [working set](salience-working-set.md) have different retention lifetimes.
 
 Hosts that partition memory themselves can pass `directory` to

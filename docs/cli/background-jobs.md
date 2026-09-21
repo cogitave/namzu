@@ -20,7 +20,7 @@ The model passes `run_in_background: true` to `bash` for work that legitimately 
 
 The wait is bounded two ways, and either one gives up **without stopping the job**:
 
-- a run bound (`timeout_ms`, default 5 minutes, capped at 1 hour) that counts elapsed time and is never refreshed;
+- a total bound (`timeout_ms`, default 5 minutes, capped at 1 hour) that counts elapsed time and is never refreshed;
 - an idle bound (`idle_timeout_ms`, default 2 minutes) that counts time since the job's output last grew, and resets on every new byte — a job that is still producing output is never cut off for being slow, only for going quiet.
 
 Either timeout is reported as a normal result naming which clock ran out, with the output read so far and a `next_offset` to resume from — the model can call `wait_for_job` again, or fall back to `job read`. The defaults come from `NAMZU_JOB_WAIT_TIMEOUT_MS` / `NAMZU_JOB_WAIT_IDLE_MS`, with `NAMZU_JOB_WAIT_MAX_MS` as the ceiling either call may request.
@@ -43,11 +43,11 @@ permission policy.
 `wait_for_job` is the model asking; the notices below are the kernel telling it without being asked, for a job nothing is blocked on:
 
 - **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`; the transcript shows a `⚙` row.
-- **At the end of a turn**, for a job the model awaited, the run suspends rather than settling over it; the same line arrives as a `runtime-context` message (`{ type: 'runtime-context', kind: 'job-exit' }`) when the wait releases. See *Waiting at the end of a turn* below.
-- **On the way out**, for an awaited job whose exit lands after that hold's grace has already run out — so the job was about to be named abandoned — but before the run finishes settling, `deliverArrivedJobExits` still catches it: the same `runtime-context` message reaches `Run.messages` instead of the job landing on `abandonedJobIds`.
+- **At the end of a turn**, for a job the model awaited, the turn suspends rather than settling over it; the same line arrives as a `runtime-context` message (`{ type: 'runtime-context', kind: 'job-exit' }`) when the wait releases. See *Waiting at the end of a turn* below.
+- **On the way out**, for an awaited job whose exit lands after that hold's grace has already run out — so the job was about to be named abandoned — but before the turn finishes settling, `deliverArrivedJobExits` still catches it: the same `runtime-context` message reaches `Turn.messages` instead of the job landing on `abandonedJobIds`.
 - **Between turns**, the session hears the exit itself: the `⚙` row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
 
-One of these four announces any given exit — never more than one, with the narrow exception named below. The first three are the kernel's, and each drains the notice as it delivers it and drops its record of the exit that notice accounts for, so an exit already attached to one of them is neither delivered again by another nor counted as a reason to open one. The fourth is the session's, and it only ever sees an exit that landed with no run open — the case the kernel is not there to hear.
+One of these four announces any given exit — never more than one, with the narrow exception named below. The first three are the kernel's, and each drains the notice as it delivers it and drops its record of the exit that notice accounts for, so an exit already attached to one of them is neither delivered again by another nor counted as a reason to open one. The fourth is the session's, and it only ever sees an exit that landed with no turn open — the case the kernel is not there to hear.
 
 A residual window escapes all four, known and left narrow rather than closed: an exit that lands after `settleOutstandingWork` has run (the kernel has looked for the last time) but before the CLI clears `abortRef` (`App.tsx` ~4867, the flag the session's own listener checks before it will queue anything) is announced by nobody.
 
@@ -55,28 +55,28 @@ None of them knows a `wait_for_job` call is already blocked on the same job: unl
 
 # Waiting at the end of a turn
 
-A turn that ends without calling a tool leaves the `[Background job update]` line with nothing to ride on, so a run that stopped while a job was still going used to settle straight over it. That is precisely the moment the model has nothing left to do but wait — and a recorded run did exactly that, by hand, with a `sleep 30` between polls.
+A turn that ends without calling a tool leaves the `[Background job update]` line with nothing to ride on, so a turn that stopped while a job was still going used to settle straight over it. That is precisely the moment the model has nothing left to do but wait — and a recorded run did exactly that, by hand, with a `sleep 30` between polls.
 
-So the kernel suspends instead. When the model stops calling tools and a job it awaited is still running, the run waits — a real timer, no provider request, no tokens — for whichever comes first:
+So the kernel suspends instead. When the model stops calling tools and a job it awaited is still running, the turn waits — a real timer, no provider request, no tokens — for whichever comes first:
 
 - **the job exits** → the notice is delivered and the model gets one more turn to use it;
 - **the operator types** → the message is delivered and the model gets that turn instead; the job is untouched, because ending a wait is not ending the work;
-- **the grace runs out** → the run settles and names the job on the run's `abandonedJobIds`, which is a statement, not a stop.
+- **the grace runs out** → the turn settles and names the job on the turn's `abandonedJobIds`, which is a statement, not a stop.
 
-A job that ends in the moment between the last of those and the run settling is delivered on the way out, as the same `runtime-context` message on `Run.messages`, and is not named on `abandonedJobIds` — it finished, so claiming the run walked away from it would be false. That moment is the kernel's alone: the session announces only exits that land with no run in flight, and this one lands while the run is still finishing.
+A job that ends in the moment between the last of those and the turn settling is delivered on the way out, as the same `runtime-context` message on `Turn.messages`, and is not named on `abandonedJobIds` — it finished, so claiming the turn walked away from it would be false. That moment is the kernel's alone: the session announces only exits that land with no turn in flight, and this one lands while the turn is still finishing.
 
-The grace is half of what the run has left before it must start finishing — the same grace a delegated task gets, since one wait covers both — under a ceiling of its own for the job half: **two minutes**, or `NAMZU_JOB_HOLD_MAX_MS`.
+The grace is half of what the turn has left before it must start finishing — the same grace a delegated task gets, since one wait covers both — under a ceiling of its own for the job half: **two minutes**, or `NAMZU_JOB_HOLD_MAX_MS`.
 
 Both halves of that matter, because they bind in different configurations:
 
-- **A run with a `timeoutMs`** takes the grace OUT of what is left rather than adding to it, so time a `wait_for_job` call already spent has shortened the hold by the same amount.
-- **A run without one** — the CLI's default, no run deadline — has no remainder to halve, so the task grace would be its flat ceiling of an hour. For a delegated task that is sound, because an hour is also the longest the task may live. A background job has no such bound: `tail -f` outlives any ceiling. The two-minute job ceiling is what stands in for the missing deadline, so a `wait_for_job` that ran its hour out is followed by two more minutes at most, not by a second hour.
+- **A turn with a `timeoutMs`** takes the grace OUT of what is left rather than adding to it, so time a `wait_for_job` call already spent has shortened the hold by the same amount.
+- **A turn without one** — the CLI's default, no turn deadline — has no remainder to halve, so the task grace would be its flat ceiling of an hour. For a delegated task that is sound, because an hour is also the longest the task may live. A background job has no such bound: `tail -f` outlives any ceiling. The two-minute job ceiling is what stands in for the missing deadline, so a `wait_for_job` that ran its hour out is followed by two more minutes at most, not by a second hour.
 
-Two minutes because the hold is buying a turn in which to USE the exit, not watching the job: a job that stayed quiet through its `wait_for_job` bound is rarely two minutes from finishing, and letting the run end is not losing the news — with no run in flight the session announces the exit itself, which is the cheaper of the two places to hear it. Where a delegated task is outstanding as well, the run waits the task's grace, because that is how long it was waiting anyway. The iteration limit bounds all of it — a job that never exits cannot hold a run open past any of these.
+Two minutes because the hold is buying a turn in which to USE the exit, not watching the job: a job that stayed quiet through its `wait_for_job` bound is rarely two minutes from finishing, and letting the turn end is not losing the news — with no turn in flight the session announces the exit itself, which is the cheaper of the two places to hear it. Where a delegated task is outstanding as well, the turn waits the task's grace, because that is how long it was waiting anyway. The iteration limit bounds all of it — a job that never exits cannot hold a turn open past any of these.
 
-**Awaiting is something the model says, never something the kernel infers.** Only a job `wait_for_job` named is awaited, and only for the rest of the run that named it. A dev server, a watcher, a `tail -f` — anything started with `run_in_background` and never waited on — holds nothing open, which is the whole point of having started it that way. There is no flag on `bash run_in_background` that changes this: the wait is the signal. The suspend also starts nothing and stops nothing; it only decides whether there is a turn left worth taking.
+**Awaiting is something the model says, never something the kernel infers.** Only a job `wait_for_job` named is awaited, and only for the rest of the turn that named it. A dev server, a watcher, a `tail -f` — anything started with `run_in_background` and never waited on — holds nothing open, which is the whole point of having started it that way. There is no flag on `bash run_in_background` that changes this: the wait is the signal. The suspend also starts nothing and stops nothing; it only decides whether there is a turn left worth taking.
 
-The intent lasts for the rest of the run, so `wait_for_job` on a process meant to keep running — a server the model only wanted a health check from — adds the job ceiling to every later settle point in that run. Look in on such a job with `job read`; wait on the ones that are supposed to end.
+The intent lasts for the rest of the turn, so `wait_for_job` on a process meant to keep running — a server the model only wanted a health check from — adds the job ceiling to every later settle point in that turn. Look in on such a job with `job read`; wait on the ones that are supposed to end.
 
 # Lifetime
 

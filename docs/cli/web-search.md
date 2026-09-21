@@ -73,13 +73,13 @@ matching-route continuation reuses them. Cross-provider continuation retains the
 readable answer and source links, not another provider's private protocol items.
 Retrieved content remains untrusted data.
 
-SDK callers opt in through `ReactiveAgentConfig.webSearch`, `AgentRunConfig.webSearch` or direct
+SDK callers opt in through `ReactiveAgentConfig.webSearch`, `TurnConfig.webSearch` or direct
 `ChatCompletionParams.webSearch`, with `{ mode: 'live' }` or `{ mode: 'cached' }`.
 Drivers explicitly declare `supportsHostedWebSearch` and may refine it with
 `supportsHostedWebSearchFor(model, mode)`. Retry/idle-timeout decorators preserve
 that refinement, and fallback chains require support from every selected member.
 Hosted work emits
-`StreamChunk.delta.hostedTool`, translated to durable `hosted_tool` run events
+`StreamChunk.delta.hostedTool`, translated to durable `hosted_tool` session events
 and `hosted.tool` SSE events. These are observations, never executable tool calls.
 A2A exposes the resulting answer rather than a separate hosted-activity event.
 

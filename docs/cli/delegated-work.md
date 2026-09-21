@@ -36,7 +36,7 @@ like `workflow`, `phase` and `phase_order`: it creates no dependencies,
 barriers or serial execution. The first agent to declare a phase's detail
 sets it; a later sibling in the same phase cannot change it.
 
-Reviews identify the requesting agent by its exact run ID in the activity monitor. If the run has not appeared in the monitor, the full run ID is shown instead of guessing an agent. This attribution stays with each queued review.
+Reviews identify the requesting agent by its exact child session ID in the activity monitor. If the child has not appeared in the monitor, the full session ID is shown instead of guessing an agent. This attribution stays with each queued review.
 
 Concurrent permission requests are queued in arrival order. The current review
 shows how many more requests await approval. Approving or declining it answers
@@ -46,7 +46,7 @@ Escape declines the current request; Ctrl+C rejects all pending requests and
 stops the turn. Closing the application rejects unresolved reviews.
 
 `send_message` takes `task_id` and `message` and queues a correction for a running
-or queued child owned by the current parent run. The child reads it at its next
+or queued child owned by the current parent session. The child reads it at its next
 request boundary. Acceptance confirms queuing, not delivery or execution.
 Messages are bounded to 16,000 characters. Finished tasks cannot be restarted
 through this tool, and another parent's task cannot receive the message.
@@ -74,7 +74,7 @@ nothing replays it onto the screen after a resume.
 
 The line itself is durable, and the difference is worth knowing before you
 decide what to narrate. The call is recorded like every other tool call — it is
-in the run's transcript and in the conversation's checkpoints, and it returns
+in the session log like every other call, and it returns
 to the model's own history on `/resume`, long after the band that showed it is
 gone. A line not worth writing down is a line not worth narrating.
 
@@ -91,15 +91,15 @@ that is the only thing that says so.
 
 The tool is mounted only where somebody is watching — the interactive
 terminal, the same condition `ask_user_question` is mounted under. `namzu run`,
-`namzu run --stream`, `namzu drain` and the resident step have no rail for a
+`namzu run-stream`, `namzu drain` and the resident step have no rail for a
 line to appear above, and a tool whose whole answer is "the operator saw this"
 must not be offered where there is no operator to show it to.
 
 The tool is the parent's alone. It is registered on the parent conversation's
 registry, like `send_message` and `cancel_agent`, and a delegated child's
 roster carries none of those — so nothing a child produces can be rendered as
-the run's own narration. That boundary is the design, not an oversight: a line
-written by a child and shown as if the run said it would be untrusted text
+the parent's own narration. That boundary is the design, not an oversight: a line
+written by a child and shown as if the parent said it would be untrusted text
 presented as trusted narration, which is what wrapping a child's output as
 untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
@@ -114,7 +114,7 @@ and incomplete work keeps its reported status rather than appearing completed.
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same
 parent authority, shared tree budget, capacity limit and cancellation boundary.
-It is not a detached service: cancelling or releasing the parent run cancels its
+It is not a detached service: cancelling or releasing the parent turn cancels its
 remaining children. A normal parent query waits for owned children before final
 settlement, but can perform other tools and handle operator input meanwhile.
 
@@ -139,9 +139,10 @@ annotations only: they create no dependencies, barriers or serial execution, and
 nothing in the kernel reads them back. Carrying them there is what gives the
 grouping reach: a listener or SSE consumer outside this process sees the same
 grouping instead of a flat list of children, where a label held in the tool
-call's own memory would reach nobody. It does not make the grouping durable —
-delegation events go straight to a host's listener and enter no run's log, so
-nothing here survives a restart unless a host records it itself.
+call's own memory would reach nobody. The workflow and phase are also recorded
+durably, as the `batch` of the parent log's `child_session_spawned` record, so
+a finished child keeps its grouping after a restart; the `phase_detail` and
+`phase_order` display hints are not recorded.
 Every one of these fields is absent unless supplied. See
 [delegation events](../sdk/delegation-events.md) for the full event surface.
 
@@ -160,7 +161,7 @@ the operator. This keeps owned work explicit after a steering question without
 duplicating worker output or adding another persistent task store.
 
 
-`agent_task_list` reads the current parent run's actual scheduler invocations,
+`agent_task_list` reads the current parent session's actual scheduler invocations,
 including pending, running and terminal tasks. It returns the most recent 40
 with an explicit omitted count. `task_list` remains the planning checklist; an
 empty checklist says nothing about running agents. `wait_for_task` retrieves
@@ -183,7 +184,7 @@ Each row in the automatic rail, the agent cockpit and the child transcript
 header shows the child's status, elapsed time, description and — when the
 host reported them — its resolved model and live counters: cumulative spend
 compacted to `42.1k`/`1.38M` and a `· N tools` tool-call count, both drawn
-from the same run events the transcript itself renders and never a percentage
+from the same session events the transcript itself renders and never a percentage
 or fill bar. Spend is the child's cumulative usage, not its current context
 size, which is a different number that falls on compaction. A child that has
 not yet reported usage shows an em dash rather than `0`, since the two are
@@ -195,16 +196,16 @@ well past what a row has room for — so the label itself is capped to a short
 budget with an ellipsis before it is ever placed next to the description,
 rather than being shown in full and left to crowd the description out.
 
-## Run limits
+## Turn limits
 
-Built-in children use the configured [run limits](run-limits.md), including
+Built-in children use the configured [turn limits](run-limits.md), including
 explicit unlimited values. `limits.maxIterations` now reaches built-in children
 as well as the parent; absent or zero means unlimited. Built-in children also
-default to unlimited run duration. `/config` → Run limits changes these values
+default to unlimited turn duration. `/config` → limits changes these values
 for newly started turns and their children without changing already running work.
-`limits.timeoutMs` controls the parent and child run deadlines. Delegation waits
-remain cancellable and are governed by those runs, so a session-wide tool
-deadline cannot override a later `/config` change. Zero removes the run deadlines.
+`limits.timeoutMs` controls the parent and child turn deadlines. Delegation waits
+remain cancellable and are governed by those turns, so a session-wide tool
+deadline cannot override a later `/config` change. Zero removes the turn deadlines.
 File-defined agents keep their own iteration settings and remain subject to the
 shared token ledger. Disabling a local token cap cannot remove a finite ancestor
 allowance.
@@ -234,7 +235,7 @@ usage remains recorded in unlimited mode. Other execution limits are unchanged.
 
 `cancel_agent` takes the exact `task_id` returned by `Agent` or `agent_task_list`.
 It requests cancellation only for a running or queued task owned by the invoking
-parent run. Other tasks keep their ownership and cancellation signals. A finished
+parent session. Other tasks keep their ownership and cancellation signals. A finished
 task returns its existing status without restarting or cancelling anything.
 The receipt says cancellation was requested; use `agent_task_list` or
 `wait_for_task` to confirm the terminal outcome. Task results still reach the
@@ -250,118 +251,114 @@ introduce this uncertainty.
 
 ## Saved delegation evidence after resume
 
-Two different things survive a finished delegation, for two different readers.
-Neither restarts anything.
+A delegated agent runs in a child session, and everything it did is in that
+child's own log, `<session-id>/subagents/<child-id>.jsonl`, beside a
+`<child-id>.meta.json`. The parent's log records when each child was spawned
+(`child_session_spawned`, with its workflow and phase as `batch`) and how it
+ended (`child_session_ended`, with its status, usage and the id of its answer
+message). Two readers use that evidence, and neither restarts anything.
 
 ### The receipt the model reads
 
-The CLI saves session-scoped task receipts in its private project state under
-`delegation-history/<session UUID>/`. Each admitted task gets an `unresolved`
-receipt; observed termination replaces it with the actual outcome and a result
-preview of at most 16,000 characters. Truncated previews are explicitly marked.
-A completed scheduler lifecycle does not turn a token-limited result into success.
+New turns and checkpoint resumes take one bounded snapshot of this
+conversation's earlier children, read through the session index
+(`SessionIndex.listChildren`), which is derived from the parent log. A child
+whose parent log has no `child_session_ended` yet is reported as
+`unresolved`; one that ended carries its actual outcome and a preview of its
+answer of at most 16,000 characters, explicitly marked when truncated. A
+completed scheduler lifecycle does not turn a token-limited result into
+success.
 
-New turns and checkpoint resumes take one bounded archive snapshot of earlier runs'
-receipts. Use `agent_task_list({history: true})` to inspect the archive and
+Use `agent_task_list({history: true})` to inspect the snapshot and
 `agent_task_list({history: true, task_id: "<UUID>"})` to read one saved result.
-The normal tool call still lists live tasks owned by the current run. Historical
-access grants no cancellation, messaging or execution authority.
+The normal tool call still lists live tasks owned by the current session.
+Historical access grants no cancellation, messaging or execution authority.
 
-`unresolved` means no terminal receipt was saved. It does not prove that the task
-is still running, failed, or had no effects. Verify existing effects before deciding
-to repeat work. A crash between task admission and receipt publication can still
-leave no receipt; this archive is not an exactly-once execution journal.
+`unresolved` means the parent never recorded an end. It does not prove that the
+child is still running, failed, or had no effects: a process that died mid-turn
+leaves exactly that. Verify existing effects before deciding to repeat work.
 
-Archive listings read at most 200 receipt files and return at most 20 records;
-the omitted count discloses the remainder. Exact-ID reads can retrieve a record
+History listings read at most 200 children and return at most 20 records; the
+omitted count discloses the remainder. Exact-ID reads can retrieve a record
 outside that listing. Model context includes at most eight earlier records and
-omits the summary under tight context pressure. Corrupt records produce an error
-rather than an apparently empty history.
+omits the summary under tight context pressure. A child log that cannot be read
+produces an error rather than an apparently empty history.
+
+Children recorded by CLI 26.x and earlier, in the old `delegation-history/`
+and per-run `children/` directories, are not read and do not appear.
 
 ### The evidence the operator can open
 
-A delegated child writes its own run directory while it works —
-`transcript.jsonl`, `run.json`, `messages.json`, `audit.jsonl` and `report.md`
-under `<session>/runs/<parent run UUID>/children/<child run UUID>/`. That is the
-full durable record, not the receipt's 16,000-character preview, and the agent
-cockpit now opens it.
+The child's log is the full durable record, not the receipt's 16,000-character
+preview, and the agent cockpit opens it.
 
 A child leaves the live monitor for two ordinary reasons: the monitor retains 80
 agents and evicts the oldest beyond that, and a restarted CLI has no live monitor
-at all. In both cases the cockpit lists the child from disk instead. The
-directories are read when a session starts, when `/resume` or `/new` changes
-which conversation the CLI is in, and when the cockpit is opened; opening it
-waits for that read rather than reporting an absence it has not finished
-checking. Saved rows
-are marked `saved` beside the model and counters, and opening one shows
+at all. In both cases the cockpit lists the child from its log instead. Children
+are discovered when a session starts, when `/resume` or `/new` changes which
+conversation the CLI is in, and when the cockpit is opened; opening it waits for
+that read rather than reporting an absence it has not finished checking. Saved
+rows are marked `saved` beside the model and counters, and opening one shows
 `Replayed from saved evidence. This child cannot be continued.` at the head of
 the transcript. They never appear in the automatic panel above the composer,
 which answers what is running now.
 
 A replayed row is built by the same projection a live row is, so the two render
 identically: status, elapsed time, model, cumulative tokens, tool-call count and
-the transcript rows. What a replay cannot show is what the durable log never
-carried. Streaming deltas are excluded from a run's event log by design, so a
-replayed transcript carries tool calls, their results and any failure text, and
-not the assistant prose that streamed between them — read `report.md` for the
-child's answer. Delegation lifecycle events are likewise handed to a host's
-listener without entering any run's log, so a replayed child's `workflow` and
-`phase` labels are not recovered: saved children are grouped by the parent run
-they belonged to and carry the unlabelled default workflow, exactly as a live
-child that was launched without labels does. See
-[delegation events](../sdk/delegation-events.md).
+the transcript rows. Streaming deltas are not persisted, by design, but every
+complete message is, so a replayed transcript carries the child's messages, its
+tool calls, their results, any failure text and its final answer — only the
+keystroke cadence in which the text arrived is gone. The workflow and phase
+recorded on `child_session_spawned` group saved children exactly as they were
+grouped live. See [delegation events](../sdk/delegation-events.md).
 
-Replay is read-only. Opening a past run creates, moves and prunes nothing, and a
-torn or truncated `transcript.jsonl` opens with the records that could be read
-plus a closing row saying so, rather than refusing or silently showing a short
-run. A transcript that cannot be read at all opens with that row alone, beside
-what `run.json` recorded: a child whose evidence is damaged is still a child
-that ran, and leaving it out of the list would say otherwise.
+Replay is read-only. Opening a past child creates, moves and prunes nothing. A
+log with a torn last line opens with the records that could be read plus a
+closing row saying so; a log whose hash chain breaks opens up to the break,
+with a row naming where it stopped, rather than refusing or silently showing a
+short transcript. A log that cannot be read at all opens with that row alone,
+beside what the parent recorded: a child whose evidence is damaged is still a
+child that ran, and leaving it out of the list would say otherwise.
 
-Resume does not restart these tasks or reconnect their processes, and neither
-does opening one. A replayed child has no task the scheduler still knows:
-`send_message` cannot reach it, `cancel_agent` has nothing to cancel, and the
-screen offers neither.
+Resume does not restart these children or reconnect their processes, and
+neither does opening one. A replayed child has no task the scheduler still
+knows: `send_message` cannot reach it, `cancel_agent` has nothing to cancel, and
+the screen offers neither.
 
-### Finding a run to reopen
+### Finding a batch to reopen
 
-`/agents runs` lists this conversation's parent turns that delegated at least
-one child, newest first: a run still going is read from the live monitor, and
-a finished one from `run.json` under its children — the same evidence
-`listChildren` already reports, without reading any transcript. Reading a
-transcript per row would make the listing itself pay for what only opening a
-row needs. The walk runs in the background behind a loading row rather than
-holding the composer, and an empty history says so rather than opening an
-empty picker; an unrecognised subcommand shows usage.
+`/agents batches` lists this conversation's batches — the groups of children
+spawned together, derived from the `batch` annotations in the parent log —
+newest first, with how many of each batch's agents are done and the tokens they
+spent. A batch still going is read from the live monitor, and a finished one
+from the session index, without reading any child log: reading one per row would
+make the listing itself pay for what only opening a row needs. The read runs in
+the background behind a loading row rather than holding the composer, and an
+empty history says so rather than opening an empty picker. `/agents runs`, the
+name before CLI 27, is an unknown subcommand and shows usage, like any other.
 
-Each row's name is its `workflow` label when a live host set a meaningful
-one, and otherwise the opening words of the parent turn that started it — a
-saved child's own `workflow` label is never recovered (see above), so a
-finished run is named from the turn instead. Enter opens the selected run in
-the same cockpit `Ctrl+T` opens, landing directly on the first agent's
-transcript so a finished run's `Replayed from saved evidence.` banner is the
-first thing on screen. The listing is bounded the way the delegation-history
-archive is: at most 20 rows, with an omitted count when a conversation has
-delegated under more parent turns than that.
+Each row's name is the batch's workflow label when one was set, and otherwise
+the opening words of the parent turn that spawned it. Enter opens the selected
+batch in the same cockpit `Ctrl+T` opens, landing directly on the first agent's
+transcript, so a finished batch's `Replayed from saved evidence.` banner is the
+first thing on screen. The listing is bounded: at most 20 rows, with an omitted
+count when a conversation has more batches than that.
 
 ### Retention
 
-Child run directories accumulate. Nothing prunes them: not the subagent runtime,
-not the agent manager, and not the session retention subsystem. This predates the
-replay view — the directories were always written — but the view is what makes
-the growth visible, so it is worth stating plainly: a project that delegates
-heavily grows its private state without bound, and reclaiming the space today
-means deleting `children/` directories by hand. A prune command is follow-up
-work, not something this view does behind the operator's back.
+Child logs accumulate under their parent's session directory. Nothing prunes
+them: not the subagent runtime, not the agent manager, and not checkpoint
+retention, which prunes checkpoints only. A project that delegates heavily grows
+its state without bound, and reclaiming the space today means deleting a
+session's `subagents/` directory — or the whole session — by hand. A prune
+command is follow-up work, not something the view does behind the operator's
+back.
 
-Discovery is bounded even when the directories are not: a scan reads at most
-2,000 session directories and replays at most the 80 most recent children,
-matching the live monitor's own retention. The children are ordered before that
-second cap applies, so the newest work is what survives it; the directory cap is
-applied to the order the filesystem lists in, so beyond 2,000 session
-directories which children are found stops being predictable. That is a bound
-against an unbounded scan, not a retention policy — the argument for a prune
-command rather than a substitute for one.
+Discovery is bounded even when the logs are not: a scan reads at most 2,000
+sessions and replays at most the 80 most recent children, matching the live
+monitor's own retention. The children are ordered before that second cap
+applies, so the newest work is what survives it. That is a bound against an
+unbounded scan, not a retention policy.
 
 Agent transcript pages wrap prose at word boundaries. Long unbroken URLs or
 code still wrap at grapheme boundaries, preserving all retained characters.

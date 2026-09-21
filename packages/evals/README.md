@@ -37,6 +37,11 @@ code changed.
 pnpm add -D @namzu/cli @namzu/evals
 ```
 
+`@namzu/sdk >=44.0.0` is a peer dependency; `@namzu/cli` brings a matching one.
+
+**Compatibility.** `@namzu/evals` before 1.0.0 breaks on `@namzu/sdk >=44`. Use
+`@namzu/evals >=1` with `@namzu/sdk` 44.
+
 ## Usage
 
 ```bash

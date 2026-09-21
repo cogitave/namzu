@@ -1,0 +1,76 @@
+---
+"@namzu/cli": major
+---
+
+The CLI moves to the SDK's session → turn → message model and to one state
+layout under `NAMZU_HOME` (default `~/.namzu`). Conversations, checkpoints,
+memory and resident state written by 26.x are **not read** by this version.
+
+**Before you upgrade.**
+
+- **Run `namzu drain` on 26.x** until it reports nothing parked. A turn still
+  parked on a decision or a provider wait when you upgrade cannot be resumed.
+- **Export any conversation you want to keep** with
+  `namzu history --session <id> > conversation.json` on 26.x (with no
+  `--session`, the latest one in the folder); it prints the messages as JSON.
+  There is no migration: nothing is imported, so nothing is lost silently or
+  brought back half-read.
+
+## What changes for you
+
+- **Where state lives.** Each working directory gets
+  `~/.namzu/projects/<slug>/`, where the slug is the directory's canonical
+  path with every character outside `[A-Za-z0-9]` replaced by `-`. A session is
+  `<session-id>.jsonl` there, with its child sessions, checkpoints, tasks,
+  feedback, goals, tool-result spills and file-history snapshots under
+  `<session-id>/`. Memory moves to `projects/<slug>/memory/`, resident state to
+  `projects/<slug>/residents/`, and git worktrees to
+  `projects/<slug>/worktrees/`. `~/.namzu/index.sqlite` is an index rebuilt
+  from the logs whenever it is missing or out of date; deleting it loses
+  nothing. The CLI still never writes into the working directory; `.namzu/`
+  there is read only, for the agents, skills, commands, plugins and
+  `MEMORY.md` you put in it.
+- **Old state is left alone and reported.** `namzu state` now prints report
+  `version: 2` with a `legacy` category: the old top-level `state/`,
+  `sessions/`, `titles.json`, `desktop-sessions.json`, `delegation-history/`,
+  `checkpoints/`, `tenants/`, `goals/`, `feedback/`, `learning/`,
+  `residents/`, `worktrees/` and `memory/`, and every `projects/<uuid>/`
+  directory. It lists their paths and sizes and never opens, moves or deletes
+  them; remove them yourself once you have exported what you need. A new
+  `projects/<slug>/` is never reported as legacy.
+- **One turn at a time per session.** A session has at most one active turn.
+  `namzu run` and `namzu run-stream` against a session whose turn is still
+  running, paused or interrupted now exit **75** (EX_TEMPFAIL) and name that
+  turn: on stderr for `run`, as an NDJSON
+  `{"kind":"error","code":"turn_in_progress",…}` event for `run-stream`. 75
+  keeps its existing meaning for a provider pause too; a wrapper that already
+  retries later on 75 needs no change. In the TUI the refusal offers
+  `/resume` or the new **`/abandon`**, which closes the paused turn so the next
+  prompt can start.
+- **`/agents runs` is now `/agents batches`**, with no alias. `/agents runs`
+  prints the unknown-subcommand usage.
+- **NDJSON gains ids.** `run-stream`'s `done` and `usage` events carry
+  `sessionId` and `turnId`, and a `paused` event names its `turnId` instead
+  of a run id.
+- **Hooks.** The events `run_start`, `run_end` and `run_interrupt` are
+  `turn_start`, `turn_end` and `turn_interrupt`; a config that names an old
+  event is refused at load with a message naming the new one. A hook's stdin
+  carries `turn_id` (not `run_id`) and, on `subagent_stop`,
+  `parent_session_id` and `parent_turn_id` (not `parent_run_id`); its
+  environment carries `NAMZU_TURN_ID` (not `NAMZU_RUN_ID`). `session_id` and
+  `NAMZU_SESSION_ID` are always set. `session_start` and `session_end` hooks
+  receive no turn id: the CLI no longer invents one for them.
+- **`namzu drain`** keeps its flags and exit codes (0, 1, 64, 77). It finds
+  parked turns through the session index, takes each session's lease, and
+  continues the same turn from its checkpoint; a turn whose session lease
+  another worker holds is skipped and reported.
+- **Delegation history is not carried over.** The history block and
+  `/agents` read finished child sessions from their logs; children recorded by
+  26.x do not appear.
+- **Checkpoints.** A session keeps each turn's newest 10 checkpoints under
+  `<session-id>/checkpoints/`; one an open decision references is never
+  pruned. `/restore` snapshots are under `<session-id>/file-history/`.
+- **Crash dumps are gone.** The session log and per-iteration checkpoints hold
+  everything an interrupted turn needs, so no `emergency/` dumps are written.
+  An interactive session that was interrupted closes that turn as interrupted
+  when you send the next prompt.

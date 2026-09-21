@@ -64,7 +64,7 @@ const response = await collectChatCompletion(
 ```
 
 `chatStream` is the only model entry point; a non-streaming call is that stream
-collected. In practice the kernel's run loop calls it and hands you events.
+collected. In practice the kernel's turn loop calls it and hands you events.
 
 Signed thinking and encrypted redacted blocks are persisted with versioned
 adapter state plus their exact provider/model/fallback route. The same

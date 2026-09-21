@@ -16,7 +16,7 @@ words such as `tool`, `search` and `read` do not activate whole catalogues.
 An exact tool name still matches, including short or generic names such as
 `ls` and `read`; it does not activate tools that merely contain that word.
 The query runtime registers this tool when the registered roster contains
-deferred tools; the run's tool-access limits still apply.
+deferred tools; the turn's tool-access limits still apply.
 The discovery prompt recommends `search_tools` only when it is active and
 included in the prompt's permitted roster.
 
@@ -37,7 +37,7 @@ method on `ToolRegistryContract` are optional so existing custom registries rema
 compatible. When a custom registry omits the method, `search_tools` says it cannot
 search active tools rather than asserting that matching tools are active or absent.
 
-## Independent availability for a run
+## Independent availability for a turn
 
 `ToolRegistry.fork(options?: ToolRegistryForkOptions)` snapshots the registry's
 membership and availability into a new `ToolRegistry`. A discovery activation,
@@ -60,8 +60,8 @@ Prepared executions remain bound to the registry that prepared them and cannot
 be transferred to a fork. Existing execution permissions and result screening
 still apply.
 
-Use a fresh fork when each run needs a small initial schema set without retaining
-another run's discovery activations. Deferral only changes discovery and schema
+Use a fresh fork when each turn needs a small initial schema set without retaining
+another turn's discovery activations. Deferral only changes discovery and schema
 availability; it does not narrow `allowedTools`, alter standing instructions,
 or configure provider-hosted tools. The query runtime can register its ordinary
 runtime tools into the fork without adding them to the source registry.

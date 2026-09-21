@@ -88,7 +88,7 @@ Typed serialization validates representation, not provenance or authorization.
 [message documentation](https://pydantic.dev/docs/ai/core-concepts/message-history/)
 
 Deferred external tools resume from saved history and results matched by
-tool-call ID, normally in a new run within the same conversation. This provides
+tool-call ID, normally in a new turn within the same conversation. This provides
 a boundary for releasing resident execution state during external waits.
 [Deferred tools documentation](https://pydantic.dev/docs/ai/tools-toolsets/deferred-tools/)
 

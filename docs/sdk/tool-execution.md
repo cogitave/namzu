@@ -48,7 +48,7 @@ Existing deadline abandonment still applies: a tool ignoring its abort signal
 may continue external effects after its timeout result. Barriers provide no
 rollback or guarantee that an uncooperative operation has stopped.
 
-The scope is one direct batch, not a global lock across runs. Nested dispatches,
+The scope is one direct batch, not a global lock across turns. Nested dispatches,
 including `run_code` calls, belong to the enclosing execution and are not queued
 on the enclosing batch's barriers. The enclosing executor closes and drains
 admitted nested dispatches before reporting settlement. Mark the enclosing tool
@@ -137,7 +137,7 @@ An unchanged byte count does not bypass the content-hash comparison.
 
 SDK hosts can pass a `createFileReadTracker()` instance as `query`'s
 `fileReadTracker` option across multiple turns. Without it, the executor creates
-a run-local tracker. Keep instances isolated by conversation and filesystem;
+a turn-local tracker. Keep instances isolated by conversation and filesystem;
 do not share observations between independent agents or unrelated sandbox roots.
 The tracker retains hashes and path membership, not file contents. It is not
 an inventory of what the model currently sees. A missing fingerprint remains
@@ -245,10 +245,10 @@ symlinks — and a seed has to file its entries where those tools will come
 looking, or the fingerprint it restores is one no mutation ever checks and no
 drift refusal can ever withdraw. So the paths named in the history are resolved
 the way the tools resolve them, before the walk; a path that no longer resolves
-inside the directories this run may reach is left unkeyed, and the mutation that
+inside the directories this turn may reach is left unkeyed, and the mutation that
 named it stops the pass rather than being filed somewhere approximate. Under a
 sandbox the keys are the paths as written, as they are for the tools, and no
-host path is consulted. That flag describes the run doing the seeding rather
+host path is consulted. That flag describes the turn doing the seeding rather
 than each turn in the history: a conversation whose earlier turns ran without a
 sandbox and is resumed into one is keyed in the space its current tools use, so
 the fingerprints it restores describe the other filesystem's files, and the
@@ -277,7 +277,7 @@ cannot say what a mutation replaced. A tool call id claimed by two calls or
 answered by two receipts — `read` included, because the receipt that was hidden
 could be the observation that withdrew a claim. And a mutation no path can be
 recovered from, whatever the transcript says came back to it: one declaring no
-`path`, one whose path no longer resolves inside the directories this run may
+`path`, one whose path no longer resolves inside the directories this turn may
 reach — a refused write to a path outside them is one of these, since a key is
 what withdrawing one path rather than the whole pass takes — or one the provider
 stream cut off mid-JSON, whose arguments are recorded as `{}` with the raw
@@ -292,7 +292,7 @@ thirty times the evidence bound: an oversize-but-ordinary write stays
 attributable and the pathological one is a mutation that can be placed nowhere,
 which is the third case above.
 
-`resumeRun` and `query`'s checkpoint path do the same for a run, from the
+`resumeSession` and `query`'s checkpoint path do the same for a turn, from the
 history as repaired rather than as checkpointed, so the ledger describes what
 the model is about to be shown — plus whatever of an owned resume turn already
 ran. That turn is held out of the repaired history because the resume plan still
@@ -304,7 +304,7 @@ exactly the calls a completed scan recovered an outcome for. A recovered `write`
 restores what it put there; the unknown-outcome result written for an
 interrupted one withdraws the path; and a call the scan proved never started is
 left out, because the file it names is untouched and it is about to run. A
-seeding that fails does not fail the resume: the run continues with the empty
+seeding that fails does not fail the resume: the turn continues with the empty
 ledger it would have had, and says so at debug. Shell writes and third-party
 tools that do not record observations are outside this contract.
 The runtime checks the body read at admission, under its own mutation lock; an
@@ -318,7 +318,7 @@ suite also covers sandbox drift, matching anchors and successive own edits.
 
 ## Recovery after an interrupted effect
 
-`resumeRun` distinguishes a tool that completed from one that merely started.
+`resumeSession` distinguishes a tool that completed from one that merely started.
 If a command changed external state but the process died before recording its
 result, its outcome is unknown. The runtime answers that checkpointed call with
 an explicit unknown-outcome result and does not automatically execute it again.
@@ -326,12 +326,13 @@ Completed results are reused; calls proven not to have started can continue.
 A model may then inspect current state before deciding on further work. This is
 not an exactly-once guarantee for arbitrary external systems.
 
-`RunStore.readToolExecutions?(toolUseIds, signal?)` returns a
-`ToolExecutionSnapshot`: `complete` and selected `records`, keyed by call ID.
+On resume the runtime reads the turn's `tool_executing` and `tool_completed`
+records from the session log as a `ToolExecutionSnapshot`: `complete` and
+selected `records`, keyed by call ID.
 Each `ToolExecutionRecord` has `status: 'started'` or `status: 'completed'`;
 a completion includes its result/error fields. A later start supersedes an
 older completion, so an interrupted retry is not mistaken for its earlier
-attempt. IDs must identify calls uniquely within the run. The runtime checks
+attempt. IDs must identify calls uniquely within the turn. The runtime checks
 the requested ID and tool name before reusing a record.
 
 Disk recovery scans only the JSONL metadata, without loading retained outputs

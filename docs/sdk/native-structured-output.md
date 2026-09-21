@@ -60,25 +60,25 @@ unvalidated prose summary.
 Async Zod validation and transformations run once per candidate. A transformed
 result must still be losslessly representable as plain JSON: functions, Date
 instances, undefined values, nonfinite numbers, accessors and cycles fail the
-run. Validation exceptions fail the run; cancellation stops waiting even for
+run. Validation exceptions fail the turn; cancellation stops waiting even for
 an uncooperative async validator. Host callbacks must still cancel their own
 external work.
 
 Valid candidates go through the same [host review](structured-output-review.md)
 as tool-mode results. Host rejection allowance is separate from schema
 corrections. Pending operator corrections and delegated work are considered
-before native acceptance, within the run's existing finalization limits.
+before native acceptance, within the turn's existing finalization limits.
 Cancellation before settlement does not publish the candidate. The accepted
 value lands in `Run.structuredOutput`; native output does not traverse the tool
 preview cap, so a large JSON response is not truncated by `maxToolOutputChars`.
 Provider output and context limits still apply.
 
 An output guardrail can still invalidate the result after review. Blocking or
-rewriting clears `structuredOutput`; a rewrite of a configured structured run
+rewriting clears `structuredOutput`; a rewrite of a configured structured turn
 stops with `output_guardrail`, preserving the host's replacement text without
 presenting it as schema-validated success. Use structured review to request a
-new valid candidate. `RunManager.clearStructuredOutput()` clears the structured
-field without replacing text. Failed and cancelled runs also clear that field.
+new valid candidate. `TurnRecorder.clearStructuredOutput()` clears the structured
+field without replacing text. Failed and cancelled turns also clear that field.
 
 ## Checkpoints
 
@@ -109,6 +109,6 @@ SDK's JSON Schema/Zod bridge without changing constraints. Include `properties`,
 launch, rather than silently weakened. `$schema` at the root is metadata and
 is not transmitted. Ordinary launches keep free-text answers.
 
-A run's `timeoutMs` is checked between iterations. For bounded live probes use
+A turn's `timeoutMs` is checked between iterations. For bounded live probes use
 an outer `AbortSignal` and `streamIdleTimeoutMs` as well; vendor request retries
 and an open but silent stream must not be mistaken for completed inference.

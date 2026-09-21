@@ -78,7 +78,7 @@ than two identical rows.
 
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
-column the rail's own rows start in, so they read as the run talking rather
+column the rail's own rows start in, so they read as the parent talking rather
 than as chrome the panel drew. They are commentary and carry no status —
 status is on the rail below them, in counts and glyphs as everywhere else.
 They never take a row from the rail: its height budget is computed from the
@@ -88,7 +88,7 @@ are paid for the way every row this TUI adds is paid for — the frame grows and
 the terminal scrolls, so the oldest conversation leaves at the top while the
 rail stays whole at the bottom. Measured in a real terminal 24 rows tall, with
 and without narration, by
-`research/conversation-evidence/narration-band-cli.mjs`. A run that narrates
+`research/conversation-evidence/narration-band-cli.mjs`. A turn that narrates
 nothing draws nothing here: no heading, no blank separator, no reserved row.
 The band is drawn wherever the rail would be drawn, including between phases
 when no child is live — which is when a line saying what comes next is worth
@@ -216,7 +216,7 @@ the separate session-wide choice still says it allows all tools.
 Explicit details show configuration rules, pricing scope, cleanup counters or
 tool inventories. A missing measurement is labelled as missing; token totals,
 context occupancy and monetary cost are distinct quantities. Cost refers to
-the current or latest run, not an accumulated conversation total.
+the current or latest turn, not an accumulated conversation total.
 
 `/settings` shows the current model, effort and approval mode with links to
 their controls and configuration-source diagnostics. It excludes credentials
@@ -229,13 +229,14 @@ replacement construction or preference persistence fails.
 
 `/goal` presents objective management and automatic continuation controls,
 including the automatic-turn allowance before work starts. `/tasks` reads the
-current or latest run’s own task store; changing conversations clears the
-selection without deleting tasks. `/agents` opens the retained delegated-work
+session's own task store, showing every open task and those closed in the
+current turn; changing conversations clears the selection without deleting
+tasks. `/agents` opens the retained delegated-work
 view, while `/agents available` separately reports the configured roster.
 
 The delegated-work view first separates workflows. Independently launched work
-in another parent run appears as a separate workflow, including when names are
-reused. Within a run, explicit workflow labels group phases across tool batches;
+in another parent turn appears as a separate workflow, including when names are
+reused. Within a turn, explicit workflow labels group phases across tool batches;
 unlabelled batches remain separate workflows. Repeated batches in the same
 explicit phase do not create new phases. These annotations describe grouping,
 not execution dependencies or barriers.
@@ -243,7 +244,7 @@ not execution dependencies or barriers.
 With multiple workflows, the workflow picker opens first. Selecting a workflow
 shows only its phases and agents; Esc returns to workflows and `q` or Ctrl+T
 returns to the conversation. Older completed or cancelled work stays available.
-Pending admissions show `Queued` until the child run starts. Completed Agent
+Pending admissions show `Queued` until the child session starts. Completed Agent
 and `wait_for_task` outputs name the actual `task_id` and terminal status before
 the child result, so identifiers inside that result remain clearly separate.
 
@@ -264,8 +265,8 @@ cohorts with work still running.
 
 Messages submitted with Enter while an `Agent` call waits for a child release
 that wait so the parent can respond while children continue. Results arrive in
-the same run as task notifications. Tab still queues a future turn; Esc still
-interrupts the current run and its children.
+the same turn as task notifications. Tab still queues a future turn; Esc still
+interrupts the current turn and its children.
 
 ## Terminal boundaries
 
@@ -288,7 +289,7 @@ emulator. They check wrapped input, short viewports, retained drafts, normal
 scrollback and the amount of output emitted during streaming. These checks use
 controlled session events and require no model calls.
 
-When a run stops for budget, iteration, policy or validation reasons, a short
+When a turn stops for budget, iteration, policy or validation reasons, a short
 reason notice stays beside any retained partial output. Normal completion and
 operator cancellation do not add a redundant stop notice. The composer remains
 usable for a follow-up; a token allowance refusal does not claim every reserved
@@ -311,7 +312,7 @@ the cursor. Terminals without bracketed-paste support retain chunk-based fallbac
 handling, which cannot reconstruct a paste boundary the terminal does not send.
 
 Separate provider message IDs create separate assistant transcript entries,
-including completion follow-ups inside one parent run. Pending text is flushed
+including completion follow-ups inside one parent turn. Pending text is flushed
 at that boundary so the last status sentence cannot merge with the next answer.
 Saved public item boundaries are also restored when resuming or forking earlier
 history, provided the parts still agree with its current selected content.

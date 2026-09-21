@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The review policy
-description: The five modes a run resolves tool review under, which calls skip review, and how a host supplies the person to ask.
+description: The five modes a turn resolves tool review under, which calls skip review, and how a host supplies the person to ask.
 resource: packages/sdk/src/runtime/query/review-policy.ts
 tags: [sdk, hitl, permissions]
 status: stable
@@ -26,9 +26,9 @@ const prompt: ToolReviewPrompt = async ({ toolCalls }) => {
 const policy = createReviewPolicy({ mode: 'accept-edits', prompt, registry })
 ```
 
-`policy` is an `ApprovalPolicy` whose `name` is the mode, so a durable log can say which one approved a call. Swap it on a run's `RunApprovalPolicy` to change mode without ending the run. `createReviewHandler` returns only the `ResumeHandler`.
+`policy` is an `ApprovalPolicy` whose `name` is the mode, so a durable log can say which one approved a call. Swap it on a turn's `SessionApprovalPolicy` to change mode without ending the turn. `createReviewHandler` returns only the `ResumeHandler`.
 
-The prompt receives the originating `runId` alongside `toolCalls`. Hosts can use this exact identifier to attribute concurrent child reviews; tool names or arguments are not ownership evidence. The field is optional for custom prompt callers, but `createReviewHandler` always supplies it.
+The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can use this exact identifier to attribute concurrent child reviews; tool names or arguments are not ownership evidence. The field is optional for custom prompt callers, but `createReviewHandler` always supplies it.
 
 # The modes
 
@@ -40,7 +40,7 @@ The prompt receives the originating `runId` alongside `toolCalls`. Hosts can use
 | `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. The kernel's `permissionMode: 'plan'` is the floor under this. |
 | `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. |
 
-A plan-approval request is approved and every other checkpoint continues. An answer of `approve-all` is remembered in the `remembered` box for the rest of the run; a host that shows that state passes its own box.
+A plan-approval request is approved and every other checkpoint continues. An answer of `approve-all` is remembered in the `remembered` box for the rest of the turn; a host that shows that state passes its own box.
 
 # Which calls skip review
 

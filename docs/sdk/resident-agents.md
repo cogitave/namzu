@@ -340,7 +340,7 @@ returns the same cursor; callers must stop or supply a sufficient allowance.
 pages with host-authenticated cumulative root receipts. The host supplies a
 `ResidentConsumptionResolver` whose `maxReadBytes` is reserved before each
 resolution. Its adapter must enforce that per-resolution bound and cooperative
-cancellation. The SDK refuses duplicate admissions, excludes every copy of a run
+cancellation. The SDK refuses duplicate admissions, excludes every copy of a turn
 receipt reused for multiple claims, validates finite prices and safe token
 integers, and never counts cache buckets separately from total tokens.
 

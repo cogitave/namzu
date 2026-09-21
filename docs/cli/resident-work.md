@@ -122,8 +122,8 @@ That comparison used the interactive context profile. These tasks needed no
 optional tool, so the result does not measure discovery's
 extra round trip or establish a general performance gain.
 
-Iteration, token and run-time limits apply **per SDK step**, not cumulatively across a
-resident's lifetime. Explicit zeros in [run limits](run-limits.md) remove those
+Iteration, token and turn-time limits apply **per SDK step**, not cumulatively across a
+resident's lifetime. Explicit zeros in [turn limits](run-limits.md) remove those
 per-step caps while retaining measured usage. `--max-steps` bounds the number of admitted steps. Provider
 failures and interrupted steps can consume tokens without settling a step.
 The read-only lifetime projection below does not enforce a separate lifetime credit limit.
@@ -152,7 +152,7 @@ namzu resident inspect --cursor 257 --through-revision 500 --max-revisions 256
 ```
 
 `status` shows current admission/runner state; `inspect` reads immutable agenda
-history and scoped attempt/run receipts. Its result separates:
+history and scoped attempt and turn receipts. Its result separates:
 
 - **Admitted work** from agenda settlement. A callback finish receipt alone
   does not prove the agenda committed the result. Manual reconciliation can
@@ -167,12 +167,12 @@ history and scoped attempt/run receipts. Its result separates:
 - **Known own cost** from unpriced tokens and missing prices. Descendant prices
   are not included. These estimates are not a provider bill.
 - **Partial/unknown usage** from final recorded usage. Abrupt death may leave
-  only a provisional run snapshot. Reconcile, archive and restart never turn
+  only a provisional turn snapshot. Reconcile, archive and restart never turn
   that uncertainty into zero or remove its retained admission.
 
 The text view shows at most 20 inspected attempts; JSON retains all attempts in
 the inspected range. The default scan covers up to 256 revisions, with at most
-8 MiB of history reads and 16 MiB reserved for attempt/run receipt reads. Each
+8 MiB of history reads and 16 MiB reserved for attempt and turn receipt reads. Each
 attempt reserves three bounded 64 KiB reads. `--max-revisions` accepts 1–4096;
 `--cursor` starts at the next revision returned by a prior inspection.
 Use `--through-revision` with the original upper boundary when paging an active
@@ -202,8 +202,10 @@ and still executes in the saved directory. A missing directory, changed canonica
 target or mismatched Project refuses execution; it does not silently relocate work.
 
 Bindings and attempt receipts live below
-`NAMZU_HOME/residents/<projectId>/<agent>/`, or the equivalent
-`~/.namzu` path. The SDK agenda uses its existing tenant/key layout within that
+`NAMZU_HOME/projects/<slug>/residents/<agent>/`, or the equivalent
+`~/.namzu` path, beside the project's sessions. Resident state an earlier CLI
+wrote under the top-level `residents/<projectId>/` is not read; `namzu state`
+reports it as legacy. The SDK agenda uses its existing tenant/key layout within that
 resident state partition. Private directories protect generated state. Separate
 Projects, worktrees and agent names have separate agendas.
 
@@ -231,7 +233,7 @@ Both context profiles also mount `search_resident_history` and
 They retrieve this pursuit's earlier settled summaries and consumed wake inputs,
 up to the agenda revision captured for the admission. The tools are ready even
 with deferred schema loading and work under the default read-only permission
-mode. They are scoped to the owning Session/Run; ordinary chat and delegated
+mode. They are scoped to the owning session and turn; ordinary chat and delegated
 children do not gain access to the resident's archive. The internal composition
 option is `AgentSessionOptions.residentHistory`; both foreground and managed
 resident execution supply it automatically.
@@ -247,21 +249,22 @@ Both profiles additionally mount `search_resident_tools` and `read_resident_tool
 through `AgentSessionOptions.residentToolEvidence`. These use the SDK's
 [retained tool evidence index](../sdk/retained-tool-evidence.md) to recover exact
 historical tool text, including authenticated spilled output. The host checks
-agenda settlement, matching start/finish pursuit/claim/Session/run identities,
+agenda settlement, matching start/finish pursuit/claim/session/turn identities,
 confirmed cleanup and invocation metadata ownership. Resident invocations do
-not require a resumable conversation row in SQLite; if one exists, its project
-must agree. Missing or inconsistent bindings remain unavailable. A finished
+not require a resumable conversation in the session index; if one exists, its
+project must agree. Missing or inconsistent bindings remain unavailable. A finished
 receipt alone cannot authorize an unresolved claim.
 
-The derived index lives under the original invocation's
-`sessions/<sessionId>/runs/<runId>/evidence-index/`, so archiving/removing that run
-also moves/removes its index. It introduces no new project directory. Per
+Each resident step is a turn with `origin.kind: 'resident-step'`, recorded in
+its session's log, and the searchable text is indexed in `index.sqlite` from
+that log, so removing the session removes its evidence and the index follows on
+its next refresh. It introduces no new project directory. Per
 resident request, history reads are bounded to 8 MiB/32 revisions, invocation
 retrieval to another 8 MiB and the two CLI attempt receipts to 64 KiB each.
 Historical errors and previews remain explicit. The tools never reread a
 mutable workspace file, restore a process or re-execute the original action.
-Older runs without explicit scope or matching receipts are not guessed into
-this feature. The [tool-evidence experiment](../../research/resident/tool-evidence.md)
+Steps without explicit scope or matching receipts are not guessed into this
+feature. The [tool-evidence experiment](../../research/resident/tool-evidence.md)
 records real CLI execution separately from its scripted provider seed.
 
 Both context profiles also attach SDK
@@ -323,9 +326,9 @@ cancellation. Callbacks that ignore their abort signal may still be running.
 already-authorized idle background runner can then act on it. It does not revive
 terminal work or reopen a paused agenda. `Ctrl+C`/`SIGTERM` ends
 the foreground invocation, with any admitted unfinished claim retained. Resident
-Sessions disable the SDK emergency exit handlers because the enclosing resident
-host owns these signals and must drain the Session and write its finish/runner
-receipts first. Ordinary interactive chat keeps its existing emergency policy.
+Sessions leave these signals to the enclosing resident host, which must drain
+the Session and write its finish/runner receipts first. Everything the step did
+up to the signal is already in its session log.
 
 Several wakes before the next step are retained in order, including after
 restarting Namzu. `status` shows the pending input count; JSON status includes
@@ -477,9 +480,9 @@ returns `Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
 It should only configure callbacks and read retained evidence: all model and
 review calls belong inside the charged `explore`, `generate` and `evaluate` callbacks.
 The CLI supplies the bound agenda, cancellation and durable journal. The factory
-chooses its own installed SDK providers, exact models, effort, tools, per-run
+chooses its own installed SDK providers, exact models, effort, tools, per-turn
 budgets and independent scoring. It does not inherit an interactive model or
-silently choose one. A factory can save run traces with
+silently choose one. A factory can save turn traces with
 `store.putArtifact(context.cycleId, name, value)` after the cycle starts.
 
 The optional [`explore` callback](../sdk/resident-exploration.md) lets a model
@@ -490,7 +493,7 @@ host capability; ordinary conversations do not automatically start experiments.
 
 A host may instead return
 `Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`
-and record independently scored runs through `store.observe`. The SDK then
+and record independently scored turns through `store.observe`. The SDK then
 [selects one retained failure](../sdk/resident-learning-discovery.md), bound to
 the installed guidance and the authorized evaluation conditions. This mode
 does not use an additional explicit `failure` or `skillName`. Each task can start

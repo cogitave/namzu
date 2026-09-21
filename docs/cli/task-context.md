@@ -1,18 +1,20 @@
 ---
 type: Reference
-title: Current-run task context
-description: Bounded automatic projection of unfinished tasks into interactive model requests, with research rationale and verification limits.
+title: Session task context
+description: Bounded automatic projection of a session's open tasks, and the tasks closed in the current turn, into interactive model requests, with research rationale and verification limits.
 resource: packages/cli/src/integrations/sessions/task-context.ts
 tags: [cli, tasks, context, harness]
+status: stable
+generated: { by: human:bahadirarda, at: 2026-09-09T00:00:00Z }
 ---
 
-# Current-run task context
+# Session task context
 
 Interactive sends and checkpoint resumes read the same task store used by
 `task_create`, `task_update` and `task_list` before each model request. They
 append a small snapshot of unfinished tasks to the prepared system context,
 without writing reminder messages into conversation history or making another
-model call. This lets a run retain its explicit plan when earlier task-tool
+model call. This lets a session retain its explicit plan when earlier task-tool
 results are no longer in the visible history.
 
 The snapshot is agent-maintained planning data, not proof that work passed
@@ -20,9 +22,13 @@ verification. Current user directions take precedence. A stale description
 still needs updating through the task tools; this feature cannot infer that a
 new instruction invalidates the old plan.
 
-Only records matching both the invoking run and tenant are eligible. A new
-run does not inherit previous runs' tasks. Resuming the same run can recover
-its durable tasks. This is distinct from cross-run project memory.
+Tasks belong to the session and are durable: each is a file under
+`<session-id>/tasks/` that records the turn that created it, so they survive a
+restart and a resume. Only records matching both the session and tenant are
+eligible. The projection shows every task still open, whichever turn created
+it, plus the tasks closed during the current turn; a task closed in an earlier
+turn is not shown. This is distinct from project memory, which spans
+sessions.
 
 The projection prioritizes in-progress tasks, then failed tasks, then pending
 tasks, with stable creation-time/ID ordering within each class. Completed tasks
@@ -77,11 +83,11 @@ A passing store/protocol regression is not evidence of a long-horizon score gain
 
 # Verification
 
-Regression tests cover cross-run/tenant exclusion, fresh updates with empty
+Regression tests cover cross-session/tenant exclusion, fresh updates with empty
 history, completed/failed dependencies, ordering and omission, prompt limits,
 read timeout/backpressure and cancellation. A production session adapter test
 executes `task_create` through the SDK and inspects the next provider request,
-then verifies that a new run has no inherited snapshot.
+then verifies that a new session has no inherited snapshot.
 
 A real interactive `gpt-5.6-luna` / `low` smoke run on 2026-09-09
 (`1feda1b7-4768-4c70-807b-e4bcb718c3b1`) created two dependent tasks, marked the

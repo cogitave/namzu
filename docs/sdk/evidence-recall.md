@@ -2,7 +2,7 @@
 type: Reference
 title: Automatic conversation evidence recall
 description: Bounded historical passage discovery and candidate ranking in request-only context.
-resource: packages/sdk/src/run/evidence-recall.ts
+resource: packages/sdk/src/turn/evidence-recall.ts
 tags: [sdk, context, evidence, memory]
 status: draft
 ---
@@ -15,10 +15,10 @@ callback returning authenticated passages. The step ranks the returned pool
 and adds selected text to [request-only step context](step-context.md), after
 history. It preserves earlier stages' context and leaves system policy and
 durable messages unchanged. By default it makes no model calls. Optional query
-resolution uses run-metered inference; retrieval never executes an action to
+resolution uses turn-metered inference; retrieval never executes an action to
 recreate its output.
 
-The callback receives the invoking `runId`, up to 16 literal terms, an
+The callback receives the invoking `turnId`, up to 16 literal terms, an
 `AbortSignal`, `maxReadBytes: 8388608` and `maxCandidates: 24`. It must enforce
 these limits, verify invocation ownership and source integrity, and return
 `EvidenceRecallBatch`: `candidates`, accounted `scannedBytes` and `incomplete`,
@@ -36,11 +36,11 @@ reject the pass. The host must mount read-only tools which validate ownership,
 cursor lifetime and source integrity again on execution. A hint grants no new
 authority, performs no tool call and keeps no source bytes alive.
 
-When the kernel exposes a live writer, `EvidenceRecallRequest.captureRunEvidence`
-captures completed events from that invoking run. The wrapper binds capture to
+When the kernel exposes a live writer, `EvidenceRecallRequest.captureSessionEvidence`
+captures completed events from that invoking turn. The wrapper binds capture to
 the recall deadline and parent cancellation, and rejects new captures after the
 recall pass ends. Stores without the capability return `undefined`. This does
-not authorize discovery of another run or extend an expired invocation.
+not authorize discovery of another turn or extend an expired invocation.
 
 Each `EvidenceRecallCandidate` carries `scope`, event `seq`, textual `part`,
 `source`, `retained`, `excerpt`, optional `toolName`, `isError`, stored-event `recordedAt` and UTF-8
@@ -240,13 +240,13 @@ resolved. No plan text, exception body or source data enters the note itself.
 The main task and explicit archive tools remain available. The previous operator
 query is never used just because literal retrieval was empty.
 
-One plan promise is cached for the same run and operator-message identity, also
+One plan promise is cached for the same turn and operator-message identity, also
 keyed by question text. New runs or steering input invalidate it. A failed plan
 is not retried on every iteration. Evidence bytes are still retrieved and
 revalidated on every pass. This cache is local to the hook, not durable memory.
 The planning call permits at most 512 output tokens and ten seconds, sharing the
 run's provider chain, token ledger and cancellation. Those tokens count toward
-the run; the subsequent retrieval deadline is separate. These are bounded
+the turn; the subsequent retrieval deadline is separate. These are bounded
 preparation costs, not free retrieval or a hard provider billing ceiling.
 
 Duplicate source/excerpt addresses with equal metadata are omitted. Exact passages
@@ -349,7 +349,7 @@ extra ranking votes. Time metadata shares the existing character allowance.
 `additionalEvidence` remains a plain read address; reading it returns the time.
 Already visible exact text is suppressed from new passage text, but its validated
 sources appear separately in `visibleEvidence`. Each entry binds its exact bounded
-`textQuote` (at most 512 UTF-16 units) to a directly readable `address` (`runId`, `seq`, `part`, optional `byteOffset`), optional
+`textQuote` (at most 512 UTF-16 units) to a directly readable `address` (`turnId`, `seq`, `part`, optional `byteOffset`), optional
 `recordedAt`, `source`, optional `toolName`/`isError`/`excerptComplete`, and `retained`. The quote
 repeats only the authenticated candidate excerpt needed to make the association
 explicit; it does not reload the full source or establish that a
@@ -445,14 +445,14 @@ covering every query token will not trigger refinement. No stop words are added.
 The [measured CLI comparison](../../research/conversation-evidence/refined-discovery-results.md)
 records the recovery improvement, increased I/O and remaining counterexamples.
 
-The first-discovered occurrence supplies each passage's `runId`, `seq`, `part` and optional
+The first-discovered occurrence supplies each passage's `turnId`, `seq`, `part` and optional
 `byteOffset`. Equal observations retain their additional addresses under
 `otherOccurrences`; `omittedOccurrences` counts extra addresses from this bounded
 pool that did not fit. Neither field counts every occurrence in the archive.
 Distinct passage text and one address per passage take priority over extra
-addresses. Repetition does not establish independent corroboration. Event `seq`
-orders observations within one run only; presentation order is relevance, and
-run UUIDs do not establish chronology between runs.
+addresses. Repetition does not establish independent corroboration. A record's
+`seq` orders observations within one session only; presentation order is relevance, and
+turn ids do not establish chronology across sessions or when a fact became true.
 
 The metadata retains `incomplete` even when no passage was selected, including
 when all matches are already visible. An empty or bounded scan is not proof of
@@ -465,7 +465,7 @@ a count of all relevant records in the archive. `incomplete` still describes
 source traversal, so it can be false while `omittedPassages` is positive.
 
 When text is omitted, `additionalEvidence` contains as many representative
-`runId`/`seq`/`part`/optional `byteOffset` addresses as fit; `omittedAddresses`
+`turnId`/`seq`/`part`/optional `byteOffset` addresses as fit; `omittedAddresses`
 counts omitted passage groups whose address did not fit. These addresses reuse
 the validated candidate scope, disclose no omitted text and grant no authority.
 A host archive tool must revalidate scope and source on a later read. Their
@@ -551,11 +551,11 @@ Within one automatic candidate page, the CLI can cross completely searched
 matching runs as well as empty runs, while respecting the shared byte and output
 limits. Partially traversed SDK pages keep their continuation boundary. This
 allows distinct evidence from several small invocations to enter the bounded
-candidate pool instead of spending one automatic page on each run. It does not
+candidate pool instead of spending one automatic page on each turn. It does not
 expand the four-page budget or claim exhaustive archive coverage.
 
 The CLI's directory discovery continues across batches of 100 entries, so that
-limit no longer permanently excludes later runs. The automatic four-page pass
+limit no longer permanently excludes later turns. The automatic four-page pass
 can still stop before discovery or text traversal is exhausted; explicit search
 continuations remain necessary beyond that allowance.
 

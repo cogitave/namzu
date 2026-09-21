@@ -2,9 +2,9 @@
 type: Reference
 title: "@namzu/sdk"
 description: >-
-  An agent kernel for TypeScript. Runs an agent as a supervised unit of work
-  with an identity, a budget, a permission boundary and pluggable durable
-  stores. Renders no UI, hosts no service, and has no preferred model vendor.
+  An agent kernel for TypeScript. Runs an agent as supervised turns of a
+  session, with an identity, a budget, a permission boundary and a durable
+  session log. Renders no UI, hosts no service, and has no preferred model vendor.
 tags: [readme, package, sdk, agent-kernel]
 status: stable
 generated: { by: human:bahadirarda, at: 2026-08-21T00:00:00Z }
@@ -61,29 +61,29 @@ pre-registered and scriptable.
 
 ## Quick start
 
-This first run needs no API key or network. The mock supplies a scripted model
-reply; the kernel executes the same run loop used by service-backed drivers.
+This first turn needs no API key or network. The mock supplies a scripted model
+reply; the kernel executes the same turn loop used by service-backed drivers.
 
 ```ts
 import { ProviderRegistry, runAgent } from '@namzu/sdk'
 
 const { provider } = ProviderRegistry.create({ type: 'mock', responseText: 'Paris.' })
 
-const { output, run, identity } = await runAgent({
+const { output, turn, identity } = await runAgent({
   provider,
   model: 'mock-model',
   prompt: 'What is the capital of France?',
 })
 
 console.log(output)          // Paris.
-console.log(run.stopReason)  // end_turn
+console.log(turn.stopReason) // end_turn
 console.log(identity)        // { sessionId, topicId, projectId, tenantId }
 ```
 
 Save it as `agent.ts` in an ESM project and run it with `pnpm exec tsx agent.ts`
 after adding `tsx` as a development dependency. `runAgent` creates the four
 identity values when absent and returns them. Pass both `identity` and
-`run.messages` into the next call to continue a conversation; identity alone
+`turn.messages` into the next call to continue a conversation; identity alone
 does not load its history. For store-backed delegation, supply the identity of
 records created in the session store.
 
@@ -116,7 +116,7 @@ const provider = new MockLLMProvider({
   ],
 })
 
-const { output, run } = await runAgent({
+const { output, turn } = await runAgent({
   provider,
   model: 'mock-model',
   tools,
@@ -127,22 +127,29 @@ const { output, run } = await runAgent({
 })
 
 console.log(output) // 42
-console.log(run.messages.filter((message) => message.role === 'tool'))
+console.log(turn.messages.filter((message) => message.role === 'tool'))
 ```
 
 To use inference, install a [provider driver](#install) and replace the mock
-provider and model with that driver's configuration. The tools and run call
-stay the same.
+provider and model with that driver's configuration. The tools and the
+`runAgent` call stay the same.
 
-These runs use the kernel's budgets, tool loop and checkpoint persistence.
-`ReactiveAgent` exposes additional configuration such as compaction and durable
-store routing; its `run` config requires `sessionId`, `topicId`, `projectId` and
+Each call is one turn of a session, with the kernel's budgets, tool loop and
+checkpoints. The session is recorded in one append-only log under
+`NAMZU_HOME` (default `~/.namzu`), in `projects/<slug>/<session-id>.jsonl`,
+and nothing is written under the working directory; see the
+[session log](https://github.com/cogitave/namzu/blob/main/docs/sdk/session-log.md).
+A session has at most one active turn: starting another while one is running
+or paused throws `TurnInProgressError`. `ReactiveAgent` exposes additional
+configuration such as compaction and where the session is stored; the config
+passed to its `run` method requires `sessionId`, `topicId`, `projectId` and
 `tenantId`. OS isolation is explicit rather than ambient: supply a
-`sandboxProvider` when the host requires it. Direct SDK runs use a disposable
+`sandboxProvider` when the host requires it. Direct SDK turns use a disposable
 sandbox workspace unless `sandbox: { workspace: 'working-directory' }` is
-selected and the provider advertises support for rooting itself at the run's
-declared working directory. Configure durable stores and
-telemetry exporters when the process must outlive or export the in-memory run.
+selected and the provider advertises support for rooting itself at the turn's
+declared working directory. Pass an `InMemorySessionLog` as `sessionLog` to
+keep a session entirely in memory, and configure telemetry exporters when the
+process must export what it did.
 
 ## What you get
 
@@ -150,8 +157,8 @@ telemetry exporters when the process must outlive or export the in-memory run.
 |---|---|
 | **Boundary** | a permission gate decides before dispatch; configured sandbox providers add OS confinement |
 | **Budget** | tokens, money, wall clock and iterations, enforced rather than hoped for |
-| **Identity** | tenant → project → topic → session → run, on every record and span |
-| **Durability** | pluggable run/checkpoint stores can preserve a record beyond the process |
+| **Identity** | tenant → project → topic → session → turn → message, on every record and span |
+| **Durability** | one hash-chained log per session, with checkpoints beside it, survives the process; SQLite is only a rebuildable index |
 | **Compaction** | a conversation about to overflow is shrunk without being corrupted |
 | **Observability** | telemetry and log seams whose providers and sinks the host owns |
 
@@ -163,18 +170,18 @@ is completed exactly once. Hosts receive `message_history_repaired` with source
 and counts before the model call; conversation and tool content stay out of the
 event.
 
-Stored image and document references are materialized under the run's caller
-signal before provider work starts. A pre-cancelled run performs no attachment
-store I/O; cancellation also settles the run when a custom or remote store
+Stored image and document references are materialized under the turn's caller
+signal before provider work starts. A pre-cancelled turn performs no attachment
+store I/O; cancellation also settles the turn when a custom or remote store
 ignores the signal, while retaining the unresolved references in its durable
 message record. `AttachmentStore.get` receives an optional
 `AttachmentOperationOptions` so implementations can stop their own I/O. The
 caller keeps ownership of its controller, and a late store result is never
-published into a cancelled run. `resumeRun` carries its already-selected
+published into a cancelled turn. `resumeSession` carries its already-selected
 checkpoint snapshot into the same boundary, so cancellation neither rereads a
 non-cooperative checkpoint backend nor replaces prior history, usage, or a new
 queued reference with an incomplete snapshot. The selected checkpoint also
-carries its durable trace parent into the cancelled run, preserving one
+carries its durable trace parent into the cancelled turn, preserving one
 cross-process timeline without a second checkpoint read.
 
 Hosts that discover scoped repository policy can supply a
@@ -182,7 +189,7 @@ Hosts that discover scoped repository policy can supply a
 `SupervisorAgent`. Its first-request snapshot is structurally tagged and
 retained; completed registry calls, including nested dispatch, can publish a
 replacement immediately after the complete tool-result batch. Each callback
-receives the run signal and the exact accepted message prefix; each returned
+receives the turn signal and the exact accepted message prefix; each returned
 snapshot is committed before the next observation starts, so cancellation can
 discard an unfinished suffix without losing accepted policy state. This
 channel does not create a human continuation, so a terminal tool or stop
@@ -190,12 +197,12 @@ predicate cannot strand the update. Canonical project-relative `AGENTS.md`
 provenance survives compaction and lets a reconstructed host re-read disk
 authority rather than trusting persisted policy text.
 
-High-level `ReactiveAgent` and `SupervisorAgent` configurations also accept a
-`pathBuilder`. Supplying one makes runs, checkpoints, emergency saves, memory
-and task state use that exact durable hierarchy instead of falling back to the
-working directory. `DiskSessionStore` can bind a Project to a canonical
-`rootPath`; the binding is tenant-scoped, immutable and published safely when
-multiple processes race to open the same workspace.
+High-level `ReactiveAgent` and `SupervisorAgent` configurations also accept
+`paths`, a `SessionPaths`. Supplying one puts the session log, its child
+sessions, checkpoints, token ledger and task state under that root instead of
+`resolveNamzuHome()`. A project id is minted once per working directory into
+`projects/<slug>/project.json`; two processes that open the same directory at
+the same moment adopt the same id.
 
 `TopicManager` is the lifecycle authority for the durable subject above a
 session. Supply it to agent and handoff dependencies as `topicManager`; spawn

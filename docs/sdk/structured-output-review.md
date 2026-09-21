@@ -11,8 +11,8 @@ tags: [sdk, harness, verification]
 `QueryParams.structuredOutput.review` checks the parsed result after the output
 tool has validated its schema and before `Run.structuredOutput` is published.
 The callback receives a cloned JSON-decoded value (`unknown`) and an `AnswerReviewContext` containing
-run identity, iteration, messages and the run's cancellation signal. Its optional
-`generateText` capability provides [one metered, bounded review inference](verification.md#run-owned-review-inference)
+turn identity, iteration, messages and the turn's cancellation signal. Its optional
+`generateText` capability provides [one metered, bounded review inference](verification.md#turn-owned-review-inference)
 per callback; the parsed candidate and response schema are not implicitly sent
 to that auxiliary request. Its optional
 [`requestMessages`](verification.md) is the isolated SDK request snapshot which
@@ -47,7 +47,7 @@ nonnegative safe integer: the default is three correction opportunities; zero
 stops after the first rejected candidate. Exhaustion stops with `answer_rejected`
 and no accepted structured result. Schema retry limits remain separate.
 
-Thrown errors and malformed verdicts fail the run. Cancellation stops waiting
+Thrown errors and malformed verdicts fail the turn. Cancellation stops waiting
 for the reviewer, even if its promise does not settle; external work started by
 the callback must still honor the supplied signal. Only a solitary successful
 output-tool call is reviewed for settlement; a candidate alongside other calls
@@ -58,7 +58,7 @@ messages and steering, including steering already attached to that tool's
 result. A new input gets another model turn with a fresh candidate and review.
 The old candidate's review remains bound to its dispatch input. This also works
 without a host reviewer. Forced finalization and existing run limits still apply;
-an interrupted run does not publish a pending candidate as completed output.
+an interrupted turn does not publish a pending candidate as completed output.
 
 A rejection saves feedback and `IterationCheckpoint.structuredReviewAttempts`
 before the next model request. Resume restores that counter independently of

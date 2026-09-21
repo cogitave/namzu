@@ -15,31 +15,32 @@ Kernel factories such as `generateProjectId()`, `generateSessionId()`,
 and randomness, so ids sort by creation time as plain strings, and ids one
 process mints sort in the order it minted them, even within one millisecond
 or when the wall clock steps back. Ids minted as version 4 before this still
-pass every check. `projectIdForDirectory(directory)` is
-the one derived id: a name-based UUID (version 8) over the canonical directory
-path, the same in every process. A host with no Project store to look one up
-in can use it to keep runs in one directory in one Project. Entity type is carried by a nominal
-TypeScript brand and by the record's schema and location. A Session ID cannot
-be passed where a Run ID is required without explicitly bypassing the type
-system. The serialized UUID does not encode its entity type.
+pass every check. A Project id is minted the same way, once per working
+directory, by `ensureProject`, which writes it to
+`<NAMZU_HOME>/projects/<slug>/project.json` and hands it back to every later
+caller in that directory (see [Session log](session-log.md#where-the-files-are)).
+Entity type is carried by a nominal TypeScript brand and by the record's schema
+and location. A Session ID cannot be passed where a Turn ID is required without
+explicitly bypassing the type system. The serialized UUID does not encode its
+entity type.
 
 ## Minting and checking
 
-- Mint with the factory for the entity, such as `generateRunId()`.
-- Check an external string with `asRunId(value)` or the matching constructor.
+- Mint with the factory for the entity, such as `generateTurnId()`.
+- Check an external string with `asTurnId(value)` or the matching constructor.
   Invalid values throw `InvalidIdError`; its `expectedKind` field identifies
   the rejected entity kind. The old `expectedPrefix` field is removed.
-- Check an unknown value without throwing with `isEntityId(value, 'run')`.
+- Check an unknown value without throwing with `isEntityId(value, 'turn')`.
   The second argument selects the expected entity kind.
 - Deprecated `parse*Id` functions perform the same validation and throw a
   plain `Error`. Use the `as*Id` constructor in new code.
 
 ```ts
-import { generateRunId, asRunId, isEntityId } from '@namzu/sdk'
+import { generateTurnId, asTurnId, isEntityId } from '@namzu/sdk'
 
-const runId = generateRunId()
-const restored = asRunId(runId)
-const valid = isEntityId(restored, 'run')
+const turnId = generateTurnId()
+const restored = asTurnId(turnId)
+const valid = isEntityId(restored, 'turn')
 ```
 
 Constructors accept canonical hyphenated UUIDs with an RFC variant and version
@@ -54,11 +55,11 @@ removed prefix format or sharing one identity across unrelated cases.
 ```ts
 import { fixtureId } from '@namzu/sdk/testing'
 
-const runId = fixtureId.run('retries-after-approval')
+const turnId = fixtureId.turn('retries-after-approval')
 const sessionId = fixtureId.session('retries-after-approval')
 ```
 
-`ProjectIdSchema`, `RunIdSchema` and `MessageIdSchema` use the same spelling
+`ProjectIdSchema`, `SessionIdSchema`, `TurnIdSchema` and `MessageIdSchema` use the same spelling
 rules as their constructors. They remain Zod string schemas and expose their
 validation patterns when converted to JSON Schema.
 
@@ -77,10 +78,10 @@ replace checked ID constructors or establish store ownership.
 
 Only UUID entity IDs are admitted. This applies to constructors, schemas,
 directory discovery and persisted record boundaries. Prefixes such as `prj_`,
-`ses_`, `run_`, `cp_` and `thd_` have no compatibility path. Invalid records are
+`ses_`, `cp_` and `thd_` have no compatibility path. Invalid records are
 refused; initialization does not overwrite them or invent a replacement owner.
-Run-state schema versions have their own field migrations, independently of ID
-admission, and must still contain UUID entity IDs.
+Session records and turn states carry their own schema versions, independently
+of ID admission, and must still contain UUID entity IDs.
 
 This is a major release. Hosts must generate UUIDs or supply valid UUID values
 for custom entity IDs. Prefix inspection and template-literal ID types must be
@@ -97,8 +98,10 @@ checkpoint IDs identify checkpoints. Match an answer using `questionId`.
 
 Project-owned names such as agent registry keys, transport correlation IDs and
 archive backend references are separate contracts; kernel entity factories do
-not rename them. An emergency snapshot projected as a checkpoint retains a
-deterministic ID: the UUID snapshot uses that same UUID as its checkpoint key.
+not rename them. A caller-side id — an AG-UI thread or run, an A2A context, an
+ACP or desktop session — is never used as a namzu id. It is recorded as the
+turn's or session's `origin`, or as an external reference, may be any string,
+and is resolved back to a session through `SessionIndex.resolveExternal`.
 
 ## Reusing an existing identity
 
