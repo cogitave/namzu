@@ -88,7 +88,7 @@ export type PromptPlacement = 'static' | 'dynamic' | 'turn' | 'context'
  * memory use. Never pushed onto the run's history.
  *
  * The difference is where a driver puts it. A driver may hoist every
- * system message ahead of the conversation — Anthropic renders tools, then
+ * system message ahead of the conversation — some render tools, then
  * system, then messages — so a `turn` section whose text changes
  * invalidates the cached conversation prefix and the whole history is
  * re-read at full price. Request-only context stays after the history on

@@ -21,7 +21,7 @@ import { WORKING_MEMORY_HEADER } from '../iteration/phases/working-memory.js'
  * request-only context channel, never the system run.
  *
  * A driver may hoist every system message ahead of the conversation —
- * Anthropic renders tools, then system, then messages — so a system message
+ * some render tools, then system, then messages — so a system message
  * whose text changes invalidates the cached conversation prefix, and the
  * whole history is re-read at full price. The working-memory slot changes
  * whenever a pin does; a `context` contribution changes whenever the host's

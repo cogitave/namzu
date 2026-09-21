@@ -49,7 +49,7 @@ function workingMemoryIndex(msgs: readonly Message[]): number {
  * slot's content verbatim under the same "runtime-generated; not a new user
  * request" label every other step-context message carries — so the header
  * begins the message's second line, not its first. The slot changes whenever a pin does, and a
- * driver that hoists system messages ahead of the conversation (Anthropic
+ * driver that hoists system messages ahead of the conversation (one that
  * renders tools, then system, then messages) would otherwise invalidate the
  * cached conversation prefix on every such change. Every driver keeps
  * request-only context after history, and a caching driver ends its

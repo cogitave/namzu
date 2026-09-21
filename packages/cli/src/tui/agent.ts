@@ -3283,7 +3283,7 @@ export async function createAgentSession(
 						// SDK's `context` placement — request-only context after the
 						// history that never enters it. An observation, not an
 						// instruction: under `turn` it rode a system message the
-						// Anthropic driver hoists ahead of the conversation, so every
+						// hoisting driver moves ahead of the conversation, so every
 						// new send's changed snapshot re-read the whole history
 						// uncached. FIRST iteration only:
 						// later iterations work from state the model itself changed, and
