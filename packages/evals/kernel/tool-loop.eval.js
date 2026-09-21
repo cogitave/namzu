@@ -15,10 +15,11 @@
  * Every case pins an invariant this kernel has broken at least once.
  */
 
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	DefaultPathBuilder,
 	MockLLMProvider,
 	ToolRegistry,
 	autoApproveHandler,
@@ -71,38 +72,48 @@ function registry(failing = []) {
 
 /** @param {{turns: unknown[], maxIterations?: number, prepareStep?: unknown, failing?: string[]}} input */
 async function runCase(input) {
-	const provider = new MockLLMProvider({ turns: input.turns });
-	const run = await drainQuery({
-		provider,
-		tools: registry(input.failing),
-		runConfig: {
-			model: "mock-model",
-			timeoutMs: 30_000,
-			tokenBudget: 1_000_000,
-			maxIterations: input.maxIterations ?? 8,
-			maxResponseTokens: 512,
-		},
-		agentId: "agent_eval",
-		agentName: "Eval Agent",
-		// A fresh directory per case. Pointed at the repo root, every run
-		// wrote into the repo's own live `.namzu/` state — a suite that
-		// mutates the tree it is measuring is not a measurement, and sharing
-		// that directory with real sessions is how this suite first hung.
-		workingDirectory: await mkdtemp(join(tmpdir(), "namzu-eval-")),
-		sessionId: generateSessionId(),
-		topicId: generateTopicId(),
-		projectId: generateProjectId(),
-		tenantId: generateTenantId(),
-		messages: [{ role: "user", content: "go", timestamp: 1 }],
-		// An eval can never wait on a human, by definition. Left to default,
-		// a tool call parks for an approval nobody is there to give and the
-		// whole suite hangs — which reads as a PASSING gate, because a
-		// promise that never settles takes the process to exit zero.
-		resumeHandler: autoApproveHandler,
-		...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
-	});
+	// One scratch directory per case, removed when the case ends. Every
+	// case used to leave its directory, and the run state in it, behind.
+	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-"));
+	try {
+		const provider = new MockLLMProvider({ turns: input.turns });
+		const run = await drainQuery({
+			provider,
+			tools: registry(input.failing),
+			runConfig: {
+				model: "mock-model",
+				timeoutMs: 30_000,
+				tokenBudget: 1_000_000,
+				maxIterations: input.maxIterations ?? 8,
+				maxResponseTokens: 512,
+			},
+			agentId: "agent_eval",
+			agentName: "Eval Agent",
+			// A fresh directory per case. Pointed at the repo root, every run
+			// wrote into the repo's own live `.namzu/` state — a suite that
+			// mutates the tree it is measuring is not a measurement, and sharing
+			// that directory with real sessions is how this suite first hung.
+			workingDirectory: scratch,
+			// State under the scratch directory, not the default root: the
+			// directory is removed below, and with it everything the run wrote.
+			pathBuilder: new DefaultPathBuilder(join(scratch, ".namzu")),
+			sessionId: generateSessionId(),
+			topicId: generateTopicId(),
+			projectId: generateProjectId(),
+			tenantId: generateTenantId(),
+			messages: [{ role: "user", content: "go", timestamp: 1 }],
+			// An eval can never wait on a human, by definition. Left to default,
+			// a tool call parks for an approval nobody is there to give and the
+			// whole suite hangs — which reads as a PASSING gate, because a
+			// promise that never settles takes the process to exit zero.
+			resumeHandler: autoApproveHandler,
+			...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
+		});
 
-	return evalRunFromRun(run);
+		return evalRunFromRun(run);
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
 }
 
 const call = (id, name) => ({ id, name, rawArguments: "{}" });
