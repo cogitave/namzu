@@ -357,7 +357,7 @@ describe('grounded conversation query resolution', () => {
 		expect(sent.history.at(-1).text).toBe('Inspecting DELTA.')
 		expect(JSON.stringify(sent)).not.toContain('Observation and attached steering')
 	})
-	it('caches the plan for an operator input, invalidating on a new run or steering message', async () => {
+	it('caches the plan for an operator input, invalidating on a new turn or steering message', async () => {
 		const ctx = context()
 		const resolve = createEvidenceQueryResolver()
 		await resolve(ctx, question)
@@ -370,7 +370,7 @@ describe('grounded conversation query resolution', () => {
 			question,
 		)
 		expect(ctx.generateText).toHaveBeenCalledTimes(1)
-		await resolve({ ...ctx, runId: generateTurnId() }, question)
+		await resolve({ ...ctx, turnId: generateTurnId() }, question)
 		await resolve({ ...ctx, latestUserMessage: createUserMessage(question) }, question)
 		expect(ctx.generateText).toHaveBeenCalledTimes(3)
 	})
@@ -393,7 +393,7 @@ describe('grounded conversation query resolution', () => {
 			incomplete: false,
 			candidates: [
 				{
-					scope: { ...scope, runId: generateTurnId() },
+					scope: { ...scope, turnId: generateTurnId() },
 					seq: 2,
 					part: 0,
 					source: 'tool_completed',

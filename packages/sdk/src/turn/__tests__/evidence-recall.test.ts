@@ -30,7 +30,7 @@ const candidate = (
 	excerpt = 'DELTA tracking code: A17',
 	extra: Partial<EvidenceRecallCandidate> = {},
 ): EvidenceRecallCandidate => ({
-	scope: { ...scope, runId: sourceRun },
+	scope: { ...scope, turnId: sourceRun },
 	seq: 2,
 	part: 0,
 	source: 'tool_completed',
@@ -61,7 +61,7 @@ function fixture(candidates = [candidate()], options: Partial<EvidenceRecallOpti
 function rendered(text: string | undefined) {
 	return (text ?? '')
 		.split('\n')
-		.filter((line) => line.startsWith('{"runId":'))
+		.filter((line) => line.startsWith('{"turnId":'))
 		.map((line) => JSON.parse(line))
 }
 afterEach(() => vi.useRealTimers())
@@ -476,7 +476,7 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(meta).toMatchObject({ incomplete: false, omittedPassages: 1, omittedAddresses: 0 })
 		expect(rendered(result?.context)).toHaveLength(4)
 		expect(meta.additionalEvidence).toEqual([
-			{ runId: sourceRun, seq: 6, part: 0, byteOffset: 1024 },
+			{ turnId: sourceRun, seq: 6, part: 0, byteOffset: 1024 },
 		])
 		expect(meta.continuations).toBeUndefined()
 	})
@@ -617,7 +617,7 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(result?.context).toContain('Inventory\n\nRetrieved conversation evidence')
 		expect(result?.context).toContain('historical records')
 		expect(result?.context).toContain('A17 \\u003cliteral>')
-		expect(result?.context).toContain(`"runId":"${sourceRun}"`)
+		expect(result?.context).toContain(`"turnId":"${sourceRun}"`)
 		expect(result?.context).toContain('"byteOffset":1024')
 		expect(result?.context).not.toContain('announcement')
 		expect(ctx.messages).toEqual(before)
@@ -706,7 +706,7 @@ describe('ephemeral scoped evidence recall', () => {
 		const correction =
 			'DELTA tracking destination changed to NEW-892 after review. Previous receipt OLD-471 is superseded; this entry records the correction.'
 		const copies = Array.from({ length: 4 }, (_, i) =>
-			candidate(old, { seq: i + 1, scope: { ...scope, runId: generateTurnId() } }),
+			candidate(old, { seq: i + 1, scope: { ...scope, turnId: generateTurnId() } }),
 		)
 		const { recall } = fixture([...copies, candidate(correction, { seq: 5 })])
 		const result = await recall(context('DELTA tracking destination'))
@@ -714,8 +714,8 @@ describe('ephemeral scoped evidence recall', () => {
 		expect(selected).toHaveLength(2)
 		expect(selected.map((item) => item.excerpt)).toEqual(expect.arrayContaining([old, correction]))
 		const repeated = selected.find((item) => item.excerpt === old)
-		expect([repeated, ...repeated.otherOccurrences].map(({ runId }) => runId)).toEqual(
-			copies.map((item) => item.scope.runId),
+		expect([repeated, ...repeated.otherOccurrences].map(({ turnId }) => turnId)).toEqual(
+			copies.map((item) => item.scope.turnId),
 		)
 		expect(repeated.omittedOccurrences).toBe(0)
 		expect(result?.context).toContain('repetition is not corroboration')
@@ -793,7 +793,7 @@ describe('ephemeral scoped evidence recall', () => {
 		const { recall } = fixture([
 			candidate(),
 			candidate(undefined, {
-				scope: { ...scope, runId: sourceRun, sessionId: generateSessionId() },
+				scope: { ...scope, turnId: sourceRun, sessionId: generateSessionId() },
 			}),
 		])
 		await expect(recall(context())).rejects.toThrow('different conversation')
@@ -809,7 +809,7 @@ describe('ephemeral scoped evidence recall', () => {
 				batch(
 					candidate(),
 					candidate('unrelated', {
-						scope: { ...scope, runId: sourceRun, [field]: generateTurnId() },
+						scope: { ...scope, turnId: sourceRun, [field]: generateTurnId() },
 					}),
 				),
 			)

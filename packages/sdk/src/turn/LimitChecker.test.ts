@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { RuntimeConfigSchema } from '../config/runtime.js'
-import { RunConfigSchema } from '../contracts/schemas.js'
+import { TurnConfigSchema } from '../contracts/session/index.js'
 import { checkLimitsDetailed } from './LimitChecker.js'
 
 describe('token budget limits', () => {
@@ -28,19 +28,19 @@ describe('token budget limits', () => {
 
 	it('accepts tokenBudget 0 in public runtime config schemas', () => {
 		expect(RuntimeConfigSchema.parse({ tokenBudget: 0 }).tokenBudget).toBe(0)
-		expect(RunConfigSchema.parse({ tokenBudget: 0 }).tokenBudget).toBe(0)
+		expect(TurnConfigSchema.parse({ tokenBudget: 0 }).tokenBudget).toBe(0)
 	})
 
 	it('accepts an explicit stream-idle opt-out but refuses negative silence', () => {
-		expect(RunConfigSchema.parse({ streamIdleTimeoutMs: 0 }).streamIdleTimeoutMs).toBe(0)
-		expect(() => RunConfigSchema.parse({ streamIdleTimeoutMs: -1 })).toThrow()
+		expect(TurnConfigSchema.parse({ streamIdleTimeoutMs: 0 }).streamIdleTimeoutMs).toBe(0)
+		expect(() => TurnConfigSchema.parse({ streamIdleTimeoutMs: -1 })).toThrow()
 	})
 
 	it('accepts an explicit rich-content opt-out but refuses invalid byte budgets', () => {
 		expect(
-			RunConfigSchema.parse({ maxRequestRichContentBytes: 0 }).maxRequestRichContentBytes,
+			TurnConfigSchema.parse({ maxRequestRichContentBytes: 0 }).maxRequestRichContentBytes,
 		).toBe(0)
-		expect(() => RunConfigSchema.parse({ maxRequestRichContentBytes: -1 })).toThrow()
-		expect(() => RunConfigSchema.parse({ maxRequestRichContentBytes: 1.5 })).toThrow()
+		expect(() => TurnConfigSchema.parse({ maxRequestRichContentBytes: -1 })).toThrow()
+		expect(() => TurnConfigSchema.parse({ maxRequestRichContentBytes: 1.5 })).toThrow()
 	})
 })

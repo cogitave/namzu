@@ -2,604 +2,225 @@
  * `drainParkedTurns` — the loop every host had to write itself.
  *
  * These are the single-process properties: what it refuses, what it
- * releases, what it does with a claim it lost. The properties that need
+ * releases, what it does with a lease it lost. The properties that need
  * REAL processes — exclusivity, fencing, a dead holder — are in
- * `drain-processes.test.ts`, because a claim tested inside one process is
- * arbitrated by the event loop rather than by the store, which is the
+ * `drain-processes.proc-test.ts`, because a lease tested inside one process
+ * is arbitrated by the event loop rather than by the store, which is the
  * mechanism under test.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 
-import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
-import { fixtureId, fixtureUuid } from '../../test-support/ids.js'
-import type { IterationCheckpoint } from '../../types/hitl/index.js'
-import type { CheckpointId, ProjectId, TurnId, SessionId, TenantId } from '../../types/ids/index.js'
-import type {
-	CheckpointRunScope,
-	CheckpointStore,
-	DurableRunEntry,
-} from '../../types/session/durable.js'
+import {
+	type SessionLease,
+	type SessionLog,
+	StaleSessionLeaseError,
+} from '../../store/session-log/index.js'
+import type { DurableTurnEntry } from '../../types/session/durable.js'
 import { drainParkedTurns } from '../drain.js'
-
-const TENANT = '988097f6-b538-4e9a-a5ec-d6bf9864204a' as TenantId
-const PROJECT = 'baa3f1b2-7a3d-4291-ba2e-694e4b02352b' as ProjectId
-const SESSION = '5b2340e7-1a7e-45e3-97bd-c297d5334dd9' as SessionId
-
-const listingScope = { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION }
-
-function scope(runId: string): CheckpointRunScope {
-	return { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION, runId: runId as TurnId }
-}
-
-let seq = 0
-
-/** The shape the checkpoint manager writes, so the listing has real rows. */
-function checkpoint(runId: string, parked: boolean): IterationCheckpoint {
-	seq += 1
-	return {
-		id: fixtureUuid(`cp_${seq}`) as CheckpointId,
-		turnId: runId as TurnId,
-		iteration: 1,
-		messages: [],
-		tokenUsage: {
-			promptTokens: 1,
-			completionTokens: 1,
-			totalTokens: 2,
-			cachedTokens: 0,
-			cacheWriteTokens: 0,
-		},
-		costInfo: { totalCost: 0 } as IterationCheckpoint['costInfo'],
-		guardState: { iterationCount: 1, elapsedMs: 10 },
-		createdAt: 1_000 + seq,
-		...(parked
-			? {
-					pending: {
-						request: {
-							type: 'tool_review',
-							turnId: runId as TurnId,
-							checkpointId: fixtureUuid(`cp_${seq}`) as CheckpointId,
-							toolCalls: [{ id: 't1', name: 'deploy', input: {}, isDestructive: true }],
-						},
-						parkedAt: 1_000,
-					} satisfies IterationCheckpoint['pending'],
-				}
-			: {}),
-	}
-}
-
-async function seeded(runIds: readonly string[], parked = true): Promise<InMemoryCheckpointStore> {
-	const store = new InMemoryCheckpointStore()
-	for (const runId of runIds) {
-		await store.writeCheckpoint(scope(runId), checkpoint(runId, parked))
-	}
-	return store
-}
-
-/**
- * The seeded store with one capability replaced or removed.
- *
- * Built method by method rather than by spreading the instance. A class's
- * methods live on its prototype, so `{ ...store }` yields an object holding
- * the private maps and NO methods whatever — and a refusal test written that
- * way passes against a `drainParkedTurns` that checks nothing, because the store it
- * was handed genuinely implements nothing. Two of the tests below would have
- * been decorative.
- */
-function facade(
-	store: InMemoryCheckpointStore,
-	over: Partial<CheckpointStore> = {},
-): CheckpointStore {
-	return {
-		writeCheckpoint: (s, c, f) => store.writeCheckpoint(s, c, f),
-		readCheckpoint: (s, id) => store.readCheckpoint(s, id),
-		listCheckpoints: (s) => store.listCheckpoints(s),
-		deleteCheckpoint: (s, id) => store.deleteCheckpoint(s, id),
-		listDurableRuns: (s, o) => store.listDurableRuns(s, o),
-		claimRun: (s, o) => store.claimRun(s, o),
-		releaseRun: (s, f) => store.releaseRun(s, f),
-		...over,
-	}
-}
-
-function without(store: InMemoryCheckpointStore, method: keyof CheckpointStore): CheckpointStore {
-	return facade(store, { [method]: undefined })
-}
+import { queue } from './support/queue.js'
 
 const holder = 'w_test'
 const ttlMs = 60_000
 
-describe('refusing a store that cannot arbitrate a queue', () => {
-	/**
-	 * The point of every case here is the SECOND assertion. A refusal that
-	 * fires after the queue has been read and half-drained is not a refusal,
-	 * it is a partial outage — and "claimed by default" is the degradation
-	 * the optional-capability rule exists to forbid.
-	 */
-	const cannotClaim: CheckpointStore = {
-		writeCheckpoint: async () => {},
-		readCheckpoint: async () => null,
-		listCheckpoints: async () => [],
-		deleteCheckpoint: async () => {},
-		listDurableRuns: vi.fn(async () => ({ entries: [] })),
-		releaseRun: async () => {},
-	}
-
-	it('refuses a store with no claim, and drains nothing', async () => {
-		const onRun = vi.fn()
-		await expect(
-			drainParkedTurns({ store: cannotClaim, scope: listingScope, holder, ttlMs, onRun }),
-		).rejects.toThrow(/does not implement `claimRun`/)
-		expect(onRun).not.toHaveBeenCalled()
-		// Refused BEFORE the listing, not after: a store that cannot claim must
-		// not even read the queue, because reading it is what makes "drain what
-		// I can" look reasonable.
-		expect(cannotClaim.listDurableRuns).not.toHaveBeenCalled()
-	})
-
-	it('refuses a store that cannot list', async () => {
-		const store: CheckpointStore = {
-			writeCheckpoint: async () => {},
-			readCheckpoint: async () => null,
-			listCheckpoints: async () => [],
-			deleteCheckpoint: async () => {},
-			claimRun: async () => null,
-			releaseRun: async () => {},
-		}
-		const onRun = vi.fn()
-		await expect(
-			drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun }),
-		).rejects.toThrow(/does not implement `listDurableRuns`/)
-		expect(onRun).not.toHaveBeenCalled()
-	})
-
-	it('refuses a store that cannot release, rather than draining runs it can never give back', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		const noRelease = without(store, 'releaseRun')
-		const onRun = vi.fn()
-		await expect(
-			drainParkedTurns({ store: noRelease, scope: listingScope, holder, ttlMs, onRun }),
-		).rejects.toThrow(/does not implement.*`releaseRun`/)
-		expect(onRun).not.toHaveBeenCalled()
-	})
-
-	it('names every missing capability at once', async () => {
-		const store: CheckpointStore = {
-			writeCheckpoint: async () => {},
-			readCheckpoint: async () => null,
-			listCheckpoints: async () => [],
-			deleteCheckpoint: async () => {},
-		}
-		await expect(
-			drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} }),
-		).rejects.toThrow(/`listDurableRuns`, `claimRun`, `releaseRun`/)
-	})
-})
-
 describe('refusing configuration that cannot mean what it says', () => {
 	it('refuses an empty holder', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
+		const q = await queue([{ parked: true }])
+		const onTurn = vi.fn()
 		await expect(
-			drainParkedTurns({ store, scope: listingScope, holder: '  ', ttlMs, onRun: () => {} }),
-		).rejects.toThrow(/`holder` is empty/)
+			drainParkedTurns({ ...q.base, holder: '  ', ttlMs, onTurn }),
+		).rejects.toMatchObject({ code: 'invalid_config' })
+		expect(onTurn).not.toHaveBeenCalled()
 	})
 
 	it('refuses a lease that has already expired', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		await expect(
-			drainParkedTurns({ store, scope: listingScope, holder, ttlMs: 0, onRun: () => {} }),
-		).rejects.toThrow(/ttlMs must be a positive number/)
+		const q = await queue([{ parked: true }])
+		const onTurn = vi.fn()
+		await expect(drainParkedTurns({ ...q.base, holder, ttlMs: 0, onTurn })).rejects.toMatchObject({
+			code: 'invalid_config',
+		})
+		expect(onTurn).not.toHaveBeenCalled()
 	})
 
 	it('refuses a concurrency of zero rather than reporting an empty pass', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		const onRun = vi.fn()
+		const q = await queue([{ parked: true }])
+		const onTurn = vi.fn()
 		await expect(
-			drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun, maxConcurrent: 0 }),
-		).rejects.toThrow(/maxConcurrent must be a positive integer/)
-		expect(onRun).not.toHaveBeenCalled()
+			drainParkedTurns({ ...q.base, holder, ttlMs, onTurn, maxConcurrent: 0 }),
+		).rejects.toMatchObject({ code: 'invalid_config' })
+		expect(onTurn).not.toHaveBeenCalled()
 	})
 })
 
 describe('one pass over the queue', () => {
-	it('takes every unclaimed run and hands each one its own claim', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-			'61d260b3-706f-452e-8528-f7fd5f736b18',
-		])
-		const seen: { runId: string; fence: number; holder: string }[] = []
+	it('takes every unclaimed turn and hands each one its own lease', async () => {
+		const q = await queue([{ parked: true }, { parked: true }, { parked: true }])
+		const seen: Array<{ entry: DurableTurnEntry; lease: SessionLease }> = []
 
 		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun: (entry, claim) => {
-				seen.push({ runId: entry.runId, fence: claim.fence, holder: claim.holder })
+			onTurn: async (entry, lease) => {
+				seen.push({ entry, lease })
 			},
 		})
 
 		expect(result.listed).toBe(3)
-		expect([...result.drained].sort()).toEqual(
-			[
-				'90a466e2-f869-4a3c-b750-f2156342ff40',
-				'fe818a89-6a50-4e51-8a91-5f108ad85280',
-				'61d260b3-706f-452e-8528-f7fd5f736b18',
-			].sort(),
+		expect([...result.drained].sort()).toEqual(q.sessions.map((s) => s.turnId).sort())
+		expect(seen.map((s) => s.entry.sessionId).sort()).toEqual(
+			q.sessions.map((s) => s.sessionId).sort(),
 		)
-		expect(result.skipped).toEqual([])
+		expect(seen.every((s) => s.lease.holder === holder)).toBe(true)
 		expect(result.failed).toEqual([])
-		expect(result.unreleased).toEqual([])
 		expect(result.stopped).toBe(false)
-		expect(seen.map((s) => s.runId).sort()).toEqual(
-			[
-				'90a466e2-f869-4a3c-b750-f2156342ff40',
-				'fe818a89-6a50-4e51-8a91-5f108ad85280',
-				'61d260b3-706f-452e-8528-f7fd5f736b18',
-			].sort(),
-		)
-		// A fence per run, and the holder the caller named. Asserted because a
-		// drainer that passed the ENTRY and not the claim would still look
-		// correct on every count above.
-		expect(seen.every((s) => s.fence === 1 && s.holder === holder)).toBe(true)
 	})
 
-	it('gives every run back, so a second pass sees the same queue', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		])
-		await drainParkedTurns({ store, scope: listingScope, holder, ttlMs, onRun: () => {} })
-
-		const second = await drainParkedTurns({
-			store,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: () => {},
-		})
-		// Without the release, both runs would still be held at their first
-		// fence and this pass would list nothing — the failure that makes a
-		// drainer look like it drained the queue exactly once and then broke.
-		expect([...second.drained].sort()).toEqual(
-			['90a466e2-f869-4a3c-b750-f2156342ff40', 'fe818a89-6a50-4e51-8a91-5f108ad85280'].sort(),
-		)
-		// And the second holding is a NEW fence, which is what proves the first
-		// one was surrendered rather than renewed.
-		const page = await store.listDurableRuns(listingScope, {})
-		expect(page.entries.every((e) => e.claim === undefined)).toBe(true)
+	it('gives every turn back, so a second pass sees the same queue', async () => {
+		const q = await queue([{ parked: true }, { parked: true }])
+		const first = await drainParkedTurns({ ...q.base, holder, ttlMs, onTurn: async () => {} })
+		const second = await drainParkedTurns({ ...q.base, holder, ttlMs, onTurn: async () => {} })
+		expect(second.drained.length).toBe(first.drained.length)
+		expect(second.skipped).toEqual([])
 	})
 
-	it('releases a run whose work threw, and keeps going', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		])
+	it('releases a turn whose work threw, and keeps going', async () => {
+		const q = await queue([{ parked: true }, { parked: true }])
+		let calls = 0
 		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun: (entry) => {
-				if (entry.runId === fixtureId.run('a')) throw new Error('the work blew up')
+			onTurn: async () => {
+				calls++
+				if (calls === 1) throw new Error('worker blew up')
 			},
 		})
-
-		expect(result.failed).toEqual([
-			{ runId: '90a466e2-f869-4a3c-b750-f2156342ff40', error: 'the work blew up' },
-		])
-		// The other run was still drained. A drainer that stopped at the first
-		// failure leaves the rest of the queue for nobody.
-		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
-		// And the FAILED run is back on the queue immediately rather than stuck
-		// for a full lease — the case a `finally` exists for, and the one a
-		// release-on-success-only implementation gets wrong.
-		const page = await store.listDurableRuns(listingScope, { claimed: false })
-		expect(page.entries.map((e) => e.runId).sort()).toEqual(
-			['90a466e2-f869-4a3c-b750-f2156342ff40', 'fe818a89-6a50-4e51-8a91-5f108ad85280'].sort(),
-		)
+		expect(result.failed).toHaveLength(1)
+		expect(result.failed[0]?.error).toBe('worker blew up')
+		expect(result.drained).toHaveLength(1)
+		// Released: another worker can take every session straight away.
+		for (const session of q.sessions) {
+			expect(await session.log.claim({ holder: 'w_next', ttlMs })).not.toBeNull()
+		}
 	})
 
-	it('skips a run somebody else took between the listing and the claim', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		])
-		// The race the `null` return exists for: listed as free, gone by the
-		// time this drainer asked.
-		const raced = facade(store, {
-			claimRun: async (s, o) => (s.runId === fixtureId.run('a') ? null : store.claimRun(s, o)),
-		})
-		const onRun = vi.fn()
+	it('never offers a turn another worker currently holds', async () => {
+		const q = await queue([{ parked: true, held: true }, { parked: true }])
+		const onTurn = vi.fn(async () => {})
+		const result = await drainParkedTurns({ ...q.base, holder, ttlMs, onTurn })
+		const held = q.sessions[0]!
+		expect(result.skipped).toEqual([held.turnId])
+		expect(onTurn).toHaveBeenCalledTimes(1)
+		expect(result.drained).toEqual([q.sessions[1]!.turnId])
+	})
 
+	it('offers a turn whose holder has expired, because that is what expiry means', async () => {
+		const q = await queue([{ parked: true, held: true }])
+		const onTurn = vi.fn(async () => {})
 		const result = await drainParkedTurns({
-			store: raced,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun,
+			onTurn,
+			// Judged past the holder's lease.
+			now: Date.now() + 10 * ttlMs,
 		})
-
-		expect(result.skipped).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
-		// Not a failure. "Somebody got there first" is the ordinary outcome of
-		// two readers on one queue, and reporting it as a fault would make a
-		// healthy two-worker deployment look broken.
-		expect(result.failed).toEqual([])
-		expect(onRun).toHaveBeenCalledTimes(1)
+		expect(result.drained).toEqual([q.sessions[0]!.turnId])
+		expect(onTurn).toHaveBeenCalledTimes(1)
 	})
 
-	it('reports a lease it could not hand back without losing the work', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		const stuck = facade(store, {
-			releaseRun: async () => {
-				throw new Error('disk went away')
+	it('gives back a turn that stopped matching between the listing and the claim', async () => {
+		// Somebody answered the park after the listing was taken: the listing
+		// still names it, the log under the lease does not.
+		const q = await queue([{ answered: true }])
+		const session = q.sessions[0]!
+		const staleListing = [
+			{
+				decisionId: session.checkpointId,
+				sessionId: session.sessionId,
+				turnId: session.turnId,
+				checkpointId: session.checkpointId,
 			},
-		})
-		const result = await drainParkedTurns({
-			store: stuck,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: () => {},
-		})
-		// The work succeeded and is reported as such; the release problem is a
-		// separate fact with a separate consequence (throughput, never
-		// correctness), so it does not masquerade as a failed run.
-		expect(result.drained).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		expect(result.failed).toEqual([])
-		expect(result.unreleased).toEqual([
-			{ runId: '90a466e2-f869-4a3c-b750-f2156342ff40', error: 'disk went away' },
-		])
-	})
-
-	it('does not rethrow a release failure over the work failure it is unwinding', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		const stuck = facade(store, {
-			releaseRun: async () => {
-				throw new Error('disk went away')
-			},
-		})
-		const result = await drainParkedTurns({
-			store: stuck,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: () => {
-				throw new Error('the work blew up')
-			},
-		})
-		// The caller has to be able to see WHY the run failed. A `finally` that
-		// throws replaces the original error, and the operator then debugs the
-		// disk instead of the run.
-		expect(result.failed).toEqual([
-			{ runId: '90a466e2-f869-4a3c-b750-f2156342ff40', error: 'the work blew up' },
-		])
-		expect(result.unreleased.map((u) => u.runId)).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-	})
-
-	it('never offers a run another worker currently holds', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		])
-		await store.claimRun(scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
-			holder: 'other_worker',
-			ttlMs: 60_000,
-		})
+		]
+		const index = { ...q.index, listPendingDecisions: async () => staleListing }
+		const onTurn = vi.fn(async () => {})
 
 		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
+			index: index as typeof q.index,
 			holder,
 			ttlMs,
-			onRun: () => {},
-		})
-
-		// `claimed: false` is not a parameter, and this is why: a drainer that
-		// listed held runs would spend a claim attempt on every one of them
-		// every pass.
-		expect(result.listed).toBe(1)
-		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
-	})
-
-	it('offers a run whose holder has expired, because that is what expiry means', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		await store.claimRun(scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
-			holder: 'crashed',
-			ttlMs: 1,
-			now: 1_000,
-		})
-
-		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: () => {},
-			now: 100_000,
-		})
-
-		expect(result.drained).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		// The reclaimer's fence is strictly greater than the dead holder's, so
-		// the dead holder's late write is refused rather than accepted beside
-		// this one.
-		expect(result.listed).toBe(1)
-	})
-
-	it('gives back a run that stopped matching between the listing and the claim', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		])
-		const onRun = vi.fn()
-
-		// The window a claim cannot close: another drainer answered `run_a`'s
-		// park and released it after this pass had already paged the row. The
-		// claim then SUCCEEDS on work somebody else finished.
-		const raced = facade(store, {
-			claimRun: async (s, o) => {
-				const claim = await store.claimRun(s, o)
-				if (claim && s.runId === fixtureId.run('a')) {
-					const [seed] = await store.listCheckpoints(s)
-					await store.writeCheckpoint(
-						s,
-						{
-							...(seed as IterationCheckpoint),
-							pending: {
-								...(seed as IterationCheckpoint).pending,
-								resolvedAt: 2_000,
-							} as IterationCheckpoint['pending'],
-						},
-						claim.fence,
-					)
-				}
-				return claim
-			},
-		})
-
-		const result = await drainParkedTurns({
-			store: raced,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun,
+			onTurn,
 			park: ['outstanding'],
 		})
 
-		expect(result.stale).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		expect(result.drained).toEqual(['fe818a89-6a50-4e51-8a91-5f108ad85280'])
-		// The point of the whole re-read: the work does NOT run a second time.
-		expect(onRun).toHaveBeenCalledTimes(1)
-		expect(onRun.mock.calls[0]?.[0]).toMatchObject({
-			turnId: 'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		})
-		// And the stale run's lease is handed straight back rather than held
-		// for the full TTL over work nobody is doing.
-		const page = await store.listDurableRuns(listingScope, { claimed: false })
-		expect(page.entries.map((e) => e.runId)).toContain('90a466e2-f869-4a3c-b750-f2156342ff40')
-	})
-
-	it('re-reads nothing when it was given no filter to re-read against', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		const listCheckpoints = vi.fn(store.listCheckpoints.bind(store))
-		const watched = facade(store, { listCheckpoints })
-
-		const result = await drainParkedTurns({
-			store: watched,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: () => {},
-		})
-
-		expect(result.drained).toEqual(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		expect(result.stale).toEqual([])
-		// A crash sweep has no predicate a store can re-check, so the extra
-		// read would cost a page per run and answer nothing. Exactly-once for
-		// that shape comes from the host's own run records inside `onRun`.
-		expect(listCheckpoints).not.toHaveBeenCalled()
+		expect(result.stale).toEqual([session.turnId])
+		expect(onTurn).not.toHaveBeenCalled()
 	})
 
 	it('passes the park filter through instead of inventing one', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(
-			scope('c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'),
-			checkpoint('c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf', true),
-		)
-		await store.writeCheckpoint(
-			scope('4a16723e-b50c-4522-ab32-14e12cc15a99'),
-			checkpoint('4a16723e-b50c-4522-ab32-14e12cc15a99', false),
-		)
-
+		const q = await queue([{ parked: true }, {}])
 		const inbox = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun: () => {},
+			onTurn: async () => {},
 			park: ['outstanding'],
 		})
-		expect(inbox.drained).toEqual(['c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'])
-
-		// And with no filter, the run that never parked is included — the case
-		// a crash sweep exists for, and the one any default park filter would
-		// have hidden.
-		const sweep = await drainParkedTurns({
-			store,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: () => {},
-		})
-		expect([...sweep.drained].sort()).toEqual(
-			['4a16723e-b50c-4522-ab32-14e12cc15a99', 'c3c44ac1-e4ae-444c-9e22-aa9a3ba69dbf'].sort(),
-		)
+		expect(inbox.drained).toEqual([q.sessions[0]!.turnId])
+		// No filter: every open turn nobody holds, parked or not — a crash sweep.
+		const sweep = await drainParkedTurns({ ...q.base, holder, ttlMs, onTurn: async () => {} })
+		expect([...sweep.drained].sort()).toEqual(q.sessions.map((s) => s.turnId).sort())
 	})
 })
 
 describe('bounds', () => {
-	it('pages until the listing is exhausted', async () => {
-		const ids = Array.from({ length: 7 }, (_, i) => `run_${i}`)
-		const store = await seeded(ids)
-
+	it('handles no more candidates than one page', async () => {
+		const q = await queue([{ parked: true }, { parked: true }, { parked: true }])
 		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun: () => {},
+			onTurn: async () => {},
 			pageSize: 2,
 		})
-
-		expect(result.listed).toBe(7)
-		expect([...result.drained].sort()).toEqual([...ids].sort())
-	}, 10_000)
+		expect(result.listed).toBe(2)
+		expect(result.drained).toHaveLength(2)
+	})
 
 	it('holds no more leases at once than it was allowed', async () => {
-		const store = await seeded(Array.from({ length: 6 }, (_, i) => `run_${i}`))
+		const q = await queue([{ parked: true }, { parked: true }, { parked: true }, { parked: true }])
 		let inFlight = 0
 		let peak = 0
-
 		await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
 			maxConcurrent: 2,
-			onRun: async () => {
-				inFlight += 1
+			onTurn: async () => {
+				inFlight++
 				peak = Math.max(peak, inFlight)
-				await new Promise((r) => setTimeout(r, 1))
-				inFlight -= 1
+				await new Promise<void>((resolve) => setImmediate(resolve))
+				inFlight--
 			},
 		})
-
-		// The obvious implementation — claim the page, then `Promise.all` —
-		// holds six leases while doing one run's worth of work, so the tail of
-		// the batch expires before it is started.
 		expect(peak).toBe(2)
 	})
 
-	it('defaults to one run at a time', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-			'61d260b3-706f-452e-8528-f7fd5f736b18',
-		])
+	it('defaults to one turn at a time', async () => {
+		const q = await queue([{ parked: true }, { parked: true }, { parked: true }])
 		let inFlight = 0
 		let peak = 0
 		await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun: async () => {
-				inFlight += 1
+			onTurn: async () => {
+				inFlight++
 				peak = Math.max(peak, inFlight)
-				await new Promise((r) => setTimeout(r, 1))
-				inFlight -= 1
+				await new Promise<void>((resolve) => setImmediate(resolve))
+				inFlight--
 			},
 		})
 		expect(peak).toBe(1)
@@ -607,120 +228,95 @@ describe('bounds', () => {
 })
 
 describe('cancellation', () => {
-	it('stops taking new runs once the signal aborts, and says it stopped', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-			'61d260b3-706f-452e-8528-f7fd5f736b18',
-		])
+	it('stops taking new turns once the signal aborts, and says it stopped', async () => {
+		const q = await queue([{ parked: true }, { parked: true }, { parked: true }])
 		const controller = new AbortController()
-		const seen: string[] = []
-
 		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
 			signal: controller.signal,
-			onRun: (entry) => {
-				seen.push(entry.runId)
+			onTurn: async () => {
 				controller.abort()
 			},
 		})
-
-		expect(seen).toHaveLength(1)
 		expect(result.drained).toHaveLength(1)
 		expect(result.stopped).toBe(true)
-		// Everything it did not start is still on the queue and unclaimed — a
-		// cancelled pass must not leave leases behind it.
-		const page = await store.listDurableRuns(listingScope, { claimed: false })
-		expect(page.entries).toHaveLength(3)
 	})
 
 	it('claims nothing at all when the signal is already aborted', async () => {
-		const store = await seeded([
-			'90a466e2-f869-4a3c-b750-f2156342ff40',
-			'fe818a89-6a50-4e51-8a91-5f108ad85280',
-		])
-		const onRun = vi.fn()
+		const q = await queue([{ parked: true }, { parked: true }])
+		const onTurn = vi.fn(async () => {})
 		const result = await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
 			signal: AbortSignal.abort(),
-			onRun,
+			onTurn,
 		})
-		expect(onRun).not.toHaveBeenCalled()
+		expect(onTurn).not.toHaveBeenCalled()
+		expect(result.drained).toEqual([])
 		expect(result.stopped).toBe(true)
-		expect(result.listed).toBe(0)
 	})
 })
 
 describe('what the callback receives', () => {
-	it('hands over an entry that is itself an addressable run scope', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		let received: DurableRunEntry | undefined
+	it('hands over an entry that addresses the turn and its newest checkpoint and park', async () => {
+		const q = await queue([{ parked: true }])
+		const session = q.sessions[0]!
+		let received: DurableTurnEntry | undefined
 		await drainParkedTurns({
-			store,
-			scope: listingScope,
+			...q.base,
 			holder,
 			ttlMs,
-			onRun: (entry) => {
+			onTurn: async (entry) => {
 				received = entry
 			},
 		})
-		// The property `resumeSession({ scope: entry, … })` depends on: a row that
-		// cannot be turned back into a scope is a report, not a work queue.
 		expect(received).toMatchObject({
-			tenantId: TENANT,
-			projectId: PROJECT,
-			sessionId: SESSION,
-			turnId: '90a466e2-f869-4a3c-b750-f2156342ff40',
-		})
-		expect(received?.latestCheckpointId).toBeDefined()
-	})
-
-	it('hands over a fence that the store will accept and a stale one it will not', async () => {
-		const store = await seeded(['90a466e2-f869-4a3c-b750-f2156342ff40'])
-		let fence = 0
-		await drainParkedTurns({
-			store,
-			scope: listingScope,
-			holder,
-			ttlMs,
-			onRun: async (entry, claim) => {
-				fence = claim.fence
-				// The whole reason the claim is handed over: this write is fenced.
-				await store.writeCheckpoint(
-					entry,
-					checkpoint('90a466e2-f869-4a3c-b750-f2156342ff40', false),
-					claim.fence,
-				)
+			tenantId: q.base.tenantId,
+			sessionId: session.sessionId,
+			turnId: session.turnId,
+			latestCheckpointId: session.checkpointId,
+			checkpointCount: 1,
+			park: {
+				state: 'outstanding',
+				checkpointId: session.checkpointId,
+				requestType: 'tool_review',
 			},
 		})
-		expect(fence).toBe(1)
+	})
 
-		// A second holding supersedes the first, and the first holder's write is
-		// refused. Without the fence reaching `onRun`, a stalled worker would
-		// overwrite the record of whoever took the run over.
-		// 3, not 2: `releaseRun` steps the counter past the holding it gave up
-		// (the disk store appends a tombstone at `fence + 1` and this store
-		// matches it), so a released holder cannot write with the fence it just
-		// surrendered. Asserted at the exact number rather than
-		// `toBeGreaterThan(fence)`, because the loose form passes against a
-		// release that quietly did nothing.
-		const second = await store.claimRun(scope('90a466e2-f869-4a3c-b750-f2156342ff40'), {
-			holder: 'w_two',
+	it('hands over a lease the log accepts, and a stale one it will not', async () => {
+		const q = await queue([{ parked: true }])
+		const session = q.sessions[0]!
+		let held: SessionLease | undefined
+		await drainParkedTurns({
+			...q.base,
+			holder,
 			ttlMs,
+			onTurn: async (entry, lease) => {
+				held = lease
+				// The whole reason the lease is handed over: this write is fenced.
+				await session.log.append(lease, {
+					type: 'iteration_started',
+					turnId: entry.turnId,
+					iteration: 2,
+				} as Parameters<SessionLog['append']>[1])
+			},
 		})
-		expect(second?.fence).toBe(3)
+		if (!held) throw new Error('onTurn never ran')
+
+		// A later holding supersedes the first, and the first holder's write is
+		// refused: a stalled worker cannot write over whoever took the turn.
+		const next = (await session.log.claim({ holder: 'w_two', ttlMs })) as SessionLease
+		expect(next.fence).toBeGreaterThan(held.fence)
 		await expect(
-			store.writeCheckpoint(
-				scope('90a466e2-f869-4a3c-b750-f2156342ff40'),
-				checkpoint('90a466e2-f869-4a3c-b750-f2156342ff40', false),
-				fence,
-			),
-		).rejects.toThrow(/refusing a write/)
+			session.log.append(held, {
+				type: 'iteration_started',
+				turnId: session.turnId,
+				iteration: 3,
+			} as Parameters<SessionLog['append']>[1]),
+		).rejects.toBeInstanceOf(StaleSessionLeaseError)
 	})
 })

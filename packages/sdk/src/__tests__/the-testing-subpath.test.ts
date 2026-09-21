@@ -1,23 +1,19 @@
 import { describe, expect, it } from 'vitest'
 
 /**
- * `@namzu/sdk/testing` used to point straight at the checkpoint-store
- * file. A second suite would have had to move that file's export or claim
- * a subpath of its own, and neither is a decision a consumer should
- * absorb — so the subpath now points at a barrel.
- *
- * The move is invisible when it works and silently breaking when it does
- * not: every existing `import { defineCheckpointStoreConformance } from
- * '@namzu/sdk/testing'` resolves through the new file, and nothing else in
- * the repository would notice if the barrel dropped it.
+ * `@namzu/sdk/testing` is a barrel of contracts a host runs against its own
+ * implementation. A contract dropped from the barrel breaks every consumer
+ * silently and nothing else in the repository would notice, so each one is
+ * pinned here. A custom session log is proved against the session-log suite;
+ * the checkpoint-store suite went when checkpoints moved beside the log.
  */
 
 describe('the testing subpath', () => {
-	it('still exports the checkpoint-store contract it always did', async () => {
+	it('exports the session-log contract', async () => {
 		const testing = await import('../testing.js')
 
-		expect(typeof testing.defineCheckpointStoreConformance).toBe('function')
-		expect(typeof testing.CHECKPOINT_STORE_CONTRACT_VERSION).toBe('number')
+		expect(typeof testing.defineSessionLogConformance).toBe('function')
+		expect(typeof testing.SESSION_LOG_CONTRACT_VERSION).toBe('number')
 	})
 
 	it('exports the driver contract beside it', async () => {
@@ -30,9 +26,10 @@ describe('the testing subpath', () => {
 	it('exports deterministic valid entity ids for consumer fixtures', async () => {
 		const testing = await import('../testing.js')
 
-		expect(testing.fixtureId.run('consumer')).toBe(testing.fixtureId.run('consumer'))
-		expect(testing.fixtureId.run('consumer')).not.toBe(testing.fixtureId.run('other'))
-		expect(testing.fixtureId.run('consumer')).toMatch(
+		expect(testing.fixtureId.turn('consumer')).toBe(testing.fixtureId.turn('consumer'))
+		expect(testing.fixtureId.turn('consumer')).not.toBe(testing.fixtureId.turn('other'))
+		expect(testing.fixtureId.session('consumer')).not.toBe(testing.fixtureId.turn('consumer'))
+		expect(testing.fixtureId.turn('consumer')).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
 	})
