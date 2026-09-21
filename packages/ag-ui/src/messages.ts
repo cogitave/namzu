@@ -1,5 +1,11 @@
 import { type Message as AGUIMessage, type InputContent, MessageSchema } from '@ag-ui/core'
-import type { Message, MessageAttachment, ToolCall, UserMessage } from '@namzu/sdk'
+import {
+	type Message,
+	type MessageAttachment,
+	type ToolCall,
+	type UserMessage,
+	toolResultToText,
+} from '@namzu/sdk'
 import { AGUIRequestError } from './errors.js'
 
 export interface AGUIMessageOptions {
@@ -185,5 +191,69 @@ export function toNamzuMessages(
 		}
 	}
 	if (pending.size > 0) return fail('history ends with unresolved tool calls')
+	return result
+}
+
+export interface FromNamzuMessagesOptions {
+	/**
+	 * AG-UI requires a unique non-empty id per message; namzu messages carry
+	 * none. Ids are `${idPrefix}${index}`, stable for one history. Default
+	 * `namzu-message-`.
+	 */
+	readonly idPrefix?: string
+}
+
+/**
+ * A namzu conversation as AG-UI display history, for `ui.setInitialMessages`.
+ *
+ * Feed it the session's fold (`foldSessionMessages`), which applies every
+ * `message_replaced`: an answer a guardrail blocked or rewrote, a review
+ * replaced, or structured output overrode is shown as the turn settled it,
+ * never as the model first wrote it. Text only: tool-result blocks are
+ * flattened to text with a placeholder for anything that is not, reasoning
+ * and attachments are not display history here, and system messages are
+ * omitted.
+ */
+export function fromNamzuMessages(
+	messages: readonly Message[],
+	options: FromNamzuMessagesOptions = {},
+): AGUIMessage[] {
+	const prefix = options.idPrefix ?? 'namzu-message-'
+	const result: AGUIMessage[] = []
+	for (const [index, message] of messages.entries()) {
+		const id = `${prefix}${index}`
+		switch (message.role) {
+			case 'system':
+				break
+			case 'user':
+				result.push({ id, role: 'user', content: message.content })
+				break
+			case 'assistant':
+				result.push({
+					id,
+					role: 'assistant',
+					...(message.content !== null ? { content: message.content } : {}),
+					...(message.toolCalls?.length
+						? {
+								toolCalls: message.toolCalls.map((call) => ({
+									id: call.id,
+									type: 'function' as const,
+									function: { name: call.function.name, arguments: call.function.arguments },
+								})),
+							}
+						: {}),
+				})
+				break
+			case 'tool':
+				result.push({
+					id,
+					role: 'tool',
+					toolCallId: message.toolCallId,
+					content: toolResultToText(message.content),
+					...(message.isError === true ? { metadata: { namzu: { isError: true } } } : {}),
+				})
+				break
+		}
+	}
 	return result
 }

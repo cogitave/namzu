@@ -1,7 +1,16 @@
-import { type Message, MessageSchema } from '@ag-ui/core'
+import { EventType, type Message, MessageSchema } from '@ag-ui/core'
+import {
+	InMemorySessionLog,
+	type SessionRecordDraft,
+	generateMessageId,
+	generateProjectId,
+	generateSessionId,
+	generateTurnId,
+} from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { AGUIRequestError } from '../errors.js'
-import { toNamzuMessages } from '../messages.js'
+import { fromNamzuMessages, toNamzuMessages } from '../messages.js'
+import { AGUIRunUI } from '../ui.js'
 
 const parse = (input: unknown): Message => MessageSchema.parse(input)
 const call = (id = 'call:1', args = '{ "city": "Paris" }') => ({
@@ -242,5 +251,107 @@ describe('toNamzuMessages', () => {
 			message.toolCalls[0].function.arguments = '{ "changed": true }'
 		}
 		expect(result[0]).toMatchObject({ toolCalls: [call()] })
+	})
+})
+
+describe('display history from a namzu session', () => {
+	it('shows the answer as the turn settled it, never the text the model first wrote', async () => {
+		// A guardrail rewrote the answer. The raw text stays in the log for
+		// audit; every fold applies `message_replaced`, so the snapshot a
+		// client renders has the rewritten answer.
+		const sessionId = generateSessionId()
+		const log = new InMemorySessionLog({ sessionId })
+		const lease = await log.claim({ holder: 'ag-ui-test', ttlMs: 60_000 })
+		if (lease === null) throw new Error('a fresh log refused its lease')
+		const turnId = generateTurnId()
+		const prompt = generateMessageId()
+		const answer = generateMessageId()
+		const append = (draft: SessionRecordDraft) => log.append(lease, draft)
+		await append({
+			type: 'session_started',
+			projectId: generateProjectId(),
+			cwd: '/workspace',
+			agent: { id: 'agent', name: 'Agent' },
+		})
+		await log.beginTurn(lease, {
+			turnId,
+			userMessageId: prompt,
+			config: { model: 'model', tokenBudget: 1_000, timeoutMs: 60_000 },
+		})
+		await append({
+			type: 'message',
+			turnId,
+			messageId: prompt,
+			role: 'user',
+			kind: 'prompt',
+			content: { role: 'user', content: 'Show me the key' },
+		})
+		await append({
+			type: 'message',
+			turnId,
+			messageId: answer,
+			role: 'assistant',
+			content: { role: 'assistant', content: 'The key is sk-live-secret' },
+		})
+		await append({
+			type: 'message_replaced',
+			turnId,
+			targetMessageId: answer,
+			content: { role: 'assistant', content: 'The key is [redacted]' },
+			reason: 'guardrail_rewritten',
+		})
+
+		const ui = new AGUIRunUI(null)
+		ui.setInitialMessages(fromNamzuMessages(await log.messages()))
+		const [snapshot] = ui.drain()
+
+		expect(snapshot).toEqual({
+			type: EventType.MESSAGES_SNAPSHOT,
+			messages: [
+				{ id: 'namzu-message-0', role: 'user', content: 'Show me the key' },
+				{ id: 'namzu-message-1', role: 'assistant', content: 'The key is [redacted]' },
+			],
+		})
+		expect(JSON.stringify(snapshot)).not.toContain('sk-live-secret')
+	})
+
+	it('carries tool calls and results, marks a failed result, and leaves system text out', () => {
+		const messages = fromNamzuMessages(
+			[
+				{ role: 'system', content: 'private instructions' },
+				{ role: 'user', content: 'Weather?' },
+				{
+					role: 'assistant',
+					content: null,
+					toolCalls: [
+						{ id: 'call:1', type: 'function', function: { name: 'weather', arguments: '{}' } },
+					],
+				},
+				{ role: 'tool', toolCallId: 'call:1', content: 'unavailable', isError: true },
+			],
+			{ idPrefix: 'h-' },
+		)
+
+		expect(messages).toEqual([
+			{ id: 'h-1', role: 'user', content: 'Weather?' },
+			{
+				id: 'h-2',
+				role: 'assistant',
+				toolCalls: [
+					{ id: 'call:1', type: 'function', function: { name: 'weather', arguments: '{}' } },
+				],
+			},
+			{
+				id: 'h-3',
+				role: 'tool',
+				toolCallId: 'call:1',
+				content: 'unavailable',
+				metadata: { namzu: { isError: true } },
+			},
+		])
+		for (const message of messages) expect(MessageSchema.safeParse(message).success).toBe(true)
+		expect(JSON.stringify(messages)).not.toContain('private instructions')
+		// The round trip back is admissible history, the failure verdict included.
+		expect(toNamzuMessages(messages).at(-1)).toMatchObject({ role: 'tool', isError: true })
 	})
 })

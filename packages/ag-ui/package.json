@@ -56,7 +56,7 @@
 		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
 	},
 	"peerDependencies": {
-		"@namzu/sdk": ">=36.0.0"
+		"@namzu/sdk": ">=44.0.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
