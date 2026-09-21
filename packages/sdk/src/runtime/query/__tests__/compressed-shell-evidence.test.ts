@@ -32,12 +32,13 @@ async function execute(output: string, hook?: PluginHookResult) {
 			content: [{ type: 'text', text: output }, image],
 		}),
 	})
-	const runId = fixtureId.run('shell-evidence')
+	const turnId = fixtureId.turn('shell-evidence')
 	const events: SessionEvent[] = []
 	const stub = { info() {}, warn() {}, error() {}, debug() {} }
 	const executor = new ToolExecutor(
 		{
 			tools,
+			sessionId: fixtureId.session('shell-evidence'),
 			turnId,
 			workingDirectory: root,
 			permissionMode: 'auto',
@@ -50,7 +51,7 @@ async function execute(output: string, hook?: PluginHookResult) {
 				},
 			} as never,
 		},
-		new ActivityStore(runId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(turnId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (event) => {
 			events.push(event)
 		},

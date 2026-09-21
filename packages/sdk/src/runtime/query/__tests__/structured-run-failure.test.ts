@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { mapRunToA2AEvent } from '../../../bridge/a2a/mapper.js'
+import { mapTurnToA2AEvent } from '../../../bridge/a2a/mapper.js'
 import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { NamzuError } from '../../../types/errors/index.js'
-import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
-import type { Run, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -22,6 +22,7 @@ import { ResultAssembler } from '../result.js'
  */
 
 const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
+const SESSION = 'c3d8a0f1-2b4e-4f6a-9c1d-7e8f9a0b1c2d' as SessionId
 
 function makeLogger() {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -35,11 +36,28 @@ async function failWith(err: unknown): Promise<SessionEvent[]> {
 
 	const assembler = new ResultAssembler({
 		recorder: {
-			id: RID,
+			turnId: RID,
+			isActive: true,
+			settlement: (status: string) => ({
+				status,
+				iterations: 1,
+				usage: {
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+				durationMs: 0,
+				resultSource: 'model',
+				abandonedTaskIds: [],
+				abandonedJobIds: [],
+			}),
 			currentIteration: 1,
 			stopReason: undefined,
 			markFailed: () => {},
-			getRun: () => ({ id: RID }) as unknown as Run,
+			getTurn: () => ({ id: RID }) as unknown as Turn,
 			// LOG-14: `handleError` now calls `recordAudit` on the run_failed path,
 			// which every test in this file reaches.
 			recordAudit: async () => undefined as never,
@@ -125,9 +143,10 @@ describe('what run_failed carries', () => {
 
 describe('what the bridges do with it', () => {
 	it('sends the classification to a remote peer as metadata', () => {
-		const event = mapRunToA2AEvent(
+		const event = mapTurnToA2AEvent(
 			{
 				type: 'turn_failed',
+				sessionId: SESSION,
 				turnId: RID,
 				error: 'slow down',
 				failure: { code: 'provider_error', message: 'slow down', retryable: true },
@@ -141,7 +160,10 @@ describe('what the bridges do with it', () => {
 	})
 
 	it('still maps a failure that carries no classification', () => {
-		const event = mapRunToA2AEvent({ type: 'turn_failed', runId: RID, error: 'boom' }, 'ctx-1')
+		const event = mapTurnToA2AEvent(
+			{ type: 'turn_failed', sessionId: SESSION, turnId: RID, error: 'boom' },
+			'ctx-1',
+		)
 		expect(event).not.toBeNull()
 		expect(event?.metadata).toBeUndefined()
 	})

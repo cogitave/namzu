@@ -493,7 +493,7 @@ describe('a rebuilt ledger is filed where the tools will look for it', () => {
 
 	function context(workingDirectory: string, tracker: ReturnType<typeof createFileReadTracker>) {
 		return {
-			turnId: fixtureId.run('ledger-keys'),
+			turnId: fixtureId.turn('ledger-keys'),
 			workingDirectory,
 			abortSignal: new AbortController().signal,
 			env: {},

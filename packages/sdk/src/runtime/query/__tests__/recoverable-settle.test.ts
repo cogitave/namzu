@@ -6,7 +6,7 @@ import { NamzuError } from '../../../types/errors/index.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
-import type { Run, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -45,13 +45,30 @@ async function settle(err: unknown, resumeFrom?: CheckpointId) {
 
 	const assembler = new ResultAssembler({
 		recorder: {
-			id: RID,
+			turnId: RID,
+			isActive: true,
+			settlement: (status: string) => ({
+				status,
+				iterations: 1,
+				usage: {
+					promptTokens: 0,
+					completionTokens: 0,
+					totalTokens: 0,
+					cachedTokens: 0,
+					cacheWriteTokens: 0,
+				},
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+				durationMs: 0,
+				resultSource: 'model',
+				abandonedTaskIds: [],
+				abandonedJobIds: [],
+			}),
 			currentIteration: 4,
 			stopReason: undefined,
 			markFailed: () => marks.push('failed'),
 			setStopReason: (reason: string) => marks.push(`stop:${reason}`),
 			setLastError: () => marks.push('lastError'),
-			getRun: () => ({ id: RID }) as unknown as Run,
+			getTurn: () => ({ id: RID }) as unknown as Turn,
 			// LOG-14: `handleError` now calls `recordAudit` on the run_failed
 			// path. The `describe('a failure that pausing would not help', ...)`
 			// tests below reach it; the `describe('a transient failure with

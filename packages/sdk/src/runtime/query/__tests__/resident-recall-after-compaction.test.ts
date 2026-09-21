@@ -31,7 +31,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const directory = await mkdtemp(join(tmpdir(), 'namzu-recall-compaction-'))
 		dirs.push(directory)
 		const tenantId = fixtureId.tenant('recall-compaction')
-		const runId = fixtureId.run('recall-compaction')
+		const turnId = fixtureId.turn('recall-compaction')
 		const agenda = new DiskResidentAgenda(join(directory, 'history'), {
 			tenantId,
 			agentKey: 'delivery',
@@ -61,7 +61,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const tools = new ToolRegistry()
 		tools.register(
 			buildResidentHistoryTools((context) => {
-				if (context.runId !== runId) throw new Error('Wrong owner.')
+				if (context.turnId !== turnId) throw new Error('Wrong owner.')
 				return source
 			}),
 		)
