@@ -24,7 +24,7 @@ A tool deadline revokes that tool's capture while other calls can continue;
 cancelled work is not reported as a successful empty search. A custom store
 must observe the supplied signal to stop its I/O. If it ignores cancellation,
 its pending operation retains writer serialization until settlement, even
-though the caller stops waiting. See [SDK capture lifetime](../sdk/retained-tool-evidence.md#reading-a-running-invocation).
+though the caller stops waiting. See [SDK capture lifetime](../sdk/retained-tool-evidence.md#reading-a-running-turn).
 
 This includes full recorded `bash` output behind a condensed display of similar
 lines. Condensation keeps an authenticated original, so earlier row values can

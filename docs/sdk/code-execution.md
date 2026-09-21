@@ -10,7 +10,7 @@ status: stable
 # Bounded code execution
 
 `buildRunCodeTool()` creates the opt-in `run_code` tool. A program can call the
-run's tools, filter their results and return a compact answer. Local control flow
+turn's tools, filter their results and return a compact answer. Local control flow
 can avoid repeated model requests. This tool is not in the default builtin set.
 
 ```ts

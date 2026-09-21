@@ -464,7 +464,7 @@ ready-replica count alone does not carry.
 Every refusal `create()` can diagnose arrives as a **`KubernetesAcquireError`**
 (exported from `@namzu/sandbox`) carrying a `reason`, a `retryable` flag and
 the original failure as its `cause`. A host deciding between "try another
-cluster", "fail the run" and "page somebody" reads the field rather than
+cluster", "fail the turn" and "page somebody" reads the field rather than
 matching a message any release is free to reword.
 
 | `reason` | What happened | `retryable` |
@@ -1260,7 +1260,7 @@ six-minute hang.
 ## The lease
 
 The absolute `shutdownTime` acquire stamps is the leak guard, and unrenewed
-it is also a deadline on the RUN: a session outliving `claimTtlSeconds` would
+it is also a deadline on the TURN: a session outliving `claimTtlSeconds` would
 have its pod deleted underneath it, mid command, with nothing to attribute the
 failure to. So the handle renews its own lease.
 
@@ -1304,7 +1304,7 @@ verb — see [RBAC](#rbac).
 
 ## Persistent workspaces
 
-A task sandbox is claimed, used and deleted inside one run. A **workspace** is
+A task sandbox is claimed, used and deleted inside one turn. A **workspace** is
 the other object: created once under a name the caller chooses, suspended when
 nobody is using it, resumed days later with yesterday's dependency cache still
 on its disk, and deleted only when someone says so.
