@@ -22,7 +22,6 @@ import {
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { resumeSession } from '../resume-session.js'
-import { resolveSessionStorage } from '../session-storage.js'
 
 /**
  * A turn whose process is SIGKILLed leaves its session log with an open turn
@@ -179,16 +178,12 @@ describe('a turn whose process was killed', () => {
 	it('continues the same turn when it is resumed from its checkpoint', async () => {
 		const killed = await killedTurn()
 		const provider = new MockLLMProvider({ turns: [{ text: 'picked up where it stopped' }] })
-		const storage = await resolveSessionStorage({
-			sessionId: killed.ids.sessionId,
-			paths: killed.paths,
-		})
-
+		// What a host in a new process opens: the log, by the same paths. The
+		// checkpoints are found beside it.
 		const outcome = await resumeSession({
 			...params(killed, provider),
 			scope: killed.ids,
-			sessionLog: storage.log,
-			checkpointStore: storage.checkpoints,
+			sessionLog: DiskSessionLog.at(killed.paths, { sessionId: killed.ids.sessionId }),
 		})
 
 		expect(outcome.resumed).toBe(true)
