@@ -5,7 +5,7 @@ import { buildAgentTool } from '../agent.js'
 import { DELEGATION_TIMEOUT_MS, buildCoordinatorTools } from '../index.js'
 
 /**
- * Two tools delegate a whole agent run and block on it. One declared a
+ * Two tools delegate a whole agent turn and block on it. One declared a
  * deadline and the other declared nothing, which is not "no deadline" — it
  * is the executor's 120-second default, a sensible bound for a tool call
  * and an absurd one for an agent.

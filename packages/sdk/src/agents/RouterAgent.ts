@@ -65,7 +65,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		listener?: SessionEventListener,
 	): Promise<RouterAgentResult> {
 		// Resolve before a turn id/event exists, matching query(): malformed
-		// liveness policy is a caller config error, not a failed model run.
+		// liveness policy is a caller config error, not a failed model turn.
 		const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(config.streamIdleTimeoutMs)
 		const signal = input.signal
 			? AbortSignal.any([input.signal, this.abortController.signal])

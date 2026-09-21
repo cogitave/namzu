@@ -169,7 +169,7 @@ function resolveTrustedWrapper(name: keyof typeof TRUSTED_WRAPPER_CANDIDATES): s
 			return realpathSync(candidate)
 		} catch {
 			// Try the next fixed system location. Caller-controlled PATH is not
-			// part of wrapper discovery because it is also configurable per run.
+			// part of wrapper discovery because it is also configurable per turn.
 		}
 	}
 	return undefined
@@ -431,7 +431,7 @@ export function buildBwrapArgs(
 		'--dev',
 		'/dev',
 		// A private /tmp, because the sandbox root is where writes belong and a
-		// shared /tmp is a channel between runs.
+		// shared /tmp is a channel between turns.
 		'--tmpfs',
 		'/tmp',
 		'--bind',
@@ -1202,7 +1202,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 			if (!entry.isDirectory()) {
 				throw new Error(`Sandbox workingDirectory is not a directory: ${requested}`)
 			}
-			// The caller owns this tree. The sandbox handle may be per run, but the
+			// The caller owns this tree. The sandbox handle may be per turn, but the
 			// workspace survives every handle created for the session.
 			rootDir = canonicalizePath(requested)
 			if (rootDir === parse(rootDir).root) {

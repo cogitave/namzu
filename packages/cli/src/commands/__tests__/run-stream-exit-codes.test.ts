@@ -8,7 +8,7 @@
  * folder exited `77`.
  *
  * The axis that does sort them, and which every assertion below is an
- * instance of: **can the caller reach the run it asked for by changing what it
+ * instance of: **can the caller reach the turn it asked for by changing what it
  * sends?**
  *
  * Every case asserts three things together, because each one alone is

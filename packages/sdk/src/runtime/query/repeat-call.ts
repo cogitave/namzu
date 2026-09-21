@@ -6,7 +6,7 @@ import { stableStringify } from './tool-grants.js'
  * Notices a model issuing the same tool call over and over, and says so.
  *
  * Nothing in the kernel observed cross-call repetition. The guardrails
- * screen calls in isolation — input at run start, output at run end, one
+ * screen calls in isolation — input at turn start, output at turn end, one
  * result at a time — so a model re-running a failing command or
  * re-applying a diff that does not apply got no correction from anything.
  * The only lever was an iteration checkpoint, which fires on a COUNT

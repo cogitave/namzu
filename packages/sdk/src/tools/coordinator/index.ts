@@ -1326,7 +1326,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						: `Plan approved by user. Proceed with execution — launch workers via create_task.${howToReport}`
 					// An approved plan LEAVES plan mode, in this conversation and
 					// durably. That flow — look around under plan mode, propose,
-					// get approval, continue in the SAME run — is what the mode's
+					// get approval, continue in the SAME turn — is what the mode's
 					// per-turn lifetime made impossible: leaving it meant ending
 					// the turn and discarding the step and tool-schema context.
 					//

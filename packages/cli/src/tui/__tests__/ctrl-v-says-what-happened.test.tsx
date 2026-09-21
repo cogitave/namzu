@@ -80,7 +80,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			mcpFailed: [],
 			agentIds: [],
 			configNotices: [],
-			// The TUI never resumes a durable run; a stub that answered would
+			// The TUI never resumes a durable turn; a stub that answered would
 			// make a resume look reachable from here.
 			resumeDurable: async () => {
 				throw new Error('not used by the TUI')

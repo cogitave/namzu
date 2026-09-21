@@ -58,7 +58,7 @@ export type ReviewMode =
 	/**
 	 * Refuse it. Nothing runs unless a rule allowed it by name or pattern —
 	 * the allowlist is the whole permission surface, which is the only form
-	 * an unattended run can actually be reasoned about.
+	 * an unattended turn can actually be reasoned about.
 	 */
 	| 'strict'
 

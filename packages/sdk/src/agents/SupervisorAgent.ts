@@ -36,7 +36,7 @@ import { childSessionStorage } from './storage.js'
  * The earlier implementation cast `handle.state` onto the synthesized result's
  * status, letting a worker that ended without a result count toward
  * `completedTasks`. That produced fabricated "done" workers with empty outputs
- * (observed in a live supervised run): the supervisor reported "3 workers done, 40KB
+ * (observed in a live supervised session): the supervisor reported "3 workers done, 40KB
  * reports" when the workers never started. Real workers (those with a present
  * `result`) are unaffected — their `result` is preserved verbatim.
  */
@@ -170,7 +170,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				depth: config.depth ?? 0,
 				budget,
 				factoryOptions: mergedFactoryOptions,
-				// The supervisor already hands this to its OWN run. Handing it to
+				// The supervisor already hands this to its OWN turn. Handing it to
 				// the spawn context makes a worker's REVIEW-tier calls reach the
 				// same person. It does not grant the root-only question tool.
 				// Without the handler, workers silently auto-approved themselves.
@@ -231,7 +231,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		// From here to the return in a try/finally, so the listener is released
 		// on every way out. The registration loop below can throw
 		// ToolNameCollisionError, and a host that hits that fixes its config and
-		// runs again — which is how a leak of one listener per run becomes a leak
+		// runs again — which is how a leak of one listener per turn becomes a leak
 		// of one per ATTEMPT.
 		try {
 			const isRootAgent = (config.depth ?? 0) === 0

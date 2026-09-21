@@ -18,7 +18,7 @@ function budgetFor(limit: number): SessionTokenBudget {
  * The gateway's two ledgers — `trackedTaskIds` and `settledHandles` — had `add`
  * and `set` and no removal anywhere. The doc called them "bounded by the number
  * the gateway itself launched", which is true and is not a bound: a gateway
- * built per run is bounded by that run, but `SupervisorAgentConfig.gateway`
+ * built per turn is bounded by that run, but `SupervisorAgentConfig.gateway`
  * lets a host supply its own, and a long-lived host reusing one accumulates an
  * id and a settled handle for every task it ever launched.
  *

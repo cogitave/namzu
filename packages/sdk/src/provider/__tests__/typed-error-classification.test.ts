@@ -105,7 +105,7 @@ describe('a classified failure still goes through the retry loop', () => {
 
 	it('does not retry a typed context overflow', async () => {
 		// Correctly non-retryable — an identical prompt overflows identically.
-		// The remedy is compaction, which the run loop reaches for once the
+		// The remedy is compaction, which the turn loop reaches for once the
 		// code is `context_length_exceeded`.
 		const { provider, calls } = providerThatFails(typed('context_overflow', 400))
 		const wrapped = withProviderRetry(provider, {

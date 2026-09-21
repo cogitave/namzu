@@ -166,7 +166,7 @@ describe('the task-store listener a turn attaches', () => {
 		const store = new InMemoryTaskStore()
 		const seen: TaskEvent[] = []
 		const originalOn = store.on.bind(store)
-		// Watch what the RUN's own listener is handed by wrapping the store's
+		// Watch what the TURN's own listener is handed by wrapping the store's
 		// fan-out. An unsubscribe that ran leaves `seen` where it was; one
 		// that did not writes `task_created` into a finished turn.
 		store.on = (listener) =>

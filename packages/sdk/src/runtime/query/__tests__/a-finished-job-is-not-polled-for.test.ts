@@ -128,7 +128,7 @@ describe('a finished background job is not polled for', () => {
 		).toBe(true)
 	})
 
-	it('stops run-owned jobs when the turn ends, and leaves session-owned ones to the host', async () => {
+	it('stops turn-owned jobs when the turn ends, and leaves session-owned ones to the host', async () => {
 		const runOwned = new BackgroundJobRegistry()
 		await run(runOwned, undefined, 'sleep 30')
 		expect(

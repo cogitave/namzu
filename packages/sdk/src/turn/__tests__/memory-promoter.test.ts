@@ -122,7 +122,7 @@ describe('a turn that learned nothing', () => {
 		await createMemoryPromoter({ store })(candidate())
 
 		// Asserted as emptiness, not as "the write succeeded". A promoter that
-		// wrote a row per run would pass every other test in this file and
+		// wrote a row per turn would pass every other test in this file and
 		// would fill the store the model reads with runs that found nothing.
 		const page = await stored(store)
 		expect(page.totalCount).toBe(0)

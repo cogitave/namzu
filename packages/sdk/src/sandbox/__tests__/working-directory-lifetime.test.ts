@@ -11,7 +11,7 @@ import { LocalSandboxProvider } from '../provider/local.js'
 /**
  * A sandbox handle and the workspace it exposes have different owners.
  *
- * The CLI creates one handle per SDK run, while a coding session spans many
+ * The CLI creates one handle per SDK turn, while a coding session spans many
  * runs. A caller-owned working directory must therefore survive handle
  * teardown; only provider-created temporary roots may be removed.
  */

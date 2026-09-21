@@ -15,7 +15,7 @@ import {
 import { defineSchema } from '../schema.js'
 
 /**
- * Where a conversation's mutable state lives between runs.
+ * Where a conversation's mutable state lives between turns.
  *
  * Its own store rather than a field on the Topic record, and its own file
  * rather than a column: the Topic is identity and ownership, this is

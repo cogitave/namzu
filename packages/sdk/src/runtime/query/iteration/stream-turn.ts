@@ -276,7 +276,7 @@ export async function* streamProviderTurn(
 	// abort: a Stop tears the in-flight model request down (the provider got
 	// `params.signal`), and we ALSO stop pulling within a tick even if a
 	// transport buffers or ignores the signal. The abort rejection propagates
-	// out of this generator so the run loop settles the turn as cancelled.
+	// out of this generator so the turn loop settles the turn as cancelled.
 	// `{ once: true }` keeps a multi-iteration run from leaking a listener/turn.
 	const it = stream[Symbol.asyncIterator]()
 	const signal = params.signal
@@ -526,7 +526,7 @@ export async function* streamProviderTurn(
 			if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
 		}
 	} catch (err) {
-		// An abort tears the turn down: propagate it so the run loop settles the
+		// An abort tears the turn down: propagate it so the turn loop settles the
 		// run as cancelled rather than recording a normal (errored) turn. Any
 		// other stream error is captured into the synthesized response as before.
 		if (signal?.aborted) {

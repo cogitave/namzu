@@ -136,7 +136,7 @@ export const SANDBOXED_SHELL_PRESET: PermissionPreset = {
  * Nobody is watching, so the sandbox has to be.
  *
  * All three controls, because with an auto-approving policy the sandbox is
- * the ONLY boundary left. This is the preset an unattended run wants, and
+ * the ONLY boundary left. This is the preset an unattended turn wants, and
  * the one whose requirement must not be waived: the whole reason it can
  * approve everything is that the host said nothing can escape.
  */

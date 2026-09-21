@@ -1123,7 +1123,7 @@ export class AgentManager {
 
 		// Was the bare string `'canceled'`, which `abortReasonText` suppresses
 		// by name — its docblock cites this exact call site — so the child's
-		// run saw a cancellation with no attributable origin at all.
+		// turn saw a cancellation with no attributable origin at all.
 		// Abort listeners run synchronously. A pending task's parent observer
 		// must not reenter this method and replace an explicit user's cause.
 		this.cancelingTasks.add(taskId)
@@ -1471,7 +1471,7 @@ export class AgentManager {
 			// deny-by-default cascade policy (Convention #5): `deleteSession`
 			// throws when any subsession still references it, so the subsession
 			// record must be removed first. No failed-subsession audit row is
-			// kept — the `subsession_spawned` run event never fired (we aborted
+			// kept — the `child_session_spawned` event never fired (we aborted
 			// before `buildSpawnRecord`), so no observer is expecting one, and
 			// leaving a `status: 'failed'` breadcrumb would be a dangling
 			// record with no corresponding emission. The original `err` is the
@@ -1770,7 +1770,7 @@ export class AgentManager {
 	 *
 	 * Called on every terminal path, success included. `has(backend)` before
 	 * `get(backend)` because the registry is deny-by-default and throws on an
-	 * unknown kind — a driver deregistered mid-run must not turn cleanup into
+	 * unknown kind — a driver deregistered mid-turn must not turn cleanup into
 	 * an exception on a child that already finished.
 	 *
 	 * Never throws. Disposal is cleanup, not part of the child's result: the

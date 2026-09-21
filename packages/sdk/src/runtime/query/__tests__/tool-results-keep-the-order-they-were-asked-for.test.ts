@@ -535,7 +535,7 @@ describe('a real turn that asked for two tools at once', () => {
 		expect(numbered.length).toBeGreaterThan(10)
 		expect(numbered).toEqual([...numbered].sort((a, b) => a - b))
 		// A duplicated number is worse than a missing one — a consumer asking
-		// for everything above N is handed part of the run it already had.
+		// for everything above N is handed part of the turn it already had.
 		expect(new Set(numbered).size).toBe(numbered.length)
 	})
 

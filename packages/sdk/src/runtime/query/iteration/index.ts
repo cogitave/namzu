@@ -306,7 +306,7 @@ export class IterationOrchestrator {
 		// retained user turn encountered while scanning restored history.
 		for (const message of this.ctx.resumedInput ?? []) this.rememberUserMessage(message)
 
-		// One context-overflow relief per *stuck point*, not per run.
+		// One context-overflow relief per *stuck point*, not per turn.
 		//
 		// The latch exists so that a second overflow immediately after a
 		// successful compaction — meaning the prompt is irreducible — stops
@@ -1027,7 +1027,7 @@ export class IterationOrchestrator {
 						// out. Log the orphans honestly and end the turn normally.
 						if (!forceFinalize && this.hasRunningAgentTasks()) {
 							this.ctx.log.warn(
-								'LLM ended turn with agent tasks still running — ending run without waiting (orphan tasks have no delivery path)',
+								'LLM ended turn with agent tasks still running — ending turn without waiting (orphan tasks have no delivery path)',
 								{
 									[NAMZU.TURN_ID]: recorder.turnId,
 									[NAMZU.ITERATION]: iterationNum,
@@ -1476,7 +1476,7 @@ export class IterationOrchestrator {
 							recorder.markCancelled()
 							break
 						}
-						this.ctx.log.info('Structured output produced — ending run', {
+						this.ctx.log.info('Structured output produced — ending turn', {
 							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 						})
@@ -1494,7 +1494,7 @@ export class IterationOrchestrator {
 					// worker's words.
 					const settled = this.terminalToolOutput(reviewOutcome.results, response)
 					if (settled !== undefined) {
-						this.ctx.log.info('Terminal tool produced the answer — ending run', {
+						this.ctx.log.info('Terminal tool produced the answer — ending turn', {
 							[NAMZU.TURN_ID]: recorder.turnId,
 							[NAMZU.ITERATION]: iterationNum,
 							[GENAI.TOOL_NAME]: settled.toolName,

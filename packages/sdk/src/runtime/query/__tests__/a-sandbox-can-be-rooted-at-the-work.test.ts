@@ -23,7 +23,7 @@ import { drainQuery } from '../index.js'
  * directory, whatever the turn was working on.
  *
  * The direct SDK default stays ephemeral. Changing that would be a major and
- * would quietly point every existing embedded sandboxed run at real files.
+ * would quietly point every existing embedded sandboxed turn at real files.
  */
 
 const dirs: string[] = []
@@ -109,7 +109,7 @@ describe('what a sandbox is rooted at', () => {
 		// default to 'working-directory' fails here — which is the assertion
 		// the previous test looked like it was making and was not: it would
 		// be a major, and it would silently point every already-configured
-		// sandboxed run at the caller's real files.
+		// sandboxed turn at the caller's real files.
 		const resolved = SandboxConfigSchema.parse({ enabled: true })
 		expect(resolved.workspace).toBe('ephemeral')
 

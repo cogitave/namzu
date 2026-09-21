@@ -23,7 +23,7 @@ import { SchemaVersionError, defineSchema } from '../schema.js'
  * This store's on-disk format, versioned as a unit.
  *
  * Version 2 keys a task by session (`<session-id>/tasks/<task-id>.json`) and
- * records the turn that created it. A version-1 task was keyed by run and
+ * records the turn that created it. A version-1 task was keyed by run id and
  * lived in a tree this build never reads (a clean start, not a migration), so
  * the step from 1 refuses rather than inventing a session for it.
  */
@@ -37,7 +37,7 @@ const SCHEMA = defineSchema({
 				found: 1,
 				supported: 2,
 				message:
-					'A version-1 task was keyed by run; tasks are now kept per session under <session-id>/tasks/, and the old ones are not read.',
+					'A version-1 task was keyed by turn; tasks are now kept per session under <session-id>/tasks/, and the old ones are not read.',
 			})
 		},
 	},

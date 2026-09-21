@@ -114,7 +114,7 @@ describe('what a finished turn leaves behind', () => {
 		// and no knowledge, so the shipped promoter writes nothing.
 		//
 		// Asserted as EMPTINESS rather than as "the promoter was called". A
-		// promoter that wrote a record per run would be called exactly the
+		// promoter that wrote a record per turn would be called exactly the
 		// same number of times, and would fill the store the model reads on
 		// later turns with accounts of runs that found nothing.
 		const store = new InMemoryMemoryStore()

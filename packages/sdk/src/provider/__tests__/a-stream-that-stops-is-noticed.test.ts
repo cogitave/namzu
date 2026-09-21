@@ -218,7 +218,7 @@ describe('a stalled stream is surfaced', () => {
 		// The finishing case above clears on success. This is the case the
 		// decorator exists for, and the one a `clearTimeout` in the success
 		// branch alone would miss — every stalled stream leaving a live
-		// timer that keeps the process alive past the run it belonged to.
+		// timer that keeps the process alive past the turn it belonged to.
 		vi.useFakeTimers()
 		const cleared: unknown[] = []
 		try {

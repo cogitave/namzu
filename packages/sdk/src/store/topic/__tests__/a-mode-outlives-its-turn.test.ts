@@ -10,7 +10,7 @@ import { StaleTopicStateError } from '../../../types/topic/state.js'
 import { DiskTopicStateStore, InMemoryTopicStateStore } from '../state.js'
 
 /**
- * The collaboration mode was resolved once per run and copied into the
+ * The collaboration mode was resolved once per turn and copied into the
  * executor.
  *
  * Enforcement was real; the LIFETIME was the problem. Leaving plan mode

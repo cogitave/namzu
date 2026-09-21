@@ -70,7 +70,7 @@ function startTurn(): TurnUnderTest {
 	const generator = query({
 		// One tool turn then an answer. The first turn is what carries the turn
 		// past the model call and into the checkpoint phase, which is where a
-		// host that walks away leaves a durable run behind.
+		// host that walks away leaves a durable turn behind.
 		provider: new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'echo', args: { text: 'ready' } }] }, { text: 'done' }],
 		} as never),

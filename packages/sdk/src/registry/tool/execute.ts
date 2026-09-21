@@ -698,7 +698,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						// none — and a turn must not overrule it. A registry
 						// built without one declared none, so the turn's apply;
 						// that is the ordinary case, since a host assembles a
-						// registry and hands it to a run it does not own.
+						// registry and hands it to a turn it does not own.
 						this.resultGuardrails ?? runResultGuardrails,
 						produced,
 						{

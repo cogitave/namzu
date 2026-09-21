@@ -78,7 +78,7 @@ async function run(turns: MockTurn[]) {
 	return { result, provider }
 }
 
-// A fresh registry per run always hands out `job_1` first, so the scripted
+// A fresh registry per turn always hands out `job_1` first, so the scripted
 // model can name the id before the tool call that creates it returns.
 const START = { toolCalls: [{ id: 'c1', name: 'start', args: { command: 'true' } }] }
 const DONE = { text: 'done' }

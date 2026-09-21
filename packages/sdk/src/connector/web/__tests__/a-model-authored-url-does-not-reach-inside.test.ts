@@ -450,7 +450,7 @@ describe('the two properties a fake fetch can only observe directly', () => {
 	})
 })
 
-describe('one run-owned operation bounds resolution, fetch, and body reads', () => {
+describe('one turn-owned operation bounds resolution, fetch, and body reads', () => {
 	type ByteReadResult =
 		| { readonly done: false; readonly value: Uint8Array }
 		| { readonly done: true; readonly value?: undefined }

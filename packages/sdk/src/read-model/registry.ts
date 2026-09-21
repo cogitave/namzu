@@ -83,7 +83,7 @@ export class ReadModelCollisionError extends Error {
 /**
  * Every projection of one turn, advanced together.
  *
- * Together, and that is the design: a registry per run rather than per
+ * Together, and that is the design: a registry per turn rather than per
  * model, so `lastSeq` is one number and a caller reading two projections
  * cannot be handed states derived from different prefixes of the same log.
  */

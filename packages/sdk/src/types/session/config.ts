@@ -85,7 +85,7 @@ export interface TurnConfig {
 		/**
 		 * What the sandbox is rooted at — see `SandboxConfigSchema.workspace`.
 		 * Absent means `'ephemeral'`: a fresh temp directory, which is the
-		 * behaviour every sandboxed run had before this existed.
+		 * behaviour every sandboxed turn had before this existed.
 		 */
 		workspace?: 'ephemeral' | 'working-directory'
 	}

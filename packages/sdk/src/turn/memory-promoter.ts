@@ -104,7 +104,7 @@ function render(
 }
 
 /**
- * Build a promoter that writes one record per run that learned something.
+ * Build a promoter that writes one record per turn that learned something.
  *
  * Never throws out to the runtime — but it does not swallow either: the
  * runtime already catches and logs a promoter's failure at settle, and

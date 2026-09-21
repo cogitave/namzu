@@ -310,7 +310,7 @@ export const BashTool = defineTool({
 		}
 
 		if (input.run_in_background) {
-			// A sandboxed run gets a registry only when its sandbox can start a
+			// A sandboxed turn gets a registry only when its sandbox can start a
 			// detached process inside the boundary (`Sandbox.spawnDetached`);
 			// the executor withholds it otherwise. This check is for direct
 			// tool callers, who could hand a host registry and a sandbox to the

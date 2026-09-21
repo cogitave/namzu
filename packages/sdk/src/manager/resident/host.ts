@@ -35,7 +35,7 @@ export interface ResidentStepContext {
 	readonly learning?: ResidentLearningState
 }
 
-/** @experimental A developer callback may bind a different SDK run for each pursuit. */
+/** @experimental A developer callback may bind a different SDK turn for each pursuit. */
 export type ResidentPursuitStep = (
 	pursuit: ResidentPursuit,
 	signal: AbortSignal,

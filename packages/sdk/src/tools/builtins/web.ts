@@ -10,7 +10,7 @@ import { defineTool } from '../defineTool.js'
  * authorization presets route `network` to human review and only the
  * `unattended` preset — the one that requires the sandbox to enforce
  * network isolation — auto-approves it. Getting that category wrong would
- * quietly hand every sandboxed run outbound reach, so the two tools that
+ * quietly hand every sandboxed turn outbound reach, so the two tools that
  * most need it are written where the reason is visible once.
  *
  * `web_search` was already a name in this tree before either tool existed:

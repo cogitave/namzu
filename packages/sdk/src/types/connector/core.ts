@@ -75,7 +75,7 @@ export interface ConnectorTrigger {
 /**
  * @deprecated The SDK does not emit inbound connector events. Define the
  * event envelope at the host boundary that owns subscription, de-duplication,
- * delivery, and run admission.
+ * delivery, and turn admission.
  */
 export interface ConnectorEvent {
 	connectorId: ConnectorId

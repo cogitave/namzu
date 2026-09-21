@@ -15,7 +15,7 @@ import { abortReasonText } from '../../utils/abort.js'
  * manager aborted a child with the bare string `'canceled'`, which
  * `abortReasonText` suppresses BY NAME: its docblock cites that exact call
  * site, because rendering it would print "was cancelled: canceled". Both
- * paths arrived at the run loop indistinguishable.
+ * paths arrived at the turn loop indistinguishable.
  */
 
 describe('an abort reason that carries a cause', () => {

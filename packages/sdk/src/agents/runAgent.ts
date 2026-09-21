@@ -116,7 +116,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 * library front door and the wrong one for a host that hands this an agent
 	 * directory it did not write. The kernel builds a `AuthorizationGate` from
 	 * this and consults it on every call; without it there is nothing to
-	 * consult, so a front-door run is strictly less mediated than a kernel one.
+	 * consult, so a front-door turn is strictly less mediated than a kernel one.
 	 */
 	/**
 	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
@@ -225,7 +225,7 @@ export interface RunAgentResult {
  *
  * A front door exists so a first turn works without a decision, and the cost of
  * that convenience is that nobody reads these numbers before their first
- * runaway loop. So: a budget that ends a stuck run in seconds rather than
+ * runaway loop. So: a budget that ends a stuck turn in seconds rather than
  * dollars, and an iteration cap that stops a tool-calling loop well before a
  * context window does. Every one is overridable and named on the option.
  */
@@ -245,7 +245,7 @@ export const DEFAULT_TIMEOUT_MS = 300_000
  * looks like from the inside.
  *
  * So this supplies an environment rather than a new engine. It generates the
- * identity a single-tenant local run has no opinion about, defaults the
+ * identity a single-tenant local turn has no opinion about, defaults the
  * budgets, points the working directory at the process's own, and hands back
  * both the answer and the identity it used. Everything it fills in is a normal
  * `drainQuery` parameter; there is no second code path, and a caller who

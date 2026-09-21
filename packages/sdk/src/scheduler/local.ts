@@ -21,7 +21,7 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
  * How many launched tasks a gateway remembers.
  *
  * High enough that no realistic single turn reaches it — a fan-out is eight,
- * a long supervisory run is dozens — so the listing a supervisor reads at the
+ * a long supervisory turn is dozens — so the listing a supervisor reads at the
  * end of its turn is always complete. It exists for the host that reuses one
  * gateway across turns, where the alternative is a set and a map that grow for
  * the life of the process.
@@ -52,7 +52,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * Terminal tasks leave the manager 30 seconds after they finish, and
 	 * `listTasks` rebuilt itself by looking every tracked id back up — so a
 	 * task that finished a minute ago simply vanished from the tool whose
-	 * whole job is the end-of-run check. A supervisor could not tell an
+	 * whole job is the end-of-turn check. A supervisor could not tell an
 	 * evicted task from one that never launched; both read as absence.
 	 *
 	 * Eviction is there to release the heavy state — messages, controllers,
@@ -383,7 +383,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	/**
 	 * Drop the oldest tasks once the ledger passes {@link GATEWAY_TASK_LEDGER_CAP}.
 	 *
-	 * A gateway constructed per run is bounded by that run and this never
+	 * A gateway constructed per turn is bounded by that run and this never
 	 * fires. But `SupervisorAgentConfig.gateway` lets a host supply its own,
 	 * and a long-lived host reusing one accumulates an id and a settled handle
 	 * per task it ever launched, for the life of the process — the doc above

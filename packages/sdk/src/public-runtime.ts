@@ -147,10 +147,10 @@ export { cancelCauseOf, TurnCancelled } from './types/session/cancel-cause.js'
 // in the CLI, so a host embedding the SDK alone had no way to plug in an
 // env- or file-backed source without reimplementing an interface that asks
 // a different question.
-// The collaboration mode, durable per Topic. It was resolved once per run
+// The collaboration mode, durable per Topic. It was resolved once per turn
 // and copied into the executor, so leaving plan mode meant ending the turn
 // and discarding the in-flight step to change one enum.
-// The object a host holds between runs. There was none: no way to ask
+// The object a host holds between turns. There was none: no way to ask
 // whether the agent is running, and nowhere to put "when you next run,
 // start with this".
 export { AgentNotRunningError, createAgentHandle } from './agents/handle.js'

@@ -38,7 +38,7 @@ export interface ContextReduction {
  * input unchanged while reporting success would send the same rejected
  * prompt again and burn a call to learn the same thing.
  *
- * A reducer OWNS reduction for the run it governs. The built-in structured
+ * A reducer OWNS reduction for the turn it governs. The built-in structured
  * pass — LLM-verified summarization, stale tool-result clearing, working
  * state slots — does not also run, because two mechanisms editing the same
  * history in one pass cannot both be reasoned about.

@@ -43,7 +43,7 @@ function workingMemoryIndex(msgs: readonly Message[]): number {
 /**
  * Split the pinned slot out of a request's history.
  *
- * The slot keeps its place in the RUN's history, where compaction preserves
+ * The slot keeps its place in the TURN's history, where compaction preserves
  * it. The REQUEST carries it as request-only context instead: a runtime
  * context message of kind `step-context`, after the history, holding the
  * slot's content verbatim under the same "runtime-generated; not a new user

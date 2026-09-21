@@ -13,7 +13,7 @@ import { runAgent } from '../runAgent.js'
  * Turns in one directory share a Project unless the caller says otherwise.
  *
  * `runAgent` once minted a Project per call, so a batch of runs in one
- * directory — an eval, a benchmark — left one Project tree per run. The
+ * directory — an eval, a benchmark — left one Project tree per turn. The
  * project is now the one `~/.namzu/projects/<slug>/project.json` names,
  * minted once for the directory (spec §3.2).
  */

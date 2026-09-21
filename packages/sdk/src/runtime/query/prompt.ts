@@ -14,7 +14,7 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
 export interface PromptSegments {
 	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a turn. */
 	readonly static: string
-	/** Layers 7-10: tools, tier guidance, env context, sessionContext. May change per run. */
+	/** Layers 7-10: tools, tier guidance, env context, sessionContext. May change per turn. */
 	readonly dynamic: string
 }
 

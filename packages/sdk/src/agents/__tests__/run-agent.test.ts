@@ -53,7 +53,7 @@ describe('running an agent through the front door', () => {
 		expect(second.identity).toEqual(first.identity)
 	})
 
-	it('generates a distinct identity per run when none is given', async () => {
+	it('generates a distinct identity per turn when none is given', async () => {
 		const a = await runAgent({
 			provider: new MockLLMProvider({ turns: [{ text: 'a' }] }),
 			model: 'mock-model',

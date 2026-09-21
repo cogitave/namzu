@@ -110,7 +110,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		concurrencySafe: true,
 		// Declaring nothing here does not mean "no deadline"; it means the
 		// executor's 120-second default, which is a bound for a tool call and
-		// absurd for a whole agent run. `create_task` in the sibling module
+		// absurd for a whole agent turn. `create_task` in the sibling module
 		// carries the same reasoning and the same hour, and the measurement
 		// behind that number is in its docblock: three delegated children took
 		// 4m21s, 5m58s and 8m04s, and all three parents gave up at 120s.
@@ -164,7 +164,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					// The parent's environment, which is the whole point of setting
 					// one: a delegate that cannot see it runs against different
 					// services than the turn that launched it, silently.
-					// `ToolContext.env` is the parent's own resolved map, per run.
+					// `ToolContext.env` is the parent's own resolved map, per turn.
 					//
 					// The turn's screens ride the same channel for the same
 					// reason: the child's executor installs the shipped default
@@ -190,7 +190,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 						description,
 						// Same canonical-envelope plumbing as coordinator/index.ts
 						// (ses_009-task-notification-envelope). For Agent-tool path
-						// the subagent run is awaited synchronously below, so this
+						// the child session's turn is awaited synchronously below, so this
 						// id is only used if a probe / hook unexpectedly forks the
 						// completion to the background notification channel.
 						originalToolUseId: context.toolUseId,

@@ -12,7 +12,7 @@ import { buildVerifiedSummary } from '../verifier.js'
  * Some drivers quietly substitute a default and others reject outright —
  * on Bedrock the model id IS the endpoint, and OpenRouter requires it. So
  * the verifier failed exactly on the providers where a long turn most needs
- * compaction, and the failure surfaced as compaction killing the run it
+ * compaction, and the failure surfaced as compaction killing the turn it
  * exists to save.
  */
 
@@ -46,7 +46,7 @@ const older: Message[] = [
 ]
 
 describe('buildVerifiedSummary', () => {
-	it('sends the run`s model, not an empty string', async () => {
+	it('sends the turn model, not an empty string', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'COMPLETE' }] })
 		const manager = new WorkingStateManager(config())
 

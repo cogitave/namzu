@@ -110,7 +110,7 @@ describe('what an extension is shown about a model call', () => {
 		expect(response?.usage).toMatchObject({ promptTokens: 11, completionTokens: 4 })
 	})
 
-	it('threads one run-owned cancellation signal through every lifecycle hook', async () => {
+	it('threads one turn-owned cancellation signal through every lifecycle hook', async () => {
 		const seen: Seen[] = []
 		const tools = new ToolRegistry()
 		tools.register({

@@ -104,7 +104,7 @@ export interface McpServerSpec {
 	 * legacy — because either answer settles it immediately. It costs THIS
 	 * long against a legacy server old enough to stay silent on a method it
 	 * has never heard of, once per origin or per resolved command, not once
-	 * per run. Lower it for a stdio server known to be that old and slow to
+	 * per turn. Lower it for a stdio server known to be that old and slow to
 	 * connect, so the probe gives up sooner and leaves more of
 	 * `connectTimeoutMs` for the handshake that will actually answer.
 	 */

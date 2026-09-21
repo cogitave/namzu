@@ -138,7 +138,7 @@ export function createToolPause(deps: ToolPauseDeps): RequestToolPause {
 			return unanswered('the pause was resolved without an answer')
 		}
 		if (decision.questionId !== undefined && decision.questionId !== id) {
-			// Misdirection guard. Host queues are keyed by run, so a stale
+			// Misdirection guard. Host queues are keyed by turn, so a stale
 			// client can answer pause N after pause N+1 opened under the same
 			// run. Answering the wrong question is worse than not answering.
 			return unanswered('the answer was addressed to a different pause')

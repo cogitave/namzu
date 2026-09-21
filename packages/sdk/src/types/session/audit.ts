@@ -18,7 +18,7 @@ export type AuditOutcome = 'success' | 'failure' | 'refused'
  * Who acted, in the compliance-audit sense: the actor's identity and the
  * tenant it acted under.
  *
- * `persona` is the label a host assigned the agent for THIS run — absent
+ * `persona` is the label a host assigned the agent for THIS turn — absent
  * when the turn was not configured with one (most runs today), and nothing
  * here invents a value for it. Populated only at call sites that actually
  * have a persona in scope (`runtime/query/index.ts`'s guardrail-block

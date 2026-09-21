@@ -16,7 +16,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
- * The mode was frozen at run start, so leaving plan mode meant ending the
+ * The mode was frozen at turn start, so leaving plan mode meant ending the
  * run.
  *
  * `permissionMode` was resolved once in the context factory and copied into
@@ -112,7 +112,7 @@ async function run(opts: {
 		.map((m) => m.content as string)
 }
 
-describe('the mode is read live, not frozen at run start', () => {
+describe('the mode is read live, not frozen at turn start', () => {
 	it('refuses a write in plan mode and allows it after the mode flips, in ONE run', async () => {
 		// The whole point. Before this, leaving plan mode meant ending the turn
 		// and discarding the in-flight step and tool-schema context.

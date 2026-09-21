@@ -165,7 +165,7 @@ export abstract class AbstractAgent<
 	 *
 	 * The failure this exists for: a caller sends a request, the connection
 	 * drops, the caller retries. Without a key the retry is a second full
-	 * run — a second set of model calls, and a second set of whatever the
+	 * turn — a second set of model calls, and a second set of whatever the
 	 * tools did. The invocation lock alone does not help, because refusing
 	 * the retry with an error is not what the caller wanted either; they
 	 * wanted the answer.

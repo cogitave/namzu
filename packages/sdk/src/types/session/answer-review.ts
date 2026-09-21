@@ -54,7 +54,7 @@ export interface AnswerReviewContext {
 	 */
 	readonly latestUserMessage?: UserMessage
 	/**
-	 * Optional run-owned, tool-free inference: at most one call per review
+	 * Optional turn-owned, tool-free inference: at most one call per review
 	 * invocation, revoked when the callback ends. Uses the same bounded text
 	 * request/result shapes as prepareStep and the turn's metered provider chain,
 	 * selected step model and effort. No history, candidate or tools are attached

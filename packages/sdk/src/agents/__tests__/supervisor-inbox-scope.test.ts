@@ -125,7 +125,7 @@ describe('a supervisor releases the gateway it borrowed', () => {
 		// after `drainQuery`. A host whose tool shares a coordinator name gets
 		// `ToolNameCollisionError` from the registration loop — after the inbox
 		// attached — then fixes its config and runs again. A leak of one
-		// listener per run becomes one per ATTEMPT, and the attempts are what
+		// listener per turn becomes one per ATTEMPT, and the attempts are what
 		// there are most of.
 		const gateway = new HostGateway()
 

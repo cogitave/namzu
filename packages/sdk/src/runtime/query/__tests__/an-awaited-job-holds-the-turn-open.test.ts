@@ -120,7 +120,7 @@ describe('a turn suspends for a job the model awaited, and pays no tokens for it
 		// "still waiting". The hold spent real time and no tokens.
 		expect(requestsWhenJobExited, 'the hold asked the model something while it waited').toBe(3)
 		// And exactly one turn after it — the turn the wait was for. A loop
-		// would show more; an ending run would show three.
+		// would show more; an ending turn would show three.
 		expect(provider.requests.length).toBe(4)
 
 		// The model learns of the exit on the channel a job exit already uses,

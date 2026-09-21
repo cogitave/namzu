@@ -12,7 +12,7 @@ import { defineTool } from '../defineTool.js'
  * loop. That is the entire argument for this tool, and it only holds if the
  * loop cannot reach further than the twenty calls could have.
  *
- * **The program's reach is the RUN's reach, and nothing wider.** Every
+ * **The program's reach is the TURN's reach, and nothing wider.** Every
  * capability it can call is a tool already in this turn's registry and
  * narrowed by the turn's `allowedTools`. The host dispatch records every
  * child in the turn and applies the turn's operator authorization gate. An
@@ -109,7 +109,7 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 				maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT,
 				...(context.abortSignal ? { signal: context.abortSignal } : {}),
 				onHostCall: async (request, operation) => {
-					// Through the run-owned nested dispatch: registry narrowing,
+					// Through the turn-owned nested dispatch: registry narrowing,
 					// operator authorization, audit/event lineage and invocation
 					// cancellation remain host-owned rather than worker-owned.
 					try {

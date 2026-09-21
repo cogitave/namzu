@@ -352,7 +352,7 @@ export interface ToolContext {
 	workingDirectory: string
 	/**
 	 * Directories besides the working directory the file tools may reach,
-	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed run
+	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed turn
 	 * binds each. Relative paths still resolve against the working
 	 * directory; an absolute path inside any of these is accepted.
 	 */
@@ -485,7 +485,7 @@ export interface ToolContext {
 	 * the registry was built with them — including an empty array, which means
 	 * none — because a registry that stated its policy has stated it. These
 	 * apply to a registry that declared none, which is the ordinary case: a
-	 * host assembles a registry and hands it to a run it does not own.
+	 * host assembles a registry and hands it to a turn it does not own.
 	 *
 	 * `undefined` means the turn declared none; an empty array means the turn
 	 * declared none ON PURPOSE, which is how a caller turns off a screen the

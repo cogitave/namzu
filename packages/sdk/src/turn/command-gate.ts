@@ -183,7 +183,7 @@ function exhaustedFeedback(command: string, maxRetries: number): string {
  * Build a reviewer that accepts an answer only when every command passes.
  *
  * Stateful across calls within one turn, deliberately: the whole point is that
- * attempt N+1 can be compared with attempt N. Build one gate per run.
+ * attempt N+1 can be compared with attempt N. Build one gate per turn.
  */
 export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 	const { commands, cwd } = options

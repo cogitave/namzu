@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
  * Used to answer one question at mutation admission: is the file still what
  * the agent read? An `edit` or full replacement is based on a remembered
  * body, and before the write begins that body can move — a person editing in
- * an editor, another process, a second agent run. The in-process mutation
+ * an editor, another process, a second agent's turn. The in-process mutation
  * lock serializes this runtime's own writers and is blind to every one of
  * those.
  *

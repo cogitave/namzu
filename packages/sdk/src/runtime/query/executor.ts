@@ -300,9 +300,9 @@ export interface ToolExecutorConfig {
 	/** See `ToolContext.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
 	/**
-	 * Read LIVE, not frozen at run start.
+	 * Read LIVE, not frozen at turn start.
 	 *
-	 * The mode used to be resolved once per run and copied in here, so
+	 * The mode used to be resolved once per turn and copied in here, so
 	 * leaving plan mode meant ending the turn — discarding the in-flight step
 	 * and the tool-schema context to change one enum. A function lets an
 	 * approval flip it inside the same conversation.
@@ -868,7 +868,7 @@ export class ToolExecutor {
 		}
 		const baseContext = this.buildToolContext(recordObservation)
 		// A model response is the ownership boundary for concurrent siblings.
-		// Scope the first call id to its durable run: custom providers are not
+		// Scope the first call id to its durable turn: custom providers are not
 		// required to make call ids globally unique, so the raw id alone could
 		// collide with a later turn retained by a host-side activity monitor.
 		const firstToolUseId = toolCalls[0]?.id

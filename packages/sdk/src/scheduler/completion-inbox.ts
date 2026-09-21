@@ -80,7 +80,7 @@ export class CompletionInbox {
 	/** Launched with nothing waiting on it, and not settled yet. */
 	private readonly outstanding = new Set<TaskId>()
 	/**
-	 * Tasks THIS run launched.
+	 * Tasks THIS turn launched.
 	 *
 	 * `onTaskCompleted` is a broadcast and `TaskHandle` carries no turn id, so
 	 * a gateway shared between two supervisors hands every completion to both
@@ -131,7 +131,7 @@ export class CompletionInbox {
 	 *
 	 * So they wait here, and ownership may be claimed retroactively. What
 	 * makes that safe rather than a second leak is the bound: on a gateway
-	 * shared with other runs this fills with completions that will never be
+	 * shared with other turns this fills with completions that will never be
 	 * claimed, each holding a whole worker result.
 	 */
 	private readonly unowned = new Map<TaskId, TaskHandle>()
@@ -304,7 +304,7 @@ export class CompletionInbox {
 	 *
 	 * Bounded on purpose. A worker that never finishes must not hold a turn
 	 * open forever, and the caller decides how long "long enough" is — the
-	 * run's own budget is the only thing that knows.
+	 * turn's own budget is the only thing that knows.
 	 */
 	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 		if (signal?.aborted) return Promise.resolve()
@@ -475,7 +475,7 @@ export class CompletionInbox {
 	 * A turn that ends without this leaves its listener on the gateway
 	 * forever. On a gateway the host reuses that is measurable — three
 	 * sequential turns left three live subscriptions, each still holding its
-	 * run's handles — and the listener set only grows. Ownership stops a
+	 * turn's handles — and the listener set only grows. Ownership stops a
 	 * retained listener from DELIVERING another turn's work; closing is what
 	 * stops it existing.
 	 */

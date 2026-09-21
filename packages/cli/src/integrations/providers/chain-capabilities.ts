@@ -1,7 +1,7 @@
 /**
  * Do the members of a provider chain agree about what they can do?
  *
- * The runtime negotiates capabilities ONCE per run, against the provider it was
+ * The runtime negotiates capabilities ONCE per turn, against the provider it was
  * handed, and that answer decides whether tool surfaces go into the prompt and
  * whether image and document attachments are mapped. A chain whose members
  * disagree therefore cannot be honoured by taking the strongest answer: if the

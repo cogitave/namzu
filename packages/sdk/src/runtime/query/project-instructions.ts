@@ -25,7 +25,7 @@ export interface ToolResultObservation {
 export interface ProjectInstructionCallbackContext {
 	/** A snapshot of the messages accepted before this callback starts. */
 	readonly messages: readonly Message[]
-	/** The run-owned cancellation signal for any host I/O the callback starts. */
+	/** The turn-owned cancellation signal for any host I/O the callback starts. */
 	readonly signal: AbortSignal
 }
 

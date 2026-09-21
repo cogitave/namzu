@@ -314,7 +314,7 @@ describe('the turn memory promoter', () => {
 
 		const store = sessionMemoryStore(cwd)
 		// Emptiness, not "the write succeeded". The model reads this store on
-		// later turns, so a record per run is context spent on runs that found
+		// later turns, so a record per turn is context spent on runs that found
 		// nothing.
 		expect((await store.list()).totalCount).toBe(0)
 	})

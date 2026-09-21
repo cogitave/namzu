@@ -50,7 +50,7 @@ export async function collectChatCompletion(
 	}
 
 	const toolBuckets = new Map<number, { id: string; name: string; argsBuf: string }>()
-	// Same bucketing rule the run loop uses (`runtime/query/iteration/
+	// Same bucketing rule the turn loop uses (`runtime/query/iteration/
 	// stream-turn.ts`), so a message assembled here and a message assembled
 	// there carry the same blocks in the same order.
 	const reasoningBuckets = new Map<

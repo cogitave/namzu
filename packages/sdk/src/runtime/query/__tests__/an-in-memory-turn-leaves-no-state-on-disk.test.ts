@@ -30,7 +30,7 @@ import { checkpointStoreFor, turnCheckpoints } from './support/session.js'
  *
  * The turn's evidence once stayed in memory while its token ledger, its
  * checkpoints and their message history went to disk in the per-user state
- * directory — one tree per run, with no retention, in a place the host never
+ * directory — one tree per turn, with no retention, in a place the host never
  * named. The packed `@namzu/live` fixture in `verify-consumer-install.sh` left
  * one in the operator's home on every CI run.
  */

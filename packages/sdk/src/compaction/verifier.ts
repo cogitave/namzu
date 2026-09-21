@@ -140,7 +140,7 @@ export async function buildVerifiedSummary(
 	 * which some drivers quietly default and others reject outright — on
 	 * some backends the model id IS the endpoint. So compaction's verifier failed
 	 * exactly on the providers where a long turn most needs it, and the
-	 * failure surfaced as compaction killing the run it exists to save.
+	 * failure surfaced as compaction killing the turn it exists to save.
 	 */
 	model?: string,
 	options: CompactionVerificationOptions = {},
@@ -162,7 +162,7 @@ export async function buildVerifiedSummary(
 
 /**
  * Query-only seam for a provider whose idle/retry/fallback order was already
- * composed at run admission. Wrapping that chain again would put an idle
+ * composed at turn admission. Wrapping that chain again would put an idle
  * timer around retry backoff and misclassify a healthy recovery pause as a
  * stalled stream. This symbol is intentionally absent from the package barrel.
  */

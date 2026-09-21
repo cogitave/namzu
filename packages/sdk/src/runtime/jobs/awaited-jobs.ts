@@ -20,12 +20,12 @@ export interface DeliverableJobExits {
 /**
  * Background jobs the model SAID it is waiting on.
  *
- * `CompletionInbox` gives a run a bounded, zero-token wait for a delegated
+ * `CompletionInbox` gives a turn a bounded, zero-token wait for a delegated
  * task nobody is blocked on, and `holdForOutstandingWork` spends it: the
  * model stops calling tools, the loop races the inbox against operator input,
  * and the turn only settles once the result is in the transcript or the grace
  * is gone. Background shell jobs had none of it — so a model that started a
- * job and then had nothing left to do improvised, and the recorded run
+ * job and then had nothing left to do improvised, and the recorded turn
  * (research/resident/results/2026-09-14-exploration-policy-terra-tui.json)
  * shows what that costs: six `job read` polls, three `job list` polls and a
  * `sleep 30`, each one a full context resend.
@@ -38,7 +38,7 @@ export interface DeliverableJobExits {
  * `wait_for_job` named it (see {@link expect}); job existence means nothing.
  * That is the same distinction `CompletionInbox.expect` draws for a
  * background task, and it is what keeps a dev server or a file watcher —
- * started precisely so it would keep running — from holding every run of the
+ * started precisely so it would keep running — from holding every turn of the
  * session open for its grace period. The model that wants to wait says so.
  */
 export class AwaitedJobs {
@@ -158,7 +158,7 @@ export class AwaitedJobs {
 	 *
 	 * Bounded by the caller, exactly as `CompletionInbox.waitForArrival` is: a
 	 * job that never exits — a dev server someone did await — must not keep a
-	 * run open, and only the turn's own budget knows how long is long enough.
+	 * turn open, and only the turn's own budget knows how long is long enough.
 	 */
 	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 		if (signal?.aborted) return Promise.resolve()

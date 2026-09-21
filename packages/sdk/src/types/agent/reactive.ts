@@ -58,7 +58,7 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	/**
 	 * Optional ephemeral sandbox provider. When set, drainQuery creates
 	 * a sandbox via `provider.create()` before the iteration loop and
-	 * routes filesystem / shell tool calls through it; on run end the
+	 * routes filesystem / shell tool calls through it; on turn end the
 	 * SDK calls `sandbox.destroy()`. Hosts that want a per-task
 	 * container shared across supervisor + every child specialist run
 	 * pass the SAME provider instance to all of them — caching layered

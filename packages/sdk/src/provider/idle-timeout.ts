@@ -153,7 +153,7 @@ export function withStreamIdleTimeout(
 					// In a `finally`, so a rejection from either side of the
 					// race clears the timer. Clearing only on success leaks one
 					// per stalled stream, and a leaked timer keeps the process
-					// alive past the run it belonged to.
+					// alive past the turn it belonged to.
 					if (timer !== undefined) disarm(timer)
 				}
 				if (result.done) return

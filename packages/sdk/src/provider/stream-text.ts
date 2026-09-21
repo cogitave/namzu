@@ -1,7 +1,7 @@
 import { type AssistantTextPart, selectAssistantText } from '../types/message/index.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 
-/** Shared aggregation for the run loop, collected calls and bounded auxiliary inference. */
+/** Shared aggregation for the turn loop, collected calls and bounded auxiliary inference. */
 export class StreamTextAccumulator {
 	private raw = ''
 	private receivedCharacters = 0

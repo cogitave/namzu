@@ -19,7 +19,7 @@ import {
 } from './support/session.js'
 
 /**
- * A park must not outlive the run it belongs to.
+ * A park must not outlive the turn it belongs to.
  *
  * `planPendingResume` covers the two arms whose decision has to REACH
  * something — the calls a `tool_review` park is about, the tool a

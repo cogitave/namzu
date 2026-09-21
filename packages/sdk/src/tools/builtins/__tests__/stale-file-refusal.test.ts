@@ -12,7 +12,7 @@ import { WriteFileTool } from '../write-file.js'
 
 /**
  * The mutation lock serializes THIS runtime's writers. It cannot see a
- * person editing in an editor, another process, or a second agent run —
+ * person editing in an editor, another process, or a second agent's turn —
  * and an edit computed against a body that has since moved is a lost
  * update whichever of those did the moving.
  *

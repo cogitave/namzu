@@ -27,7 +27,7 @@ import { copySession, heldCheckpointStore } from './support/session.js'
  * exactly once, in order — or be told, in a value it cannot ignore, that it
  * cannot have them.
  *
- * These drive `resumeSession`, which is the call a host makes to continue a run a
+ * These drive `resumeSession`, which is the call a host makes to continue a turn a
  * different process started. Entering at `query` instead would prove the
  * catch-up and not the road to it: `resumeSession` drained the turn with NO listener
  * at all until this change, so every event it produced was discarded, and a

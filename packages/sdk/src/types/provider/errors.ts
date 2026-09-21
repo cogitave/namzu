@@ -114,7 +114,7 @@ export function isProviderError(err: unknown): err is ProviderError {
 }
 
 /**
- * An abort is a control-flow signal, not a provider failure: the run loop
+ * An abort is a control-flow signal, not a provider failure: the turn loop
  * settles it as `cancelled`. It must never be reclassified or retried.
  */
 export function isAbortError(err: unknown): boolean {

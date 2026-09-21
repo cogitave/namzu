@@ -16,7 +16,7 @@ import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { AgentNotRunningError, createAgentHandle } from '../handle.js'
 
 /**
- * A host had no object to hold between runs.
+ * A host had no object to hold between turns.
  *
  * No way to ask whether the agent was running, and nowhere to put "when you
  * next run, start with this" — so a host either held a steer until it

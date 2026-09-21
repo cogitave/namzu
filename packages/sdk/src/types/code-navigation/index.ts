@@ -93,7 +93,7 @@ export interface CodeNavigationProvider {
 	 * Stop whatever backs it.
 	 *
 	 * Not optional. An implementation spawns a process, and a provider that
-	 * could not be told to stop leaves one behind per run.
+	 * could not be told to stop leaves one behind per turn.
 	 */
 	dispose(): Promise<void>
 }

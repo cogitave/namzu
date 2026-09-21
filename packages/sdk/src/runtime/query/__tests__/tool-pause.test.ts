@@ -110,7 +110,7 @@ describe('a pause raised from inside a tool', () => {
 			parkHandler: async () => ANSWER('call_1:some_other_pause', 'production'),
 		})
 
-		// Host queues are keyed by run, so a stale client can answer pause N
+		// Host queues are keyed by turn, so a stale client can answer pause N
 		// after pause N+1 opened. Answering the wrong one is worse than not
 		// answering.
 		expect(await pause(request)).toMatchObject({ status: 'unanswered' })

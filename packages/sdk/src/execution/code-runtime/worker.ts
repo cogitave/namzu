@@ -60,7 +60,7 @@ function decodeValue(json: unknown, maxBytes: number): unknown {
  * Runs untrusted JavaScript in a QuickJS interpreter inside a worker thread.
  * QuickJS owns the guest globals, functions, and promises. Node capabilities
  * never enter that realm; constructors and dynamic imports cannot recover them.
- * A fresh interpreter and bounded imported WASM memory are created per run.
+ * A fresh interpreter and bounded imported WASM memory are created per turn.
  * The worker makes wall-clock cancellation independent of interpreter progress.
  */
 export class WorkerCodeRuntime implements CodeRuntime {

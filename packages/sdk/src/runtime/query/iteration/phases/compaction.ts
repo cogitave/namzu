@@ -793,7 +793,7 @@ async function runCompactionCheckInner(
 	// Drop a replaceable PRIOR `[COMPACTED CONTEXT]` summary from this turn's
 	// leading floor — `serializeState` is cumulative, so the new summary
 	// supersedes it. A retained summary came from outside this manager's state
-	// horizon (for example a host-triggered pass between runs) and remains
+	// horizon (for example a host-triggered pass between turns) and remains
 	// opaque; deleting it would erase the only surviving record of that span.
 	const preservedSystem = systemMessages.filter(
 		(m) =>

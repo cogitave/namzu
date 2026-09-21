@@ -15,7 +15,7 @@ import { AdvisorRegistry } from '../registry.js'
  * nothing ever happened.
  *
  * Two of the six could not be honoured at all — the advisory stack is built
- * per run, so a per-SESSION cap had no accumulator to count against — and
+ * per turn, so a per-SESSION cap had no accumulator to count against — and
  * those were removed rather than left as decoration. What remains is
  * enforced here.
  */

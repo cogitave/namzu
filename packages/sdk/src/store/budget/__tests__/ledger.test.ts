@@ -106,7 +106,7 @@ describe('a session token budget is keyed by its root turn', () => {
 		}
 		expect(() => validateSessionTokenBudgetSnapshot(legacy)).toThrow(SessionTokenBudgetVersionError)
 		expect(() => validateSessionTokenBudgetSnapshot(legacy)).toThrow(
-			/version 1 \(keyed by run\).*\(rootSessionId, rootTurnId\).*before upgrading/,
+			/version 1 \(keyed by turn\).*\(rootSessionId, rootTurnId\).*before upgrading/,
 		)
 		expect(() =>
 			SessionTokenBudget.restore(legacy as unknown as SessionTokenBudgetSnapshot),

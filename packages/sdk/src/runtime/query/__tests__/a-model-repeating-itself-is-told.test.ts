@@ -21,8 +21,8 @@ import { isOperatorUserMessage } from '../steering.js'
 /**
  * Nothing observed cross-call repetition.
  *
- * The guardrails screen calls in isolation — input at run start, output at
- * run end, one result at a time — so a model re-running a failing command
+ * The guardrails screen calls in isolation — input at turn start, output at
+ * turn end, one result at a time — so a model re-running a failing command
  * got no correction from anything in the kernel. The only lever was an
  * iteration checkpoint, which fires on a count regardless of whether
  * anything is repeating and needs a human at the other end.

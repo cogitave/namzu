@@ -87,7 +87,7 @@ describe('a host can reach the turn’s policy box', () => {
 		expect(typeof seen?.set).toBe('function')
 	})
 
-	it('names an unattended run `auto-approve`, not `host`', async () => {
+	it('names an unattended turn `auto-approve`, not `host`', async () => {
 		// By identity against the default handler, not by presence.
 		// `resumeHandler` is REQUIRED on QueryParams — `drainQuery` substitutes
 		// the auto-approve default — so "is it set" is always yes and would

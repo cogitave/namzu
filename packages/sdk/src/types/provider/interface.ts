@@ -216,7 +216,7 @@ export interface LLMProvider {
 	 * "I do not know" into a confident wrong number, which is the failure
 	 * the table already made once.
 	 *
-	 * Resolved ONCE per run, not per iteration — the two consumers are
+	 * Resolved ONCE per turn, not per iteration — the two consumers are
 	 * synchronous and in the hot loop, so this must never become an await
 	 * inside it. A rejection or a hang here is not a turn failure: the table
 	 * is still there, and a driver that cannot answer must not take down a

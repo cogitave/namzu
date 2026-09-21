@@ -88,7 +88,7 @@ describe('the context a tool-initiated consultation is given', () => {
 
 		iteration = 4
 
-		// The tool is built once per run and called at an unknown later point.
+		// The tool is built once per turn and called at an unknown later point.
 		// A snapshot would hand every advisor the state the turn started with.
 		expect(ctx.callContext().iteration).toBe(4)
 	})

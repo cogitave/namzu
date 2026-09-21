@@ -1970,7 +1970,7 @@ export async function createAgentSession(
 		primary.id === 'zen' || primary.id === 'zen-go'
 			? constructProvider(primary.id, det, model, { sessionId })
 			: provider
-	// Session-owned discovery with one drain cursor per run. A child shares the
+	// Session-owned discovery with one drain cursor per turn. A child shares the
 	// discovered scopes without being able to consume the parent's update, and
 	// an edit takes effect in this session rather than only after reconnecting.
 	const projectInstructions = new ProjectInstructionTracker(cwd)
@@ -2003,7 +2003,7 @@ export async function createAgentSession(
 		})
 		throw err
 	}
-	// AFTER resolveSandbox returns — the honest report of what THIS run got,
+	// AFTER resolveSandbox returns — the honest report of what THIS turn got,
 	// never what was attempted. `unconfined` decides the severity: per the
 	// design, this is "the single highest-value line in the whole design,
 	// today computed and thrown away" — an operator reading default `info`

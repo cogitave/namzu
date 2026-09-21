@@ -15,7 +15,7 @@ import { drainQuery } from '../index.js'
 
 /**
  * The CLI does not keep one sandbox process alive for a whole conversation.
- * It creates one SDK run per turn, and each turn owns and tears down its own
+ * It creates one SDK turn per turn, and each turn owns and tears down its own
  * sandbox handle. The project tree is caller-owned state, so a second turn must
  * see the first turn's real built-in tool effects after that teardown.
  */

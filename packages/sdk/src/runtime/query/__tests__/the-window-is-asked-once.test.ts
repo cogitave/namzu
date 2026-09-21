@@ -15,7 +15,7 @@ import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
- * The driver is asked what the window is exactly once per run.
+ * The driver is asked what the window is exactly once per turn.
  *
  * The two consumers are synchronous and in the hot loop — the compaction
  * trigger and the per-iteration usage event. Turning either into an await
@@ -110,7 +110,7 @@ async function run(
 	return { result, events }
 }
 
-describe('the context window is asked for once per run', () => {
+describe('the context window is asked for once per turn', () => {
 	it('calls the driver exactly once however many iterations run', async () => {
 		// Moving the call into the per-iteration path is the mistake this
 		// exists to stop, and it would be invisible without a counter: the

@@ -244,7 +244,7 @@ export interface QueryParams {
 	/**
 	 * Where background jobs this turn starts are held, and killed.
 	 *
-	 * Host-owned so it can outlive one turn — a registry built per run could
+	 * Host-owned so it can outlive one turn — a registry built per turn could
 	 * never be the thing that kills a turn's jobs when the turn is already
 	 * gone. This turn's jobs are torn down in the `finally` below; another
 	 * run's are untouched. The registry launches host processes, so a turn
@@ -336,7 +336,7 @@ export interface QueryParams {
 	 *
 	 * This is the turn's half of a boundary whose only other door is the
 	 * registry constructor — and a registry is usually the HOST's, assembled
-	 * before the turn exists, so a run-config option is the only way a turn
+	 * before the turn exists, so a turn-config option is the only way a turn
 	 * screens a registry it did not build. A registry built WITH
 	 * `resultGuardrails` states its own policy and wins, `[]` included.
 	 *
@@ -479,7 +479,7 @@ export interface QueryParams {
 	workingDirectory?: string
 	/**
 	 * Directories besides the working directory the file tools may reach,
-	 * absolute; a sandboxed run binds each read-write. See
+	 * absolute; a sandboxed turn binds each read-write. See
 	 * `ToolContext.additionalDirectories`.
 	 */
 	additionalDirectories?: readonly string[]
@@ -807,7 +807,7 @@ export interface QueryParams {
 	 * explicitly (tool surfaces stripped from prompt + request;
 	 * attachments left unmapped by the driver). The same policy is checked
 	 * immediately before every request for image/document blocks produced by a
-	 * tool, because those do not exist at run setup. `true`: throw instead of
+	 * tool, because those do not exist at turn setup. `true`: throw instead of
 	 * degrading.
 	 */
 	strictCapabilities?: boolean
@@ -1318,7 +1318,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// Read at settle time, not now: checkpoints are written per
 			// iteration, so the answer changes as the turn proceeds.
 			resumeCheckpointId: () => checkpointMgr.lastCheckpointId,
-			// Read only to recover WHY a cancellation happened. The run loop
+			// Read only to recover WHY a cancellation happened. The turn loop
 			// already knows THAT it was cancelled; the origin lives on the abort
 			// reason and nothing else carries it this far.
 			signal: ctx.abortController.signal,
@@ -1982,7 +1982,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				// directions. It has to follow `wirePlanManager`, or a host that
 				// builds its plan in this callback does it into silence. It has to
 				// follow `recorder.init()` and `turn_started`, because plan events append
-				// to that durable run. It also has to follow the pre-model abort fence:
+				// to that durable turn. It also has to follow the pre-model abort fence:
 				// a callback invoked after attachment resolution observed cancellation
 				// would regain withdrawn authority and could replace the cancellation
 				// with its own failure. This is still before the iteration loop, which

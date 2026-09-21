@@ -203,7 +203,7 @@ function failedMessage(error: string): string {
 /**
  * The tool, only when there is something for it to call.
  *
- * A function rather than a constant because the decision is per run: the
+ * A function rather than a constant because the decision is per turn: the
  * same process can serve one session with a language server and one
  * without, and a module-level constant would have to pick.
  */

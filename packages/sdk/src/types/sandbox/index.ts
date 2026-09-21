@@ -431,7 +431,7 @@ export interface Sandbox {
 	destroy(options?: SandboxDestroyOptions): Promise<void>
 }
 
-/** Authority for a teardown operation owned independently of the ending run. */
+/** Authority for a teardown operation owned independently of the ending turn. */
 export interface SandboxDestroyOptions {
 	readonly signal?: AbortSignal
 }

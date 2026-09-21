@@ -4,7 +4,7 @@ import type { PermissionMode } from '../permission/index.js'
 /**
  * State that outlives a turn but belongs to the conversation, not to a turn.
  *
- * `PermissionMode` was resolved once per run and copied into the executor,
+ * `PermissionMode` was resolved once per turn and copied into the executor,
  * so leaving plan mode meant ending the turn and starting a fresh one with
  * `permissionMode: 'auto'` — discarding the in-flight step and the
  * tool-schema context with it. The look-around, propose, get-approval,

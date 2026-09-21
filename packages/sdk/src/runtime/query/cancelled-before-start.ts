@@ -41,7 +41,7 @@ export async function* settlePreStartCancellation(
 
 	// Attachment materialization happens before TurnContext exists. Once it
 	// observes cancellation, do only the work required to leave an honest
-	// durable run: initialize the record, retain the unresolved references,
+	// durable turn: initialize the record, retain the unresolved references,
 	// and settle through the ordinary cancellation classifier. Prompt
 	// contributions/cache, host callbacks, tools, plugins, sandbox, guardrails,
 	// advisors, and providers are all authority-bearing work and stay out.

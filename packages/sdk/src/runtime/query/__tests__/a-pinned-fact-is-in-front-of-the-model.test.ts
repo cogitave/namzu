@@ -140,7 +140,7 @@ function pinnedSlots(messages: readonly Message[]): string[] {
 	})
 }
 
-/** The slot as the RUN's history keeps it: in the leading system run. */
+/** The slot as the TURN's history keeps it: in the leading system run. */
 function historySlots(messages: readonly Message[]): string[] {
 	return messages.flatMap((message) =>
 		message.role === 'system' && isWorkingMemoryMessage(message.content)

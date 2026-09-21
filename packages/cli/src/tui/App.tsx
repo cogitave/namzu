@@ -504,13 +504,13 @@ type StreamState = {
 	 */
 	releasedAt?: number
 	releaseTimer?: ReturnType<typeof setTimeout>
-	/** Only a normal run end makes this text the next `/copy` target. */
+	/** Only a normal turn end makes this text the next `/copy` target. */
 	completed: boolean
-	/** Exact durable run outcome; notification wording is intentionally coarser. */
+	/** Exact durable turn outcome; notification wording is intentionally coarser. */
 	outcome: ConversationTurnOutcome | null
 	/** Durable conversation whose turn evidence this stream writes. */
 	sessionId: SessionId | null
-	/** More precise queue copy when a resumable SDK run stopped. */
+	/** More precise queue copy when a resumable SDK turn stopped. */
 	queuePauseOutcome?: QueuePauseOutcome
 	/** Terminal notice earned by this turn, or null when it was interrupted. */
 	notification: TerminalNotification | null
@@ -3935,7 +3935,7 @@ export function App({
 	 * because its empty successor could not be published. Once it exists, moving
 	 * the shared scope and advancing the generation are one synchronous boundary:
 	 * old events can still unwind and persist to their captured destination, but
-	 * they cannot render into or start an SDK run under the new conversation.
+	 * they cannot render into or start an SDK turn under the new conversation.
 	 *
 	 * A process whose initial persistence setup failed has no shared scope to
 	 * move. It still gets an honest in-memory context reset; the notice names that
@@ -6351,7 +6351,7 @@ export function App({
 							pushMessage(
 								'system',
 								result.added
-									? `Added ${result.path}. The file tools reach it by absolute path from the next turn; a sandboxed run binds it read-write.`
+									? `Added ${result.path}. The file tools reach it by absolute path from the next turn; a sandboxed turn binds it read-write.`
 									: `Not added: ${result.path} — ${result.reason ?? 'refused'}`,
 							)
 						})

@@ -37,7 +37,7 @@ export type HITLResumeDecision =
 			/**
 			 * Echo of `UserQuestionData.questionId` — the misdirection
 			 * guard. The park/resolve registry on hosts is typically
-			 * keyed by run, so a stale client can answer question N
+			 * keyed by turn, so a stale client can answer question N
 			 * after question N+1 re-parked under the same turn. When
 			 * present and it does not match the asking tool's own
 			 * questionId, the tool treats the decision as unanswered
