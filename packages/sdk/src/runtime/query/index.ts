@@ -211,6 +211,19 @@ export interface QueryParams {
 	emergencySave?: boolean
 
 	/**
+	 * A crash dump this run continues, removed when the run completes.
+	 *
+	 * `prepareReplayState({ fromCheckpoint: 'emergency' })` returns it as
+	 * `emergencySavePath`. The replay is a new run with its own id, so the
+	 * cleanup a run does for its OWN dump (`<runDir>/../emergency/<runId>.json`)
+	 * never reaches the dump it forked from; this names it. Removed only when
+	 * the run settles `completed` — a replay that fails or pauses leaves the
+	 * dump, which is still the only record of the moment the original run
+	 * died.
+	 */
+	supersedesEmergencySave?: string
+
+	/**
 	 * Durability for questions raised by a tool that closed over its
 	 * binding before the run existed.
 	 *
@@ -1281,6 +1294,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// already knows THAT it was cancelled; the origin lives on the abort
 		// reason and nothing else carries it this far.
 		signal: ctx.abortController.signal,
+		...(params.supersedesEmergencySave !== undefined
+			? { supersedesEmergencySave: params.supersedesEmergencySave }
+			: {}),
 	})
 
 	let advisoryCtx: AdvisoryContext | undefined

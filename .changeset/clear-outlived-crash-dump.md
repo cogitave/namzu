@@ -1,18 +1,23 @@
 ---
-"@namzu/sdk": minor
+"@namzu/sdk": major
 ---
 
-A run that settles `completed` now removes its own crash dump,
-`<runDir>/../emergency/<runId>.json`, if one exists. That happens when a run
-that crashed is resumed under its own id and finishes. `EmergencySaveManager.clearSave`
-had no caller, so every dump stayed on disk for good. A host that turns on
-`emergencySave` for every turn, as the CLI does, collected one dump per crash
-or interrupt, each holding the whole conversation. A run that fails or pauses
-keeps its dump. A replay forked from a dump runs under a new id and leaves
-the source dump alone.
+The kernel now deletes a crash dump once a run that continues it completes.
+Before, `EmergencySaveManager.clearSave` had no caller and every dump, each
+holding the whole conversation, stayed on disk for good.
 
-New: `EmergencySaveManager.savePathFor(runDir, runId)`, the one place that
-names a dump's path. The writer and the cleanup now use it.
+**What changes for you.** When a run settles `completed`, the kernel removes
+`<runDir>/../emergency/<runId>.json`, its own dump, if one exists. That is the
+case for a crashed run resumed under its own id. A host that reads a dump
+after its run has completed has to copy it before resuming. A run that fails
+or pauses keeps its dump.
 
-If you read a dump after the run it belongs to has completed, copy the dump
-before resuming. Nothing else changes.
+New:
+
+- `prepareReplayState({ fromCheckpoint: 'emergency' })` returns the dump's path
+  as `emergencySavePath`.
+- `query({ supersedesEmergencySave })` names a dump the run continues. It is
+  removed when that run completes, which is how a replay forked from a dump
+  (under a new run id) clears it. Nothing is removed unless you pass it.
+- `EmergencySaveManager.savePathFor(runDir, runId)` names a dump's path; the
+  writer and both cleanups use it.

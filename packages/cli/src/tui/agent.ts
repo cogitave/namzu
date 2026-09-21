@@ -215,7 +215,10 @@ import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import { cliProjectRoot } from '../integrations/state/project.js'
-import { CLI_CHECKPOINT_RETENTION } from '../integrations/state/retention.js'
+import {
+	CLI_CHECKPOINT_RETENTION,
+	clearOutlivedEmergencySaves,
+} from '../integrations/state/retention.js'
 import type {
 	SubagentActivity,
 	SubagentActivitySource,
@@ -4006,6 +4009,7 @@ async function* runTurn({
 	// matching in the first place: `toAgentEvent` is pure over a `RunEvent`
 	// and could not ask a tool anything, so the host guessed from the name.
 	const presenter = createToolPresenter(tools)
+	const turnStartedAt = Date.now()
 	try {
 		const events = query({
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
@@ -4086,6 +4090,15 @@ async function* runTurn({
 				const next = await events.next()
 				if (next.done) {
 					settled = true
+					// The CLI continues a conversation under a new run id, so a
+					// dump an interrupted earlier turn left is never cleared by the
+					// kernel. This turn completing is what makes it outlived.
+					if (emergencySave && next.value?.status === 'completed') {
+						clearOutlivedEmergencySaves(
+							join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs'),
+							turnStartedAt,
+						)
+					}
 					// A Run contains its fresh static/dynamic system floor as well as the
 					// conversation. Only the latter crosses this host seam. Compaction
 					// summaries survive because they ARE conversation state; arbitrary
