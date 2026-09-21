@@ -18,10 +18,11 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DiskMemoryStore, ToolRegistry } from '@namzu/sdk'
+import { ToolRegistry } from '@namzu/sdk'
 import type { RunId, RunMemoryCandidate, ToolContext } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { sessionMemoryDir, sessionMemoryStore } from '../__fixtures__/session-memory.js'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 
@@ -127,14 +128,14 @@ describe('the run memory promoter', () => {
 		// use. A promoter wired to a different directory would satisfy the
 		// test above and lose the memory anyway — the model would search one
 		// store while the runtime wrote to another.
-		const store = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const store = sessionMemoryStore(cwd)
 		const page = await store.list()
 		expect(page.totalCount).toBe(1)
 		expect(page.entries[0]?.title).toContain('invoice')
 	})
 
 	it('finds persisted memory on the first search of a new CLI session', async () => {
-		const writer = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const writer = sessionMemoryStore(cwd)
 		await writer.create({
 			title: 'cold CLI memory',
 			summary: 'must survive a new session',
@@ -156,7 +157,7 @@ describe('the run memory promoter', () => {
 	})
 
 	it('refuses to save over a structurally invalid durable index', async () => {
-		const memoryDir = join(cwd, '.namzu', 'memory')
+		const memoryDir = sessionMemoryDir(cwd)
 		const indexPath = join(memoryDir, 'index.json')
 		const poisoned = `${JSON.stringify(
 			[
@@ -196,13 +197,13 @@ describe('the run memory promoter', () => {
 	})
 
 	it('refuses to read indexed content whose durable shape is invalid', async () => {
-		const writer = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const writer = sessionMemoryStore(cwd)
 		const { entry } = await writer.create({
 			title: 'poisoned content',
 			summary: 'the index entry itself is valid',
 			content: 'must not be replaced by null',
 		})
-		const contentPath = join(cwd, '.namzu', 'memory', 'content', `${entry.id}.json`)
+		const contentPath = join(sessionMemoryDir(cwd), 'content', `${entry.id}.json`)
 		const poisoned = `${JSON.stringify({ id: entry.id, content: null, format: 'text' })}\n`
 		writeFileSync(contentPath, poisoned)
 
@@ -223,7 +224,7 @@ describe('the run memory promoter', () => {
 	})
 
 	it('refuses an indexed memory ID that escapes the content directory', async () => {
-		const memoryDir = join(cwd, '.namzu', 'memory')
+		const memoryDir = sessionMemoryDir(cwd)
 		const contentDir = join(memoryDir, 'content')
 		const escapedId = 'mem_/../../../outside-secret'
 		const indexPath = join(memoryDir, 'index.json')
@@ -270,7 +271,7 @@ describe('the run memory promoter', () => {
 
 		await promote(candidate({ files: ['src/a.ts'] }))
 
-		const store = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
+		const store = sessionMemoryStore(cwd)
 		// Emptiness, not "the write succeeded". The model reads this store on
 		// later runs, so a record per run is context spent on runs that found
 		// nothing.

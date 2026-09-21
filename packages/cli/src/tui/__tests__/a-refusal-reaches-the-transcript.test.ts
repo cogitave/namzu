@@ -14,7 +14,10 @@
  * real registry, and the row is produced by the CLI's own `toAgentEvent`.
  */
 
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import {
 	MockLLMProvider,
@@ -34,10 +37,18 @@ import {
 } from '@namzu/sdk'
 import type { ToolDefinition } from '@namzu/sdk'
 
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { resolveToolResultScreens } from '../../config/tool-result-screens.js'
 import { toAgentEvent } from '../agent.js'
 
 registerMock()
+
+// The run's durable state goes under its working directory's `.namzu` when
+// no path builder is given. `process.cwd()` put it inside this package.
+const workDirs: string[] = []
+afterEach(() => {
+	for (const dir of workDirs.splice(0)) removeTempDir(dir)
+})
 
 const QUERY = 'the deployment rollback procedure for the payments service'
 const TOOL = 'web_search'
@@ -93,6 +104,8 @@ async function eventsFor(
 	const registry = new ToolRegistry({ resultGuardrails: resolveToolResultScreens(screens) })
 	registry.register(framedSearchTool())
 	const events: RunEvent[] = []
+	const workingDirectory = mkdtempSync(join(tmpdir(), 'namzu-refusal-'))
+	workDirs.push(workingDirectory)
 
 	await drainQuery(
 		{
@@ -103,7 +116,7 @@ async function eventsFor(
 			agentId: 'screens-fixture',
 			agentName: 'Screens fixture',
 			messages: [createUserMessage('find the rollback procedure')],
-			workingDirectory: process.cwd(),
+			workingDirectory,
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			tenantId: generateTenantId(),

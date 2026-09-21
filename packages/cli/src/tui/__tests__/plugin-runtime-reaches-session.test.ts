@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -242,12 +242,18 @@ describe('the CLI owns a real plugin runtime', () => {
 				plugins: { enabled: true, allowedScopes: ['project'] },
 			})
 			try {
-				expect(session.hasProvider).toBe(false)
-				expect(String(session.errorHint ?? '')).toMatch(/state root must be a real directory/i)
-				expect(String(session.errorHint ?? '')).not.toContain(outside)
+				// Generated state no longer lives under `<cwd>/.namzu` at all, so the
+				// session has nothing to refuse there and starts. The two crossings
+				// the redirect used to threaten are still closed: discovery refuses a
+				// project scope that resolves outside the trusted cwd, and nothing is
+				// written through the link.
+				expect(session.hasProvider).toBe(true)
+				expect(JSON.stringify(session.plugins?.list() ?? [])).not.toContain('outside')
 			} finally {
 				await session.close()
 			}
+			expect(await readdir(outside)).toEqual(['plugins'])
+			expect(await readdir(join(outside, 'plugins'))).toEqual(['outside-plugin'])
 		},
 	)
 

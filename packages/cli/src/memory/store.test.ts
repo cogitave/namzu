@@ -124,6 +124,17 @@ describe('project memory', () => {
 		}
 	})
 
+	it('is read once, as the user memory, when the session starts in the home directory', () => {
+		// Started in `$HOME`, the project's `.namzu/MEMORY.md` and the user's
+		// `MEMORY.md` are one file. Injecting it under both headings doubled
+		// it in every prompt.
+		writeFileSync(join(home, '.namzu', 'MEMORY.md'), 'shared fact')
+		const content = readMemory(home, home)
+		expect(content.memory).toBe('shared fact')
+		expect(content.project).toBeNull()
+		expect(composeMemoryPrompt(content)?.match(/shared fact/g)).toHaveLength(1)
+	})
+
 	it('caps a section and says what it left out', () => {
 		const long = Array.from({ length: 900 }, (_, i) => `- fact number ${i} about the project`).join(
 			'\n',

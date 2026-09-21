@@ -138,7 +138,10 @@ Central Project metadata must exist before delegation, and archived Projects
 or parent Sessions refuse new delegation. A first conversation may not yet
 have a Session record; it uses the Session ID already chosen by the caller.
 Embedded sessions without an application state root use their supplied scope
-without creating durable Project records.
+without creating durable Project records. Their generated state still goes to
+the application home, never to `<cwd>/.namzu`. A session created with no scope
+derives its Project from the working directory's checkout, so two sessions in
+one directory share generated memory.
 
 Task storage is also bound to the actual run. Calls that omit an explicit run
 filter use the current run instead of a shared placeholder directory.

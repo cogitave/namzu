@@ -108,13 +108,13 @@ import {
 	createResidentStepContributions,
 	createReviewHandler,
 	createToolPresenter,
-	generateProjectId,
 	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 	getBuiltinTools,
 	isReviewExempt,
+	projectIdForDirectory,
 	query,
 	resumeRun,
 	seedObservationLedger,
@@ -212,7 +212,9 @@ import {
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import type { ConversationContext } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
+import { cliProjectRoot } from '../integrations/state/project.js'
 import type {
 	SubagentActivity,
 	SubagentActivitySource,
@@ -1293,11 +1295,10 @@ function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
 }
 
 function buildToolRegistry(
-	cwd: string,
-	projectStateRoot = join(cwd, '.namzu'),
-	backgroundJobs = true,
-	checkpoints?: FileCheckpointStore,
-	projectId?: ProjectId,
+	projectStateRoot: string,
+	backgroundJobs: boolean,
+	checkpoints: FileCheckpointStore | undefined,
+	projectId: ProjectId,
 	screens?: readonly ToolResultScreenConfig[],
 ): BuiltTools {
 	// Configured here rather than on the run, so every registry this CLI
@@ -1322,12 +1323,13 @@ function buildToolRegistry(
 		}
 	}
 	// SDK memory: the agent gets search_memory / read_memory / save_memory over
-	// a structured store in this Project's generated-state directory. CLI
-	// surfaces inject the central application-home hierarchy; embedded callers
-	// that omit it retain the historical `<cwd>/.namzu` layout.
+	// a structured store in this Project's generated-state directory, always
+	// partitioned by Project. An unpartitioned store sat at `<root>/memory`
+	// itself, which — once the root is the application home, or the working
+	// directory IS the home — is shared by every workspace that ever ran.
 	// Separate from the user-curated MEMORY.md that is injected into the prompt.
 	const memoryRoot = ensurePrivateStateDirectory(projectStateRoot, 'memory')
-	const directory = projectId ? ensurePrivateStateDirectory(memoryRoot, projectId) : memoryRoot
+	const directory = ensurePrivateStateDirectory(memoryRoot, projectId)
 	const memoryStore = new DiskMemoryStore({ baseDir: projectStateRoot, directory })
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
@@ -1354,7 +1356,11 @@ export interface AgentSessionOptions {
 	 * registry and does not restore this fork's activation snapshot.
 	 */
 	readonly toolLoading?: 'eager' | 'deferred'
-	/** Session/thread/project/tenant identity for this run. Minted when absent. */
+	/**
+	 * Session/thread/project/tenant identity for this run. Minted when absent,
+	 * with the Project derived from the working directory's checkout so the
+	 * same directory keeps the same Project across sessions.
+	 */
 	readonly scope?: RunScope
 	/**
 	 * The directory the agent works in: what every filesystem tool resolves a
@@ -1369,9 +1375,11 @@ export interface AgentSessionOptions {
 	 */
 	readonly cwd?: string
 	/**
-	 * Injected SDK hierarchy root for this host session. When present, runs use
-	 * this exact path builder and generated memory/tasks live inside the scoped
-	 * Project. Absent preserves the embedded API's historical cwd-local layout.
+	 * Injected SDK hierarchy root for this host session, whose Project and
+	 * Session records exist in its conversation store. Absent means the
+	 * application home (`NAMZU_HOME`, else `~/.namzu`) WITHOUT those records:
+	 * generated state still goes there, never into the working directory, and
+	 * delegation uses the supplied scope as it is.
 	 */
 	readonly stateRoot?: string
 	/** Host-owned durable conversations, for run-scoped original evidence retrieval. */
@@ -1475,7 +1483,6 @@ export async function createAgentSession(
 	detected: readonly DetectedProvider[],
 	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
-	const scope = options.scope ?? mintScope()
 	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
 	/**
 	 * This process's observation ledger for one conversation, seeded from that
@@ -1550,7 +1557,17 @@ export async function createAgentSession(
 			'invocation',
 		)
 	}
-	const hierarchyRoot = resolve(options.stateRoot ?? join(cwd, '.namzu'))
+	const scope = options.scope ?? mintScope(cwd)
+	// Generated state never defaults into the working directory. It used to:
+	// `<cwd>/.namzu` for any caller without a state root, which put runtime
+	// trees inside checkouts (and, run from the home directory, made the
+	// project root and the application home the same directory).
+	let hierarchyRoot: string
+	try {
+		hierarchyRoot = resolve(options.stateRoot ?? resolveNamzuHome())
+	} catch (error) {
+		return emptySession(`Application state is unavailable: ${describeError(error)}`, 'environment')
+	}
 	const pathBuilder = new CliPathBuilder(hierarchyRoot)
 	const projectStateRoot = hierarchyRoot
 	try {
@@ -1944,11 +1961,10 @@ export async function createAgentSession(
 		cwd,
 	)
 	const { registry, memoryStore } = buildToolRegistry(
-		cwd,
 		projectStateRoot,
 		backgroundJobs,
 		checkpoints,
-		options.stateRoot ? scope.projectId : undefined,
+		scope.projectId,
 		options.toolResultScreens,
 	)
 	// Package presence is not tool reachability. The CLI used to probe and
@@ -2321,11 +2337,10 @@ export async function createAgentSession(
 				// seven accounts of one piece of work for the next run to read.
 				// The parent's settle is the one that speaks for the whole task.
 				const childTools = buildToolRegistry(
-					cwd,
 					projectStateRoot,
 					backgroundJobs,
 					undefined,
-					options.stateRoot ? scope.projectId : undefined,
+					scope.projectId,
 					options.toolResultScreens,
 				).registry
 				// Search owns its provider connection per call, so it is safe to share
@@ -3763,15 +3778,19 @@ function lastUserText(messages: readonly Message[]): string {
 }
 
 /**
- * A scope for a session no host supplied one for: four minted ids. Minted
- * rather than spelled, because a spelled id is a place a typo hides and
- * these types accept either spelling until they are nominal.
+ * A scope for a session no host supplied one for.
+ *
+ * The Project is derived from the working directory's checkout, not minted:
+ * a minted one gave every session a Project of its own, so generated memory
+ * and task state were partitioned per launch and a second session in the same
+ * directory could not see what the first had saved. The session, topic and
+ * tenant stay minted — nothing here has a store to find existing ones in.
  */
-function mintScope(): RunScope {
+function mintScope(cwd: string): RunScope {
 	return {
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
-		projectId: generateProjectId(),
+		projectId: projectIdForDirectory(cliProjectRoot(cwd)),
 		tenantId: generateTenantId(),
 	}
 }
