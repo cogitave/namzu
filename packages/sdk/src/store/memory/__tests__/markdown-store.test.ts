@@ -743,6 +743,11 @@ describe('recoverable hand edits and interrupted writes', () => {
 			oldPath,
 			'---\nname: foo\ndescription: d\ntype: project\n---\n\nnew unrelated\n',
 		)
+		// Dated explicitly: the filesystem stamps mtime from a coarse clock that
+		// can read a few milliseconds behind the `Date.now()` the update wrote,
+		// which made the newer file look older about one run in three.
+		const newTime = new Date(Date.now() + 60_000)
+		await utimes(oldPath, newTime, newTime)
 		await expect(store.list()).rejects.toThrow(
 			/foo\.md is invalid: claims id .*bar\.md also claims/,
 		)
