@@ -2,21 +2,15 @@
 "@namzu/cli": major
 ---
 
-Every run the CLI starts keeps its newest 10 checkpoints instead of all of
-them. That covers interactive turns, `namzu run`, resumed and drained runs, and
-delegated children. A run takes a checkpoint every iteration plus one per tool
-review, and nothing set a limit, so a long session kept every one. On one
-machine that came to 19,014 checkpoint files and 6.33 GB.
+Every turn the CLI starts keeps its newest 10 checkpoints instead of all of
+them. That covers interactive turns, `namzu run`, resumed and drained turns,
+and delegated child sessions. A turn takes a checkpoint every iteration plus
+one per tool review, and nothing set a limit, so a long session kept every
+one. On one machine that came to 19,014 checkpoint files and 6.33 GB.
 
-**What changes for you.** Only the newest 10 checkpoint files of a run stay in
-`sessions/<id>/runs/<runId>/checkpoints/`, and `namzu drain` reports at most
-that many per run. A checkpoint whose approval is still outstanding is never
+**What changes for you.** Only the newest 10 checkpoint documents of each turn
+stay in `<session-id>/checkpoints/`, and `namzu drain` reports at most that
+many per turn. A checkpoint whose decision is still outstanding is never
 pruned. Resuming is unaffected, because every resume reads the checkpoint it
-was handed or the newest one. Older checkpoints of runs already on disk are
-pruned the next time that run writes one. If you inspect intermediate
-checkpoints by hand, copy them out while the run is still going.
-
-Checkpoints written by this version use the SDK's schema-3 format, which
-references the run's one stored history, and `messages.json` is a reference
-too. An older `namzu` refuses to resume, export or show them. Finish or drain
-paused runs before downgrading.
+was handed or the newest one. If you inspect intermediate checkpoints by hand,
+copy them out while the turn is still going.

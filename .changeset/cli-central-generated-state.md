@@ -6,12 +6,12 @@ A session never writes generated state into its working directory, and a
 session started in the home directory no longer reads the same memory file
 twice.
 
-`namzu`, `namzu run`, `namzu run-stream`, `namzu drain` and resident runs
-already passed the application home and are unchanged. A session created
-without one used to default to `<cwd>/.namzu` for its runs, memory and task
-state, and minted a new Project on every launch. It now uses the application
-home (`NAMZU_HOME`, else `~/.namzu`) and derives the Project from the working
-directory's checkout. Generated memory is always partitioned by Project.
+Every entry point — `namzu`, `namzu run`, `namzu run-stream`, `namzu drain`
+and resident runs — keeps its sessions, memory and task state under the
+application home (`NAMZU_HOME`, else `~/.namzu`), in the working directory's
+`projects/<slug>/`, and files them under that directory's one Project.
+`<cwd>/.namzu` is only read, for the agents, skills, commands, plugins and
+`MEMORY.md` you keep there.
 
 Started in `$HOME` with no `NAMZU_HOME`, the project's `.namzu/MEMORY.md` and
 the user's `~/.namzu/MEMORY.md` are one file. It was injected into every

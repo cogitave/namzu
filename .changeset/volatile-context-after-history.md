@@ -10,7 +10,7 @@ closing directive.
 
 - **The working-memory slot is no longer a system message in a request.** The
   slot (pins, and a `workingMemoryProvider`'s block) keeps its place in the
-  run's history, checkpoints and compaction: the last leading system message.
+  session's history, checkpoints and compaction: the last leading system message.
   Every request now takes it out of the system messages and sends it after the
   history as a user-role message with source
   `{ type: 'runtime-context', kind: 'step-context' }`. It is therefore missing
@@ -38,7 +38,7 @@ closing directive.
   message starting with `WORKING_MEMORY_HEADER` looks instead for a
   `step-context` message, drops its first line, and tests the rest with
   `isWorkingMemoryMessage`. A host that rewrites or strips the slot in a
-  `pre_llm_call` hook does the same. Code reading the run's history or a
+  `pre_llm_call` hook does the same. Code reading the session's history or a
   checkpoint needs no change.
 - Code that switches over `PromptPlacement` adds a `'context'` case.
 - A test asserting the closing directive's position expects it last.
