@@ -84,7 +84,7 @@ interface AgentManagerBaseDeps {
 	 * which is SDK-only) — but the field is genuinely host-reachable: it is
 	 * a plain object-literal parameter (no exported type import required to
 	 * satisfy it structurally) on `AgentManager`, which IS exported from
-	 * `public-runtime.ts`. Same standing as `RunConfig.logger` when it was
+	 * `public-runtime.ts`. Same standing as `TurnConfig.logger` when it was
 	 * first added.
 	 */
 	readonly log?: Logger
@@ -1184,7 +1184,8 @@ export class AgentManager {
 			this.clearEvictionTimer(taskId)
 		}
 		// Every live child, not the children of one parent. This used to call
-		// `cancelAll('' as RunId)`, and `cancelAll` filters by parent —
+		// `cancelAll` with an invented empty parent id, and `cancelAll` filters
+		// by parent —
 		// no task has an empty parent, so it matched nothing and the lines
 		// below then dropped every reference to work that was still running.
 		for (const taskId of [...this.instances.keys()]) {

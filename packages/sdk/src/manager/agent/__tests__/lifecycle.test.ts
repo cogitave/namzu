@@ -450,8 +450,8 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		expect(spawnRecord).toBeDefined()
 
 		// drill on the child session surfaces the session metadata — the child
-		// transcript would be persisted on the runtime path (RunPersistence) in
-		// a full run; here we assert the drill primitive resolves cleanly.
+		// transcript would be persisted on the runtime path (the turn recorder)
+		// in a full turn; here we assert the drill primitive resolves cleanly.
 		const drill = await harness.store.drill(spawnRecord!.childSessionId, tenant)
 		expect(drill).not.toBeNull()
 		expect(drill?.session.id).toBe(spawnRecord!.childSessionId)

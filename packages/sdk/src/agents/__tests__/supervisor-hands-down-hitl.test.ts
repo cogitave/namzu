@@ -33,7 +33,8 @@ function spyManager(): {
 				taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91',
 				status: 'completed',
 				result: {
-					runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a',
+					sessionId: '4721e070-5ba2-425a-bf5a-8cc927907e9a',
+					turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e',
 					status: 'completed',
 					usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
 					cost: { totalCost: 0 },

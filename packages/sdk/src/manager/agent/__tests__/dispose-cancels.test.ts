@@ -16,14 +16,14 @@ import { AgentManager } from '../lifecycle.js'
 /**
  * `dispose()` cancelled nothing.
  *
- * It called `cancelAll('' as RunId)`, and `cancelAll` filters by the
- * parent in the task's context (a run id then, the parent session now). No task has an empty parent, so the filter matched
- * nothing — and the next lines cleared the instance map. Every live child
+ * It called `cancelAll` with an empty parent id cast into place, and
+ * `cancelAll` filters by the parent in each task's context. No task has an
+ * empty parent, so the filter matched nothing — and the next lines cleared the instance map. Every live child
  * was released without its abort controller firing: the work kept running,
  * the budget kept draining, and nothing was left holding a reference to
  * stop it.
  *
- * The `'' as RunId` cast is the tell. A value invented to satisfy a
+ * The `''` cast is the tell. A value invented to satisfy a
  * parameter usually means the parameter is the wrong one to pass.
  */
 

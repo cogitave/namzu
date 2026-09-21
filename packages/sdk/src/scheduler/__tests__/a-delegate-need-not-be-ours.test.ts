@@ -168,7 +168,7 @@ describe('a foreign delegate answers through the scheduler the tools already spe
 		// `taskSucceeded` reads state first, `taskFailed` reads either — so a
 		// wrong `status` hides behind a right `state`. Both are pinned, and
 		// the spellings differ on purpose: AgentTaskState says 'canceled',
-		// RunExecutionStatus says 'cancelled'.
+		// TurnExecutionStatus says 'cancelled'.
 		const scheduler = new DelegatingTaskScheduler({
 			delegates: [
 				delegate('ok', { status: 'completed' }),

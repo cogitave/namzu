@@ -173,7 +173,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 *
 	 * These are here because the run config below is assembled by HAND, and a
 	 * hand-listed literal silently drops whatever nobody remembered to add —
-	 * which is precisely what happened. `thinking` shipped on `AgentRunConfig`
+	 * which is precisely what happened. `thinking` shipped on the turn config
 	 * and was reachable only from the raw kernel entry point, because this
 	 * function, `ReactiveAgent` and `SupervisorAgent` each rebuilt the object
 	 * from a fixed list. So the capability existed and the front door could not

@@ -12,7 +12,7 @@ import { runAgent } from '../runAgent.js'
  * `turn_completed`: the token budget, the timeout, the iteration cap, a
  * cancellation, and a blocking output guardrail. A consumer reading that event
  * as success reported one for a run whose answer was refused, and the CLI did:
- * it mapped `run_completed` (now `turn_completed`) to a bare `done` and exited 0.
+ * it mapped the completion event to a bare `done` and exited 0.
  *
  * Measured before the fix: a `max_iterations` stop reports
  * `status: 'completed'`, and the event carried nothing to distinguish it.
