@@ -47,12 +47,14 @@ const EPOCH = Date.UTC(2026, 8, 21, 12, 0, 0)
 
 /**
  * A valid log of `turns` prompt-and-answer turns, built through the same
- * line format a writer uses, so the chain is real.
+ * line format a writer uses, so the chain is real. `shed`, when it returns
+ * messages for a turn, adds a `compaction_shed` of them after the answer.
  */
 export function syntheticLog(
 	label: string,
 	turns: number,
 	answer: (turn: number) => string = (turn) => `Answer ${turn} for ${label}: the needle is here.`,
+	shed?: (turn: number) => unknown[] | undefined,
 ): { sessionId: SessionId; text: string } {
 	const sessionId = fixtureUuid(`synthetic:${label}`) as SessionId
 	const lines: string[] = []
@@ -120,6 +122,10 @@ export function syntheticLog(
 			stopReason: 'end_turn',
 			content: answer(turn),
 		})
+		const messages = shed?.(turn)
+		if (messages !== undefined) {
+			append({ type: 'compaction_shed', turnId, iteration: 1, messages, reason: 'threshold' })
+		}
 		append({
 			type: 'turn_completed',
 			turnId,

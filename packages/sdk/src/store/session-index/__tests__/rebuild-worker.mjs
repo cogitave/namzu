@@ -6,10 +6,13 @@
  * nothing but the directory: two index objects in one process would put the
  * arbitration back inside one event loop.
  *
- * Usage: node rebuild-worker.mjs <distDir> <home> <indexPath> <barrierEpochMs>
+ * Usage: node rebuild-worker.mjs <distDir> <home> <indexPath> <barrierEpochMs> [open]
+ *
+ * With `open`, the worker skips the explicit rebuild and only opens the index,
+ * which brings an existing index up to date with the logs.
  */
 
-const [, , dist, home, path, barrierMs] = process.argv
+const [, , dist, home, path, barrierMs, mode] = process.argv
 
 const { SqliteSessionIndex, rebuildSqliteSessionIndex } = await import(
 	new URL('store/session-index/index.js', `file://${dist.replace(/\\/g, '/')}/`).href
@@ -20,7 +23,7 @@ const wait = Number(barrierMs) - Date.now()
 if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait))
 
 const startedAt = Date.now()
-const won = await rebuildSqliteSessionIndex({ home, path })
+const won = mode === 'open' ? false : await rebuildSqliteSessionIndex({ home, path })
 const endedAt = Date.now()
 const index = await SqliteSessionIndex.open({ home, path })
 try {

@@ -27,6 +27,30 @@ beforeEach(() => {
 				: `emoji \u{1F600} ${'x'.repeat(200)} needle`,
 	)
 	writeFileSync(join(home, 'projects', SLUG, `${sessionId}.jsonl`), text)
+	// A compaction that shed tool output: its parts carry the tool's name and error flag.
+	const shed = syntheticLog(
+		'shed-tools',
+		1,
+		() => 'Compacted the tool output.',
+		() => [
+			{
+				role: 'assistant',
+				content: '',
+				toolCalls: [
+					{ id: 'call-read', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+					{ id: 'call-grep', type: 'function', function: { name: 'grep', arguments: '{}' } },
+				],
+			},
+			{ role: 'tool', toolCallId: 'call-read', content: 'shed tool text from read_file' },
+			{
+				role: 'tool',
+				toolCallId: 'call-grep',
+				isError: true,
+				content: [{ type: 'text', text: 'shed tool block from grep failed' }],
+			},
+		],
+	)
+	writeFileSync(join(home, 'projects', SLUG, `${shed.sessionId}.jsonl`), shed.text)
 })
 
 afterEach(() => {
@@ -60,7 +84,10 @@ async function todaysSearch(query: (typeof QUERIES)[number]): Promise<EvidenceHi
 					source: part.source,
 					...(record.type === 'tool_completed'
 						? { toolName: record.toolName, isError: record.isError }
-						: {}),
+						: {
+								...(part.toolName === undefined ? {} : { toolName: part.toolName }),
+								...(part.isError === undefined ? {} : { isError: part.isError }),
+							}),
 					hit: passage.hit,
 					excerpt: part.text.slice(passage.start, passage.end),
 				})
@@ -89,6 +116,7 @@ const ALL_QUERIES = [
 	{ query: 'summary' },
 	{ query: 'Earlier' },
 	{ query: 'summary', matchMode: 'token' as const },
+	{ query: 'shed tool' },
 ]
 
 describe.each([
@@ -137,10 +165,29 @@ describe('evidence rules', () => {
 		for (const log of await discoverSessionLogs(home)) {
 			for await (const { record } of readIndexableRecords(log.logPath)) {
 				const today = eventTexts(record as unknown as Record<string, unknown>)
-				expect(evidenceTexts(record).map(({ source, text }) => ({ source, text }))).toEqual(
-					today.map(({ source, text }) => ({ source, text })),
-				)
+				const expected =
+					record.type === 'tool_completed'
+						? today.map((part) => ({
+								...part,
+								toolName: record.toolName,
+								isError: record.isError,
+							}))
+						: today
+				expect(evidenceTexts(record).map(({ part: _, ...text }) => text)).toEqual(expected)
 			}
+		}
+	})
+
+	it('keeps the tool name and error flag of shed tool output', async () => {
+		const index = await ScanSessionIndex.load(home)
+		try {
+			const hits = await index.searchEvidence({ query: 'shed tool', limit: 100 })
+			expect(hits.map(({ source, toolName, isError }) => ({ source, toolName, isError }))).toEqual([
+				{ source: 'compaction_shed:tool', toolName: 'read_file', isError: undefined },
+				{ source: 'compaction_shed:tool', toolName: 'grep', isError: true },
+			])
+		} finally {
+			index.close()
 		}
 	})
 

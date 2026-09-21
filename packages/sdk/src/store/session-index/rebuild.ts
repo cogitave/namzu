@@ -149,8 +149,10 @@ async function hashOfLineEndingAt(handle: FileHandle, end: number): Promise<stri
 		const previousNewline = buffer.lastIndexOf(NEWLINE, window - 2)
 		if (previousNewline !== -1) return recordSha256(buffer.subarray(previousNewline + 1))
 		if (window === end) return recordSha256(buffer)
-		if (window >= SESSION_RECORD_MAX_BYTES) return undefined
-		window = Math.min(end, window * 4)
+		// A line may be SESSION_RECORD_MAX_BYTES long, newline included; the window
+		// needs one byte more to see the newline before it.
+		if (window > SESSION_RECORD_MAX_BYTES) return undefined
+		window = Math.min(end, window * 4, SESSION_RECORD_MAX_BYTES + 1)
 	}
 }
 
@@ -729,7 +731,11 @@ export abstract class SessionIndexBase implements SessionIndex {
 					head.record.prev.sha256 !== row.headSha256 ||
 					head.record.prev.offset + head.record.prev.length !== row.logBytes
 				) {
-					if (first) {
+					// A row at or past the continuation point was written by another writer
+					// (another connection or process refreshing the same log since this one
+					// read the head): stand down, as a later batch does. Only a gap, where
+					// the row stops short of the records, is the caller's mistake.
+					if (first && (row === undefined || row.headSeq < head.record.seq - 1)) {
 						throw new SessionIndexError(
 							`The records for session ${head.record.sessionId} start at seq ${head.record.seq}, which does not continue the indexed head (seq ${row?.headSeq ?? 0}).`,
 						)
@@ -786,6 +792,7 @@ export abstract class SessionIndexBase implements SessionIndex {
 				return this.getSession(sessionId)
 			}
 		}
+		// A final batch that stands down leaves the other writer's rows, which are the answer.
 		flush()
 		return sessionId === undefined ? undefined : this.getSession(sessionId)
 	}

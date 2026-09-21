@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import {
 	appendFileSync,
 	existsSync,
@@ -16,6 +17,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ids } from '../../../__fixtures__/session-log/build.js'
 import type { SessionId } from '../../../types/ids/index.js'
+import { SESSION_RECORD_MAX_BYTES } from '../../../types/session/records.js'
 import { SESSION_INDEX_VERSION, type SessionIndex, openSessionIndex } from '../index.js'
 import { discoverSessionLogs } from '../rebuild.js'
 import { ScanSessionIndex } from '../scan.js'
@@ -146,6 +148,28 @@ describe.each([
 		}
 	})
 
+	it('reads a log whose head record is as long as a record may be as fresh', async () => {
+		// Through the answer of one turn; the answer is padded to the maximum line length.
+		const build = (pad: number) => {
+			const { sessionId, text } = syntheticLog('max-record', 1, () => 'x'.repeat(pad))
+			return { sessionId, lines: text.split(/(?<=\n)/).slice(0, 4) }
+		}
+		const overhead = Buffer.byteLength(build(10).lines[3] as string) - 10
+		const { sessionId, lines } = build(SESSION_RECORD_MAX_BYTES - overhead)
+		expect(Buffer.byteLength(lines[3] as string)).toBe(SESSION_RECORD_MAX_BYTES)
+		const logPath = join(home, 'projects', SLUG, `${sessionId}.jsonl`)
+		writeFileSync(logPath, lines.join(''))
+		const index = await backend.open()
+		try {
+			const log = { slug: SLUG, logPath, sessionId }
+			expect((await index.getSession(sessionId))?.headSeq).toBe(4)
+			expect(await index.staleness(log)).toBe('fresh')
+			expect(await index.refresh(log)).toBe('fresh')
+		} finally {
+			index.close()
+		}
+	})
+
 	it('reports a log it has not indexed, and indexes a new one on sync', async () => {
 		const index = await backend.open()
 		try {
@@ -239,6 +263,25 @@ describe('SqliteSessionIndex: rebuild, never migrate', () => {
 		expect(await rebuildSqliteSessionIndex({ home, path })).toBe(false)
 		expect(await rebuildSqliteSessionIndex({ home, path, force: true })).toBe(true)
 		expect(readdirSync(home).filter((name) => name.includes('.tmp-'))).toEqual([])
+	})
+
+	it('removes the temporary files of a rebuild whose process died, and no other', async () => {
+		const first = await SqliteSessionIndex.open({ home, path })
+		first.close()
+		// A pid that has exited: a process spawned and waited for.
+		const dead = spawnSync(process.execPath, ['-e', '']).pid
+		const abandoned = [`index.sqlite.tmp-${dead}-0190`, `index.sqlite.tmp-${dead}-0190-journal`]
+		const live = `index.sqlite.tmp-${process.pid}-0191`
+		for (const name of [...abandoned, live, 'unrelated.tmp-1-0192']) {
+			writeFileSync(join(home, name), 'partial')
+		}
+		const second = await SqliteSessionIndex.open({ home, path })
+		second.close()
+		const left = () => readdirSync(home).filter((name) => name.includes('.tmp-'))
+		expect(left().sort()).toEqual([live, 'unrelated.tmp-1-0192'])
+		writeFileSync(join(home, abandoned[0] as string), 'partial')
+		expect(await rebuildSqliteSessionIndex({ home, path, force: true })).toBe(true)
+		expect(left().sort()).toEqual([live, 'unrelated.tmp-1-0192'])
 	})
 
 	it('never reads a UUID-named project directory, the old layout', async () => {

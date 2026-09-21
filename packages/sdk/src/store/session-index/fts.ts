@@ -1,5 +1,6 @@
 import type { SessionRecord } from '../../types/session/records.js'
 import { evidenceTokenMatcher, isEvidenceToken } from '../../utils/evidence-tokens.js'
+import { compactedToolMetadata } from '../evidence/compaction-provenance.js'
 
 /**
  * Evidence search over the session logs: which text a record contributes,
@@ -32,30 +33,42 @@ function plainObject(value: unknown): Record<string, unknown> | undefined {
 
 const ROLES = new Set(['system', 'user', 'assistant', 'tool'])
 
+interface ShedText {
+	source: string
+	text: string
+	toolName?: string
+	isError?: boolean
+}
+
 /**
  * The texts of shed messages, in today's order: every plain-string message
  * first, then the text blocks of tool messages. Binary blocks are never text.
+ * A tool message's texts carry its tool name and error flag, as today's
+ * compaction text does.
  */
-function shedTexts(messages: unknown): { source: string; text: string }[] {
+function shedTexts(messages: unknown): ShedText[] {
 	if (!Array.isArray(messages)) return []
-	const strings: { source: string; text: string }[] = []
-	const blocks: { source: string; text: string }[] = []
-	for (const value of messages) {
+	const strings: ShedText[] = []
+	const blocks: ShedText[] = []
+	const metadata = compactedToolMetadata(messages)
+	for (const [index, value] of messages.entries()) {
 		const message = plainObject(value)
 		if (!message || typeof message.role !== 'string' || !ROLES.has(message.role)) continue
 		const role = message.role
+		const tool = metadata[index]
 		if (typeof message.content === 'string') {
 			const summary =
 				role === 'system' && plainObject(message.source)?.type === 'compaction-summary'
 			strings.push({
 				source: `compaction_shed:${summary ? 'summary' : role}`,
 				text: message.content,
+				...tool,
 			})
 		} else if (role === 'tool' && Array.isArray(message.content)) {
 			for (const block of message.content) {
 				const part = plainObject(block)
 				if (part?.type === 'text' && typeof part.text === 'string') {
-					blocks.push({ source: 'compaction_shed:tool', text: part.text })
+					blocks.push({ source: 'compaction_shed:tool', text: part.text, ...tool })
 				}
 			}
 		}

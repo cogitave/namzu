@@ -1,6 +1,6 @@
-import { mkdir, rename, rm } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { DatabaseSync, SQLInputValue, StatementSync } from 'node:sqlite'
 import type { ProjectId, SessionId, TurnId } from '../../types/ids/index.js'
 import type { TurnExecutionStatus } from '../../types/session/turn.js'
@@ -238,6 +238,39 @@ function configure(db: DatabaseSync): void {
 	db.exec('PRAGMA busy_timeout = 10000; PRAGMA journal_mode = DELETE; PRAGMA synchronous = NORMAL;')
 }
 
+/** Whether a process with this pid is running on this machine. */
+function processAlive(pid: number): boolean {
+	try {
+		process.kill(pid, 0)
+		return true
+	} catch (error) {
+		// EPERM: it runs, under another user.
+		return (error as NodeJS.ErrnoException).code === 'EPERM'
+	}
+}
+
+/**
+ * Remove the temporary files (and their journals) that a rebuild of the index
+ * at `path` left behind when its process died before its own cleanup ran. A
+ * file whose process still runs is that process's rebuild and is left alone.
+ */
+async function sweepAbandonedRebuilds(path: string): Promise<void> {
+	const prefix = `${basename(path)}.tmp-`
+	let names: string[]
+	try {
+		names = await readdir(dirname(path))
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+		throw error
+	}
+	for (const name of names) {
+		if (!name.startsWith(prefix)) continue
+		const pid = Number(/^(\d+)-/.exec(name.slice(prefix.length))?.[1])
+		if (!Number.isSafeInteger(pid) || pid <= 0 || processAlive(pid)) continue
+		await rm(join(dirname(path), name), { force: true })
+	}
+}
+
 function userVersion(db: DatabaseSync): number {
 	return Number(db.prepare('PRAGMA user_version').get()?.user_version)
 }
@@ -285,7 +318,8 @@ export interface RebuildSqliteSessionIndexOptions extends SqliteSessionIndexOpti
  * index. A reader therefore sees the old index or the complete new one,
  * never a partial one. When two processes rebuild at once both finish and
  * one complete index remains: a process that finds a current index already
- * renamed into place discards its temporary file.
+ * renamed into place discards its temporary file. A temporary file left by
+ * a process that died mid-rebuild is removed by the next rebuild or open.
  *
  * Returns whether this call's file became the index.
  */
@@ -499,6 +533,7 @@ export class SqliteSessionIndex extends SessionIndexBase {
 	static async rebuild(options: RebuildSqliteSessionIndexOptions): Promise<boolean> {
 		const { DatabaseSync } = requireSqlite()
 		await mkdir(dirname(options.path), { recursive: true })
+		await sweepAbandonedRebuilds(options.path)
 		const temporary = `${options.path}.tmp-${process.pid}-${uuidv7()}`
 		try {
 			const db = new DatabaseSync(temporary)
@@ -532,6 +567,8 @@ export class SqliteSessionIndex extends SessionIndexBase {
 			// Not forced: if another process renames a current index into place
 			// first, this one discards its own and opens that one.
 			await SqliteSessionIndex.rebuild(options)
+		} else {
+			await sweepAbandonedRebuilds(options.path)
 		}
 		const db = new DatabaseSync(options.path)
 		try {
