@@ -8,15 +8,15 @@
  * live: the equivalent of the TUI, driven from another runtime.
  *
  * History: with `--session <key>` the turn is bound to a persisted
- * conversation in the central application-home Project associated with the
- * canonical cwd (keyed by the embedder's own session id), so prior turns are
- * loaded as context and the kernel's exact
- * settled conversation projection is published — including opaque reasoning
- * and complete tool turns, excluding its fresh per-run system floor. That's
- * what lets a reopened session show and replay its past messages (`namzu
- * history --session <key>`). Without `--session`,
- * prior history may be supplied on stdin as a JSON `Message[]` and nothing is
- * persisted (stateless one-shot).
+ * conversation in the project the canonical cwd stands for (keyed by the
+ * embedder's own session id, recorded on the conversation's
+ * `session_started.origin`), so prior turns are folded from its session log as
+ * context and the kernel appends this turn to that log as it runs — opaque
+ * reasoning and complete tool turns included. That's what lets a reopened
+ * session show and replay its past messages (`namzu history --session
+ * <key>`). Without `--session`, prior history may be supplied on stdin as a
+ * JSON `Message[]` and the turn runs in an in-memory log: nothing is persisted
+ * (stateless one-shot).
  *
  * Status lines go to stderr as NDJSON (LOG-05), never stdout, so every
  * stdout line is a valid JSON event, and EVERY failure is reported in band,
@@ -42,6 +42,10 @@
  *   headlessly, a provider id that is not a provider.
  * - **A run that started and failed → `0`.** Unchanged: that is an outcome to
  *   render, and possibly to retry.
+ * - **Not now → `75`.** The conversation already has an active turn — a
+ *   paused one waiting on a decision or a drain, or one another process is
+ *   running — so this turn was not begun. The event is
+ *   `{"kind":"error","code":"turn_in_progress",...}` naming the turn.
  * - **No → non-zero, because a person has to go and do something.** `77` when
  *   the folder is untrusted — kept to that one condition, because being
  *   unambiguous is its entire justification. `1` for everything else in this
@@ -67,16 +71,18 @@ import {
 	jsonLinesSink,
 } from '@namzu/sdk'
 
+/** EX_TEMPFAIL: the conversation already has an active turn; try again later. */
+const EXIT_TURN_IN_PROGRESS = 75
+
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
-	appendMessages,
+	closeSessions,
 	findMappedConversation,
 	listRecent,
 	loadConversation,
 	openSessions,
-	replaceConversation,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
 import { contextLogging, installCliLogging } from '../logging.js'
@@ -84,7 +90,6 @@ import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
 import type { AgentEvent } from '../tui/agent.js'
-import { planTurnPublication } from '../tui/conversation-history.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { parsePriorMessages } from './prior-messages.js'
@@ -143,8 +148,10 @@ export const runStreamCommand: CommandDef = {
 		'do anything about it: 0 when changing what you send would reach the run',
 		'(a wrong option, no prompt, a bad --cwd) and when a run started and',
 		'failed; 1 when it would not (no provider, a tool server that is not',
-		'there, a conversation that cannot be opened); 77 when the folder has not',
-		'been trusted, which only a person can change.',
+		'there, a conversation that cannot be opened); 75 when the --session',
+		'conversation already has an active turn (a paused one: finish it with',
+		'`namzu drain`), and the error event carries code "turn_in_progress"; 77',
+		'when the folder has not been trusted, which only a person can change.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
 		let ctx = bootstrapCtx
@@ -347,7 +354,9 @@ export const runStreamCommand: CommandDef = {
 				tenantId: cli.tenantId,
 			},
 			stateRoot: cli.root,
-			...(conversationId ? { conversationSessions: cli } : {}),
+			// A keyed conversation appends to its log; a stateless one runs in an
+			// in-memory log, so nothing is written for it.
+			...(conversationId ? { conversationSessions: cli } : { ephemeral: true }),
 			rules: permissions.rules,
 			// The operator's --gate commands, as a standing condition on the
 			// answer. Spread rather than passed as undefined so a run without
@@ -419,81 +428,44 @@ export const runStreamCommand: CommandDef = {
 		} as Message
 		const messages: Message[] = [...prior, userMessage]
 
-		let assistantText = ''
-		let conversationMessages: readonly Message[] | undefined
 		let terminalEvent: Extract<AgentEvent, { kind: 'done' }> | undefined
 		let budget: Extract<AgentEvent, { kind: 'usage' }>['budget']
+		let busy: Extract<AgentEvent, { kind: 'error' }>['turnInProgress']
 		try {
 			for await (const event of session.send(messages, {
 				...(extraSystem ? { extraSystem } : {}),
 				...(flags.effort !== null ? { effort: flags.effort } : {}),
-				onConversationMessages: (settled) => {
-					conversationMessages = settled
-				},
 			})) {
-				if (event.kind === 'delta') assistantText += event.text
 				if ('budget' in event && event.budget) budget = event.budget
-				if (event.kind === 'done') {
-					terminalEvent = event
-					// Only used by fallback persistence when the full conversation
-					// callback is unavailable. Keep the settled answer here too.
-					if (event.text !== undefined) assistantText = event.text
-				} else write(event)
+				if (event.kind === 'error' && event.turnInProgress) {
+					busy = event.turnInProgress
+					write({ ...event, code: 'turn_in_progress' })
+				} else if (event.kind === 'done') terminalEvent = event
+				else write(event)
 			}
 		} catch (err) {
 			await session.close()
+			closeSessions(cli)
 			return fail(err instanceof Error ? err.message : String(err))
 		}
 		// A stdio tool server is a child process; a command that returns without
 		// closing leaves it running.
 		await session.close()
-
-		// Persist the turn so a later `history --session <key>` (and the next
-		// turn's context) sees it. Best-effort — a store failure must not lose
-		// the reply the user already saw stream.
-		//
-		// Best-effort is about not FAILING, not about staying quiet. This used to
-		// swallow the error entirely, and it is the one failure here that makes a
-		// LATER command wrong: the stream ends `done`, the process exits 0, and a
-		// host has every reason to believe the turn is stored. Then
-		// `history --session` comes back missing a turn the user watched arrive,
-		// and the next turn's context silently lacks it — with nothing, anywhere,
-		// connecting that to a write that failed minutes earlier.
-		//
-		// So it is said, on the same channel and in the same shape as the config
-		// notices forty lines above, and for the reason written there: a host UI
-		// is the caller with no human watching, and its own event kind rather
-		// than an `error` because the run did succeed and a host treating this as
-		// a failure would be wrong. The consequence is named, not just the fault,
-		// because "could not persist" alone does not tell a host that its own
-		// later reads are now incomplete.
-		if (conversationId) {
-			try {
-				if (conversationMessages) {
-					const publication = planTurnPublication(prior, userMessage, conversationMessages)
-					if (publication.kind === 'replace') {
-						await replaceConversation(cli, conversationId, publication.messages)
-					} else {
-						await appendMessages(cli, conversationId, publication.messages)
-					}
-				} else {
-					const assistant: Message = {
-						role: 'assistant',
-						content: assistantText,
-						timestamp: Date.now(),
-					} as Message
-					await appendMessages(cli, conversationId, [userMessage, assistant])
-				}
-			} catch (err) {
-				write({
-					kind: 'notice',
-					message: `this turn was not saved: ${err instanceof Error ? err.message : String(err)}. The reply above is complete, but history for this session will not include it and the next turn will not have it as context.`,
-				})
-			}
+		closeSessions(cli)
+		if (busy) {
+			// Nothing was begun, so nothing was recorded: the conversation's active
+			// turn is still the one it was. Not now, rather than not ever.
+			write({ kind: 'done', sessionId: busy.sessionId })
+			return EXIT_TURN_IN_PROGRESS
 		}
 
+		// The kernel appended this turn to the conversation's log as it ran, so a
+		// later `history --session <key>` and the next turn's context see it.
 		write({
-			...(terminalEvent ?? { kind: 'done' as const }),
+			...(terminalEvent ?? {
+				kind: 'done' as const,
+				...(conversationId ? { sessionId: conversationId } : {}),
+			}),
 			...(budget ? { budget } : {}),
 		})
 		return 0
@@ -538,7 +510,9 @@ export const historyCommand: CommandDef = {
 				process.stdout.write('[]\n')
 				return 0
 			}
-			const messages = await loadConversation(cli, existing)
+			// The fold of the conversation's log: an answer the runtime replaced
+			// (a guardrail rewrite) reads as replaced, never as the raw text.
+			const messages = await loadConversation(cli, existing).finally(() => closeSessions(cli))
 			const out = messages
 				.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
 				.map((m) => ({ role: m.role, content: m.content }))

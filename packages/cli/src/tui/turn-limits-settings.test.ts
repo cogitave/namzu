@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { resolveRunGuards } from '../config/run-limits.js'
-import { formatRunLimit, runLimitsAction } from './run-limits-settings.js'
+import { resolveTurnGuards } from '../config/run-limits.js'
+import { formatTurnLimit, turnLimitsAction } from './turn-limits-settings.js'
 
 describe('run limits settings', () => {
 	it('defaults to unlimited and lets explicit zeros remove inherited caps', () => {
-		expect(resolveRunGuards()).toEqual({ tokenBudget: 0, maxIterations: 0, timeoutMs: 0 })
+		expect(resolveTurnGuards()).toEqual({ tokenBudget: 0, maxIterations: 0, timeoutMs: 0 })
 		expect(
-			resolveRunGuards(
+			resolveTurnGuards(
 				{ tokenBudget: 1000, maxIterations: 20, timeoutMs: 60000 },
 				{ tokenBudget: 0 },
 			),
@@ -21,7 +21,7 @@ describe('run limits settings', () => {
 		[['time', '1500'], { timeoutMs: 1500 }],
 		[['unlimited'], { tokenBudget: 0, maxIterations: 0, timeoutMs: 0 }],
 	] as const)('admits %j as %j', (input, limits) => {
-		expect(runLimitsAction(input)).toEqual({ kind: 'run-limits-set', limits })
+		expect(turnLimitsAction(input)).toEqual({ kind: 'turn-limits-set', limits })
 	})
 	it.each([
 		['tokens', '-1'],
@@ -36,11 +36,11 @@ describe('run limits settings', () => {
 		['unknown'],
 		['tokens', '2', 'extra'],
 	])('refuses invalid input %j without producing a setting', (...input) => {
-		expect(runLimitsAction(input)).toMatchObject({ kind: 'message' })
+		expect(turnLimitsAction(input)).toMatchObject({ kind: 'message' })
 	})
 	it('renders units without losing configured precision', () => {
-		expect(formatRunLimit('timeoutMs', 0)).toBe('Unlimited')
-		expect(formatRunLimit('timeoutMs', 3600000)).toBe('1h')
-		expect(formatRunLimit('timeoutMs', 1501)).toBe('1501ms')
+		expect(formatTurnLimit('timeoutMs', 0)).toBe('Unlimited')
+		expect(formatTurnLimit('timeoutMs', 3600000)).toBe('1h')
+		expect(formatTurnLimit('timeoutMs', 1501)).toBe('1501ms')
 	})
 })

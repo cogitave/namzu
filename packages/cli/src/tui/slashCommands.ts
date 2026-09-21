@@ -1,6 +1,6 @@
 import { installationRows } from '../installation.js'
-import { type RunLimitsAction, runLimitsAction } from './run-limits-settings.js'
 import { statusCard } from './status-card.js'
+import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
  *
@@ -33,7 +33,7 @@ import {
 	type MemoryType,
 	type ReasoningEffort,
 	type SerializableHostCommand,
-	type TokenBudgetSummary,
+	type SessionTokenBudgetSummary,
 	isMemoryType,
 	kernelHostCommands,
 } from '@namzu/sdk'
@@ -41,7 +41,6 @@ import {
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
-import type { OrchestrationRun } from '../integrations/subagents/runs.js'
 import {
 	type PermissionMode,
 	effectivePermissionMode,
@@ -70,12 +69,13 @@ export type SlashAction =
 	  }
 	/** Choose and dispatch one exact command from the session's live vocabulary. */
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
-	/** Observe child runs retained by this TUI conversation. */
-	| { kind: 'agent-cockpit' }
-	/** List past and running orchestration runs; App reads live state and saved evidence. */
-	| { kind: 'agent-runs' }
+	/**
+	 * `/agents [running|available|batches]`, answered by the delegation UI's
+	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
+	 */
+	| { kind: 'agents'; args: readonly string[] }
 	| { kind: 'settings-picker' }
-	| RunLimitsAction
+	| TurnLimitsAction
 	| { kind: 'provider-setup' }
 	| { kind: 'goal-picker' }
 	| { kind: 'goal-editor'; edit: boolean }
@@ -122,6 +122,11 @@ export type SlashAction =
 	| { kind: 'skill-picker' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
+	/**
+	 * Close this conversation's paused or interrupted turn without resuming it,
+	 * so the next prompt can begin one. `reason` is recorded on the turn.
+	 */
+	| { kind: 'abandon'; reason: string }
 	/**
 	 * Name this conversation, open its name editor, or take the name away.
 	 *
@@ -309,7 +314,7 @@ export interface SlashContext {
 	 * a question someone asked on purpose.
 	 */
 	readonly usage: {
-		readonly budget?: TokenBudgetSummary
+		readonly budget?: SessionTokenBudgetSummary
 		readonly totalTokens: number
 		readonly cost: CostInfo
 		/**
@@ -678,7 +683,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'config',
-		description: 'View configuration and change model, reasoning, permissions and run limits.',
+		description: 'View configuration and change model, reasoning, permissions and turn limits.',
 		help: {
 			usage: [
 				'/config',
@@ -691,7 +696,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			args.length === 0
 				? { kind: 'settings-picker' }
 				: args[0] === 'limits'
-					? runLimitsAction(args.slice(1))
+					? turnLimitsAction(args.slice(1))
 					: {
 							kind: 'message',
 							role: 'system',
@@ -709,20 +714,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'agents',
 		description:
-			'Inspect delegated agents; /agents available lists configured agents, /agents runs lists past and running orchestration runs.',
-		help: { usage: ['/agents [running|available|runs]'] },
-		action: (_ctx, args) =>
-			args.length === 0 || (args.length === 1 && args[0] === 'running')
-				? { kind: 'agent-cockpit' }
-				: args.length === 1 && args[0] === 'available'
-					? { kind: 'host-command', name: 'agents', args: [] }
-					: args.length === 1 && args[0] === 'runs'
-						? { kind: 'agent-runs' }
-						: {
-								kind: 'message',
-								role: 'system',
-								content: 'Usage: /agents [running|available|runs]',
-							},
+			'Inspect delegated agents; /agents available lists configured agents, /agents batches lists past and running batches of delegated work.',
+		help: { usage: ['/agents [running|available|batches]'] },
+		// The subcommands are the delegation UI's (`agentsSlashCommand`): App hands
+		// it the arguments and renders what it answers, usage line included.
+		action: (_ctx, args) => ({ kind: 'agents', args }),
 	},
 	{
 		name: 'goal',
@@ -1015,8 +1011,19 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
-		description: 'Resume a past conversation in this folder.',
+		description:
+			'Continue this conversation’s paused turn, or, when it has none, resume a past conversation in this folder.',
 		action: () => ({ kind: 'resume' }),
+	},
+	{
+		name: 'abandon',
+		description:
+			'Close this conversation’s paused or interrupted turn without resuming it, so the next prompt starts a new one.',
+		help: { usage: ['/abandon [reason]'] },
+		action: (_ctx, args) => ({
+			kind: 'abandon',
+			reason: args.join(' ').trim() || 'Abandoned by the operator with /abandon.',
+		}),
 	},
 	{
 		name: 'model',
@@ -1435,47 +1442,6 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		'',
 		'The agent reads one with the job tool; ask it to stop one, or /exit stops them all.',
 	].join('\n')
-}
-
-/**
- * Runs shown newest first, bounded the way {@link DelegationHistory}'s own
- * reads are: a page an operator can actually read, plus an honest count of
- * what did not fit rather than a listing that quietly grows with the whole
- * estate.
- */
-export const MAX_LISTED_ORCHESTRATION_RUNS = 20
-
-export interface OrchestrationRunsListing {
-	readonly runs: readonly OrchestrationRun[]
-	readonly omitted: number
-}
-
-/**
- * Merges a conversation's still-running runs with its finished ones into the
- * one list `/agents runs` shows.
- *
- * A run id named by both sources keeps its LIVE row and drops the disk one:
- * the live monitor is the fresher account of a run this process can still
- * watch directly, and the disk copy of that same id can only be a run.json
- * still being written to — never authority over a run its own process is
- * still reporting on live.
- */
-export function combineOrchestrationRuns(
-	live: readonly OrchestrationRun[],
-	finished: readonly OrchestrationRun[],
-): OrchestrationRunsListing {
-	const liveIds = new Set(live.map((run) => run.id))
-	const all = [...live, ...finished.filter((run) => !liveIds.has(run.id))].sort(
-		(left, right) => right.startedAt - left.startedAt,
-	)
-	const runs = all.slice(0, MAX_LISTED_ORCHESTRATION_RUNS)
-	return { runs, omitted: Math.max(0, all.length - runs.length) }
-}
-
-/** The honest empty answer for `/agents runs`; a non-empty listing opens the picker instead. */
-export function renderAgentRuns(listing: OrchestrationRunsListing): string | undefined {
-	if (listing.runs.length > 0) return undefined
-	return 'No orchestration runs yet. This conversation has not delegated any work, or none of it is still on disk.'
 }
 
 /** Reports validate their subcommand instead of silently ignoring mistyped arguments. */

@@ -6,8 +6,10 @@
  * suppressed by `--quiet`); only the answer hits stdout.
  *
  * Non-interactive, so there's no approval prompt — tools auto-run, but the
- * safety gate still hard-denies catastrophic commands. One-shots use an
- * ephemeral session and are not added to `/resume` history.
+ * safety gate still hard-denies catastrophic commands. A one-shot is a
+ * conversation like any other: its session log is kept under the project in
+ * `NAMZU_HOME`, so `--continue` picks it up and `namzu drain` can finish a
+ * turn it parked.
  *
  * Options are parsed, not spoken: this command joined every argument into the
  * prompt, so the flags its streaming sibling accepts — `--cwd` above all —
@@ -18,14 +20,14 @@
 
 import { relative } from 'node:path'
 
-import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId, generateSessionId } from '@namzu/sdk'
+import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
-import { openSessions } from '../integrations/sessions/store.js'
+import { closeSessions, openSessions, startConversation } from '../integrations/sessions/store.js'
 import {
 	type AttachedSessionExport,
 	attachSessionExport,
@@ -34,7 +36,7 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { describeRunInterruption, retryAfterMs } from '../tui/run-interruption.js'
+import { describeTurnInterruption, retryAfterMs } from '../tui/run-interruption.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { duration, pauseWait } from './provider-wait.js'
@@ -165,10 +167,12 @@ export const runCommand: CommandDef = {
 		'until the budget is spent. The `limits.waitForProviderMs` config key sets',
 		'the same budget for every run in the folder.',
 		'',
-		'Exit codes: 0 on a reply, 1 on a failed or unfinished run, 2 when no',
+		'Exit codes: 0 on a reply, 1 on a failed or unfinished turn, 2 when no',
 		'prompt was supplied, 64 when an argument is wrong, 75 when the provider',
-		'paused the run (a rate limit or an outage) and a checkpoint was kept —',
-		'wait, then run again — and 77 when the folder has not been trusted and',
+		'paused the turn (a rate limit or an outage) and a checkpoint was kept —',
+		'wait, then run again — or when the conversation already has an active',
+		'turn (a paused one: finish it with `namzu drain`, or abandon it in the',
+		'TUI with /abandon), and 77 when the folder has not been trusted and',
 		'nothing ran.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
@@ -326,18 +330,34 @@ export const runCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
+		// A new one-shot is a new conversation: its log starts here, so the turn
+		// the kernel records has somewhere to go and `--continue` can find it.
+		let sessionId: ReturnType<typeof asSessionId>
+		try {
+			sessionId =
+				resume.kind === 'resumed'
+					? asSessionId(resume.sessionId)
+					: await startConversation(sessions)
+		} catch (error) {
+			closeSessions(sessions)
+			await sessionExport?.shutdown()
+			ctx.formatter.error({
+				message: `could not start a conversation: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			return 1
+		}
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
 			scope: {
-				sessionId: resume.kind === 'resumed' ? asSessionId(resume.sessionId) : generateSessionId(),
+				sessionId,
 				topicId: sessions.topicId,
 				projectId: sessions.projectId,
 				tenantId: sessions.tenantId,
 			},
 			stateRoot: sessions.root,
-			...(resume.kind === 'resumed' ? { conversationSessions: sessions } : {}),
+			conversationSessions: sessions,
 			rules: permissions.rules,
-			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
+			...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the
 			// answer. Spread rather than passed as undefined so a run without
 			// gates is byte-identical to the one that shipped before them.
@@ -361,6 +381,7 @@ export const runCommand: CommandDef = {
 		})
 		if (!session.hasProvider) {
 			await session.close()
+			closeSessions(sessions)
 			await sessionExport?.shutdown()
 			ctx.formatter.error({
 				message: session.errorHint ?? 'agent is not ready',
@@ -379,6 +400,7 @@ export const runCommand: CommandDef = {
 				})
 			}
 			await session.close()
+			closeSessions(sessions)
 			await sessionExport?.shutdown()
 			return 1
 		}
@@ -444,9 +466,12 @@ export const runCommand: CommandDef = {
 		const stop: {
 			failed: string | null
 			paused: Extract<AgentEvent, { kind: 'paused' }> | null
+			/** The conversation already had an active turn, so none was begun. */
+			busy: boolean
 		} = {
 			failed: null,
 			paused: null,
+			busy: false,
 		}
 		const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
 			stop.failed = null
@@ -460,7 +485,11 @@ export const runCommand: CommandDef = {
 				else if (event.kind === 'context') ctx.formatter.info(event.text)
 				else if (event.kind === 'error' || event.kind === 'paused') {
 					if (event.budget) measured.budget = event.budget
-					stop.failed = describeRunInterruption(event)
+					stop.failed = describeTurnInterruption(event)
+					if (event.kind === 'error' && event.turnInProgress) {
+						stop.busy = true
+						stop.failed = `conversation ${event.turnInProgress.sessionId} already has a ${event.turnInProgress.state} turn ${event.turnInProgress.activeTurnId}; nothing was started. Finish it with \`namzu drain\`, or abandon it with /abandon in the TUI.`
+					}
 					if (event.kind === 'paused') stop.paused = event
 				} else if (event.kind === 'usage') {
 					measured.usage = event
@@ -510,24 +539,28 @@ export const runCommand: CommandDef = {
 			}
 			waits += 1
 			ctx.formatter.info(
-				`provider paused the run: waiting ${duration(decision.delayMs)}, then resuming from ${paused.checkpointId} (wait ${waits}, ${duration(waitedMs)} of ${duration(waitBudgetMs)} spent)`,
+				`provider paused the turn: waiting ${duration(decision.delayMs)}, then resuming from ${paused.checkpointId} (wait ${waits}, ${duration(waitedMs)} of ${duration(waitBudgetMs)} spent)`,
 			)
 			await new Promise<void>((resolve) => setTimeout(resolve, decision.delayMs))
 			waitedMs += decision.delayMs
 			await consume(
 				session.resumePaused({
-					runId: paused.runId,
+					turnId: paused.turnId,
 					checkpointId: paused.checkpointId,
 				}),
 			)
 		}
 		const failed = stop.failed
-		const paused = stop.paused !== null
+		// 75 (EX_TEMPFAIL) for both: a provider pause kept a checkpoint, and a
+		// conversation busy with another turn refused to start one. Either way
+		// running again later is the remedy, not a different invocation.
+		const paused = stop.paused !== null || stop.busy
 
 		// Every exit below this point releases the session first. A stdio tool
 		// server is a child process, and a `run` that returns without closing
 		// leaves it behind.
 		await session.close()
+		closeSessions(sessions)
 		// Drained with the session, not at process exit: a buffering sink that
 		// only flushed on `beforeExit` loses its tail whenever the CLI is
 		// interrupted, which is exactly the run somebody wanted the record of.
@@ -570,7 +603,7 @@ export const runCommand: CommandDef = {
 		ctx.formatter.print(ctx.formatter.name === 'json' ? jsonResult(text.trim()) : text.trim())
 		if (stopReason && stopReason !== 'end_turn') {
 			ctx.formatter.error({
-				message: `run did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,
+				message: `turn did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,
 			})
 			return 1
 		}

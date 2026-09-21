@@ -40,7 +40,8 @@ afterEach(async () => {
 it('carries the write and edit call ids through the checkpoint wrapper into the ledger', async () => {
 	const tracker = createFileReadTracker()
 	const context = (toolUseId: string): ToolContext => ({
-		runId: '2a4d6e08-0f2b-4a1a-8a9c-1f6b3d5e7a90' as ToolContext['runId'],
+		sessionId: '019a0000-0000-7000-8000-0000000000c1' as ToolContext['sessionId'],
+		turnId: '2a4d6e08-0f2b-4a1a-8a9c-1f6b3d5e7a90' as ToolContext['turnId'],
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},

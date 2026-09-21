@@ -6,7 +6,7 @@
  * Not git. A checkpoint is taken by the tool wrapper immediately before an
  * `edit` or `write` runs, whatever the repository's state, and it records
  * absence too, so a file the model created is removed on restore. Kept per
- * session under the project's private state and dropped when the session
+ * session in its `<session-id>/file-history/` directory and dropped when the session
  * closes: a checkpoint outlives a turn, not a session — the conversation
  * can be forked and resumed, and its files are the working tree's.
  */
@@ -55,7 +55,7 @@ export class FileCheckpointStore {
 	private readonly skipped = new Set<string>()
 
 	constructor(
-		/** Where blobs go, e.g. `<state>/checkpoints/<sessionId>`. */
+		/** Where blobs go: the session's `file-history/` (`SessionPaths.fileHistory`). */
 		private readonly root: string,
 		/** Only files under here are checkpointed. */
 		private readonly cwd: string,

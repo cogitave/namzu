@@ -34,6 +34,7 @@ import {
 	type SessionId,
 	type SessionIndex,
 	type SessionLease,
+	type SessionLog,
 	SessionPaths,
 	type SessionRecord,
 	type SessionRecordDraft,
@@ -88,7 +89,7 @@ export interface CliSessions {
 /** Persisted conversation ownership and history; no goal or UI sidecars are needed for retrieval. */
 export type ConversationContext = Pick<
 	CliSessions,
-	'root' | 'paths' | 'slug' | 'projectId' | 'topicId' | 'tenantId' | 'store'
+	'root' | 'paths' | 'slug' | 'projectId' | 'topicId' | 'tenantId' | 'store' | 'index'
 >
 
 export interface RecentConversation {
@@ -221,7 +222,7 @@ function holderName(): string {
  * waits for a turn that is settling. One that is still running when the wait
  * ends is refused by name rather than waited on indefinitely.
  */
-async function claimLease(log: DiskSessionLog, op: string): Promise<SessionLease> {
+async function claimLease(log: SessionLog, op: string): Promise<SessionLease> {
 	const deadline = Date.now() + LEASE_WAIT_MS
 	const holder = holderName()
 	for (;;) {
@@ -413,6 +414,41 @@ export async function startConversation(
 	}
 	await refreshIndex(s, id)
 	return id
+}
+
+/**
+ * Give a session log its `session_started` if it has none yet, so a turn can
+ * begin in it. A log that already starts is left alone. Used where a session
+ * is brought into existence by its first turn rather than by
+ * {@link startConversation}: a headless scope, an in-memory log.
+ */
+export async function ensureSessionStarted(
+	log: SessionLog,
+	session: {
+		readonly projectId: ProjectId
+		readonly tenantId: TenantId
+		readonly topicId: TopicId
+		readonly cwd: string
+		readonly agent: { readonly id: string; readonly name: string }
+		readonly origin?: SessionStartedRecord['origin']
+	},
+): Promise<void> {
+	if ((await log.head()) !== null) return
+	const lease = await claimLease(log, 'start session')
+	try {
+		if ((await log.head()) !== null) return
+		await log.append(lease, {
+			type: 'session_started',
+			projectId: session.projectId,
+			tenantId: session.tenantId,
+			topicId: session.topicId,
+			cwd: session.cwd,
+			agent: { ...session.agent },
+			origin: session.origin ?? { protocol: 'cli' },
+		})
+	} finally {
+		await log.release(lease)
+	}
 }
 
 /** The external id a desktop key is filed under: scoped to the project, like the map it replaces. */

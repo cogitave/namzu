@@ -1,6 +1,5 @@
-import { type RunGuardKey, type RunGuards, resolveRunGuards } from '../config/run-limits.js'
-import { RUN_LIMIT_FIELDS, runLimitCommands } from './run-limits-settings.js'
-import { CliPathBuilder } from '../integrations/sessions/paths.js'
+import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/run-limits.js'
+import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
  * TUI root. Composes the banner, transcript, composer, status bar, and
  * the first-run provider picker overlay.
@@ -30,17 +29,17 @@ import {
 	type MemoryType,
 	type MessageId,
 	type ReasoningEffort,
-	RunCancelled,
-	type RunId,
 	type SessionGoal,
 	SessionGoalActivation,
 	type SessionId,
 	StaleGoalError,
+	TurnCancelled,
+	type TurnId,
 	asSessionId,
 	createAssistantMessage,
 	createUserMessage,
-	generateRunId,
 	generateSessionId,
+	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
 } from '@namzu/sdk'
@@ -84,7 +83,7 @@ import {
 import {
 	type CliSessions,
 	type RecentConversation,
-	appendMessages,
+	activeConversationTurn,
 	archiveConversation,
 	forkConversation,
 	forkConversationBeforeUser,
@@ -92,7 +91,6 @@ import {
 	loadConversation,
 	loadResumableConversation,
 	openSessions,
-	replaceConversation,
 	requireWritableConversation,
 	setTitle,
 	startConversation,
@@ -103,15 +101,12 @@ import {
 	writeConversationExport,
 } from '../integrations/sessions/transcript-export.js'
 import type {
-	ConversationTurnOutcome,
-	ConversationTurnStartedRecord,
-} from '../integrations/sessions/turn-evidence.js'
-import type {
 	SubagentActivity,
 	SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
-import { type OrchestrationRun, liveOrchestrationRuns } from '../integrations/subagents/runs.js'
+import type { Batch } from '../integrations/subagents/batches.js'
 import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
+import { agentsSlashCommand } from '../integrations/subagents/slash.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import {
@@ -188,7 +183,7 @@ import {
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
-import { assistantTranscriptTexts, planTurnPublication } from './conversation-history.js'
+import { assistantTranscriptTexts } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
@@ -220,7 +215,7 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
-import { describeRunInterruption, describeRunStop } from './run-interruption.js'
+import { describeTurnInterruption, describeTurnStop } from './run-interruption.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -230,15 +225,13 @@ import {
 } from './shell-escape.js'
 import {
 	type CommandPickerEntry,
-	type OrchestrationRunsListing,
 	type SlashContext,
 	baseBranchReviewPrompt,
-	combineOrchestrationRuns,
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
 	mergeHostCommands,
-	renderAgentRuns,
+	renderAgents,
 	renderOutcome,
 	reviewPrompt,
 	runSlash,
@@ -323,8 +316,8 @@ type TextPromptState = {
 		| 'user-question'
 		| 'goal-create'
 		| 'goal-edit'
-		| 'run-limit'
-	readonly limitKey?: RunGuardKey
+		| 'turn-limit'
+	readonly limitKey?: TurnGuardKey
 	readonly title: string
 	readonly placeholder: string
 	readonly emptyNotice: string
@@ -381,15 +374,15 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 	  }
 	| {
 			/**
-			 * `/agents runs`. `values` holds `'loading'` alone while the disk walk
-			 * is still in flight — its lone option carries a `disabledReason`, so
-			 * Enter cannot select it — and is replaced with the resolved rows once
-			 * it settles; never a mix of the two.
+			 * `/agents batches`. `values` holds `'loading'` alone while the index
+			 * read is still in flight — its lone option carries a `disabledReason`,
+			 * so Enter cannot select it — and is replaced with the resolved rows
+			 * once it settles; never a mix of the two.
 			 */
-			readonly kind: 'agent-runs'
+			readonly kind: 'agent-batches'
 			readonly title: string
 			readonly notice?: string
-			readonly values: readonly (OrchestrationRun | 'loading')[]
+			readonly values: readonly (Batch | 'loading')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -427,7 +420,6 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly kind: 'feedback-rating'
 			readonly title: string
 			readonly notice?: string
-			readonly runId: string
 			readonly messageId: string
 			readonly sessionId: SessionId
 			readonly values: readonly ('good' | 'bad')[]
@@ -492,6 +484,9 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
  * writing rather than as silence.
  */
 const STREAM_RELEASE_MS = 250
+
+/** How a turn ended, as the transcript and notifications describe it. */
+type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
 
 type StreamState = {
 	lastUsage?: Extract<AgentEvent, { kind: 'usage' }>
@@ -626,7 +621,7 @@ export function projectConversation(
 type RunningTool = ActiveTool & {
 	readonly activity?: 'exploration'
 	readonly taskId?: string
-	readonly runId?: string
+	readonly turnId?: string
 	readonly toolName: string
 	readonly detail?: readonly string[]
 }
@@ -755,14 +750,13 @@ export function App({
 	const terminal = useWindowSize()
 	const hyperlinks = terminalSupportsHyperlinks(process.env, stdout.isTTY === true)
 	/**
-	 * The last assistant message id the run reported, for `/feedback`.
+	 * The last assistant message id the turn reported, for `/feedback`.
 	 *
 	 * A ref rather than state: nothing renders it, and making it state would
 	 * re-render the transcript on every delta — the exact cost the `pending`
 	 * buffering two hundred lines down exists to avoid.
 	 */
 	const lastAssistantMessage = useRef<{
-		runId: string
 		messageId: string
 		sessionId: SessionId
 	} | null>(null)
@@ -892,7 +886,7 @@ export function App({
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
-	const runLimitsOverrideRef = useRef<Partial<RunGuards>>({})
+	const turnLimitsOverrideRef = useRef<Partial<TurnGuards>>({})
 	const setReasoningEffort = useCallback((next: ReasoningEffort | undefined) => {
 		reasoningEffortRef.current = next
 		setReasoningEffortState(next)
@@ -1158,8 +1152,8 @@ export function App({
 		agentSurfaceCommittedRef.current = agentSurface
 	}, [agentSurface])
 	/**
-	 * Children of this conversation's earlier runs, rebuilt from saved
-	 * evidence, kept apart from the live monitor's own snapshot.
+	 * Children of this conversation's earlier turns, rebuilt from their own
+	 * session logs, kept apart from the live monitor's own snapshot.
 	 *
 	 * A ref and not state because it is an input to `replaceSubagents`, which
 	 * runs from the monitor's subscription: holding it as state would make
@@ -1173,13 +1167,16 @@ export function App({
 			const saved = savedSubagentsRef.current
 			if (saved.length === 0) return live
 			// A child the live monitor still holds wins over its own saved copy:
-			// both describe one run, and only one of the two is attached to
-			// anything. Saved rows land after the live ones, so a cohort that is
+			// both describe one child session, and only one of the two is attached
+			// to anything. Saved rows land after the live ones, so a cohort that is
 			// still running keeps the top of the list.
-			const liveRunIds = new Set(
-				live.map((agent) => agent.runId).filter((id): id is string => id !== undefined),
+			const liveSessionIds = new Set(
+				live.map((agent) => agent.sessionId).filter((id): id is string => id !== undefined),
 			)
-			return [...live, ...saved.filter((agent) => !agent.runId || !liveRunIds.has(agent.runId))]
+			return [
+				...live,
+				...saved.filter((agent) => !agent.sessionId || !liveSessionIds.has(agent.sessionId)),
+			]
 		},
 		[],
 	)
@@ -1699,84 +1696,87 @@ export function App({
 	)
 
 	/**
-	 * `/agents runs`: opens a picker immediately with a disabled loading row,
-	 * then replaces it once the live snapshot and the disk walk both resolve.
-	 *
-	 * The composer stays reachable the whole time — nothing here awaits before
-	 * the first `setChoicePicker`. A stale read is dropped by comparing
-	 * `choicePickerRef.current` against the exact loading-picker object this
-	 * call put there (the idiom the `/review` pickers already use below),
-	 * rather than a counter: Escape and every other picker-replacing path
-	 * already route through `setChoicePicker`, so they retire this object as a
-	 * side effect and need no separate token bump of their own. That covers
-	 * both "the operator left this picker" (any other object is current now,
-	 * `null` included) and "opened it again" (a second call's own object is
-	 * current instead).
+	 * `/agents [running|available|batches]`, answered by the delegation UI's
+	 * `agentsSlashCommand` over this session's live monitor and the batches the
+	 * session index holds. A `batches` answer opens a picker immediately with a
+	 * disabled loading row, then replaces it once the listing resolves; the
+	 * composer stays reachable the whole time. A stale read is dropped by
+	 * comparing `choicePickerRef.current` against the exact loading-picker
+	 * object this call put there.
 	 */
-	const openAgentRunsPicker = useCallback((): void => {
-		setSelectedChoice(0)
-		const pending: ChoicePickerState = {
-			kind: 'agent-runs',
-			title: 'Orchestration runs',
-			values: ['loading'],
-			options: [
-				{ label: 'Loading…', description: 'Reading saved evidence…', disabledReason: 'Loading…' },
-			],
-		}
-		setChoicePicker(pending)
-		void (async () => {
-			const live = liveOrchestrationRuns(subagentsRef.current, Date.now())
-			let finished: readonly OrchestrationRun[] = []
-			try {
-				finished = (await session?.listOrchestrationRuns?.()) ?? []
-			} catch {
-				// Disk evidence is optional here: a live-only listing is still an
-				// honest answer, and the empty-history message below still applies
-				// if that live half turns out empty too.
+	const runAgentsCommand = useCallback(
+		(args: readonly string[], openCockpit: () => void, listAvailable: () => void): void => {
+			const wantsBatches = args.length === 1 && args[0] === 'batches'
+			const pending: ChoicePickerState | undefined = wantsBatches
+				? {
+						kind: 'agent-batches',
+						title: 'Batches',
+						values: ['loading'],
+						options: [
+							{ label: 'Loading…', description: 'Reading saved batches…', disabledReason: 'Loading…' },
+						],
+					}
+				: undefined
+			if (pending) {
+				setSelectedChoice(0)
+				setChoicePicker(pending)
 			}
-			if (appLifetime.signal.aborted || choicePickerRef.current !== pending) return
-			const listing = combineOrchestrationRuns(live, finished)
-			const empty = renderAgentRuns(listing)
-			if (empty) {
-				setChoicePicker(null)
-				pushMessage('system', empty)
-				return
-			}
-			setChoicePicker({
-				kind: 'agent-runs',
-				title: 'Orchestration runs',
-				notice:
-					listing.omitted > 0
-						? `${listing.omitted} older run${listing.omitted === 1 ? '' : 's'} not shown.`
-						: undefined,
-				values: listing.runs,
-				options: listing.runs.map(agentRunOption),
-			})
-		})()
-	}, [appLifetime, pushMessage, session, setChoicePicker, setSelectedChoice])
+			void (async () => {
+				const result = await agentsSlashCommand(args, {
+					liveAgents: () => subagentsRef.current,
+					...(session?.listSavedBatches ? { savedBatches: session.listSavedBatches } : {}),
+				})
+				if (appLifetime.signal.aborted) return
+				if (pending && choicePickerRef.current !== pending) return
+				switch (result.kind) {
+					case 'agent-cockpit':
+						openCockpit()
+						return
+					case 'available-agents':
+						listAvailable()
+						return
+					case 'message':
+						if (pending) setChoicePicker(null)
+						pushMessage('system', result.content)
+						return
+					case 'batches':
+						setChoicePicker({
+							kind: 'agent-batches',
+							title: 'Batches',
+							notice:
+								result.listing.omitted > 0
+									? `${result.listing.omitted} older batch${result.listing.omitted === 1 ? '' : 'es'} not shown.`
+									: undefined,
+							values: result.listing.batches,
+							options: result.listing.batches.map(batchOption),
+						})
+						return
+				}
+			})()
+		},
+		[appLifetime, pushMessage, session, setChoicePicker, setSelectedChoice],
+	)
 	/**
-	 * Opens an `/agents runs` selection straight into its first agent's
+	 * Opens an `/agents batches` selection straight into its first agent's
 	 * transcript — where the replayed banner actually lives, for a finished
-	 * run — rather than the phase/agent list Ctrl+T lands on.
+	 * batch — rather than the phase/agent list Ctrl+T lands on.
 	 *
-	 * A finished run's evidence is hydrated first, since a run this operator
-	 * has not opened the cockpit for yet may not be in `subagents` at all.
-	 * A live run skips that: it is already there, and re-reading disk for a
-	 * run this process is still writing would risk the very half-written
-	 * evidence `listSavedOrchestrationRuns` exists to stay off of.
+	 * A finished batch's children are hydrated from their logs first, since a
+	 * batch this operator has not opened the cockpit for yet may not be in
+	 * `subagents` at all. A live batch skips that: it is already there.
 	 */
-	const openOrchestrationRun = useCallback(
-		async (run: OrchestrationRun): Promise<void> => {
-			if (!run.live) await hydrateSavedChildren()
+	const openBatch = useCallback(
+		async (batch: Batch): Promise<void> => {
+			if (!batch.live) await hydrateSavedChildren()
 			const workflow = agentWorkflows(subagentsRef.current).find((candidate) =>
-				candidate.agents.some((agent) => agent.workflowId === run.id),
+				candidate.agents.some((agent) => agent.workflowId === batch.id),
 			)
 			const firstPhase = workflow?.phases[0]
 			const firstAgent = firstPhase?.agents[0]
 			if (!firstPhase || !firstAgent) {
 				pushMessage(
 					'system',
-					`Could not open "${run.name}" — its saved evidence is no longer available.`,
+					`Could not open "${batch.name}" — its saved children are no longer available.`,
 				)
 				return
 			}
@@ -2050,42 +2050,27 @@ export function App({
 	)
 
 	const recordFeedback = useCallback(
-		(
-			sessionId: SessionId,
-			runIdValue: string,
-			messageIdValue: string,
-			rating: 'good' | 'bad',
-			note?: string,
-		) => {
+		(sessionId: SessionId, messageIdValue: string, rating: 'good' | 'bad', note?: string) => {
 			const sessions = sessionsRef.current
 			if (!sessions) {
 				pushMessage('system', 'Could not record feedback: conversation persistence is unavailable.')
 				return
 			}
-			// Run evidence is session-scoped in the canonical store. The old flat
-			// `<cwd>/.namzu/runs` lookup never existed after the hierarchy migration,
-			// so the feedback store correctly refused every TUI rating as unverifiable.
-			// Bind both trees to the exact conversation captured with the streamed
-			// message; `/resume` may change the active scope before a delayed click.
-			const sessionDir = new CliPathBuilder(sessions.root).sessionDir(
-				sessions.projectId,
-				sessionId,
-			)
-			const store = new DiskMessageFeedbackStore({
-				rootDir: join(sessionDir, 'feedback'),
-				runsDir: join(sessionDir, 'runs'),
-			})
-			const runId = runIdValue as RunId
+			// Feedback lives beside the conversation's log (`<session-id>/feedback/`)
+			// and is checked against it: a rating names a message that log holds.
+			// Bound to the exact conversation captured with the streamed message;
+			// `/resume` may change the active scope before a delayed click.
+			const store = new DiskMessageFeedbackStore({ paths: sessions.paths })
 			const messageId = messageIdValue as MessageId
 			void (async () => {
 				try {
 					// A later rating replaces the first. Read-then-write preserves the
 					// store's owner-version collision check instead of blind overwrite.
-					const current = (await store.listMessageFeedback({ runId })).find(
+					const current = (await store.listMessageFeedback({ sessionId })).find(
 						(record) => record.messageId === messageId,
 					)
 					const record = await store.putMessageFeedback({
-						runId,
+						sessionId,
 						messageId,
 						rating,
 						...(note ? { note } : {}),
@@ -2630,9 +2615,9 @@ export function App({
 				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
-			if (picker.kind === 'agent-runs') {
+			if (picker.kind === 'agent-batches') {
 				if (value === 'loading') return
-				void openOrchestrationRun(value as OrchestrationRun)
+				void openBatch(value as Batch)
 				return
 			}
 			if (picker.kind === 'archive-conversation') {
@@ -2688,7 +2673,7 @@ export function App({
 				return
 			}
 			if (picker.kind === 'feedback-rating') {
-				recordFeedback(picker.sessionId, picker.runId, picker.messageId, value as 'good' | 'bad')
+				recordFeedback(picker.sessionId, picker.messageId, value as 'good' | 'bad')
 				return
 			}
 			if (picker.kind === 'skill') {
@@ -2715,7 +2700,7 @@ export function App({
 			archiveCurrentConversation,
 			ctx.cwd,
 			enqueueQueued,
-			openOrchestrationRun,
+			openBatch,
 			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
@@ -3568,12 +3553,114 @@ export function App({
 	}
 
 	// `/resume`: open the picker with this folder's recent conversations.
+	/**
+	 * `/abandon`: close this conversation's paused or interrupted turn without
+	 * resuming it (`turn_failed{ abandoned }`), so the next prompt can begin a
+	 * turn. A turn running in this process is stopped with esc, not abandoned.
+	 */
+	const abandonActiveTurn = useCallback(
+		async (reason: string): Promise<void> => {
+			const sessions = sessionsRef.current
+			const scope = scopeRef.current
+			if (!sessions || !scope || !conversationMaterializedRef.current) {
+				pushMessage('system', 'Nothing to abandon: this conversation has no recorded turn yet.')
+				return
+			}
+			if (abortRef.current || state !== 'idle') {
+				pushMessage(
+					'system',
+					'A turn is running here. Press esc to stop it; /abandon closes a paused or interrupted one.',
+				)
+				return
+			}
+			try {
+				const active = await activeConversationTurn(sessions, scope.sessionId)
+				if (!active) {
+					pushMessage('system', 'This conversation has no paused or interrupted turn to abandon.')
+					return
+				}
+				if (!session?.abandonTurn) {
+					pushMessage('system', 'This session cannot abandon turns.')
+					return
+				}
+				await session.abandonTurn(active.turnId as TurnId, reason)
+				pushMessage(
+					'system',
+					`Abandoned turn ${active.turnId}. The next prompt starts a new turn in this conversation.`,
+				)
+			} catch (err) {
+				pushMessage(
+					'system',
+					`Could not abandon the turn: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		},
+		[pushMessage, session, state],
+	)
+
+	/**
+	 * `/resume` in a conversation whose turn is parked: continue that turn —
+	 * the same turn id, from its checkpoint — rendering it like any turn.
+	 * Returns false when there is no parked turn to continue.
+	 */
+	// `applyEvent` is declared further down; the resume path reads it at call time.
+	const applyEventRef = useRef<((event: AgentEvent, st: StreamState) => void) | null>(null)
+	const resumeActiveTurn = useCallback(async (): Promise<boolean> => {
+		const sessions = sessionsRef.current
+		const scope = scopeRef.current
+		if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
+			return false
+		const active = await activeConversationTurn(sessions, scope.sessionId).catch(() => undefined)
+		if (!active) return false
+		if (abortRef.current || state !== 'idle') {
+			pushMessage('system', 'Wait for the running turn to finish before resuming the parked one.')
+			return true
+		}
+		const ac = new AbortController()
+		abortRef.current = ac
+		setState('thinking')
+		const st: StreamState = {
+			assistantId: null,
+			text: '',
+			conversationMessages: undefined,
+			pending: '',
+			completed: false,
+			outcome: null,
+			sessionId: scope.sessionId,
+			notification: null,
+		}
+		pushMessage('system', `Resuming turn ${active.turnId} from its checkpoint.`, false, '▶')
+		try {
+			for await (const event of session.resumePaused({
+				turnId: active.turnId,
+				signal: ac.signal,
+			})) {
+				applyEventRef.current?.(event, st)
+			}
+			flushStream(st)
+			if (st.assistantId) finalizeMessage(st.assistantId)
+			// The resumed segment was appended to the log; the fold is the context
+			// the next prompt continues from.
+			modelHistoryRef.current = await loadConversation(sessions, scope.sessionId)
+		} catch (err) {
+			pushMessage(
+				'system',
+				`Could not resume the turn: ${err instanceof Error ? err.message : String(err)}`,
+			)
+		} finally {
+			if (abortRef.current === ac) abortRef.current = null
+			setState('idle')
+		}
+		return true
+	}, [finalizeMessage, flushStream, pushMessage, session, state])
+
 	const doResume = useCallback(async () => {
 		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
 		if (!sessions) {
 			pushMessage('system', 'Conversation history is unavailable in this folder.')
 			return
 		}
+		if (await resumeActiveTurn()) return
 		try {
 			const recent = await listRecent(sessions)
 			// Don't offer the active (empty/just-started) conversation.
@@ -3591,7 +3678,7 @@ export function App({
 				`Could not list conversations: ${err instanceof Error ? err.message : String(err)}`,
 			)
 		}
-	}, [ensureSessions, pushMessage])
+	}, [ensureSessions, pushMessage, resumeActiveTurn])
 
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
@@ -3661,7 +3748,7 @@ export function App({
 			if (cancelledSwitch) discardQueued()
 			return cancelledSwitch
 		}
-		ac.abort(new RunCancelled('user'))
+		ac.abort(new TurnCancelled('user'))
 		const activeSessionId = scopeRef.current?.sessionId
 		if (activeSessionId) goalActivation.disarm(activeSessionId)
 		wakeGoalDriver()
@@ -3943,7 +4030,7 @@ export function App({
 			}
 			try {
 				if (!clear && title === '') {
-					const current = titleOf(sessions, scope.sessionId)
+					const current = await titleOf(sessions, scope.sessionId)
 					textPromptTokenRef.current += 1
 					setTextPrompt({
 						token: textPromptTokenRef.current,
@@ -3956,7 +4043,7 @@ export function App({
 					})
 					return
 				}
-				setTitle(sessions, scope.sessionId, clear ? '' : title)
+				await setTitle(sessions, scope.sessionId, clear ? '' : title)
 				pushMessage(
 					'system',
 					clear
@@ -4001,8 +4088,8 @@ export function App({
 				)
 				return
 			}
-			if (prompt.kind === 'run-limit') {
-				const field = RUN_LIMIT_FIELDS.find((field) => field.key === prompt.limitKey)
+			if (prompt.kind === 'turn-limit') {
+				const field = TURN_LIMIT_FIELDS.find((field) => field.key === prompt.limitKey)
 				if (field) commandPickerSubmitRef.current(`/config limits ${field.name} ${value.trim()}`)
 				return
 			}
@@ -4023,15 +4110,14 @@ export function App({
 				pushMessage('system', 'Conversation history is unavailable in this folder.')
 				return
 			}
-			try {
-				setTitle(sessions, prompt.sessionId, value)
-				pushMessage('system', `Named "${value.trim()}".`)
-			} catch (error) {
-				pushMessage(
-					'system',
-					`Could not save the name: ${error instanceof Error ? error.message : String(error)}`,
-				)
-			}
+			void setTitle(sessions, prompt.sessionId, value).then(
+				() => pushMessage('system', `Named "${value.trim()}".`),
+				(error: unknown) =>
+					pushMessage(
+						'system',
+						`Could not save the name: ${error instanceof Error ? error.message : String(error)}`,
+					),
+			)
 		},
 		[pushMessage, runConversationExport, setTextPrompt],
 	)
@@ -4406,9 +4492,8 @@ export function App({
 						st.sourceTextPartId = event.textPart?.id
 					}
 					setState('thinking')
-					if (event.messageId && event.runId && st.sessionId) {
+					if (event.messageId && event.turnId && st.sessionId) {
 						lastAssistantMessage.current = {
-							runId: event.runId,
 							messageId: event.messageId,
 							sessionId: st.sessionId,
 						}
@@ -4453,13 +4538,13 @@ export function App({
 							? subagentsRef.current.find(
 									(agent) =>
 										agent.taskId === event.taskId &&
-										(event.runId === undefined || agent.workflowId === event.runId),
+										(event.turnId === undefined || agent.workflowId === event.turnId),
 								)
 							: undefined
 					const tool: RunningTool = {
 						...(waitingAgent ? { taskId: waitingAgent.taskId } : {}),
 						id: event.toolUseId,
-						...(event.runId ? { runId: event.runId } : {}),
+						...(event.turnId ? { turnId: event.turnId } : {}),
 						toolName: event.toolName,
 						activity: event.activity,
 						label: waitingAgent
@@ -4477,7 +4562,7 @@ export function App({
 					const index = running.findIndex(
 						(tool) =>
 							tool.id === event.toolUseId &&
-							(event.runId === undefined || tool.runId === event.runId),
+							(event.turnId === undefined || tool.turnId === event.turnId),
 					)
 					// A terminal event may already have removed this call. Never recreate
 					// a live row from late diagnostic state.
@@ -4506,7 +4591,7 @@ export function App({
 					const i = running.findIndex(
 						(tool) =>
 							tool.id === event.toolUseId &&
-							(event.runId === undefined || tool.runId === event.runId),
+							(event.turnId === undefined || tool.turnId === event.turnId),
 					)
 					const done = i >= 0 ? running[i] : undefined
 					if (i >= 0) {
@@ -4517,7 +4602,7 @@ export function App({
 					// Keep unknown waits and errors visible; never hide an unrepresented task.
 					const inspectableWait = done?.taskId && subagentsRef.current.some((agent) =>
 						agent.taskId === done.taskId &&
-						(event.runId === undefined || agent.workflowId === event.runId) &&
+						(event.turnId === undefined || agent.workflowId === event.turnId) &&
 						agent.transcript.some((row) => row.kind === 'assistant' && row.text.trim().length > 0))
 					if (!event.isError && inspectableWait && event.toolName === 'wait_for_task') {
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
@@ -4529,7 +4614,7 @@ export function App({
 						subagentsRef.current.some(
 							(agent) =>
 								agent.toolUseId === event.toolUseId &&
-								(event.runId === undefined || agent.workflowId === event.runId),
+								(event.turnId === undefined || agent.workflowId === event.turnId),
 						)
 					// The band above the rail already carries a narrated line, in the
 					// parent's own words, from the moment it is written. Printing the
@@ -4718,7 +4803,7 @@ export function App({
 						outcome: st.completed ? 'completed' : 'stopped',
 					}
 					closeAssistant()
-					const stopNotice = describeRunStop(event.stopReason, event.budget)
+					const stopNotice = describeTurnStop(event.stopReason, event.budget)
 					if (stopNotice) pushMessage('system', stopNotice, false, '■')
 					break
 				}
@@ -4731,20 +4816,21 @@ export function App({
 					st.outcome = 'stopped'
 					st.queuePauseOutcome = 'paused'
 					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
-					pushMessage('system', describeRunInterruption(event), false, '⏸')
+					pushMessage('system', describeTurnInterruption(event), false, '⏸')
 					break
 				case 'error':
 					closeAssistant()
 					st.outcome = event.message === 'aborted' ? 'cancelled' : 'failed'
 					if (event.message !== 'aborted') {
 						st.notification = { kind: 'turn-settled', outcome: 'failed' }
-						pushMessage('system', describeRunInterruption(event), false, '!')
+						pushMessage('system', describeTurnInterruption(event), false, '!')
 					} else st.notification = null
 					break
 			}
 		},
 		[appendToMessage, finalizeMessage, flushStream, pushMessage],
 	)
+	applyEventRef.current = applyEvent
 
 	const runTurn = useCallback(
 		async (prompt: QueuedPrompt) => {
@@ -4836,7 +4922,9 @@ export function App({
 					: undefined,
 			)
 			const priorForSdk: Message[] = [...historyBeforeTurn, userMessage]
-			const runId = generateRunId()
+			// Reserved before the turn begins, so everything that refers to this
+			// turn — its goal-round authority above all — names it from the start.
+			const turnId = generateTurnId()
 
 			if (goalRound) {
 				pushMessage(
@@ -5067,7 +5155,7 @@ export function App({
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
 			const turnOrchestrateMode = orchestrateModeRef.current
-			const turnRunLimits = resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current)
+			const turnRunLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
@@ -5080,48 +5168,26 @@ export function App({
 				}
 				return onPermission(req)
 			}
-			let evidenceTurn: ConversationTurnStartedRecord | undefined
-			let evidenceReady = goalRound === undefined
-			if (turnSessions?.turnEvidence && destination) {
-				try {
-					evidenceTurn = await turnSessions.turnEvidence.recordTurnStarted({
-						sessionId: destination,
-						runId,
-						displayText: text,
-						user: userMessage,
-					})
-					evidenceReady = true
-				} catch (err) {
-					if (goalRound) {
-						goalActivation.disarm(goalRound.sessionId, goalRound)
-						wakeGoalDriver()
-						pushMessage(
-							'system',
-							`Goal round ${goalRound.round} was not started because its durable evidence could not be recorded: ${err instanceof Error ? err.message : String(err)}. Automatic continuation is disarmed; /goal resume retries explicitly.`,
-						)
-					} else {
-						pushMessage(
-							'system',
-							`Could not record durable evidence for this turn before run ${runId}: ${err instanceof Error ? err.message : String(err)}. The turn will continue, but a complete export of conversation ${destination} will refuse rather than omit it.`,
-						)
-					}
-				}
-			} else if (goalRound) {
+			// A goal round is a turn of a durable conversation: its round is recorded
+			// on the turn (`origin.kind: 'goal-round'`), and a conversation that is
+			// not in a log has nowhere to record it.
+			const admitted = goalRound === undefined || Boolean(turnSessions && destination)
+			if (!admitted && goalRound) {
 				goalActivation.disarm(goalRound.sessionId, goalRound)
 				wakeGoalDriver()
 				pushMessage(
 					'system',
-					`Goal round ${goalRound.round} was not started because durable turn evidence is unavailable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
+					`Goal round ${goalRound.round} was not started because this conversation is not durable. Automatic continuation is disarmed; /goal resume retries explicitly.`,
 				)
 			}
 			try {
-				// `recordTurnStarted` is an awaited durability boundary. A conversation
-				// switch can happen while it is pending and move the mutable RunScope
-				// captured by `createAgentSession`. Re-admit the turn here, immediately
-				// before the generator exists, or an abandoned prompt can initialize its
-				// reserved SDK run under the new conversation.
+				// Setup above awaited. A conversation switch can happen meanwhile and
+				// move the mutable RunScope captured by `createAgentSession`. Re-admit
+				// the turn here, immediately before the generator exists, or an
+				// abandoned prompt can begin its reserved turn under the new
+				// conversation.
 				if (
-					evidenceReady &&
+					admitted &&
 					!ac.signal.aborted &&
 					stillHere() &&
 					activeTurnTokenRef.current === turnToken &&
@@ -5131,7 +5197,11 @@ export function App({
 				) {
 					for await (const event of session.send(priorForSdk, {
 						signal: ac.signal,
-						runId,
+						turnId,
+						origin: { protocol: 'cli', kind: goalRound ? 'goal-round' : 'prompt' },
+						// The TUI never resumes a turn whose process is gone; the next
+						// prompt closes it. A paused turn is never closed this way.
+						abandonInterrupted: true,
 						permissionMode: turnPermissionMode,
 						limits: turnRunLimits,
 						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
@@ -5202,16 +5272,12 @@ export function App({
 				// Prefer the kernel's settled conversation projection: it retains opaque
 				// reasoning, citations and complete tool turns that the visible delta
 				// stream cannot reconstruct. A fake/legacy session that does not publish
-				// one keeps the old text-only shape. The visible transcript still keeps
-				// the operator's readable `@file` token; both persistence paths keep what
-				// was actually sent, including expanded contents and attachments.
-				const fallbackTurn: Message[] = goalRound && !evidenceReady ? [] : [userMessage]
+				// one keeps the old text-only shape. The durable record is the session
+				// log, which the kernel appended to as the turn ran; this is only the
+				// in-memory context the next send starts from.
+				const fallbackTurn: Message[] = admitted ? [userMessage] : []
 				if (st.text.trim().length > 0) fallbackTurn.push(createAssistantMessage(st.text))
-				const conversationMessages =
-					goalRound && !evidenceReady ? undefined : st.conversationMessages
-				const publication = conversationMessages
-					? planTurnPublication(historyBeforeTurn, userMessage, conversationMessages)
-					: ({ kind: 'append', messages: fallbackTurn } as const)
+				const conversationMessages = admitted ? st.conversationMessages : undefined
 				const nextModelHistory = conversationMessages ?? [...historyBeforeTurn, ...fallbackTurn]
 				if (goalRound && (ac.signal.aborted || st.outcome !== 'completed')) {
 					goalActivation.disarm(goalRound.sessionId, goalRound)
@@ -5268,68 +5334,8 @@ export function App({
 						sendTerminalNotification(st.notification)
 					}
 				}
-				// Persisted either way, and into the conversation this turn was
-				// started in — captured above, never re-read.
-				//
-				// Best-effort is about not FAILING, not about staying quiet. The
-				// rejection used to be swallowed whole, and it is the one failure here
-				// that makes a LATER surface wrong: `/resume` comes back missing a
-				// turn that was on screen, and the next turn in that conversation
-				// silently lacks it as context, with nothing connecting either to a
-				// write that failed minutes ago. `run-stream` already says this, in
-				// these words and for this reason.
-				//
-				// Said wherever the operator is now, even when that is a different
-				// conversation, because there is no other channel and it is news they
-				// need. Naming the conversation is what keeps it from reading as a
-				// fault of the one in front of them.
-				if (
-					turnSessions &&
-					destination &&
-					(publication.kind === 'replace' || publication.messages.length > 0 || evidenceTurn)
-				) {
-					persistenceTailRef.current = persistenceTailRef.current.then(async () => {
-						if (evidenceTurn && turnSessions.turnEvidence) {
-							try {
-								await turnSessions.turnEvidence.recordTurnSettled({
-									sessionId: destination,
-									turnId: evidenceTurn.turnId,
-									runId,
-									outcome: ac.signal.aborted
-										? 'cancelled'
-										: (st.outcome ?? (st.completed ? 'completed' : 'stopped')),
-									assistantText: st.text,
-								})
-							} catch (err) {
-								pushMessage(
-									'system',
-									`Could not finish the durable evidence for turn ${evidenceTurn.turnId}: ${err instanceof Error ? err.message : String(err)}. A complete export of conversation ${destination} will refuse if the SDK run record cannot prove the missing text.`,
-								)
-							}
-						}
-						try {
-							if (publication.kind === 'replace') {
-								await replaceConversation(turnSessions, destination, publication.messages)
-							} else if (publication.messages.length > 0) {
-								await appendMessages(turnSessions, destination, publication.messages)
-							}
-						} catch (err) {
-							if (goalRound) {
-								goalActivation.disarm(goalRound.sessionId, goalRound)
-								wakeGoalDriver()
-							}
-							pushMessage(
-								'system',
-								`A turn was not saved to conversation ${destination}: ${
-									err instanceof Error ? err.message : String(err)
-								}. Its durable history will not include it. It remains only in this process's in-memory context if that conversation is still open; resuming or restarting will lose it.`,
-							)
-						}
-					})
-				}
-				// Removed only AFTER the write has been attached to the tail. A history
-				// operation that sees no current-generation entries can now await that
-				// tail without a turn appearing behind its read later.
+				// The kernel recorded the turn in the session log as it ran; nothing is
+				// left to publish once the loop has unwound.
 				unsettledTurnGenerationsRef.current.delete(turnToken)
 				const pending = pendingModelSwitchRef.current
 				if (pending?.turnToken === turnToken && pending.selection) {
@@ -5700,44 +5706,50 @@ export function App({
 						})
 						return
 					}
-					case 'agent-cockpit': {
-						// Reported after the read, not before it: the answer to "are
-						// there any" may be on disk, and a conversation whose evidence
-						// is sitting in its own directory must never be told it
-						// delegated nothing.
+					case 'agents': {
 						const agentIds = session?.agentIds ?? []
-						void openAgentCockpit().then((opened) => {
-							if (opened) return
-							pushMessage(
-								'system',
-								`No delegated agents in this conversation.${agentIds.length ? `\nAvailable: ${agentIds.join(', ')}` : '\nNo agents are configured.'}`,
-							)
-						})
+						runAgentsCommand(
+							slash.args,
+							() => {
+								// Reported after the read, not before it: the answer to "are
+								// there any" may be in the session's logs, and a conversation
+								// whose children are recorded there must never be told it
+								// delegated nothing.
+								void openAgentCockpit().then((opened) => {
+									if (opened) return
+									pushMessage(
+										'system',
+										`No delegated agents in this conversation.${agentIds.length ? `\nAvailable: ${agentIds.join(', ')}` : '\nNo agents are configured.'}`,
+									)
+								})
+							},
+							() => pushMessage('system', renderAgents(agentIds)),
+						)
 						return
 					}
-					case 'agent-runs': {
-						openAgentRunsPicker()
+					case 'abandon': {
+						void abandonActiveTurn(slash.reason)
 						return
 					}
 					case 'provider-setup':
 						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the active turn and prompts finish.'); return }
 						setProviderSetup(true)
 						return
-					case 'run-limits-set':
-					case 'run-limit-editor':
-					case 'run-limits-picker': {
-						const currentLimits = resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current)
-						if (slash.kind === 'run-limit-editor') {
+					case 'turn-limits-set':
+					case 'turn-limit-editor':
+					case 'turn-limits-picker': {
+						const currentLimits = resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current)
+						if (slash.kind === 'turn-limit-editor') {
 							const scope = scopeRef.current
 							if (!scope) {
-								pushMessage('system', 'Run limits are available after the session starts.')
+								pushMessage('system', 'Turn limits are available after the session starts.')
 								return
 							}
-							const field = RUN_LIMIT_FIELDS.find((field) => field.key === slash.key)!
+							const field = TURN_LIMIT_FIELDS.find((field) => field.key === slash.key)!
 							textPromptTokenRef.current += 1
 							setTextPrompt({
 								token: textPromptTokenRef.current,
-								kind: 'run-limit',
+								kind: 'turn-limit',
 								limitKey: slash.key,
 								title: `${field.label} (${slash.key === 'timeoutMs' ? 'ms; ' : ''}0 = unlimited)`,
 								placeholder: field.hint,
@@ -5747,15 +5759,15 @@ export function App({
 							})
 							return
 						}
-						if (slash.kind === 'run-limits-set') {
-							runLimitsOverrideRef.current = { ...runLimitsOverrideRef.current, ...slash.limits }
+						if (slash.kind === 'turn-limits-set') {
+							turnLimitsOverrideRef.current = { ...turnLimitsOverrideRef.current, ...slash.limits }
 						}
-						const commands = runLimitCommands(resolveRunGuards(currentLimits, runLimitsOverrideRef.current))
+						const commands = turnLimitCommands(resolveTurnGuards(currentLimits, turnLimitsOverrideRef.current))
 						setSelectedChoice(0)
 						setChoicePicker({
 							kind: 'command',
-							title: 'Run limits',
-							notice: `${slash.kind === 'run-limits-set' ? 'Updated. ' : ''}This session · new turns and their agents. Existing runs keep their limits.`,
+							title: 'Turn limits',
+							notice: `${slash.kind === 'turn-limits-set' ? 'Updated. ' : ''}This session · new turns and their agents. Existing turns keep their limits.`,
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -5787,8 +5799,8 @@ export function App({
 							},
 							{
 								name: 'config limits',
-								label: 'Run limits',
-								description: runLimitCommands(resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current))
+								label: 'Turn limits',
+								description: turnLimitCommands(resolveTurnGuards(ctxRef.current.limits, turnLimitsOverrideRef.current))
 									.slice(0, 3)
 									.map((field) => `${field.label}: ${field.description}`)
 									.join(' · '),
@@ -6405,7 +6417,6 @@ export function App({
 						setChoicePicker({
 							kind: 'feedback-rating',
 							title: 'Rate the latest answer',
-							runId: target.runId,
 							messageId: target.messageId,
 							sessionId: target.sessionId,
 							values,
@@ -6425,13 +6436,7 @@ export function App({
 							pushMessage('system', 'Nothing to rate yet.')
 							return
 						}
-						recordFeedback(
-							target.sessionId,
-							target.runId,
-							slash.messageId,
-							slash.rating,
-							slash.note,
-						)
+						recordFeedback(target.sessionId, slash.messageId, slash.rating, slash.note)
 						return
 					}
 					case 'review': {
@@ -6526,16 +6531,13 @@ export function App({
 									return
 								}
 
-								// Durable first, screen second. Reporting success and only then
-								// discovering `/resume` still has the old history is the exact
-								// false-success state this command used to create.
-								const sessions = sessionsRef.current
-								const destination = scopeRef.current?.sessionId
-								if (sessions && destination) {
-									await persistenceTailRef.current
-									await replaceConversation(sessions, destination, result.messages)
-								}
-								modelHistoryRef.current = result.messages
+								// Durable first, screen second: for a conversation in a log,
+								// `session.compact` has already appended the compaction record
+								// the next `/resume` folds, before it returned.
+								const durable = Boolean(
+									sessionsRef.current && scopeRef.current && conversationMaterializedRef.current,
+								)
+								modelHistoryRef.current = [...result.messages]
 
 								// How many user/assistant turns survived the pass.
 								// `keepRecentRows` explains why the transcript is trimmed
@@ -6558,7 +6560,7 @@ export function App({
 												? ` Verifier used ${result.usage.totalTokens.toLocaleString('en-US')} tokens.`
 												: ''
 										}${
-											sessions && destination
+											durable
 												? ''
 												: ' Conversation persistence is unavailable, so this compacted history lasts only for this process.'
 										}`,
@@ -6700,7 +6702,8 @@ export function App({
 			hostCommands,
 			nextId,
 			openAgentCockpit,
-			openAgentRunsPicker,
+			runAgentsCommand,
+			abandonActiveTurn,
 			pushMessage,
 			rawOutput,
 			rememberProjectNote,
@@ -6803,7 +6806,7 @@ export function App({
 		}
 		const durableSessions = sessionsRef.current
 		const scope = scopeRef.current
-		if (!durableSessions?.turnEvidence || !scope) return
+		if (!durableSessions || !scope || !conversationMaterializedRef.current) return
 		const generation = conversationGenRef.current
 		const sessionId = scope.sessionId
 		const armed = goalActivation.get(sessionId)
@@ -7200,7 +7203,7 @@ export function App({
 						? permission.review
 						: (permission.summary.compactText ?? permission.summary.text)
 					const count = permissionReviewRows(source, terminal.columns).length
-					const pageRows = Math.max(1, permissionReviewPageRows(terminal.rows) - (permission.runId ? 1 : 0))
+					const pageRows = Math.max(1, permissionReviewPageRows(terminal.rows) - (reviewSource(permission, scopeRef.current?.sessionId) ? 1 : 0))
 					const maxOffset = Math.max(0, count - pageRows)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -7641,8 +7644,8 @@ export function App({
 	const visibleActiveTools = activeTools.filter(
 		(tool) =>
 			tool.toolName.toLowerCase() !== 'agent' ||
-			!(tool.runId
-				? representedSubagentTools.has(JSON.stringify([tool.runId, tool.id]))
+			!(tool.turnId
+				? representedSubagentTools.has(JSON.stringify([tool.turnId, tool.id]))
 				: representedUnscopedSubagentToolUseIds.has(tool.id)),
 	)
 	const outputBlocks = outputViewer
@@ -7708,11 +7711,14 @@ export function App({
 																session?.hasProvider === true,
 																composerHasDraft,
 															)
-	const permissionOwner = permission?.runId
-		? subagents.find((agent) => agent.runId === permission.runId)
+	const permissionSource = reviewSource(permission, scopeRef.current?.sessionId)
+	const permissionOwner = permissionSource
+		? subagents.find((agent) => agent.sessionId === permissionSource)
 		: undefined
-	const permissionSourceLabel = permission?.runId
-		? permissionOwner ? `Agent: ${permissionOwner.description}` : `Run: ${permission.runId}`
+	const permissionSourceLabel = permissionSource
+		? permissionOwner
+			? `Agent: ${permissionOwner.description}`
+			: `Session: ${permissionSource}`
 		: undefined
 	const displayedPermissionMode = effectivePermissionMode(
 		permissionMode,
@@ -8131,28 +8137,42 @@ function goalStatusLabel(goal: SessionGoal | null, armed: boolean): string | nul
 	}
 }
 
+/**
+ * The child session a tool review came from, when it is not this
+ * conversation's own turn: what names the agent asking in the prompt. Read by
+ * field, because the review request names its session only when the kernel
+ * attributes it.
+ */
+function reviewSource(
+	request: object | null | undefined,
+	currentSessionId: string | undefined,
+): string | undefined {
+	const sessionId = (request as { readonly sessionId?: unknown } | null | undefined)?.sessionId
+	return typeof sessionId === 'string' && sessionId !== currentSessionId ? sessionId : undefined
+}
+
 /** The label the operator saw for the option id they chose. */
 function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
 }
 
-/** `/agents runs`' one-line-per-run text, mirroring `/jobs`' own column shape. */
-function agentRunOption(run: OrchestrationRun): ChoicePickerOption {
-	const agents = `${run.agentsDone}/${run.agentsTotal} agent${run.agentsTotal === 1 ? '' : 's'}`
-	const tokens = `${run.tokensTotal.toLocaleString('en-US')} tokens`
+/** `/agents batches`' one-line-per-batch text, mirroring `/jobs`' own column shape. */
+function batchOption(batch: Batch): ChoicePickerOption {
+	const agents = `${batch.agentsDone}/${batch.agentsTotal} agent${batch.agentsTotal === 1 ? '' : 's'}`
+	const tokens = `${batch.tokensTotal.toLocaleString('en-US')} tokens`
 	const columns = [
-		relativeRunStart(run.startedAt),
-		run.phases.join(', '),
+		relativeStart(batch.startedAt),
+		batch.phases.join(', '),
 		agents,
 		tokens,
-		formatElapsed(run.elapsedMs),
+		formatElapsed(batch.elapsedMs),
 	]
-	if (run.live) columns.push('live')
-	return { label: run.name, description: columns.join(' · ') }
+	if (batch.live) columns.push('live')
+	return { label: batch.name, description: columns.join(' · ') }
 }
 
 /** `just now` / `12m ago` / `3h ago` / `2d ago` — the same buckets a conversation's own resume picker shows. */
-function relativeRunStart(startedAt: number): string {
+function relativeStart(startedAt: number): string {
 	const minutes = Math.round((Date.now() - startedAt) / 60_000)
 	if (minutes < 1) return 'just now'
 	if (minutes < 60) return `${minutes}m ago`

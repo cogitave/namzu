@@ -1,38 +1,38 @@
-import { type RunGuardKey, type RunGuards, resolveRunGuards } from '../config/run-limits.js'
+import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/run-limits.js'
 
-export const RUN_LIMIT_FIELDS = [
+export const TURN_LIMIT_FIELDS = [
 	{
 		name: 'tokens',
 		key: 'tokenBudget',
 		label: 'Token budget',
-		hint: 'Whole tokens across the run and its children; 0 or unlimited removes the cap.',
+		hint: 'Whole tokens across the turn and its children; 0 or unlimited removes the cap.',
 	},
 	{
 		name: 'iterations',
 		key: 'maxIterations',
 		label: 'Model turns',
-		hint: 'Whole model calls per run; 0 or unlimited removes the cap.',
+		hint: 'Whole model calls per turn; 0 or unlimited removes the cap.',
 	},
 	{
 		name: 'time',
 		key: 'timeoutMs',
-		label: 'Run duration',
+		label: 'Turn duration',
 		hint: 'Duration such as 30m, 2h or 1500ms; a bare number is milliseconds. 0 or unlimited removes the cap.',
 	},
 ] as const
 
-export type RunLimitsAction =
-	| { kind: 'run-limits-picker' }
-	| { kind: 'run-limit-editor'; key: RunGuardKey }
-	| { kind: 'run-limits-set'; limits: Partial<RunGuards> }
+export type TurnLimitsAction =
+	| { kind: 'turn-limits-picker' }
+	| { kind: 'turn-limit-editor'; key: TurnGuardKey }
+	| { kind: 'turn-limits-set'; limits: Partial<TurnGuards> }
 	| { kind: 'message'; role: 'system'; content: string; statusRows?: undefined }
 
-export function runLimitsAction(args: readonly string[]): RunLimitsAction {
-	if (args.length === 0) return { kind: 'run-limits-picker' }
+export function turnLimitsAction(args: readonly string[]): TurnLimitsAction {
+	if (args.length === 0) return { kind: 'turn-limits-picker' }
 	if (args.length === 1 && args[0] === 'unlimited')
-		return { kind: 'run-limits-set', limits: resolveRunGuards() }
-	const field = RUN_LIMIT_FIELDS.find((field) => field.name === args[0])
-	if (field && args.length === 1) return { kind: 'run-limit-editor', key: field.key }
+		return { kind: 'turn-limits-set', limits: resolveTurnGuards() }
+	const field = TURN_LIMIT_FIELDS.find((field) => field.name === args[0])
+	if (field && args.length === 1) return { kind: 'turn-limit-editor', key: field.key }
 	if (field && args.length === 2) {
 		try {
 			const raw = (args[1] ?? '').toLowerCase()
@@ -46,8 +46,8 @@ export function runLimitsAction(args: readonly string[]): RunLimitsAction {
 						: /^\d+$/.test(raw)
 							? Number(raw)
 							: Number.NaN
-			resolveRunGuards({ [field.key]: value })
-			return { kind: 'run-limits-set', limits: { [field.key]: value } }
+			resolveTurnGuards({ [field.key]: value })
+			return { kind: 'turn-limits-set', limits: { [field.key]: value } }
 		} catch (error) {
 			return {
 				kind: 'message',
@@ -64,7 +64,7 @@ export function runLimitsAction(args: readonly string[]): RunLimitsAction {
 	}
 }
 
-export function formatRunLimit(key: RunGuardKey, value: number): string {
+export function formatTurnLimit(key: TurnGuardKey, value: number): string {
 	if (value === 0) return 'Unlimited'
 	if (key === 'timeoutMs') {
 		for (const [unit, divisor] of [
@@ -78,16 +78,16 @@ export function formatRunLimit(key: RunGuardKey, value: number): string {
 	return value.toLocaleString('en-US')
 }
 
-export function runLimitCommands(limits: RunGuards) {
+export function turnLimitCommands(limits: TurnGuards) {
 	return [
-		...RUN_LIMIT_FIELDS.map((field) => ({
+		...TURN_LIMIT_FIELDS.map((field) => ({
 			name: `config limits ${field.name}`,
 			label: field.label,
-			description: formatRunLimit(field.key, limits[field.key]),
+			description: formatTurnLimit(field.key, limits[field.key]),
 		})),
 		{
 			name: 'config limits unlimited',
-			label: 'Remove all run caps',
+			label: 'Remove all turn caps',
 			description: 'Unlimited tokens, model turns and duration. Usage is still measured.',
 		},
 	]
