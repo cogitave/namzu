@@ -3,13 +3,13 @@ import {
 	CheckpointManager,
 	MutationNotApplicableError,
 	listCheckpoints,
-	prepareReplayState,
+	prepareForkState,
 } from '../index.js'
 import type { CheckpointListEntry, Mutation, Turn, TurnForkOrigin } from '../index.js'
 
 describe('the fork primitive — root public surface', () => {
 	it('exposes runtime values at the package root', () => {
-		expect(typeof prepareReplayState).toBe('function')
+		expect(typeof prepareForkState).toBe('function')
 		expect(typeof listCheckpoints).toBe('function')
 		expect(typeof CheckpointManager).toBe('function')
 		expect(typeof MutationNotApplicableError).toBe('function')

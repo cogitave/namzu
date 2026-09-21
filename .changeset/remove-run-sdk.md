@@ -149,9 +149,11 @@ cannot list them: implement it to keep them listable.
 `EmergencySaveId`, `generateEmergencySaveId`, `asEmergencySaveId`,
 `EMERGENCY_DIR_NAME`, `EMERGENCY_EVENTS`, `EMERGENCY_SIGNALS` and
 `projectEmergencyToCheckpoint` are gone. The log and the per-iteration
-checkpoints hold everything a dump held. `prepareReplayState({ fromCheckpoint:
-'emergency' })` is no longer accepted: the selector is a checkpoint id or
-`'latest'`. A replay forks a **new session** whose `session_started.forkedFrom`
+checkpoints hold everything a dump held. `prepareReplayState`,
+`PrepareReplayInput` and `PreparedReplayState` are `prepareForkState`,
+`PrepareForkInput` and `PreparedForkState`, and `fromCheckpoint: 'emergency'`
+is no longer accepted: the selector (`CheckpointSelector`) is a checkpoint id
+or `'latest'`. A replay forks a **new session** whose `session_started.forkedFrom`
 names the source `{ sessionId, turnId, checkpointId }`.
 
 **Layout.** Everything lives under `NAMZU_HOME` (default `~/.namzu`,

@@ -11,7 +11,7 @@ export interface ListCheckpointsInput {
 
 /**
  * Read-only listing of a turn's checkpoints, to pick a fork point for
- * {@link import('./prepare.js').prepareReplayState}. Returns the public
+ * {@link import('./prepare.js').prepareForkState}. Returns the public
  * {@link CheckpointListEntry} projection, oldest first.
  */
 export async function listCheckpoints(input: ListCheckpointsInput): Promise<CheckpointListEntry[]> {

@@ -9,14 +9,14 @@ import {
 	checkpointStoreFor,
 	sessionWithCheckpoint,
 } from '../../__tests__/support/session.js'
-import { prepareReplayState } from '../prepare.js'
+import { prepareForkState } from '../prepare.js'
 
 /** What a fork reads: the source session's log, its checkpoints and the turn. */
 function source(session: CheckpointedSession) {
 	return { sessionLog: session.log, checkpointStore: session.store, scope: session.scope }
 }
 
-describe('prepareReplayState', () => {
+describe('prepareForkState', () => {
 	it('resolves a specific checkpoint and returns the context it covers', async () => {
 		const messages: Message[] = [
 			{ role: 'user', content: 'start' },
@@ -28,7 +28,7 @@ describe('prepareReplayState', () => {
 			document: { iteration: 3 },
 		})
 
-		const prepared = await prepareReplayState({
+		const prepared = await prepareForkState({
 			...source(session),
 			fromCheckpoint: '17f1fb6b-0479-40a1-bf1e-115de23b0ba3' as CheckpointId,
 		})
@@ -49,7 +49,7 @@ describe('prepareReplayState', () => {
 		const highest = await addCheckpoint(session, { iteration: 5 })
 		await addCheckpoint(session, { iteration: 3 })
 
-		const prepared = await prepareReplayState({ ...source(session), fromCheckpoint: 'latest' })
+		const prepared = await prepareForkState({ ...source(session), fromCheckpoint: 'latest' })
 
 		expect(prepared.sourceCheckpoint.checkpointId).toBe(highest)
 		expect(prepared.sourceCheckpoint.iteration).toBe(5)
@@ -58,7 +58,7 @@ describe('prepareReplayState', () => {
 	it("throws when 'latest' is requested but no checkpoints exist", async () => {
 		const session = await sessionWithCheckpoint()
 		await expect(
-			prepareReplayState({
+			prepareForkState({
 				...source(session),
 				checkpointStore: checkpointStoreFor(session.log),
 				fromCheckpoint: 'latest',
@@ -69,7 +69,7 @@ describe('prepareReplayState', () => {
 	it('throws when a specific checkpoint does not resolve', async () => {
 		const session = await sessionWithCheckpoint()
 		await expect(
-			prepareReplayState({
+			prepareForkState({
 				...source(session),
 				fromCheckpoint: 'e8e27c68-a53c-4003-9fbe-3349649af71a' as CheckpointId,
 			}),
@@ -93,7 +93,7 @@ describe('prepareReplayState', () => {
 			},
 		]
 
-		const prepared = await prepareReplayState({
+		const prepared = await prepareForkState({
 			...source(session),
 			fromCheckpoint: session.checkpointId,
 			mutate: mutations,

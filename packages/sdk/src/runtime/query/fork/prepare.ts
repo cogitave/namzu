@@ -12,7 +12,7 @@ import { applyMutations } from './mutate.js'
 /** Which checkpoint to fork at: an id, or the turn's newest. */
 export type CheckpointSelector = CheckpointId | 'latest'
 
-export interface PrepareReplayInput {
+export interface PrepareForkInput {
 	/** The source session's log: the checkpoint's context is its fold. */
 	readonly sessionLog: SessionLog
 	/** The store the source turn's checkpoints are in. */
@@ -26,7 +26,7 @@ export interface PrepareReplayInput {
 	readonly logger?: Logger
 }
 
-export interface PreparedReplayState {
+export interface PreparedForkState {
 	/**
 	 * The context at the fork point, with mutations applied: the fold of the
 	 * source session's log through the checkpoint. Seed a NEW session with it
@@ -54,7 +54,7 @@ export interface PreparedReplayState {
  * document must match its `checkpoint_written` record and the log prefix it
  * covers must be intact.
  */
-export async function prepareReplayState(input: PrepareReplayInput): Promise<PreparedReplayState> {
+export async function prepareForkState(input: PrepareForkInput): Promise<PreparedForkState> {
 	const sourceCheckpoint = await resolveCheckpoint(input)
 	const restored = await restoreCheckpointContext(input.sessionLog, sourceCheckpoint)
 	const mutations = input.mutate ?? []
@@ -71,7 +71,7 @@ export async function prepareReplayState(input: PrepareReplayInput): Promise<Pre
 	}
 }
 
-async function resolveCheckpoint(input: PrepareReplayInput): Promise<Checkpoint> {
+async function resolveCheckpoint(input: PrepareForkInput): Promise<Checkpoint> {
 	if (input.fromCheckpoint === 'latest') {
 		const all = await input.checkpointStore.list(input.scope)
 		const newest = [...all].sort((a, b) => b.iteration - a.iteration)[0]

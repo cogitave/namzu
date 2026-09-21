@@ -345,8 +345,8 @@ export { abandonTurn } from './runtime/query/abandon-turn.js'
 export type { SessionLocatorOptions } from './runtime/query/abandon-turn.js'
 export { compactSession } from './runtime/query/compact-session.js'
 export type { CompactSessionParams } from './runtime/query/compact-session.js'
-export { prepareReplayState } from './runtime/query/replay/prepare.js'
-export { listCheckpoints } from './runtime/query/replay/list.js'
+export { prepareForkState } from './runtime/query/fork/prepare.js'
+export { listCheckpoints } from './runtime/query/fork/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
 export {
 	buildLimitConfig,
@@ -1380,11 +1380,11 @@ export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
 export type { BidiTurn, BidiTurnParams } from './runtime/bidi/session.js'
 export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'
 export type { ToolResultCorrespondenceOptions } from './runtime/query/guardrail-presets.js'
-export type { ListCheckpointsInput } from './runtime/query/replay/list.js'
+export type { ListCheckpointsInput } from './runtime/query/fork/list.js'
 export type {
-	PrepareReplayInput,
-	PreparedReplayState,
-} from './runtime/query/replay/prepare.js'
+	PrepareForkInput,
+	PreparedForkState,
+} from './runtime/query/fork/prepare.js'
 export type {
 	HandoffAssignment,
 	HandoffOutcome,

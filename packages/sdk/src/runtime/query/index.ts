@@ -642,7 +642,7 @@ export interface QueryParams {
 	/**
 	 * Present when this session was forked from another session's checkpoint:
 	 * written into `session_started.forkedFrom` when the log is started, and
-	 * carried on the returned turn. See `prepareReplayState`.
+	 * carried on the returned turn. See `prepareForkState`.
 	 */
 	forkedFrom?: TurnForkOrigin
 
