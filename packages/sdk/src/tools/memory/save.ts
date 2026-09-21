@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { MemoryNameConflictError } from '../../store/memory/naming.js'
+import { MemoryContentRejectedError, MemoryNameConflictError } from '../../store/memory/naming.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
@@ -52,6 +52,14 @@ export function buildSaveMemoryTool(store: MemoryStore): ToolDefinition {
 					},
 				}
 			} catch (error) {
+				if (error instanceof MemoryContentRejectedError) {
+					return {
+						success: false,
+						output: error.message,
+						error: 'Memory content rejected',
+						data: { reason: error.reason },
+					}
+				}
 				if (!(error instanceof MemoryNameConflictError)) throw error
 				return {
 					success: false,

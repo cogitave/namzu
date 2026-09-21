@@ -154,7 +154,8 @@ describe('slugifyMemoryName', () => {
 		['Çalışma dizini ayarı', 'calisma-dizini-ayari'],
 		['日本語', 'memory-note'],
 		['MEMORY', 'memory-note'],
-		['x'.repeat(100), 'x'.repeat(60)],
+		['x'.repeat(100), 'x'.repeat(32)],
+		['Always run pnpm -r build before running the CLI tests', 'always-run-pnpm-r-build-before'],
 	])('%s → %s', (title, slug) => {
 		expect(slugifyMemoryName(title)).toBe(slug)
 	})

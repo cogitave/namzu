@@ -25,16 +25,21 @@ function clip(text: string, limit: number): string {
 	return `${head.trimEnd()}…`
 }
 
-/** `- [name](name.md) — description`, the description clipped so the line fits. */
+/**
+ * `- [name](name.md) — description`, never longer than
+ * {@link MEMORY_INDEX_LINE_MAX_CHARS}: the description is clipped to the room
+ * the link leaves. A name at the 64-character limit leaves ten characters;
+ * the link alone always fits.
+ */
 export function memoryIndexLine(
 	entry: Pick<MemoryIndexEntry, 'name' | 'description' | 'summary'>,
 ): string {
 	const name = entry.name ?? ''
 	const link = `- [${name}](${name}.md)`
 	const description = (entry.description ?? entry.summary).replace(/\s+/g, ' ').trim()
-	if (!description) return link
 	const room = MEMORY_INDEX_LINE_MAX_CHARS - link.length - 3
-	return `${link} — ${clip(description, Math.max(room, 16))}`
+	if (!description || room < 2) return link
+	return `${link} — ${clip(description, room)}`
 }
 
 export interface RenderedMemoryIndex {

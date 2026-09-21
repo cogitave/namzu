@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, realpath, unlink } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
 import { NamzuError } from '../../types/errors/index.js'
@@ -34,6 +34,7 @@ import {
 	parseMemoryFile,
 } from './markdown-format.js'
 import {
+	MemoryContentRejectedError,
 	MemoryNameConflictError,
 	assertOptionalMemoryFields,
 	isMemoryName,
@@ -91,6 +92,18 @@ interface LoadedMemory {
 }
 
 type Loaded = ReadonlyMap<MemoryId, LoadedMemory>
+
+interface LoadResult {
+	readonly loaded: Loaded
+	/**
+	 * Older files sharing an id with a newer one: what a rename leaves when the
+	 * process stops between writing the new file and unlinking the old one.
+	 */
+	readonly superseded: readonly string[]
+}
+
+/** Suffix a superseded file is moved aside under. Not `.md`, so never loaded again. */
+const SUPERSEDED_SUFFIX = '.superseded'
 
 function invalidFile(file: string, reason: string, cause?: unknown): never {
 	throw new NamzuError({
@@ -246,8 +259,13 @@ function decodeMemoryFile(
  * directory's exclusive operation lock and reloads what is on disk, so no
  * process acts on another's stale snapshot; writes are atomic renames of
  * private (0600) files; a file that does not parse, a name that does not match
- * its file, a symlink, two files claiming one id, or a record stamped by a
- * newer build is refused with the file named, never skipped. A store that
+ * its file, a symlink, two files claiming one id with the same `updatedAt`, or
+ * a record stamped by a newer build is refused with the file named, never
+ * skipped. Two files claiming one id with different `updatedAt` are what an
+ * interrupted rename leaves: the newer is read, and the next write moves the
+ * older aside to `<name>.md.superseded`. Content the loader would refuse — a
+ * NUL character, a file over {@link MEMORY_FILE_MAX_BYTES} — is refused with
+ * {@link MemoryContentRejectedError} before it is written. A store that
  * quietly dropped the one file it could not read would present the model an
  * incomplete memory as a complete one.
  *
@@ -289,8 +307,9 @@ export class MarkdownMemoryStore implements MemoryStore {
 		return path
 	}
 
-	private async load(dir: string, importing: boolean): Promise<Loaded> {
+	private async load(dir: string, importing: boolean): Promise<LoadResult> {
 		const loaded = new Map<MemoryId, LoadedMemory>()
+		const superseded: string[] = []
 		const names = await readdir(dir)
 		names.sort()
 		// A `DiskMemoryStore` index in the same directory holds records this
@@ -326,15 +345,33 @@ export class MarkdownMemoryStore implements MemoryStore {
 			if (raw.includes('\0')) invalidFile(path, 'contains NUL bytes')
 			const record = decodeMemoryFile(raw, path, fileName, stat.mtimeMs)
 			const other = loaded.get(record.entry.id)
-			if (other) invalidFile(path, `claims id ${record.entry.id}, which ${other.path} also claims`)
+			if (other) {
+				// Two files, one id. When one was written later it is the rename
+				// that finished writing and did not get to unlink the other; keep
+				// it. Equal timestamps mean a copy, which nothing here can settle.
+				if (other.entry.updatedAt === record.entry.updatedAt) {
+					invalidFile(path, `claims id ${record.entry.id}, which ${other.path} also claims`)
+				}
+				const [newer, older] =
+					record.entry.updatedAt > other.entry.updatedAt
+						? [{ ...record, path }, other]
+						: [other, { ...record, path }]
+				this.log.warn('Memory file superseded by a newer file with the same id', {
+					'namzu.memory.id': record.entry.id,
+					'namzu.store.path': older.path,
+				})
+				superseded.push(older.path)
+				loaded.set(record.entry.id, newer)
+				continue
+			}
 			loaded.set(record.entry.id, { ...record, path })
 		}
-		return loaded
+		return { loaded, superseded }
 	}
 
 	private async withLoaded<T>(
 		operation: (dir: string, loaded: Loaded) => Promise<T>,
-		importing = false,
+		mode: { readonly importing?: boolean; readonly writes?: boolean } = {},
 	): Promise<T> {
 		const dir = await this.location()
 		const release = await acquireMemoryOperationLock(
@@ -342,10 +379,33 @@ export class MarkdownMemoryStore implements MemoryStore {
 			this.lockTimeoutMs,
 		)
 		try {
-			return await operation(dir, await this.load(dir, importing))
+			const { loaded, superseded } = await this.load(dir, mode.importing ?? false)
+			// A write finishes the interrupted rename, moving the older file aside
+			// rather than deleting it; a read leaves the directory as it found it.
+			if (mode.writes) for (const path of superseded) await this.setAside(path)
+			return await operation(dir, loaded)
 		} finally {
 			await release()
 		}
+	}
+
+	/** {@link withLoaded} for an operation that writes. */
+	private mutate<T>(
+		operation: (dir: string, loaded: Loaded) => Promise<T>,
+		importing = false,
+	): Promise<T> {
+		return this.withLoaded(operation, { importing, writes: true })
+	}
+
+	private async setAside(path: string): Promise<void> {
+		let target = `${path}${SUPERSEDED_SUFFIX}`
+		const taken = (candidate: string) =>
+			lstat(candidate).then(
+				() => true,
+				() => false,
+			)
+		for (let n = 2; await taken(target); n++) target = `${path}${SUPERSEDED_SUFFIX}-${n}`
+		await rename(path, target)
 	}
 
 	private async writeMemory(
@@ -355,27 +415,34 @@ export class MarkdownMemoryStore implements MemoryStore {
 	): Promise<string> {
 		const name = entry.name ?? ''
 		const path = this.memoryPath(dir, name)
-		await atomicWriteFile(
-			path,
-			formatMemoryFile(
-				{
-					name,
-					description: entry.description ?? oneLine(entry.summary),
-					type: entry.type ?? 'project',
-					status: entry.status,
-					createdAt: entry.createdAt,
-					updatedAt: entry.updatedAt,
-					tags: entry.tags,
-					id: entry.id,
-					title: entry.title,
-					summary: entry.summary,
-					format: content.format,
-					...(content.metadata !== undefined ? { metadata: content.metadata } : {}),
-				},
-				content.content,
-			),
-			{ mode: FILE_MODE },
+		// What `load` refuses is refused here, before the write: one file the
+		// loader will not read makes every later operation in the directory fail.
+		if (content.content.includes('\0')) throw new MemoryContentRejectedError('nul_byte')
+		const file = formatMemoryFile(
+			{
+				name,
+				description: entry.description ?? oneLine(entry.summary),
+				type: entry.type ?? 'project',
+				status: entry.status,
+				createdAt: entry.createdAt,
+				updatedAt: entry.updatedAt,
+				tags: entry.tags,
+				id: entry.id,
+				title: entry.title,
+				summary: entry.summary,
+				format: content.format,
+				...(content.metadata !== undefined ? { metadata: content.metadata } : {}),
+			},
+			content.content,
 		)
+		const bytes = Buffer.byteLength(file, 'utf8')
+		if (bytes > MEMORY_FILE_MAX_BYTES) {
+			throw new MemoryContentRejectedError('too_large', {
+				bytes,
+				limit: MEMORY_FILE_MAX_BYTES,
+			})
+		}
+		await atomicWriteFile(path, file, { mode: FILE_MODE })
 		return path
 	}
 
@@ -398,7 +465,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 		params: CreateMemoryParams,
 	): Promise<{ entry: MemoryIndexEntry; content: MemoryContent }> {
 		assertOptionalMemoryFields(params)
-		return this.withLoaded(async (dir, loaded) => {
+		return this.mutate(async (dir, loaded) => {
 			const entries = this.entries(loaded)
 			let name: string
 			if (params.name !== undefined) {
@@ -479,7 +546,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 	async update(id: MemoryId, updates: UpdateMemoryParams): Promise<MemoryIndexEntry | undefined> {
 		if (updates.status !== undefined) assertMemoryStatus(updates.status)
 		assertOptionalMemoryFields(updates)
-		return this.withLoaded(async (dir, loaded) => {
+		return this.mutate(async (dir, loaded) => {
 			const existing = loaded.get(id)
 			if (!existing) return undefined
 			const entries = this.entries(loaded)
@@ -496,7 +563,9 @@ export class MarkdownMemoryStore implements MemoryStore {
 				summary: updates.summary ?? existing.entry.summary,
 				tags: updates.tags ? [...updates.tags] : existing.entry.tags,
 				status: updates.status ?? existing.entry.status,
-				updatedAt: Date.now(),
+				// Strictly later, so a file this update leaves behind is always
+				// the older of the two (see `load`).
+				updatedAt: Math.max(Date.now(), existing.entry.updatedAt + 1),
 			}
 			const content: MemoryContent = {
 				...existing.content,
@@ -506,8 +575,9 @@ export class MarkdownMemoryStore implements MemoryStore {
 			}
 			const path = await this.writeMemory(dir, entry, content)
 			// A rename writes the new file before removing the old one. A crash
-			// between the two leaves both claiming this id, which the next load
-			// refuses by name — visible, where the other order could lose it.
+			// between the two leaves both claiming this id; the next load reads
+			// the newer (this one's updatedAt is later) and a write sets the
+			// older aside. The other order could lose the memory.
 			if (path !== existing.path) await unlink(existing.path)
 			await this.writeIndex(
 				dir,
@@ -519,7 +589,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 	}
 
 	async delete(id: MemoryId): Promise<boolean> {
-		return this.withLoaded(async (dir, loaded) => {
+		return this.mutate(async (dir, loaded) => {
 			const existing = loaded.get(id)
 			if (!existing) return false
 			try {
@@ -585,7 +655,7 @@ export class MarkdownMemoryStore implements MemoryStore {
 				retryable: false,
 			})
 		}
-		return this.withLoaded(async (dir, loaded) => {
+		return this.mutate(async (dir, loaded) => {
 			if (loaded.has(record.entry.id)) return 'present'
 			const entries = this.entries(loaded)
 			const taken = new Set(entries.flatMap((entry) => (entry.name ? [entry.name] : [])))

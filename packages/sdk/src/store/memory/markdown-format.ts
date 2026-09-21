@@ -26,8 +26,11 @@
  * This one reads exactly three value spellings — a plain scalar, a
  * double-quoted JSON value (string, array or object; JSON is YAML's flow
  * syntax), a single-quoted YAML string — and a block list of those under a
- * key with no value. Everything else is refused with the file and line, as
- * is an unknown or repeated key: a key this build does not know is a field it
+ * key with no value. A value opening with `[` or `{` that is not JSON is read
+ * as the plain string it was written as, so a field that needs a list or an
+ * object refuses it by type and a description like `[WIP] notes` just works.
+ * Everything else is refused with the file and line, as is an unknown or
+ * repeated key: a key this build does not know is a field it
  * would silently drop on the next write.
  *
  * The writer only emits what the reader reads, so every file this store
@@ -89,9 +92,14 @@ function parseValue(raw: string, file: string, line: number): FrontmatterJson {
 		try {
 			return JSON.parse(value) as FrontmatterJson
 		} catch {
+			// `description: [WIP] deploy notes` is a plain string to the person
+			// who wrote it. A `[` or `{` value that is not JSON is read as that
+			// string; a field that needs a list or an object (tags, metadata)
+			// still refuses it by type. An unterminated `"` has no such reading.
+			if (!value.startsWith('"')) return value
 			throw new MemoryFileFormatError(
 				file,
-				'a value starting with ", [ or { must be valid JSON (YAML flow syntax this reader implements)',
+				'a value starting with " must be a valid JSON string',
 				line,
 			)
 		}

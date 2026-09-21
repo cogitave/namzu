@@ -58,10 +58,12 @@ export {
 	memoryLinkNames,
 } from './memory/links.js'
 export {
+	MemoryContentRejectedError,
 	MemoryNameConflictError,
 	isMemoryName,
 	slugifyMemoryName,
 } from './memory/naming.js'
+export type { MemoryContentRejection } from './memory/naming.js'
 
 // Was that answer any good — recorded per message, durably, with
 // compare-and-set. Every consumer used to invent its own side table for the

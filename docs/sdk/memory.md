@@ -105,16 +105,29 @@ How to apply: after any SDK change, before trusting a CLI failure.
 update. `title`, `summary`, `format` (default `markdown`) and `metadata` appear
 only when they differ from those defaults, so an operator can write a memory
 file by hand with the first three keys and a body. `create` without a `name`
-derives one from the title and suffixes it (`-2`, `-3`) until it is free; with a
-`name`, a taken one is refused as above. Updating `name` renames the file.
+derives one from the title — at most 32 characters, cut at a word boundary, so
+the index line keeps room for the description — and suffixes it (`-2`, `-3`)
+until it is free; with a `name`, a taken one is refused as above. Updating
+`name` renames the file.
 
 The frontmatter reader implements a deliberately small part of YAML: plain
 scalars, double-quoted JSON values (strings, arrays, objects), single-quoted
-strings and block lists. An unknown or repeated key, a block scalar, invalid
-JSON, a name that differs from its file name, two files claiming one id, a
-symlinked or non-regular file, a file over 256 KiB, invalid UTF-8, or a file
-stamped with a newer `schemaVersion` fails the operation with a `storage_error`
-naming the file, rather than presenting a smaller store as complete. Other files
+strings and block lists. A value opening with `[` or `{` that is not JSON is
+read as a plain string, so `description: [WIP] deploy notes` works; a field
+that needs a list or an object (`tags`, `metadata`) then refuses it by type.
+An unknown or repeated key, a block scalar, an unterminated `"` string, a name
+that differs from its file name, two files claiming one id with the same
+`updatedAt`, a symlinked or non-regular file, a file over 256 KiB
+(`MEMORY_FILE_MAX_BYTES`), a NUL byte, invalid UTF-8, or a file stamped with a
+newer `schemaVersion` fails the operation with a `storage_error` naming the
+file, rather than presenting a smaller store as complete.
+
+The store never writes what it would refuse to read. `create`, `update` and
+`importRecord` refuse a body containing a NUL character, or a record whose file
+would exceed 256 KiB in UTF-8, with `MemoryContentRejectedError` — a
+`NamzuError` with code `invalid_config` and `reason` `'too_large'` or
+`'nul_byte'` — before anything is written. `save_memory` and `update_memory`
+return that as a failed result. Other files
 in the directory — the generated index, `operation.lock`, a retired
 `content.migrated/` — are ignored, with one exception: while a
 `DiskMemoryStore` `index.json` is present, every operation except
@@ -125,12 +138,18 @@ smaller memory as the whole. Import its records, then move `index.json` aside.
 Files are written by atomic rename with mode `0600`; the directory is created
 `0700`. Operations take the same `operation.lock` as `DiskMemoryStore` (below),
 so the two never interleave on one directory. A rename writes the new file
-before removing the old one: a crash between the two leaves two files claiming
-one id, which the next operation refuses by name.
+before removing the old one, and an update's `updatedAt` is always later than
+the one it replaces. A crash between the two writes leaves two files claiming
+one id with different `updatedAt`: the store reads the newer, and the next
+write moves the older aside to `<name>.md.superseded` rather than deleting it.
+Two files with one id and the same `updatedAt` — a copied file — are refused by
+name.
 
 `MEMORY.md` is regenerated after every write: a header comment, then one line per
 active memory, sorted by name, as `- [name](name.md) — description`, each line
-clipped to 150 characters. It is never read back; editing it has no effect, and
+at most 150 characters (`MEMORY_INDEX_LINE_MAX_CHARS`): the description is
+clipped to the room the link leaves, and dropped when a name near the 64-character
+limit leaves less than two characters. It is never read back; editing it has no effect, and
 a hand edit to a memory file reaches it at the next write.
 `readIndex({ maxLines })` renders the same lines from the current files for a
 prompt, capped at `maxLines` (default `MEMORY_INDEX_MAX_LINES`, 200) with a final
@@ -215,9 +234,9 @@ to make these operations available to the model.
 | Tool | Contract |
 | --- | --- |
 | `search_memory` | Searches active records by default; `status: 'archived'` inspects archived records. Returns IDs, titles, names, types, ages and descriptions (summaries where there is no description), with a default limit of 10 and an allowed range of 1–50. |
-| `read_memory` | Reads a complete record by its ID or its name. Appends the date it was last updated with its age, the verification notice below when it is not from today, and each `[[name]]` link resolved to an ID and description or reported missing. |
+| `read_memory` | Reads a complete record by its ID or its name. For a `text` or `markdown` record, the output is the body followed by `---` and the date it was last updated with its age, the verification notice below when it is not from today, and each `[[name]]` link resolved to an ID and description or reported missing. A `json` record's output is its body exactly, still parseable; `data` carries `updatedAt`, `name`, `type` and resolved `links` for every format. |
 | `save_memory` | Creates a memory with a title, summary and body, and optionally `name`, `type` and `description`. A taken name returns a failed result naming the existing ID and pointing to `update_memory`. |
-| `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status; refuses an empty update and a name another record holds. |
+| `update_memory` | Corrects supplied fields, including `name`, `type` and `description`, or changes status. Takes the record's ID or its name — what a prompt carrying the index shows. Refuses an empty update, an unknown name and a name another record holds. |
 | `delete_memory` | Permanently removes a record; declared destructive for the host's tool policy. |
 
 The `save_memory` description tells the model what belongs in a memory: what is

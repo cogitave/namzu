@@ -7,10 +7,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { MemoryId } from '../../../types/ids/index.js'
 import { DiskMemoryStore } from '../disk.js'
-import { MEMORY_INDEX_MAX_LINES } from '../index-file.js'
+import {
+	MEMORY_INDEX_LINE_MAX_CHARS,
+	MEMORY_INDEX_MAX_LINES,
+	memoryIndexLine,
+} from '../index-file.js'
 import { formatMemoryFile, parseMemoryFile } from '../markdown-format.js'
-import { MEMORY_INDEX_FILE, MarkdownMemoryStore } from '../markdown.js'
-import { MemoryNameConflictError } from '../naming.js'
+import { MEMORY_FILE_MAX_BYTES, MEMORY_INDEX_FILE, MarkdownMemoryStore } from '../markdown.js'
+import { MemoryContentRejectedError, MemoryNameConflictError } from '../naming.js'
 import { acquireMemoryOperationLock } from '../operation-lock.js'
 
 const roots: string[] = []
@@ -304,9 +308,14 @@ describe('hand-written and malformed files', () => {
 			'does not match the file name',
 		],
 		[
-			'bad json',
+			'tags that are not a JSON list',
 			'---\nname: bad\ndescription: d\ntype: project\ntags: [a, b]\n---\n',
-			'valid JSON',
+			'tags must be a list of strings',
+		],
+		[
+			'an unterminated quoted string',
+			'---\nname: bad\ndescription: "open\ntype: project\n---\n',
+			'valid JSON string',
 		],
 		['block scalar', '---\nname: bad\ndescription: >\ntype: project\n---\n', 'block scalars'],
 		[
@@ -428,5 +437,127 @@ describe('importRecord', () => {
 			tags: ['run-memory'],
 		})
 		expect(imported?.content).toEqual(record.content)
+	})
+})
+
+describe('what the loader refuses is never written', () => {
+	it('refuses content over the file limit before writing, and the store keeps working', async () => {
+		const { directory, store } = await fixture()
+		const kept = await store.create({ title: 'kept', summary: 's', content: 'c' })
+		const big = 'x'.repeat(300 * 1024)
+		await expect(store.create({ title: 'big', summary: 's', content: big })).rejects.toMatchObject({
+			name: 'MemoryContentRejectedError',
+			reason: 'too_large',
+			limit: MEMORY_FILE_MAX_BYTES,
+		})
+		await expect(store.update(kept.entry.id, { content: big })).rejects.toBeInstanceOf(
+			MemoryContentRejectedError,
+		)
+		expect((await readdir(directory)).filter((file) => file.endsWith('.md')).sort()).toEqual([
+			MEMORY_INDEX_FILE,
+			'kept.md',
+		])
+		expect((await store.list()).totalCount).toBe(1)
+		expect((await store.get(kept.entry.id))?.content).toBe('c')
+		await store.create({ title: 'next', summary: 's', content: 'c' })
+		expect((await store.list()).totalCount).toBe(2)
+	})
+
+	it('counts the bytes on disk, not the characters', async () => {
+		const { store } = await fixture()
+		// Four bytes each in UTF-8: under the limit in characters, over it in bytes.
+		const wide = '😀'.repeat(MEMORY_FILE_MAX_BYTES / 4)
+		await expect(
+			store.create({ title: 'wide', summary: 's', content: wide }),
+		).rejects.toMatchObject({
+			reason: 'too_large',
+		})
+	})
+
+	it('refuses a NUL character before writing', async () => {
+		const { store } = await fixture()
+		await expect(
+			store.create({ title: 'nul', summary: 's', content: 'a\u0000b' }),
+		).rejects.toMatchObject({
+			reason: 'nul_byte',
+		})
+		expect((await store.list()).totalCount).toBe(0)
+	})
+
+	it('refuses an oversized import without writing it, so later imports still run', async () => {
+		const { root, store } = await fixture()
+		const disk = new DiskMemoryStore({ baseDir: join(root, 'old') })
+		const big = await disk.create({ title: 'big', summary: 's', content: 'x'.repeat(300 * 1024) })
+		const small = await disk.create({ title: 'small', summary: 's', content: 'c' })
+		const bigRecord = await disk.getRecord(big.entry.id)
+		const smallRecord = await disk.getRecord(small.entry.id)
+		if (!bigRecord || !smallRecord) throw new Error('fixture records missing')
+		await expect(store.importRecord(bigRecord)).rejects.toBeInstanceOf(MemoryContentRejectedError)
+		expect(await store.importRecord(smallRecord)).toBe('imported')
+		expect((await store.list()).entries.map((entry) => entry.name)).toEqual(['small'])
+	})
+})
+
+describe('recoverable hand edits and interrupted writes', () => {
+	it('reads a description that opens with a bracket as the string it is', async () => {
+		const { directory, store } = await fixture()
+		await mkdir(directory, { recursive: true })
+		await writeFile(
+			join(directory, 'deploy.md'),
+			'---\nname: deploy\ndescription: [WIP] deploy notes\ntype: project\n---\n\nbody\n',
+		)
+		const [entry] = (await store.list()).entries
+		expect(entry?.description).toBe('[WIP] deploy notes')
+		// A write quotes it, and it reads back the same.
+		await store.update(entry?.id as MemoryId, { content: 'body 2' })
+		expect(await readFile(join(directory, 'deploy.md'), 'utf8')).toContain(
+			'description: "[WIP] deploy notes"',
+		)
+		expect((await store.list()).entries[0]?.description).toBe('[WIP] deploy notes')
+	})
+
+	it('reads the newer of two files left by an interrupted rename and sets the older aside on the next write', async () => {
+		const { directory, store } = await fixture()
+		const { entry } = await store.create({
+			title: 't',
+			summary: 's',
+			content: 'old',
+			name: 'before',
+		})
+		const old = await readFile(join(directory, 'before.md'), 'utf8')
+		await store.update(entry.id, { name: 'after', content: 'new' })
+		// The crash: the renamed file is written, the old one never unlinked.
+		await writeFile(join(directory, 'before.md'), old)
+		expect((await store.getRecord(entry.id))?.content.content).toBe('new')
+		expect((await store.list()).entries.map((candidate) => candidate.name)).toEqual(['after'])
+		// A read leaves the directory alone.
+		expect(await readdir(directory)).toContain('before.md')
+		await store.create({ title: 'other', summary: 's', content: 'c' })
+		const files = await readdir(directory)
+		expect(files).not.toContain('before.md')
+		expect(files).toContain('before.md.superseded')
+		expect(await readFile(join(directory, 'before.md.superseded'), 'utf8')).toBe(old)
+	})
+})
+
+describe('index lines stay inside their budget', () => {
+	it('never exceeds 150 characters, even with a name at the length limit', () => {
+		const name = 'a'.repeat(64)
+		const line = memoryIndexLine({ name, description: 'd'.repeat(200), summary: 's' })
+		expect(line.length).toBeLessThanOrEqual(MEMORY_INDEX_LINE_MAX_CHARS)
+		expect(line.startsWith(`- [${name}](${name}.md) — `)).toBe(true)
+	})
+
+	it('leaves a derived name enough room for the description to be read', async () => {
+		const { store } = await fixture()
+		const note =
+			'Always run pnpm -r build before running the CLI tests because they import the SDK dist output'
+		await store.create({ title: note, summary: note, description: note, content: note })
+		const { text } = await store.readIndex()
+		expect(text.length).toBeLessThanOrEqual(MEMORY_INDEX_LINE_MAX_CHARS)
+		expect(text).toMatch(
+			/^- \[always-run-pnpm-r-build-before\]\(always-run-pnpm-r-build-before\.md\) — /,
+		)
+		expect(text).toContain('Always run pnpm -r build before running the CLI tests')
 	})
 })

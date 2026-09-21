@@ -10,6 +10,14 @@ import { isMemoryType } from '../../types/memory/index.js'
 /** A memory name is a file name and a link target, so it is kept to what is safe as both. */
 export const MEMORY_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 export const MEMORY_NAME_MAX_LENGTH = 64
+/**
+ * Longest name {@link slugifyMemoryName} derives from a title. Shorter than
+ * {@link MEMORY_NAME_MAX_LENGTH} because the name appears twice in an index
+ * line (`- [name](name.md) — description`) inside a 150-character budget; a
+ * derived name that spends it all leaves the description, the only text a
+ * reader judges relevance by, a few words long.
+ */
+export const DERIVED_MEMORY_NAME_MAX_LENGTH = 32
 /** The index file a one-file-per-memory store generates; never a memory's name. */
 export const MEMORY_INDEX_NAME = 'MEMORY'
 
@@ -66,10 +74,12 @@ export function slugifyMemoryName(text: string): string {
 		.replace(/[^a-z0-9]+/g, '-')
 		.replace(/^-+|-+$/g, '')
 	let cut = slug
-	if (cut.length > MEMORY_NAME_MAX_LENGTH - 4) {
-		cut = cut.slice(0, MEMORY_NAME_MAX_LENGTH - 4)
+	if (cut.length > DERIVED_MEMORY_NAME_MAX_LENGTH) {
+		// Cut at the last word boundary that fits, when the slug has one past
+		// its first few characters; a single long word is cut where it is.
+		cut = cut.slice(0, DERIVED_MEMORY_NAME_MAX_LENGTH + 1)
 		const boundary = cut.lastIndexOf('-')
-		if (boundary > 16) cut = cut.slice(0, boundary)
+		cut = boundary > 8 ? cut.slice(0, boundary) : cut.slice(0, DERIVED_MEMORY_NAME_MAX_LENGTH)
 		cut = cut.replace(/-+$/, '')
 	}
 	return isMemoryName(cut) ? cut : 'memory-note'
@@ -106,6 +116,42 @@ export class MemoryNameConflictError extends NamzuError {
 		this.name = 'MemoryNameConflictError'
 		this.memoryName = name
 		this.existingId = existingId
+	}
+}
+
+/** Why a store refused to write a memory's content. */
+export type MemoryContentRejection = 'too_large' | 'nul_byte'
+
+/**
+ * A memory the store would write but could not read back.
+ *
+ * Refused before anything is written: a one-file-per-memory store refuses to
+ * load a directory holding a file it cannot read, so writing one would turn
+ * a single bad save into every later operation failing.
+ */
+export class MemoryContentRejectedError extends NamzuError {
+	readonly reason: MemoryContentRejection
+	/** Encoded size of the file that would have been written, when `too_large`. */
+	readonly bytes?: number
+	readonly limit?: number
+
+	constructor(
+		reason: MemoryContentRejection,
+		details: { readonly bytes?: number; readonly limit?: number } = {},
+	) {
+		super({
+			code: 'invalid_config',
+			message:
+				reason === 'too_large'
+					? `The memory would be ${details.bytes} bytes on disk, over the ${details.limit}-byte limit for one memory. Save the rule or fact and where to find the rest, not the rest itself.`
+					: 'The memory contains a NUL character, which a memory file cannot hold. Remove it and save again.',
+			details: { reason, ...details },
+			retryable: false,
+		})
+		this.name = 'MemoryContentRejectedError'
+		this.reason = reason
+		if (details.bytes !== undefined) this.bytes = details.bytes
+		if (details.limit !== undefined) this.limit = details.limit
 	}
 }
 

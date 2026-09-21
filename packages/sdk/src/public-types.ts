@@ -169,6 +169,7 @@ export type {
 	DiskTaskStoreConfig,
 	Identifiable,
 	MarkdownMemoryStoreConfig,
+	MemoryContentRejection,
 	MemoryImportOutcome,
 	RenderedMemoryIndex,
 	Timestamped,

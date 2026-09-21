@@ -487,6 +487,7 @@ export {
 	MEMORY_INDEX_MAX_LINES,
 	MarkdownMemoryStore,
 	MEMORY_VERIFY_NOTICE,
+	MemoryContentRejectedError,
 	MemoryNameConflictError,
 	describeMemoryAge,
 	isMemoryName,

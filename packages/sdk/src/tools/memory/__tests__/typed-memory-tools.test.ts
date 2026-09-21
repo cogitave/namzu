@@ -154,4 +154,61 @@ describe('typed memory through the model tools', () => {
 		expect(recall?.system).not.toContain('"age"')
 		expect(recall?.system).not.toContain('point-in-time')
 	})
+
+	it('updates a memory by the name the index shows, as well as by id', async () => {
+		const { store, registry } = await fixture()
+		const { entry } = await store.create({
+			title: 'Config',
+			summary: 's',
+			content: 'c',
+			name: 'cfg',
+		})
+		const archived = await registry.execute(
+			'update_memory',
+			{ id: 'cfg', status: 'archived' },
+			context,
+		)
+		expect(archived).toMatchObject({ success: true, data: { id: entry.id, name: 'cfg' } })
+		expect((await store.getRecord(entry.id))?.entry.status).toBe('archived')
+		const missing = await registry.execute(
+			'update_memory',
+			{ id: 'no-such-name', status: 'archived' },
+			context,
+		)
+		expect(missing.success).toBe(false)
+		expect(missing.output).toContain('No memory is named no-such-name')
+	})
+
+	it('returns a JSON memory body exactly as stored, its age in data', async () => {
+		const { store, registry } = await fixture()
+		vi.useFakeTimers({ toFake: ['Date'] })
+		vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+		const { entry } = await store.create({
+			title: 'Settings',
+			summary: 's',
+			content: '{"a":1}',
+			format: 'json',
+		})
+		vi.setSystemTime(new Date('2026-09-21T00:00:00Z'))
+		const read = await registry.execute('read_memory', { id: entry.id }, context)
+		expect(read.output).toBe('{"a":1}')
+		expect(JSON.parse(read.output)).toEqual({ a: 1 })
+		expect(read.data).toMatchObject({ updatedAt: entry.updatedAt })
+	})
+
+	it('answers a save the store cannot hold with a failed result, not a thrown error', async () => {
+		const { registry } = await fixture()
+		const saved = await registry.execute(
+			'save_memory',
+			{ title: 'big', summary: 's', content: 'x'.repeat(300 * 1024) },
+			context,
+		)
+		expect(saved).toMatchObject({ success: false, data: { reason: 'too_large' } })
+		const next = await registry.execute(
+			'save_memory',
+			{ title: 'small', summary: 's', content: 'c' },
+			context,
+		)
+		expect(next.success).toBe(true)
+	})
 })

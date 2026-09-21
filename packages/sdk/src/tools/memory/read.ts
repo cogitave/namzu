@@ -4,23 +4,17 @@ import {
 	describeMemoryAge,
 	memoryLinkNames,
 } from '../../store/memory/links.js'
-import { isMemoryName } from '../../store/memory/naming.js'
 import type { MemoryId } from '../../types/ids/index.js'
 import type { MemoryContent, MemoryIndexEntry, MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { asMemoryId, isEntityId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
-
-/** Every record, archived included, for resolving names. One store read. */
-async function allEntries(store: MemoryStore): Promise<readonly MemoryIndexEntry[]> {
-	return (await store.list({})).entries
-}
+import { allMemoryEntries, resolveMemoryReference } from './resolve.js'
 
 export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 	return defineTool({
 		name: 'read_memory',
 		description:
-			'Read the full content of a specific memory by its ID or its name. The result says how old the memory is and resolves any [[name]] links it contains.',
+			'Read the full content of a specific memory by its ID or its name. For a text or Markdown memory the result ends with how old the memory is and resolves any [[name]] links it contains.',
 		inputSchema: z.object({
 			id: z
 				.string()
@@ -36,24 +30,16 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 		async execute({ id }) {
 			// Validate model-authored input before using it as a store key. A name
 			// is resolved through the store's own listing, never used as a key.
-			let entries: readonly MemoryIndexEntry[] | undefined
-			let memoryId: MemoryId
-			if (isEntityId(id, 'memory')) {
-				memoryId = asMemoryId(id)
-			} else if (isMemoryName(id)) {
-				entries = await allEntries(store)
-				const named = entries.find((entry) => entry.name === id)
-				if (!named) {
-					return {
-						success: false,
-						output: `No memory is named ${id}.`,
-						error: `Memory ${id} not found`,
-					}
+			const reference = await resolveMemoryReference(store, id)
+			if (!reference.found) {
+				return {
+					success: false,
+					output: `No memory is named ${id}.`,
+					error: `Memory ${id} not found`,
 				}
-				memoryId = named.id
-			} else {
-				memoryId = asMemoryId(id)
 			}
+			const memoryId: MemoryId = reference.id
+			let entries: readonly MemoryIndexEntry[] | undefined = reference.entries
 
 			let entry: MemoryIndexEntry | undefined
 			let content: MemoryContent | undefined
@@ -86,7 +72,7 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 			const links = memoryLinkNames(content.content)
 			const resolved: { name: string; id?: MemoryId; description?: string }[] = []
 			if (links.length > 0) {
-				entries ??= await allEntries(store)
+				entries ??= await allMemoryEntries(store)
 				notes.push('Linked memories:')
 				for (const name of links) {
 					const target = entries.find((candidate) => candidate.name === name)
@@ -103,10 +89,12 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 				}
 			}
 
+			// A JSON body stays exactly the stored text, parseable as it was
+			// before these notes existed; its age and links are in `data`.
+			const annotate = notes.length > 0 && content.format !== 'json'
 			return {
 				success: true,
-				output:
-					notes.length > 0 ? `${content.content}\n\n---\n${notes.join('\n')}` : content.content,
+				output: annotate ? `${content.content}\n\n---\n${notes.join('\n')}` : content.content,
 				data: {
 					id: content.id,
 					format: content.format,
