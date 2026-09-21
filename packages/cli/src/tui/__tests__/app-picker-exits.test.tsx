@@ -745,6 +745,7 @@ describe('publishing a picker selection', () => {
 		const storedMemoryIndex = vi.fn(async () => ({
 			directory: '/state/memory',
 			index: { text: '- [staging-is-read-only](staging-is-read-only.md) — STAGING_IS_READ_ONLY', total: 1, omitted: 0 },
+			derived: { text: '- [fixed-the-flake](fixed-the-flake.md) — RUN_RECORDED', total: 1, omitted: 0 },
 		}))
 		vi.spyOn(memoryStore, 'readMemory').mockReturnValue({ user: null, memory: null, project: null })
 		createSession = async () => ({ ...sessionFixture(), rememberNote, storedMemoryIndex })
@@ -759,6 +760,8 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/memory show')
 		await frameShows(harness.lastFrame, 'Stored memories (1)')
 		expect(harness.lastFrame() ?? '').toContain('[staging-is-read-only](staging-is-read-only.md)')
+		await frameShows(harness.lastFrame, 'Recorded by runs (1)')
+		expect(harness.lastFrame() ?? '').toContain('RUN_RECORDED')
 	})
 
 	it.each(['/memory add NEW_NOTE', '#NEW_NOTE'])('reports saved but clipped memory for %s', async (command) => {

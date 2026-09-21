@@ -6166,7 +6166,7 @@ export function App({
 							(err: unknown) =>
 								pushMessage(
 									'system',
-									`Notes were not moved: ${err instanceof Error ? err.message : String(err)}`,
+									`Notes were not copied: ${err instanceof Error ? err.message : String(err)}`,
 								),
 						)
 						return
@@ -6179,8 +6179,8 @@ export function App({
 							return
 						}
 						void stored().then(
-							({ directory, index }) => {
-								const section = renderStoredMemorySection(directory, index)
+							({ directory, index, derived }) => {
+								const section = renderStoredMemorySection(directory, index, derived)
 								pushMessage(
 									'system',
 									section

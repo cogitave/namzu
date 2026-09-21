@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto'
 import {
 	constants,
 	closeSync,
@@ -6,12 +5,8 @@ import {
 	lstatSync,
 	mkdirSync,
 	openSync,
-	readFileSync,
 	readSync,
 	realpathSync,
-	renameSync,
-	unlinkSync,
-	writeFileSync,
 	writeSync,
 } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -184,64 +179,5 @@ export function appendMemoryFile(location: MemoryLocation, text: string): string
 		return `${existing}${text}`
 	} finally {
 		closeSync(fd)
-	}
-}
-
-/**
- * Replace a curated file's text atomically, and only if it still holds
- * `expected` — a note appended by another process since `expected` was read
- * would otherwise be overwritten. Returns false, writing nothing, when the
- * file changed or is gone. The replacement is written beside the file and
- * renamed over the validated, canonical path, private (0600).
- */
-export function replaceMemoryFile(
-	location: MemoryLocation,
-	expected: string,
-	next: string,
-): boolean {
-	if (Buffer.byteLength(next, 'utf8') > MEMORY_FILE_MAX_BYTES) {
-		throw new Error(`Replacement exceeds the ${MEMORY_FILE_MAX_BYTES}-byte memory file limit.`)
-	}
-	if (readMemoryFile(location) !== expected) return false
-	const path = resolveMemoryPath(location)
-	if (path === null) return false
-	const temporary = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
-	writeFileSync(temporary, next, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-	try {
-		renameSync(temporary, path)
-	} catch (error) {
-		try {
-			unlinkSync(temporary)
-		} catch {}
-		throw error
-	}
-	return true
-}
-
-/**
- * Keep a copy of `text` at `path`, or at `path-2`, `path-3`… when an earlier
- * copy of different text holds the name, and return where it is. An existing
- * copy is never overwritten; one that already holds exactly `text` — a
- * concurrent run's — is reused. Private (0600).
- */
-export function writeMemoryBackup(path: string, text: string): string {
-	for (let n = 1; ; n++) {
-		const candidate = n === 1 ? path : `${path}-${n}`
-		try {
-			writeFileSync(candidate, text, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-			return candidate
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-			// Compared only when it is a plain file of this size: a symlink or a
-			// FIFO under that name is somebody else's, never read.
-			const existing = lstatSync(candidate)
-			if (
-				existing.isFile() &&
-				existing.size === Buffer.byteLength(text, 'utf8') &&
-				readFileSync(candidate, 'utf8') === text
-			) {
-				return candidate
-			}
-		}
 	}
 }

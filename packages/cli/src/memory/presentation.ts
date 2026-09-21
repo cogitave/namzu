@@ -71,11 +71,27 @@ export function renderTypedNoteResult(result: TypedNoteResult, text: string): st
 	return `Remembered for this project as a ${result.type} memory${result.path ? ` (${result.path})` : ''}: ${text}`
 }
 
-/** The stored-memory part of `/memory`: the index lines and where the files are. */
+/**
+ * The stored-memory part of `/memory`, or null when there is none: the index
+ * lines every turn carries, then what runs recorded on their own under its
+ * own label and count, since those never reach the prompt's index and would
+ * otherwise be invisible here.
+ */
 export function renderStoredMemorySection(
 	directory: string,
 	index: RenderedMemoryIndex,
+	derived?: RenderedMemoryIndex,
 ): string | null {
-	if (!index.text) return null
-	return `Stored memories (${index.total})\n${directory}\n\n${preview(index.text, directory)}`
+	const sections: string[] = []
+	if (index.text) {
+		sections.push(
+			`Stored memories (${index.total}), in every turn's index\n${directory}\n\n${preview(index.text, directory)}`,
+		)
+	}
+	if (derived?.text) {
+		sections.push(
+			`Recorded by runs (${derived.total}), not in the index; search_memory finds them\n${directory}\n\n${preview(derived.text, directory)}`,
+		)
+	}
+	return sections.length > 0 ? sections.join('\n\n') : null
 }

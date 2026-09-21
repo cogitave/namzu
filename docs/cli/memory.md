@@ -32,9 +32,15 @@ The user paths above use the default application home. An explicit `NAMZU_HOME`
 moves both user files into that application directory. Project files stay bound
 to the checkout.
 
-`/memory`, `/memory show` and `/memory list` display stored memory's index lines
-(with the directory the files are in) followed by the combined curated memory,
-without saving anything. `show` and `list` are aliases for this content view.
+`/memory`, `/memory show` and `/memory list` display stored memory followed by
+the combined curated memory, without saving anything. Stored memory comes in two
+labelled sections, each with its count and the directory the files are in:
+`Stored memories (N), in every turn's index` — every active memory you or the
+model saved, the lines the prompt's index carries, uncapped — and
+`Recorded by runs (N), not in the index; search_memory finds them` — the active
+records the run promoter or consolidation wrote on their own, newest first. A
+store holding only run records shows the second section alone. `show` and
+`list` are aliases for this content view.
 
 The terminal report labels each saved section and shows its full file path.
 Each preview is limited to 20 lines and 2,000 characters; an omission notice
@@ -156,36 +162,26 @@ other failure leaves the JSON store in place — the store refuses to answer
 rather than answer without those records — and is shown at launch and retried
 at the next. Nothing is imported twice.
 
-The project's curated `MEMORY.md` is not rewritten at launch. Nothing can tell a
-bullet `#note` appended from one you wrote, so when the file holds single-line
-top-level bullets the launch says how many and offers `/memory import-notes`,
-once per curated file (the checkout's file and a subdirectory's own
-`.namzu/MEMORY.md` are offered separately). Until you run it they stay curated
-and reach every turn as before. `/memory import-notes` moves them into
-`project` memories, keeps the file's text before the move beside it as
-`MEMORY.md.before-typed-memory` (a later run whose text differs writes
-`MEMORY.md.before-typed-memory-2`, and so on; no copy is overwritten), and
-rewrites it without them only if nothing changed it meanwhile.
+The project's curated `MEMORY.md` is never changed, at launch or by
+`/memory import-notes`. When it holds top-level bullets (`- text`) — some may be
+notes `#note` used to append there, and nothing can tell those from bullets you
+wrote — the launch says how many and offers `/memory import-notes`, once per
+curated file (the checkout's file and a subdirectory's own `.namzu/MEMORY.md`
+are offered separately). The bullets stay curated and reach every turn as
+before.
 
-What stays, exactly:
-
-- a bullet in a list that starts on the line directly under a Markdown heading
-  (`## Conventions` then `- use tabs`). A blank line ends that list, so
-  `# Project memory`, a blank line, then `- note` — what `#note` left in a file
-  with a heading — is offered, and so is a bullet after a blank line that
-  follows a heading's list. A note appended straight onto a heading's list,
-  with no blank line between, cannot be told from the list and stays;
-- a bullet followed by a line that is neither blank nor a bullet: a note that
-  spanned several lines, or a bullet with a nested list;
-- prose, headings and nested bullets.
-
-A bullet directly under a line of prose is offered, since `#note` produced
-that too when the file ended in prose. The report counts the top-level bullets
-that stayed. Running it again moves nothing twice.
-A `migration.json` in the stored-memory directory records, per curated file,
-that it was offered, when it was moved, and how many memories its bullets
-became. `~/.namzu/MEMORY.md` and `USER.md`
-are never touched.
+`/memory import-notes` copies every top-level bullet into a `project` memory
+named after it, whatever surrounds it: a heading's list, with or without a
+blank line under the heading, is copied like any other. Only a bullet's first
+line is copied; nested bullets, prose and headings are not. The file is read,
+never written: the report says it is unchanged, and deleting the bullets you
+no longer want read into every turn is yours to do. Running it again copies
+nothing twice: a bullet already stored — by an earlier import, as a `#note`
+with the same text, under its own name with the same text, or as a copy you
+archived — is counted as already stored and skipped. A `migration.json` in the
+stored-memory directory records, per curated file, when it was offered and
+imported, so a later launch does not offer it again. `~/.namzu/MEMORY.md` and
+`USER.md` are never touched.
 
 Automatic recall is enabled by default. Before each model step, the CLI searches
 active stored memories using terms from the latest operator message, and adds

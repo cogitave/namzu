@@ -204,20 +204,20 @@ it('keeps automatic recall inside its owning project under the same application 
 	expect(unrelated.system).not.toContain('Retrieved project memory')
 })
 
-it('carries stored memory under its own heading, and moves project notes only when asked', async () => {
+it('carries stored memory under its own heading, and copies project notes only when asked, never changing the file', async () => {
 	writeFileSync(join(appHome, 'MEMORY.md'), '- GLOBAL_NOTE\n')
 	const curated = join(cwd, '.namzu', 'MEMORY.md')
 	const original = '# Team notes\n\nKEEP_THIS_PROSE\n\n- run pnpm test before pushing\n'
 	writeFileSync(curated, original)
 	const { session } = await makeSession()
-	// The launch offers the note and moves nothing: it is still curated text.
+	// The launch offers the note and copies nothing: it is still curated text.
 	expect(session.configNotices.join('\n')).toContain('/memory import-notes')
 	expect(readFileSync(curated, 'utf8')).toBe(original)
 	const before = await send(session)
 	expect(before.system).toContain('- run pnpm test before pushing')
 	expect(before.system).not.toContain('## Stored memories (index)')
 
-	expect(await session.importCuratedNotes?.()).toContain('Moved 1 note from')
+	expect(await session.importCuratedNotes?.()).toContain('Copied 1 of 1 bullet from')
 	const first = await send(session)
 	expect(first.system).toContain('## Stored memories (index)')
 	expect(first.system).toContain(
@@ -227,9 +227,9 @@ it('carries stored memory under its own heading, and moves project notes only wh
 	expect(first.system).toContain('## Curated memory (this project)')
 	expect(first.system).toContain('KEEP_THIS_PROSE')
 	expect(first.system).not.toContain('Durable memory')
-	// The note moved; the prose and the user-scope file did not.
-	expect(readFileSync(curated, 'utf8')).toBe('# Team notes\n\nKEEP_THIS_PROSE\n')
-	expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toBe(original)
+	// The note was copied; neither curated file changed.
+	expect(readFileSync(curated, 'utf8')).toBe(original)
+	expect(first.system).toContain('\n- run pnpm test before pushing')
 	expect(readFileSync(join(appHome, 'MEMORY.md'), 'utf8')).toBe('- GLOBAL_NOTE\n')
 
 	// A note typed now is a typed file, type project, and is in the next prompt.
@@ -245,7 +245,7 @@ it('carries stored memory under its own heading, and moves project notes only wh
 		type: 'user',
 	})
 
-	// A bullet written by hand after the move stays curated, and is not offered again.
+	// A bullet written by hand after the import stays curated, and is not offered again.
 	appendFileSync(curated, '- HAND_WRITTEN_LATER\n')
 	const later = await makeSession()
 	expect(later.session.configNotices.join('\n')).not.toContain('import-notes')

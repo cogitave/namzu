@@ -918,9 +918,9 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/memory import-notes',
 			],
 			details: [
-				'Show and list read stored and curated memory. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
+				'Show and list read stored and curated memory, with what runs recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
-				"import-notes moves the single-line bullets of the project's curated MEMORY.md, the notes #note used to append there, into typed memory files; a list starting directly under a heading stays, and the file as it was before the move is kept beside it.",
+				"import-notes copies every top-level bullet of the project's curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.",
 			],
 		},
 		description:
@@ -939,7 +939,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 						kind: 'message',
 						role: 'system',
 						content:
-							'import-notes moves project notes; the curated file for all projects stays as it is.',
+							'import-notes copies project notes; the curated file for all projects stays as it is.',
 					}
 				}
 				return { kind: 'import-notes' }

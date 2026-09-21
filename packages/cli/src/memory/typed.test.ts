@@ -14,14 +14,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import {
-	type CuratedNotesImport,
 	composeStoredMemoryPrompt,
+	curatedBullets,
 	describeCuratedNotesImport,
 	describeMemoryMigration,
 	importCuratedNotes,
 	migrateMemoryOnce,
 	saveTypedNote,
-	splitCuratedBullets,
 } from './typed.js'
 
 const roots: string[] = []
@@ -35,8 +34,8 @@ function tempRoot(): string {
 	return root
 }
 
-describe('splitCuratedBullets', () => {
-	it('takes single-line top-level bullets and leaves prose, headings and multi-line notes', () => {
+describe('curatedBullets', () => {
+	it('takes every top-level bullet once, whatever surrounds it', () => {
 		const text = [
 			'# Notes',
 			'',
@@ -47,54 +46,19 @@ describe('splitCuratedBullets', () => {
 			'its unindented second line',
 			'- parent',
 			'  - nested',
+			'- one',
 			'',
 		].join('\n')
-		const { bullets, rest, kept } = splitCuratedBullets(text)
-		expect(bullets).toEqual(['one', 'two'])
-		expect(rest).toBe(
-			'# Notes\n\nSome prose.\n- multi-line note\nits unindented second line\n- parent\n  - nested\n',
-		)
-		// Both top-level bullets that stayed are counted; the nested one is not.
-		expect(kept).toBe(2)
+		expect(curatedBullets(text)).toEqual(['one', 'two', 'multi-line note', 'parent'])
 	})
 
-	it('leaves nothing when the file held only bullets', () => {
-		expect(splitCuratedBullets('- a\n- b\n')).toEqual({ bullets: ['a', 'b'], rest: '', kept: 0 })
-	})
-
-	it("leaves a heading's list where it is: that is a section the operator wrote", () => {
-		const text = '## Conventions\n- use tabs\n- never push\n\n## Later\n\n- blank line first\n'
-		expect(splitCuratedBullets(text)).toEqual({
-			bullets: ['blank line first'],
-			rest: '## Conventions\n- use tabs\n- never push\n\n## Later\n',
-			kept: 2,
-		})
-	})
-
-	it('offers the notes appendMemory left after a heading and a blank line', () => {
-		expect(splitCuratedBullets('# Project memory\n\n- note one\n- note two\n')).toEqual({
-			bullets: ['note one', 'note two'],
-			rest: '# Project memory\n',
-			kept: 0,
-		})
-	})
-
-	it("ends a heading's list at a blank line, so notes appended after it are offered", () => {
-		const text = '## Conventions\n- use tabs\n\n- appended note\n'
-		expect(splitCuratedBullets(text)).toEqual({
-			bullets: ['appended note'],
-			rest: '## Conventions\n- use tabs\n',
-			kept: 1,
-		})
-	})
-
-	it('takes notes appended after prose even when a heading comes earlier', () => {
-		const text = '## Context\n\nThe service is old.\n\n- appended note\n'
-		expect(splitCuratedBullets(text)).toEqual({
-			bullets: ['appended note'],
-			rest: '## Context\n\nThe service is old.\n',
-			kept: 0,
-		})
+	it("takes a heading's list, with or without a blank line under the heading", () => {
+		expect(curatedBullets('## Conventions\n- use tabs\n')).toEqual(['use tabs'])
+		expect(curatedBullets('## Conventions\n\n- use tabs\n- never push\n')).toEqual([
+			'use tabs',
+			'never push',
+		])
+		expect(curatedBullets('- a\r\n- b\r\n')).toEqual(['a', 'b'])
 	})
 })
 
@@ -209,12 +173,18 @@ describe('migrateMemoryOnce', () => {
 })
 
 describe('importCuratedNotes', () => {
-	it('moves each curated note once even when two runs race, and keeps the file as it was', async () => {
-		const directory = tempRoot()
+	function curatedFile(text: string): { cwd: string; curated: string } {
 		const cwd = tempRoot()
 		mkdirSync(join(cwd, '.namzu'))
 		const curated = join(cwd, '.namzu', 'MEMORY.md')
-		writeFileSync(curated, '- use pnpm, not npm\n- keep prose\n')
+		writeFileSync(curated, text)
+		return { cwd, curated }
+	}
+
+	it('copies each bullet once even when two runs race, and never changes the file', async () => {
+		const directory = tempRoot()
+		const text = '- use pnpm, not npm\n- keep prose\n'
+		const { cwd, curated } = curatedFile(text)
 		const results = await Promise.all([
 			importCuratedNotes({ store: new MarkdownMemoryStore({ directory }), directory, cwd }),
 			importCuratedNotes({ store: new MarkdownMemoryStore({ directory }), directory, cwd }),
@@ -224,75 +194,90 @@ describe('importCuratedNotes', () => {
 			'keep-prose',
 			'use-pnpm-not-npm',
 		])
-		expect(results.reduce((total, result) => total + result.moved, 0)).toBe(2)
-		expect(readFileSync(curated, 'utf8')).toBe('')
-		expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toBe(
-			'- use pnpm, not npm\n- keep prose\n',
-		)
-		expect(describeCuratedNotesImport(results[0] as CuratedNotesImport, directory)).toContain(
-			'.before-typed-memory',
-		)
-		// A launch after the move offers nothing for this file.
-		writeFileSync(curated, '- written by hand later\n')
+		expect(results.reduce((total, result) => total + result.copied, 0)).toBe(2)
+		expect(readFileSync(curated, 'utf8')).toBe(text)
+		expect(readdirSync(join(cwd, '.namzu'))).toEqual(['MEMORY.md'])
+		// A launch after the import offers nothing for this file.
 		expect((await migrateMemoryOnce({ store, directory, cwd })).notesOffer).toBeUndefined()
-		expect(readFileSync(curated, 'utf8')).toBe('- written by hand later\n')
 	})
 
-	it("leaves a heading's list and says so", async () => {
+	it("copies a heading's bullets when a blank line follows the heading, leaving the file whole", async () => {
 		const directory = tempRoot()
-		const cwd = tempRoot()
-		mkdirSync(join(cwd, '.namzu'))
-		const curated = join(cwd, '.namzu', 'MEMORY.md')
-		writeFileSync(curated, '## Conventions\n- use tabs\n')
+		const text = '## Conventions\n\n- use tabs\n- never push\n'
+		const { cwd, curated } = curatedFile(text)
+		const store = new MarkdownMemoryStore({ directory })
+		const result = await importCuratedNotes({ store, directory, cwd })
+		expect(result).toEqual({ path: curated, found: 2, copied: 2, alreadyStored: 0 })
+		expect(readFileSync(curated, 'utf8')).toBe(text)
+		const report = describeCuratedNotesImport(result, directory)
+		expect(report).toContain('Copied 2 of 2 bullets')
+		expect(report).toContain(`${curated} is unchanged`)
+		expect(report).toContain('Delete the ones you no longer want there yourself')
+	})
+
+	it('does not duplicate on a second import, a #note with the same text, or an archived copy', async () => {
+		const directory = tempRoot()
+		const { cwd, curated } = curatedFile('# Project memory\n\n- first note\n')
+		const store = new MarkdownMemoryStore({ directory })
+		expect(await importCuratedNotes({ store, directory, cwd })).toMatchObject({ copied: 1 })
+		// Archived by the operator: it must not come back.
+		const [first] = (await store.list()).entries
+		await store.update(first?.id as never, { status: 'archived' })
+		await saveTypedNote(store, 'saved with note')
+		writeFileSync(curated, '# Project memory\n\n- first note\n- saved with note\n- second note\n')
+		const second = await importCuratedNotes({ store, directory, cwd })
+		expect(second).toMatchObject({ found: 3, copied: 1, alreadyStored: 2 })
+		expect(describeCuratedNotesImport(second, directory)).toContain(
+			'2 were already stored and not copied again.',
+		)
+		expect((await store.list()).totalCount).toBe(3)
+		expect(await importCuratedNotes({ store, directory, cwd })).toMatchObject({ copied: 0 })
+		expect((await store.list()).totalCount).toBe(3)
+	})
+
+	it('treats a memory holding the same text under the same name as stored', async () => {
+		const directory = tempRoot()
+		const { cwd } = curatedFile('- deploys need a changeset\n')
+		const store = new MarkdownMemoryStore({ directory })
+		await store.create({
+			title: 'hand',
+			summary: 's',
+			content: 'deploys need a changeset',
+			name: 'deploys-need-a-changeset',
+		})
+		expect(await importCuratedNotes({ store, directory, cwd })).toMatchObject({
+			copied: 0,
+			alreadyStored: 1,
+		})
+		expect((await store.list()).totalCount).toBe(1)
+	})
+
+	it('says so when there is nothing to copy', async () => {
+		const directory = tempRoot()
+		const { cwd, curated } = curatedFile('Just prose.\n')
 		const result = await importCuratedNotes({
 			store: new MarkdownMemoryStore({ directory }),
 			directory,
 			cwd,
 		})
-		expect(result).toEqual({ path: curated, moved: 0, kept: 1 })
-		expect(describeCuratedNotesImport(result, directory)).toContain(
-			'1 bullet stayed: a list starting directly under a heading',
+		expect(result).toEqual({ path: curated, found: 0, copied: 0, alreadyStored: 0 })
+		expect(describeCuratedNotesImport(result, directory)).toBe(
+			`No top-level bullets to copy in ${curated}; it is unchanged.`,
 		)
-		expect(readFileSync(curated, 'utf8')).toBe('## Conventions\n- use tabs\n')
 	})
 
-	it('keeps each run’s own text, and records the memories actually created', async () => {
+	it('offers a heading-and-blank-line list at launch without touching it', async () => {
 		const directory = tempRoot()
-		const cwd = tempRoot()
-		mkdirSync(join(cwd, '.namzu'))
-		const curated = join(cwd, '.namzu', 'MEMORY.md')
-		const store = new MarkdownMemoryStore({ directory })
-		writeFileSync(curated, '# Project memory\n\n- first note\n')
-		const first = await importCuratedNotes({ store, directory, cwd })
-		expect(first).toMatchObject({ moved: 1, backupPath: `${curated}.before-typed-memory` })
-		// A note appended since, and one the first run already moved, copied back.
-		writeFileSync(curated, '# Project memory\n\n- first note\n- second note\n')
-		const second = await importCuratedNotes({ store, directory, cwd })
-		expect(second).toMatchObject({ moved: 1, backupPath: `${curated}.before-typed-memory-2` })
-		expect(readFileSync(`${curated}.before-typed-memory`, 'utf8')).toBe(
-			'# Project memory\n\n- first note\n',
-		)
-		expect(readFileSync(`${curated}.before-typed-memory-2`, 'utf8')).toBe(
-			'# Project memory\n\n- first note\n- second note\n',
-		)
-		expect(describeCuratedNotesImport(second, directory)).toContain(
-			`before this move is kept at ${curated}.before-typed-memory-2`,
-		)
-		const marker = JSON.parse(readFileSync(join(directory, 'migration.json'), 'utf8'))
-		expect(marker.curatedFiles[curated].moved).toBe(2)
-		expect((await store.list()).totalCount).toBe(2)
-	})
-
-	it('offers notes appended after a heading at launch', async () => {
-		const directory = tempRoot()
-		const cwd = tempRoot()
-		mkdirSync(join(cwd, '.namzu'))
-		writeFileSync(join(cwd, '.namzu', 'MEMORY.md'), '# Project memory\n\n- note one\n- note two\n')
+		const { cwd, curated } = curatedFile('## Conventions\n\n- use tabs\n- never push\n')
 		const report = await migrateMemoryOnce({
 			store: new MarkdownMemoryStore({ directory }),
 			directory,
 			cwd,
 		})
 		expect(report.notesOffer?.count).toBe(2)
+		expect(describeMemoryMigration(report, directory).join('\n')).toContain(
+			'the curated file is never changed',
+		)
+		expect(readFileSync(curated, 'utf8')).toBe('## Conventions\n\n- use tabs\n- never push\n')
 	})
 })

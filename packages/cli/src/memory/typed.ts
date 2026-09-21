@@ -6,7 +6,8 @@
  * write through. `composeStoredMemoryPrompt` turns the store's generated index
  * into the prompt section the model sees every turn. `migrateMemoryOnce`
  * moves the JSON store into typed files, once, and offers the project's
- * curated bullets; `importCuratedNotes` moves those when the operator asks.
+ * curated bullets; `importCuratedNotes` copies those when the operator asks,
+ * never editing the curated file.
  *
  * The CURATED files (`USER.md`, `MEMORY.md` in the application home and the
  * project) stay what they were: operator-authored text read into every turn.
@@ -27,7 +28,7 @@ import {
 	slugifyMemoryName,
 } from '@namzu/sdk'
 
-import { readMemoryFile, replaceMemoryFile, writeMemoryBackup } from './io.js'
+import { readMemoryFile } from './io.js'
 import { projectMemoryLocation } from './store.js'
 
 export interface TypedNoteResult {
@@ -116,43 +117,32 @@ export interface MemoryMigrationReport {
 	/** JSON records the Markdown store refused (too large, a NUL byte); kept in the retired files. */
 	readonly skippedRecords: readonly string[]
 	/**
-	 * The project's curated file holds bullets that look like old `#note`s,
-	 * offered once per file: nothing moves until the operator runs
-	 * `/memory import-notes`.
+	 * The project's curated file holds top-level bullets, offered once per
+	 * file: nothing is copied until the operator runs `/memory import-notes`,
+	 * and the file itself is never changed.
 	 */
 	readonly notesOffer?: { readonly path: string; readonly count: number }
 	/** Things that did not happen and why; the migration is retried next launch. */
 	readonly problems: readonly string[]
 }
 
-/** What `/memory import-notes` did with the curated file. */
+/** What `/memory import-notes` did. The curated file is never changed. */
 export interface CuratedNotesImport {
 	readonly path: string
-	readonly moved: number
-	/**
-	 * Top-level bullets left in the file: those in a list that starts on the
-	 * line after a heading (the operator's own section), and those followed by
-	 * a line that is neither blank nor a bullet (a note that runs on, or a
-	 * bullet with a nested list). Prose and nested bullets always stay and are
-	 * not counted.
-	 */
-	readonly kept: number
-	/**
-	 * Where the file's text before this run's move was kept. Every run that
-	 * finds bullets writes one: `MEMORY.md.before-typed-memory`, or a numbered
-	 * name beside it when an earlier run's copy of different text is there.
-	 */
-	readonly backupPath?: string
+	/** Top-level bullets the file holds, each counted once. */
+	readonly found: number
+	/** Memories created by this run. */
+	readonly copied: number
+	/** Bullets already in stored memory, by an earlier import, a `#note`, or by hand. */
+	readonly alreadyStored: number
 }
 
-/** Records per curated file what has been offered and moved, so neither repeats. */
+/** Records per curated file when it was offered and imported, so a launch offers it once. */
 const MARKER = 'migration.json'
-const BACKUP_SUFFIX = '.before-typed-memory'
 
 interface CuratedFileState {
 	readonly offeredAt?: string
-	readonly movedAt?: string
-	readonly moved?: number
+	readonly importedAt?: string
 }
 
 interface MigrationMarker {
@@ -207,81 +197,37 @@ async function retire(path: string): Promise<string> {
 	return target
 }
 
-const HEADING = /^#{1,6}\s/
-
 /**
- * The single-line top-level bullets `appendMemory` wrote, and the text left
- * when they are removed.
- *
- * `appendMemory` wrote `- <note>` at the end of the file and never a heading,
- * so what cannot be one of its notes stays:
- * - a bullet followed by a line that is neither blank nor a bullet — a note
- *   typed over several lines was appended with its later lines unindented,
- *   and they cannot be told apart from the operator's prose; a bullet with a
- *   nested list stays for the same reason;
- * - a bullet in a list that starts on the line directly under a Markdown
- *   heading — that list is a section the operator wrote (`## Conventions`
- *   then `- use tabs`), and taking its bullets would leave the heading empty
- *   and lose the grouping. A blank line ends that list: bullets after it are
- *   what `appendMemory` leaves at the end of a file whose last section is a
- *   heading, so they are offered.
- *
- * Everything else — a bullet after a blank line, at the top of the file, or
- * directly under a line of prose (which `appendMemory` also produced when
- * the file ended in prose) — is offered. A note appended straight onto a
- * heading's list, with no blank line between, cannot be told from the list
- * and stays. Nothing here can prove a bullet was a `#note`; the rules only
- * keep what provably was not. That is why moving is the operator's call, not
- * a launch's.
+ * The text of every top-level bullet (`- text`) in a curated file, each once,
+ * in order. No bullet is judged to be a note or not: the file is never
+ * changed, so copying one the operator wrote costs a memory they can archive,
+ * never a line of their file. A nested bullet belongs to its parent and is not
+ * taken; only a bullet's first line is.
  */
-export function splitCuratedBullets(text: string): {
-	bullets: string[]
-	rest: string
-	kept: number
-} {
-	const lines = text.split('\n')
-	const bullets: string[] = []
-	const out: string[] = []
-	let kept = 0
-	// What the current list hangs from: a heading directly above it, or
-	// anything else. A blank line starts over, so it ends a heading's list.
-	let context: 'start' | 'heading' | 'other' = 'start'
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i] ?? ''
-		const bare = line.replace(/\r$/, '')
-		const match = /^- (\S.*)$/.exec(bare)
-		if (match?.[1]) {
-			const next = (lines[i + 1] ?? '').replace(/\r$/, '')
-			const ends = next.trim() === '' || /^- \S/.test(next)
-			if (ends && context !== 'heading') {
-				bullets.push(match[1].trim())
-				continue
-			}
-			kept++
-			out.push(line)
-			continue
-		}
-		if (bare.trim() === '') context = 'start'
-		else if (!/^\s+- /.test(bare)) context = HEADING.test(bare) ? 'heading' : 'other'
-		out.push(line)
+export function curatedBullets(text: string): string[] {
+	const bullets = new Set<string>()
+	for (const line of text.split('\n')) {
+		const match = /^- (\S.*)$/.exec(line.replace(/\r$/, ''))
+		const bullet = match?.[1]?.trim()
+		if (bullet) bullets.add(bullet)
 	}
-	const rest = out.join('\n').replace(/\n{3,}/g, '\n\n')
-	return { bullets, rest: rest.trim() ? `${rest.trim()}\n` : '', kept }
+	return [...bullets]
 }
 
 /**
- * Create the memory for one curated bullet, false when it already exists.
+ * Create the memory for one curated bullet, false when it is already stored.
  *
  * Under the name its text slugs to, first: the store refuses a taken name
- * inside its lock, so two runs moving the same bullet at once write it once,
+ * inside its lock, so two runs copying the same bullet at once write it once,
  * the second finding the first's record by its source digest. A name held by
- * an unrelated memory falls back to a suffixed one.
+ * a memory with the same text is that bullet already stored; one held by an
+ * unrelated memory falls back to a suffixed name.
  */
-async function moveBullet(
+async function copyBullet(
 	store: MarkdownMemoryStore,
 	bullet: string,
 	sourceDigest: string,
-	migratedFrom: string,
+	importedFrom: string,
 ): Promise<boolean> {
 	const params = {
 		title: firstLine(bullet, 72),
@@ -289,7 +235,7 @@ async function moveBullet(
 		description: firstLine(bullet, 150),
 		content: bullet,
 		type: 'project' as const,
-		metadata: { source: 'curated-bullet', sourceDigest, migratedFrom },
+		metadata: { source: 'curated-bullet', sourceDigest, importedFrom },
 	}
 	const name = slugifyMemoryName(bullet)
 	try {
@@ -299,7 +245,12 @@ async function moveBullet(
 		if (!(error instanceof MemoryNameConflictError)) throw error
 	}
 	const holder = await store.getByName(name)
-	if (holder?.content.metadata?.sourceDigest === sourceDigest) return false
+	if (
+		holder?.content.metadata?.sourceDigest === sourceDigest ||
+		holder?.content.content.trim() === bullet
+	) {
+		return false
+	}
 	await store.create(params)
 	return true
 }
@@ -315,12 +266,13 @@ async function moveBullet(
  *    is reported and stays in the retired files; stopping on it would leave
  *    `index.json` in place and the store refusing every operation for good.
  *    Any other failure leaves the JSON store where it is, to retry next launch.
- * 2. The project's curated `MEMORY.md` is NOT rewritten. When it holds
- *    single-line bullets that could be notes `#note` used to append, the
- *    report offers them — once per file, since the checkout's file and a
- *    subdirectory's own `.namzu/MEMORY.md` are different files — and
- *    `/memory import-notes` moves them when the operator asks. Until then
- *    they stay curated, read into every turn as before.
+ * 2. The project's curated `MEMORY.md` is never changed. When it holds
+ *    top-level bullets — some may be notes `#note` used to append — the
+ *    report offers them once per file, since the checkout's file and a
+ *    subdirectory's own `.namzu/MEMORY.md` are different files, and
+ *    `/memory import-notes` copies them into typed memories when the
+ *    operator asks. They stay curated, read into every turn as before, until
+ *    the operator deletes them from the file.
  */
 export async function migrateMemoryOnce(options: {
 	readonly store: MarkdownMemoryStore
@@ -375,9 +327,9 @@ export async function migrateMemoryOnce(options: {
 		const location = projectMemoryLocation(cwd)
 		const marker = await readMarker(directory)
 		const state = marker.curatedFiles?.[location.path]
-		if (!state?.offeredAt && !state?.movedAt) {
+		if (!state?.offeredAt && !state?.importedAt) {
 			const text = readMemoryFile(location)
-			const { bullets } = text === null ? { bullets: [] } : splitCuratedBullets(text)
+			const bullets = text === null ? [] : curatedBullets(text)
 			if (bullets.length > 0) {
 				notesOffer = { path: location.path, count: bullets.length }
 				await markCuratedFile(directory, location.path, {
@@ -400,12 +352,12 @@ export async function migrateMemoryOnce(options: {
 }
 
 /**
- * Move the project's curated `#note`-shaped bullets into typed memory files,
- * because the operator asked (`/memory import-notes`). Idempotent: a bullet
- * already moved — by an interrupted earlier run or a concurrent one — is not
- * moved twice. The file's text before the move is kept beside it, and the
- * file is rewritten without the moved bullets only if nothing changed it
- * meanwhile.
+ * Copy the project's curated bullets into typed memory files, because the
+ * operator asked (`/memory import-notes`). The curated file is read, never
+ * written: deleting a bullet from it is the operator's call. Idempotent: a
+ * bullet already stored — by an earlier or concurrent import, as a `#note`
+ * with the same text, or under its name with the same text — is not copied
+ * again.
  */
 export async function importCuratedNotes(options: {
 	readonly store: MarkdownMemoryStore
@@ -415,41 +367,32 @@ export async function importCuratedNotes(options: {
 	const { store, directory, cwd } = options
 	const location = projectMemoryLocation(cwd)
 	const text = readMemoryFile(location)
-	if (text === null) return { path: location.path, moved: 0, kept: 0 }
-	const { bullets, rest, kept } = splitCuratedBullets(text)
-	if (bullets.length === 0) return { path: location.path, moved: 0, kept }
-	// Digests of bullets an interrupted earlier run already moved.
-	const moved = new Set<unknown>()
-	for (const entry of (await store.list({})).entries) {
-		moved.add((await store.get(entry.id))?.metadata?.sourceDigest)
+	const bullets = text === null ? [] : curatedBullets(text)
+	if (bullets.length === 0) {
+		return { path: location.path, found: 0, copied: 0, alreadyStored: 0 }
 	}
-	let count = 0
+	// Digests of what is stored already, archived memories included: a copy
+	// the operator archived stays archived rather than coming back.
+	const stored = new Set<unknown>()
+	for (const entry of (await store.list({})).entries) {
+		const metadata = (await store.get(entry.id))?.metadata
+		stored.add(metadata?.sourceDigest)
+		stored.add(metadata?.noteDigest)
+	}
+	let copied = 0
 	for (const bullet of bullets) {
 		const sourceDigest = digest(bullet)
-		if (moved.has(sourceDigest)) continue
-		if (await moveBullet(store, bullet, sourceDigest, location.path)) count++
-		moved.add(sourceDigest)
+		if (stored.has(sourceDigest)) continue
+		if (await copyBullet(store, bullet, sourceDigest, location.path)) copied++
+		stored.add(sourceDigest)
 	}
-	// This run's text, always: a second run moving bullets appended since the
-	// first must not claim the first run's copy as "the file as it was".
-	const backupPath = writeMemoryBackup(`${location.path}${BACKUP_SUFFIX}`, text)
-	// A concurrent run that already rewrote it to the same text has done this
-	// run's work; anything else is an edit to keep.
-	if (!replaceMemoryFile(location, text, rest) && readMemoryFile(location) !== rest) {
-		throw new Error(
-			`${location.path} changed while its notes were being moved; the memories were saved, run /memory import-notes again to remove them from the file`,
-		)
+	await markCuratedFile(directory, location.path, { importedAt: new Date().toISOString() })
+	return {
+		path: location.path,
+		found: bullets.length,
+		copied,
+		alreadyStored: bullets.length - copied,
 	}
-	const earlier = (await readMarker(directory).catch(() => ({}) as MigrationMarker)).curatedFiles?.[
-		location.path
-	]
-	await markCuratedFile(directory, location.path, {
-		movedAt: new Date().toISOString(),
-		// Memories this file's bullets became, across runs: what was created,
-		// not what was found (an interrupted run's bullets are not counted twice).
-		moved: (earlier?.moved ?? 0) + count,
-	})
-	return { path: location.path, moved: count, kept, backupPath }
 }
 
 /** Operator notices for a migration; empty when nothing moved, nothing is offered and nothing failed. */
@@ -467,7 +410,7 @@ export function describeMemoryMigration(
 	if (report.notesOffer) {
 		const { path, count } = report.notesOffer
 		notices.push(
-			`Stored memory: ${path} has ${count} single-line bullet${count === 1 ? '' : 's'} that may be notes #note saved before notes became typed memory files. They stay curated and still reach every turn. Run /memory import-notes to move them into ${directory} (the file as it was is kept beside it). New #note and /memory add notes are saved there already.`,
+			`Stored memory: ${path} has ${count} top-level bullet${count === 1 ? '' : 's'}, some perhaps notes #note saved before notes became typed memory files. They stay curated and still reach every turn. Run /memory import-notes to copy them into ${directory} as typed memories; the curated file is never changed. New #note and /memory add notes are saved there already.`,
 		)
 	}
 	notices.push(...report.problems)
@@ -476,12 +419,13 @@ export function describeMemoryMigration(
 
 /** The operator's report for `/memory import-notes`. */
 export function describeCuratedNotesImport(result: CuratedNotesImport, directory: string): string {
-	const keptNote =
-		result.kept > 0
-			? ` ${result.kept} bullet${result.kept === 1 ? '' : 's'} stayed: a list starting directly under a heading is a section you wrote, and a bullet followed by a line that is not a bullet may run on into it. Prose and nested bullets always stay.`
-			: ''
-	if (!result.backupPath) {
-		return `No single-line notes to move in ${result.path}.${keptNote}`
+	if (result.found === 0) {
+		return `No top-level bullets to copy in ${result.path}; it is unchanged.`
 	}
-	return `Moved ${result.moved} note${result.moved === 1 ? '' : 's'} from ${result.path} into typed memory files in ${directory}; the file as it was before this move is kept at ${result.backupPath}.${keptNote}`
+	const plural = (n: number) => (n === 1 ? '' : 's')
+	const already =
+		result.alreadyStored > 0
+			? ` ${result.alreadyStored} ${result.alreadyStored === 1 ? 'was' : 'were'} already stored and not copied again.`
+			: ''
+	return `Copied ${result.copied} of ${result.found} bullet${plural(result.found)} from ${result.path} into typed memory files in ${directory}.${already} ${result.path} is unchanged: its bullets are still curated text in every turn. Delete the ones you no longer want there yourself.`
 }

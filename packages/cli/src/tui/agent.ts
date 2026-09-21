@@ -792,14 +792,21 @@ export interface AgentSession {
 	 */
 	readonly rememberNote?: (text: string, type?: MemoryType) => Promise<TypedNoteResult>
 	/**
-	 * Move the project's curated `#note`-shaped bullets into stored memory
-	 * (`/memory import-notes`), returning the operator's report.
+	 * Copy the project's curated bullets into stored memory
+	 * (`/memory import-notes`), returning the operator's report. The curated
+	 * file is never changed.
 	 */
 	readonly importCuratedNotes?: () => Promise<string>
-	/** Every active stored memory's index line, and where the files are; what `/memory` shows. */
+	/**
+	 * What `/memory` shows of stored memory, and where the files are: `index`,
+	 * the always-loaded index uncapped — every active memory someone chose to
+	 * keep — and `derived`, the active records runs recorded on their own (the
+	 * run promoter, consolidation), which the prompt's index leaves out.
+	 */
 	readonly storedMemoryIndex?: () => Promise<{
 		readonly directory: string
 		readonly index: RenderedMemoryIndex
+		readonly derived: RenderedMemoryIndex
 	}>
 	/**
 	 * Whether "approve all" has been chosen at a prompt during this session.
@@ -3078,6 +3085,10 @@ export async function createAgentSession(
 		storedMemoryIndex: async () => ({
 			directory: memoryDirectory,
 			index: await memoryStore.readIndex({ maxLines: Number.POSITIVE_INFINITY }),
+			derived: await memoryStore.readIndex({
+				maxLines: Number.POSITIVE_INFINITY,
+				derived: true,
+			}),
 		}),
 		webSearchSummary: webSearchLabel(options.web, nativeSearchAvailable),
 		close: () => operations.close(),
