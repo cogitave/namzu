@@ -121,3 +121,20 @@ delegated children as well.
 With `pruneKeepLast: 10`, the 50-iteration run above leaves 10 checkpoint
 files, 160,407 bytes, beside logs of 183,939 bytes: 19 files and 1,339,256
 bytes for the whole run, against 105 files and 11,201,811 bytes before.
+
+## Crash dumps
+
+With `emergencySave: true`, a run installs handlers that write
+`<runDir>/../emergency/<runId>.json` on `SIGINT`, `SIGTERM` or an uncaught
+exception. `EmergencySaveManager.savePathFor(runDir, runId)` names that path.
+`prepareReplayState({ fromCheckpoint: 'emergency' })` reads it back. The CLI
+turns dumps on for every interactive turn.
+
+A dump holds the whole conversation. Once the same run, resumed under its own
+id, settles `completed`, its persisted record is newer than the dump, so the
+kernel removes the dump then (`EmergencySaveManager.clearSave`). Nothing did
+before: neither the kernel nor the CLI read their own dumps back, so every
+crash left a dump behind. A resume that fails or pauses keeps the dump, which
+is still the last record of a moment the run did not survive. A replay that
+forks a new run from a dump does not remove it; that run has its own id, and
+the dump still belongs to the run that crashed.
