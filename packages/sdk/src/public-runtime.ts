@@ -954,6 +954,7 @@ export { RUN_EVENT_SCHEMA_VERSION } from './session/events/index.js'
 
 export {
 	DefaultPathBuilder,
+	defaultStateRoot,
 	GitWorktreeDriver,
 	parseWorktreeList,
 	SharedRunWorkspace,

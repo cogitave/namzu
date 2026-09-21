@@ -7,6 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
+import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
 import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import { DiskTokenBudgetStore } from '../../../store/run/token-budget-disk.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
@@ -90,6 +91,22 @@ afterEach(async () => {
 	await removeTempDirs(workdirs)
 	workdirs = []
 })
+
+/**
+ * A working directory and a state root inside it. Every test here reuses one
+ * scope and run id, so the durable run tree has to be per test: the default
+ * root is shared by every run in the process.
+ */
+async function isolatedState(): Promise<{
+	workingDirectory: string
+	pathBuilder: DefaultPathBuilder
+}> {
+	const workingDirectory = await mkWorkdir()
+	return {
+		workingDirectory,
+		pathBuilder: new DefaultPathBuilder(join(workingDirectory, '.namzu')),
+	}
+}
 
 async function mkWorkdir(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-tool-pause-resume-'))
@@ -258,7 +275,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			},
 			agentId: 'agent_pause',
 			agentName: 'Pause Agent',
-			workingDirectory: await mkWorkdir(),
+			...(await isolatedState()),
 			sessionId: SCOPE.sessionId,
 			topicId: SCOPE.topicId,
 			projectId: SCOPE.projectId,

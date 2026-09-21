@@ -7,6 +7,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
@@ -102,6 +103,9 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 		agentId: 'agent_r',
 		agentName: 'Resumable',
 		workingDirectory: h.dir,
+		// Per test: every test here reuses one scope and run id, and the
+		// default state root is shared by every run in the process.
+		pathBuilder: new DefaultPathBuilder(join(h.dir, '.namzu')),
 		sessionId: h.scope.sessionId,
 		topicId: h.scope.topicId,
 		projectId: h.scope.projectId,

@@ -6,6 +6,7 @@ import {
 	validateTokenBudgetSnapshot,
 } from '../../run/token-budget.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
+import { defaultStateRoot } from '../../session/workspace/state-root.js'
 import type { TokenUsage } from '../../types/common/index.js'
 import type { TokenBudgetScope, TokenBudgetStore } from '../../types/run/token-budget-store.js'
 import { temporaryPathFor } from '../../utils/atomic-write.js'
@@ -108,7 +109,14 @@ export interface OpenTokenBudgetOptions {
 	readonly scope: TokenBudgetScope
 	/** Required for a new root. Existing roots can reopen without changing their cap. */
 	readonly limit?: number
+	/** Where the ledger lives. Omitted: under `defaultStateRoot()`. */
 	readonly pathBuilder?: PathBuilder
+	/**
+	 * @deprecated Ignored. It chose `<workingDirectory>/.namzu` as the root
+	 *   when no `pathBuilder` was passed; the default root is now
+	 *   `defaultStateRoot()`, which does not depend on the working directory.
+	 *   Pass a `pathBuilder` to choose the root. Removed in a later major.
+	 */
 	readonly workingDirectory?: string
 	readonly accountId?: string
 	/** A checkpoint binding must never create a fresh ledger if its record is gone. */
@@ -118,9 +126,7 @@ export interface OpenTokenBudgetOptions {
 /** Open the latest authority; a checkpoint only selects an existing account. */
 export async function openTokenBudget(options: OpenTokenBudgetOptions): Promise<TokenBudget> {
 	const scope = validateScope(options.scope)
-	const pathBuilder =
-		options.pathBuilder ??
-		new DefaultPathBuilder(join(options.workingDirectory ?? process.cwd(), '.namzu'))
+	const pathBuilder = options.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
 	const store =
 		options.store ??
 		new DiskTokenBudgetStore({

@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { TokenBudget } from '../../run/token-budget.js'
 import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
+import { defaultStateRoot } from '../../session/workspace/state-root.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { openTokenBudget } from '../../store/run/token-budget-disk.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
@@ -17,9 +18,7 @@ export async function resolveQueryBudget(
 ): Promise<TokenBudget> {
 	let saved: Pick<IterationCheckpoint, 'budgetBinding' | 'budgetAccountId'> | undefined = selected
 	if (params.resumeFromCheckpoint && !saved) {
-		const paths =
-			params.pathBuilder ??
-			new DefaultPathBuilder(join(params.workingDirectory ?? process.cwd(), '.namzu'))
+		const paths = params.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
 		const scope = {
 			tenantId: params.tenantId,
 			projectId: params.projectId,

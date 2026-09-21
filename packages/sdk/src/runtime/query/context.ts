@@ -4,6 +4,7 @@ import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
 import type { TokenBudget } from '../../run/token-budget.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
+import { defaultStateRoot } from '../../session/workspace/state-root.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
@@ -208,7 +209,9 @@ export class RunContextFactory {
 		permissionMode.current = seeded
 		const runId = config.runId ?? generateRunId()
 
-		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(join(cwd, '.namzu'))
+		// Never `<cwd>/.namzu`: generated state does not belong in the directory
+		// the agent works in. See `defaultStateRoot`.
+		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(defaultStateRoot())
 		const outputDir = pathBuilder.sessionDir(config.projectId, config.sessionId)
 		const runsDir = join(outputDir, 'runs')
 
