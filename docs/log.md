@@ -2,6 +2,7 @@
 
 ## 2026-09-22
 
+- **Update** [Delegation events](sdk/delegation-events.md): a parent on disk hands its layout to its children (`ChildSessionStorage` of kind `disk`), so child logs, meta files and `child_session_ended` land under the parent with no `paths` named anywhere.
 - **Update** [`namzu drain`](cli/drain.md) is no longer a draft, and its exit codes are exact: state under `--store` that cannot be read is 1, a scope the store does not hold is 64 (`packages/cli/src/commands/drain.ts`). [`namzu run-stream`](cli/run-stream.md) is no longer a draft: the command's `sessionId`/`turnId` fields and exit 75 have landed.
 - **Update** [Session task context](cli/task-context.md) and [Request-only step context](sdk/step-context.md): `PrepareStepContext.turnStartedAt` names when the turn began, and a resumed turn keeps its `turn_started` time, so tasks it closed before a pause in another process stay in "closed in this turn".
 - **Update** [AG-UI clients](sdk/ag-ui.md): `AGUITurnUI` (was `AGUIRunUI`); `AGUITurnContext`, `AGUITurnOptions` and `AGUITurnUIOptions` replace the other three run-named exports.

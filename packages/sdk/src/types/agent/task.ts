@@ -30,13 +30,25 @@ export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
  * `SessionPaths`, so the child session runs in memory too.
  * {@link AgentManager.sendMessage} gives the child a fresh
  * `InMemorySessionLog` and, when the parent named one, the parent's
- * `checkpointStore`, so the child writes nothing under `NAMZU_HOME`. A child
- * config that already names a `sessionLog` or `paths` keeps what it names.
+ * `checkpointStore`, so the child writes nothing under `NAMZU_HOME`.
+ *
+ * `disk`: the parent's session is on disk in the layout `paths` (the one it
+ * named, or the default for its working directory under `NAMZU_HOME`). The
+ * child's log goes at `<parent-session-dir>/subagents/<child-id>.jsonl`
+ * beside its `<child-id>.meta.json`, nested under every ancestor.
+ *
+ * A child config that already names a `sessionLog` or `paths` keeps what it
+ * names.
  */
-export interface ChildSessionStorage {
-	readonly kind: 'memory'
-	readonly checkpointStore?: import('../../store/checkpoint/index.js').SessionCheckpointStore
-}
+export type ChildSessionStorage =
+	| {
+			readonly kind: 'memory'
+			readonly checkpointStore?: import('../../store/checkpoint/index.js').SessionCheckpointStore
+	  }
+	| {
+			readonly kind: 'disk'
+			readonly paths: import('../../session/paths.js').SessionPaths
+	  }
 
 /**
  * Context carried into {@link AgentManager.sendMessage}. `tenantId`,

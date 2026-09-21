@@ -142,7 +142,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			throw new Error('Injected task scheduler must share the supervisor token budget authority')
 		}
 
-		const childStorage = childSessionStorage(config)
+		const childStorage = await childSessionStorage(config, input.workingDirectory)
 
 		let gateway: TaskScheduler
 		if (configuredScheduler) {

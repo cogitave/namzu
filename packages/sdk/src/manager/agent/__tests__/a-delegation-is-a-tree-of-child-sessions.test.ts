@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
+import { childSessionStorage } from '../../../agents/storage.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
+import { defaultSessionPaths } from '../../../runtime/query/session-storage.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionPaths } from '../../../session/paths.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
@@ -104,10 +106,21 @@ async function recordTurn(
 	await log.release(lease)
 }
 
-async function harness(maxDepth: number) {
+/**
+ * `manager`: the host hands the manager a layout (`AgentManagerConfig.paths`).
+ * `inherited`: nobody names one. The root session is on disk in the default
+ * layout for its working directory, and each parent hands its own layout down
+ * (`AgentTaskContext.childStorage`), as `SupervisorAgent` does.
+ */
+type Layout = 'manager' | 'inherited'
+
+async function harness(maxDepth: number, layout: Layout = 'manager') {
 	const home = await mkdtemp(join(tmpdir(), 'namzu-child-sessions-'))
 	dirs.push(home)
-	const paths = new SessionPaths({ home, slug: '-work' })
+	const paths =
+		layout === 'manager'
+			? new SessionPaths({ home, slug: '-work' })
+			: await defaultSessionPaths(home)
 	const store = new InMemorySessionStore()
 	const topicStore = new InMemoryTopicStore()
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
@@ -174,6 +187,9 @@ async function harness(maxDepth: number) {
 						sessionId,
 						projectId: config.projectId!,
 						parentActor: actor,
+						...(layout === 'inherited'
+							? { childStorage: await childSessionStorage(config, home) }
+							: {}),
 					},
 					(event) => {
 						events.push(event)
@@ -217,7 +233,7 @@ async function harness(maxDepth: number) {
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			capacity: new DefaultCapacityValidator(store),
 			topicManager: new TopicManager({ topicStore, sessionStore: store }),
-			paths,
+			...(layout === 'manager' ? { paths } : {}),
 		},
 	)
 
@@ -236,158 +252,162 @@ async function harness(maxDepth: number) {
 		sessionId: root.id,
 		projectId: project.id,
 		parentActor: actor,
+		...(layout === 'inherited' ? { childStorage: await childSessionStorage({}, home) } : {}),
 	}
 	return { manager, paths, root, rootTurn, context, events, configs, project }
 }
 
-describe('a delegation three levels deep', () => {
-	it('writes each child log and meta document under its parent', async () => {
-		const h = await harness(3)
-		const task = await h.manager.sendMessage(
-			{
-				agentId: 'nester',
-				input: {
-					messages: [{ role: 'user', content: 'level 1\nwith detail' }],
-					workingDirectory: '/work',
+describe.each(['manager', 'inherited'] as const)(
+	'a delegation three levels deep (%s layout)',
+	(layout) => {
+		it('writes each child log and meta document under its parent', async () => {
+			const h = await harness(3, layout)
+			const task = await h.manager.sendMessage(
+				{
+					agentId: 'nester',
+					input: {
+						messages: [{ role: 'user', content: 'level 1\nwith detail' }],
+						workingDirectory: '/work',
+					},
+					parentSessionId: h.root.id,
+					tenantId: tenant,
+					projectId: h.project.id,
+					parentActor: actor,
 				},
-				parentSessionId: h.root.id,
-				tenantId: tenant,
-				projectId: h.project.id,
-				parentActor: actor,
-			},
-			h.context,
-			(event) => {
-				h.events.push(event)
-			},
-		)
-		await h.manager.waitForCompletion(task.taskId)
-		expect(task.state).toBe('completed')
+				h.context,
+				(event) => {
+					h.events.push(event)
+				},
+			)
+			await h.manager.waitForCompletion(task.taskId)
+			expect(task.state).toBe('completed')
 
-		const chain = h.configs.map((config) => config.sessionId as SessionId)
-		expect(chain).toHaveLength(3)
-		const [child, grandchild, great] = chain as [SessionId, SessionId, SessionId]
+			const chain = h.configs.map((config) => config.sessionId as SessionId)
+			expect(chain).toHaveLength(3)
+			const [child, grandchild, great] = chain as [SessionId, SessionId, SessionId]
 
-		// Nested, one `subagents/` level per ancestor.
-		const rootDir = h.paths.sessionDir({ sessionId: h.root.id })
-		expect(await readdir(join(rootDir, 'subagents'))).toEqual(
-			[`${child}.jsonl`, `${child}.meta.json`, child].sort(),
-		)
-		const childLocator = { sessionId: child, ancestors: [h.root.id] }
-		const grandLocator = { sessionId: grandchild, ancestors: [h.root.id, child] }
-		const greatLocator = { sessionId: great, ancestors: [h.root.id, child, grandchild] }
-		expect(h.paths.sessionLog(greatLocator)).toBe(
-			join(rootDir, 'subagents', child, 'subagents', grandchild, 'subagents', `${great}.jsonl`),
-		)
-		const spawners = [h.root.id, child, grandchild]
-		for (const [index, locator] of [childLocator, grandLocator, greatLocator].entries()) {
-			const log = DiskSessionLog.at(h.paths, locator)
-			const read = await log.readAll()
-			expect(read.intact).toBe(true)
-			expect(read.entries.map((e) => e.record.type)).toEqual([
-				'session_started',
-				'turn_started',
-				'turn_completed',
+			// Nested, one `subagents/` level per ancestor.
+			const rootDir = h.paths.sessionDir({ sessionId: h.root.id })
+			expect(await readdir(join(rootDir, 'subagents'))).toEqual(
+				[`${child}.jsonl`, `${child}.meta.json`, child].sort(),
+			)
+			const childLocator = { sessionId: child, ancestors: [h.root.id] }
+			const grandLocator = { sessionId: grandchild, ancestors: [h.root.id, child] }
+			const greatLocator = { sessionId: great, ancestors: [h.root.id, child, grandchild] }
+			expect(h.paths.sessionLog(greatLocator)).toBe(
+				join(rootDir, 'subagents', child, 'subagents', grandchild, 'subagents', `${great}.jsonl`),
+			)
+			const spawners = [h.root.id, child, grandchild]
+			for (const [index, locator] of [childLocator, grandLocator, greatLocator].entries()) {
+				const log = DiskSessionLog.at(h.paths, locator)
+				const read = await log.readAll()
+				expect(read.intact).toBe(true)
+				expect(read.entries.map((e) => e.record.type)).toEqual([
+					'session_started',
+					'turn_started',
+					'turn_completed',
+				])
+				// The child's own log says where it sits in the tree.
+				const started = read.entries[0]?.record
+				expect(started?.type === 'session_started' && started.parent).toMatchObject({
+					sessionId: spawners[index],
+					rootSessionId: h.root.id,
+					depth: index + 1,
+					kind: 'agent_spawn',
+				})
+			}
+
+			// Each meta document names its parent, root, depth and outcome.
+			const parents = [h.root.id, child, grandchild]
+			for (const [index, locator] of [childLocator, grandLocator, greatLocator].entries()) {
+				const parent = { sessionId: parents[index]!, ancestors: locator.ancestors.slice(0, -1) }
+				const meta = await readChildSessionMeta(h.paths.subagentMeta(parent, locator.sessionId))
+				expect(meta).toMatchObject({
+					v: 1,
+					kind: 'child-session',
+					sessionId: locator.sessionId,
+					parentSessionId: parents[index],
+					rootSessionId: h.root.id,
+					depth: index + 1,
+					agentType: 'nester',
+					status: 'completed',
+				})
+				expect(meta?.endedAt).toBeTypeOf('string')
+			}
+			const top = await readChildSessionMeta(h.paths.subagentMeta({ sessionId: h.root.id }, child))
+			expect(top).toMatchObject({ parentTurnId: h.rootTurn, description: 'level 1' })
+		})
+
+		it("announces each child to its parent and derives the parent's ended record from the child's terminal record", async () => {
+			const h = await harness(1, layout)
+			const task = await h.manager.sendMessage(
+				{
+					agentId: 'nester',
+					input: { messages: [{ role: 'user', content: 'go' }], workingDirectory: '/work' },
+					parentSessionId: h.root.id,
+					tenantId: tenant,
+					projectId: h.project.id,
+					parentActor: actor,
+				},
+				h.context,
+				(event) => {
+					h.events.push(event)
+				},
+			)
+			const childId = h.manager.getSpawnRecord(task.taskId)?.childSessionId as SessionId
+			// Live while its spawn record is held.
+			expect(childSessionLog(childId)?.sessionId).toBe(childId)
+			await h.manager.waitForCompletion(task.taskId)
+
+			const toRoot = h.events.filter((e) => e.sessionId === h.root.id)
+			expect(toRoot.map((e) => e.type)).toEqual([
+				'agent_pending',
+				'child_session_spawned',
+				'child_session_idled',
+				'agent_completed',
 			])
-			// The child's own log says where it sits in the tree.
-			const started = read.entries[0]?.record
-			expect(started?.type === 'session_started' && started.parent).toMatchObject({
-				sessionId: spawners[index],
-				rootSessionId: h.root.id,
-				depth: index + 1,
-				kind: 'agent_spawn',
+			expect(toRoot[1]).toMatchObject({
+				turnId: h.rootTurn,
+				childSessionId: childId,
+				path: `subagents/${childId}.jsonl`,
+				lineage: { parentSessionId: h.root.id, rootSessionId: h.root.id, depth: 1 },
 			})
-		}
 
-		// Each meta document names its parent, root, depth and outcome.
-		const parents = [h.root.id, child, grandchild]
-		for (const [index, locator] of [childLocator, grandLocator, greatLocator].entries()) {
-			const parent = { sessionId: parents[index]!, ancestors: locator.ancestors.slice(0, -1) }
-			const meta = await readChildSessionMeta(h.paths.subagentMeta(parent, locator.sessionId))
-			expect(meta).toMatchObject({
-				v: 1,
-				kind: 'child-session',
-				sessionId: locator.sessionId,
-				parentSessionId: parents[index],
-				rootSessionId: h.root.id,
-				depth: index + 1,
-				agentType: 'nester',
-				status: 'completed',
+			const childLog = DiskSessionLog.at(h.paths, { sessionId: childId, ancestors: [h.root.id] })
+			const terminal = (await childLog.readAll()).entries.at(-1)?.record
+			if (terminal?.type !== 'turn_completed') throw new Error('child did not settle')
+			expect(await childSessionEnded(childLog)).toEqual({
+				type: 'child_session_ended',
+				childSessionId: childId,
+				status: terminal.settlement.status,
+				stopReason: terminal.stopReason,
+				usage: terminal.settlement.usage,
+				cost: terminal.settlement.cost,
 			})
-			expect(meta?.endedAt).toBeTypeOf('string')
-		}
-		const top = await readChildSessionMeta(h.paths.subagentMeta({ sessionId: h.root.id }, child))
-		expect(top).toMatchObject({ parentTurnId: h.rootTurn, description: 'level 1' })
-	})
-
-	it("announces each child to its parent and derives the parent's ended record from the child's terminal record", async () => {
-		const h = await harness(1)
-		const task = await h.manager.sendMessage(
-			{
-				agentId: 'nester',
-				input: { messages: [{ role: 'user', content: 'go' }], workingDirectory: '/work' },
-				parentSessionId: h.root.id,
-				tenantId: tenant,
-				projectId: h.project.id,
-				parentActor: actor,
-			},
-			h.context,
-			(event) => {
-				h.events.push(event)
-			},
-		)
-		const childId = h.manager.getSpawnRecord(task.taskId)?.childSessionId as SessionId
-		// Live while its spawn record is held.
-		expect(childSessionLog(childId)?.sessionId).toBe(childId)
-		await h.manager.waitForCompletion(task.taskId)
-
-		const toRoot = h.events.filter((e) => e.sessionId === h.root.id)
-		expect(toRoot.map((e) => e.type)).toEqual([
-			'agent_pending',
-			'child_session_spawned',
-			'child_session_idled',
-			'agent_completed',
-		])
-		expect(toRoot[1]).toMatchObject({
-			turnId: h.rootTurn,
-			childSessionId: childId,
-			path: `subagents/${childId}.jsonl`,
-			lineage: { parentSessionId: h.root.id, rootSessionId: h.root.id, depth: 1 },
 		})
 
-		const childLog = DiskSessionLog.at(h.paths, { sessionId: childId, ancestors: [h.root.id] })
-		const terminal = (await childLog.readAll()).entries.at(-1)?.record
-		if (terminal?.type !== 'turn_completed') throw new Error('child did not settle')
-		expect(await childSessionEnded(childLog)).toEqual({
-			type: 'child_session_ended',
-			childSessionId: childId,
-			status: terminal.settlement.status,
-			stopReason: terminal.stopReason,
-			usage: terminal.settlement.usage,
-			cost: terminal.settlement.cost,
+		it('releases a settled child from the live lookup once its record is gone', async () => {
+			const h = await harness(1, layout)
+			const task = await h.manager.sendMessage(
+				{
+					agentId: 'nester',
+					input: { messages: [{ role: 'user', content: 'go' }], workingDirectory: '/work' },
+					parentSessionId: h.root.id,
+					tenantId: tenant,
+					projectId: h.project.id,
+					parentActor: actor,
+				},
+				h.context,
+			)
+			const childId = h.manager.getSpawnRecord(task.taskId)?.childSessionId as SessionId
+			await h.manager.waitForCompletion(task.taskId)
+			// The invocation's own cleanup runs just after the task settles.
+			await vi.waitFor(() => {
+				h.manager.cleanup()
+				expect(h.manager.getSpawnRecord(task.taskId)).toBeUndefined()
+			})
+			expect(childSessionLog(childId)).toBeUndefined()
+			expect(childSessionLog(generateSessionId())).toBeUndefined()
 		})
-	})
-
-	it('releases a settled child from the live lookup once its record is gone', async () => {
-		const h = await harness(1)
-		const task = await h.manager.sendMessage(
-			{
-				agentId: 'nester',
-				input: { messages: [{ role: 'user', content: 'go' }], workingDirectory: '/work' },
-				parentSessionId: h.root.id,
-				tenantId: tenant,
-				projectId: h.project.id,
-				parentActor: actor,
-			},
-			h.context,
-		)
-		const childId = h.manager.getSpawnRecord(task.taskId)?.childSessionId as SessionId
-		await h.manager.waitForCompletion(task.taskId)
-		// The invocation's own cleanup runs just after the task settles.
-		await vi.waitFor(() => {
-			h.manager.cleanup()
-			expect(h.manager.getSpawnRecord(task.taskId)).toBeUndefined()
-		})
-		expect(childSessionLog(childId)).toBeUndefined()
-		expect(childSessionLog(generateSessionId())).toBeUndefined()
-	})
-})
+	},
+)

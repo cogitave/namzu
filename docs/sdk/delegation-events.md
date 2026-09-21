@@ -90,6 +90,11 @@ not in the listener's stream.
   file is a convenience: the child's log wins on any disagreement. The agent
   manager writes the child's `session_started` before the child runs, with
   `parent: { sessionId, turnId, toolCallId, rootSessionId, depth, kind }`.
+  The layout is the parent's: a parent on disk hands its `SessionPaths` down
+  (`AgentTaskContext.childStorage` of kind `disk`) — the `paths` it named or,
+  with none, the default layout for its working directory — so the tree nests
+  even when neither the host nor the agent manager names a layout. A parent
+  held in memory gives its children in-memory logs instead.
 
 The parent's records are written by the parent turn itself. `query()` reads
 them from its task scheduler's optional `onChildSessionEvent(callback)`, which

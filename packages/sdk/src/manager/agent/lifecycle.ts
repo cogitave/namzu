@@ -91,14 +91,14 @@ interface AgentManagerBaseDeps {
 	readonly log?: Logger
 
 	/**
-	 * The project layout child sessions are written into when a child config
-	 * names no `sessionLog` and no `paths` of its own: the child's log at
+	 * The project layout child sessions are written into when neither the
+	 * child config (`sessionLog`, `paths`) nor the parent
+	 * (`AgentTaskContext.childStorage`) names one: the child's log at
 	 * `<parent-session-dir>/subagents/<child-id>.jsonl` and its
-	 * `<child-id>.meta.json` beside it, nested under each ancestor. Absent,
-	 * a child with no storage of its own resolves its log the way any turn
-	 * does (the default layout under `NAMZU_HOME`), and no meta document is
-	 * written. A parent held in memory (`AgentTaskContext.childStorage`)
-	 * gives its children in-memory logs whatever this says.
+	 * `<child-id>.meta.json` beside it, nested under each ancestor. A parent
+	 * on disk hands down its own layout, which wins over this, because a
+	 * child's log nests under its parent's session directory. A parent held
+	 * in memory gives its children in-memory logs whatever this says.
 	 */
 	readonly paths?: SessionPaths
 }
@@ -1047,7 +1047,12 @@ export class AgentManager {
 			}
 			return new InMemorySessionLog({ sessionId: spawnRecord.childSessionId })
 		}
-		const paths = childConfig.paths ?? this.deps.paths
+		// The parent's own layout first: a child's log nests under its
+		// parent's session directory, so it must be the parent's layout.
+		const paths =
+			childConfig.paths ??
+			(inherited?.kind === 'disk' ? inherited.paths : undefined) ??
+			this.deps.paths
 		if (!paths) return undefined
 		childConfig.paths = paths
 		const parent = this.parentLocator(spawnRecord)

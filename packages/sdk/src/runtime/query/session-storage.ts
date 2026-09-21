@@ -69,7 +69,8 @@ export interface SessionStorageInput {
  *   disk under `<session-id>/checkpoints/` and `<root-session-id>/budgets/`.
  * - **Children.** An in-memory session hands that choice to its delegated
  *   children, so a child does not fall back to a disk tree its parent never
- *   asked for.
+ *   asked for; a session on disk hands down its layout, so its children's
+ *   logs nest under its session directory.
  */
 export async function resolveSessionStorage(input: SessionStorageInput): Promise<SessionStorage> {
 	const inMemory = input.sessionLog instanceof InMemorySessionLog && input.paths === undefined
@@ -92,7 +93,9 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 				kind: 'memory',
 				...(input.checkpointStore ? { checkpointStore: input.checkpointStore } : {}),
 			}
-		: undefined
+		: paths
+			? { kind: 'disk', paths }
+			: undefined
 	const sessionDir = log instanceof DiskSessionLog ? log.sessionDir : undefined
 	return { log, paths, sessionDir, checkpoints, tokenBudget, children }
 }
