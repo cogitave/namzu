@@ -5,9 +5,9 @@ import {
 	type ChatCompletionParams,
 	type LLMProvider,
 	MockLLMProvider,
-	RunCancelled,
 	type StreamChunk,
 	ToolRegistry,
+	TurnCancelled,
 	cancelCauseOf,
 	createUserMessage,
 	drainQuery,
@@ -119,7 +119,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 					return tools
 				},
 			})
-			const gateway = await runtime.gatewayForRun(parent.scope.runId)
+			const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
 			const parentTools = new ToolRegistry()
 			parentTools.register(runtime.agentTool)
 			const parentProvider = new MockLLMProvider({
@@ -145,7 +145,7 @@ describe('a CLI blocking delegation ends with its parent', () => {
 				taskScheduler: gateway,
 				provider: parentProvider,
 				tools: parentTools,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 10_000,
 					tokenBudget: 100_000,
@@ -167,23 +167,23 @@ describe('a CLI blocking delegation ends with its parent', () => {
 				expect(childCalls).toBe(0)
 			} else await childStarted.promise
 			let firstClose: Promise<void> | undefined
-			if (authority !== 'runtime') caller.abort(new RunCancelled('user'))
+			if (authority !== 'runtime') caller.abort(new TurnCancelled('user'))
 			else {
 				firstClose = runtime.close()
 				expect(runtime.close()).toBe(firstClose)
 				await firstClose
 			}
-			const run = await Promise.race([
+			const turn = await Promise.race([
 				pending,
 				new Promise<never>((_resolve, reject) => {
 					setTimeout(() => reject(new Error('parent query did not settle')), 1_000)
 				}),
 			])
 
-			expect(run.status).toBe(expectedStatus)
+			expect(turn.status).toBe(expectedStatus)
 			if (authority === 'runtime') {
-				expect(run.stopReason).toBe('token_budget')
-				expect(run.budget?.poisoned).toBe(true)
+				expect(turn.stopReason).toBe('token_budget')
+				expect(turn.budget?.poisoned).toBe(true)
 			}
 			if (authority === 'caller-late') {
 				expect(childCalls).toBe(0)

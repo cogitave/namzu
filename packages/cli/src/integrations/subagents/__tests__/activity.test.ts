@@ -1,4 +1,11 @@
-import { RunCancelled, type RunEvent, type RunId, type TaskHandle, type TaskId } from '@namzu/sdk'
+import {
+	type SessionEvent,
+	type SessionId,
+	type TaskHandle,
+	type TaskId,
+	TurnCancelled,
+	type TurnId,
+} from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -9,7 +16,17 @@ import {
 	SubagentActivityMonitor,
 } from '../activity.js'
 
-const runId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId
+const sessionId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as SessionId
+const turnId = '01999999-5ba2-7a25-bf5a-8cc927907e9a' as TurnId
+
+/** The child's first turn opening: what moves a queued row to working. */
+const turnStarted = {
+	type: 'turn_started',
+	sessionId,
+	turnId,
+	userMessageId: '01999999-5ba2-7a25-bf5a-8cc927907e9b',
+	config: { model: 'a-model', tokenBudget: 0, timeoutMs: 0 },
+} as unknown as SessionEvent
 const taskId = 'tsk_child' as TaskId
 
 function usage(totalTokens: number) {
@@ -94,7 +111,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'a',
 			description: 'a',
 			prompt: 'a',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			workflow: 'Audit',
 			phase: 'Verify',
 			phaseOrder: 2,
@@ -103,7 +120,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'b',
 			description: 'b',
 			prompt: 'b',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			workflow: 'Audit',
 			phase: 'Verify',
 			phaseOrder: 0,
@@ -124,7 +141,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'a',
 			description: 'a',
 			prompt: 'a',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			workflow: 'Audit',
 			phase: 'Verify',
 			phaseDetail: 'Confirm the fix against the failing case.',
@@ -133,7 +150,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'b',
 			description: 'b',
 			prompt: 'b',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			workflow: 'Audit',
 			phase: 'Verify',
 			phaseDetail: 'A different detail from a later sibling.',
@@ -171,7 +188,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'a',
 			description: 'a',
 			prompt: 'a',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			phase: 'Verify',
 			phaseDetail: 'one detail',
 		})
@@ -179,7 +196,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'b',
 			description: 'b',
 			prompt: 'b',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			phase: 'Verify',
 			phaseDetail: 'a completely different detail',
 		})
@@ -191,16 +208,17 @@ describe('the CLI sub-agent activity monitor', () => {
 	it('labels from the event and from begin() agree', () => {
 		// The labels now ride the child's own `agent_pending` as well as the
 		// launch call, and the monitor reads both. This pins the thing that
-		// change must NOT do: for a run supplying the same labels on both
+		// change must NOT do: for a turn supplying the same labels on both
 		// paths, the grouping is byte-identical to what the launch call alone
 		// produced. It moves where the labels travel, not how they group.
 		const launch = [
-			{ agentId: 'a', description: 'a', prompt: 'a', workflowId: 'run-parent' },
+			{ agentId: 'a', description: 'a', prompt: 'a', workflowId: 'turn-parent' },
 			{ workflow: 'Audit', phase: 'Research', phaseOrder: 0, phaseDetail: 'Read the code.' },
 		] as const
 		const pending = {
 			type: 'agent_pending' as const,
-			runId,
+			sessionId,
+			turnId,
 			taskId,
 			parentAgentId: 'namzu',
 			childAgentId: 'a',
@@ -216,7 +234,7 @@ describe('the CLI sub-agent activity monitor', () => {
 
 		expect(grouping(monitor.getSnapshot()[0])).toEqual(grouping(baseline.getSnapshot()[0]))
 		expect(grouping(monitor.getSnapshot()[0])).toEqual({
-			workflowGroupId: JSON.stringify(['run-parent', 'workflow', 'Audit']),
+			workflowGroupId: JSON.stringify(['turn-parent', 'workflow', 'Audit']),
 			phaseId: 'phase-1',
 			phaseSequence: 1,
 			workflow: 'Audit',
@@ -232,10 +250,11 @@ describe('the CLI sub-agent activity monitor', () => {
 		// still gets grouped work rather than one undifferentiated batch.
 		const monitor = new SubagentActivityMonitor()
 		monitor
-			.begin({ agentId: 'a', description: 'a', prompt: 'a', workflowId: 'run-parent' })
+			.begin({ agentId: 'a', description: 'a', prompt: 'a', workflowId: 'turn-parent' })
 			.onEvent({
 				type: 'agent_pending',
-				runId,
+				sessionId,
+				turnId,
 				taskId,
 				parentAgentId: 'namzu',
 				childAgentId: 'a',
@@ -246,7 +265,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			})
 
 		expect(monitor.getSnapshot()[0]).toMatchObject({
-			workflowGroupId: JSON.stringify(['run-parent', 'workflow', 'Audit']),
+			workflowGroupId: JSON.stringify(['turn-parent', 'workflow', 'Audit']),
 			workflow: 'Audit',
 			phase: 'Research',
 			phaseOrder: 0,
@@ -263,7 +282,7 @@ describe('the CLI sub-agent activity monitor', () => {
 				agentId: 'a',
 				description: 'a',
 				prompt: 'a',
-				workflowId: 'run-parent',
+				workflowId: 'turn-parent',
 				workflow: 'Audit',
 				phase: 'Research',
 			})
@@ -285,13 +304,14 @@ describe('the CLI sub-agent activity monitor', () => {
 				agentId: 'a',
 				description: 'a',
 				prompt: 'a',
-				workflowId: 'run-parent',
+				workflowId: 'turn-parent',
 				workflow: 'Audit',
 				phase: 'Research',
 			})
 			.onEvent({
 				type: 'agent_pending',
-				runId,
+				sessionId,
+				turnId,
 				taskId,
 				parentAgentId: 'namzu',
 				childAgentId: 'a',
@@ -302,7 +322,7 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(monitor.getSnapshot()[0]).toMatchObject({
 			workflow: 'Audit',
 			phase: 'Verify',
-			workflowGroupId: JSON.stringify(['run-parent', 'workflow', 'Audit']),
+			workflowGroupId: JSON.stringify(['turn-parent', 'workflow', 'Audit']),
 		})
 	})
 
@@ -312,13 +332,13 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'a',
 			description: 'first',
 			prompt: 'first',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 		})
 		const second = monitor.begin({
 			agentId: 'b',
 			description: 'second',
 			prompt: 'second',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 		})
 		const firstBatch = monitor.getSnapshot().map((entry) => entry.batchId)
 		expect(new Set(firstBatch).size).toBe(1)
@@ -329,7 +349,7 @@ describe('the CLI sub-agent activity monitor', () => {
 			agentId: 'c',
 			description: 'third',
 			prompt: 'third',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 		})
 
 		const snapshot = monitor.getSnapshot()
@@ -345,7 +365,8 @@ describe('the CLI sub-agent activity monitor', () => {
 		})
 		tracker.onEvent({
 			type: 'reasoning_delta',
-			runId,
+			sessionId,
+			turnId,
 			iteration: 1,
 			messageId: 'reasoning' as never,
 			blockIndex: 0,
@@ -356,7 +377,8 @@ describe('the CLI sub-agent activity monitor', () => {
 
 		tracker.onEvent({
 			type: 'text_delta',
-			runId,
+			sessionId,
+			turnId,
 			iteration: 1,
 			messageId: 'answer' as never,
 			text: 'public interim result',
@@ -388,7 +410,7 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(snapshot[2]?.phaseId).not.toBe(snapshot[0]?.phaseId)
 	})
 
-	it('separates repeated named work in another run and unlabelled concurrent batches', () => {
+	it('separates repeated named work in another turn and unlabelled concurrent batches', () => {
 		const monitor = new SubagentActivityMonitor()
 		for (const input of [
 			{ workflowId: 'parent-one', workflow: 'Audit', batchId: 'batch-one' },
@@ -406,7 +428,8 @@ describe('the CLI sub-agent activity monitor', () => {
 		const tracker = monitor.begin({ agentId: 'worker', description: 'ninth', prompt: 'wait' })
 		tracker.onEvent({
 			type: 'agent_pending',
-			runId,
+			sessionId,
+			turnId,
 			taskId,
 			parentAgentId: 'namzu',
 			childAgentId: 'worker',
@@ -415,7 +438,7 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(monitor.getSnapshot()[0]).toMatchObject({ status: 'queued', latestActivity: 'Queued' })
 		tracker.settle({ ...handle('pending'), completedAt: undefined })
 		expect(monitor.getSnapshot()[0]).not.toHaveProperty('completedAt')
-		tracker.onEvent({ type: 'run_started', runId })
+		tracker.onEvent(turnStarted)
 		expect(monitor.getSnapshot()[0]?.status).toBe('working')
 		tracker.settle(handle())
 		expect(monitor.getSnapshot()[0]?.status).toBe('completed')
@@ -431,26 +454,28 @@ describe('the CLI sub-agent activity monitor', () => {
 
 		tracker.onEvent({
 			type: 'agent_pending',
-			runId,
+			sessionId,
+			turnId,
 			taskId,
 			parentAgentId: 'namzu',
 			childAgentId: 'researcher',
 			depth: 0,
 		})
-		tracker.onEvent({ type: 'run_started', runId })
+		tracker.onEvent(turnStarted)
 		tracker.onEvent({
 			type: 'text_delta',
-			runId,
+			sessionId,
+			turnId,
 			iteration: 1,
 			messageId: '1da50733-c95c-497d-bce1-7daba192276c' as never,
 			text: 'found it',
-		} as RunEvent)
+		} as SessionEvent)
 
 		const beforeHandle = monitor.getSnapshot()[0]
 		expect(beforeHandle).toMatchObject({
 			viewId: 'agent-1',
 			taskId,
-			runId,
+			sessionId,
 			agentId: 'researcher',
 			status: 'working',
 		})
@@ -481,7 +506,7 @@ describe('the CLI sub-agent activity monitor', () => {
 
 	it('recognizes only typed cancellation failures', () => {
 		const monitor = new SubagentActivityMonitor()
-		const runCancelled = monitor.begin({
+		const turnCancelled = monitor.begin({
 			agentId: 'a',
 			description: 'a',
 			prompt: 'a',
@@ -499,7 +524,7 @@ describe('the CLI sub-agent activity monitor', () => {
 		const abort = new Error('transport stopped')
 		abort.name = 'AbortError'
 
-		runCancelled.fail(new RunCancelled('parent'))
+		turnCancelled.fail(new TurnCancelled('parent'))
 		abortError.fail(abort)
 		ordinaryFailure.fail(new Error('cannot cancel remote job after abort negotiation'))
 
@@ -521,7 +546,7 @@ describe('the CLI sub-agent activity monitor', () => {
 		})
 		monitor.reset()
 
-		tracker.onEvent({ type: 'run_started', runId })
+		tracker.onEvent(turnStarted)
 		tracker.settle(handle())
 
 		expect(monitor.getSnapshot()).toEqual([])
@@ -534,24 +559,26 @@ describe('the CLI sub-agent activity monitor', () => {
 			description: 'bounded',
 			prompt: 'x',
 		})
-		tracker.onEvent({ type: 'run_started', runId })
+		tracker.onEvent(turnStarted)
 		tracker.onEvent({
 			type: 'text_delta',
-			runId,
+			sessionId,
+			turnId,
 			iteration: 1,
 			messageId: 'huge' as never,
 			text: 'x'.repeat(50_000),
-		} as RunEvent)
+		} as SessionEvent)
 		for (let index = 0; index < 200; index += 1) {
 			tracker.onEvent({
 				type: 'tool_executing',
-				runId,
+				sessionId,
+				turnId,
 				iteration: 1,
 				toolUseId: `tool-${index}` as never,
 				toolName: 'read',
 				input: { path: `/tmp/${index}` },
 				isDestructive: false,
-			} as RunEvent)
+			} as SessionEvent)
 		}
 
 		const snapshot = monitor.getSnapshot()[0]
@@ -578,11 +605,12 @@ describe('the CLI sub-agent activity monitor', () => {
 		for (let index = 0; index < 30; index += 1) {
 			tracker.onEvent({
 				type: 'text_delta',
-				runId,
+				sessionId,
+				turnId,
 				iteration: 1,
 				messageId: 'stream' as never,
 				text: 'x',
-			} as RunEvent)
+			} as SessionEvent)
 		}
 		expect(notifications).toBe(0)
 
@@ -595,10 +623,11 @@ describe('the CLI sub-agent activity monitor', () => {
 		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
 		tracker.onEvent({
 			type: 'token_usage_updated',
-			runId,
+			sessionId,
+			turnId,
 			usage: usage(1_234),
 			cost,
-		} as RunEvent)
+		} as SessionEvent)
 		expect(monitor.getSnapshot()[0]?.tokens).toBe(1_234)
 	})
 
@@ -607,11 +636,12 @@ describe('the CLI sub-agent activity monitor', () => {
 		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
 		tracker.onEvent({
 			type: 'token_usage_updated',
-			runId,
+			sessionId,
+			turnId,
 			usage: usage(9_000),
 			cost,
 			contextTokens: 500,
-		} as RunEvent)
+		} as SessionEvent)
 		expect(monitor.getSnapshot()[0]?.tokens).toBe(9_000)
 	})
 
@@ -621,22 +651,24 @@ describe('the CLI sub-agent activity monitor', () => {
 		for (const toolUseId of ['tool-a', 'tool-b']) {
 			tracker.onEvent({
 				type: 'tool_executing',
-				runId,
+				sessionId,
+				turnId,
 				iteration: 1,
 				toolUseId: toolUseId as never,
 				toolName: 'read',
 				input: {},
 				isDestructive: false,
-			} as RunEvent)
+			} as SessionEvent)
 			tracker.onEvent({
 				type: 'tool_completed',
-				runId,
+				sessionId,
+				turnId,
 				iteration: 1,
 				toolUseId: toolUseId as never,
 				toolName: 'read',
 				isError: false,
 				result: 'ok',
-			} as unknown as RunEvent)
+			} as unknown as SessionEvent)
 		}
 		expect(monitor.getSnapshot()[0]?.toolCalls).toBe(2)
 	})
@@ -652,7 +684,8 @@ describe('the CLI sub-agent activity monitor', () => {
 		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
 		tracker.onEvent({
 			type: 'agent_pending',
-			runId,
+			sessionId,
+			turnId,
 			taskId,
 			parentAgentId: 'namzu',
 			childAgentId: 'worker',

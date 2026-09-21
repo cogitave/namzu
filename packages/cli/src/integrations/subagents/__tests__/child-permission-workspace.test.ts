@@ -9,7 +9,7 @@ import {
 	type ResumeHandler,
 	type ToolContext,
 	ToolRegistry,
-	asRunId,
+	asTurnId,
 	getBuiltinTools,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -20,8 +20,8 @@ import { createSubagentRuntime } from '../runtime.js'
 
 /**
  * Delegation must not turn interactive authorization into auto-approval.
- * The child is a separate run, but the human authority belongs to the parent
- * run that invoked Agent. It also works in the same caller-owned project tree.
+ * The child is a separate session, but the human authority belongs to the
+ * parent turn that invoked Agent. It also works in the same caller-owned project tree.
  */
 
 const workdirs: string[] = []
@@ -49,12 +49,13 @@ function childTools(): ToolRegistry {
 
 function context(): ToolContext {
 	return {
-		runId: asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
+		sessionId: '5c1d7a3e-0b52-4c1f-9d8e-2a6f4b7c9e10',
+		turnId: asTurnId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
 		abortSignal: new AbortController().signal,
 	} as ToolContext
 }
 
-describe('a delegated write uses the parent run authority', () => {
+describe('a delegated write uses the parent turn authority', () => {
 	it.each([
 		['rejects', { action: 'reject_tools', feedback: 'not approved' } as const, false],
 		['approves', { action: 'approve_tools' } as const, true],
@@ -68,7 +69,7 @@ describe('a delegated write uses the parent run authority', () => {
 			)
 			const parent = await subagentParentFixture(
 				cwd,
-				asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
+				asTurnId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
 			)
 			const runtime = await createSubagentRuntime({
 				resolveParent: parent.resolveParent,
@@ -91,8 +92,8 @@ describe('a delegated write uses the parent run authority', () => {
 					}),
 				buildTools: childTools,
 				authorizationGate: reviewGate,
-				resolveResumeHandler: (runId) =>
-					runId === asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32') ? review : undefined,
+				resolveResumeHandler: (turnId) =>
+					turnId === asTurnId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32') ? review : undefined,
 				sandboxProvider: new LocalSandboxProvider(NOOP_LOGGER),
 				sandboxWorkspace: 'working-directory',
 			})
@@ -126,7 +127,10 @@ describe('a delegated write uses the parent run authority', () => {
 	it('refuses a reviewed write when the parent review channel is missing', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-child-unowned-review-'))
 		workdirs.push(cwd)
-		const parent = await subagentParentFixture(cwd, asRunId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'))
+		const parent = await subagentParentFixture(
+			cwd,
+			asTurnId('0d44c3f9-a5c4-44ae-a9de-8b9e3e920b32'),
+		)
 		const runtime = await createSubagentRuntime({
 			resolveParent: parent.resolveParent,
 			cwd,

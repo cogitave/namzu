@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MockLLMProvider, ToolRegistry, mcpJsonSchemaToZod } from '@namzu/sdk'
+import { MockLLMProvider, SessionPaths, ToolRegistry, mcpJsonSchemaToZod } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
-import { SubagentPathBuilder } from '../parent.js'
+import { childTurnRecords } from '../__fixtures__/session-logs.js'
 import { createSubagentRuntime } from '../runtime.js'
 
 const directories: string[] = []
@@ -21,7 +21,7 @@ describe('CLI delegation uses the parent token limit', () => {
 		{ maxIterations: 2, override: 0, launchCaps: true, requests: 43, success: true },
 		{ maxIterations: 0, override: 2, requests: 2, success: false },
 		{ maxIterations: 2, requests: 2, success: false },
-	])('parallel children honor explicit limits and retain receipts: %j', async (test) => {
+	])('parallel children honor explicit limits and record them in their logs: %j', async (test) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-unlimited-children-'))
 		directories.push(cwd)
 		const parent = await subagentParentFixture(cwd)
@@ -39,7 +39,7 @@ describe('CLI delegation uses the parent token limit', () => {
 			resolveResumeHandler: () => async (request) =>
 				request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
 			resolveParent: parent.resolveParent,
-			pathBuilder: new SubagentPathBuilder(stateRoot, parent.scope.projectId),
+			paths: new SessionPaths({ home: stateRoot, slug: '-work-parent-budget' }),
 			buildProvider: () => {
 				const provider = new MockLLMProvider({
 					nextTurn: (_request, index) => ({
@@ -76,7 +76,8 @@ describe('CLI delegation uses the parent token limit', () => {
 							prompt: `observe sequence ${index}`,
 						},
 						{
-							runId: parent.scope.runId,
+							sessionId: parent.scope.sessionId,
+							turnId: parent.scope.turnId,
 							workingDirectory: cwd,
 							abortSignal: new AbortController().signal,
 							env: {},
@@ -93,19 +94,15 @@ describe('CLI delegation uses the parent token limit', () => {
 				providers.map((provider) => provider.requests.length),
 				JSON.stringify(results),
 			).toEqual([test.requests, test.requests])
-			const runs = readdirSync(stateRoot, {
-				recursive: true,
-				encoding: 'utf8',
-			}).filter((file) => file.endsWith('/run.json'))
-			expect(runs).toHaveLength(2)
-			for (const path of runs) {
-				const run = JSON.parse(readFileSync(join(stateRoot, path), 'utf8'))
-				expect(run.metadata.config).toMatchObject({
+			const children = await childTurnRecords(stateRoot)
+			expect(children).toHaveLength(2)
+			for (const child of children) {
+				expect(child.started?.config).toMatchObject({
 					tokenBudget: 0,
 					maxIterations: ('override' in test ? test.override : test.maxIterations) ?? 0,
 					timeoutMs: 0,
 				})
-				expect(run.budget).toMatchObject({
+				expect(child.terminal?.budget).toMatchObject({
 					limit: 0,
 					ownTokens: test.requests * 10_001,
 					treeTokens: test.requests * 10_001,
@@ -133,7 +130,7 @@ describe('CLI delegation uses the parent token limit', () => {
 			model: 'mock',
 			tokenBudget: testCase.tokenBudget,
 			resolveParent: parent.resolveParent,
-			pathBuilder: new SubagentPathBuilder(stateRoot, parent.scope.projectId),
+			paths: new SessionPaths({ home: stateRoot, slug: '-work-parent-budget' }),
 			buildProvider: () => provider,
 			buildTools: () => new ToolRegistry(),
 		})
@@ -141,7 +138,8 @@ describe('CLI delegation uses the parent token limit', () => {
 			const result = await runtime.agentTool.execute(
 				{ description: 'inspect', prompt: 'report' },
 				{
-					runId: parent.scope.runId,
+					sessionId: parent.scope.sessionId,
+					turnId: parent.scope.turnId,
 					workingDirectory: cwd,
 					abortSignal: new AbortController().signal,
 					env: {},
@@ -151,20 +149,16 @@ describe('CLI delegation uses the parent token limit', () => {
 			if (testCase.expectedChildBudget === undefined) {
 				expect(result.success).toBe(false)
 				expect(provider.requests).toHaveLength(0)
-				expect((await runtime.gatewayForRun(parent.scope.runId)).listTasks()).toMatchObject([
+				expect((await runtime.gatewayForTurn(parent.scope.turnId)).listTasks()).toMatchObject([
 					{ state: 'failed' },
 				])
 				return
 			}
 			expect(result.success).toBe(true)
 			expect(provider.requests).toHaveLength(1)
-			const runs = readdirSync(stateRoot, {
-				recursive: true,
-				encoding: 'utf8',
-			}).filter((file) => file.endsWith('/run.json'))
-			expect(runs).toHaveLength(1)
-			const run = JSON.parse(readFileSync(join(stateRoot, runs[0]!), 'utf8'))
-			expect(run.metadata.config.tokenBudget).toBe(testCase.expectedChildBudget)
+			const children = await childTurnRecords(stateRoot)
+			expect(children).toHaveLength(1)
+			expect(children[0]?.started?.config.tokenBudget).toBe(testCase.expectedChildBudget)
 		} finally {
 			await runtime.close()
 		}

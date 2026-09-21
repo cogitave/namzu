@@ -1,14 +1,14 @@
 import {
 	InMemorySessionStore,
 	InMemoryTopicStore,
-	type RunId,
-	generateRunId,
+	type TurnId,
 	generateTenantId,
+	generateTurnId,
 } from '@namzu/sdk'
 import type { SubagentParent } from '../runtime.js'
 
 /** A real parent hierarchy shared by a query and its delegation resolver. */
-export async function subagentParentFixture(cwd: string, runId: RunId = generateRunId()) {
+export async function subagentParentFixture(cwd: string, turnId: TurnId = generateTurnId()) {
 	const tenantId = generateTenantId()
 	const sessions = new InMemorySessionStore()
 	const project = await sessions.createProject(
@@ -24,9 +24,9 @@ export async function subagentParentFixture(cwd: string, runId: RunId = generate
 		tenantId,
 	)
 	return {
-		scope: { runId, projectId: project.id, topicId: topic.id, sessionId: session.id, tenantId },
-		async resolveParent(requested: RunId): Promise<SubagentParent> {
-			if (requested !== runId) throw new Error(`Unknown parent run: ${requested}`)
+		scope: { turnId, projectId: project.id, topicId: topic.id, sessionId: session.id, tenantId },
+		async resolveParent(requested: TurnId): Promise<SubagentParent> {
+			if (requested !== turnId) throw new Error(`Unknown parent turn: ${requested}`)
 			return { project, topic, sessionId: session.id }
 		},
 	}
