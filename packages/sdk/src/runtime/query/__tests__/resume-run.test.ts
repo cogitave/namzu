@@ -8,14 +8,17 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore as RealInMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import {
+	InMemorySessionLog,
+	type SessionLease,
+	type SessionLog,
+} from '../../../store/session-log/index.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import {
 	type Message,
 	type ToolMessage,
@@ -23,32 +26,38 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../../types/session/durable.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { CheckpointManager } from '../checkpoint.js'
 import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
 import type { TurnStateScope } from '../turn-state.js'
+import {
+	type CheckpointedSession,
+	TEST_SCOPE,
+	addCheckpoint,
+	checkpointRecords,
+	checkpointStoreFor,
+	sessionWithCheckpoint,
+} from './support/session.js'
 
 /**
  * The pieces of a cross-process resume all existed and nothing joined them.
  * `CheckpointManager` wrote the history, budgets, working state and any
- * park; `loadTurnState` read them back; `query` accepted `runId` +
+ * park; `loadTurnState` read them back; `query` accepted `turnId` +
  * `resumeFromCheckpoint` and restored all of it. But `resumeFromCheckpoint`
  * had no caller anywhere outside `packages/sdk/src`, so the whole path
  * shipped untravelled — every host was expected to write the same wiring
  * and none did.
  *
  * These cover the join, and especially its two refusals: a resume must not
- * quietly become a fresh run under a recycled id, and it must not step past
+ * quietly become a fresh turn under a recycled id, and it must not step past
  * a park without the answer that park is waiting for.
  */
 
 const SCOPE: TurnStateScope = {
-	tenantId: '31bdf543-d0dc-4022-b64a-09f4d6e8b377' as TenantId,
-	projectId: 'e8110271-6961-4eb4-ac8c-7f55ea83839a' as ProjectId,
+	...TEST_SCOPE,
 	sessionId: 'a89fa2a8-3672-4495-9a89-ad85ddaf0b50' as SessionId,
 	turnId: '9dbf5ebc-ce42-425d-aeee-c60e281113c2' as TurnId,
-	topicId: '3cd0ae75-30ea-4858-ae2c-ca6aed6ebe25' as TopicId,
 }
 
 const ZERO_USAGE = {
@@ -59,57 +68,25 @@ const ZERO_USAGE = {
 	cacheWriteTokens: 0,
 }
 
-const ZERO_COST = {
-	inputCostPer1M: 0,
-	outputCostPer1M: 0,
-	totalCost: 0,
-	cacheDiscount: 0,
-	unpricedTokens: 0,
-}
-
-class InMemoryCheckpointStore implements CheckpointStore {
-	readonly rows = new Map<string, IterationCheckpoint>()
-
-	private key(scope: CheckpointRunScope, id: CheckpointId): string {
-		return [scope.tenantId, scope.projectId, scope.sessionId, scope.runId, id].join('/')
-	}
-
-	async writeCheckpoint(scope: CheckpointRunScope, checkpoint: IterationCheckpoint): Promise<void> {
-		this.rows.set(this.key(scope, checkpoint.id), checkpoint)
-	}
-
-	async readCheckpoint(
-		scope: CheckpointRunScope,
-		id: CheckpointId,
-	): Promise<IterationCheckpoint | null> {
-		return this.rows.get(this.key(scope, id)) ?? null
-	}
-
-	async listCheckpoints(scope: CheckpointRunScope): Promise<IterationCheckpoint[]> {
-		const prefix = `${[scope.tenantId, scope.projectId, scope.sessionId, scope.runId].join('/')}/`
-		return [...this.rows.entries()]
-			.filter(([key]) => key.startsWith(prefix))
-			.map(([, cp]) => cp)
-			.sort((a, b) => a.createdAt - b.createdAt)
-	}
-
-	async deleteCheckpoint(scope: CheckpointRunScope, id: CheckpointId): Promise<void> {
-		this.rows.delete(this.key(scope, id))
-	}
-}
-
-function checkpoint(overrides: Partial<IterationCheckpoint> = {}): IterationCheckpoint {
-	return {
-		id: 'ckpt_1' as CheckpointId,
-		turnId: SCOPE.runId,
-		iteration: 2,
-		messages: [createUserMessage('the work so far')],
-		tokenUsage: { ...ZERO_USAGE, promptTokens: 120, totalTokens: 120 },
-		costInfo: { ...ZERO_COST, totalCost: 0.4 },
-		guardState: { iterationCount: 2, elapsedMs: 9_000 },
-		createdAt: Date.now(),
-		...overrides,
-	} as IterationCheckpoint
+/**
+ * The session a process left behind: one turn with `messages` recorded and
+ * a committed checkpoint that says 120 tokens were spent. `release` gives
+ * the writer lease up, as a process that died would once it expired.
+ */
+function interruptedSession(
+	options: { readonly messages?: readonly Message[]; readonly release?: boolean } = {},
+): Promise<CheckpointedSession> {
+	return sessionWithCheckpoint({
+		sessionId: SCOPE.sessionId,
+		turnId: SCOPE.turnId,
+		messages: options.messages ?? [createUserMessage('the work so far')],
+		document: {
+			tokenUsage: { ...ZERO_USAGE, promptTokens: 120, totalTokens: 120 },
+			costInfo: { totalCost: 0.4, cacheDiscount: 0, unpricedTokens: 0 },
+			guards: { iteration: 2, elapsedMs: 9_000 },
+		},
+		release: options.release ?? true,
+	})
 }
 
 let workdirs: string[] = []
@@ -154,10 +131,14 @@ function registryWithEcho(): ToolRegistry {
 	return tools
 }
 
-async function baseParams(store: CheckpointStore) {
+async function baseParams(session: {
+	readonly log: SessionLog
+	readonly store: CheckpointedSession['store']
+}) {
 	return {
 		scope: SCOPE,
-		checkpointStore: store,
+		sessionLog: session.log,
+		checkpointStore: session.store,
 		provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
 		tools: new ToolRegistry(),
 		turnConfig: {
@@ -180,19 +161,18 @@ async function baseParams(store: CheckpointStore) {
 	}
 }
 
-describe('a run is picked back up from its store', () => {
-	it('continues the same run id rather than starting a new one', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint())
+describe('a turn is picked back up from its session log', () => {
+	it('continues the same turn id rather than starting a new one', async () => {
+		const session = await interruptedSession()
 
-		const outcome = await resumeSession(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(session))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		// The whole point: a resume is the same run in a different process,
+		// The whole point: a resume is the same turn in a different process,
 		// so its id, budgets and trace all have to carry across.
-		expect(outcome.run.id).toBe(SCOPE.runId)
-		expect(outcome.state.checkpointId).toBe('ckpt_1')
+		expect(outcome.turn.id).toBe(SCOPE.turnId)
+		expect(outcome.state.checkpointId).toBe(session.checkpointId)
 	})
 
 	it.each([
@@ -200,11 +180,10 @@ describe('a run is picked back up from its store', () => {
 		['topicId', '25c69d31-6765-49e0-848e-a189eca3c19a' as TopicId],
 		['projectId', 'dd33c142-d050-42d8-9d06-6167dd8b27d1' as ProjectId],
 		['tenantId', '03857320-0500-482a-85e0-add350d8ffdd' as TenantId],
-		['parentRunId', 'e53b7b64-32f3-4439-8cb1-6c1d13ec5d96' as TurnId],
+		['parentSessionId', 'e53b7b64-32f3-4439-8cb1-6c1d13ec5d96' as SessionId],
 	] as const)('refuses a mismatched %s before provider work', async (field, value) => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint())
-		const base = await baseParams(store)
+		const session = await interruptedSession()
+		const base = await baseParams(session)
 		const candidate = { ...base, [field]: value } as ResumeSessionParams
 
 		await expect(resumeSession(candidate)).rejects.toMatchObject({
@@ -214,44 +193,39 @@ describe('a run is picked back up from its store', () => {
 		expect((candidate.provider as MockLLMProvider).requests).toHaveLength(0)
 	})
 
-	it('refuses a checkpoint attributed to a different run than its lookup scope', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({ runId: 'a2c2d074-2ed9-4653-b4b9-7d0589265864' as TurnId }),
-		)
-		const candidate = await baseParams(store)
+	it('finds no checkpoint for a scope naming another turn of the session', async () => {
+		const session = await interruptedSession()
+		const candidate = {
+			...(await baseParams(session)),
+			scope: { ...SCOPE, turnId: 'a2c2d074-2ed9-4653-b4b9-7d0589265864' as TurnId },
+		}
 
-		await expect(resumeSession(candidate)).rejects.toMatchObject({
-			code: 'invalid_config',
-			details: { fields: ['runId'] },
+		await expect(resumeSession(candidate)).resolves.toEqual({
+			resumed: false,
+			reason: 'no-checkpoint',
 		})
 		expect(candidate.provider.requests).toHaveLength(0)
 	})
 
 	it('repairs only abandoned checkpoint tool history before the resumed provider call', async () => {
-		const store = new InMemoryCheckpointStore()
 		const abandonedCall = {
 			id: 'call-abandoned',
 			type: 'function' as const,
 			function: { name: 'charge_card', arguments: '{"amount":42}' },
 		}
 		const assistant = createAssistantMessage('charging', [abandonedCall])
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({
-				messages: [
-					createUserMessage('charge once'),
-					assistant,
-					createUserMessage('the process restarted'),
-					createToolMessage('too late to answer backwards', abandonedCall.id),
-				],
-			}),
-		)
+		const session = await interruptedSession({
+			messages: [
+				createUserMessage('charge once'),
+				assistant,
+				createUserMessage('the process restarted'),
+				createToolMessage('too late to answer backwards', abandonedCall.id),
+			],
+		})
 		const provider = new MockLLMProvider({ turns: [{ text: 'checked state first' }] })
 		const events: SessionEvent[] = []
 
-		const resumeParams = await baseParams(store)
+		const resumeParams = await baseParams(session)
 		const outcome = await resumeSession({
 			...resumeParams,
 			provider,
@@ -291,80 +265,76 @@ describe('a run is picked back up from its store', () => {
 	})
 
 	it('carries the spent budget forward instead of granting a fresh one', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint())
+		const session = await interruptedSession()
 
-		const outcome = await resumeSession(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(session))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		// A run recalled at 120 tokens must not come back at zero — the
-		// budget belongs to the run, not to the process hosting it.
-		expect(outcome.run.tokenUsage.totalTokens).toBeGreaterThanOrEqual(120)
+		// A turn recalled at 120 tokens must not come back at zero — the
+		// budget belongs to the turn, not to the process hosting it.
+		expect(outcome.turn.tokenUsage.totalTokens).toBeGreaterThanOrEqual(120)
 	})
 
 	it('picks the newest checkpoint when the caller names none', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint({ id: 'ckpt_old' as CheckpointId, createdAt: 1 }))
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({ id: 'ckpt_new' as CheckpointId, createdAt: 2_000 }),
-		)
+		const session = await interruptedSession({ release: false })
+		const newest = await addCheckpoint(session)
+		await session.log.release(session.lease)
 
-		const outcome = await resumeSession(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(session))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		expect(outcome.state.checkpointId).toBe('ckpt_new')
+		expect(outcome.state.checkpointId).toBe(newest)
 	})
 
 	it('honours an explicitly named checkpoint', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint({ id: 'ckpt_old' as CheckpointId, createdAt: 1 }))
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({ id: 'ckpt_new' as CheckpointId, createdAt: 2_000 }),
-		)
+		const session = await interruptedSession({ release: false })
+		await addCheckpoint(session)
+		await session.log.release(session.lease)
 
 		const outcome = await resumeSession({
-			...(await baseParams(store)),
-			checkpointId: 'ckpt_old' as CheckpointId,
+			...(await baseParams(session)),
+			checkpointId: session.checkpointId,
 		})
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		expect(outcome.state.checkpointId).toBe('ckpt_old')
+		expect(outcome.state.checkpointId).toBe(session.checkpointId)
 	})
 })
 
 describe('it refuses rather than guessing', () => {
 	it('reports no checkpoint instead of silently starting fresh', async () => {
-		const outcome = await resumeSession(await baseParams(new InMemoryCheckpointStore()))
+		const log = new InMemorySessionLog({ sessionId: SCOPE.sessionId })
+		const outcome = await resumeSession(await baseParams({ log, store: checkpointStoreFor(log) }))
 
-		// Starting a new run here would be the worst outcome: a different
-		// run wearing a recycled id, with the original's budget reset.
+		// Starting a new turn here would be the worst outcome: a different
+		// turn wearing a recycled id, with the original's budget reset.
 		expect(outcome).toEqual({ resumed: false, reason: 'no-checkpoint' })
 	})
 
-	it('hands back the outstanding question instead of resuming past it', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({
-				pending: {
-					request: {
-						type: 'tool_review',
-						turnId: SCOPE.runId,
-						checkpointId: 'ckpt_1' as CheckpointId,
-						toolCalls: [{ id: 'call_1', name: 'write', input: {} }],
-					},
-					parkedAt: Date.now(),
-					deadlineAt: Date.now() + 60_000,
-				},
-			} as unknown as Partial<IterationCheckpoint>),
-		)
+	/** A park on the session's checkpoint, recorded the way a turn records one. */
+	async function parkedSession(answered: boolean): Promise<CheckpointedSession> {
+		const session = await interruptedSession({ release: false })
+		const manager = new CheckpointManager(checkpointRecords(session), session.store, session.scope)
+		const request = {
+			type: 'tool_review',
+			sessionId: SCOPE.sessionId,
+			turnId: SCOPE.turnId,
+			checkpointId: session.checkpointId,
+			toolCalls: [{ id: 'call_1', name: 'write', input: {} }],
+		} as unknown as HITLDecisionRequest
+		await manager.park({ id: session.checkpointId }, request, { ttlMs: 60_000 })
+		if (answered) await manager.unpark(session.checkpointId, { action: 'approve_tools' })
+		await session.log.release(session.lease)
+		return session
+	}
 
-		const outcome = await resumeSession(await baseParams(store))
+	it('hands back the outstanding question instead of resuming past it', async () => {
+		const session = await parkedSession(false)
+
+		const outcome = await resumeSession(await baseParams(session))
 
 		expect(outcome.resumed).toBe(false)
 		if (outcome.resumed || outcome.reason !== 'awaiting-decision') {
@@ -372,58 +342,32 @@ describe('it refuses rather than guessing', () => {
 		}
 		// The host needs the request itself to put in front of a person.
 		expect(outcome.pending.request.type).toBe('tool_review')
-		expect(outcome.state.runId).toBe(SCOPE.runId)
+		expect(outcome.state.turnId).toBe(SCOPE.turnId)
 	})
 
 	it('treats an already-answered park as an ordinary resume', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({
-				pending: {
-					request: {
-						type: 'tool_review',
-						turnId: SCOPE.runId,
-						checkpointId: 'ckpt_1' as CheckpointId,
-						toolCalls: [{ id: 'call_1', name: 'write', input: {} }],
-					},
-					parkedAt: Date.now(),
-					deadlineAt: Date.now() + 60_000,
-					resolvedAt: Date.now(),
-				},
-			} as unknown as Partial<IterationCheckpoint>),
-		)
+		const session = await parkedSession(true)
 
-		const outcome = await resumeSession(await baseParams(store))
+		const outcome = await resumeSession(await baseParams(session))
 
-		// `resolvedAt` is what makes a park answered. Blocking on one that
-		// already has its answer would strand the run permanently.
+		// A resolved park is answered. Blocking on one that already has its
+		// answer would strand the turn permanently.
 		expect(outcome.resumed).toBe(true)
 	})
 })
 
-describe('a resume carries the claim it was given', () => {
+describe('a resume carries the lease it was given', () => {
 	/**
 	 * The fix for "the fence never reached the runtime" was itself untested,
-	 * and it is the most convincing kind of decorative test.
-	 *
-	 * The only claim-fence test in the package built a `CheckpointManager`
-	 * directly and handed it a fence. That was never the defect — a manager
-	 * ignoring a fence it is given is code that never had a bug. **The defect
-	 * was that nothing gave it one.** The wiring is two lines, `query()` and
-	 * `resume-run.ts`, and deleting either left the whole suite green: exactly
-	 * the state the fix's own commit message describes, everything built and
-	 * tested with no path between a run and its store carrying the number.
-	 *
-	 * So this drives the real entry point with the real store. It crosses both
-	 * hops — `resumeSession` forwards the fence to `query`, `query` presents it to
-	 * the manager, the manager presents it on the write — and it asserts the
-	 * refusal, which only the store can produce. Remove either line and the run
-	 * writes unfenced and this test fails.
+	 * and it is the most convincing kind of decorative test. The defect was
+	 * that nothing handed the runtime the claim a worker took; so this drives
+	 * the real entry point with a real log, and asserts the refusal, which
+	 * only the log can produce: every record a stale holder appends is
+	 * refused by its fence.
 	 */
-	async function iteratingParams(store: CheckpointStore) {
+	async function iteratingParams(session: CheckpointedSession) {
 		return {
-			...(await baseParams(store)),
+			...(await baseParams(session)),
 			provider: toolCallingProvider(),
 			tools: registryWithEcho(),
 			turnConfig: {
@@ -436,77 +380,58 @@ describe('a resume carries the claim it was given', () => {
 		}
 	}
 
-	it('is refused when another worker has taken the run over', async () => {
-		const store = new RealInMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint())
+	it('is refused when another worker has taken the session over', async () => {
+		const session = await interruptedSession()
+		// w1 takes the session and stalls. w2 reclaims it once the lease lapses.
+		const stale = (await session.log.claim({ holder: 'w1', ttlMs: 1, now: 1_000 })) as SessionLease
+		await session.log.claim({ holder: 'w2', ttlMs: 60_000, now: 5_000 })
 
-		// w1 takes the run and stalls. w2 reclaims it once the lease lapses.
-		const stale = await store.claimRun(SCOPE, { holder: 'w1', ttlMs: 1, now: 1_000 })
-		await store.claimRun(SCOPE, { holder: 'w2', ttlMs: 60_000, now: 5_000 })
-
-		// w1 wakes up and resumes, still believing it holds the run. It cannot
-		// know otherwise — a pause, a suspended container and a partition all
-		// look from the inside like time not passing. The write is the only
-		// place it can be told, and it is two hops away from here.
-		const outcome = await resumeSession({
-			...(await iteratingParams(store)),
-			claimFence: stale?.fence,
-		})
-
-		// `resumeSession` RESOLVES. The refusal arrives as a failed run rather than
-		// a rejected promise, which is worth stating because a host wrapping
-		// this call in `try`/`catch` would see nothing: the fence is reported
-		// on the run, and `status` is what a queue worker has to read.
-		expect(outcome.resumed).toBe(true)
-		if (!outcome.resumed) return
-		expect(outcome.run.status).toBe('failed')
-		expect(outcome.run.stopReason).toBe('error')
-		expect(outcome.run.lastError).toMatch(/no longer holds it/)
+		// w1 wakes up and resumes, still believing it holds the session. It
+		// cannot know otherwise — a pause, a suspended container and a
+		// partition all look from the inside like time not passing. The write
+		// is the only place it can be told.
+		const params = await iteratingParams(session)
+		await expect(resumeSession({ ...params, lease: stale })).rejects.toThrow()
+		// And it wrote nothing: w2's session is untouched by w1.
+		expect(params.provider.requests).toHaveLength(0)
 	})
 
 	it('lets the current holder resume and finish', async () => {
 		// The preservation half, and the one that keeps the test above from
 		// passing on any failure at all. A refusal that fires for the rightful
 		// holder too is not a fence, it is an outage.
-		const store = new RealInMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint())
-		const claim = await store.claimRun(SCOPE, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
+		const session = await interruptedSession()
+		const lease = (await session.log.claim({ holder: 'w1', ttlMs: 60_000 })) as SessionLease
 
-		const outcome = await resumeSession({
-			...(await iteratingParams(store)),
-			claimFence: claim?.fence,
-		})
+		const outcome = await resumeSession({ ...(await iteratingParams(session)), lease })
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		expect(outcome.run.status).not.toBe('failed')
+		expect(outcome.turn.status).not.toBe('failed')
 	})
 
-	it('resumes unfenced when the host holds no claim', async () => {
-		// Every run did this before claims existed, and a host that has not
-		// adopted them must keep working — including on a run somebody else
-		// holds, because an unfenced write is still accepted.
-		const store = new RealInMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint())
-		await store.claimRun(SCOPE, { holder: 'somebody-else', ttlMs: 60_000, now: 1_000 })
+	it('claims the session itself when the host holds no lease', async () => {
+		const session = await interruptedSession()
 
-		const outcome = await resumeSession(await iteratingParams(store))
+		const outcome = await resumeSession(await iteratingParams(session))
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		expect(outcome.run.status).not.toBe('failed')
+		expect(outcome.turn.status).not.toBe('failed')
+	})
+
+	it('refuses to resume a session another worker holds', async () => {
+		// One writer per session: without the holder's lease there is no
+		// way in, and nothing is written.
+		const session = await interruptedSession()
+		await session.log.claim({ holder: 'somebody-else', ttlMs: 60_000 })
+		const params = await iteratingParams(session)
+
+		await expect(resumeSession(params)).rejects.toThrow()
+		expect(params.provider.requests).toHaveLength(0)
 	})
 })
 
-/**
- * A resumed run used to forget every file the conversation had written.
- *
- * The observation ledger is process memory: `resumeSession` restored the history,
- * the budgets and the working state, and then handed the run an empty tracker.
- * So the projection admitted nothing, and the first thing a resumed agent did
- * was read back a file whose whole body was in the transcript it had just been
- * given. These cover the rebuild, and the refusal that has to survive it.
- */
 describe('a resumed run remembers the files this conversation wrote', () => {
 	const written = 'alpha\nbeta\n'
 
@@ -532,10 +457,9 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 	}
 
 	it('carries the written body into the first resumed request instead of re-reading it', async () => {
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint({ messages: wroteInHistory('note.txt') }))
+		const session = await interruptedSession({ messages: wroteInHistory('note.txt') })
 		const requests: Message[][] = []
-		const base = await baseParams(store)
+		const base = await baseParams(session)
 		const provider = new MockLLMProvider({
 			onRequest: ({ messages }) => requests.push([...messages]),
 			turns: [{ text: 'already know what is in it' }],
@@ -555,7 +479,7 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		// And it got there without going back to disk for it.
 		expect(
 			outcome.resumed &&
-				outcome.run.messages.some((m) =>
+				outcome.turn.messages.some((m) =>
 					m.role === 'assistant'
 						? (m.toolCalls ?? []).some((c) => c.function.name === 'read')
 						: false,
@@ -569,11 +493,11 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		// with the real file. A file somebody else changed in between is refused
 		// exactly as it would be mid-session, and the refusal then withdraws the
 		// projection's entry for that path.
-		const store = new InMemoryCheckpointStore()
-		const base = await baseParams(store)
-		const path = join(base.workingDirectory, 'note.txt')
+		const workingDirectory = await mkWorkdir()
+		const path = join(workingDirectory, 'note.txt')
 		await writeFile(path, 'somebody else wrote this\n')
-		await store.writeCheckpoint(SCOPE, checkpoint({ messages: wroteInHistory(path) }))
+		const session = await interruptedSession({ messages: wroteInHistory(path) })
+		const base = { ...(await baseParams(session)), workingDirectory }
 		const requests: Message[][] = []
 		const provider = new MockLLMProvider({
 			onRequest: ({ messages }) => requests.push([...messages]),
@@ -592,7 +516,7 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		const refusal = outcome.run.messages.find(
+		const refusal = outcome.turn.messages.find(
 			(m) => m.role === 'tool' && String(m.content).includes('changed on disk'),
 		)
 		expect(refusal).toBeDefined()
@@ -611,41 +535,41 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		// on holding the body from the turn before, and nothing took that claim
 		// back until the next mutation happened to be refused for drift. The
 		// seed folds the part of that turn which actually ran back in.
-		const store = new InMemoryCheckpointStore()
-		const base = await baseParams(store)
-		const path = join(base.workingDirectory, 'note.txt')
+		const workingDirectory = await mkWorkdir()
+		const path = join(workingDirectory, 'note.txt')
 		const replaced = 'the turn that was interrupted wrote this\n'
 		const interrupted = {
 			id: 'w2',
 			type: 'function' as const,
 			function: { name: 'write', arguments: JSON.stringify({ path, content: replaced }) },
 		}
-		await store.writeCheckpoint(
-			SCOPE,
-			checkpoint({
-				messages: [...wroteInHistory(path), createAssistantMessage('and again', [interrupted])],
-			}),
-		)
-		// The transcript says that write completed; the process died before its
+		const session = await interruptedSession({
+			messages: [...wroteInHistory(path), createAssistantMessage('and again', [interrupted])],
+			release: false,
+		})
+		// The log says that write completed; the process died before its
 		// result reached the history.
-		const runStore = new InMemoryRunStore()
-		await runStore.initRun(SCOPE.runId)
-		for (const event of [
-			// From the beginning, because recovery refuses a log it cannot see
-			// the start of — a partial one proves nothing about what ran.
-			{ type: 'turn_started', runId: SCOPE.runId },
-			{ type: 'tool_executing', runId: SCOPE.runId, toolUseId: 'w2', toolName: 'write', input: {} },
+		for (const draft of [
+			{
+				type: 'tool_executing',
+				turnId: SCOPE.turnId,
+				toolUseId: 'w2',
+				toolName: 'write',
+				input: {},
+			},
 			{
 				type: 'tool_completed',
-				turnId: SCOPE.runId,
+				turnId: SCOPE.turnId,
 				toolUseId: 'w2',
 				toolName: 'write',
 				result: `Created ${path}`,
 				isError: false,
 			},
-		] as SessionEvent[]) {
-			await runStore.appendEvent(event)
+		]) {
+			await session.log.append(session.lease, draft as Parameters<SessionLog['append']>[1])
 		}
+		await session.log.release(session.lease)
+		const base = { ...(await baseParams(session)), workingDirectory }
 		const requests: Message[][] = []
 		const provider = new MockLLMProvider({
 			onRequest: ({ messages }) => requests.push([...messages]),
@@ -655,7 +579,6 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		const outcome = await resumeSession({
 			...base,
 			provider,
-			runStore,
 			tools: fileTools(),
 			turnConfig: { ...base.turnConfig, maxIterations: 4 },
 		})
@@ -672,10 +595,9 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		// used to get. Letting it fail the resume would trade a conversation
 		// that works for one that does not, so the failure is logged and the
 		// run continues with no witnesses — the model reads what it needs.
-		const store = new InMemoryCheckpointStore()
-		await store.writeCheckpoint(SCOPE, checkpoint({ messages: wroteInHistory('note.txt') }))
+		const session = await interruptedSession({ messages: wroteInHistory('note.txt') })
 		const requests: Message[][] = []
-		const base = await baseParams(store)
+		const base = await baseParams(session)
 		const provider = new MockLLMProvider({
 			onRequest: ({ messages }) => requests.push([...messages]),
 			turns: [{ text: 'no witnesses, then' }],
@@ -696,19 +618,18 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
-		expect(outcome.run.status).not.toBe('failed')
+		expect(outcome.turn.status).not.toBe('failed')
 		expect(requests[0]?.map((m) => String(m.content)).join('\n')).not.toContain(
 			'Visible file evidence',
 		)
 	})
 
 	it('offers nothing for a write whose receipt compaction had already cleared', async () => {
-		const store = new InMemoryCheckpointStore()
 		const messages = wroteInHistory('note.txt')
 		messages[2] = clearToolResult(messages[2] as ToolMessage, 'write').message
-		await store.writeCheckpoint(SCOPE, checkpoint({ messages }))
+		const session = await interruptedSession({ messages })
 		const requests: Message[][] = []
-		const base = await baseParams(store)
+		const base = await baseParams(session)
 		const provider = new MockLLMProvider({
 			onRequest: ({ messages: sent }) => requests.push([...sent]),
 			turns: [{ text: 'nothing to go on' }],

@@ -1,14 +1,13 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { RunDiskStore } from '../../../store/run/disk.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { SessionLogReplay } from '../../../types/session/log-cursor.js'
@@ -18,6 +17,7 @@ import type { QueryParams } from '../index.js'
 import { query } from '../index.js'
 import { resumeSession } from '../resume-session.js'
 import type { TurnStateScope } from '../turn-state.js'
+import { copySession, heldCheckpointStore } from './support/session.js'
 
 /**
  * "Refresh the page and keep watching the answer arrive."
@@ -33,14 +33,6 @@ import type { TurnStateScope } from '../turn-state.js'
  * at all until this change, so every event it produced was discarded, and a
  * catch-up delivered into that reaches nobody.
  */
-
-const LOG = {
-	info: vi.fn(),
-	warn: vi.fn(),
-	error: vi.fn(),
-	debug: vi.fn(),
-	child: vi.fn(() => LOG),
-}
 
 const SCOPE: TurnStateScope = {
 	tenantId: 'f9a63b7d-293a-44dc-8437-c7aaa838030a' as TenantId,
@@ -72,23 +64,12 @@ function registryWithEcho(): ToolRegistry {
 	return tools
 }
 
-/**
- * A run's evidence on a real filesystem, shared between the two halves of the
- * test.
- *
- * The disk store is what actually crosses a process boundary here: the object
- * graph of the second half is entirely new, and the only thing carried over is
- * the directory. An in-memory store would prove the same code with none of the
- * property.
- */
-function diskStore(baseDir: string): RunDiskStore {
-	return new RunDiskStore({ baseDir: join(baseDir, 'runs'), logger: LOG })
-}
-
-async function resumeParams(baseDir: string, checkpointStore: InMemoryCheckpointStore) {
+async function resumeParams(crash: Crash) {
 	return {
 		scope: SCOPE,
-		checkpointStore,
+		// What the second process opens: the log as the dead one left it.
+		sessionLog: crash.log,
+		checkpointStore: await heldCheckpointStore(crash.log),
 		provider: new MockLLMProvider({ turns: [{ text: 'continued' }] }),
 		tools: registryWithEcho(),
 		turnConfig: {
@@ -100,30 +81,35 @@ async function resumeParams(baseDir: string, checkpointStore: InMemoryCheckpoint
 		},
 		agentId: 'agent_re',
 		agentName: 'Reconnect Agent',
-		workingDirectory: baseDir,
+		workingDirectory: crash.baseDir,
 		sessionId: SCOPE.sessionId,
 		topicId: SCOPE.topicId,
 		projectId: SCOPE.projectId,
 		tenantId: SCOPE.tenantId,
-		// A NEW store object over the SAME directory: what the second process
-		// builds.
-		runStore: diskStore(baseDir),
 		resumeHandler: async () => ({ action: 'continue' as const }),
 	}
 }
 
+interface Crash {
+	readonly baseDir: string
+	/** The session log as it stood when the process died: a turn with a checkpoint and no verdict. */
+	readonly log: InMemorySessionLog
+	/** What the consumer had received by then. */
+	readonly seen: SessionEvent[]
+}
+
 /**
- * Run once, capturing both the events a consumer saw and the checkpoints the
- * run left behind, so the second half can pick it up.
+ * A process that dies right after its first checkpoint: the consumer's view
+ * up to then, and a copy of the log taken at that instant (what the disk
+ * held). The original run goes on in its own copy; the dead process's log
+ * never hears of it, and reads back as an interrupted turn once the lease
+ * is let go.
  */
-async function crashedRun(): Promise<{
-	baseDir: string
-	seen: SessionEvent[]
-	checkpointStore: InMemoryCheckpointStore
-}> {
+async function crashedRun(): Promise<Crash> {
 	const baseDir = await workdir()
-	const checkpointStore = new InMemoryCheckpointStore()
+	const sessionLog = new InMemorySessionLog({ sessionId: SCOPE.sessionId })
 	const seen: SessionEvent[] = []
+	let crashed: InMemorySessionLog | undefined
 	const gen = query({
 		messages: [createUserMessage('go')],
 		provider: new MockLLMProvider({
@@ -140,27 +126,28 @@ async function crashedRun(): Promise<{
 		agentId: 'agent_re',
 		agentName: 'Reconnect Agent',
 		workingDirectory: baseDir,
-		turnId: SCOPE.runId,
+		turnId: SCOPE.turnId,
 		sessionId: SCOPE.sessionId,
 		topicId: SCOPE.topicId,
 		projectId: SCOPE.projectId,
 		tenantId: SCOPE.tenantId,
-		runStore: diskStore(baseDir),
-		checkpointStore,
+		sessionLog,
 		resumeHandler: async () => ({ action: 'continue' as const }),
 	} as unknown as QueryParams)
 
-	let next = await gen.next()
-	while (!next.done) {
-		seen.push(next.value)
-		next = await gen.next()
+	for await (const event of gen) {
+		if (crashed) continue
+		seen.push(event)
+		if (event.type === 'checkpoint_created') crashed = await copySession(sessionLog, [SCOPE])
 	}
-	return { baseDir, seen, checkpointStore }
+	if (!crashed) throw new Error('the run wrote no checkpoint')
+	return { baseDir, log: crashed, seen }
 }
 
 describe('a consumer that lost its connection', () => {
 	it('receives every event above its cursor, once, in order, from a new process', async () => {
-		const { baseDir, seen, checkpointStore } = await crashedRun()
+		const crash = await crashedRun()
+		const { seen } = crash
 		const recorded = seen.filter((e) => e.seq !== undefined)
 		expect(recorded.length).toBeGreaterThan(4)
 		// It stopped watching a third of the way through.
@@ -168,7 +155,7 @@ describe('a consumer that lost its connection', () => {
 
 		const received: SessionEvent[] = []
 		const outcome = await resumeSession({
-			...(await resumeParams(baseDir, checkpointStore)),
+			...(await resumeParams(crash)),
 			eventCursor: { sinceSeq: cursor },
 			listener: (event: SessionEvent) => {
 				received.push(event)
@@ -181,24 +168,28 @@ describe('a consumer that lost its connection', () => {
 		expect(outcome.replay?.status).toBe('replayed')
 
 		const numbered = received.filter((e) => e.seq !== undefined).map((e) => e.seq as number)
-		// Nothing below the cursor, nothing repeated, nothing skipped — and the
-		// resumed run's own events continue the same sequence rather than
-		// restarting inside it.
-		expect(numbered[0]).toBe(cursor + 1)
+		// Nothing below the cursor, nothing repeated, nothing it missed left
+		// out — and the resumed run's own events continue the log's sequence
+		// rather than restarting inside it. (An event's number is its record's
+		// `seq`; message records sit between them, so the numbers have gaps.)
+		const missed = recorded.map((e) => e.seq as number).filter((seq) => seq > cursor)
+		expect(numbered[0]).toBeGreaterThan(cursor)
 		expect(new Set(numbered).size).toBe(numbered.length)
-		expect(numbered).toEqual(numbered.map((_, i) => cursor + 1 + i))
-		expect(numbered.length).toBeGreaterThan(recorded.length - cursor)
+		expect(numbered).toEqual([...numbered].sort((a, b) => a - b))
+		expect(numbered).toEqual(expect.arrayContaining(missed))
+		expect(numbered.length).toBeGreaterThan(missed.length)
 	})
 
 	it('is handed the missed events BEFORE the resumed run says anything new', async () => {
-		const { baseDir, seen, checkpointStore } = await crashedRun()
+		const crash = await crashedRun()
+		const { seen } = crash
 		const recorded = seen.filter((e) => e.seq !== undefined)
 		const cursor = recorded[1]?.seq as number
 		const lastRecordedSeq = recorded.at(-1)?.seq as number
 
 		const received: SessionEvent[] = []
 		await resumeSession({
-			...(await resumeParams(baseDir, checkpointStore)),
+			...(await resumeParams(crash)),
 			eventCursor: { sinceSeq: cursor },
 			listener: (event: SessionEvent) => {
 				received.push(event)
@@ -218,12 +209,13 @@ describe('a consumer that lost its connection', () => {
 	})
 
 	it('reports complete, and replays nothing, for a cursor already at the head', async () => {
-		const { baseDir, seen, checkpointStore } = await crashedRun()
+		const crash = await crashedRun()
+		const { seen } = crash
 		const head = seen.filter((e) => e.seq !== undefined).at(-1)?.seq as number
 
 		const received: SessionEvent[] = []
 		const outcome = await resumeSession({
-			...(await resumeParams(baseDir, checkpointStore)),
+			...(await resumeParams(crash)),
 			eventCursor: { sinceSeq: head },
 			listener: (event: SessionEvent) => {
 				received.push(event)
@@ -241,12 +233,12 @@ describe('a consumer that lost its connection', () => {
 
 describe('it refuses a cursor it cannot honour, and still resumes the run', () => {
 	it('calls a cursor above the log ahead, hands over nothing, and runs anyway', async () => {
-		const { baseDir, checkpointStore } = await crashedRun()
+		const crash = await crashedRun()
 
 		let replay: SessionLogReplay | undefined
 		const received: SessionEvent[] = []
 		const outcome = await resumeSession({
-			...(await resumeParams(baseDir, checkpointStore)),
+			...(await resumeParams(crash)),
 			eventCursor: { sinceSeq: 10_000 },
 			onEventReplay: (verdict: SessionLogReplay) => {
 				replay = verdict
@@ -264,7 +256,8 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 	})
 
 	it('refuses a cursor from an older claim rather than splicing across it', async () => {
-		const { baseDir, seen, checkpointStore } = await crashedRun()
+		const crash = await crashedRun()
+		const { seen } = crash
 		const recorded = seen.filter((e) => e.seq !== undefined)
 		const cursor = recorded[1]?.seq as number
 		const head = recorded.at(-1)?.seq as number
@@ -272,10 +265,8 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 		let replay: SessionLogReplay | undefined
 		const received: SessionEvent[] = []
 		await resumeSession({
-			...(await resumeParams(baseDir, checkpointStore)),
-			// The run is taken over under a higher fence; the consumer's cursor
-			// was minted under the lower one.
-			claimFence: 9,
+			...(await resumeParams(crash)),
+			// The consumer's cursor was minted under a fence the log never had.
 			eventCursor: { sinceSeq: cursor, generation: 4 },
 			onEventReplay: (verdict: SessionLogReplay) => {
 				replay = verdict
@@ -292,11 +283,9 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 		// them. Nothing at or below the old head may arrive — the resumed run
 		// continues the sequence, so every legitimate event is above it.
 		//
-		// The first version of this test asserted `generation === undefined ||
-		// generation === 9`, which the replayed events satisfy: the crashed run
-		// was unclaimed, so its events carry no generation at all. It passed
-		// against a build that spliced the whole gap in, and a mutation run is
-		// what caught it.
+		// The first version of this test asserted on the replayed events'
+		// generation, which they satisfied; it passed against a build that
+		// spliced the whole gap in, and a mutation run is what caught it.
 		expect(head).toBeGreaterThan(cursor)
 		expect(received.filter((e) => e.seq !== undefined && e.seq <= head)).toEqual([])
 	})
@@ -304,11 +293,11 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 
 describe('the listener is the hop', () => {
 	it('delivers the resumed run’s own events, cursor or no cursor', async () => {
-		const { baseDir, checkpointStore } = await crashedRun()
+		const crash = await crashedRun()
 
 		const received: SessionEvent[] = []
 		await resumeSession({
-			...(await resumeParams(baseDir, checkpointStore)),
+			...(await resumeParams(crash)),
 			listener: (event: SessionEvent) => {
 				received.push(event)
 			},

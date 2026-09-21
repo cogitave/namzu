@@ -9,7 +9,9 @@ import {
 	type SessionCheckpointStore,
 	InMemorySessionCheckpointStore,
 } from '../../../../store/checkpoint/index.js'
+import type { SessionTokenBudgetScope } from '../../../../store/budget/index.js'
 import {
+	InMemoryLogMedium,
 	InMemorySessionLog,
 	type SessionLease,
 	type SessionLog,
@@ -37,7 +39,11 @@ import {
 	generateSessionId,
 	generateTurnId,
 } from '../../../../utils/id.js'
-import { checkpointLogView, resolveSessionStorage } from '../../session-storage.js'
+import {
+	checkpointLogView,
+	heldSessionState,
+	resolveSessionStorage,
+} from '../../session-storage.js'
 
 /** Fixed attribution for a test session. */
 export const TEST_SCOPE = {
@@ -102,6 +108,51 @@ export async function turnCheckpoints(turn: {
 		sessionId: turn.sessionId,
 		turnId: turn.turnId,
 	})
+}
+
+/**
+ * A second copy of an in-memory session, as a restore from a backup would
+ * produce: the log's bytes, the checkpoints of `turns`, the ledgers those
+ * checkpoints are bound to, and the ledgers of `budgets`. The copy then
+ * diverges from the original.
+ */
+export async function copySession(
+	source: InMemorySessionLog,
+	turns: readonly CheckpointScope[],
+	budgets: readonly SessionTokenBudgetScope[] = [],
+): Promise<InMemorySessionLog> {
+	const medium = new InMemoryLogMedium()
+	const size = await source.medium.size()
+	await medium.append(await source.medium.read(0, size), 0)
+	const copy = new InMemorySessionLog({
+		sessionId: source.sessionId,
+		medium,
+		leases: source.leaseStore,
+		spills: source.spillStore,
+	})
+	const from = heldSessionState(source)
+	const to = await resolveSessionStorage({ sessionId: source.sessionId, sessionLog: copy })
+	if (!from) return copy
+	const ledgers = new Map(
+		budgets.map((scope) => [`${scope.rootSessionId}/${scope.rootTurnId}`, scope]),
+	)
+	for (const scope of turns) {
+		for (const checkpoint of await from.checkpoints.list(scope)) {
+			await to.checkpoints.write(scope, JSON.parse(JSON.stringify(checkpoint)) as Checkpoint)
+			const binding = checkpoint.budget?.binding
+			if (binding) {
+				ledgers.set(`${binding.rootSessionId}/${binding.rootTurnId}`, {
+					rootSessionId: binding.rootSessionId,
+					rootTurnId: binding.rootTurnId,
+				})
+			}
+		}
+	}
+	for (const scope of ledgers.values()) {
+		const ledger = await from.tokenBudgets.load(scope)
+		if (ledger) await to.tokenBudget.save(scope, JSON.parse(JSON.stringify(ledger)))
+	}
+	return copy
 }
 
 /** A fresh in-memory checkpoint store verified against `log`. */
@@ -247,4 +298,33 @@ export function checkpointRecords(session: CheckpointedSession) {
 			session.log.append(session.lease, draft),
 		flush: async () => {},
 	}
+}
+
+/**
+ * Commit one more checkpoint of the session's open turn, at the log's head,
+ * under the session's own lease. `document` overrides fields of it.
+ */
+export async function addCheckpoint(
+	session: CheckpointedSession,
+	document: Partial<Checkpoint> = {},
+): Promise<CheckpointId> {
+	const head = await session.log.head()
+	const previous = await session.store.read(session.scope, session.checkpointId)
+	if (!previous || !head) throw new Error('addCheckpoint needs the session’s first checkpoint')
+	const next: Checkpoint = {
+		...previous,
+		checkpointId: generateCheckpointId(),
+		iteration: previous.iteration + 1,
+		throughSeq: head.pointer.seq,
+		throughSha256: head.pointer.sha256,
+		createdAt: new Date(Date.parse(previous.createdAt) + 1_000).toISOString(),
+		...document,
+	}
+	const receipt = await session.store.write(session.scope, next)
+	await session.log.append(session.lease, {
+		type: 'checkpoint_written',
+		turnId: session.turnId,
+		...receipt,
+	})
+	return next.checkpointId
 }
