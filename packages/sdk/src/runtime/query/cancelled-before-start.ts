@@ -73,7 +73,11 @@ export async function* settlePreStartCancellation(
 		parentContext(params.parentSpan ?? selectedResumeState?.traceContext),
 	)
 	rootSpan.setAttributes({
+		[GENAI.CONVERSATION_ID]: ctx.sessionId,
 		[NAMZU.TURN_ID]: ctx.turnId,
+		...(params.parentSessionId !== undefined && {
+			[NAMZU.SESSION_PARENT_ID]: params.parentSessionId,
+		}),
 		[GENAI.AGENT_NAME]: params.agentName,
 		[GENAI.AGENT_ID]: params.agentId,
 		[GENAI.REQUEST_MODEL]: turnConfig.model,
