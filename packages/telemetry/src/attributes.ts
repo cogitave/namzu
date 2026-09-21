@@ -18,8 +18,9 @@
  */
 export { GENAI, NAMZU } from '@namzu/sdk'
 
-export function agentRunSpanName(agentName: string): string {
-	return `namzu.agent.run ${agentName}`
+/** The root span of one turn; the SDK names it the same way. */
+export function agentTurnSpanName(agentName: string): string {
+	return `namzu.agent.turn ${agentName}`
 }
 
 export function agentIterationSpanName(iteration: number): string {

@@ -1,14 +1,14 @@
 import {
 	recordModelDuration,
-	recordRunDuration as recordRunDurationMs,
 	recordTokenUsage as recordTokenUsageSample,
 	recordToolCall as recordToolCallOutcome,
+	recordTurnDuration as recordTurnDurationMs,
 } from '@namzu/sdk'
 
 export interface PlatformMetrics {
 	recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void
 	recordToolCall(toolName: string, success: boolean): void
-	recordRunDuration(status: string, durationSec: number): void
+	recordTurnDuration(status: string, durationSec: number): void
 	recordLLMLatency(model: string, durationSec: number): void
 }
 
@@ -45,8 +45,8 @@ export function createPlatformMetrics(): PlatformMetrics {
 		// The conversion has to happen on exactly one side of the boundary;
 		// it lives on the recorder's, so this undoes it rather than letting
 		// both sides divide.
-		recordRunDuration(status: string, durationSec: number): void {
-			recordRunDurationMs(status, durationSec * 1000)
+		recordTurnDuration(status: string, durationSec: number): void {
+			recordTurnDurationMs(status, durationSec * 1000)
 		},
 
 		recordLLMLatency(model: string, durationSec: number): void {
