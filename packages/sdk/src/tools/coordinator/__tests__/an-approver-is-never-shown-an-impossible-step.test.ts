@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { TaskScheduler } from '../../../types/agent/scheduler.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { PlanApprovalRequest } from '../../../types/plan/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -28,7 +28,8 @@ import { buildCoordinatorTools } from '../index.js'
  * the human is never shown the bad step at all.
  */
 
-const RUN = 'a306accf-4719-43e0-b98b-a1bbf8706acd' as RunId
+const SESSION = 'a306accf-4719-43e0-b98b-a1bbf8706acd' as SessionId
+const TURN = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
 
 function unusedGateway(): TaskScheduler {
 	return {
@@ -54,7 +55,8 @@ function unusedGateway(): TaskScheduler {
 
 function ctx(): ToolContext {
 	return {
-		runId: RUN,
+		sessionId: SESSION,
+		turnId: TURN,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -68,7 +70,7 @@ async function approve(
 	steps: Array<{ description: string; agent_id?: string }>,
 ): Promise<{ result: Awaited<ReturnType<ReturnType<typeof build>>>; seen?: PlanApprovalRequest }> {
 	let seen: PlanApprovalRequest | undefined
-	const pm = new PlanManager(RUN, async (request) => {
+	const pm = new PlanManager(TURN as never, async (request) => {
 		seen = request
 		return { approved: true }
 	})
@@ -123,7 +125,7 @@ describe('a plan may only name an agent the run can actually launch', () => {
 	})
 
 	it('leaves no half-built plan behind', async () => {
-		const pm = new PlanManager(RUN, async () => ({ approved: true }))
+		const pm = new PlanManager(TURN as never, async () => ({ approved: true }))
 		const run = build(['researcher'], pm)
 
 		await run([{ description: 'audit', agent_id: 'ghost' }])

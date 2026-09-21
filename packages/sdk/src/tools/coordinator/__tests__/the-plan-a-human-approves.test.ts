@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { TaskScheduler } from '../../../types/agent/scheduler.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { PlanApprovalRequest } from '../../../types/plan/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -22,7 +22,8 @@ import { buildCoordinatorTools } from '../index.js'
  * agent was chosen cannot withhold approval from the wrong one.
  */
 
-const RUN = 'e4828d03-c58a-453b-8077-4431380a81e4' as RunId
+const SESSION = 'e4828d03-c58a-453b-8077-4431380a81e4' as SessionId
+const TURN = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
 
 function unusedGateway(): TaskScheduler {
 	return {
@@ -48,7 +49,8 @@ function unusedGateway(): TaskScheduler {
 
 function testToolContext(): ToolContext {
 	return {
-		runId: RUN,
+		sessionId: SESSION,
+		turnId: TURN,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -61,7 +63,7 @@ async function whatTheApproverSaw(
 	steps: Array<{ description: string; agent_id?: string }>,
 ): Promise<PlanApprovalRequest> {
 	let seen: PlanApprovalRequest | undefined
-	const pm = new PlanManager(RUN, async (request) => {
+	const pm = new PlanManager(TURN as never, async (request) => {
 		seen = request
 		return { approved: true }
 	})

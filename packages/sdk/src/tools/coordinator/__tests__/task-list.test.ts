@@ -19,7 +19,8 @@ import { buildCoordinatorTools } from '../index.js'
 
 function makeContext(): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
+		sessionId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -79,7 +80,8 @@ function handle(input: {
 		completedAt: input.completedAt,
 		result: input.lastError
 			? ({
-					runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
+					sessionId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
+					turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 					status: input.state === 'failed' ? 'failed' : 'completed',
 					usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 					cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,

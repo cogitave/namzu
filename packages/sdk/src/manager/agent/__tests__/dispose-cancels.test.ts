@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cancelCauseOf } from '../../../types/run/cancel-cause.js'
+import { cancelCauseOf } from '../../../types/session/cancel-cause.js'
 
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
@@ -8,7 +8,7 @@ import { SessionSummaryMaterializer } from '../../../session/summary/materialize
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
-import type { RunId, TaskId } from '../../../types/ids/index.js'
+import type { SessionId, TaskId } from '../../../types/ids/index.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
@@ -16,8 +16,8 @@ import { AgentManager } from '../lifecycle.js'
 /**
  * `dispose()` cancelled nothing.
  *
- * It called `cancelAll('' as RunId)`, and `cancelAll` filters by
- * `context.parentRunId`. No task has an empty parent, so the filter matched
+ * It called `cancelAll('' as RunId)`, and `cancelAll` filters by the
+ * parent in the task's context (a run id then, the parent session now). No task has an empty parent, so the filter matched
  * nothing — and the next lines cleared the instance map. Every live child
  * was released without its abort controller firing: the work kept running,
  * the budget kept draining, and nothing was left holding a reference to
@@ -49,7 +49,11 @@ function makeManager(): AgentManager {
  * agent to completion, and a terminal task is exactly the one `dispose` was
  * never broken for.
  */
-function addLiveTask(manager: AgentManager, taskId: string, parentRunId: string): AbortController {
+function addLiveTask(
+	manager: AgentManager,
+	taskId: string,
+	parentSessionId: string,
+): AbortController {
 	const controller = new AbortController()
 	const instances = (manager as unknown as { instances: Map<TaskId, unknown> }).instances
 	instances.set(taskId as TaskId, {
@@ -57,13 +61,13 @@ function addLiveTask(manager: AgentManager, taskId: string, parentRunId: string)
 		state: 'running',
 		childAbortController: controller,
 		pendingMessages: [],
-		context: { parentRunId: parentRunId as RunId },
+		context: { parentSessionId: parentSessionId as SessionId },
 	})
 	return controller
 }
 
 describe('disposing the manager stops the work it was holding', () => {
-	it('aborts a live child spawned under any run', () => {
+	it('aborts a live child spawned under any parent', () => {
 		const manager = makeManager()
 		// Two parents: the shape the old code could not see, because it
 		// looked for one specific parent and invented the value it looked for.
@@ -125,7 +129,7 @@ describe('disposing the manager stops the work it was holding', () => {
 			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
 		)
 
-		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId)
+		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as SessionId)
 
 		expect(child.signal.aborted).toBe(true)
 		expect(cancelCauseOf(child.signal.reason)).toBe('parent')
@@ -139,7 +143,7 @@ describe('disposing the manager stops the work it was holding', () => {
 			'37ddff8e-e13f-4e57-937f-d048fa323f5e',
 		)
 
-		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId, 'budget')
+		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as SessionId, 'budget')
 
 		expect(cancelCauseOf(child.signal.reason)).toBe('budget')
 	})
@@ -157,7 +161,7 @@ describe('disposing the manager stops the work it was holding', () => {
 			'd7cb4b25-c8f3-41d8-90c5-75f49360c7dc',
 		)
 
-		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId)
+		manager.cancelAll('37ddff8e-e13f-4e57-937f-d048fa323f5e' as SessionId)
 
 		expect(mine.signal.aborted).toBe(true)
 		expect(theirs.signal.aborted).toBe(false)

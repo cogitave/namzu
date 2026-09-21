@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { TokenBudget } from '../../../run/token-budget.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
-import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { InMemorySessionCheckpointStore } from '../../../store/checkpoint/index.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
@@ -15,19 +14,18 @@ import type { Agent } from '../../../types/agent/core.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
 import type { TenantId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
 /**
- * A delegated child of a run held in memory runs in memory too.
+ * A child session of a parent held in memory runs in memory too.
  *
  * The child config came from a `configBuilder` (or the manager's bare
- * config) with no run store and no path builder, so the child's run built
- * disk stores under `defaultStateRoot()` and left its evidence, checkpoints
- * and history there, although its parent had asked for nothing on disk. The
- * parent's choice now travels on `AgentTaskContext.childStorage` and the
- * manager stamps it after the builder, like the other inherited fields.
+ * config) with no session log and no paths, so the child would have opened a
+ * disk log under `NAMZU_HOME` although its parent had asked for nothing on
+ * disk. The parent's choice travels on `AgentTaskContext.childStorage` and
+ * the manager stamps it after the builder, like the other inherited fields.
  */
 
 const tenant = '0f7c5f1e-6a57-4d0b-9f2e-3d8b0a3c9e11' as TenantId
@@ -57,7 +55,8 @@ function recordingAgent(seen: BaseAgentConfig[]): Agent<BaseAgentConfig, BaseAge
 		async run(_input: unknown, config: BaseAgentConfig) {
 			seen.push(config)
 			return {
-				runId: '8e0f2c55-2a8b-4a49-9f71-0d7c3e3a2b19' as never,
+				sessionId: config.sessionId,
+				turnId: generateTurnId(),
 				status: 'completed',
 				usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
 				cost: { totalCost: 0 },
@@ -118,11 +117,15 @@ async function harness(builderConfig?: Partial<BaseAgentConfig>) {
 
 	const context = (over: Partial<AgentTaskContext> = {}): AgentTaskContext =>
 		({
-			parentRunId: '1b7e8f3a-4c2d-4e5f-9a0b-6c7d8e9f0a1b',
+			parentSessionId: parent.id,
+			parentTurnId: generateTurnId(),
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budget: TokenBudget.create(100_000, budgetRunId()),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: generateSessionId(),
+				rootTurnId: generateTurnId(),
+			}),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parent.id,
@@ -153,26 +156,34 @@ describe.each([
 	['with no configBuilder', 'worker'],
 	['with a configBuilder', 'built-worker'],
 ])('a child of a parent held in memory (%s)', (_label, agentId) => {
-	it('gets a run store of its own in memory', async () => {
+	it('gets a session log of its own in memory, for its own session', async () => {
 		const h = await harness()
 
 		await h.spawn(h.context({ childStorage: { kind: 'memory' } }), agentId)
 
-		expect(h.seen[0]?.runStore).toBeInstanceOf(InMemoryRunStore)
+		expect(h.seen[0]?.sessionLog).toBeInstanceOf(InMemorySessionLog)
+		expect(h.seen[0]?.sessionLog?.sessionId).toBe(h.seen[0]?.sessionId)
 		expect(h.seen[0]?.checkpointStore).toBeUndefined()
 	})
 
 	it("gets the parent's checkpoint store when the parent named one", async () => {
 		const h = await harness()
-		const checkpointStore = new InMemoryCheckpointStore()
+		// Only its identity is under test; the log view is never consulted.
+		const checkpointStore = new InMemorySessionCheckpointStore({
+			log: {
+				verifyThrough: async () => true,
+				writtenDocSha256: async () => null,
+				openDecisionCheckpoints: async () => [],
+			},
+		})
 
 		await h.spawn(h.context({ childStorage: { kind: 'memory', checkpointStore } }), agentId)
 
-		expect(h.seen[0]?.runStore).toBeInstanceOf(InMemoryRunStore)
+		expect(h.seen[0]?.sessionLog).toBeInstanceOf(InMemorySessionLog)
 		expect(h.seen[0]?.checkpointStore).toBe(checkpointStore)
 	})
 
-	it('a fresh run store per child, never a shared one', async () => {
+	it('a fresh log per child, never a shared one', async () => {
 		const h = await harness()
 		const ctx = h.context({ childStorage: { kind: 'memory' } })
 
@@ -180,7 +191,7 @@ describe.each([
 		await h.spawn(ctx, agentId)
 
 		expect(h.seen).toHaveLength(2)
-		expect(h.seen[0]?.runStore).not.toBe(h.seen[1]?.runStore)
+		expect(h.seen[0]?.sessionLog).not.toBe(h.seen[1]?.sessionLog)
 	})
 })
 
@@ -190,25 +201,15 @@ describe('what the parent did not choose is left alone', () => {
 
 		await h.spawn(h.context(), 'built-worker')
 
-		expect(h.seen[0]?.runStore).toBeUndefined()
+		expect(h.seen[0]?.sessionLog).toBeUndefined()
 	})
 
-	it('a builder that names a path builder keeps it', async () => {
-		const pathBuilder = new DefaultPathBuilder('/tmp/namzu-child-root')
-		const h = await harness({ pathBuilder })
+	it('a builder that names a session log keeps it', async () => {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const h = await harness({ sessionLog })
 
 		await h.spawn(h.context({ childStorage: { kind: 'memory' } }), 'built-worker')
 
-		expect(h.seen[0]?.pathBuilder).toBe(pathBuilder)
-		expect(h.seen[0]?.runStore).toBeUndefined()
-	})
-
-	it('a builder that names a run store keeps it', async () => {
-		const runStore = new InMemoryRunStore()
-		const h = await harness({ runStore })
-
-		await h.spawn(h.context({ childStorage: { kind: 'memory' } }), 'built-worker')
-
-		expect(h.seen[0]?.runStore).toBe(runStore)
+		expect(h.seen[0]?.sessionLog).toBe(sessionLog)
 	})
 })

@@ -30,7 +30,8 @@ const SERIALIZED = JSON.stringify({ orderId: 'A-1', refunded: true, amountUsd: 4
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		sessionId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},

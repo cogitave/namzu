@@ -2,10 +2,10 @@ import { EMPTY_TOKEN_USAGE, ZERO_COST } from '../constants/limits.js'
 import type { Delegate, DelegateRequest, DelegateResult } from '../types/agent/delegate.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskState } from '../types/agent/task.js'
-import type { RunExecutionStatus } from '../types/common/index.js'
-import type { RunId, TaskId } from '../types/ids/index.js'
-import { type CancelCause, RunCancelled } from '../types/run/cancel-cause.js'
-import { generateRunId, generateTaskId } from '../utils/id.js'
+import type { SessionId, TaskId, TurnId } from '../types/ids/index.js'
+import { type CancelCause, TurnCancelled } from '../types/session/cancel-cause.js'
+import type { TurnExecutionStatus } from '../types/session/turn.js'
+import { generateSessionId, generateTaskId, generateTurnId } from '../utils/id.js'
 
 /**
  * Presents a set of foreign delegates as a `TaskScheduler`.
@@ -98,13 +98,13 @@ export class NoDelegateError extends Error {
  * must not.
  *
  * Note the spelling difference, which is the tree's and not a typo:
- * `AgentTaskState` has `'canceled'`, `RunExecutionStatus` has
+ * `AgentTaskState` has `'canceled'`, `TurnExecutionStatus` has
  * `'cancelled'`. A table is what keeps that from being written from memory
  * at each site.
  */
 const OUTCOME: Record<
 	DelegateResult['status'],
-	{ readonly state: AgentTaskState; readonly status: RunExecutionStatus }
+	{ readonly state: AgentTaskState; readonly status: TurnExecutionStatus }
 > = {
 	completed: { state: 'completed', status: 'completed' },
 	failed: { state: 'failed', status: 'failed' },
@@ -113,7 +113,12 @@ const OUTCOME: Record<
 
 interface Entry {
 	handle: TaskHandle
-	runId: RunId
+	/**
+	 * The dispatch's identity, allocated once with its task: a foreign
+	 * delegation is a child session with no log in this kernel, and one turn.
+	 */
+	sessionId: SessionId
+	turnId: TurnId
 	delegate: Delegate
 	controller: AbortController
 	settled: Promise<void>
@@ -177,7 +182,8 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 		}
 
 		const entry: Entry = {
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			handle: {
 				taskId,
 				agentId: options.agentId,
@@ -205,14 +211,15 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 					error: err instanceof Error ? err.message : String(err),
 				}
 			}
-			entry.handle = this.settle(entry.handle, entry.runId, result)
+			entry.handle = this.settle(entry, result)
 			for (const listener of this.listeners) listener(entry.handle)
 		})()
 
 		return entry.handle
 	}
 
-	private settle(handle: TaskHandle, runId: RunId, result: DelegateResult): TaskHandle {
+	private settle(entry: Entry, result: DelegateResult): TaskHandle {
+		const { handle } = entry
 		const outcome = OUTCOME[result.status]
 		return {
 			...handle,
@@ -222,7 +229,8 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 				// Identity of this dispatch, allocated once with its task. The
 				// scheduler owns the correlation; the ID's spelling carries none.
 				// A foreign dispatch does not imply a local resumable checkpoint.
-				runId,
+				sessionId: entry.sessionId,
+				turnId: entry.turnId,
 				status: outcome.status,
 				// Zero, and honestly so: this kernel did not spend these tokens
 				// and has no way to learn what the delegate spent. `ZERO_COST`
@@ -316,5 +324,5 @@ export class DelegatingTaskScheduler implements TaskScheduler {
  * be recorded as cancelled while its answer sat unread.
  */
 function controllerAbort(entry: Entry, cause?: CancelCause): void {
-	entry.controller.abort(cause ? new RunCancelled(cause) : undefined)
+	entry.controller.abort(cause ? new TurnCancelled(cause) : undefined)
 }

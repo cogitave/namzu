@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { AGENT_MANAGER_DEFAULTS } from '../../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { TokenBudget } from '../../../run/token-budget.js'
 import { LocalTaskScheduler } from '../../../scheduler/local.js'
 import {
 	DefaultCapacityValidator,
@@ -10,6 +9,7 @@ import {
 } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
@@ -27,14 +27,14 @@ import type {
 	AgentTaskContext,
 	SendMessageOptions,
 } from '../../../types/agent/task.js'
-import type { AgentId, RunId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { AgentId, SessionId, TenantId, TurnId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import type { SummaryId, TopicId } from '../../../types/session/ids.js'
 import type { DeliverableRef } from '../../../types/summary/deliverable.js'
 import { ZERO_COST } from '../../../utils/cost.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
@@ -90,7 +90,8 @@ function makeDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>): AgentDe
 
 function successResult(): BaseAgentResult {
 	return {
-		runId: budgetRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		status: 'completed',
 		usage: { ...EMPTY_TOKEN_USAGE },
 		cost: { ...ZERO_COST },
@@ -103,7 +104,8 @@ function successResult(): BaseAgentResult {
 
 function failureResult(error: string): BaseAgentResult {
 	return {
-		runId: budgetRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		status: 'failed',
 		usage: { ...EMPTY_TOKEN_USAGE },
 		cost: { ...ZERO_COST },
@@ -200,11 +202,15 @@ function buildContext(
 	depth = 0,
 ): AgentTaskContext {
 	return {
-		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
+		parentSessionId,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId,
 		parentAgentId: 'parent-agent',
 		parentAbortController: new AbortController(),
 		depth,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		}),
 		tenantId,
 		topicId,
 		sessionId: parentSessionId,
@@ -240,9 +246,9 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 	it('happy path: SubSession + Session + Summary, lineage stamped, status idle', async () => {
 		const childAgent = makeAgent('child-1', async () => successResult())
 		const harness = await buildHarness(childAgent)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
-		const listener = (e: RunEvent): void => {
+		const listener = (e: SessionEvent): void => {
 			events.push(e)
 		}
 
@@ -269,21 +275,26 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		expect(summary?.agentSummary).toBe('child finished successfully')
 
 		// Events — spawn + idled both present with lineage.
-		const spawned = events.find((e) => e.type === 'subsession_spawned')
-		expect(spawned).toBeDefined()
-		if (spawned && 'lineage' in spawned) {
-			expect(spawned.lineage.parentSessionId).toBe(harness.parentSession.id)
-			expect(spawned.lineage.rootSessionId).toBe(harness.parentSession.id)
-			expect(spawned.lineage.depth).toBe(1)
-			expect(spawned.schemaVersion).toBe(3)
-		}
+		const spawned = events.find((e) => e.type === 'child_session_spawned')
+		expect(spawned).toMatchObject({
+			sessionId: harness.parentSession.id,
+			turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e',
+			childSessionId: spawnRecord!.childSessionId,
+			kind: 'agent_spawn',
+			path: `subagents/${spawnRecord!.childSessionId}.jsonl`,
+			lineage: {
+				parentSessionId: harness.parentSession.id,
+				rootSessionId: harness.parentSession.id,
+				depth: 1,
+			},
+		})
 
-		const idled = events.find((e) => e.type === 'subsession_idled')
-		expect(idled).toBeDefined()
-		if (idled && 'lineage' in idled) {
-			expect(idled.lineage.depth).toBe(1)
-			expect(idled.schemaVersion).toBe(3)
-		}
+		const idled = events.find((e) => e.type === 'child_session_idled')
+		expect(idled).toMatchObject({
+			sessionId: harness.parentSession.id,
+			childSessionId: spawnRecord!.childSessionId,
+			lineage: { depth: 1 },
+		})
 	})
 
 	it('width: exceeding maxDelegationWidth (8) rejects with DelegationCapacityExceeded', async () => {
@@ -487,7 +498,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 			tenant,
 		)
 
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const task = await harness.manager.sendMessage(
 			buildOptions('grandchild', c2.id, harness.projectId),
 			buildContext(c2.id, harness.projectId, harness.topicId),
@@ -497,9 +508,9 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		)
 		await waitForTask(harness.manager, task.taskId)
 
-		const spawned = events.find((e) => e.type === 'subsession_spawned')
+		const spawned = events.find((e) => e.type === 'child_session_spawned')
 		expect(spawned).toBeDefined()
-		if (spawned && 'lineage' in spawned) {
+		if (spawned?.lineage) {
 			// Ancestry is root→c1→c2; newly spawned child is depth 3.
 			expect(spawned.lineage.depth).toBe(3)
 			expect(spawned.lineage.rootSessionId).toBe(harness.parentSession.id)
@@ -553,14 +564,14 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
  *
  * Reach, not durability. `agent_pending` is handed straight to a host's
  * listener and never enters a run's log (see the `seq` contract in
- * `types/run/events.ts`), so what the listener receives is the whole of what
+ * `types/session/events.ts`), so what the listener receives is the whole of what
  * the kernel promises — which is exactly what these tests assert against.
  */
 describe('AgentManager.sendMessage — display labels on agent_pending', () => {
 	it('carries the labels the delegating tool supplied', async () => {
 		const childAgent = makeAgent('child-1', async () => successResult())
 		const harness = await buildHarness(childAgent)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const task = await harness.manager.sendMessage(
 			{
@@ -595,7 +606,7 @@ describe('AgentManager.sendMessage — display labels on agent_pending', () => {
 		// existed has to keep reading the same event.
 		const childAgent = makeAgent('child-1', async () => successResult())
 		const harness = await buildHarness(childAgent)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-1', harness.parentSession.id, harness.projectId),
@@ -696,7 +707,10 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budget = TokenBudget.create(100_000, budgetRunId())
+		context.budget = SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-deadline', harness.parentSession.id, harness.projectId),
@@ -720,7 +734,10 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budget = TokenBudget.create(20, budgetRunId())
+		context.budget = SessionTokenBudget.create(20, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-small', harness.parentSession.id, harness.projectId),
@@ -740,7 +757,10 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		const childAgent = makeAgent('child-broke', async () => successResult())
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budget = TokenBudget.create(1, budgetRunId())
+		context.budget = SessionTokenBudget.create(1, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 
 		await expect(
 			harness.manager.sendMessage(
@@ -761,7 +781,10 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budget = TokenBudget.create(100_000, budgetRunId())
+		context.budget = SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 
 		// Go through the GATEWAY, which is where the clone was: calling
 		// `manager.sendMessage` directly always shared the tracker, so a test
@@ -805,7 +828,10 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		}))
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budget = TokenBudget.create(100_000, budgetRunId())
+		context.budget = SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 
 		const gateway = new LocalTaskScheduler(harness.manager, context)
 		const handle = await gateway.createTask({
@@ -833,7 +859,10 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		context.budget = TokenBudget.create(100_000, budgetRunId())
+		context.budget = SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 
 		const gateway = new LocalTaskScheduler(harness.manager, context)
 		const first = await gateway.createTask({
@@ -973,7 +1002,10 @@ describe('a concurrent fan-out shares one budget', () => {
 		)
 
 		// ONE tracker, shared, as a real parent's context is.
-		const shared = TokenBudget.create(100_000, budgetRunId())
+		const shared = SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 		const context = {
 			...buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 			budget: shared,
@@ -1028,7 +1060,10 @@ describe('bounded queued delegation admission', () => {
 		})
 		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
 		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
-		context.budget = TokenBudget.create(1_000_000, budgetRunId())
+		context.budget = SessionTokenBudget.create(1_000_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 		try {
 			const tasks = await Promise.all(
 				Array.from({ length: 10 }, () =>
@@ -1072,7 +1107,7 @@ describe('bounded queued delegation admission', () => {
 		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
 		await h.store.updateProject(h.projectId, { maxDelegationWidth: 1 }, tenant)
 		const firstContext = buildContext(h.parentSession.id, h.projectId, h.topicId)
-		const secondContext = { ...firstContext, parentRunId: budgetRunId() }
+		const secondContext = { ...firstContext, parentTurnId: generateTurnId() }
 		const options = (text: string): SendMessageOptions => ({
 			...buildOptions('worker', h.parentSession.id, h.projectId),
 			input: { messages: [{ role: 'user', content: text }], workingDirectory: '/tmp' },
@@ -1371,7 +1406,7 @@ describe('bounded queued delegation admission', () => {
 		const child = makeAgent('worker', async () => successResult())
 		const h = await buildHarness(child, tenant, { capacityBehavior: 'queue' })
 		const context = buildContext(h.parentSession.id, h.projectId, h.topicId)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		try {
 			const request = await context.budget.beginRequest()
 			const task = await h.manager.sendMessage(

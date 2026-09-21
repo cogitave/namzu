@@ -5,7 +5,7 @@ import type { CompletionInbox } from '../../scheduler/completion-inbox.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { TaskScheduler } from '../../types/agent/scheduler.js'
 import type { ResumeHandler } from '../../types/hitl/index.js'
-import type { RunId, TaskId } from '../../types/ids/index.js'
+import type { SessionId, TaskId, TurnId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
@@ -63,7 +63,13 @@ export interface CoordinatorToolsOptions {
 	 */
 	onPlanApproved?: () => Promise<void> | void
 
-	runId?: RunId
+	/**
+	 * The session and turn these tools act for: a delegated plan step is
+	 * filed as a task of this session, created by this turn, and a question
+	 * park is addressed to them.
+	 */
+	sessionId?: SessionId
+	turnId?: TurnId
 
 	getPlanManager?: () => PlanManager | undefined
 
@@ -82,9 +88,9 @@ export interface CoordinatorToolsOptions {
 
 	/**
 	 * HITL park channel for `ask_user_question`. The tool is registered
-	 * only when BOTH `resumeHandler` and `runId` are present — without a
-	 * handler there is no one to route the question to, and without a
-	 * runId the park request cannot be addressed.
+	 * only when `resumeHandler`, `sessionId` and `turnId` are all present —
+	 * without a handler there is no one to route the question to, and
+	 * without the turn the park request cannot be addressed.
 	 */
 	resumeHandler?: ResumeHandler
 
@@ -402,7 +408,8 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		allowDelegation,
 		taskStore,
 		onPlanApproved,
-		runId,
+		sessionId,
+		turnId,
 		getPlanManager,
 		resumeHandler,
 		questionParks,
@@ -573,9 +580,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						status: 'in_progress',
 						owner: agent_id,
 					})
-				} else if (runId) {
+				} else if (sessionId && turnId) {
 					const planTask = await taskStore.create({
-						runId,
+						sessionId,
+						turnId,
 						subject: description,
 						activeForm: description,
 						owner: agent_id,
@@ -1204,7 +1212,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			permissions: [],
 			readOnly: true,
 			destructive: false,
-			// Parks through the SAME runId-keyed host resume registry as
+			// Parks through the SAME turn-keyed host resume registry as
 			// ask_user_question — concurrent parks in one batch clobber the
 			// registry entry and deadlock the loser, so the executor must
 			// serialize this tool exactly like the question tool.
@@ -1428,8 +1436,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		tools.push(updatePlanStep)
 	}
 
-	if (resumeHandler && runId) {
-		tools.push(buildAskUserQuestionTool({ resumeHandler, runId, questionParks, pendingAnswers }))
+	if (resumeHandler && sessionId && turnId) {
+		tools.push(
+			buildAskUserQuestionTool({ resumeHandler, sessionId, turnId, questionParks, pendingAnswers }),
+		)
 	}
 
 	return tools

@@ -30,7 +30,8 @@ async function manager(maxDepth: number) {
 
 function contextAtDepth(depth: number): AgentTaskContext {
 	return {
-		parentRunId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+		parentSessionId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e',
 		parentAgentId: 'agent_x',
 		parentAbortController: new AbortController(),
 		depth,

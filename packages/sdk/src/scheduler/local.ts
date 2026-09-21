@@ -11,8 +11,8 @@ import type {
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
-import type { CancelCause } from '../types/run/cancel-cause.js'
-import type { RunEventListener } from '../types/run/events.js'
+import type { CancelCause } from '../types/session/cancel-cause.js'
+import type { SessionEventListener } from '../types/session/events.js'
 import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -31,7 +31,7 @@ const GATEWAY_TASK_LEDGER_CAP = 1_000
 interface ObserverDelivery {
 	busy: boolean
 	readonly queue: Array<{
-		readonly event: Parameters<RunEventListener>[0]
+		readonly event: Parameters<SessionEventListener>[0]
 		readonly observer: 'scheduler' | 'task'
 	}>
 }
@@ -39,7 +39,7 @@ interface ObserverDelivery {
 export class LocalTaskScheduler implements TaskScheduler {
 	private agentManager: AgentManagerContract
 	private taskContext: AgentTaskContext
-	private listener: RunEventListener | undefined
+	private listener: SessionEventListener | undefined
 	private trackedTaskIds: Set<TaskId> = new Set()
 
 	private parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>
@@ -72,7 +72,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * slow exporter cannot hold up a task-specific screen (or another task's
 	 * screen) that uses a different callback.
 	 */
-	private readonly observerDeliveries = new WeakMap<RunEventListener, ObserverDelivery>()
+	private readonly observerDeliveries = new WeakMap<SessionEventListener, ObserverDelivery>()
 	/** Raw, unresolved — kept as the caller handed it so each of the two log
 	 * sites below resolves it independently via `resolveLogger`, rather than
 	 * this constructor baking in ONE `.child()` binding both would then share
@@ -83,7 +83,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	constructor(
 		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>,
 		options?: { siblingFailurePolicy?: SiblingFailurePolicy; log?: Logger },
 	) {
@@ -225,13 +225,13 @@ export class LocalTaskScheduler implements TaskScheduler {
 	}
 
 	private deliverEvent(
-		listener: RunEventListener | undefined,
-		event: Parameters<RunEventListener>[0],
+		listener: SessionEventListener | undefined,
+		event: Parameters<SessionEventListener>[0],
 		observer: 'scheduler' | 'task',
 	): void {
 		if (!listener) return
 
-		// Each observer receives its own value graph. RunEvent is readonly at the
+		// Each observer receives its own value graph. SessionEvent is readonly at the
 		// type boundary, but a JavaScript consumer can still mutate an object it
 		// was handed; that must not forge what the next independent observer sees.
 		const snapshot = structuredClone(event)
@@ -244,7 +244,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 		this.drainObserver(listener, delivery)
 	}
 
-	private drainObserver(listener: RunEventListener, delivery: ObserverDelivery): void {
+	private drainObserver(listener: SessionEventListener, delivery: ObserverDelivery): void {
 		if (delivery.busy) return
 		while (delivery.queue.length > 0) {
 			const next = delivery.queue.shift()
@@ -272,7 +272,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	}
 
 	private reportObserverFailure(
-		eventType: Parameters<RunEventListener>[0]['type'],
+		eventType: Parameters<SessionEventListener>[0]['type'],
 		observer: 'scheduler' | 'task',
 		error: unknown,
 	): void {

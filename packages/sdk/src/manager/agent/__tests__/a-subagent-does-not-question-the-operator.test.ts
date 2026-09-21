@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { SupervisorAgent } from '../../../agents/SupervisorAgent.js'
@@ -162,11 +162,15 @@ describe('a subagent cannot question the operator', () => {
 			}),
 		)
 		const context: AgentTaskContext = {
-			parentRunId: '7925f8f2-fc1a-4990-9de9-4461959f7bf1' as never,
+			parentSessionId: '7925f8f2-fc1a-4990-9de9-4461959f7bf1' as never,
+			parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 			parentAgentId: 'root-supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budget: TokenBudget.create(100_000, budgetRunId()),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: generateSessionId(),
+				rootTurnId: generateTurnId(),
+			}),
 			resumeHandler,
 			tenantId: TENANT,
 			topicId: topic.id,

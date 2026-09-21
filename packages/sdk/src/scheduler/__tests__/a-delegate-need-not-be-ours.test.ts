@@ -4,7 +4,7 @@ import { taskFailed, taskSucceeded } from '../../tools/coordinator/outcome.js'
 import type { Delegate, DelegateResult } from '../../types/agent/delegate.js'
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
-import { type CancelCause, cancelCauseOf } from '../../types/run/cancel-cause.js'
+import { type CancelCause, cancelCauseOf } from '../../types/session/cancel-cause.js'
 import { isEntityId } from '../../utils/id.js'
 import {
 	DelegateCapabilityError,
@@ -100,14 +100,20 @@ describe('a foreign delegate answers through the scheduler the tools already spe
 		const second = await scheduler.createTask(request('remote'))
 		const firstResult = await scheduler.waitForTask(first.taskId)
 		const secondResult = await scheduler.waitForTask(second.taskId)
-		const runId = firstResult.result?.runId
-		expect(isEntityId(runId, 'run')).toBe(true)
-		expect(runId).not.toContain('_')
-		expect(runId).not.toBe(first.taskId)
-		expect(secondResult.result?.runId).not.toBe(runId)
-		expect(scheduler.getTask(first.taskId)?.result?.runId).toBe(runId)
-		expect((await scheduler.waitForTask(first.taskId)).result?.runId).toBe(runId)
-		expect(completed.find((handle) => handle.taskId === first.taskId)?.result?.runId).toBe(runId)
+		// A foreign dispatch is a child session with one turn and no local log.
+		const sessionId = firstResult.result?.sessionId
+		const turnId = firstResult.result?.turnId
+		expect(isEntityId(sessionId, 'session')).toBe(true)
+		expect(isEntityId(turnId, 'turn')).toBe(true)
+		expect(turnId).not.toBe(first.taskId)
+		expect(secondResult.result?.sessionId).not.toBe(sessionId)
+		expect(secondResult.result?.turnId).not.toBe(turnId)
+		expect(scheduler.getTask(first.taskId)?.result).toMatchObject({ sessionId, turnId })
+		expect((await scheduler.waitForTask(first.taskId)).result).toMatchObject({ sessionId, turnId })
+		expect(completed.find((handle) => handle.taskId === first.taskId)?.result).toMatchObject({
+			sessionId,
+			turnId,
+		})
 	})
 
 	it('reads as succeeded to the predicate the tools use', async () => {

@@ -1,8 +1,8 @@
 import type { Span } from '@opentelemetry/api'
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../run/token-budget.js'
+import { SessionTokenBudget } from '../../store/budget/index.js'
 import { fixtureUuid } from '../../test-support/ids.js'
-import { generateRunId as budgetRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 
 import type { Agent } from '../../types/agent/core.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
@@ -12,10 +12,17 @@ import type {
 	AgentTaskState,
 	SendMessageOptions,
 } from '../../types/agent/task.js'
-import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
-import type { RunEventListener } from '../../types/run/events.js'
+import type { AgentId, SessionId, TaskId, TenantId, TurnId } from '../../types/ids/index.js'
+import type { SessionEvent, SessionEventListener } from '../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { LocalTaskScheduler } from '../local.js'
+
+function budgetFor(limit: number): SessionTokenBudget {
+	return SessionTokenBudget.create(limit, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	})
+}
 
 /**
  * `CreateTaskOptions.configOverrides` was declared, typed, and never read.
@@ -38,7 +45,7 @@ class RecordingManager implements AgentManagerContract {
 	async sendMessage(
 		options: SendMessageOptions,
 		_context?: AgentTaskContext,
-		_listener?: RunEventListener,
+		_listener?: SessionEventListener,
 	): Promise<AgentTask> {
 		this.sent.push(options)
 		return {
@@ -80,14 +87,14 @@ class RecordingManager implements AgentManagerContract {
 }
 
 class EventManager extends RecordingManager {
-	constructor(private readonly events: readonly Parameters<RunEventListener>[0][]) {
+	constructor(private readonly events: readonly Parameters<SessionEventListener>[0][]) {
 		super()
 	}
 
 	override async sendMessage(
 		options: SendMessageOptions,
 		_context?: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<AgentTask> {
 		for (const event of this.events) await listener?.(event)
 		return await super.sendMessage(options)
@@ -96,11 +103,12 @@ class EventManager extends RecordingManager {
 
 function context(): AgentTaskContext {
 	return {
-		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as RunId,
+		parentSessionId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as SessionId,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId,
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: budgetFor(100_000),
 		tenantId: '26cb9b08-e09d-4d11-ba43-157344a7ddba' as TenantId,
 		topicId: '7f33de5a-7605-4ed7-a5fe-58faba5547e8' as TopicId,
 		sessionId: '428dc9ee-7a75-4951-94e7-95347290e17d' as SessionId,
@@ -231,16 +239,13 @@ describe('a delegated run carries the display grouping its caller asked for', ()
 })
 
 describe('a task-specific event observer', () => {
-	const events = [
-		{
-			type: 'run_started' as const,
-			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
-		},
-		{
-			type: 'iteration_started' as const,
-			runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
-			iteration: 1,
-		},
+	const sessionId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as SessionId
+	const turnId = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
+	// Delivery is under test, not content: the first event carries only what
+	// every observer below reads.
+	const events: SessionEvent[] = [
+		{ type: 'turn_started', sessionId, turnId } as SessionEvent,
+		{ type: 'iteration_started', sessionId, turnId, iteration: 1 },
 	]
 
 	it('receives this task events alongside the scheduler observer', async () => {
@@ -259,7 +264,7 @@ describe('a task-specific event observer', () => {
 			},
 		})
 
-		expect(global).toEqual(['run_started', 'iteration_started'])
+		expect(global).toEqual(['turn_started', 'iteration_started'])
 		expect(task).toEqual(global)
 	})
 
@@ -279,7 +284,7 @@ describe('a task-specific event observer', () => {
 		})
 
 		expect(handle.state).toBe('completed')
-		expect(task).toEqual(['run_started', 'iteration_started'])
+		expect(task).toEqual(['turn_started', 'iteration_started'])
 	})
 
 	it('does not let one observer mutate what the other observer sees', async () => {
@@ -298,12 +303,12 @@ describe('a task-specific event observer', () => {
 			},
 		})
 
-		expect(task).toEqual(['run_started', 'iteration_started'])
+		expect(task).toEqual(['turn_started', 'iteration_started'])
 	})
 
 	it('delivers once when both scopes intentionally share one observer', async () => {
 		const seen: string[] = []
-		const observer: RunEventListener = (event) => {
+		const observer: SessionEventListener = (event) => {
 			seen.push(event.type)
 		}
 		const gateway = new LocalTaskScheduler(new EventManager(events), context(), observer)
@@ -315,7 +320,7 @@ describe('a task-specific event observer', () => {
 			onEvent: observer,
 		})
 
-		expect(seen).toEqual(['run_started', 'iteration_started'])
+		expect(seen).toEqual(['turn_started', 'iteration_started'])
 	})
 
 	it('keeps an async observer stream ordered without backpressuring the child', async () => {
@@ -332,20 +337,20 @@ describe('a task-specific event observer', () => {
 			workingDirectory: '/tmp',
 			onEvent: async (event) => {
 				seen.push(`start:${event.type}`)
-				if (event.type === 'run_started') await first
+				if (event.type === 'turn_started') await first
 				seen.push(`end:${event.type}`)
 			},
 		})
 
 		// The child already returned even though its observer is still waiting.
 		expect(handle.state).toBe('completed')
-		expect(seen).toEqual(['start:run_started'])
+		expect(seen).toEqual(['start:turn_started'])
 		releaseFirst?.()
 		await first
 		await new Promise<void>((resolve) => setTimeout(resolve, 0))
 		expect(seen).toEqual([
-			'start:run_started',
-			'end:run_started',
+			'start:turn_started',
+			'end:turn_started',
 			'start:iteration_started',
 			'end:iteration_started',
 		])
@@ -361,12 +366,12 @@ describe('a task-specific event observer', () => {
 			workingDirectory: '/tmp',
 			onEvent: async (event) => {
 				seen.push(event.type)
-				if (event.type === 'run_started') throw new Error('export failed')
+				if (event.type === 'turn_started') throw new Error('export failed')
 			},
 		})
 		await new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-		expect(seen).toEqual(['run_started', 'iteration_started'])
+		expect(seen).toEqual(['turn_started', 'iteration_started'])
 	})
 
 	it('does not let one task observer delay another task observer', async () => {
@@ -393,7 +398,7 @@ describe('a task-specific event observer', () => {
 		})
 		await new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-		expect(fastSeen).toEqual(['run_started'])
+		expect(fastSeen).toEqual(['turn_started'])
 		releaseSlow?.()
 	})
 })
