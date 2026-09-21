@@ -593,10 +593,10 @@ export const runCommand: CommandDef = {
 
 		// The text prints either way. Partial output is real output, and a
 		// caller who piped it wants what there is — but `$?` has to be able to
-		// tell them it is partial, which it could not: `run_failed` is emitted
-		// only from the throw path, so a run stopped by its token budget, its
+		// tell them it is partial, which it could not: `turn_failed` is emitted
+		// only from the throw path, so a turn stopped by its token budget, its
 		// timeout, its iteration cap, a cancellation, or a blocking output
-		// guardrail all arrived as `run_completed` and exited 0. Measured: a
+		// guardrail all arrived as `turn_completed` and exited 0. Measured: a
 		// `max_iterations` stop reports `status: 'completed'`. The sharp case is
 		// the guardrail — a REFUSED answer exited 0 with empty text, so
 		// `namzu run … > out.txt && deploy` proceeded on the empty file.

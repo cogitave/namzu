@@ -8,9 +8,9 @@ import type { CommandContext } from '../types.js'
 /**
  * `namzu run` exited 0 for six ways of not finishing.
  *
- * `run_failed` is emitted only from the kernel's throw path, so a run stopped
+ * `turn_failed` is emitted only from the kernel's throw path, so a turn stopped
  * by its token budget, its timeout, its iteration cap, a cancellation, or a
- * guardrail arrived as `run_completed` — which this command mapped to "print
+ * guardrail arrived as `turn_completed` — which this command mapped to "print
  * the text and return 0". The sharp case is the output guardrail: an answer
  * that was REFUSED exited 0 with empty text, so `namzu run … > out.txt &&
  * deploy` went ahead on the empty file.

@@ -4814,7 +4814,7 @@ export function App({
 					// Persistence and memory use the settled answer, not concatenated
 					// commentary deltas. The transcript keeps each visible part above.
 					if (event.text !== undefined) st.text = event.text
-					// `run_completed` is not synonymous with success: budgets,
+					// `turn_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.
 					// Missing remains a normal end for older producers, matching the
 					// headless command's compatibility rule.
