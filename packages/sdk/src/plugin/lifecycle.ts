@@ -29,7 +29,8 @@ import type {
 	PluginMCPServerConfig,
 	PluginScope,
 } from '../types/plugin/index.js'
-import type { RunEvent } from '../types/run/index.js'
+import { assertPluginHookEvent } from '../types/plugin/index.js'
+import type { SessionEvent } from '../types/session/index.js'
 import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
@@ -112,7 +113,7 @@ export interface PluginLifecycleManagerConfig {
 	hookTimeoutMs?: number
 	/**
 	 * Where each MCP server's reconnect policy is registered, so an operator
-	 * can retune it while a run is live.
+	 * can retune it while a turn is live.
 	 *
 	 * Optional, and its absence is not a degraded mode: without one the
 	 * supervisor uses its own defaults, which is what it did before this
@@ -140,7 +141,7 @@ export interface PluginLifecycleManagerConfig {
 	 * was discovered.
 	 *
 	 * Reported rather than blocked, for the reason `MCPToolDiscovery`
-	 * already gives: a development server legitimately changes between runs,
+	 * already gives: a development server legitimately changes between sessions,
 	 * while a production one changing mid-session is the rug pull — advertise
 	 * something benign at approval time, swap it afterwards. Only the host
 	 * knows which it is looking at.
@@ -215,6 +216,10 @@ export class PluginLifecycleManager {
 	 * registration order.
 	 */
 	registerHook(pluginId: PluginId, hook: PluginHookDefinition): void {
+		// Refused here rather than left to never fire: a hook module still
+		// naming `run_start` would otherwise attach to an event nothing emits,
+		// and the operator would learn of the rename only by its silence.
+		assertPluginHookEvent(hook.event)
 		const handlers = this.hookHandlers.get(hook.event) ?? []
 		handlers.push({
 			pluginId,
@@ -701,7 +706,7 @@ export class PluginLifecycleManager {
 	async executeHooks(
 		event: PluginHookEvent,
 		context: Omit<PluginHookContext, 'pluginId' | 'event'>,
-		emitRunEvent?: (event: RunEvent) => Promise<void>,
+		emitSessionEvent?: (event: SessionEvent) => Promise<void>,
 	): Promise<PluginHookResult[]> {
 		const callerSignal = context.signal
 		callerSignal?.throwIfAborted()
@@ -716,7 +721,7 @@ export class PluginLifecycleManager {
 		// follow it, and none of those results can change the cancellation that
 		// already happened. Other hook events retain their existing flow-control
 		// semantics.
-		const observationalFanOut = event === 'run_interrupt'
+		const observationalFanOut = event === 'turn_interrupt'
 
 		// Determine execution order: post_* hooks run backward (for cleanup semantics)
 		const isPost = event.startsWith('post_')
@@ -748,10 +753,11 @@ export class PluginLifecycleManager {
 				event,
 			}
 
-			if (emitRunEvent) {
-				await emitRunEvent({
+			if (emitSessionEvent) {
+				await emitSessionEvent({
 					type: 'plugin_hook_executing',
-					runId: context.runId,
+					sessionId: context.sessionId,
+					...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
 					pluginId,
 					hookEvent: event,
 				})
@@ -764,7 +770,7 @@ export class PluginLifecycleManager {
 			// The deadline timer is captured and cleared in `finally`.
 			// Without that it stayed armed after the hook resolved, and an
 			// armed timer keeps the Node event loop alive: hooks fire on
-			// every tool call and every model call, so a run of twenty tool
+			// every tool call and every model call, so a turn of twenty tool
 			// calls left twenty live timers and the process could not exit
 			// until the last one expired. Nothing failed — it just hung, for
 			// up to the timeout, every time.
@@ -801,7 +807,7 @@ export class PluginLifecycleManager {
 				result = await Promise.race(races)
 				callerSignal?.throwIfAborted()
 			} catch (err) {
-				// Cancellation belongs to the run, not to the plugin. Turning it
+				// Cancellation belongs to the turn, not to the plugin. Turning it
 				// into a hook error would let the query continue after its caller
 				// withdrew authority and would report Stop as a plugin failure.
 				if (callerSignal?.aborted) throw callerSignal.reason
@@ -822,11 +828,12 @@ export class PluginLifecycleManager {
 				durationMs,
 			})
 
-			if (emitRunEvent) {
+			if (emitSessionEvent) {
 				callerSignal?.throwIfAborted()
-				await emitRunEvent({
+				await emitSessionEvent({
 					type: 'plugin_hook_completed',
-					runId: context.runId,
+					sessionId: context.sessionId,
+					...(context.turnId !== undefined ? { turnId: context.turnId } : {}),
 					pluginId,
 					hookEvent: event,
 					result,

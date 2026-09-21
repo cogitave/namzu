@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { PluginId, RunId } from '../../types/ids/index.js'
+import type { PluginId, SessionId, TurnId } from '../../types/ids/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import { PluginLifecycleManager } from '../lifecycle.js'
 
@@ -14,7 +14,8 @@ import { PluginLifecycleManager } from '../lifecycle.js'
  * guard.
  */
 
-const RUN_ID = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as RunId
+const SESSION_ID = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
+const TURN_ID = 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as TurnId
 
 function makeLogger(): never {
 	const logger = {
@@ -57,7 +58,7 @@ describe('priority', () => {
 			handler: record(order, 'guard'),
 		})
 
-		await manager.executeHooks('pre_tool_use', { runId: RUN_ID })
+		await manager.executeHooks('pre_tool_use', { sessionId: SESSION_ID, turnId: TURN_ID })
 		expect(order).toEqual(['guard', 'observer'])
 	})
 
@@ -76,7 +77,10 @@ describe('priority', () => {
 			handler: record(order, 'guard', { action: 'error', message: 'denied' }),
 		})
 
-		const results = await manager.executeHooks('pre_tool_use', { runId: RUN_ID })
+		const results = await manager.executeHooks('pre_tool_use', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
 		expect(order).toEqual(['guard'])
 		expect(results).toEqual([{ action: 'error', message: 'denied' }])
 	})
@@ -92,7 +96,7 @@ describe('priority', () => {
 		}
 
 		// A plugin that never sets a priority behaves exactly as before.
-		await manager.executeHooks('iteration_start', { runId: RUN_ID })
+		await manager.executeHooks('iteration_start', { sessionId: SESSION_ID, turnId: TURN_ID })
 		expect(order).toEqual(['a', 'b', 'c'])
 	})
 
@@ -115,7 +119,7 @@ describe('priority', () => {
 
 		// Post hooks unwind, so whichever opened first closes last — the
 		// wrapping order a guard needs.
-		await manager.executeHooks('post_tool_use', { runId: RUN_ID })
+		await manager.executeHooks('post_tool_use', { sessionId: SESSION_ID, turnId: TURN_ID })
 		expect(order).toEqual(['observer', 'guard'])
 	})
 
@@ -140,7 +144,8 @@ describe('priority', () => {
 		})
 
 		const results = await manager.executeHooks('pre_tool_use', {
-			runId: RUN_ID,
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
 			toolInput: { base: true },
 		})
 
@@ -159,16 +164,16 @@ describe('the deadline timer', () => {
 	it('does not keep a timer armed after the hook resolves', async () => {
 		const manager = makeManager(60_000)
 		manager.registerHook('p' as PluginId, {
-			event: 'run_start',
+			event: 'turn_start',
 			handler: async () => ({ action: 'continue' }),
 		})
 
 		vi.useFakeTimers()
 		try {
-			await manager.executeHooks('run_start', { runId: RUN_ID })
+			await manager.executeHooks('turn_start', { sessionId: SESSION_ID, turnId: TURN_ID })
 			// An armed timer keeps the Node event loop alive. Hooks fire on
 			// every tool call and every model call, so a leak here meant a
-			// short run could not exit until the last deadline expired.
+			// short turn could not exit until the last deadline expired.
 			expect(vi.getTimerCount()).toBe(0)
 		} finally {
 			vi.useRealTimers()
@@ -178,7 +183,7 @@ describe('the deadline timer', () => {
 	it('clears the timer even when the hook throws', async () => {
 		const manager = makeManager(60_000)
 		manager.registerHook('p' as PluginId, {
-			event: 'run_start',
+			event: 'turn_start',
 			handler: async () => {
 				throw new Error('boom')
 			},
@@ -186,7 +191,10 @@ describe('the deadline timer', () => {
 
 		vi.useFakeTimers()
 		try {
-			const results = await manager.executeHooks('run_start', { runId: RUN_ID })
+			const results = await manager.executeHooks('turn_start', {
+				sessionId: SESSION_ID,
+				turnId: TURN_ID,
+			})
 			expect(results[0]?.action).toBe('error')
 			expect(vi.getTimerCount()).toBe(0)
 		} finally {
@@ -205,7 +213,7 @@ describe('the deadline timer', () => {
 
 		vi.useFakeTimers()
 		try {
-			await manager.executeHooks('iteration_start', { runId: RUN_ID })
+			await manager.executeHooks('iteration_start', { sessionId: SESSION_ID, turnId: TURN_ID })
 			expect(vi.getTimerCount()).toBe(0)
 		} finally {
 			vi.useRealTimers()
@@ -216,7 +224,7 @@ describe('the deadline timer', () => {
 		const manager = makeManager(5)
 		let aborted = false
 		manager.registerHook('p' as PluginId, {
-			event: 'run_start',
+			event: 'turn_start',
 			handler: async (ctx) => {
 				ctx.signal?.addEventListener('abort', () => {
 					aborted = true
@@ -226,10 +234,13 @@ describe('the deadline timer', () => {
 			},
 		})
 
-		const results = await manager.executeHooks('run_start', { runId: RUN_ID })
+		const results = await manager.executeHooks('turn_start', {
+			sessionId: SESSION_ID,
+			turnId: TURN_ID,
+		})
 		expect(results[0]).toEqual({ action: 'error', message: 'Hook timeout' })
 		// Without this the hook never learns it was dropped, and an HTTP
-		// request inside it keeps a socket open for a run that moved on.
+		// request inside it keeps a socket open for a turn that moved on.
 		expect(aborted).toBe(true)
 	})
 
@@ -237,7 +248,7 @@ describe('the deadline timer', () => {
 		const manager = makeManager(10_000)
 		let aborted = false
 		manager.registerHook('p' as PluginId, {
-			event: 'run_start',
+			event: 'turn_start',
 			handler: async (ctx) => {
 				ctx.signal?.addEventListener('abort', () => {
 					aborted = true
@@ -246,7 +257,7 @@ describe('the deadline timer', () => {
 			},
 		})
 
-		await manager.executeHooks('run_start', { runId: RUN_ID })
+		await manager.executeHooks('turn_start', { sessionId: SESSION_ID, turnId: TURN_ID })
 		await new Promise((resolve) => setTimeout(resolve, 20))
 		expect(aborted).toBe(false)
 	})

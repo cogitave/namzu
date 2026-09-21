@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginRegistry } from '../../registry/plugin/index.js'
-import type { PluginId, RunId } from '../../types/ids/index.js'
+import type { PluginId, SessionId, TurnId } from '../../types/ids/index.js'
 import type { PluginHookContext, PluginHookResult } from '../../types/plugin/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
@@ -12,7 +12,8 @@ describe('PluginLifecycleManager', () => {
 	let toolRegistry: ToolRegistryContract
 	let logger: Logger
 
-	const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
+	const mockSessionId = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
+	const mockTurnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 	const mockPluginId = 'plugin_test' as PluginId
 
 	beforeEach(() => {
@@ -63,9 +64,27 @@ describe('PluginLifecycleManager', () => {
 		})
 	})
 
+	describe('registerHook', () => {
+		it.each([
+			['run_start', 'turn_start'],
+			['run_end', 'turn_end'],
+			['run_interrupt', 'turn_interrupt'],
+		])('refuses a hook on the renamed %s and names %s', (old, renamed) => {
+			expect(() =>
+				manager.registerHook(mockPluginId, {
+					event: old as never,
+					handler: async () => ({ action: 'continue' }),
+				}),
+			).toThrow(`Hook event '${old}' was renamed to '${renamed}'.`)
+		})
+	})
+
 	describe('executeHooks', () => {
 		it('should return empty array when no hooks registered', async () => {
-			const results = await manager.executeHooks('run_start', { runId: mockRunId })
+			const results = await manager.executeHooks('turn_start', {
+				sessionId: mockSessionId,
+				turnId: mockTurnId,
+			})
 			expect(results).toEqual([])
 		})
 
@@ -75,38 +94,41 @@ describe('PluginLifecycleManager', () => {
 
 			// Register hooks manually
 			manager.registerHook('plugin_1' as PluginId, {
-				event: 'run_start',
+				event: 'turn_start',
 				handler: hook1Handler,
 			})
 			manager.registerHook('plugin_2' as PluginId, {
-				event: 'run_start',
+				event: 'turn_start',
 				handler: hook2Handler,
 			})
 
-			const results = await manager.executeHooks('run_start', { runId: mockRunId })
+			const results = await manager.executeHooks('turn_start', {
+				sessionId: mockSessionId,
+				turnId: mockTurnId,
+			})
 
 			expect(results).toHaveLength(2)
 			expect(hook1Handler).toHaveBeenCalled()
 			expect(hook2Handler).toHaveBeenCalled()
 		})
 
-		it('refuses a pre-aborted run before a hook or event starts', async () => {
+		it('refuses a pre-aborted turn before a hook or event starts', async () => {
 			const reason = new Error('operator stopped before the hook')
 			const caller = new AbortController()
 			caller.abort(reason)
 			const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
-			const emitRunEvent = vi.fn(async () => {})
+			const emitSessionEvent = vi.fn(async () => {})
 			manager.registerHook(mockPluginId, { event: 'pre_llm_call', handler })
 
 			await expect(
 				manager.executeHooks(
 					'pre_llm_call',
-					{ runId: mockRunId, signal: caller.signal },
-					emitRunEvent,
+					{ sessionId: mockSessionId, turnId: mockTurnId, signal: caller.signal },
+					emitSessionEvent,
 				),
 			).rejects.toBe(reason)
 			expect(handler).not.toHaveBeenCalled()
-			expect(emitRunEvent).not.toHaveBeenCalled()
+			expect(emitSessionEvent).not.toHaveBeenCalled()
 		})
 
 		it('propagates caller cancellation even when the hook ignores its signal', async () => {
@@ -131,7 +153,7 @@ describe('PluginLifecycleManager', () => {
 
 			const execution = manager.executeHooks(
 				'pre_llm_call',
-				{ runId: mockRunId, signal: caller.signal },
+				{ sessionId: mockSessionId, turnId: mockTurnId, signal: caller.signal },
 				async (event) => {
 					emitted.push(event.type)
 				},
@@ -174,7 +196,7 @@ describe('PluginLifecycleManager', () => {
 			)
 
 			manager.registerHook(mockPluginId, {
-				event: 'run_start',
+				event: 'turn_start',
 				handler: slowHandler,
 			})
 
@@ -187,12 +209,13 @@ describe('PluginLifecycleManager', () => {
 			})
 
 			managerWithShortTimeout.registerHook(mockPluginId, {
-				event: 'run_start',
+				event: 'turn_start',
 				handler: slowHandler,
 			})
 
-			const results = await managerWithShortTimeout.executeHooks('run_start', {
-				runId: mockRunId,
+			const results = await managerWithShortTimeout.executeHooks('turn_start', {
+				sessionId: mockSessionId,
+				turnId: mockTurnId,
 			})
 
 			expect(results).toHaveLength(1)
@@ -212,31 +235,31 @@ describe('PluginLifecycleManager', () => {
 			})
 			const lastObserver = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
 			observationalManager.registerHook('plugin_skip' as PluginId, {
-				event: 'run_interrupt',
+				event: 'turn_interrupt',
 				handler: async () => ({
 					action: 'skip',
 					reason: 'observer has nothing to do',
 				}),
 			})
 			observationalManager.registerHook('plugin_throw' as PluginId, {
-				event: 'run_interrupt',
+				event: 'turn_interrupt',
 				handler: async () => {
 					throw new Error('observer failed')
 				},
 			})
 			observationalManager.registerHook('plugin_timeout' as PluginId, {
-				event: 'run_interrupt',
+				event: 'turn_interrupt',
 				handler: () => new Promise<PluginHookResult>(() => {}),
 			})
 			observationalManager.registerHook('plugin_last' as PluginId, {
-				event: 'run_interrupt',
+				event: 'turn_interrupt',
 				handler: lastObserver,
 			})
 			const emitted: Array<{ type: string; pluginId?: PluginId }> = []
 
 			const results = await observationalManager.executeHooks(
-				'run_interrupt',
-				{ runId: mockRunId, cancelCause: 'user' },
+				'turn_interrupt',
+				{ sessionId: mockSessionId, turnId: mockTurnId, cancelCause: 'user' },
 				async (event) => {
 					const pluginId =
 						event.type === 'plugin_hook_executing' || event.type === 'plugin_hook_completed'
@@ -290,7 +313,7 @@ describe('PluginLifecycleManager', () => {
 					handler: handler3,
 				})
 
-				await manager.executeHooks('pre_tool_use', { runId: mockRunId })
+				await manager.executeHooks('pre_tool_use', { sessionId: mockSessionId, turnId: mockTurnId })
 
 				expect(executionOrder).toEqual(['hook1', 'hook2', 'hook3'])
 			})
@@ -326,7 +349,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler3,
 				})
 
-				await manager.executeHooks('post_tool_use', { runId: mockRunId })
+				await manager.executeHooks('post_tool_use', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				// Reverse order: hook3 -> hook2 -> hook1
 				expect(executionOrder).toEqual(['hook3', 'hook2', 'hook1'])
@@ -346,15 +372,15 @@ describe('PluginLifecycleManager', () => {
 				})
 
 				manager.registerHook('plugin_1' as PluginId, {
-					event: 'run_start',
+					event: 'turn_start',
 					handler: handler1,
 				})
 				manager.registerHook('plugin_2' as PluginId, {
-					event: 'run_start',
+					event: 'turn_start',
 					handler: handler2,
 				})
 
-				await manager.executeHooks('run_start', { runId: mockRunId })
+				await manager.executeHooks('turn_start', { sessionId: mockSessionId, turnId: mockTurnId })
 
 				expect(executionOrder).toEqual(['hook1', 'hook2'])
 			})
@@ -371,15 +397,18 @@ describe('PluginLifecycleManager', () => {
 				})
 
 				manager.registerHook('plugin_1' as PluginId, {
-					event: 'run_start',
+					event: 'turn_start',
 					handler: handler1,
 				})
 				manager.registerHook('plugin_2' as PluginId, {
-					event: 'run_start',
+					event: 'turn_start',
 					handler: handler2,
 				})
 
-				const results = await manager.executeHooks('run_start', { runId: mockRunId })
+				const results = await manager.executeHooks('turn_start', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(results).toHaveLength(1)
 				expect(results[0]?.action).toBe('error')
@@ -404,7 +433,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler2,
 				})
 
-				const results = await manager.executeHooks('pre_tool_use', { runId: mockRunId })
+				const results = await manager.executeHooks('pre_tool_use', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(results).toHaveLength(1)
 				expect(results[0]?.action).toBe('skip')
@@ -431,7 +463,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler2,
 				})
 
-				const results = await manager.executeHooks('pre_llm_call', { runId: mockRunId })
+				const results = await manager.executeHooks('pre_llm_call', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(results).toHaveLength(1)
 				expect(results[0]?.action).toBe('retry')
@@ -456,7 +491,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler2,
 				})
 
-				const results = await manager.executeHooks('pre_tool_use', { runId: mockRunId })
+				const results = await manager.executeHooks('pre_tool_use', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(results).toHaveLength(2)
 				expect(results[0]?.action).toBe('modify')
@@ -482,7 +520,10 @@ describe('PluginLifecycleManager', () => {
 					handler: handler2,
 				})
 
-				const results = await manager.executeHooks('iteration_start', { runId: mockRunId })
+				const results = await manager.executeHooks('iteration_start', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(results).toHaveLength(2)
 				expect(handler1).toHaveBeenCalled()
@@ -502,7 +543,8 @@ describe('PluginLifecycleManager', () => {
 				manager.registerHook(mockPluginId, { event: 'pre_tool_use', handler })
 
 				const contextData = {
-					runId: mockRunId,
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
 					toolName: 'test_tool',
 					toolInput: { key: 'value' },
 				}
@@ -511,7 +553,8 @@ describe('PluginLifecycleManager', () => {
 
 				expect(capturedContext).not.toBeNull()
 				const ctx = capturedContext as unknown as PluginHookContext
-				expect(ctx.runId).toBe(mockRunId)
+				expect(ctx.sessionId).toBe(mockSessionId)
+				expect(ctx.turnId).toBe(mockTurnId)
 				expect(ctx.pluginId).toBe(mockPluginId)
 				expect(ctx.event).toBe('pre_tool_use')
 				expect(ctx.toolName).toBe('test_tool')
@@ -529,7 +572,8 @@ describe('PluginLifecycleManager', () => {
 				manager.registerHook(mockPluginId, { event: 'iteration_end', handler })
 
 				await manager.executeHooks('iteration_end', {
-					runId: mockRunId,
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
 					iteration: 5,
 				})
 
@@ -547,16 +591,16 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager.registerHook(mockPluginId, { event: 'run_start', handler })
+				manager.registerHook(mockPluginId, { event: 'turn_start', handler })
 
-				await manager.executeHooks('run_start', { runId: mockRunId })
+				await manager.executeHooks('turn_start', { sessionId: mockSessionId, turnId: mockTurnId })
 
 				const hookExecutedEvents = events.filter((evt) => evt.type === 'plugin_hook_executed')
 				expect(hookExecutedEvents).toHaveLength(1)
 
 				const event = hookExecutedEvents[0]
 				expect(event?.pluginId).toBe(mockPluginId)
-				expect(event?.hookEvent).toBe('run_start')
+				expect(event?.hookEvent).toBe('turn_start')
 				expect(typeof event?.durationMs).toBe('number')
 				expect(event?.durationMs).toBeGreaterThanOrEqual(0)
 			})
@@ -568,9 +612,12 @@ describe('PluginLifecycleManager', () => {
 					throw new Error('Handler crashed')
 				})
 
-				manager.registerHook(mockPluginId, { event: 'run_start', handler })
+				manager.registerHook(mockPluginId, { event: 'turn_start', handler })
 
-				const results = await manager.executeHooks('run_start', { runId: mockRunId })
+				const results = await manager.executeHooks('turn_start', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 
 				expect(results).toHaveLength(1)
 				expect(results[0]?.action).toBe('error')
@@ -584,17 +631,20 @@ describe('PluginLifecycleManager', () => {
 					throw new Error('Handler failed')
 				})
 
-				manager.registerHook(mockPluginId, { event: 'run_start', handler })
+				manager.registerHook(mockPluginId, { event: 'turn_start', handler })
 
-				const executePromise = manager.executeHooks('run_start', { runId: mockRunId })
+				const executePromise = manager.executeHooks('turn_start', {
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
+				})
 				await expect(executePromise).resolves.not.toThrow()
 			})
 		})
 
-		describe('RunEvent emission', () => {
-			it('should emit plugin_hook_executing and plugin_hook_completed when emitRunEvent provided', async () => {
+		describe('SessionEvent emission', () => {
+			it('should emit plugin_hook_executing and plugin_hook_completed when emitSessionEvent provided', async () => {
 				const emitted: any[] = []
-				const emitRunEvent = vi.fn(async (event: any) => {
+				const emitSessionEvent = vi.fn(async (event: any) => {
 					emitted.push(event)
 				})
 
@@ -606,32 +656,34 @@ describe('PluginLifecycleManager', () => {
 
 				await manager.executeHooks(
 					'pre_tool_use',
-					{ runId: mockRunId, toolName: 't', toolInput: {} },
-					emitRunEvent,
+					{ sessionId: mockSessionId, turnId: mockTurnId, toolName: 't', toolInput: {} },
+					emitSessionEvent,
 				)
 
 				expect(emitted).toHaveLength(2)
 				expect(emitted[0]).toMatchObject({
 					type: 'plugin_hook_executing',
-					runId: mockRunId,
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
 					pluginId: mockPluginId,
 					hookEvent: 'pre_tool_use',
 				})
 				expect(emitted[1]).toMatchObject({
 					type: 'plugin_hook_completed',
-					runId: mockRunId,
+					sessionId: mockSessionId,
+					turnId: mockTurnId,
 					pluginId: mockPluginId,
 					hookEvent: 'pre_tool_use',
 				})
 				expect(emitted[1].result).toEqual({ action: 'modify', input: { x: 1 } })
 			})
 
-			it('should not emit RunEvents when emitRunEvent omitted', async () => {
+			it('should not emit SessionEvents when emitSessionEvent omitted', async () => {
 				const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
-				manager.registerHook(mockPluginId, { event: 'run_start', handler })
-				await expect(manager.executeHooks('run_start', { runId: mockRunId })).resolves.toHaveLength(
-					1,
-				)
+				manager.registerHook(mockPluginId, { event: 'turn_start', handler })
+				await expect(
+					manager.executeHooks('turn_start', { sessionId: mockSessionId, turnId: mockTurnId }),
+				).resolves.toHaveLength(1)
 			})
 		})
 	})
