@@ -131,8 +131,12 @@ export interface SessionLog {
 	readonly sessionId: SessionId
 
 	/**
-	 * Take or renew the writer lease. `null` when another holder has it live.
-	 * Taking it repairs a torn tail first (`log_repaired`).
+	 * Take or renew the writer lease. `null` when it is live and this instance
+	 * does not hold it — whatever the holder name, so a second instance under
+	 * the same name waits like any other. This instance renews its own holding
+	 * under the same fence, late or not, unless somebody took the session in
+	 * between. A new fence is above the log's highest `gen`. Taking it
+	 * repairs a torn tail first (`log_repaired`).
 	 */
 	claim(options: ClaimSessionOptions): Promise<SessionLease | null>
 	/** Give the lease up; a stale lease releases nothing. */
@@ -273,6 +277,8 @@ export class SessionLogCore implements SessionLog {
 
 	#chain = new SessionLogChain()
 	#turns = new SessionTurnState()
+	/** The holding this instance took, which it presents to renew. */
+	#held: SessionLease | undefined
 	/** Bytes of the log this instance has verified and applied. */
 	#synced = 0
 	#torn = 0
@@ -348,8 +354,18 @@ export class SessionLogCore implements SessionLog {
 	// ── lease ──
 
 	async claim(options: ClaimSessionOptions): Promise<SessionLease | null> {
-		const lease = await this.#leases.claim(options)
+		// The log's own highest gen is the floor for a new fence, so lease files
+		// that were lost or cleared cannot mint a fence below records already
+		// written. A log that cannot be read is refused below, after the claim,
+		// so that the refusal releases what it took.
+		const above = await this.#mutex.run(async () => {
+			await this.#catchUp().catch(() => undefined)
+			return this.#chain.gen
+		})
+		// Renewal presents the holding this instance has; a name alone never renews.
+		const lease = await this.#leases.claim(options, { renew: this.#held, above })
 		if (lease === null) return null
+		this.#held = lease
 		try {
 			await this.#mutex.run(async () => {
 				await this.#catchUp()
@@ -358,6 +374,7 @@ export class SessionLogCore implements SessionLog {
 		} catch (error) {
 			// A log this writer cannot append to (a broken chain, a conflict) is
 			// not held: the next taker gets the same refusal instead of a wait.
+			this.#held = undefined
 			await this.#leases.release(lease).catch(() => undefined)
 			throw error
 		}
@@ -365,6 +382,7 @@ export class SessionLogCore implements SessionLog {
 	}
 
 	release(lease: SessionLease): Promise<void> {
+		if (this.#held?.fence === lease.fence) this.#held = undefined
 		return this.#leases.release(lease)
 	}
 
@@ -484,6 +502,12 @@ export class SessionLogCore implements SessionLog {
 
 	/** Envelope, spill, validate, check the turn rules, write. Caller holds the mutex. */
 	async #write(lease: SessionLease, draft: SessionRecordDraft): Promise<SessionLogEntry> {
+		// The chain would refuse a regressed gen only after the bytes landed,
+		// leaving a line no reader accepts; refuse it before writing
+		// anything, a spill included.
+		if (lease.fence < this.#chain.gen) {
+			throw new StaleSessionLeaseError(lease.fence, this.#chain.gen)
+		}
 		const head = this.#chain.head
 		const envelope = {
 			v: SESSION_RECORD_SCHEMA_VERSION,

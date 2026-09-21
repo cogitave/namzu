@@ -41,6 +41,23 @@ import { durableReplaceFile } from './spill.js'
  * Releasing publishes a tombstone at the next fence (empty holder, expiry 0),
  * so the counter never rewinds and the releasing holder's own fence is stale
  * the instant the release lands.
+ *
+ * ## Who renews, and when a new fence is minted
+ *
+ * Both stores apply one rule ({@link LeaseClaimContext}):
+ *
+ * - **Renewal is by presentation.** A claim renews only when it presents the
+ *   holding it has (`renew`) and that holding is still the top fence under
+ *   the same holder. The holder string alone never renews: a second instance
+ *   or a restarted process that reuses a name gets `null` while the lease is
+ *   live, exactly as a different holder would. A renewal keeps its fence even
+ *   when it arrives after the expiry, provided nobody took the session in
+ *   between — the fence did not move, so no other writer can have appended,
+ *   and the holder's turn is still its own (spec §4.5 "running").
+ * - **A new fence is above everything seen.** It is one more than the higher
+ *   of the top lease fence and `above`, which the log passes as its head's
+ *   `gen`. So a lost or cleared `<session-id>/` directory cannot rewind the
+ *   fence below records already written.
  */
 
 /** A holding of a session's writer lease. */
@@ -74,10 +91,25 @@ export class StaleSessionLeaseError extends Error {
 	}
 }
 
+/** What a log adds to a claim: the holding it presents, and the fence floor its records set. */
+export interface LeaseClaimContext {
+	/**
+	 * The holding the claimant has. The claim renews it (same fence) when it is
+	 * still the top fence under `options.holder`; without it a live lease is
+	 * never renewed, whoever holds it.
+	 */
+	readonly renew?: SessionLease
+	/** A minted fence is above this (the log head's `gen`). Default 0. */
+	readonly above?: number
+}
+
 /** Where a backend keeps its leases. */
 export interface SessionLeaseStore {
-	/** Take or renew the lease. `null` when another holder has it live. */
-	claim(options: ClaimSessionOptions): Promise<SessionLease | null>
+	/**
+	 * Take or renew the lease. `null` when it is live and the claim does not
+	 * present it (see {@link LeaseClaimContext}).
+	 */
+	claim(options: ClaimSessionOptions, context?: LeaseClaimContext): Promise<SessionLease | null>
 	/** Give the lease up early. A stale lease releases nothing. */
 	release(lease: SessionLease): Promise<void>
 	/** The current holding, or `null` when the session was never claimed. */
@@ -89,6 +121,32 @@ export interface SessionLeaseStore {
 /** Whether `lease` is live at `now`: not expired, and not a release tombstone. */
 export function isLeaseLive(lease: SessionLease | null, now: number): boolean {
 	return lease !== null && lease.holder !== '' && now < lease.expiresAt
+}
+
+type ClaimDecision =
+	| { readonly kind: 'renew'; readonly fence: number }
+	| { readonly kind: 'refuse' }
+	| { readonly kind: 'mint'; readonly fence: number }
+
+/** The one claim rule both stores apply (see the module header). */
+function decideClaim(
+	held: SessionLease | null,
+	options: ClaimSessionOptions,
+	context: LeaseClaimContext,
+	now: number,
+): ClaimDecision {
+	const above = context.above ?? 0
+	const renew = context.renew
+	const presented =
+		held !== null &&
+		renew !== undefined &&
+		held.holder !== '' &&
+		held.fence === renew.fence &&
+		held.holder === renew.holder &&
+		held.holder === options.holder
+	if (presented && held.fence >= above) return { kind: 'renew', fence: held.fence }
+	if (!presented && isLeaseLive(held, now)) return { kind: 'refuse' }
+	return { kind: 'mint', fence: Math.max(held?.fence ?? 0, above) + 1 }
 }
 
 // ─── disk ─────────────────────────────────────────────────────────────────
@@ -118,9 +176,6 @@ function tempName(fence: number): string {
 
 /** Leases in `<session-id>/`, correct across processes. */
 export class DiskSessionLeaseStore implements SessionLeaseStore {
-	/** The fence this instance holds, so a same-named holder in another process never renews it. */
-	#held: SessionLease | undefined
-
 	constructor(readonly sessionDir: string) {}
 
 	async #fences(): Promise<{ name: string; fence: number }[]> {
@@ -179,45 +234,38 @@ export class DiskSessionLeaseStore implements SessionLeaseStore {
 		await durableReplaceFile(join(this.sessionDir, 'lease.json'), `${JSON.stringify(view)}\n`)
 	}
 
-	async claim(options: ClaimSessionOptions): Promise<SessionLease | null> {
+	async claim(
+		options: ClaimSessionOptions,
+		context: LeaseClaimContext = {},
+	): Promise<SessionLease | null> {
 		const now = options.now ?? Date.now()
 		await mkdir(this.sessionDir, { recursive: true })
 		for (let attempt = 0; attempt < 8; attempt++) {
 			const held = await this.current()
-			if (held !== null && isLeaseLive(held, now) && held.holder !== options.holder) return null
+			const decision = decideClaim(held, options, context, now)
+			if (decision.kind === 'refuse') return null
 			const body: LeaseBody = { holder: options.holder, expiresAt: now + options.ttlMs }
-			if (
-				held !== null &&
-				isLeaseLive(held, now) &&
-				this.#held !== undefined &&
-				this.#held.fence === held.fence &&
-				this.#held.holder === options.holder
-			) {
-				// Renewal: same fence, new expiry.
+			if (decision.kind === 'renew') {
+				// Same fence, new expiry. A taker that read the old body in the
+				// meantime publishes a higher fence, which the check below sees.
 				await durableReplaceFile(
-					join(this.sessionDir, `lease.${held.fence}.json`),
+					join(this.sessionDir, `lease.${decision.fence}.json`),
 					JSON.stringify(body),
 				)
-				if ((await this.fence()) !== held.fence) {
-					this.#held = undefined
-					return null
-				}
-				const renewed = { holder: options.holder, fence: held.fence, expiresAt: body.expiresAt }
-				this.#held = renewed
+				if ((await this.fence()) !== decision.fence) return null
+				const renewed = { holder: options.holder, fence: decision.fence, expiresAt: body.expiresAt }
 				await this.#writeView(renewed)
 				return renewed
 			}
-			const fence = (held?.fence ?? 0) + 1
 			try {
-				await this.#publish(fence, body)
+				await this.#publish(decision.fence, body)
 			} catch (error) {
 				if (isErrno(error, 'EEXIST')) continue
 				throw error
 			}
-			const lease = { holder: options.holder, fence, expiresAt: body.expiresAt }
-			this.#held = lease
+			const lease = { holder: options.holder, fence: decision.fence, expiresAt: body.expiresAt }
 			await this.#writeView(lease)
-			await this.#prune(fence)
+			await this.#prune(decision.fence)
 			return lease
 		}
 		return null
@@ -226,7 +274,6 @@ export class DiskSessionLeaseStore implements SessionLeaseStore {
 	async release(lease: SessionLease): Promise<void> {
 		const current = await this.fence()
 		if (current !== lease.fence) return
-		if (this.#held?.fence === lease.fence) this.#held = undefined
 		const tombstone: SessionLease = { holder: '', fence: lease.fence + 1, expiresAt: 0 }
 		try {
 			await this.#publish(tombstone.fence, { holder: '', expiresAt: 0 })
@@ -285,15 +332,18 @@ export class InMemorySessionLeaseStore implements SessionLeaseStore {
 		return this.#current
 	}
 
-	async claim(options: ClaimSessionOptions): Promise<SessionLease | null> {
+	async claim(
+		options: ClaimSessionOptions,
+		context: LeaseClaimContext = {},
+	): Promise<SessionLease | null> {
 		const now = options.now ?? Date.now()
-		const held = this.#current
-		if (held !== null && isLeaseLive(held, now) && held.holder !== options.holder) return null
-		const expiresAt = now + options.ttlMs
-		// Unlike disk, one instance is the whole store: a live lease under the
-		// same holder is that holder's, so it renews.
-		const fence = held !== null && isLeaseLive(held, now) ? held.fence : (held?.fence ?? 0) + 1
-		this.#current = { holder: options.holder, fence, expiresAt }
+		const decision = decideClaim(this.#current, options, context, now)
+		if (decision.kind === 'refuse') return null
+		this.#current = {
+			holder: options.holder,
+			fence: decision.fence,
+			expiresAt: now + options.ttlMs,
+		}
 		return this.#current
 	}
 

@@ -64,8 +64,12 @@ export interface SpilledSummary {
 export class SessionMessageFold {
 	#slots: Slot[] = []
 	readonly #byId = new Map<string, Slot>()
-	/** Replacements whose target was not in the context when they were applied. */
-	readonly #pendingReplacements = new Map<string, { message: Message; seq: number }>()
+	/**
+	 * The latest replacement of every message id, whether or not its target
+	 * was in the context when it was applied. Kept for good: a later record of
+	 * the same message must not bring the replaced (raw) content back (§4.4).
+	 */
+	readonly #replacements = new Map<string, { message: Message; seq: number }>()
 	#spilledSummary: SpilledSummary | undefined
 
 	/** Seq of the last record applied. */
@@ -86,14 +90,12 @@ export class SessionMessageFold {
 				this.#message(record as MessageRecord)
 				return
 			case 'message_replaced': {
+				this.#replacements.set(record.targetMessageId, {
+					message: record.content,
+					seq: record.seq,
+				})
 				const slot = this.#byId.get(record.targetMessageId)
-				if (slot === undefined) {
-					this.#pendingReplacements.set(record.targetMessageId, {
-						message: record.content,
-						seq: record.seq,
-					})
-					return
-				}
+				if (slot === undefined) return
 				slot.message = record.content
 				slot.replacedAtSeq = record.seq
 				// A replacement is the whole message: a preview's spill no longer applies.
@@ -109,19 +111,23 @@ export class SessionMessageFold {
 	}
 
 	#message(record: MessageRecord): void {
-		const pending = this.#pendingReplacements.get(record.messageId)
+		const replaced = this.#replacements.get(record.messageId)
 		const existing = this.#byId.get(record.messageId)
 		const slot: Slot = {
 			messageId: record.messageId,
 			seq: record.seq,
-			message: pending?.message ?? record.content,
-			...(record.spill === undefined || pending !== undefined ? {} : { spill: record.spill }),
-			...(pending === undefined ? {} : { replacedAtSeq: pending.seq }),
+			message: replaced?.message ?? record.content,
+			...(record.spill === undefined || replaced !== undefined ? {} : { spill: record.spill }),
+			...(replaced === undefined ? {} : { replacedAtSeq: replaced.seq }),
 		}
-		this.#pendingReplacements.delete(record.messageId)
 		if (existing !== undefined) {
-			// The same message recorded twice is one message; the later record wins in place.
-			Object.assign(existing, slot)
+			// The same message recorded twice is one message; the later record
+			// wins in place, except over a replacement, which outranks every
+			// record of its target.
+			existing.seq = slot.seq
+			existing.message = slot.message
+			existing.spill = slot.spill
+			existing.replacedAtSeq = slot.replacedAtSeq
 			return
 		}
 		this.#slots.push(slot)

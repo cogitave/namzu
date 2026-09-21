@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -14,7 +14,8 @@ import {
 import { SessionLogIntegrityError } from '../chain.js'
 import type { SessionRecordDraft } from '../core.js'
 import { DiskLogMedium, DiskSessionLog, readSessionLog } from '../disk.js'
-import { readSessionLease } from '../lease.js'
+import { InMemorySessionLeaseStore, StaleSessionLeaseError, readSessionLease } from '../lease.js'
+import { InMemorySessionLog } from '../memory.js'
 
 const made: string[] = []
 afterAll(async () => {
@@ -83,6 +84,52 @@ describe('the disk log', () => {
 		)
 		// The failed taker released what it claimed: a tombstone is the current holding.
 		expect((await readSessionLease(sessionDir))?.holder).toBe('')
+	})
+
+	it('mints a fence above the log after its lease files are gone, and the log stays whole', async () => {
+		const { file, sessionDir, open } = await newLog()
+		for (const [i, holder] of ['a', 'b', 'c'].entries()) {
+			const log = open()
+			const lease = await log.claim({ holder, ttlMs: 10, now: i * 100 })
+			if (lease === null) throw new Error('claim failed')
+			if ((await log.head()) === null) await log.append(lease, started)
+			await log.append(lease, { type: 'session_updated', title: holder } as SessionRecordDraft)
+		}
+		expect((await readSessionLog(file)).entries.map((e) => e.record.gen)).toEqual([1, 1, 2, 3])
+		// `<session-id>/` holds tool results and checkpoints too; an operator may clear it.
+		await rm(sessionDir, { recursive: true })
+		const log = open()
+		const lease = await log.claim({ holder: 'd', ttlMs: 60_000 })
+		expect(lease?.fence).toBe(4)
+		if (lease === null) throw new Error('claim failed')
+		await log.append(lease, { type: 'session_updated', title: 'd' } as SessionRecordDraft)
+		const read = await readSessionLog(file, { mode: 'tolerant' })
+		expect(read.intact).toBe(true)
+		expect(read.entries.map((e) => e.record.gen)).toEqual([1, 1, 2, 3, 4])
+		expect(await open().claim({ holder: 'e', ttlMs: 10, now: Date.now() + 120_000 })).not.toBe(null)
+	})
+
+	it('refuses a lease below the log head before writing anything', async () => {
+		const sessionId = generateSessionId()
+		const log = new InMemorySessionLog({ sessionId })
+		const first = await log.claim({ holder: 'a', ttlMs: 10, now: 0 })
+		if (first === null) throw new Error('claim failed')
+		await log.append(first, started)
+		await log.release(first)
+		const second = await log.claim({ holder: 'b', ttlMs: 60_000, now: 1 })
+		if (second === null) throw new Error('claim failed')
+		await log.append(second, { type: 'session_updated', title: 'b' } as SessionRecordDraft)
+		// A lease store that lost its state hands out fence 1 again, bypassing the log's floor.
+		const forgetful = new InMemorySessionLeaseStore()
+		const low = await forgetful.claim({ holder: 'c', ttlMs: 60_000, now: 2 })
+		if (low === null) throw new Error('claim failed')
+		const reader = new InMemorySessionLog({ sessionId, medium: log.medium, leases: forgetful })
+		const before = log.medium.bytes()
+		await expect(
+			reader.append(low, { type: 'session_updated', title: 'c' } as SessionRecordDraft),
+		).rejects.toBeInstanceOf(StaleSessionLeaseError)
+		expect(log.medium.bytes().equals(before)).toBe(true)
+		expect((await reader.readAll()).intact).toBe(true)
 	})
 
 	it('refuses an append when another writer changed the file underneath it', async () => {

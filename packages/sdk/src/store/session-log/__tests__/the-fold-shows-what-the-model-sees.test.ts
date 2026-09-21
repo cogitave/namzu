@@ -100,6 +100,38 @@ describe('the message fold', () => {
 		])
 	})
 
+	it('keeps a replacement when its message is recorded again afterwards', () => {
+		const fold = new SessionMessageFold()
+		const raw = (seq: number) =>
+			({
+				type: 'message',
+				seq,
+				messageId: 'x' as MessageId,
+				role: 'assistant',
+				content: { role: 'assistant', content: 'RAW SECRET' },
+			}) as unknown as SessionRecord
+		fold.apply(raw(2))
+		fold.apply({
+			type: 'message_replaced',
+			seq: 3,
+			targetMessageId: 'x' as MessageId,
+			content: { role: 'assistant', content: 'REDACTED' },
+		} as unknown as SessionRecord)
+		fold.apply(raw(4))
+		expect(fold.messages().map((m) => m.content)).toEqual(['REDACTED'])
+		expect(fold.entries()[0]).toMatchObject({ seq: 4, replacedAtSeq: 3 })
+		// Nor after a compaction dropped it and the message came back.
+		fold.apply({
+			type: 'compaction',
+			seq: 5,
+			replacesSeqRange: [2, 4],
+			summary: [],
+			keptMessageIds: [],
+		} as unknown as SessionRecord)
+		fold.apply(raw(6))
+		expect(fold.messages().map((m) => m.content)).toEqual(['REDACTED'])
+	})
+
 	it('refuses to fold spilled content without a way to read it', async () => {
 		const spilled = {
 			type: 'message',

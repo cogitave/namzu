@@ -3,7 +3,8 @@
  *
  * A custom log (a database, an object store) is re-implemented against the
  * `SessionLog` interface and proved against this file. It holds the rules no
- * type can state: the chain verifies, a superseded lease cannot write, one
+ * type can state: the chain verifies, a superseded lease cannot write, a
+ * live lease is renewed only by the instance holding it (late or not), one
  * turn is active at a time and its state is `running`, `paused` or
  * `interrupted`, the fold applies compactions and replacements, a large body
  * spills and reads back, a torn tail is repaired on the record, and a flipped
@@ -242,6 +243,35 @@ export function defineSessionLogConformance(options: SessionLogConformanceOption
 				const read = await other.readAll()
 				expect(read.intact).toBe(true)
 				expect(read.entries.length).toBe(2)
+			})
+		})
+
+		it('does not let a second instance take a live lease under the same holder name', async () => {
+			await withLog(async (handle) => {
+				const a = await opened(handle.log)
+				const turnId = generateTurnId()
+				await handle.log.beginTurn(a, turnDraft(turnId))
+				// The holder name is evidence, not authority: only the instance that
+				// holds the lease renews it.
+				const twin = handle.reopen()
+				expect(await twin.claim({ holder: 'writer-a', ttlMs: TTL, now: NOW + 1 })).toBe(null)
+				expect((await handle.log.activeTurn({ now: NOW + 1 }))?.state).toBe('running')
+				const entry = await handle.log.append(a, message(turnId, 'user', 'still mine'))
+				expect(entry.record.gen).toBe(a.fence)
+			})
+		})
+
+		it('keeps a late renewal on its fence, and its turn running, when nobody took over', async () => {
+			await withLog(async ({ log }) => {
+				const a = await opened(log)
+				const turnId = generateTurnId()
+				await log.beginTurn(a, turnDraft(turnId))
+				const renewed = await log.claim({ holder: 'writer-a', ttlMs: TTL, now: LATER })
+				if (renewed === null) throw new Error('the holder could not renew its own lease')
+				expect(renewed.fence).toBe(a.fence)
+				expect((await log.activeTurn({ now: LATER }))?.state).toBe('running')
+				const entry = await log.append(renewed, message(turnId, 'assistant', 'still running'))
+				expect(entry.record.gen).toBe(a.fence)
 			})
 		})
 

@@ -35,24 +35,56 @@ describe('the disk lease', () => {
 		expect(c?.fence).toBe(4)
 	})
 
-	it('renews on the same instance without changing the fence', async () => {
+	it('renews the holding it is shown without changing the fence', async () => {
 		const store = new DiskSessionLeaseStore(await sessionDir())
 		const first = await store.claim({ holder: 'a', ttlMs: 100, now: 0 })
-		const renewed = await store.claim({ holder: 'a', ttlMs: 100, now: 50 })
-		expect(renewed).toEqual({ holder: 'a', fence: first?.fence, expiresAt: 150 })
+		if (first === null) throw new Error('claim failed')
+		const renewed = await store.claim({ holder: 'a', ttlMs: 100, now: 50 }, { renew: first })
+		expect(renewed).toEqual({ holder: 'a', fence: first.fence, expiresAt: 150 })
 		expect((await store.current())?.expiresAt).toBe(150)
 	})
 
-	it('gives a same-named holder in another instance a new fence, not the old one', async () => {
+	it('renews late on the same fence when nobody took the session in between', async () => {
+		const store = new DiskSessionLeaseStore(await sessionDir())
+		const first = await store.claim({ holder: 'a', ttlMs: 100, now: 0 })
+		if (first === null) throw new Error('claim failed')
+		const late = await store.claim({ holder: 'a', ttlMs: 100, now: 500 }, { renew: first })
+		expect(late).toEqual({ holder: 'a', fence: first.fence, expiresAt: 600 })
+	})
+
+	it('does not renew a holding somebody else took over', async () => {
+		const dir = await sessionDir()
+		const first = await new DiskSessionLeaseStore(dir).claim({ holder: 'a', ttlMs: 100, now: 0 })
+		if (first === null) throw new Error('claim failed')
+		const taken = await new DiskSessionLeaseStore(dir).claim({ holder: 'b', ttlMs: 100, now: 500 })
+		expect(taken?.fence).toBe(2)
+		const late = await new DiskSessionLeaseStore(dir).claim(
+			{ holder: 'a', ttlMs: 100, now: 501 },
+			{ renew: first },
+		)
+		expect(late).toBe(null)
+	})
+
+	it('refuses a same-named holder that does not present the live lease, and mints after expiry', async () => {
 		const dir = await sessionDir()
 		await new DiskSessionLeaseStore(dir).claim({ holder: 'cli', ttlMs: 1000, now: 0 })
-		// A restarted process with the same holder name does not inherit the dead one's fence.
-		const restarted = await new DiskSessionLeaseStore(dir).claim({
-			holder: 'cli',
-			ttlMs: 1000,
-			now: 10,
-		})
+		// The name is evidence, not authority: a second instance with it waits like anyone else.
+		const twin = new DiskSessionLeaseStore(dir)
+		expect(await twin.claim({ holder: 'cli', ttlMs: 1000, now: 10 })).toBe(null)
+		// A restarted process with the same name does not inherit the dead one's fence.
+		const restarted = await twin.claim({ holder: 'cli', ttlMs: 1000, now: 2000 })
 		expect(restarted?.fence).toBe(2)
+	})
+
+	it('mints a fence above the floor it is given, even with no lease files', async () => {
+		const store = new DiskSessionLeaseStore(await sessionDir())
+		const lease = await store.claim({ holder: 'a', ttlMs: 100, now: 0 }, { above: 7 })
+		expect(lease?.fence).toBe(8)
+		if (lease === null) throw new Error('claim failed')
+		// A holding below the floor is not renewed; its holder gets a fresh fence.
+		expect(
+			(await store.claim({ holder: 'a', ttlMs: 100, now: 10 }, { renew: lease, above: 9 }))?.fence,
+		).toBe(10)
 	})
 
 	it('releases nothing for a stale fence', async () => {
@@ -109,13 +141,19 @@ describe('the in-memory lease', () => {
 	it('follows the same fence rules in process', async () => {
 		const store = new InMemorySessionLeaseStore()
 		const a = await store.claim({ holder: 'a', ttlMs: 100, now: 0 })
+		if (a === null) throw new Error('claim failed')
 		expect(await store.claim({ holder: 'b', ttlMs: 100, now: 50 })).toBe(null)
-		expect((await store.claim({ holder: 'a', ttlMs: 100, now: 60 }))?.fence).toBe(a?.fence)
+		// A name alone does not renew; presenting the holding does.
+		expect(await store.claim({ holder: 'a', ttlMs: 100, now: 55 })).toBe(null)
+		expect((await store.claim({ holder: 'a', ttlMs: 100, now: 60 }, { renew: a }))?.fence).toBe(
+			a.fence,
+		)
 		const b = await store.claim({ holder: 'b', ttlMs: 100, now: 500 })
 		expect(b?.fence).toBe(2)
 		await store.release(a as NonNullable<typeof a>)
 		expect(await store.current()).toEqual(b)
 		await store.release(b as NonNullable<typeof b>)
 		expect(await store.fence()).toBe(3)
+		expect((await store.claim({ holder: 'c', ttlMs: 100, now: 600 }, { above: 9 }))?.fence).toBe(10)
 	})
 })
