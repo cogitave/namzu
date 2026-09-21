@@ -1,23 +1,42 @@
-import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import { type ProjectId, asProjectId } from '@namzu/sdk'
-import type { RunScope } from '../../tui/agent.js'
-import { sessionDatabasePath, sessionStore } from '../sessions/database.js'
-import { CliPathBuilder } from '../sessions/paths.js'
+import type { Project, ProjectId, Session, SessionId, TenantId, TopicId } from '@namzu/sdk'
 import type { SubagentParent } from './runtime.js'
 
-/** Central Projects must exist; embedded sessions without a state root use their supplied scope. */
+/** The conversation a delegation belongs to: the ids its parent turn runs under. */
+export interface SubagentParentScope {
+	readonly tenantId: TenantId
+	readonly projectId: ProjectId
+	readonly topicId: TopicId
+	readonly sessionId: SessionId
+}
+
+/**
+ * Where the parent's project and session are recorded, when the host keeps
+ * them. A host with no durable record (an embedded session) passes none, and
+ * the parent is built from its scope alone.
+ */
+export interface SubagentParentRecords {
+	getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null | undefined>
+	getSession(sessionId: SessionId, tenantId: TenantId): Promise<Session | null | undefined>
+}
+
+/**
+ * The parent a delegation is attributed to.
+ *
+ * With records, the project must exist, the session must not be archived and
+ * must belong to that project: a delegation is refused rather than attributed
+ * to a conversation that no longer stands for this work. Without records, the
+ * scope is trusted and a project with the CLI's delegation limits is
+ * described for it.
+ */
 export async function resolveSubagentParent(
-	scope: RunScope,
+	scope: SubagentParentScope,
 	cwd: string,
-	stateRoot?: string,
+	records?: SubagentParentRecords,
 ): Promise<SubagentParent> {
-	if (stateRoot && !existsSync(sessionDatabasePath(stateRoot)))
-		throw new Error(`Delegation project ${scope.projectId} is missing`)
-	const store = stateRoot ? sessionStore(stateRoot, true) : undefined
-	const project = await store?.getProject(scope.projectId, scope.tenantId)
-	if (store && !project) throw new Error(`Delegation project ${scope.projectId} is missing`)
-	const session = await store?.getSession(scope.sessionId, scope.tenantId)
+	const project = await records?.getProject(scope.projectId, scope.tenantId)
+	if (records && !project) throw new Error(`Delegation project ${scope.projectId} is missing`)
+	const session = await records?.getSession(scope.sessionId, scope.tenantId)
 	if (session?.status === 'archived')
 		throw new Error(`Delegation session ${session.id} is archived`)
 	if (session && session.projectId !== scope.projectId) {
@@ -47,22 +66,5 @@ export async function resolveSubagentParent(
 			updatedAt: now,
 		},
 		sessionId: scope.sessionId,
-	}
-}
-
-/** Child artifacts share the real Project, without claiming to be resumable CLI conversations. */
-export class SubagentPathBuilder extends CliPathBuilder {
-	constructor(
-		private readonly projectStateRoot: string,
-		private readonly projectId: ProjectId,
-	) {
-		super(projectStateRoot)
-		asProjectId(projectId)
-	}
-
-	override projectDir(projectId: ProjectId): string {
-		if (asProjectId(projectId) !== this.projectId)
-			throw new Error('Child path belongs to another project')
-		return this.projectStateRoot
 	}
 }

@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AgentManager, MockLLMProvider, ToolRegistry, generateRunId } from '@namzu/sdk'
+import { AgentManager, MockLLMProvider, ToolRegistry, generateTurnId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -18,7 +18,7 @@ describe('retained delegated output', () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-delegation-eviction-'))
 		workdirs.push(cwd)
 		const parent = await subagentParentFixture(cwd)
-		const otherRunId = generateRunId()
+		const otherTurnId = generateTurnId()
 		const sendMessage = vi.spyOn(AgentManager.prototype, 'sendMessage')
 		let release!: () => void
 		const held = new Promise<void>((resolve) => {
@@ -29,8 +29,8 @@ describe('retained delegated output', () => {
 			turns: [{ text: completeOutput, chunkSize: 8_000 }],
 		})
 		const runtime = await createSubagentRuntime({
-			resolveParent: (runId) =>
-				parent.resolveParent(runId === otherRunId ? parent.scope.runId : runId),
+			resolveParent: (turnId) =>
+				parent.resolveParent(turnId === otherTurnId ? parent.scope.turnId : turnId),
 			// Pending operator input releases the initial Agent wait immediately.
 			resolveWaitForInbound: () => async () => {},
 			cwd,
@@ -46,7 +46,8 @@ describe('retained delegated output', () => {
 			}),
 		})
 		const context = {
-			runId: parent.scope.runId,
+			sessionId: parent.scope.sessionId,
+			turnId: parent.scope.turnId,
 			workingDirectory: cwd,
 			abortSignal: new AbortController().signal,
 			env: {},
@@ -58,12 +59,12 @@ describe('retained delegated output', () => {
 				context,
 			)
 			expect(yielded.data).toMatchObject({ wait_released: 'operator_input' })
-			const gateway = await runtime.gatewayForRun(parent.scope.runId)
+			const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
 			const taskId = gateway.listTasks()[0]!.taskId
 			expect(yielded.data).toMatchObject({ task_id: taskId })
 			release()
 			const settled = await gateway.waitForTask(taskId)
-			const inbox = await runtime.completionInboxForRun(parent.scope.runId)
+			const inbox = await runtime.completionInboxForTurn(parent.scope.turnId)
 			expect(inbox.drain()).toHaveLength(1)
 
 			// Exercise the real manager's terminal eviction without a 30-second sleep.
@@ -86,14 +87,14 @@ describe('retained delegated output', () => {
 
 			const foreign = await runtime.waitForTaskTool.execute(
 				{ task_id: taskId },
-				{ ...context, runId: otherRunId },
+				{ ...context, turnId: otherTurnId },
 			)
 			expect(foreign.success).toBe(false)
-			expect(foreign.error).toContain('does not belong to this parent run')
-			const foreignGateway = await runtime.gatewayForRun(otherRunId)
+			expect(foreign.error).toContain('does not belong to this parent turn')
+			const foreignGateway = await runtime.gatewayForTurn(otherTurnId)
 			expect(foreignGateway.getTask(taskId)).toBeUndefined()
 			await expect(foreignGateway.waitForTask(taskId)).rejects.toThrow(
-				'does not belong to this parent run',
+				'does not belong to this parent turn',
 			)
 
 			await runtime.close()

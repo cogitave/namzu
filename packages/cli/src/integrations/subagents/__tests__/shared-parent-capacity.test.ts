@@ -2,12 +2,12 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DefaultPathBuilder,
 	type LLMProvider,
 	MockLLMProvider,
-	type RunId,
+	SessionPaths,
 	ToolRegistry,
-	generateRunId,
+	type TurnId,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,20 +24,20 @@ async function setup(width: number, buildProvider?: () => LLMProvider) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-shared-delegation-'))
 	directories.push(cwd)
 	const fixture = await subagentParentFixture(cwd)
-	const parent = await fixture.resolveParent(fixture.scope.runId)
+	const parent = await fixture.resolveParent(fixture.scope.turnId)
 	parent.project.config.maxDelegationWidth = width
-	const firstRun = fixture.scope.runId
-	const secondRun = generateRunId()
-	const active = new Map<RunId, SubagentParent>([
-		[firstRun, parent],
-		[secondRun, parent],
+	const firstTurn = fixture.scope.turnId
+	const secondTurn = generateTurnId()
+	const active = new Map<TurnId, SubagentParent>([
+		[firstTurn, parent],
+		[secondTurn, parent],
 	])
 	const runtime = await createSubagentRuntime({
 		cwd,
 		model: 'mock',
-		pathBuilder: new DefaultPathBuilder(join(cwd, 'state')),
-		resolveParent: async (runId) => {
-			const current = active.get(runId)
+		paths: new SessionPaths({ home: join(cwd, 'state'), slug: '-work-shared-delegation' }),
+		resolveParent: async (turnId) => {
+			const current = active.get(turnId)
 			if (!current) throw new Error('Parent no longer active')
 			return current
 		},
@@ -45,23 +45,23 @@ async function setup(width: number, buildProvider?: () => LLMProvider) {
 		buildTools: () => new ToolRegistry(),
 	})
 	const [first, second] = await Promise.all([
-		runtime.gatewayForRun(firstRun),
-		runtime.gatewayForRun(secondRun),
+		runtime.gatewayForTurn(firstTurn),
+		runtime.gatewayForTurn(secondTurn),
 	])
 	return {
 		runtime,
 		parent,
 		active,
-		firstRun,
-		secondRun,
+		firstTurn,
+		secondTurn,
 		first,
 		second,
 		task: { agentId: 'general-purpose', prompt: 'report the result', workingDirectory: cwd },
 	}
 }
 
-describe('parallel runs share their actual parent Session capacity', () => {
-	it('queues siblings across concurrent runs and reuses a released slot', async () => {
+describe('parallel turns share their actual parent Session capacity', () => {
+	it('queues siblings across concurrent turns and reuses a released slot', async () => {
 		let release!: () => void
 		const held = new Promise<void>((resolve) => {
 			release = resolve
@@ -94,7 +94,7 @@ describe('parallel runs share their actual parent Session capacity', () => {
 		}
 	})
 
-	it('releases only one run and never lets it read, continue, or cancel another run’s child', async () => {
+	it('releases only one turn and never lets it read, continue, or cancel another turn’s child', async () => {
 		let release!: () => void
 		const held = new Promise<void>((resolve) => {
 			release = resolve
@@ -112,7 +112,7 @@ describe('parallel runs share their actual parent Session capacity', () => {
 				})()
 			},
 		})
-		const { runtime, firstRun, first, second, task } = await setup(2, provider)
+		const { runtime, firstTurn, first, second, task } = await setup(2, provider)
 		try {
 			const mine = await first.createTask({ ...task, prompt: 'first-owner' })
 			const theirs = await second.createTask({ ...task, prompt: 'second-owner' })
@@ -124,7 +124,7 @@ describe('parallel runs share their actual parent Session capacity', () => {
 			)
 			first.cancelTask(theirs.taskId)
 			expect(signals.get('second-owner')?.aborted).toBe(false)
-			await runtime.releaseRun(firstRun)
+			await runtime.releaseTurn(firstTurn)
 			expect(first.getTask(mine.taskId)?.state).toBe('canceled')
 			expect(signals.get('first-owner')?.aborted).toBe(true)
 			expect(signals.get('second-owner')?.aborted).toBe(false)

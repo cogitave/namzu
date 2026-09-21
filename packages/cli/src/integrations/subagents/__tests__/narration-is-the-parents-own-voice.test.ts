@@ -10,7 +10,7 @@
  * prompt or a comment.
  *
  * Why it matters: a line a child emitted and this host rendered above the
- * rail would be untrusted text presented as the run's own voice, which is the
+ * rail would be untrusted text presented as the turn's own voice, which is the
  * injection shape the coordinator's untrusted-output wrapping exists to
  * prevent.
  */
@@ -19,8 +19,9 @@ import {
 	type AgentDefinition,
 	AgentRegistry,
 	MockLLMProvider,
-	type RunId,
+	type SessionId,
 	ToolRegistry,
+	type TurnId,
 	getBuiltinTools,
 	isReviewExempt,
 } from '@namzu/sdk'
@@ -39,9 +40,10 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-function toolContext(runId: RunId) {
+function toolContext({ sessionId, turnId }: { sessionId: SessionId; turnId: TurnId }) {
 	return {
-		runId,
+		sessionId,
+		turnId,
 		workingDirectory: process.cwd(),
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -53,7 +55,7 @@ function toolContext(runId: RunId) {
 async function runtimeWithBuiltins(): Promise<{
 	runtime: SubagentRuntime
 	registered: AgentDefinition[]
-	runId: RunId
+	scope: { sessionId: SessionId; turnId: TurnId }
 }> {
 	const registered: AgentDefinition[] = []
 	vi.spyOn(AgentRegistry.prototype, 'register').mockImplementation(function (
@@ -76,7 +78,7 @@ async function runtimeWithBuiltins(): Promise<{
 			return tools
 		},
 	})
-	return { runtime, registered, runId: parent.scope.runId }
+	return { runtime, registered, scope: parent.scope }
 }
 
 async function childToolNames(
@@ -93,11 +95,11 @@ async function childToolNames(
 
 describe('narration', () => {
 	it('records one line the operator can read, and nothing else', async () => {
-		const { runtime, runId } = await runtimeWithBuiltins()
+		const { runtime, scope } = await runtimeWithBuiltins()
 		try {
 			const result = await runtime.narrationTool.execute(
 				{ line: 'map returned five lenses; one changes the sequencing' },
-				toolContext(runId),
+				toolContext(scope),
 			)
 
 			expect(result.success).toBe(true)
@@ -112,11 +114,11 @@ describe('narration', () => {
 	})
 
 	it('keeps the most recent lines and refuses a blank one', async () => {
-		const { runtime, runId } = await runtimeWithBuiltins()
+		const { runtime, scope } = await runtimeWithBuiltins()
 		try {
 			for (let index = 1; index <= MAX_RETAINED_NARRATION + 1; index += 1)
-				await runtime.narrationTool.execute({ line: `line ${index}` }, toolContext(runId))
-			const blank = await runtime.narrationTool.execute({ line: '   ' }, toolContext(runId))
+				await runtime.narrationTool.execute({ line: `line ${index}` }, toolContext(scope))
+			const blank = await runtime.narrationTool.execute({ line: '   ' }, toolContext(scope))
 
 			expect(blank.success).toBe(false)
 			expect(blank.error).toContain('blank')
@@ -131,7 +133,7 @@ describe('narration', () => {
 	})
 
 	it('clips a line that overruns the row, and refuses text that is not a line at all', async () => {
-		const { runtime, runId } = await runtimeWithBuiltins()
+		const { runtime, scope } = await runtimeWithBuiltins()
 		try {
 			const schema = runtime.narrationTool.inputSchema
 			expect(schema.safeParse({ line: 'a'.repeat(MAX_NARRATION_CODE_UNITS) }).success).toBe(true)
@@ -152,7 +154,7 @@ describe('narration', () => {
 			// monitor: what the operator sees carries the marker.
 			const clipped = await runtime.narrationTool.execute(
 				{ line: `verifying ${'x'.repeat(MAX_NARRATION_CODE_UNITS)}` },
-				toolContext(runId),
+				toolContext(scope),
 			)
 			expect(clipped.success).toBe(true)
 			const shown = runtime.activity.getNarration?.()?.at(-1)?.text ?? ''
@@ -164,12 +166,12 @@ describe('narration', () => {
 	})
 
 	it('says the session stopped showing lines rather than calling a good line blank', async () => {
-		const { runtime, runId } = await runtimeWithBuiltins()
+		const { runtime, scope } = await runtimeWithBuiltins()
 		await runtime.close()
 
 		const afterClose = await runtime.narrationTool.execute(
 			{ line: 'the last phase came back clean' },
-			toolContext(runId),
+			toolContext(scope),
 		)
 
 		expect(afterClose.success).toBe(false)
@@ -197,7 +199,7 @@ describe('narration', () => {
 		}
 	})
 
-	it('is not on any child roster, so no child can write the run a line', async () => {
+	it('is not on any child roster, so no child can write the turn a line', async () => {
 		const { runtime, registered } = await runtimeWithBuiltins()
 		try {
 			for (const id of [GENERAL_PURPOSE_SUBAGENT, EXPLORE_SUBAGENT]) {

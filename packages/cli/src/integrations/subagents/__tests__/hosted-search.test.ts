@@ -64,7 +64,8 @@ it('carries the child-selected hosted search through ReactiveAgent into the prov
 		const result = await runtime.agentTool.execute(
 			{ description: 'Search', prompt: 'Find one official source', subagent_type: 'explore' },
 			{
-				runId: parent.scope.runId,
+				sessionId: parent.scope.sessionId,
+				turnId: parent.scope.turnId,
 				workingDirectory: cwd,
 				abortSignal: new AbortController().signal,
 				env: {},

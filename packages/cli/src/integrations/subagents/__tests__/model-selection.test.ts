@@ -35,7 +35,8 @@ describe('delegated model selection', () => {
 			listModels: async () => 'catalogue',
 		})
 		const context = {
-			runId: parent.scope.runId,
+			sessionId: parent.scope.sessionId,
+			turnId: parent.scope.turnId,
 			workingDirectory: cwd,
 			abortSignal: new AbortController().signal,
 			env: {},
@@ -108,7 +109,8 @@ describe('delegated model selection', () => {
 				runtime.agentTool.execute(
 					{ description: 'invalid', prompt: 'report', model: 'missing' },
 					{
-						runId: parent.scope.runId,
+						sessionId: parent.scope.sessionId,
+						turnId: parent.scope.turnId,
 						workingDirectory: cwd,
 						abortSignal: new AbortController().signal,
 						env: {},
@@ -117,7 +119,7 @@ describe('delegated model selection', () => {
 				),
 			).resolves.toMatchObject({ success: false })
 			expect(buildProvider).not.toHaveBeenCalled()
-			expect((await runtime.gatewayForRun(parent.scope.runId)).listTasks()).toHaveLength(0)
+			expect((await runtime.gatewayForTurn(parent.scope.turnId)).listTasks()).toHaveLength(0)
 		} finally {
 			await runtime.close()
 		}
