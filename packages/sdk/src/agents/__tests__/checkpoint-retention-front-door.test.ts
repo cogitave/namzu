@@ -71,7 +71,10 @@ async function checkpointsLeft(pruneKeepLast?: number): Promise<number> {
 			...scope,
 		} satisfies ReactiveAgentConfig,
 	)
-	const dir = join(pathBuilder.runDir(scope.projectId, scope.sessionId, result.runId), 'checkpoints')
+	const dir = join(
+		pathBuilder.runDir(scope.projectId, scope.sessionId, result.runId),
+		'checkpoints',
+	)
 	return (await readdir(dir)).filter((name) => name.endsWith('.json')).length
 }
 

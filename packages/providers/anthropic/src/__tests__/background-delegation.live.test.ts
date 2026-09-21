@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
 	CompletionInbox,
 	ToolRegistry,
@@ -10,9 +13,6 @@ import {
 	runAgent,
 } from '@namzu/sdk'
 import type { TaskHandle, TaskScheduler } from '@namzu/sdk'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { AnthropicProvider } from '../client.js'
