@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import {
 	type ChatCompletionParams,
-	InMemoryRunStore,
+	InMemorySessionLog,
 	type LLMProvider,
 	MockLLMProvider,
 	type StreamChunk,
@@ -30,32 +30,33 @@ afterEach(async () => {
 async function makeConfig(
 	provider: LLMProvider,
 	overrides: Partial<NamzuQueryConfig> = {},
-): Promise<{ config: NamzuQueryConfig; store: InMemoryRunStore }> {
+): Promise<{ config: NamzuQueryConfig; log: InMemorySessionLog }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-live-'))
 	tempDirs.push(workingDirectory)
-	const store = new InMemoryRunStore()
+	const sessionId = generateSessionId()
+	const log = new InMemorySessionLog({ sessionId })
 	const config: NamzuQueryConfig = {
 		agentId: 'agent_live',
 		agentName: 'Live agent',
 		projectId: generateProjectId(),
 		provider,
 		resumeHandler: async () => ({ action: 'continue' as const }),
-		runConfig: {
+		sessionId,
+		sessionLog: log,
+		tenantId: generateTenantId(),
+		tools: new ToolRegistry(),
+		topicId: generateTopicId(),
+		turnConfig: {
 			maxIterations: 4,
 			maxResponseTokens: 512,
 			model: 'test-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
 		},
-		runStore: store,
-		sessionId: generateSessionId(),
-		tenantId: generateTenantId(),
-		tools: new ToolRegistry(),
-		topicId: generateTopicId(),
 		workingDirectory,
 		...overrides,
 	}
-	return { config, store }
+	return { config, log }
 }
 
 describe('NamzuModel', () => {
@@ -173,13 +174,13 @@ describe('NamzuModel', () => {
 		)
 
 		await expect(session.run({ userInput: 'hello' }).wait()).rejects.toMatchObject({
-			code: 'run_not_speakable',
+			code: 'turn_not_speakable',
 		})
 		expect(provider.requests).toHaveLength(1)
 		await session.close()
 	})
 
-	it('drains cancellation into a terminal cancelled SDK run', async () => {
+	it('drains cancellation into a terminal cancelled SDK turn', async () => {
 		let started!: () => void
 		const providerStarted = new Promise<void>((resolve) => {
 			started = resolve
@@ -199,7 +200,7 @@ describe('NamzuModel', () => {
 				}
 			},
 		}
-		const { config, store } = await makeConfig(provider, { retry: false })
+		const { config, log } = await makeConfig(provider, { retry: false })
 		const session = new LiveSession({ closeTimeoutMs: 500 })
 		await session.start(
 			new LiveAgent({
@@ -213,7 +214,15 @@ describe('NamzuModel', () => {
 		turn.interrupt('test cancellation')
 
 		await expect(turn.wait()).resolves.toMatchObject({ status: 'interrupted' })
-		expect(store.snapshot().meta).toMatchObject({ status: 'cancelled', stopReason: 'cancelled' })
+		const { entries } = await log.readAll()
+		const settled = entries
+			.map((entry) => entry.record)
+			.filter((record) => record.type === 'turn_completed')
+		expect(settled).toHaveLength(1)
+		expect(settled[0]).toMatchObject({
+			settlement: { status: 'cancelled' },
+			stopReason: 'cancelled',
+		})
 		await session.close()
 	})
 })

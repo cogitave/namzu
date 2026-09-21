@@ -465,7 +465,7 @@ export class LiveSession {
 		predecessor?: Promise<void>,
 	): Promise<void> {
 		const startedAt = record.createdAt
-		let runId: string | undefined
+		let modelIds: { readonly sessionId: string; readonly turnId: string } | undefined
 		let usage: LiveUsage | undefined
 		let text = ''
 		let speechQueue: WeightedAsyncQueue<string> | undefined
@@ -516,10 +516,11 @@ export class LiveSession {
 						continue
 					}
 					if (event.type === 'usage') {
-						runId = event.runId
+						modelIds = { sessionId: event.sessionId, turnId: event.turnId }
 						usage = event.usage
 						this.emit({
-							runId: event.runId,
+							modelSessionId: event.sessionId,
+							modelTurnId: event.turnId,
 							turnId: record.handle.id,
 							type: 'usage',
 							usage: event.usage,
@@ -527,7 +528,7 @@ export class LiveSession {
 						continue
 					}
 					terminal = event
-					runId = event.runId
+					modelIds = { sessionId: event.sessionId, turnId: event.turnId }
 				}
 			} finally {
 				if (speechQueue) {
@@ -570,7 +571,7 @@ export class LiveSession {
 				finishTurn(record.handle, {
 					latencyMs,
 					message,
-					runId,
+					...(modelIds ? { modelSessionId: modelIds.sessionId, modelTurnId: modelIds.turnId } : {}),
 					status: 'completed',
 					turnId: record.handle.id,
 					...(usage ? { usage } : {}),
@@ -579,7 +580,8 @@ export class LiveSession {
 				this.emit({
 					latencyMs,
 					message,
-					runId: runId ?? terminal.runId,
+					modelSessionId: modelIds?.sessionId ?? terminal.sessionId,
+					modelTurnId: modelIds?.turnId ?? terminal.turnId,
 					turnId: record.handle.id,
 					type: 'turn_completed',
 				})

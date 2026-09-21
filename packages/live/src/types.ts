@@ -34,16 +34,28 @@ export interface LiveModelTurn {
 	readonly signal: AbortSignal
 }
 
+/**
+ * What a {@link LiveModel} yields for one live turn. `sessionId` and `turnId`
+ * on the usage and terminal events name the model's own session and turn (for
+ * `NamzuModel`, the Namzu session and turn the query ran as); they are
+ * not the live session's turn id.
+ */
 export type LiveModelEvent =
 	| { readonly messageId: string; readonly text: string; readonly type: 'text_delta' }
-	| { readonly runId: string; readonly type: 'usage'; readonly usage: LiveUsage }
+	| {
+			readonly sessionId: string
+			readonly turnId: string
+			readonly type: 'usage'
+			readonly usage: LiveUsage
+	  }
 	| {
 			readonly result: string
-			readonly runId: string
+			readonly sessionId: string
 			readonly stopReason: StopReason
+			readonly turnId: string
 			readonly type: 'completed'
 	  }
-	| { readonly runId: string; readonly type: 'cancelled' }
+	| { readonly sessionId: string; readonly turnId: string; readonly type: 'cancelled' }
 
 export interface LiveModel {
 	stream(turn: LiveModelTurn): AsyncIterable<LiveModelEvent>
@@ -159,7 +171,11 @@ export type LiveSessionEvent =
 	| { readonly text: string; readonly turnId: string; readonly type: 'assistant_text_delta' }
 	| { readonly audio: SynthesizedAudio; readonly turnId: string; readonly type: 'assistant_audio' }
 	| {
-			readonly runId: string
+			/** The model's session, from the model's `usage` event. */
+			readonly modelSessionId: string
+			/** The model's turn, from the model's `usage` event. */
+			readonly modelTurnId: string
+			/** The live session's turn. */
 			readonly turnId: string
 			readonly type: 'usage'
 			readonly usage: LiveUsage
@@ -167,7 +183,11 @@ export type LiveSessionEvent =
 	| {
 			readonly latencyMs: number
 			readonly message: LiveMessage
-			readonly runId: string
+			/** The model's session, from the model's terminal or `usage` event. */
+			readonly modelSessionId: string
+			/** The model's turn, from the model's terminal or `usage` event. */
+			readonly modelTurnId: string
+			/** The live session's turn. */
 			readonly turnId: string
 			readonly type: 'turn_completed'
 	  }
@@ -178,7 +198,10 @@ export type LiveSessionEvent =
 export interface LiveTurnResult {
 	readonly latencyMs: number
 	readonly message?: LiveMessage
-	readonly runId?: string
+	/** The model's session. Present when the model reported one before the turn settled. */
+	readonly modelSessionId?: string
+	/** The model's turn. Present when the model reported one before the turn settled. */
+	readonly modelTurnId?: string
 	readonly status: 'completed' | 'interrupted'
 	readonly turnId: string
 	readonly usage?: LiveUsage

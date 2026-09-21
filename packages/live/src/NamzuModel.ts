@@ -1,8 +1,8 @@
 import {
 	type Message,
 	type QueryParams,
-	type Run,
 	type StopReason,
+	type Turn,
 	createAssistantMessage,
 	createUserMessage,
 	query,
@@ -50,15 +50,15 @@ function validateQueryConfig(config: NamzuQueryConfig): void {
 	}
 }
 
-function assertSpeakableRun(run: Run): asserts run is Run & { stopReason: StopReason } {
+function assertSpeakableTurn(turn: Turn): asserts turn is Turn & { stopReason: StopReason } {
 	if (
-		run.status !== 'completed' ||
-		!run.stopReason ||
-		!SPEAKABLE_STOP_REASONS.has(run.stopReason)
+		turn.status !== 'completed' ||
+		!turn.stopReason ||
+		!SPEAKABLE_STOP_REASONS.has(turn.stopReason)
 	) {
 		throw new LiveError(
-			'run_not_speakable',
-			`Namzu run ${run.id} settled as ${run.status} (${run.stopReason ?? 'no stop reason'}).`,
+			'turn_not_speakable',
+			`Namzu turn ${turn.id} in session ${turn.sessionId} settled as ${turn.status} (${turn.stopReason ?? 'no stop reason'}).`,
 		)
 	}
 }
@@ -81,12 +81,12 @@ export class NamzuModel implements LiveModel {
 		})
 
 		let emittedText = false
-		let run: Run
+		let settled: Turn
 		try {
 			for (;;) {
 				const next = await generator.next()
 				if (next.done) {
-					run = next.value
+					settled = next.value
 					break
 				}
 				if (next.value.type !== 'text_delta' || next.value.text.length === 0) continue
@@ -104,29 +104,30 @@ export class NamzuModel implements LiveModel {
 			})
 		}
 
-		if (turn.signal.aborted && run.status === 'cancelled') {
-			yield { runId: run.id, type: 'cancelled' }
+		const ids = { sessionId: settled.sessionId, turnId: settled.id }
+		if (turn.signal.aborted && settled.status === 'cancelled') {
+			yield { ...ids, type: 'cancelled' }
 			return
 		}
-		assertSpeakableRun(run)
-		if (!emittedText && run.result) {
-			yield { messageId: run.id, text: run.result, type: 'text_delta' }
+		assertSpeakableTurn(settled)
+		if (!emittedText && settled.result) {
+			yield { messageId: settled.id, text: settled.result, type: 'text_delta' }
 		}
 		yield {
-			runId: run.id,
+			...ids,
 			type: 'usage',
 			usage: {
-				cacheCreationTokens: run.tokenUsage.cacheWriteTokens,
-				completionTokens: run.tokenUsage.completionTokens,
-				promptCachedTokens: run.tokenUsage.cachedTokens,
-				promptTokens: run.tokenUsage.promptTokens,
-				totalTokens: run.tokenUsage.totalTokens,
+				cacheCreationTokens: settled.tokenUsage.cacheWriteTokens,
+				completionTokens: settled.tokenUsage.completionTokens,
+				promptCachedTokens: settled.tokenUsage.cachedTokens,
+				promptTokens: settled.tokenUsage.promptTokens,
+				totalTokens: settled.tokenUsage.totalTokens,
 			},
 		}
 		yield {
-			result: run.result ?? '',
-			runId: run.id,
-			stopReason: run.stopReason,
+			...ids,
+			result: settled.result ?? '',
+			stopReason: settled.stopReason,
 			type: 'completed',
 		}
 	}
