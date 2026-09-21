@@ -115,8 +115,12 @@ JSON, a name that differs from its file name, two files claiming one id, a
 symlinked or non-regular file, a file over 256 KiB, invalid UTF-8, or a file
 stamped with a newer `schemaVersion` fails the operation with a `storage_error`
 naming the file, rather than presenting a smaller store as complete. Other files
-in the directory — the generated index, a previous `DiskMemoryStore`'s
-`index.json` and `content/` — are ignored.
+in the directory — the generated index, `operation.lock`, a retired
+`content.migrated/` — are ignored, with one exception: while a
+`DiskMemoryStore` `index.json` is present, every operation except
+`importRecord` is refused with a `storage_error` naming it, because that index
+holds records this store cannot see and answering without them would present a
+smaller memory as the whole. Import its records, then move `index.json` aside.
 
 Files are written by atomic rename with mode `0600`; the directory is created
 `0700`. Operations take the same `operation.lock` as `DiskMemoryStore` (below),

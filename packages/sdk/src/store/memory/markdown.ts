@@ -60,6 +60,8 @@ const SCHEMA = defineSchema({
 	migrations: {},
 })
 
+/** A `DiskMemoryStore` index; its presence means records this store cannot see. */
+const LEGACY_INDEX_FILE = 'index.json'
 /** The generated index. Never a memory, never read back as one. */
 export const MEMORY_INDEX_FILE = 'MEMORY.md'
 /** Largest memory file this store will read. A memory is a paragraph, not a document. */
@@ -287,10 +289,20 @@ export class MarkdownMemoryStore implements MemoryStore {
 		return path
 	}
 
-	private async load(dir: string): Promise<Loaded> {
+	private async load(dir: string, importing: boolean): Promise<Loaded> {
 		const loaded = new Map<MemoryId, LoadedMemory>()
 		const names = await readdir(dir)
 		names.sort()
+		// A `DiskMemoryStore` index in the same directory holds records this
+		// store cannot see. Answering without them would present a smaller
+		// memory as the whole of it, so everything but the import that moves
+		// them in is refused until the index is gone.
+		if (!importing && names.includes(LEGACY_INDEX_FILE)) {
+			invalidFile(
+				join(dir, LEGACY_INDEX_FILE),
+				'a JSON memory store has not been migrated out of this directory; import its records with importRecord, then move index.json aside',
+			)
+		}
 		for (const fileName of names) {
 			if (!fileName.endsWith('.md') || fileName === MEMORY_INDEX_FILE) continue
 			const path = join(dir, fileName)
@@ -320,14 +332,17 @@ export class MarkdownMemoryStore implements MemoryStore {
 		return loaded
 	}
 
-	private async withLoaded<T>(operation: (dir: string, loaded: Loaded) => Promise<T>): Promise<T> {
+	private async withLoaded<T>(
+		operation: (dir: string, loaded: Loaded) => Promise<T>,
+		importing = false,
+	): Promise<T> {
 		const dir = await this.location()
 		const release = await acquireMemoryOperationLock(
 			join(dir, 'operation.lock'),
 			this.lockTimeoutMs,
 		)
 		try {
-			return await operation(dir, await this.load(dir))
+			return await operation(dir, await this.load(dir, importing))
 		} finally {
 			await release()
 		}
@@ -589,6 +604,6 @@ export class MarkdownMemoryStore implements MemoryStore {
 			await this.writeIndex(dir, [...entries, entry])
 			this.log.info('Memory imported', { 'namzu.memory.id': entry.id })
 			return 'imported'
-		})
+		}, true)
 	}
 }

@@ -353,9 +353,21 @@ describe('hand-written and malformed files', () => {
 	it('ignores non-memory files beside the memories', async () => {
 		const { directory, store } = await fixture()
 		await mkdir(join(directory, 'content'), { recursive: true })
-		await writeFile(join(directory, 'index.json'), '[]')
 		await writeFile(join(directory, 'notes.txt'), 'x')
 		expect((await store.list()).totalCount).toBe(0)
+	})
+
+	it('refuses everything but an import while a JSON store index is unmigrated', async () => {
+		const { root, directory, store } = await fixture()
+		await mkdir(directory, { recursive: true })
+		await writeFile(join(directory, 'index.json'), '[]')
+		await expect(store.list()).rejects.toThrow('has not been migrated')
+		await expect(store.readIndex()).rejects.toMatchObject({ code: 'storage_error' })
+		const disk = new DiskMemoryStore({ baseDir: join(root, 'old') })
+		const { entry } = await disk.create({ title: 'old', summary: 's', content: 'c' })
+		const record = await disk.getRecord(entry.id)
+		if (!record) throw new Error('fixture record missing')
+		expect(await store.importRecord(record)).toBe('imported')
 	})
 })
 
@@ -392,7 +404,7 @@ describe('coordination', () => {
 describe('importRecord', () => {
 	it('keeps id, timestamps, status and metadata, and is idempotent by id', async () => {
 		const { root, store } = await fixture()
-		const disk = new DiskMemoryStore({ baseDir: root })
+		const disk = new DiskMemoryStore({ baseDir: join(root, 'old') })
 		const { entry } = await disk.create({
 			title: 'Old record',
 			summary: 'From the JSON store',
