@@ -14,8 +14,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { InMemorySessionLog, type SessionLease } from '../../../store/session-log/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import type { MessageId, SessionId, TenantId } from '../../../types/ids/index.js'
+import { type Message, createUserMessage } from '../../../types/message/index.js'
+import { generateMessageId, generateTurnId } from '../../../utils/id.js'
+import { readSessionMessages } from '../../messages.js'
 import type { TopicId, WorkspaceId } from '../../../types/session/ids.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { ArchivalManager, ArchiveNotConfiguredError } from '../../retention/archive.js'
@@ -24,6 +28,51 @@ import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
 const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
+
+/** Session logs by session id: the only store of a session's messages. */
+const sessionLogs = new Map<SessionId, InMemorySessionLog>()
+
+function readMessages(sessionId: SessionId, tenantId: TenantId) {
+	const log = sessionLogs.get(sessionId)
+	return log ? readSessionMessages(log, tenantId) : Promise.resolve([])
+}
+
+/** Record `messages` into one turn of a fresh log for `sessionId`; their record ids, in order. */
+async function recordMessages(
+	sessionId: SessionId,
+	projectId: string,
+	messages: readonly Message[],
+): Promise<MessageId[]> {
+	const log = new InMemorySessionLog({ sessionId })
+	sessionLogs.set(sessionId, log)
+	const lease = (await log.claim({ holder: 'test', ttlMs: 60_000 })) as SessionLease
+	await log.append(lease, {
+		type: 'session_started',
+		projectId,
+		tenantId: DEFAULT_TENANT,
+		topicId: TEST_THREAD_ID,
+		cwd: '/tmp',
+		agent: { id: 'agent', name: 'Agent' },
+	} as Parameters<InMemorySessionLog['append']>[1])
+	const ids = messages.map(() => generateMessageId())
+	const turnId = generateTurnId()
+	await log.beginTurn(lease, {
+		turnId,
+		userMessageId: ids[0] as MessageId,
+		config: { model: 'mock-model', tokenBudget: 0, timeoutMs: 0 },
+	})
+	for (const [index, message] of messages.entries()) {
+		await log.append(lease, {
+			type: 'message',
+			turnId,
+			messageId: ids[index] as MessageId,
+			role: message.role,
+			content: message,
+		})
+	}
+	await log.release(lease)
+	return ids
+}
 
 async function seedIdleSubSession(store: InMemorySessionStore) {
 	const project = await store.createProject(
@@ -71,6 +120,7 @@ describe('Integration — retention archive / restore', () => {
 	})
 
 	afterEach(() => {
+		sessionLogs.clear()
 		removeTempDir(rootDir)
 	})
 
@@ -78,6 +128,7 @@ describe('Integration — retention archive / restore', () => {
 		const { sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			archiveBackend: backend,
 		})
@@ -95,6 +146,7 @@ describe('Integration — retention archive / restore', () => {
 		const { parent, sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			archiveBackend: backend,
 		})
@@ -109,12 +161,15 @@ describe('Integration — retention archive / restore', () => {
 	})
 
 	it('restore recovers the archive bundle with original MessageId fidelity (not synthetic msg_restored_N)', async () => {
-		const { sub, child } = await seedIdleSubSession(store)
-		const msg1Id = await store.appendMessage(child.id, createUserMessage('first'), DEFAULT_TENANT)
-		const msg2Id = await store.appendMessage(child.id, createUserMessage('second'), DEFAULT_TENANT)
+		const { sub, child, project } = await seedIdleSubSession(store)
+		const [msg1Id, msg2Id] = await recordMessages(child.id, project.id, [
+			createUserMessage('first'),
+			createUserMessage('second'),
+		])
 
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			archiveBackend: backend,
 		})
@@ -140,6 +195,7 @@ describe('Integration — retention archive / restore', () => {
 		const { sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			// archiveBackend omitted — archival fully disabled.
 		})
@@ -195,6 +251,7 @@ describe('Integration — retention archive / restore', () => {
 
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: registry,
 			archiveBackend: backend,
 			workspaceResolver: async () => workspaceRef,
@@ -212,6 +269,7 @@ describe('Integration — retention archive / restore', () => {
 		const { sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			archiveBackend: backend,
 		})
@@ -231,6 +289,7 @@ describe('Integration — retention archive / restore', () => {
 		const onArchived = vi.fn()
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			archiveBackend: backend,
 			onArchived,

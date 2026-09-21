@@ -1,6 +1,6 @@
-import { TokenBudget } from '../../../turn/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { generateTurnId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 /**
  * End-to-end SubSession spawn flow.
  *
@@ -34,7 +34,7 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { TurnId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
@@ -65,7 +65,8 @@ function buildAgent(id: string): Agent<BaseAgentConfig, BaseAgentResult> {
 			description: id,
 			capabilities,
 		},
-		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
+		run: async (_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> => ({
+			sessionId: config.sessionId as SessionId,
 			turnId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as TurnId,
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE },
@@ -145,11 +146,15 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		}
 
 		const taskContext: AgentTaskContext = {
-			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
+			parentSessionId: parentSession.id,
+			parentTurnId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budget: TokenBudget.create(100_000, budgetRunId()),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: generateSessionId(),
+				rootTurnId: generateTurnId(),
+			}),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parentSession.id,
@@ -277,11 +282,15 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 				parentActor: userActor,
 			},
 			{
-				parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
+				parentSessionId: parentSession.id,
+				parentTurnId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId,
 				parentAgentId: 'supervisor',
 				parentAbortController: new AbortController(),
 				depth: 0,
-				budget: TokenBudget.create(10_000, budgetRunId()),
+				budget: SessionTokenBudget.create(10_000, {
+					rootSessionId: generateSessionId(),
+					rootTurnId: generateTurnId(),
+				}),
 				tenantId: tenant,
 				topicId: thread.id,
 				sessionId: parentSession.id,

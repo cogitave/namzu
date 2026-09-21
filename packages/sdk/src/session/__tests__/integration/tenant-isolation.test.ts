@@ -13,7 +13,6 @@
 
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../../../types/session/ids.js'
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, OTHER_TENANT, agentActor, userActor } from './_fixtures.js'
@@ -96,29 +95,6 @@ describe('Integration — tenant isolation', () => {
 				OTHER_TENANT,
 			),
 		).rejects.toBeInstanceOf(TenantIsolationError)
-	})
-
-	it('appendMessage with wrong tenantId → TenantIsolationError', async () => {
-		const { store, child } = await seedTenantAResources()
-		await expect(
-			store.appendMessage(child.id, createUserMessage('intruder'), OTHER_TENANT),
-		).rejects.toBeInstanceOf(TenantIsolationError)
-	})
-
-	it('loadSessionMessages cross-tenant → TenantIsolationError', async () => {
-		const { store, child } = await seedTenantAResources()
-		await store.appendMessage(child.id, createUserMessage('legit'), DEFAULT_TENANT)
-		await expect(store.loadSessionMessages(child.id, OTHER_TENANT)).rejects.toBeInstanceOf(
-			TenantIsolationError,
-		)
-	})
-
-	it('loadMessages cross-tenant → TenantIsolationError', async () => {
-		const { store, child } = await seedTenantAResources()
-		await store.appendMessage(child.id, createUserMessage('legit'), DEFAULT_TENANT)
-		await expect(store.loadMessages(child.id, OTHER_TENANT)).rejects.toBeInstanceOf(
-			TenantIsolationError,
-		)
 	})
 
 	it('drill(sessionId, OTHER_TENANT) on an existing session → TenantIsolationError (pattern doc §12.2 hard reject)', async () => {

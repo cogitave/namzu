@@ -1,6 +1,6 @@
-import { TokenBudget } from '../../../turn/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { generateTurnId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 /**
  * Shared test fixtures for the Task 10 integration coverage matrix.
  *
@@ -301,14 +301,19 @@ export function buildTaskContext(params: {
 	parentActor: ActorRef
 	depth?: number
 	budget?: number
-	parentRunId?: TurnId
+	parentTurnId?: TurnId
 }): AgentTaskContext {
+	const parentTurnId = params.parentTurnId ?? ('c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId)
 	return {
-		parentRunId: params.parentRunId ?? ('c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId),
+		parentSessionId: params.sessionId,
+		parentTurnId,
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: params.depth ?? 0,
-		budget: TokenBudget.create(params.budget ?? 100_000, params.parentRunId ?? budgetRunId()),
+		budget: SessionTokenBudget.create(params.budget ?? 100_000, {
+			rootSessionId: params.sessionId,
+			rootTurnId: parentTurnId,
+		}),
 		tenantId: params.tenantId,
 		topicId: params.topicId,
 		sessionId: params.sessionId,

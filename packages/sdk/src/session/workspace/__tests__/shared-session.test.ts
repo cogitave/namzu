@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { SharedSessionWorkspace } from '../shared-run.js'
+import { SharedSessionWorkspace } from '../shared-session.js'
 
 describe('SharedSessionWorkspace', () => {
 	it('creates a canonical workspace manifest with runtime-visible paths', async () => {
@@ -16,7 +16,7 @@ describe('SharedSessionWorkspace', () => {
 		})
 
 		const manifest = await workspace.readManifest()
-		expect(manifest.kind).toBe('shared-run-workspace')
+		expect(manifest.kind).toBe('shared-session-workspace')
 		expect(manifest.label).toBe('Cowork task')
 		expect(manifest.paths).toMatchObject({
 			root: '/mnt/user-data/outputs/_work',

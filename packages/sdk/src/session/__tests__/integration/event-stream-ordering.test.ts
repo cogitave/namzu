@@ -1,10 +1,9 @@
-import { TokenBudget } from '../../../turn/token-budget.js'
-import { generateTurnId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 /**
- * Integration — event stream ordering + lineage + schemaVersion envelope.
+ * Integration — event stream ordering + lineage.
  *
  * Covers roadmap §5 invariants:
- *   - §10.1 schemaVersion: 3 on every sub-session SessionEvent
  *   - §10.3 tree-scoped monotonic ordering by (rootSessionId, eventId)
  *   - §10.3 depth filter ('self' vs 'tree') at subscribe time
  *   - §10.4 lineage stamped on every sub-session event with parent + root + depth
@@ -18,7 +17,7 @@ import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import type { AgentManager } from '../../../manager/agent/lifecycle.js'
 import type { AgentInput, BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
-import type { TurnId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/events.js'
 import { ZERO_COST } from '../../../utils/cost.js'
@@ -33,47 +32,7 @@ import {
 	seedActiveParent,
 } from './_fixtures.js'
 
-describe('Integration — event stream ordering + lineage + schemaVersion', () => {
-	it('every sub-session SessionEvent carries schemaVersion: 3', async () => {
-		const harness = buildHarness()
-		const { project, thread, session, actor } = await seedActiveParent(harness)
-		harness.registry.register(buildDefinition(buildAgent('worker')))
-
-		const captured: SessionEvent[] = []
-		const task = await harness.manager.sendMessage(
-			buildSendMessageOptions({
-				agentId: 'worker',
-				parentSessionId: session.id,
-				projectId: project.id,
-				tenantId: DEFAULT_TENANT,
-				parentActor: actor,
-			}),
-			buildTaskContext({
-				sessionId: session.id,
-				projectId: project.id,
-				topicId: thread.id,
-				tenantId: DEFAULT_TENANT,
-				parentActor: actor,
-			}),
-			(ev) => {
-				captured.push(ev)
-			},
-		)
-		await harness.manager.waitForCompletion(task.taskId)
-
-		// Every sub-session lifecycle event is stamped with schemaVersion: 3.
-		const subSessionEvents = captured.filter(
-			(e) =>
-				e.type === 'child_session_spawned' ||
-				e.type === 'child_session_messaged' ||
-				e.type === 'child_session_idled',
-		)
-		expect(subSessionEvents.length).toBeGreaterThan(0)
-		for (const ev of subSessionEvents) {
-			expect(ev.schemaVersion).toBe(3)
-		}
-	})
-
+describe('Integration — event stream ordering + lineage', () => {
 	it('every sub-session event carries lineage { parentSessionId, rootSessionId, depth }', async () => {
 		const harness = buildHarness()
 		const { project, thread, session, actor } = await seedActiveParent(harness)
@@ -156,11 +115,15 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						},
 					},
 					{
-						parentRunId: '8cc97616-d576-4130-b20c-5a1c2a2ad7c2' as TurnId,
+						parentSessionId: childSessionId,
+						parentTurnId: '8cc97616-d576-4130-b20c-5a1c2a2ad7c2' as TurnId,
 						parentAgentId: 'mid',
 						parentAbortController: new AbortController(),
 						depth: 1,
-						budget: TokenBudget.create(10_000, budgetRunId()),
+						budget: SessionTokenBudget.create(10_000, {
+							rootSessionId: generateSessionId(),
+							rootTurnId: generateTurnId(),
+						}),
 						tenantId: config.tenantId,
 						topicId: config.topicId,
 						sessionId: childSessionId,
@@ -178,6 +141,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 				await manager.waitForCompletion(task2.taskId)
 
 				return {
+					sessionId: config.sessionId as SessionId,
 					turnId: '4d918726-00c0-4f5b-a4d0-54b188151122' as TurnId,
 					status: 'completed',
 					usage: { ...EMPTY_TOKEN_USAGE },
@@ -281,11 +245,15 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						},
 					},
 					{
-						parentRunId: 'f64c42f1-6cc3-4570-b4d4-3c238b349f53' as TurnId,
+						parentSessionId: config.sessionId,
+						parentTurnId: 'f64c42f1-6cc3-4570-b4d4-3c238b349f53' as TurnId,
 						parentAgentId: 'mid',
 						parentAbortController: new AbortController(),
 						depth: 1,
-						budget: TokenBudget.create(10_000, budgetRunId()),
+						budget: SessionTokenBudget.create(10_000, {
+							rootSessionId: generateSessionId(),
+							rootTurnId: generateTurnId(),
+						}),
 						tenantId: config.tenantId,
 						topicId: config.topicId,
 						sessionId: config.sessionId,
@@ -302,6 +270,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 				)
 				await harness.manager.waitForCompletion(inner.taskId)
 				return {
+					sessionId: config.sessionId as SessionId,
 					turnId: '8c9192e7-6500-4e97-b1e4-a95ae35eaec1' as TurnId,
 					status: 'completed',
 					usage: { ...EMPTY_TOKEN_USAGE },
@@ -358,24 +327,24 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		expect(outerDepths.every((d) => d === 1)).toBe(true)
 	})
 
-	it('run_started and other core RunEvents also carry schemaVersion: 3 when stamped by the child listener wrapper', async () => {
-		// The listener wrapper in `manager/agent/lifecycle.ts#wrapChildListener`
-		// stamps `schemaVersion: 3` + `lineage` on EVERY event emitted inside
-		// the child's run. Core events that pass through the wrapped listener
-		// therefore inherit the envelope even though they have no lineage in
-		// their own type definition.
+	it('turn_started and other core SessionEvents also carry lineage when relayed by the child listener wrapper', async () => {
+		// The listener wrapper in `manager/agent/lifecycle.ts` stamps `lineage`
+		// on EVERY event emitted inside the child's turn. Core events that pass
+		// through the wrapped listener therefore inherit it even though they
+		// have no lineage in their own type definition.
 		const harness = buildHarness()
 		const { project, thread, session, actor } = await seedActiveParent(harness)
 
 		const leafAgent = buildAgentCustom(
 			'leaf-emit',
-			async (_i, _c, listener): Promise<BaseAgentResult> => {
+			async (_i, config, listener): Promise<BaseAgentResult> => {
 				// Emit a core event inside the child's run via the listener passed in.
 				await listener?.({
 					type: 'turn_started',
 					turnId: '2dfdb2e2-390f-47fd-9213-65d80ee062af' as TurnId,
 				})
 				return {
+					sessionId: config.sessionId as SessionId,
 					turnId: '2dfdb2e2-390f-47fd-9213-65d80ee062af' as TurnId,
 					status: 'completed',
 					usage: { ...EMPTY_TOKEN_USAGE },
@@ -411,10 +380,13 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		)
 		await harness.manager.waitForCompletion(task.taskId)
 
-		const runStarted = captured.find((e) => e.type === 'turn_started')
-		expect(runStarted).toBeDefined()
-		if (runStarted && 'schemaVersion' in runStarted) {
-			expect(runStarted.schemaVersion).toBe(3)
-		}
+		const turnStarted = captured.find((e) => e.type === 'turn_started')
+		expect(turnStarted).toBeDefined()
+		expect(turnStarted && 'lineage' in turnStarted ? turnStarted.lineage : undefined).toMatchObject(
+			{
+				parentSessionId: session.id,
+				depth: 1,
+			},
+		)
 	})
 })
