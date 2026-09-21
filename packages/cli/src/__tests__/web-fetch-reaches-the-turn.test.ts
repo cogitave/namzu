@@ -133,7 +133,7 @@ async function drive(
 	const contributions = call.promptContributions as PromptContributionRegistry
 	return {
 		session,
-		runConfig: call.runConfig as { webSearch?: { mode: string } },
+		turnConfig: call.turnConfig as { webSearch?: { mode: string } },
 		toolNames: tools.listNames(),
 		childTools: childToolBuilders.at(-1)?.(),
 		web: call.web as { fetch?: unknown } | undefined,
@@ -156,7 +156,7 @@ describe('web.fetch', () => {
 
 		expect(turn.toolNames).not.toContain('web_fetch')
 		expect(turn.toolNames).not.toContain('web_search')
-		expect(turn.runConfig.webSearch).toEqual({ mode: 'live' })
+		expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
 		expect(turn.web).toBeUndefined()
 		expect(turn.hasGuidance).toBe(false)
 	})
@@ -172,13 +172,13 @@ describe('web.fetch', () => {
 		const turn = await drive({ fetch: true })
 
 		expect(turn.toolNames).not.toContain('web_search')
-		expect(turn.runConfig.webSearch).toEqual({ mode: 'live' })
+		expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
 	})
 })
 
 it('passes explicit hosted search to the run without mounting a local search function', async () => {
 	const turn = await drive({ search: 'live', backend: 'native' })
-	expect(turn.runConfig.webSearch).toEqual({ mode: 'live' })
+	expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
 	expect(turn.toolNames).not.toContain('web_search')
 	expect(turn.web).toBeUndefined()
 	await turn.session.close()
@@ -186,7 +186,7 @@ it('passes explicit hosted search to the run without mounting a local search fun
 
 it('keeps hosted search absent when switched off', async () => {
 	const turn = await drive({ search: 'off' })
-	expect(turn.runConfig.webSearch).toBeUndefined()
+	expect(turn.turnConfig.webSearch).toBeUndefined()
 	await turn.session.close()
 })
 
@@ -217,6 +217,6 @@ it.each([{ search: 'off' as const }, { search: 'cached' as const, backend: 'nati
 it('preserves an explicit common backend even on a native-capable model', async () => {
 	const turn = await drive({ backend: 'exa' })
 	expect(turn.toolNames).toContain('web_search')
-	expect(turn.runConfig.webSearch).toBeUndefined()
+	expect(turn.turnConfig.webSearch).toBeUndefined()
 	await turn.session.close()
 })

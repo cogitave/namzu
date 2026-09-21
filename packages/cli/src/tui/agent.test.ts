@@ -212,7 +212,7 @@ describe('toAgentEvent', () => {
 		})
 	})
 
-	it('maps run_completed to done and run_failed to error', () => {
+	it('maps turn_completed to done and turn_failed to error', () => {
 		expect(
 			toAgentEvent(
 				{
@@ -222,7 +222,9 @@ describe('toAgentEvent', () => {
 				} as unknown as SessionEvent,
 				presenter,
 			),
-		).toEqual({ kind: 'done', text: 'ok' })
+			// The session and the turn travel with the answer, so a host can
+			// say which conversation and which turn it closes.
+		).toEqual({ kind: 'done', sessionId, turnId, text: 'ok' })
 		expect(
 			toAgentEvent(
 				{
@@ -251,6 +253,8 @@ describe('toAgentEvent', () => {
 			// that cost nothing from one nobody could price.
 		).toEqual({
 			kind: 'usage',
+			sessionId,
+			turnId,
 			totalTokens: 1234,
 			cost: { totalCost: 0.0456, cacheDiscount: 0, unpricedTokens: 0 },
 		})

@@ -4045,7 +4045,7 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // unbounded context growth on long ones.
 //
 // `contextWindowTokens` is deliberately omitted: the SDK resolves the window
-// from `runConfig.model`, which is the value the user actually chose. Pinning
+// from `turnConfig.model`, which is the value the user actually chose. Pinning
 // a number here would fix one window across every model the CLI can talk to.
 const COMPACTION_CONFIG = {
 	strategy: 'salience' as const,

@@ -10,7 +10,7 @@
  * string in every assertion. These two do.
  */
 
-import { existsSync, lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -126,13 +126,18 @@ describe('createAgentSession runs where it is told to', () => {
 				stateRoot,
 				scope: parentScope,
 			})
-			const projectRoot = stateRoot
+			const projects = join(stateRoot, 'projects')
+			const [slug, ...others] = readdirSync(projects)
 
 			expect(session.hasProvider).toBe(true)
-			expect(existsSync(join(stateRoot, 'projects'))).toBe(false)
-			expect(lstatSync(projectRoot).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(projectRoot, 'memory')).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(projectRoot, 'tenants')).mode & 0o777).toBe(0o700)
+			// One project directory, private, and everything the session keeps
+			// (memory, session logs, their side directories) sits inside it.
+			expect(others).toEqual([])
+			expect(lstatSync(projects).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(projects, String(slug))).mode & 0o777).toBe(0o700)
+			// No run-era trees beside it.
+			expect(existsSync(join(stateRoot, 'memory'))).toBe(false)
+			expect(existsSync(join(stateRoot, 'tenants'))).toBe(false)
 			expect(existsSync(join(workDir, '.namzu'))).toBe(false)
 			await session.close()
 		},

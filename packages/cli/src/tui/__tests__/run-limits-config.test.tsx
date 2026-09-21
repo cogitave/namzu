@@ -142,7 +142,7 @@ it('opens with unlimited values when no file sets limits and leaves them unchang
 	harness.stdin.write('\u001b')
 	await tick()
 	await command(harness, '/config limits time')
-	await vi.waitFor(() => expect(harness.lastFrame()).toContain('Run duration (ms; 0 = unlimited)'))
+	await vi.waitFor(() => expect(harness.lastFrame()).toContain('Turn duration (ms; 0 = unlimited)'))
 	harness.stdin.write('\u0015')
 	await tick()
 	harness.stdin.write('2h')

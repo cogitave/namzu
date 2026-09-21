@@ -15,6 +15,7 @@ import type { CommandContext } from '../types.js'
 // touches a real `.namzu` store; `resolveConversation` returning null is the
 // "no such session" path, which is what makes the handler terminate.
 vi.mock('../../integrations/sessions/store.js', () => ({
+	closeSessions: vi.fn(),
 	openSessions: vi.fn(async () => ({}) as never),
 	resolveConversation: vi.fn(async () => null),
 	loadConversation: vi.fn(async () => []),

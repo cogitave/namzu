@@ -40,9 +40,9 @@ vi.mock('../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async (options: Record<string, unknown>) => {
 		subagentOptions.push(options)
 		return {
-			gatewayForRun: async () => ({}) as never,
-			completionInboxForRun: async () => new (await import('@namzu/sdk')).CompletionInbox(),
-			releaseRun: async () => {},
+			gatewayForTurn: async () => ({}) as never,
+			completionInboxForTurn: async () => new (await import('@namzu/sdk')).CompletionInbox(),
+			releaseTurn: async () => {},
 			agentTool: {
 				name: 'Agent',
 				description: 'stub',

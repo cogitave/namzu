@@ -8,6 +8,7 @@ import { providersJSONCommand, runStreamCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
 
 vi.mock('../../integrations/sessions/store.js', () => ({
+	closeSessions: vi.fn(),
 	openSessions: vi.fn(async () => ({}) as never),
 	resolveConversation: vi.fn(async () => 'conv-1' as never),
 	loadConversation: vi.fn(async () => []),

@@ -111,9 +111,9 @@ vi.mock('../../integrations/mcp/servers.js', async (importOriginal) => {
 
 vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
-		gatewayForRun: async () => ({}) as never,
-		completionInboxForRun: async () => new (await import('@namzu/sdk')).CompletionInbox(),
-		releaseRun: async () => {},
+		gatewayForTurn: async () => ({}) as never,
+		completionInboxForTurn: async () => new (await import('@namzu/sdk')).CompletionInbox(),
+		releaseTurn: async () => {},
 		agentTool: {
 			name: operations.subagentToolName,
 			description: 'stub',
@@ -329,8 +329,11 @@ describe('AgentSession close owns its live work', () => {
 		const compactOutcome = session.compact([]).catch((error: unknown) => error)
 		const resumeOutcome = session
 			.resumeDurable({
+				// A different turn from the one `send` is running: one turn
+				// cannot be streamed and resumed at once, and the session's
+				// review channels are keyed by turn.
 				entry: {
-					turnId: '87f8e385-8e27-4622-ba76-750282582c15',
+					turnId: '0199a7c1-2d3e-7f40-8a51-b62c73d84e95',
 					sessionId: 'e987235a-edbf-4a98-bff1-f27a58cd7862',
 					projectId: '242a64d9-0216-4eb0-8d5d-cb832ccd4c21',
 					tenantId: 'a88f05eb-ba3a-4fef-9942-801a712acff6',

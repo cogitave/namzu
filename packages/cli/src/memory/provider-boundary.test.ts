@@ -164,7 +164,7 @@ it.each([undefined, false])('recalls a persisted body-only fact with recall=%s',
 	const state = await openSessions(cwd, { stateRoot: appHome })
 	const store = new DiskMemoryStore({
 		baseDir: state.root,
-		directory: join(state.root, 'memory', state.projectId),
+		directory: state.paths.memoryDir(),
 	})
 	await store.create({
 		title: 'Earlier investigation',
@@ -186,7 +186,7 @@ it.each([undefined, false])('recalls a persisted body-only fact with recall=%s',
 it('keeps automatic recall inside its owning project under the same application home', async () => {
 	const owner = await makeSession()
 	await new MarkdownMemoryStore({
-		directory: join(owner.state.root, 'memory', owner.state.projectId),
+		directory: owner.state.paths.memoryDir(),
 	}).create({
 		title: 'Earlier investigation',
 		summary: 'An implementation detail',

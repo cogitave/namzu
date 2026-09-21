@@ -139,7 +139,7 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 		model: PROVIDER_REGISTRY.codex.defaultModel,
 	})
 	expect(runCalls.queries.map(providerToken)).toEqual([secondToken])
-	expect(runCalls.queries[0]?.runConfig).toMatchObject({
+	expect(runCalls.queries[0]?.turnConfig).toMatchObject({
 		model: PROVIDER_REGISTRY.codex.defaultModel,
 	})
 

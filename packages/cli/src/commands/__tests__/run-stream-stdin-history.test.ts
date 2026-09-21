@@ -43,6 +43,7 @@ vi.mock('../../tui/agent.js', () => ({
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
+	closeSessions: vi.fn(),
 	openSessions: vi.fn(async () => ({
 		root: '/state',
 		backend: 'central',
