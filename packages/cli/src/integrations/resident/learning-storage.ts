@@ -2,18 +2,23 @@ import { existsSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import { SqliteResidentLearningStore } from '@namzu/sdk'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
-import type { CliResident } from './storage.js'
+import { type CliResident, residentDirectoryFor } from './storage.js'
 
-/** One installation database; SQL scope replaces a directory/index per experiment. */
+/**
+ * One database per resident agent, beside its runner state:
+ * `projects/<slug>/residents/<agent-key>/learning.sqlite`, with the artifacts
+ * it references in `artifacts/`. A database from the old installation-wide
+ * location is never opened; the SDK refuses one at an older schema version.
+ */
 export function residentLearningStore(
 	resident: CliResident,
 	readOnly = false,
 ): SqliteResidentLearningStore | null {
-	const databasePath = join(resident.root, 'state', 'learning.sqlite')
-	const learningRoot = join(resident.root, 'learning')
-	const artifactsPath = join(learningRoot, 'artifacts')
+	const agentRoot = residentDirectoryFor(resident.root, resident.slug, resident.agentKey)
+	const databasePath = join(agentRoot, 'learning.sqlite')
+	const artifactsPath = join(agentRoot, 'artifacts')
 	if (readOnly) {
-		for (const directory of [join(resident.root, 'state'), learningRoot, artifactsPath]) {
+		for (const directory of [agentRoot, artifactsPath]) {
 			if (!existsSync(directory)) continue
 			const entry = lstatSync(directory)
 			if (!entry.isDirectory() || entry.isSymbolicLink())
@@ -21,9 +26,7 @@ export function residentLearningStore(
 		}
 		if (!existsSync(databasePath)) return null
 	} else {
-		ensurePrivateStateDirectory(resident.root, 'state')
-		ensurePrivateStateDirectory(resident.root, 'learning')
-		ensurePrivateStateDirectory(learningRoot, 'artifacts')
+		ensurePrivateStateDirectory(agentRoot, 'artifacts')
 	}
 	for (const file of [
 		databasePath,

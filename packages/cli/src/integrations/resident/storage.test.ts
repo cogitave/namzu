@@ -5,6 +5,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	realpathSync,
 	renameSync,
 	statSync,
 	symlinkSync,
@@ -12,13 +13,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { generateProjectId, generateTenantId } from '@namzu/sdk'
+import { generateProjectId, generateTenantId, hashedSlugForCwd, slugForCwd } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { openSessions } from '../sessions/store.js'
 import { loadIdentity } from '../state/identity.js'
-import { type CliResident, createResident, lookupResident } from './storage.js'
+import { type CliResident, createResident, findResidentProject, lookupResident } from './storage.js'
 
 let directory: string
 let stateRoot: string
@@ -37,6 +38,11 @@ afterEach(() => {
 	vi.unstubAllEnvs()
 	removeTempDir(directory)
 })
+
+/** Where the workspace's project is filed: `projects/<slug>/` under the home. */
+function projectDir(): string {
+	return join(stateRoot, 'projects', slugForCwd(realpathSync(workspace)))
+}
 
 function bindingPath(resident: CliResident): string {
 	return join(dirname(resident.artifactsRoot), 'binding.json')
@@ -87,7 +93,8 @@ describe('CLI resident project storage', () => {
 			root: stateRoot,
 			projectId: sessions.projectId,
 			tenantId: sessions.tenantId,
-			artifactsRoot: join(sessions.root, 'residents', sessions.projectId, 'default', 'attempts'),
+			slug: slugForCwd(realpathSync(workspace)),
+			artifactsRoot: join(projectDir(), 'residents', 'default', 'attempts'),
 		})
 		expect(await resident.agenda.read()).toMatchObject({
 			tenantId: sessions.tenantId,
@@ -107,7 +114,7 @@ describe('CLI resident project storage', () => {
 		expect(existsSync(join(workspace, '.namzu'))).toBe(false)
 		if (process.platform !== 'win32') {
 			for (const path of [
-				join(sessions.root, 'residents', sessions.projectId),
+				join(projectDir(), 'residents'),
 				dirname(resident.artifactsRoot),
 				resident.artifactsRoot,
 			]) {
@@ -206,7 +213,7 @@ describe('CLI resident project storage', () => {
 
 	it('returns a binding without an agenda read-only, and mutation finishes interrupted creation', async () => {
 		const sessions = await openSessions(workspace)
-		const agentRoot = join(sessions.root, 'residents', sessions.projectId, 'default')
+		const agentRoot = join(projectDir(), 'residents', 'default')
 		mkdirSync(agentRoot, { recursive: true })
 		writeFileSync(
 			join(agentRoot, 'binding.json'),
@@ -226,6 +233,32 @@ describe('CLI resident project storage', () => {
 		const repaired = await createResident(workspace, 'default')
 		expect((await repaired.agenda.read())?.revision).toBe(1)
 		expect(existsSync(repaired.artifactsRoot)).toBe(true)
+	})
+
+	it('finds a project filed under the hashed slug, and never creates one', async () => {
+		const canonical = realpathSync(workspace)
+		const plain = join(stateRoot, 'projects', slugForCwd(canonical))
+		const hashed = join(stateRoot, 'projects', hashedSlugForCwd(canonical))
+		const document = (cwd: string, slug: string) =>
+			JSON.stringify({
+				v: 1,
+				kind: 'project',
+				projectId: generateProjectId(),
+				cwd,
+				slug,
+				createdAt: new Date(0).toISOString(),
+			})
+		expect(await findResidentProject(stateRoot, canonical)).toBeNull()
+		expect(existsSync(join(stateRoot, 'projects'))).toBe(false)
+		// Two directories that slug alike: the plain slug belongs to the other.
+		mkdirSync(plain, { recursive: true })
+		writeFileSync(join(plain, 'project.json'), document('/elsewhere', slugForCwd(canonical)))
+		expect(await findResidentProject(stateRoot, canonical)).toBeNull()
+		mkdirSync(hashed, { recursive: true })
+		writeFileSync(join(hashed, 'project.json'), document(canonical, hashedSlugForCwd(canonical)))
+		expect(await findResidentProject(stateRoot, canonical)).toMatchObject({
+			slug: hashedSlugForCwd(canonical),
+		})
 	})
 
 	it.each(['', '../escape', 'Upper', '-bad', 'with space', 'a/b', 'a\\b', 'a\n', 'x'.repeat(65)])(

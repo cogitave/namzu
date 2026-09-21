@@ -2,10 +2,11 @@ import { constants } from 'node:fs'
 import { open, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import {
+	type JsonClaimReadRequest,
 	type JsonClaimRequirement,
-	type RunId,
+	type TurnId,
 	createJsonClaimVerifier,
-	generateRunId,
+	generateTurnId,
 } from '@namzu/sdk'
 
 export interface ResidentVerificationSpec {
@@ -88,7 +89,7 @@ function validateSpec(value: unknown): ResidentVerificationSpec {
 	// Validate the shared pointer/value/size contract before admitting a model.
 	createJsonClaimVerifier({
 		scope: 'configuration',
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		requirements: spec.claims,
 		observe: async () => {
 			throw new Error('Configuration validation never observes sources.')
@@ -116,14 +117,14 @@ export function residentClaimVerifier(
 	spec: ResidentVerificationSpec,
 	cwd: string,
 	scope: string,
-	runId: RunId,
+	turnId: TurnId,
 ) {
 	const snapshot = validateSpec(spec)
 	const verifier = createJsonClaimVerifier({
 		scope,
-		runId,
+		turnId,
 		requirements: snapshot.claims,
-		observe: async (source, request) => {
+		observe: async (source: string, request: JsonClaimReadRequest) => {
 			request.signal.throwIfAborted()
 			const root = await realpath(cwd)
 			if (root !== resolve(cwd)) throw new Error('Verification workspace identity changed.')

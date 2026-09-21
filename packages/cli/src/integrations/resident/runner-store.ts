@@ -6,7 +6,7 @@ import { type ProjectId, ResidentConflictError, type TenantId, isEntityId } from
 
 import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
-import type { CliResident } from './storage.js'
+import { type CliResident, residentDirectoryFor } from './storage.js'
 
 export interface RunnerRecord {
 	readonly version: 1
@@ -70,12 +70,13 @@ function location(resident: CliResident): { base: string; runner: string; revisi
 		!isEntityId(resident.tenantId, 'tenant') ||
 		!isEntityId(resident.projectId, 'project') ||
 		!/^[a-z0-9][a-z0-9_-]{0,63}$/u.test(resident.agentKey) ||
+		!/^[A-Za-z0-9-]+$/u.test(resident.slug) ||
 		!canonicalPath(resident.root) ||
 		!canonicalPath(resident.cwd)
 	) {
 		throw new Error('Invalid resident scope for runner ownership.')
 	}
-	const base = join(resident.root, 'residents', resident.projectId, resident.agentKey)
+	const base = residentDirectoryFor(resident.root, resident.slug, resident.agentKey)
 	if (resident.artifactsRoot !== join(base, 'attempts')) {
 		throw new Error('Resident runner path does not match its bound project and agent.')
 	}
@@ -100,8 +101,9 @@ function revisions(resident: CliResident): number[] {
 	let current = resident.root
 	if (!realDirectory(current)) return []
 	for (const segment of [
+		'projects',
+		resident.slug,
 		'residents',
-		resident.projectId,
 		resident.agentKey,
 		'runner',
 		'revisions',

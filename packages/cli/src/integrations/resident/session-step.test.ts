@@ -8,7 +8,8 @@ import {
 	type ResidentLearningState,
 	type ResidentStepContext,
 	createResidentStepContributions,
-	generateRunId,
+	generateSessionId,
+	generateTurnId,
 	hashResidentSkill,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -96,6 +97,7 @@ async function fixture(config: NamzuCliConfig = {}, args: readonly string[] = []
 		sessions,
 		flags: parseRunFlags(args),
 		artifactsRoot: join(root, 'receipts'),
+		projectSlug: '-workspace',
 	}
 	return { agenda, pursuit, options, step: () => createResidentSessionStep(options) }
 }
@@ -246,7 +248,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 			mcpServers: { tools: { command: 'fixture-server' } },
 			plugins: { enabled: true, allowedScopes: ['project'] },
 			web: { search: 'off', fetch: true },
-			hooks: { run_start: [{ command: 'fixture-hook' }] },
+			hooks: { turn_start: [{ command: 'fixture-hook' }] },
 			compaction: { strategy: 'structured', contextWindowTokens: 24_000 },
 			memory: { recall: true },
 			limits: { maxIterations: 12, tokenBudget: 300 },
@@ -312,14 +314,19 @@ describe('normal CLI runtime reaches a resident admission', () => {
 			limits: { maxIterations: 4, tokenBudget: 200 },
 			sandbox: config.sandbox,
 			additionalDirectories: [join(root, 'shared')],
-			onRunEvent: mocks.listener,
+			onSessionEvent: mocks.listener,
 		})
 		expect(options.rules).toHaveLength(1)
 		expect(options).not.toHaveProperty('conversationSessions')
 		expect(options).not.toHaveProperty('sessionGoals')
 		expect(options).not.toHaveProperty('enableComputerUse')
 		const sent = send.mock.calls[0][1]!
-		expect(sent).toMatchObject({ effort: 'low', permissionMode: 'plan' })
+		expect(sent).toMatchObject({
+			effort: 'low',
+			permissionMode: 'plan',
+			// A resident step is its own turn, and the log records which kind.
+			origin: { protocol: 'resident', kind: 'resident-step' },
+		})
 		expect(sent.signal).toBeInstanceOf(AbortSignal)
 		expect(renderedResidentContext(sent)).toContain('Prefer retained source references.')
 		expect(renderedResidentContext(sent)).toContain('Carefully check evidence.')
@@ -331,7 +338,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		expect(start).toMatchObject({
 			pursuitId: f.pursuit.id,
 			sessionId: options.scope!.sessionId,
-			runId: sent.runId,
+			turnId: sent.turnId,
 			cwd: f.options.cwd,
 			provider: 'mock',
 			model: 'mock-model',
@@ -384,7 +391,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		await host.run({ signal, maxSteps: 1 })
 		expect(sent).toHaveLength(2)
 		expect(renderedResidentContext(sent[1])).toContain('First step evidence.')
-		expect(sent[0].runId).not.toBe(sent[1].runId)
+		expect(sent[0].turnId).not.toBe(sent[1].turnId)
 		expect(mocks.create.mock.calls[0][2].scope.sessionId).not.toBe(
 			mocks.create.mock.calls[1][2].scope.sessionId,
 		)
@@ -448,7 +455,13 @@ describe('the SDK reviewer owns decision repair and configured verification', ()
 					send: (_messages, sendOptions) =>
 						(async function* () {
 							const review = creationOptions().reviewAnswer!
-							const context = { runId: sendOptions!.runId!, iteration: 1, messages: [], signal }
+							const context = {
+								sessionId: creationOptions().scope!.sessionId,
+								turnId: sendOptions!.turnId!,
+								iteration: 1,
+								messages: [],
+								signal,
+							}
 							let text = answer
 							if (scenario !== 'bypass') {
 								expect(
@@ -510,7 +523,13 @@ describe('the SDK reviewer owns decision repair and configured verification', ()
 		await new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 })
 		const { reviewAnswer, maxAnswerReviews } = creationOptions()
 		expect(maxAnswerReviews).toBe(2)
-		const context = { runId: generateRunId(), iteration: 1, messages: [], signal }
+		const context = {
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
+			iteration: 1,
+			messages: [],
+			signal,
+		}
 		expect(await reviewAnswer!('done', context)).toMatchObject({
 			accept: false,
 			feedback: expect.stringContaining('JSON object'),
@@ -592,7 +611,14 @@ describe('failed or interrupted work stays unresolved', () => {
 			{ kind: 'error', message: 'Provider failed' },
 			{ kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) },
 		],
-		[{ kind: 'paused', runId: 'run', checkpointId: 'checkpoint', reason: 'Provider unavailable' }],
+		[
+			{
+				kind: 'paused',
+				turnId: 'turn',
+				checkpointId: 'checkpoint',
+				reason: 'Provider unavailable',
+			},
+		],
 	] satisfies AgentEvent[][])(
 		'keeps the claim for an unfinished stream (%#)',
 		async (...events) => {

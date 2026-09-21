@@ -7,11 +7,13 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { writeResidentStepLog } from './__fixtures__/resident-step-log.js'
 import { inspectCliResident } from './inspection.js'
-import type { CliResident } from './storage.js'
+import { type CliResident, residentsRootFor } from './storage.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -25,10 +27,12 @@ async function fixture() {
 	const tenantId = generateTenantId()
 	const projectId = generateProjectId()
 	const agentKey = 'reviewer'
-	const agenda = new DiskResidentAgenda(join(root, 'residents', projectId), { tenantId, agentKey })
+	const slug = '-workspace'
+	const agenda = new DiskResidentAgenda(residentsRootFor(root, slug), { tenantId, agentKey })
 	const artifactsRoot = join(root, 'attempts')
 	const resident: CliResident = {
 		root,
+		slug,
 		tenantId,
 		projectId,
 		agentKey,
@@ -43,11 +47,10 @@ async function fixture() {
 	const claim = await agenda.execution(pursuit.id).claim(pursuit.state, Date.now())
 	const current = async () => (await agenda.read())!
 	const sessionId = generateSessionId()
-	const runId = randomUUID()
-	const identity = { version: 1, pursuitId: pursuit.id, claimId: claim.claimId!, sessionId, runId }
+	const turnId = generateTurnId()
+	const identity = { version: 1, pursuitId: pursuit.id, claimId: claim.claimId!, sessionId, turnId }
 	const startPath = join(artifactsRoot, claim.claimId!, 'start.json')
 	const finishPath = join(artifactsRoot, claim.claimId!, 'finish.json')
-	const runPath = join(root, 'sessions', sessionId, 'runs', runId, 'run.json')
 	const budget = {
 		ownTokens: 120,
 		treeTokens: 300,
@@ -67,19 +70,24 @@ async function fixture() {
 		usage: { totalTokens: 120, cost: { totalCost: 0.02, unpricedTokens: 20 } },
 		budget,
 	}
-	const run = {
-		id: runId,
-		metadata: { scope: { tenantId, projectId, sessionId, runId } },
-		tokenUsage: { totalTokens: 120 },
-		budget,
-	}
+	/** The step's own session log: the ledger the receipts are checked against. */
+	const writeLog = (overrides: { projectId?: typeof projectId; settled?: boolean } = {}) =>
+		writeResidentStepLog({
+			home: root,
+			slug,
+			sessionId,
+			turnId,
+			projectId: overrides.projectId ?? projectId,
+			tenantId,
+			...(overrides.settled === false ? {} : { totalTokens: 120, budget }),
+		})
 	const save = async (path: string, value: unknown) => {
 		await mkdir(dirname(path), { recursive: true })
 		await writeFile(path, JSON.stringify(value))
 	}
 	await save(startPath, start)
 	await save(finishPath, finish)
-	await save(runPath, run)
+	const logPath = await writeLog()
 	const inspect = async () => inspectCliResident(resident, (await current()).revision)
 	const settle = async () =>
 		agenda
@@ -92,10 +100,10 @@ async function fixture() {
 		identity,
 		startPath,
 		finishPath,
-		runPath,
+		logPath,
+		writeLog,
 		start,
 		finish,
-		run,
 		save,
 		current,
 		inspect,
@@ -103,7 +111,7 @@ async function fixture() {
 	}
 }
 
-it('reads archived consumption through scoped run receipts without changing files', async () => {
+it('reads archived consumption through the step session log without changing files', async () => {
 	const f = await fixture()
 	await f.settle()
 	await f.resident.agenda.archive(await f.current(), { pursuitIds: [f.pursuit.id] })
@@ -122,7 +130,7 @@ it('reads archived consumption through scoped run receipts without changing file
 	expect(await readFile(f.finishPath, 'utf8')).toBe(before)
 })
 
-it('keeps abrupt-exit run usage provisional when finish.json is missing', async () => {
+it('keeps abrupt-exit turn usage provisional when finish.json is missing', async () => {
 	const f = await fixture()
 	await unlink(f.finishPath)
 	const { inspection } = await f.inspect()
@@ -155,11 +163,10 @@ it('manual reconciliation does not manufacture usage for an unexecuted admission
 it('rejects foreign project, copied claim, mismatched usage and corrupt receipts', async () => {
 	for (const mode of ['project', 'claim', 'usage', 'corrupt']) {
 		const f = await fixture()
-		if (mode === 'project')
-			await f.save(f.runPath, {
-				...f.run,
-				metadata: { scope: { ...f.run.metadata.scope, projectId: randomUUID() } },
-			})
+		if (mode === 'project') {
+			await unlink(f.logPath)
+			await f.writeLog({ projectId: generateProjectId() })
+		}
 		if (mode === 'claim') await f.save(f.finishPath, { ...f.finish, claimId: randomUUID() })
 		if (mode === 'usage')
 			await f.save(f.finishPath, { ...f.finish, usage: { ...f.finish.usage, totalTokens: 300 } })
@@ -194,10 +201,10 @@ it('counts only scope-matched recorded verification and never re-reads current s
 				pursuitId: f.pursuit.id,
 				claimId: f.claim.claimId,
 				sessionId: f.identity.sessionId,
-				runId: f.identity.runId,
+				turnId: f.identity.turnId,
 				revision: f.claim.revision,
 			}),
-			runId: f.identity.runId,
+			turnId: f.identity.turnId,
 			claims: { version: '1.0' },
 			observations: [
 				{ source: 'package.json', observedAt: 1500, bytes: 5, sha256: 'b'.repeat(64) },
@@ -243,4 +250,21 @@ it('a missing completion receipt, unresolved provider call or uncertain cleanup 
 		expect(inspection.usageComplete).toBe(false)
 		expect(inspection.recorded.ownTokens).toBe(120)
 	}
+})
+
+it('reports an unsettled turn with only its receipt usage, never as final', async () => {
+	const f = await fixture()
+	await unlink(f.logPath)
+	await f.writeLog({ settled: false })
+	const { inspection } = await f.inspect()
+	expect(inspection.attempts[0]?.receipt).toMatchObject({ ownTokens: 120, usageFinal: false })
+	expect(inspection.usageComplete).toBe(false)
+})
+
+it('treats an attempt with no session log as missing, not as zero usage', async () => {
+	const f = await fixture()
+	await unlink(f.logPath)
+	const { inspection } = await f.inspect()
+	expect(inspection.attempts[0]?.receiptStatus).toBe('missing')
+	expect(inspection.unknown.ownUsageAttempts).toBe(1)
 })
