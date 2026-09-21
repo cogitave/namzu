@@ -239,6 +239,55 @@ describe('ensureSandboxSeed', () => {
 		expect(git(orphan, 'rev-parse', 'HEAD')).toBe(rewritten)
 	})
 
+	it('treats a changed pin as drift over the old checkout, never recording the new pin', async () => {
+		const pin = (commit: string): SandboxSeed => ({
+			name: 'dev',
+			repositories: [{ name: 'app', url: 'https://seed.test/app.git', commit }],
+		})
+		const sandbox = fakeSandbox(remotes)
+		const first = await ensureSandboxSeed(sandbox, pin(secondCommit), { root })
+		expect(first.repositories[0]).toEqual({ name: 'app', status: 'cloned', commit: secondCommit })
+		// The older pin is an ancestor of the checkout, which is not holding it.
+		await expect(ensureSandboxSeed(sandbox, pin(firstCommit), { root })).rejects.toMatchObject({
+			code: 'drift',
+			repository: 'app',
+			message: expect.stringMatching(/app is not checked out at its pinned commit/),
+		})
+		const reported = await ensureSandboxSeed(sandbox, pin(firstCommit), { root, onDrift: 'report' })
+		expect(reported.repositories).toEqual([
+			{ name: 'app', status: 'drifted', commit: secondCommit },
+		])
+		expect(readFileSync(join(root, 'app', 'README'), 'utf8')).toBe('app two\n')
+		const marker = JSON.parse(readFileSync(join(root, '.namzu/seed/dev.json'), 'utf8'))
+		expect(marker.commits.app).toBe(secondCommit)
+		// The recorded pin still holds by the ancestor rule.
+		const back = await ensureSandboxSeed(sandbox, pin(secondCommit), { root })
+		expect(back.repositories[0]?.status).toBe('present')
+	})
+
+	it('treats a ref-to-pin change as drift when the checkout is not the pinned commit', async () => {
+		const sandbox = fakeSandbox(remotes)
+		await ensureSandboxSeed(
+			sandbox,
+			{
+				name: 'dev',
+				repositories: [{ name: 'app', url: 'https://seed.test/app.git', ref: 'main', depth: 2 }],
+			},
+			{ root },
+		)
+		await expect(
+			ensureSandboxSeed(
+				sandbox,
+				{
+					name: 'dev',
+					repositories: [{ name: 'app', url: 'https://seed.test/app.git', commit: firstCommit }],
+				},
+				{ root },
+			),
+		).rejects.toMatchObject({ code: 'drift', repository: 'app' })
+		expect(readFileSync(join(root, 'app', 'README'), 'utf8')).toBe('app two\n')
+	})
+
 	it('treats a changed ref as drift and keeps the old checkout, never reporting it present', async () => {
 		// A branch 'old' at the first commit, beside main at the second.
 		const bare = join(remotes, 'app.git')

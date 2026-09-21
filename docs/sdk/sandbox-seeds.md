@@ -81,7 +81,9 @@ absent.
    checked out. The cost falls on the safe side: with no record under the ref,
    local commits on top of it are drift too, and so is a `--branch` clone
    whose `ref` is then removed from the seed, since such a clone has no
-   `origin/HEAD`.
+   `origin/HEAD`. A pin is held the same way: the ancestor rule applies only
+   to the pin the marker recorded; a new or changed pin (from another pin or
+   from a `ref`) must be exactly HEAD.
 2. **Drift is refused before anything is cloned** (`code: 'drift'`), so a
    refusal leaves the root as it was. A different origin, a rewritten history,
    a checkout of another branch or tag than the seed's `ref`, or a directory
@@ -89,7 +91,8 @@ absent.
    to `release` therefore refuses on a disk cloned from `main`, whether or not
    the clone carries `release`, instead of reporting the old checkout
    `present`; so does changing a pinned `commit` to a `ref`, behind or ahead of
-   the pin. Remove the directory to have the next call clone the new ref. A
+   the pin, and changing a pin to another commit, or a `ref` to a pin, when
+   HEAD is not exactly the new pin. Remove the directory to have the next call clone the new ref. A
    `ref` whose commit is exactly HEAD, such as naming `main` for a clone of the
    default branch `main`, is accepted and recorded. With
    `onDrift: 'report'` the repository is reported `drifted` and left alone.

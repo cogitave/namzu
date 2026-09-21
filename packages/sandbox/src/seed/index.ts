@@ -169,6 +169,10 @@ const DRIFT_STATES: ReadonlyMap<string, string> = new Map([
 		'ref',
 		"does not hold the seed's ref (the default branch when it names none): with no record under that ref, HEAD must be exactly the commit the ref names in the repository, and it is another branch, tag or commit",
 	],
+	[
+		'pin',
+		'is not checked out at its pinned commit: with no record of that pin, HEAD must be exactly the pinned commit, and it is another commit',
+	],
 	['occupied', 'is a directory that is not a git repository'],
 ])
 
@@ -384,14 +388,16 @@ rm -rf "$probe"
 
 // Arguments, per repository: dir, url, expected commit ('' for none), ref to
 // find in the repository when there is no expected commit ('' for none,
-// DEFAULT_BRANCH for the remote's default branch). A ref found that way must
+// DEFAULT_BRANCH for the remote's default branch), and '1' when the expected
+// commit is a pin the marker has no record of, which HEAD must then equal
+// exactly (the ancestor rule holds only for a pin this call recorded). A ref found that way must
 // be exactly HEAD: sharing a line of history with HEAD is not holding it, since
 // a clone deeper than 1 carries the tags in its history and a pinned commit's
 // full clone carries every remote branch. Prints '<state> <head>', and for
 // 'present' the commit it held HEAD to ('-' for none).
 const CHECK = `
-while [ "$#" -ge 4 ]; do
-	dir=$1; url=$2; want=$3; ref=$4; shift 4
+while [ "$#" -ge 5 ]; do
+	dir=$1; url=$2; want=$3; ref=$4; exact=$5; shift 5
 	if [ ! -e "$dir" ]; then printf 'missing -\\n'; continue; fi
 	if [ ! -e "$dir/.git" ]; then printf 'occupied -\\n'; continue; fi
 	origin=$(git -C "$dir" config --get remote.origin.url 2>/dev/null || true)
@@ -406,6 +412,8 @@ while [ "$#" -ge 4 ]; do
 		fi
 		if [ -z "$tip" ] || [ "$tip" != "$head" ]; then printf 'ref %s\\n' "$head"; continue; fi
 		want=$tip
+	elif [ -n "$want" ] && [ "$exact" = 1 ]; then
+		if [ "$want" != "$head" ]; then printf 'pin %s\\n' "$head"; continue; fi
 	elif [ -n "$want" ] && ! git -C "$dir" merge-base --is-ancestor "$want" HEAD 2>/dev/null; then
 		printf 'history %s\\n' "$head"; continue
 	fi
@@ -567,7 +575,14 @@ export async function ensureSandboxSeed(
 	const checkArgs: string[] = []
 	defined.repositories.forEach((repo, index) => {
 		const want = expected[index] as string
-		checkArgs.push(paths[index] as string, repo.url, want, refToFind(repo, want))
+		const unrecordedPin = repo.commit !== undefined && recorded.get(repo.name) !== repo.commit
+		checkArgs.push(
+			paths[index] as string,
+			repo.url,
+			want,
+			refToFind(repo, want),
+			unrecordedPin ? '1' : '',
+		)
 	})
 	const checked = await exec(CHECK, checkArgs)
 	if (checked.exitCode !== 0) {
@@ -656,7 +671,13 @@ export async function ensureSandboxSeed(
 		// its clone into place first. Ours is gone; check what is there the
 		// same way any present repository is checked, and say what it is.
 		const want = repo.commit ?? ''
-		const recheck = await exec(CHECK, [path, repo.url, want, refToFind(repo, want)])
+		const recheck = await exec(CHECK, [
+			path,
+			repo.url,
+			want,
+			refToFind(repo, want),
+			repo.commit !== undefined ? '1' : '',
+		])
 		const [again, peerHead, held] = recheck.stdout.trim().split(' ')
 		if (again !== 'present') {
 			const what = DRIFT_STATES.get(again ?? '') ?? 'could not be checked'
