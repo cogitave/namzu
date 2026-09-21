@@ -42,9 +42,9 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
 export function trajectoryScorer(): Scorer {
 	return {
 		name: 'trajectory',
-		score(run: EvalTurn, evalCase: EvalCase): Score {
+		score(turn: EvalTurn, evalCase: EvalCase): Score {
 			const expected = evalCase.expectedTools ?? []
-			const actual = run.toolCalls
+			const actual = turn.toolCalls
 
 			if (expected.length === 0 && actual.length === 0) {
 				return { score: 1, reason: 'no tools expected and none called' }
@@ -91,17 +91,17 @@ export function completionScorer(
 		// not, so there is no score between 0 and 1 for a mean to soften.
 		// Averaged in, a hard 0 here is carried by three good fuzzy scores.
 		severity: 'gate',
-		score(run: EvalTurn): Score {
-			if (run.error) {
-				return { score: 0, reason: `run failed: ${run.error}` }
+		score(turn: EvalTurn): Score {
+			if (turn.error) {
+				return { score: 0, reason: `run failed: ${turn.error}` }
 			}
-			const ok = run.stopReason !== undefined && acceptable.includes(run.stopReason)
+			const ok = turn.stopReason !== undefined && acceptable.includes(turn.stopReason)
 			return {
 				score: ok ? 1 : 0,
 				reason: ok
-					? `settled as ${run.stopReason}`
-					: `settled as ${run.stopReason ?? 'unknown'}, expected one of ${acceptable.join(', ')}`,
-				details: { stopReason: run.stopReason },
+					? `settled as ${turn.stopReason}`
+					: `settled as ${turn.stopReason ?? 'unknown'}, expected one of ${acceptable.join(', ')}`,
+				details: { stopReason: turn.stopReason },
 			}
 		},
 	}
@@ -116,8 +116,8 @@ export function completionScorer(
 export function stepBudgetScorer(maxSteps: number): Scorer {
 	return {
 		name: 'step-budget',
-		score(run: EvalTurn): Score {
-			const used = run.steps.length
+		score(turn: EvalTurn): Score {
+			const used = turn.steps.length
 			return {
 				score: used <= maxSteps ? 1 : Math.max(0, maxSteps / used),
 				reason:
@@ -137,8 +137,8 @@ export function containsScorer(...required: string[]): Scorer {
 		// A required fragment is required. Partial credit here reads as
 		// "most of the answer was there", which is not what was asked.
 		severity: 'gate',
-		score(run: EvalTurn): Score {
-			const text = run.output ?? ''
+		score(turn: EvalTurn): Score {
+			const text = turn.output ?? ''
 			const missing = required.filter((r) => !text.includes(r))
 			return {
 				score: required.length === 0 ? 1 : (required.length - missing.length) / required.length,
@@ -163,7 +163,7 @@ export function containsScorer(...required: string[]): Scorer {
  */
 export function customScorer(
 	name: string,
-	fn: (run: EvalTurn, evalCase: EvalCase) => Score | Promise<Score>,
+	fn: (turn: EvalTurn, evalCase: EvalCase) => Score | Promise<Score>,
 ): Scorer {
 	return { name, score: fn }
 }

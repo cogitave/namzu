@@ -2,16 +2,16 @@
  * Integration — `active → locked` illegal-transition rejection matrix per
  * pattern doc §5.1.
  *
- * A handoff request against a session whose current Run is `running`,
+ * A handoff request against a session whose current turn is `running`,
  * `awaiting_hitl`, `awaiting_hitl_resolution`, or `awaiting_subsession`
  * rejects with typed {@link HandoffLockRejected}. The reason enum maps:
- *   - running              → 'active_run'
+ *   - running              → 'active_turn'
  *   - awaiting_hitl        → 'pending_hitl'
  *   - awaiting_hitl_resol. → 'pending_hitl'
  *   - awaiting_subsession  → 'pending_subsession'
  *
  * This integration test wires the `TurnStatusResolver` seam into a full
- * single-handoff flow so the rejection triggers from the run-fan-in check
+ * single-handoff flow so the rejection triggers from the turn fan-in check
  * (§5.1), not just from a status precondition.
  */
 
@@ -37,7 +37,7 @@ import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
 function buildDeps(
 	store: InMemorySessionStore,
 	threadStore: InMemoryTopicStore,
-	runStatus?: TurnStatusResolver,
+	turnStatus?: TurnStatusResolver,
 ): SingleHandoffDeps {
 	const driver = new GitWorktreeDriver({
 		repoRoot: '/repo',
@@ -54,16 +54,16 @@ function buildDeps(
 		workspaceRegistry,
 		capacity: new DefaultCapacityValidator(store),
 		events,
-		// Supplied deliberately: this suite does not exercise Run fan-in, and
+		// Supplied deliberately: this suite does not exercise turn fan-in, and
 		// the default that used to stand in here answered `null` for every
 		// session — a check that could not fail.
-		runStatus: {
-			async blockingRun() {
+		turnStatus: {
+			async blockingTurn() {
 				return null
 			},
 		},
 		threadManager: new TopicManager({ topicStore: threadStore, sessionStore: store }),
-		...(runStatus !== undefined && { runStatus }),
+		...(turnStatus !== undefined && { turnStatus }),
 	}
 }
 
@@ -107,13 +107,13 @@ function buildAssignment(
 }
 
 describe('Integration — illegal handoff transitions (§5.1)', () => {
-	it('running Run → HandoffLockRejected { reason: active_run }', async () => {
+	it('running turn → HandoffLockRejected { reason: active_turn }', async () => {
 		const store = new InMemorySessionStore()
 		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
-			async blockingRun() {
-				return { reason: 'active_run' }
+			async blockingTurn() {
+				return { reason: 'active_turn' }
 			},
 		})
 		const assignment = buildAssignment(session.id, project.id, thread.id)
@@ -123,7 +123,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 			expect.fail('expected HandoffLockRejected')
 		} catch (err) {
 			expect(err).toBeInstanceOf(HandoffLockRejected)
-			expect((err as HandoffLockRejected).details.reason).toBe('active_run')
+			expect((err as HandoffLockRejected).details.reason).toBe('active_turn')
 		}
 
 		// Source never locked — still idle with original version.
@@ -137,7 +137,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
-			async blockingRun() {
+			async blockingTurn() {
 				return { reason: 'pending_hitl' }
 			},
 		})
@@ -164,7 +164,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
-			async blockingRun() {
+			async blockingTurn() {
 				return { reason: 'pending_hitl' }
 			},
 		})
@@ -183,7 +183,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 		const threadStore = new InMemoryTopicStore()
 		const { project, thread, session } = await seedIdleSession(store, threadStore)
 		const deps = buildDeps(store, threadStore, {
-			async blockingRun() {
+			async blockingTurn() {
 				return { reason: 'pending_subsession' }
 			},
 		})
@@ -210,7 +210,7 @@ describe('Integration — illegal handoff transitions (§5.1)', () => {
 		await store.updateSession({ ...session, status: 'active' }, DEFAULT_TENANT)
 
 		const deps = buildDeps(store, threadStore, {
-			async blockingRun() {
+			async blockingTurn() {
 				return null // resolver would allow, but status guard trips first
 			},
 		})

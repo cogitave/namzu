@@ -8,7 +8,7 @@
  *
  * Flow (pattern doc §5.1 + §6.1):
  *   1. Load source session; verify tenant.
- *   2. Check status (must be `idle`); no non-terminal Runs.
+ *   2. Check status (must be `idle`); no non-terminal turns.
  *   3. Validate capacity (depth + width).
  *   4. Transition source `idle → locked` with CAS on `ownerVersion`.
  *   5. Emit `onLocked`.
@@ -35,23 +35,23 @@ import type { HandoffEventSink } from './events.js'
 import { HandoffLockRejected, HandoffVersionConflict } from './version.js'
 
 /**
- * Minimal surface the handoff flow queries for Run fan-in status. A Run is
- * considered "blocking" if it is in any non-terminal status that prevents the
- * source session from transitioning to `locked` (session-hierarchy.md §5.1).
+ * Minimal surface the handoff flow queries for turn fan-in status. A turn is
+ * "blocking" when it is in any non-terminal status that prevents the source
+ * session from transitioning to `locked` (session-hierarchy.md §5.1).
  *
- * The flow injects the resolver so Phase 4 stays decoupled from Phase 6's
- * Run persistence refactor. Production wires the real Run store; tests stub.
+ * The flow injects the resolver so it stays decoupled from how turns are
+ * stored. Production reads the session index; tests stub.
  */
 export interface TurnStatusResolver {
 	/**
-	 * Returns the reason the session has a non-terminal Run, or `null` when
-	 * all Runs are terminal and the lock is allowed.
+	 * Returns the reason the session has a non-terminal turn, or `null` when
+	 * all its turns are terminal and the lock is allowed.
 	 */
-	blockingRun(
+	blockingTurn(
 		sessionId: SessionId,
 		tenantId: TenantId,
 	): Promise<{
-		reason: 'active_run' | 'pending_hitl' | 'pending_subsession'
+		reason: 'active_turn' | 'pending_hitl' | 'pending_subsession'
 	} | null>
 }
 
@@ -66,7 +66,7 @@ interface SingleHandoffBaseDeps {
 	 * here answered `null` for every session, which is a check that cannot
 	 * fail dressed as a check that ran.
 	 */
-	runStatus: TurnStatusResolver
+	turnStatus: TurnStatusResolver
 }
 
 /** Dependencies for a single-recipient handoff. */
@@ -128,9 +128,9 @@ export async function executeSingleHandoff(
 		})
 	}
 
-	// 3. Non-terminal Run fan-in (§5.1).
-	const runResolver = deps.runStatus
-	const blocking = await runResolver.blockingRun(source.id, tenantId)
+	// 3. Non-terminal turn fan-in (§5.1).
+	const turnResolver = deps.turnStatus
+	const blocking = await turnResolver.blockingTurn(source.id, tenantId)
 	if (blocking) {
 		throw new HandoffLockRejected({
 			sessionId: source.id,
@@ -308,24 +308,24 @@ async function revertLock(
 
 function statusToLockReason(
 	status: Session['status'],
-): 'active_run' | 'pending_hitl' | 'pending_subsession' {
+): 'active_turn' | 'pending_hitl' | 'pending_subsession' {
 	switch (status) {
 		case 'active':
-			return 'active_run'
+			return 'active_turn'
 		case 'awaiting_hitl':
 			return 'pending_hitl'
 		case 'awaiting_merge':
 			return 'pending_subsession'
 		case 'locked':
-			return 'active_run'
+			return 'active_turn'
 		case 'failed':
-			return 'active_run'
+			return 'active_turn'
 		case 'archived':
-			return 'active_run'
+			return 'active_turn'
 		case 'idle':
 			// Unreachable — caller guards. Keep a sentinel value so exhaustiveness
 			// does not force an `assert never` export from this module.
-			return 'active_run'
+			return 'active_turn'
 	}
 }
 

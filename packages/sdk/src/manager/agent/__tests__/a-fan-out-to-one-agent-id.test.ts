@@ -20,7 +20,7 @@ import type { AgentDefinition } from '../../../types/agent/factory.js'
  *
  * These cover the shell itself. That the manager USES it per spawn is covered
  * where the manager is driven; what has to hold here is that asking for a
- * per-run shell gives you a genuinely separate one.
+ * per-turn shell gives you a genuinely separate one.
  */
 
 const metadata = {
@@ -35,12 +35,12 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 	it('returns a different instance', () => {
 		const agent = new ReactiveAgent(metadata)
 
-		expect(agent.forRun()).not.toBe(agent)
+		expect(agent.forTurn()).not.toBe(agent)
 	})
 
 	it('keeps the identity, because it is the same agent', () => {
 		const agent = new ReactiveAgent(metadata)
-		const shell = agent.forRun()
+		const shell = agent.forTurn()
 
 		expect(shell.metadata.id).toBe('worker')
 		expect(shell.type).toBe(agent.type)
@@ -54,8 +54,8 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 		// ONE registered agent, two shells — the registry's shape, and the
 		// shape the fan-out actually hits.
 		const registered = new ReactiveAgent(metadata)
-		const first = registered.forRun()
-		const second = registered.forRun()
+		const first = registered.forTurn()
+		const second = registered.forTurn()
 
 		// A provider that starts and never finishes, so each run holds its
 		// shell's lock for the duration of the assertion.
@@ -102,7 +102,7 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 
 	it('a definition may override the shell with its own factory', () => {
 		// The escape hatch for an agent that needs real construction
-		// arguments, which `forRun`'s metadata-only rebuild cannot supply.
+		// arguments, which `forTurn`'s metadata-only rebuild cannot supply.
 		let built = 0
 		const definition: AgentDefinition = {
 			info: { ...metadata, tools: [], defaults: {} } as never,

@@ -43,10 +43,10 @@ interface BroadcastHandoffBaseDeps {
 	capacity: CapacityValidator
 	events: HandoffEventSink
 	/**
-	 * Required, for the reason `SingleHandoffDeps.runStatus` is: the default
+	 * Required, for the reason `SingleHandoffDeps.turnStatus` is: the default
 	 * that used to stand in here reported every session unblocked.
 	 */
-	runStatus: TurnStatusResolver
+	turnStatus: TurnStatusResolver
 }
 
 /** Dependencies for a multi-recipient handoff. */
@@ -176,16 +176,16 @@ export async function executeBroadcastHandoff(
 			sessionId: source.id,
 			reason:
 				source.status === 'active'
-					? 'active_run'
+					? 'active_turn'
 					: source.status === 'awaiting_hitl'
 						? 'pending_hitl'
 						: 'pending_subsession',
 		})
 	}
 
-	// 5. Non-terminal Run fan-in (§5.1).
-	const runResolver = deps.runStatus
-	const blocking = await runResolver.blockingRun(source.id, tenantId)
+	// 5. Non-terminal turn fan-in (§5.1).
+	const turnResolver = deps.turnStatus
+	const blocking = await turnResolver.blockingTurn(source.id, tenantId)
 	if (blocking) {
 		throw new HandoffLockRejected({
 			sessionId: source.id,

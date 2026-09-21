@@ -104,7 +104,7 @@ export interface Scorer {
 	 * scorer may ignore it; a scorer that owns I/O should carry it to that
 	 * transport so timed-out work is stopped rather than merely abandoned.
 	 */
-	score(run: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
+	score(turn: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
 	/** See {@link ScorerSeverity}. Default `soft`. */
 	severity?: ScorerSeverity
 	/**
@@ -128,7 +128,7 @@ export type CaseStatus = 'passed' | 'failed' | 'inconclusive'
 
 export interface CaseResult {
 	case: string
-	run: EvalTurn
+	turn: EvalTurn
 	scores: Record<string, Score>
 	/** Mean of this case's AVAILABLE scores. Zero when none were. */
 	mean: number

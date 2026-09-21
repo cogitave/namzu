@@ -67,7 +67,7 @@ function buildDeps(
 	store: InMemorySessionStore,
 	threadStore: InMemoryTopicStore,
 	execOverride?: ExecFile,
-	runResolver?: TurnStatusResolver,
+	turnResolver?: TurnStatusResolver,
 ): { deps: SingleHandoffDeps; events: MockedHandoffEventSink; execCalls: string[] } {
 	const execCalls: string[] = []
 	const exec: ExecFile = execOverride
@@ -96,17 +96,17 @@ function buildDeps(
 		store,
 		workspaceRegistry: registry,
 		capacity: new DefaultCapacityValidator(store),
-		// Supplied deliberately: this suite does not exercise Run fan-in, and the
+		// Supplied deliberately: this suite does not exercise turn fan-in, and the
 		// default that used to stand in here answered `null` for every session.
-		runStatus: {
-			async blockingRun() {
+		turnStatus: {
+			async blockingTurn() {
 				return null
 			},
 		},
 
 		events,
 		threadManager,
-		...(runResolver !== undefined && { runStatus: runResolver }),
+		...(turnResolver !== undefined && { turnStatus: turnResolver }),
 	}
 
 	return { deps, events, execCalls }
@@ -187,7 +187,7 @@ describe('executeSingleHandoff', () => {
 		expect(events.onUnlocked).not.toHaveBeenCalled()
 	})
 
-	it('rejects when source session is non-idle (active → HandoffLockRejected with active_run)', async () => {
+	it('rejects when source session is non-idle (active → HandoffLockRejected with active_turn)', async () => {
 		const { project, thread, session } = await seedIdle(store, threadStore)
 		await store.updateSession({ ...session, status: 'active' }, tenant)
 
@@ -199,14 +199,14 @@ describe('executeSingleHandoff', () => {
 			expect.fail('expected HandoffLockRejected')
 		} catch (err) {
 			expect(err).toBeInstanceOf(HandoffLockRejected)
-			expect((err as HandoffLockRejected).details.reason).toBe('active_run')
+			expect((err as HandoffLockRejected).details.reason).toBe('active_turn')
 		}
 	})
 
-	it('rejects when Run resolver reports pending_hitl', async () => {
+	it('rejects when the turn resolver reports pending_hitl', async () => {
 		const { project, thread, session } = await seedIdle(store, threadStore)
 		const resolver: TurnStatusResolver = {
-			async blockingRun() {
+			async blockingTurn() {
 				return { reason: 'pending_hitl' }
 			},
 		}

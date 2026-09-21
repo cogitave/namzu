@@ -59,7 +59,7 @@ function batch(
 							reason: 'Compared the output with the fixture source.',
 						},
 					},
-					run: {
+					turn: {
 						output: passed ? 'supported' : 'unsupported',
 						steps: [],
 						toolCalls: [],

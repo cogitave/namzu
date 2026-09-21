@@ -167,7 +167,7 @@ describe('runExperiment', () => {
 		})
 
 		expect(report.cases).toHaveLength(2)
-		expect(report.cases[0]?.run.error).toBe('exploded')
+		expect(report.cases[0]?.turn.error).toBe('exploded')
 		expect(report.cases[1]?.passed).toBe(true)
 	})
 

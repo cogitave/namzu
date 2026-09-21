@@ -129,10 +129,10 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			store,
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
-			// Supplied deliberately: this suite does not exercise Run fan-in, and the
+			// Supplied deliberately: this suite does not exercise turn fan-in, and the
 			// default that used to stand in here answered `null` for every session.
-			runStatus: {
-				async blockingRun() {
+			turnStatus: {
+				async blockingTurn() {
 					return null
 				},
 			},
@@ -213,10 +213,10 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			store,
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
-			// Supplied deliberately: this suite does not exercise Run fan-in, and the
+			// Supplied deliberately: this suite does not exercise turn fan-in, and the
 			// default that used to stand in here answered `null` for every session.
-			runStatus: {
-				async blockingRun() {
+			turnStatus: {
+				async blockingTurn() {
 					return null
 				},
 			},

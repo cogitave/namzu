@@ -31,7 +31,7 @@ export abstract class AbstractAgent<
 	/**
 	 * The logger bound at construction, before any turn exists. `this.log`
 	 * is rebound to a CHILD of this on every `bindTurn` call — never the other
-	 * way — so `forRun()` (which builds a fresh shell from `this.metadata`)
+	 * way — so `forTurn()` (which builds a fresh shell from `this.metadata`)
 	 * can hand the new instance the same base identity without also handing
 	 * it a stale turn id from whichever turn happened to be live last.
 	 */
@@ -76,25 +76,25 @@ export abstract class AbstractAgent<
 	): Promise<TResult>
 
 	/**
-	 * A fresh shell of this agent, for a run that must not share one.
+	 * A fresh shell of this agent, for a turn that must not share one.
 	 *
-	 * See {@link Agent.forRun}. An agent is a shell around metadata — every
-	 * per-run decision arrives in `config` and `input` — so a second instance
-	 * costs one object and gives the run its own abort controller and turn id,
+	 * See {@link Agent.forTurn}. An agent is a shell around metadata — every
+	 * per-turn decision arrives in `config` and `input` — so a second instance
+	 * costs one object and gives the turn its own abort controller and turn id,
 	 * which is precisely what the invocation lock is protecting.
 	 *
 	 * Rebuilt from `this.constructor` and `this.metadata`, which covers every
 	 * agent in this package: they all take metadata and nothing else. A
 	 * subclass with a different constructor signature will throw here, and the
 	 * answer to that is `this` — the caller then shares the shell and gets the
-	 * existing refusal on a concurrent run, which is the behaviour before this
+	 * existing refusal on a concurrent turn, which is the behaviour before this
 	 * existed. Losing parallelism is a worse outcome than not having it; losing
-	 * the run is not on the table.
+	 * the turn is not on the table.
 	 *
 	 * A host whose agent needs real construction arguments supplies
 	 * `AgentDefinition.createAgent` instead, which wins over this.
 	 */
-	forRun(): this {
+	forTurn(): this {
 		try {
 			const Ctor = this.constructor as unknown as new (
 				metadata: AgentMetadata,
@@ -103,7 +103,7 @@ export abstract class AbstractAgent<
 			return new Ctor(this.metadata, this.baseLog)
 		} catch (err) {
 			this.log.warn(
-				'Could not build a per-run shell; concurrent runs of this agent will still be refused',
+				'Could not build a per-turn shell; concurrent turns of this agent will still be refused',
 				{
 					[GENAI.AGENT_ID]: this.metadata.id,
 					'exception.message': err instanceof Error ? err.message : String(err),
@@ -245,7 +245,7 @@ export abstract class AbstractAgent<
 	 * turn's ids, not this one's.
 	 *
 	 * Constructor-time binding was the bug this exists to fix: an agent
-	 * constructed once and invoked twice (`forRun` aside — a host is free to
+	 * constructed once and invoked twice (`forTurn` aside — a host is free to
 	 * reuse one instance across sequential runs, and every concrete `run()`
 	 * takes fresh `input`/`config` precisely to allow it) held ONE logger for
 	 * its whole lifetime, so a warning from turn two carried turn one's id, or

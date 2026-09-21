@@ -150,12 +150,12 @@ function parseVerdict(reply: string, scale: number): Verdict {
 
 function buildPrompt(
 	config: JudgeScorerConfig,
-	run: EvalTurn,
+	turn: EvalTurn,
 	evalCase: EvalCase,
 	scale: number,
 ): string {
 	const limit = config.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS
-	const answer = run.output ?? ''
+	const answer = turn.output ?? ''
 	const truncated = answer.length > limit
 
 	const sections: string[] = [
@@ -180,7 +180,7 @@ function buildPrompt(
 	if (config.includeTrajectory === true) {
 		sections.push(
 			'',
-			`TOOLS CALLED, in order:\n${run.toolCalls.length > 0 ? run.toolCalls.join(' -> ') : '(none)'}`,
+			`TOOLS CALLED, in order:\n${turn.toolCalls.length > 0 ? turn.toolCalls.join(' -> ') : '(none)'}`,
 		)
 	}
 
@@ -219,11 +219,11 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 
 	return {
 		name: config.name ?? 'judge',
-		async score(run: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
+		async score(turn: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
 			const response = await collectChatCompletion(
 				provider.chatStream({
 					model: config.model,
-					messages: [{ role: 'user', content: buildPrompt(config, run, evalCase, scale) }],
+					messages: [{ role: 'user', content: buildPrompt(config, turn, evalCase, scale) }],
 					// The same run must grade the same way twice, or a
 					// regression cannot be told from sampling noise.
 					temperature: 0,

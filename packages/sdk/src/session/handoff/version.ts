@@ -34,10 +34,10 @@ export class HandoffVersionConflict extends Error {
 /**
  * Reasons a session cannot transition `* → locked` for handoff. See
  * session-hierarchy.md §5.1 — lock entry requires an `idle` session with all
- * runs terminal. The three reasons are the non-terminal Run statuses that
+ * turns terminal. The three reasons are the non-terminal turn statuses that
  * fan in to a non-idle Session.
  */
-export type HandoffLockRejectedReason = 'active_run' | 'pending_hitl' | 'pending_subsession'
+export type HandoffLockRejectedReason = 'active_turn' | 'pending_hitl' | 'pending_subsession'
 
 /**
  * Raised when a handoff targets a session whose current turn is non-terminal.

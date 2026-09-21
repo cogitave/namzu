@@ -15,7 +15,7 @@ function result(pass: boolean): CaseResult {
 		passed: pass,
 		mean: Number(pass),
 		scores: { exact: { score: Number(pass), reason: 'Deterministic fixture reward' } },
-		run: {
+		turn: {
 			output: null,
 			steps: [],
 			toolCalls: [],
@@ -107,7 +107,7 @@ describe('paired harness verification', () => {
 		for (const fault of ['failed', 'error', 'unavailable']) {
 			const first = batch()
 			if (fault === 'failed') first.baseline[2]!.result = result(false)
-			else if (fault === 'error') first.candidate[2]!.result.run.error = 'provider disconnected'
+			else if (fault === 'error') first.candidate[2]!.result.turn.error = 'provider disconnected'
 			else first.baseline[2]!.result.scores.exact!.unavailable = true
 			expect(
 				reviewHarnessCandidate(first, batch('fresh'), {
@@ -182,7 +182,7 @@ describe('paired harness verification', () => {
 		for (const fault of ['unavailable', 'error', 'nan'] as const) {
 			const b = batch()
 			if (fault === 'unavailable') b.baseline[0]!.result.scores.exact!.unavailable = true
-			if (fault === 'error') b.baseline[0]!.result.run.error = '429'
+			if (fault === 'error') b.baseline[0]!.result.turn.error = '429'
 			if (fault === 'nan') b.baseline[0]!.result.scores.exact!.score = Number.NaN
 			expect(compareHarnessTrials(b).passRateDelta).toBeNull()
 			expect(reviewHarnessCandidate(b, batch('fresh')).decision).toBe('inconclusive')
@@ -230,7 +230,7 @@ describe('paired harness verification', () => {
 		const report = await runExperiment({
 			name: 'verification integration',
 			cases: [{ name: 'case', input: 1 }],
-			run: async () => result(true).run,
+			run: async () => result(true).turn,
 			scorers: [
 				{
 					name: 'offline verifier',

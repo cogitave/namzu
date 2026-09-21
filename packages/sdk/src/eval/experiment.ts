@@ -166,7 +166,7 @@ async function evaluateCase<TInput>(
 ): Promise<CaseResult> {
 	const deadline = openCaseDeadline(timeoutMs)
 	try {
-		const run = await executeCase(config, evalCase, deadline)
+		const turn = await executeCase(config, evalCase, deadline)
 		const scorers = evalCase.scorers ?? config.scorers
 		const scores: Record<string, Score> = {}
 
@@ -184,7 +184,7 @@ async function evaluateCase<TInput>(
 				)
 			}
 			seen.add(scorer.name)
-			scores[scorer.name] = await safeScore(scorer, run, evalCase, deadline)
+			scores[scorer.name] = await safeScore(scorer, turn, evalCase, deadline)
 		}
 
 		// Only scores that were actually produced count — an unavailable
@@ -222,7 +222,7 @@ async function evaluateCase<TInput>(
 						: 'failed'
 		return {
 			case: evalCase.name,
-			run,
+			turn,
 			scores,
 			mean,
 			status,
@@ -268,7 +268,7 @@ async function executeCase<TInput>(
 /** A throwing scorer scores zero with the throw as its reason. */
 async function safeScore(
 	scorer: Scorer,
-	run: EvalTurn,
+	turn: EvalTurn,
 	evalCase: EvalCase,
 	deadline: CaseDeadline,
 ): Promise<Score> {
@@ -278,16 +278,16 @@ async function safeScore(
 	// `stepBudgetScorer` sees 0 steps against its allowance and returns 1,
 	// `trajectoryScorer` sees no tools expected and none called and returns
 	// 1. So a suite whose runs were all dying reported green. The failure is
-	// recorded on `run.error` and nothing consulted it.
-	if (run.error !== undefined) {
-		return { score: 0, reason: `run failed: ${run.error}`, details: { error: run.error } }
+	// recorded on `turn.error` and nothing consulted it.
+	if (turn.error !== undefined) {
+		return { score: 0, reason: `run failed: ${turn.error}`, details: { error: turn.error } }
 	}
 
 	try {
 		deadline.signal.throwIfAborted()
 		// Defer invocation into the promise so a synchronous scorer throw is
 		// raced and observed by the same path as an asynchronous rejection.
-		const work = Promise.resolve().then(() => scorer.score(run, evalCase, deadline.signal))
+		const work = Promise.resolve().then(() => scorer.score(turn, evalCase, deadline.signal))
 		return await deadline.race(work)
 	} catch (err) {
 		// UNAVAILABLE, not zero. A scorer that threw did not judge the run
@@ -395,7 +395,7 @@ export function formatReport(report: ExperimentReport): string {
 					lines.push(`      ${name}: ${score.reason}`)
 				}
 			}
-			if (failure.run.error) lines.push(`      error: ${failure.run.error}`)
+			if (failure.turn.error) lines.push(`      error: ${failure.turn.error}`)
 		}
 	}
 

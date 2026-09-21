@@ -438,7 +438,7 @@ export class AgentManager {
 		// the agent. The shell was the only shared thing left.
 		const definitionForSpawn = this.registry.getOrThrow(options.agentId)
 		const sharedAgent = definitionForSpawn.typedAgent
-		const agent = definitionForSpawn.createAgent?.() ?? sharedAgent.forRun?.() ?? sharedAgent
+		const agent = definitionForSpawn.createAgent?.() ?? sharedAgent.forTurn?.() ?? sharedAgent
 
 		context.parentAbortController.signal.throwIfAborted()
 

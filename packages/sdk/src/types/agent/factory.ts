@@ -20,7 +20,7 @@ export interface AgentDefinition {
 	 *
 	 * The manager prefers this over `typedAgent` for every spawn. Supply it
 	 * when your agent needs real construction arguments; agents built on
-	 * `AbstractAgent` already get a working default from `Agent.forRun`, so
+	 * `AbstractAgent` already get a working default from `Agent.forTurn`, so
 	 * most hosts need nothing here.
 	 *
 	 * `configBuilder` is not a substitute: it produces a fresh CONFIG per

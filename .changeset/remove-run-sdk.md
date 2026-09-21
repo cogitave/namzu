@@ -68,7 +68,8 @@ migration.
 **`query()`, `drainQuery()` and `runAgent()`.** `query()` is now
 `AsyncGenerator<SessionEvent, Turn>` and `drainQuery()` resolves to a `Turn`.
 `QueryParams.runConfig` is `turnConfig`. `runStore`, `pathBuilder`,
-`claimFence`, `emergencySave` and `supersedesEmergencySave` are gone; pass
+`claimFence`, `emergencySave` and `supersedesEmergencySave` are gone
+(`ReactiveAgentConfig.emergencySave` goes with them); pass
 `paths` (a `SessionPaths`), `sessionLog`, `checkpointStore`, `lease`, `budget`
 and `tokenBudgetStore` instead, and `turnId` with `resumeFromCheckpoint` to
 continue a turn. `RunAgentResult.run` is renamed `turn`; `runAgent`,

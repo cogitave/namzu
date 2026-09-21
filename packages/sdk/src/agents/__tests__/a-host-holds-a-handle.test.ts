@@ -24,7 +24,7 @@ import { AgentNotRunningError, createAgentHandle } from '../handle.js'
  * manually on the next `run()` call.
  *
  * Two delivery targets with stated lifetimes, and no silent third state.
- * `steer` reaches the run that is happening; `queueForNextRun` reaches the
+ * `steer` reaches the run that is happening; `queueForNextTurn` reaches the
  * one that has not started. `steer` on an idle handle THROWS rather than
  * accepting into a queue nothing will read.
  */
@@ -77,7 +77,7 @@ async function runOnce(store: InMemoryTopicStateStore | DiskTopicStateStore) {
 
 describe('steering an idle agent is refused, not queued', () => {
 	it('throws, and points at the alternative', () => {
-		// Quietly rerouting to `queueForNextRun` would be a host asking to
+		// Quietly rerouting to `queueForNextTurn` would be a host asking to
 		// redirect what is happening NOW and getting a message delivered
 		// minutes later to a different run — worse than an error, because
 		// nothing says it happened.
@@ -89,7 +89,7 @@ describe('steering an idle agent is refused, not queued', () => {
 		})
 
 		expect(() => handle.steer('go left')).toThrow(AgentNotRunningError)
-		expect(() => handle.steer('go left')).toThrow(/queueForNextRun/)
+		expect(() => handle.steer('go left')).toThrow(/queueForNextTurn/)
 	})
 
 	it('persists nothing as a side effect of the refusal', async () => {
@@ -155,7 +155,7 @@ describe('a message queued for the next run arrives in its first request', () =>
 			tenantId: TENANT,
 			isRunning: () => false,
 		})
-		await handle.queueForNextRun(createUserMessage('start with the migration'))
+		await handle.queueForNextTurn(createUserMessage('start with the migration'))
 
 		const first = await runOnce(topicStateStore)
 		const second = await runOnce(topicStateStore)
@@ -178,7 +178,7 @@ describe('a message queued for the next run arrives in its first request', () =>
 			tenantId: TENANT,
 			isRunning: () => false,
 		})
-		await handle.queueForNextRun(createUserMessage('resume the audit'))
+		await handle.queueForNextTurn(createUserMessage('resume the audit'))
 
 		const sent = await runOnce(new DiskTopicStateStore({ rootDir }))
 
@@ -196,7 +196,7 @@ describe('a message queued for the next run arrives in its first request', () =>
 			isRunning: () => false,
 		})
 
-		await expect(handle.queueForNextRun(createUserMessage('x'))).rejects.toThrow(
+		await expect(handle.queueForNextTurn(createUserMessage('x'))).rejects.toThrow(
 			/topic state store/i,
 		)
 	})
