@@ -1,5 +1,6 @@
 import { link, mkdir, open, readFile, readdir, unlink } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { SessionLocator, SessionPaths } from '../../session/paths.js'
 import type { CheckpointId } from '../../types/ids/index.js'
 import type { Checkpoint } from '../../types/session/checkpoint.js'
@@ -17,7 +18,7 @@ import {
 	verifyCheckpoint,
 	writeReceipt,
 } from './contract.js'
-import { compareCheckpoints, selectSessionCheckpointsToPrune } from './prune.js'
+import { compareCheckpoints, selectStoredCheckpointsToPrune } from './prune.js'
 
 export interface DiskSessionCheckpointStoreOptions {
 	/** The project whose sessions hold the checkpoints. */
@@ -33,7 +34,10 @@ const DOCUMENT = /^(.+)\.json$/
  *
  * A write is durable before it resolves: the document is written to a private
  * sidecar, fsynced, linked to its final name (which fails rather than
- * replacing an existing document), and the directory is fsynced. The caller
+ * replacing an existing document), and the directory is fsynced. When the
+ * write creates `checkpoints/` (or any directory above it), the parent of each
+ * directory it created is fsynced too, so the new directory's own entry
+ * survives as well as the document's. The caller
  * appends `checkpoint_written` only after that, so the record never names a
  * file a power loss could take back.
  *
@@ -62,7 +66,10 @@ export class DiskSessionCheckpointStore implements SessionCheckpointStore {
 		const directory = this.#paths.checkpoints(locator)
 		const path = this.#paths.checkpointFile(locator, document.checkpointId)
 		const text = serializeCheckpoint(document)
-		await mkdir(directory, { recursive: true, mode: 0o700 })
+		await syncCreatedDirectories(
+			directory,
+			await mkdir(directory, { recursive: true, mode: 0o700 }),
+		)
 		const temporary = temporaryPathFor(path)
 		let handle: FileHandle | undefined
 		try {
@@ -149,10 +156,11 @@ export class DiskSessionCheckpointStore implements SessionCheckpointStore {
 
 	async prune(scope: CheckpointScope, keepLast: number): Promise<CheckpointId[]> {
 		const checked = validateCheckpointScope(scope)
-		const doomed = selectSessionCheckpointsToPrune(
+		const doomed = await selectStoredCheckpointsToPrune(
+			this.#log,
+			checked,
 			await this.list(checked),
 			keepLast,
-			new Set(await this.#log.openDecisionCheckpoints(checked)),
 		)
 		for (const id of doomed) await this.delete(checked, id)
 		return doomed
@@ -165,5 +173,25 @@ async function readIfPresent(path: string): Promise<string | null> {
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
 		throw error
+	}
+}
+
+/**
+ * Make the directories `mkdir(directory, { recursive: true })` just created
+ * survive a power loss: fsync the parent of each, from `directory` up to the
+ * first one created. `created` is what `mkdir` returned, the outermost
+ * directory it made, or undefined when `directory` already existed.
+ */
+async function syncCreatedDirectories(
+	directory: string,
+	created: string | undefined,
+): Promise<void> {
+	if (created === undefined) return
+	let current = directory
+	for (;;) {
+		const parent = dirname(current)
+		await syncDirectory(parent)
+		if (current === created || parent === current) return
+		current = parent
 	}
 }
