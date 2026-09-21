@@ -72,13 +72,6 @@ export interface TurnLimitsConfig {
 	readonly waitForProviderMs?: number
 }
 
-/**
- * Transition name for {@link TurnLimitsConfig}, kept until the delegation
- * runtime (`integrations/subagents/runtime.ts`) imports the new one. Removed at
- * the train tip.
- */
-export type RunLimitsConfig = TurnLimitsConfig
-
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
 	/** Bounded historical evidence recall in recorded conversations. Default true; false disables it. */

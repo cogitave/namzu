@@ -33,7 +33,7 @@ import { cliLogger } from '../../logging.js'
 import { resolvePermissionMode } from '../../permissions/mode.js'
 import { compilePermissions } from '../../permissions/rules.js'
 import type { AgentEvent, AgentSession } from '../../tui/agent.js'
-import { describeRunInterruption } from '../../tui/run-interruption.js'
+import { describeTurnInterruption } from '../../tui/run-interruption.js'
 import type { DetectedProvider, Preferences } from '../providers/index.js'
 import type { CliSessions } from '../sessions/store.js'
 import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
@@ -460,7 +460,7 @@ export function createResidentSessionStep(
 					if (done) errors.push(new Error('Resident session emitted more than one settled result.'))
 					done = event
 				} else if (event.kind === 'error' || event.kind === 'paused') {
-					errors.push(new Error(describeRunInterruption(event)))
+					errors.push(new Error(describeTurnInterruption(event)))
 				} else if (event.kind === 'usage') usage = event
 				else if (event.kind === 'context') ctx.formatter.info(event.text)
 				else if (event.kind === 'tool-start')

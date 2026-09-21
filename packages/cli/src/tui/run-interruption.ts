@@ -124,11 +124,3 @@ export function describeTurnInterruption(event: Interruption): string {
 
 	return rows.join('\n')
 }
-
-/**
- * Transition names, kept until every caller imports the turn names; the
- * resident step (`integrations/resident/session-step.ts`) still imports the
- * first. Removed at the train tip.
- */
-export const describeRunInterruption = describeTurnInterruption
-export const describeRunStop = describeTurnStop

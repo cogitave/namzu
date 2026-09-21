@@ -243,6 +243,7 @@ export function residentConsumptionResolver(resident: CliResident): ResidentCons
 				verification = 'recorded'
 			}
 			return {
+				sessionId: start.sessionId,
 				turnId: start.turnId,
 				ownTokens: finish?.usage?.totalTokens ?? ownTokens,
 				treeTokens: tree?.treeTokens ?? null,
@@ -272,7 +273,7 @@ export function residentInspectionText(report: ResidentConsumptionReport): strin
 	const deferred = report.attempts.filter((a) => a.receiptStatus === 'deferred')
 	const missing = report.attempts.filter((a) => a.receiptStatus === 'missing').length
 	const invalid = report.attempts.filter(
-		(a) => a.receiptStatus === 'invalid' || a.receiptStatus === 'duplicate-run',
+		(a) => a.receiptStatus === 'invalid' || a.receiptStatus === 'duplicate-turn',
 	).length
 	const settled = report.attempts.filter((a) => a.settlement).length
 	const verified = report.attempts.filter(

@@ -78,8 +78,8 @@ import {
 	requireOpenProject,
 } from '@namzu/sdk'
 
-import { resolveRunGuards } from '../../config/run-limits.js'
-import type { RunLimitsConfig } from '../../config/schema.js'
+import { resolveTurnGuards } from '../../config/run-limits.js'
+import type { TurnLimitsConfig } from '../../config/schema.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import {
@@ -183,7 +183,7 @@ export interface SubagentRuntimeOptions {
 	/** Aggregate parent-and-descendant limit; absent or zero means unlimited. */
 	readonly tokenBudget?: number
 	/** Immutable settings captured by the invoking turn, including TUI overrides. */
-	readonly resolveLimits?: (turnId: TurnId) => RunLimitsConfig | undefined
+	readonly resolveLimits?: (turnId: TurnId) => TurnLimitsConfig | undefined
 	/** Main-loop iterations for built-in children. Omitted or 0 is unlimited. */
 	readonly maxIterations?: number
 	/** Turn duration for children in milliseconds. Omitted or 0 is unlimited. */
@@ -537,7 +537,7 @@ export async function createSubagentRuntime(
 				const budget = await openSessionTokenBudget({
 					store: tokenBudgetStore,
 					scope: { rootSessionId: parent.sessionId, rootTurnId: turnId },
-					limit: resolveRunGuards(opts, opts.resolveLimits?.(turnId)).tokenBudget,
+					limit: resolveTurnGuards(opts, opts.resolveLimits?.(turnId)).tokenBudget,
 				})
 				budget.bindTurn(parent.sessionId, turnId)
 				const lease = await acquireSession(parent)
@@ -828,7 +828,7 @@ export async function createSubagentRuntime(
 			// longer be proved.
 			const resumeHandler = opts.resolveResumeHandler?.(context.turnId) ?? refuseUnownedChildReview
 			const configOverrides = {
-				...resolveRunGuards(opts, opts.resolveLimits?.(context.turnId)),
+				...resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)),
 				...(selection ? { model: selection.model, effort: selection.effort } : {}),
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 				// The parent turn's tool-result screens, so a sub-agent judges a
@@ -1503,7 +1503,7 @@ function buildDefinition(
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
 		configBuilder: async (options): Promise<ReactiveAgentConfig> => {
-			const limits = resolveRunGuards(
+			const limits = resolveTurnGuards(
 				opts,
 				options.parentTurnId ? opts.resolveLimits?.(asTurnId(options.parentTurnId)) : undefined,
 			)
