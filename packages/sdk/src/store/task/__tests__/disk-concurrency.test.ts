@@ -3,19 +3,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
-import type { RunId } from '../../../types/ids/index.js'
-import { generateRunId } from '../../../utils/id.js'
+import { SessionPaths } from '../../../session/paths.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { DiskTaskStore } from '../disk.js'
 
 describe('DiskTaskStore — concurrency regressions', () => {
 	let baseDir: string
-	let runId: RunId
+	let sessionId: SessionId
+	let turnId: TurnId
 	let store: DiskTaskStore
 
 	beforeEach(() => {
 		baseDir = mkdtempSync(join(tmpdir(), 'namzu-task-concurrency-'))
-		runId = generateRunId()
-		store = new DiskTaskStore({ baseDir, defaultRunId: runId })
+		sessionId = generateSessionId()
+		turnId = generateTurnId()
+		store = new DiskTaskStore({
+			paths: new SessionPaths({ home: baseDir, slug: '-work' }),
+			session: { sessionId },
+		})
 	})
 
 	afterEach(() => {
@@ -23,8 +29,8 @@ describe('DiskTaskStore — concurrency regressions', () => {
 	})
 
 	it('does not deadlock when two deletes race on mutually-referencing tasks', async () => {
-		const a = await store.create({ runId, subject: 'A' })
-		const b = await store.create({ runId, subject: 'B' })
+		const a = await store.create({ sessionId, turnId, subject: 'A' })
+		const b = await store.create({ sessionId, turnId, subject: 'B' })
 
 		// Establish bidirectional edge: A blocks B AND B blocks A.
 		// (Nonsensical semantically, but the store allows it and the lock logic
@@ -55,7 +61,7 @@ describe('DiskTaskStore — concurrency regressions', () => {
 	})
 
 	it('serializes concurrent same-ID updates (withLock race regression)', async () => {
-		const task = await store.create({ runId, subject: 'shared' })
+		const task = await store.create({ sessionId, turnId, subject: 'shared' })
 
 		// update()'s metadata merge does `{ ...task.metadata, ...updates.metadata }`
 		// inside withLock. If withLock serializes correctly, every update's key
@@ -80,7 +86,7 @@ describe('DiskTaskStore — concurrency regressions', () => {
 	})
 
 	it('establishes bidirectional edge atomically under create()', async () => {
-		const blocker = await store.create({ runId, subject: 'blocker' })
+		const blocker = await store.create({ sessionId, turnId, subject: 'blocker' })
 
 		// Race: create a child with blockedBy=[blocker] while concurrently
 		// deleting the blocker. Either outcome is acceptable (child created
@@ -88,7 +94,7 @@ describe('DiskTaskStore — concurrency regressions', () => {
 		// child created with dangling reference), but we must NEVER see
 		// blocker still present WITHOUT having child in its blocks list.
 		const tasks = await Promise.all([
-			store.create({ runId, subject: 'child', blockedBy: [blocker.id] }),
+			store.create({ sessionId, turnId, subject: 'child', blockedBy: [blocker.id] }),
 			// No delete here — keep the create edge test focused. The point is
 			// that after create() resolves, the blocker's blocks list contains
 			// the new task ID atomically.
@@ -102,12 +108,11 @@ describe('DiskTaskStore — concurrency regressions', () => {
 	})
 
 	it('block() skips gracefully when one task disappeared before lock acquired', async () => {
-		const a = await store.create({ runId, subject: 'A' })
-		const b = await store.create({ runId, subject: 'B' })
+		const a = await store.create({ sessionId, turnId, subject: 'A' })
+		const b = await store.create({ sessionId, turnId, subject: 'B' })
 
-		// Delete B, then try to block a → b. The findTask pre-check passes for a
-		// but fails for b, so block() returns early (silent no-op per existing
-		// contract).
+		// Delete B, then try to block a → b. The read under lock finds a but
+		// not b, so block() returns early (silent no-op per existing contract).
 		await store.delete(b.id)
 
 		// block() should not throw and A's blocks list should remain empty.

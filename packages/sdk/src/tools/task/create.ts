@@ -1,11 +1,14 @@
 import { z } from 'zod'
-import type { RunId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
+import type { TaskToolScope } from './index.js'
 
-export function buildTaskCreateTool(taskStore: TaskStore, runId: RunId): ToolDefinition {
+export function buildTaskCreateTool(
+	taskStore: TaskStore,
+	scope: Pick<TaskToolScope, 'sessionId' | 'turnId'>,
+): ToolDefinition {
 	return defineTool({
 		name: 'task_create',
 		description:
@@ -34,7 +37,8 @@ export function buildTaskCreateTool(taskStore: TaskStore, runId: RunId): ToolDef
 		concurrencySafe: true,
 		async execute({ subject, description, activeForm, owner, blockedBy, metadata }) {
 			const task = await taskStore.create({
-				runId,
+				sessionId: scope.sessionId,
+				turnId: scope.turnId,
 				subject,
 				description,
 				activeForm,
