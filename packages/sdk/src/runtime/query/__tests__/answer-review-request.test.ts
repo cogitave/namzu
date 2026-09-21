@@ -267,7 +267,7 @@ it.each(['inbound', 'steering'] as const)(
 	},
 )
 
-it('does not publish a tool-mode candidate if the final inbound check cancels the run', async () => {
+it('does not publish a tool-mode candidate if the final inbound check cancels the turn', async () => {
 	const controller = new AbortController()
 	const provider = new MockLLMProvider({
 		turns: [{ toolCalls: [{ name: 'structured_output', args: { code: 'A17' } }] }],

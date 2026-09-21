@@ -5,7 +5,7 @@
  * proves the gate did **not** run: a failure, then an answer that changed
  * nothing, and the command must not be executed a second time. A suite that
  * only asserted rejection would pass against a gate with no detector in it
- * at all, which is the version that spends a run's whole budget re-learning
+ * at all, which is the version that spends a turn's whole budget re-learning
  * one failure.
  *
  * Its guard is the test immediately after: touch a file and the command MUST
@@ -207,7 +207,7 @@ describe('an answer that changed nothing', () => {
 		expect(second.feedback).toContain('same state')
 		expect(second.feedback).toContain('ignored files and external inputs may have changed')
 		// The attempt still advanced. Skipping the command is a saving, not a
-		// pardon — an answer that changed nothing has been rejected, and a run
+		// pardon — an answer that changed nothing has been rejected, and a turn
 		// whose budget never saw it would loop forever for free.
 		expect(second.feedback).toContain('attempt 2')
 		if (first.accept) throw new Error('unreachable')
@@ -417,7 +417,7 @@ describe('the bound', () => {
 		// It does NOT accept. An answer that never passed the gate has not
 		// passed it, and a reviewer that gave up by accepting would hand back a
 		// green run over a red build — the exact outcome a gate exists to
-		// prevent. What ends the run is the kernel's rejection budget.
+		// prevent. What ends the turn is the kernel's rejection budget.
 		expect(third.accept).toBe(false)
 		if (third.accept) throw new Error('unreachable')
 		expect(third.feedback).toContain('spent its 2 attempts')

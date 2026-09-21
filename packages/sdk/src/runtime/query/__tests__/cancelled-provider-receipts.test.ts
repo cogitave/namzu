@@ -14,7 +14,7 @@ import {
 import { drainQuery } from '../index.js'
 
 describe('caller cancellation with the stream idle watchdog disabled', () => {
-	it('returns a cancelled run with persisted partial spend while the provider remains blocked', async () => {
+	it('returns a cancelled turn with persisted partial spend while the provider remains blocked', async () => {
 		const caller = new AbortController()
 		const turnId = generateTurnId()
 		const sessionId = generateSessionId()

@@ -6,7 +6,7 @@ import type { TurnId } from '../../../../types/ids/index.js'
 import { type IterationContext, awaitDecisionOrAbort } from './context.js'
 
 /**
- * C12: a Stop that arrives while the run is parked on a HITL decision must
+ * C12: a Stop that arrives while the turn is parked on a HITL decision must
  * interrupt the park (resolve as `abort`) instead of hanging until the host
  * eventually answers. `awaitDecisionOrAbort` races `resumeHandler` against
  * `ctx.abortController.signal`.

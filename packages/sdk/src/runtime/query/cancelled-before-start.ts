@@ -126,7 +126,7 @@ export async function* settlePreStartCancellation(
 	} catch (error) {
 		// Attachment resolution has already observed the caller's abort. A
 		// reconnect callback can still throw while replay is being reported,
-		// but it cannot replace that terminal cause or turn a cancelled run
+		// but it cannot replace that terminal cause or turn a cancelled turn
 		// into an unpersisted rejection.
 		const terminalError = ctx.abortController.signal.aborted
 			? ctx.abortController.signal.reason

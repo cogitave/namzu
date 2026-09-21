@@ -6,7 +6,7 @@ import { buildCoordinatorTools } from '../index.js'
 /**
  * `create_task` used to widen its `agent_id` parameter from the roster enum to
  * a bare string whenever the roster was empty — so the one configuration that
- * says "this run may delegate to nobody" was the one that let the model name
+ * says "this turn may delegate to nobody" was the one that let the model name
  * anybody. Degrading a closed list to an open one because the list is empty is
  * failing open (CWE-636), and Saltzer & Schroeder named the rule it breaks in
  * 1975: fail-safe defaults, §I.A.3(b).

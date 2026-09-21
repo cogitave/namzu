@@ -25,7 +25,7 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	 */
 	maxRetries?: number
 
-	/** Review the JSON-decoded result before settlement. Narrow the value before use: serialization may change schema output types. Exceptions fail the run; cancellation is propagated. */
+	/** Review the JSON-decoded result before settlement. Narrow the value before use: serialization may change schema output types. Exceptions fail the turn; cancellation is propagated. */
 	review?: (
 		output: unknown,
 		context: import('../session/answer-review.js').AnswerReviewContext,

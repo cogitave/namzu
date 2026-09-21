@@ -20,7 +20,7 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 export class BidiSessionCloseTimeoutError extends Error {
 	constructor(readonly timeoutMs: number) {
 		super(
-			`Duplex provider session close did not settle within ${timeoutMs}ms. The local run is fenced and its tool authority was revoked, but provider cleanup is still unconfirmed.`,
+			`Duplex provider session close did not settle within ${timeoutMs}ms. The local turn is fenced and its tool authority was revoked, but provider cleanup is still unconfirmed.`,
 		)
 		this.name = 'BidiSessionCloseTimeoutError'
 	}
@@ -102,7 +102,7 @@ export interface BidiTurn {
 	/** Push input from the human. */
 	send(input: Parameters<BidiSession['send']>[0]): Promise<void>
 	/**
-	 * Fence the local run immediately, abort tool contexts and close the
+	 * Fence the local turn immediately, abort tool contexts and close the
 	 * provider once. It does not wait for tool code that ignores cancellation;
 	 * provider cleanup is observed for `BidiTurnParams.closeTimeoutMs`.
 	 */
@@ -270,7 +270,7 @@ export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 
 		// Entering the provider send is the publication commit point. A later
 		// conversational interruption cannot recall a write already handed to
-		// the provider, but closing the run still closes the whole session and
+		// the provider, but closing the turn still closes the whole session and
 		// fences the local terminal event.
 		await activeSession.sendToolResult(call.id, output, isError)
 		if (closed) return

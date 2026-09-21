@@ -72,7 +72,7 @@ function authorizationUrl(input) {
  * An `EvalTurn` that drove nothing.
  *
  * `error` is deliberately absent: setting it makes the scorers short-circuit
- * to zero with a "run failed" reason, which would report a broken harness as
+ * to zero with a "turn failed" reason, which would report a broken harness as
  * a failed property.
  *
  * @param {{ url: string, state: string, verifier: string }} attempt

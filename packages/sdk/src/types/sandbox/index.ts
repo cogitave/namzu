@@ -148,9 +148,9 @@ export interface SandboxExecOptions {
 	 *
 	 * Without it a Stop (or a per-tool deadline) could only ever abandon
 	 * the *wait* — the sandboxed process kept running after the host
-	 * believed the run had been cancelled.
+	 * believed the turn had been cancelled.
 	 *
-	 * **Who honours it.** The in-process local sandbox does: the run owns a
+	 * **Who honours it.** The in-process local sandbox does: the turn owns a
 	 * listener until the process group's shared stdio closes, and terminates
 	 * that group directly. The HTTP-container backends in `@namzu/sandbox` also
 	 * do: a
@@ -316,7 +316,7 @@ export interface Sandbox {
 	 * Optional, and a backend that cannot enforce it must **throw** rather
 	 * than accept and ignore. A network policy that is accepted and not
 	 * applied is worse than one that was never offered: the caller stops
-	 * looking, and the run proceeds believing it is confined. That is the
+	 * looking, and the turn proceeds believing it is confined. That is the
 	 * same rule the tiered sandbox provider follows, for the same reason.
 	 */
 	setNetworkPolicy?(policy: SandboxNetworkPolicy): Promise<void>
@@ -423,7 +423,7 @@ export interface Sandbox {
 	/**
 	 * Release every resource owned by this sandbox.
 	 *
-	 * The signal belongs to a fresh teardown operation, not to the run that is
+	 * The signal belongs to a fresh teardown operation, not to the turn that is
 	 * already ending. Implementations should stop their teardown transport and
 	 * settle promptly when it aborts. Hosts may still impose an independent
 	 * wait bound because a third-party implementation can ignore the signal.
@@ -489,7 +489,7 @@ export type ContainerSandboxMountSource =
 			 * No external mount — the image itself provides the directory.
 			 * Used by managed-warm-pool backends (ACI Standby Pool) whose
 			 * claim semantics forbid per-task volume overrides. The
-			 * container's own ephemeral filesystem carries the run; the
+			 * container's own ephemeral filesystem carries the turn; the
 			 * host walks output files out via the worker's HTTP API
 			 * before destroy and persists them somewhere durable
 			 * (e.g. blob storage).
@@ -522,7 +522,7 @@ export interface ContainerSandboxLayoutMount {
  * the difference has to be legible to the model from the path alone:
  *
  *  - `outputs` — RW bind. User-visible output surface that the
- *    user consumes after the run. Default container path
+ *    user consumes after the turn. Default container path
  *    `/mnt/user-data/outputs`. **Required** for container backends:
  *    without it the model has no place to persist work past the
  *    container's lifetime.
@@ -613,7 +613,7 @@ export interface ResolvedContainerSandboxLayout {
 
 export interface SandboxCreateConfig {
 	/**
-	 * Withdraws authority to publish the allocation to the run.
+	 * Withdraws authority to publish the allocation to the turn.
 	 *
 	 * Providers should stop their transport and reconcile any resource they can
 	 * identify. This signal is not, by itself, proof that a remote allocation
@@ -684,7 +684,7 @@ export const SandboxConfigSchema = z.object({
 	memoryLimitMb: z.number().positive().default(SANDBOX_DEFAULT_MEMORY_LIMIT_MB),
 	maxProcesses: z.number().positive().default(SANDBOX_DEFAULT_MAX_PROCESSES),
 	/**
-	 * Controls the run depends on. Provider construction throws when the
+	 * Controls the turn depends on. Provider construction throws when the
 	 * host cannot enforce one of them. Empty by default, which keeps
 	 * best-effort behaviour for callers that never asked for a guarantee —
 	 * but a caller that did ask now gets it or gets an error, never a
@@ -698,13 +698,13 @@ export const SandboxConfigSchema = z.object({
 	 * the run a fresh temp directory. Nothing the agent writes touches the
 	 * caller's files, and nothing the caller has is visible to it.
 	 *
-	 * `'working-directory'` roots it at the run's own `workingDirectory`, so
+	 * `'working-directory'` roots it at the turn's own `workingDirectory`, so
 	 * a sandboxed `bash` acts on the project the agent was asked about
 	 * instead of on an empty directory. That is the case the sandbox was
 	 * wanted for and the one it could not do: the field existed on
 	 * `SandboxCreateConfig` and the kernel never set it, so configuring a
 	 * sandbox through `turnConfig.sandbox` always got a temp directory
-	 * whatever the run's own cwd was.
+	 * whatever the turn's own cwd was.
 	 *
 	 * The trade is the point of naming it rather than inferring it. Rooted
 	 * at the working directory, confinement still bounds the agent to that

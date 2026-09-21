@@ -11,7 +11,7 @@ import { runAgent } from '../runAgent.js'
  * `result.ts` — so every other way a turn can end badly arrives as
  * `turn_completed`: the token budget, the timeout, the iteration cap, a
  * cancellation, and a blocking output guardrail. A consumer reading that event
- * as success reported one for a run whose answer was refused, and the CLI did:
+ * as success reported one for a turn whose answer was refused, and the CLI did:
  * it mapped the completion event to a bare `done` and exited 0.
  *
  * Measured before the fix: a `max_iterations` stop reports

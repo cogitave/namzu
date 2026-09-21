@@ -74,12 +74,12 @@ export interface BaseAgentConfig {
 	 *
 	 * A provider alone only says HOW commands are confined. This field says
 	 * WHAT it is rooted at; `working-directory` makes sandbox-aware tools act
-	 * on the run's declared workspace instead of a disposable empty tree.
+	 * on the turn's declared workspace instead of a disposable empty tree.
 	 */
 	sandbox?: import('../session/config.js').TurnConfig['sandbox']
 
 	/**
-	 * The tools this run may use, narrowing whatever its registry holds.
+	 * The tools this turn may use, narrowing whatever its registry holds.
 	 *
 	 * `allowedTools` existed on `QueryParams` and on `ToolContext` and
 	 * nowhere on the path a delegation takes — so a supervisor handing a
@@ -93,12 +93,12 @@ export interface BaseAgentConfig {
 	 * tools and let it call any of them by name.
 	 */
 	/**
-	 * Text queued for this run since its last turn, drained at the boundary.
+	 * Text queued for this turn since its last turn, drained at the boundary.
 	 *
 	 * A callback rather than an array, because the queue is owned by
 	 * whoever accepts the messages — `AgentManager` for a delegated child, a
-	 * host for a top-level run — and an array captured at config time would
-	 * be whatever was queued before the run started.
+	 * host for a top-level turn — and an array captured at config time would
+	 * be whatever was queued before the turn started.
 	 *
 	 * It exists because two public APIs could accept text and silently never
 	 * deliver it. `AgentManager.continueTask` and `queueMessage` pushed onto
@@ -107,7 +107,7 @@ export interface BaseAgentConfig {
 	 * unmounted from the coordinator tools because of it. The steering
 	 * channel had the mirror-image hole: it can only ride on a tool result,
 	 * so guidance queued during a turn that called no tools stayed pending
-	 * until the run ended.
+	 * until the turn ended.
 	 */
 	inboundMessages?: () => import('../message/index.js').Message[]
 
@@ -122,7 +122,7 @@ export interface BaseAgentConfig {
 	 *
 	 * See {@link import('../../runtime/query/index.js').QueryParams.toolResultGuardrails}.
 	 * On the BASE config rather than one agent's, because a delegated child is
-	 * a fresh run with its own executor: a switch that reached this agent and
+	 * a fresh turn with its own executor: a switch that reached this agent and
 	 * not its children would leave the default on in exactly the half a host
 	 * would be trying to change. Absent installs the shipped default; an empty
 	 * array installs none.
@@ -134,14 +134,14 @@ export interface BaseAgentConfig {
 	 * shape as `parentSpan`, `resumeHandler` and `env`. The value it stamps is
 	 * the spawning context's (`AgentTaskContext.toolResultGuardrails`), which
 	 * `SupervisorAgent` fills from this field and the delegation tools fill
-	 * from the run's own `ToolContext`; a spawn that supplies
+	 * from the turn's own `ToolContext`; a spawn that supplies
 	 * `configOverrides.toolResultGuardrails` replaces it rather than merging,
 	 * so a host can still hand one child a different set — including none.
 	 */
 	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
 
 	/**
-	 * Tools this run may NOT use, subtracted from whatever it would
+	 * Tools this turn may NOT use, subtracted from whatever it would
 	 * otherwise have.
 	 *
 	 * Separate from `allowedTools` because they answer different
@@ -153,7 +153,7 @@ export interface BaseAgentConfig {
 	 */
 	deniedTools?: readonly string[]
 
-	/** Persona for this run, overriding what the agent's definition supplies. */
+	/** Persona for this turn, overriding what the agent's definition supplies. */
 	persona?: import('../persona/index.js').AgentPersona
 
 	/**
@@ -174,7 +174,7 @@ export interface BaseAgentConfig {
 	 * **Configuration, not credentials** — and that is a property of the
 	 * CHANNEL rather than a judgement about any particular value. This map is
 	 * copied into every child, is readable by any tool that can run a command,
-	 * and enters a model's context and the run transcript the moment something
+	 * and enters a model's context and the turn transcript the moment something
 	 * echoes it. Nothing here is scoped, redacted, or revocable.
 	 *
 	 * A value that authenticates to a host belongs on the brokered credential
@@ -225,7 +225,7 @@ export interface BaseAgentConfig {
 	idempotencyKey?: string
 
 	/**
-	 * Long-lived goal scope for the run. Required at runtime — agents reject
+	 * Long-lived goal scope for the turn. Required at runtime — agents reject
 	 * configs missing this (`'X requires sessionId, projectId, and tenantId
 	 * in config'`).
 	 *
@@ -237,7 +237,7 @@ export interface BaseAgentConfig {
 	projectId?: ProjectId
 
 	/**
-	 * Topic the run belongs to. Optional at the TYPE level for the same
+	 * Topic the turn belongs to. Optional at the TYPE level for the same
 	 * reason as `projectId` — {@link AgentManager} stamps this field after
 	 * `configBuilder` returns so `configBuilder` implementations do not
 	 * need to be updated before this tightens. Tightening to required
@@ -264,7 +264,7 @@ export interface BaseAgentConfig {
 	/** Shared invocation state passed through agent hierarchies */
 	invocationState?: InvocationState
 
-	/** Span a delegated run hangs off. Absent for a top-level run. */
+	/** Span a delegated session hangs off. Absent for a top-level turn. */
 	parentSpan?: import('@opentelemetry/api').Span
 
 	/**
@@ -341,7 +341,7 @@ export interface BaseAgentResult {
 	messages: Message[]
 	result?: string
 	/**
-	 * The schema-validated answer, when the run was configured to produce one.
+	 * The schema-validated answer, when the turn was configured to produce one.
 	 *
 	 * `Turn.structuredOutput` has carried this all along and every ergonomic
 	 * boundary above it dropped the value three lines from its caller: an

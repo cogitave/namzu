@@ -18,7 +18,7 @@ export { InMemoryTopicStore } from './memory.js'
 export { DiskTopicStateStore, InMemoryTopicStateStore } from './state.js'
 export type { DiskTopicStateStoreConfig, TopicStateStore } from './state.js'
 
-// Work that outlives one run: the objective, its round cap and the
+// Work that outlives one turn: the objective, its round cap and the
 // compare-and-set that makes the cap durable.
 export {
 	DiskTopicObjectiveStore,

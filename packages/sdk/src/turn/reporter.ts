@@ -35,7 +35,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 
 			case 'approval_policy_changed':
 				// `warn`, not `info`. Every change here is a change in how
-				// closely this run is supervised, and the one worth seeing in a
+				// closely this turn is supervised, and the one worth seeing in a
 				// scrolling log is the loosening nobody meant to leave on.
 				log.warn('Approval policy changed', {
 					[NAMZU.TURN_ID]: event.turnId,
@@ -85,11 +85,11 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				break
 
 			case 'turn_completed':
-				log.info('Run completed', { [NAMZU.TURN_ID]: event.turnId })
+				log.info('Turn completed', { [NAMZU.TURN_ID]: event.turnId })
 				break
 
 			case 'turn_failed':
-				log.error('Run failed', {
+				log.error('Turn failed', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'exception.message': event.error,
 					// A greppable id and a sentence saying what to change,
@@ -310,7 +310,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				})
 				break
 			case 'memory_consolidated':
-				log.info('Run learnings consolidated into the memory store', {
+				log.info('Turn learnings consolidated into the memory store', {
 					'namzu.memory.id': event.memoryId,
 					'namzu.memory.decisions': event.decisions,
 					'namzu.memory.discoveries': event.discoveries,
@@ -318,7 +318,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				})
 				break
 			case 'compaction_tool_results_cleared':
-				// `info` on both branches. The relieved case is the run
+				// `info` on both branches. The relieved case is the turn
 				// avoiding a summarization, which is good news worth stating;
 				// the unrelieved case is the history taking two edits in one
 				// pass, and a reader who saw only the `compaction_completed`
@@ -338,7 +338,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				break
 
 			case 'compaction_failed':
-				// warn rather than info: the run is now continuing at a context
+				// warn rather than info: the turn is now continuing at a context
 				// size it had already decided was too large.
 				log.warn('Context compaction shed nothing', {
 					[NAMZU.TURN_ID]: event.turnId,
@@ -376,7 +376,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 
 			case 'tool_progress':
 				// Debug, not info: a long tool can emit many of these and they
-				// are a live-view signal, not a run milestone.
+				// are a live-view signal, not a turn milestone.
 				log.debug('Tool progress', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[GENAI.TOOL_NAME]: event.toolName,
@@ -385,7 +385,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				break
 
 			case 'user_question_asked':
-				log.info('Question asked — the run is parked on an answer', {
+				log.info('Question asked — the turn is parked on an answer', {
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.checkpoint.id': event.checkpointId,
 					'namzu.turn.question_id': event.questionId,
@@ -400,7 +400,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				break
 
 			case 'provider_retry':
-				// `warn`, not debug: this is the run going quiet for a
+				// `warn`, not debug: this is the turn going quiet for a
 				// measurable stretch, and the delay it names is still ahead.
 				log.warn('Model call failed — retrying', {
 					'namzu.provider.retry_delay_ms': event.delayMs,
@@ -416,7 +416,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 
 			case 'provider_fallback':
 				// `warn` for the same reason as a retry, and one stronger: the rest
-				// of this run is being served by a provider the caller did not pick.
+				// of this turn is being served by a provider the caller did not pick.
 				log.warn('Provider could not serve — continuing on the fallback', {
 					[NAMZU.TURN_ID]: event.turnId,
 					[NAMZU.ITERATION]: event.iteration,

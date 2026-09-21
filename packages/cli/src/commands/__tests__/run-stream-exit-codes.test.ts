@@ -14,7 +14,7 @@
  * Every case asserts three things together, because each one alone is
  * satisfiable by a defect. The code, so a host branching on `$?` is right; the
  * `error` event, so the reason is on the stream a host actually reads; and the
- * terminating `done`, because the NDJSON contract is that every run ends with
+ * terminating `done`, because the NDJSON contract is that every turn ends with
  * one and a refusal that forgot it would leave a line-scanner waiting forever.
  *
  * These tests read the handler's RETURN VALUE. Every existing test of this
@@ -211,7 +211,7 @@ describe('one terminal event per streamed run', () => {
 	})
 })
 
-describe('exit 0 — the caller can reach the run by sending something else', () => {
+describe('exit 0 — the caller can reach the turn by sending something else', () => {
 	it('an unknown option', async () => {
 		const r = await run(['--format', 'json', 'hello'])
 		expect(r.code).toBe(0)
@@ -260,7 +260,7 @@ describe('exit 0 — the caller can reach the run by sending something else', ()
 		reported(r)
 	})
 
-	it('a run that started and then failed', async () => {
+	it('a turn that started and then failed', async () => {
 		// Unchanged, and the case the whole in-band contract is built for: the
 		// turn ran, the host renders the failure, and retrying may well work.
 		vi.mocked(createAgentSession).mockImplementation(async () =>
@@ -276,7 +276,7 @@ describe('exit 0 — the caller can reach the run by sending something else', ()
 		expect(r.out).toContain('503')
 	})
 
-	it('a run that paused forwards its checkpoint and still terminates in band', async () => {
+	it('a turn that paused forwards its checkpoint and still terminates in band', async () => {
 		vi.mocked(createAgentSession).mockImplementation(async () =>
 			fakeAgentSession({
 				send: async function* () {

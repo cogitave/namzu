@@ -115,7 +115,7 @@ const savedChildren: {
  * listing reads it. `gate` holds one open so a test can put the read in
  * flight underneath a key press, the same shape as `savedChildren.gate`.
  */
-const orchestrationRuns: { current: readonly Batch[]; gate?: Promise<void> } = vi.hoisted(() => ({
+const orchestrationBatches: { current: readonly Batch[]; gate?: Promise<void> } = vi.hoisted(() => ({
 	current: [],
 }))
 
@@ -179,8 +179,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 				return savedChildren.current
 			},
 			listSavedBatches: async () => {
-				await orchestrationRuns.gate
-				return orchestrationRuns.current
+				await orchestrationBatches.gate
+				return orchestrationBatches.current
 			},
 			configNotices: [],
 			approvalLatched: () => false,
@@ -322,8 +322,8 @@ beforeEach(() => {
 	savedChildren.current = []
 	savedChildren.reads = 0
 	delete savedChildren.gate
-	orchestrationRuns.current = []
-	delete orchestrationRuns.gate
+	orchestrationBatches.current = []
+	delete orchestrationBatches.gate
 	activity.delegate(undefined)
 	activity.set([])
 	activity.narrate([])
@@ -380,7 +380,7 @@ describe('Ctrl+T', () => {
 		expect(handoffFrame).toContain('Unmatched child')
 	})
 
-	it('does not hide another run tool that reuses a terminal child call id', async () => {
+	it('does not hide another turn tool that reuses a terminal child call id', async () => {
 		activity.set([
 			agent({
 				viewId: 'old-child',
@@ -602,7 +602,7 @@ describe('Ctrl+T', () => {
 					turnConfig: {
 						model: 'mock-model',
 						tokenBudget: 100_000,
-						// Generous on purpose. Four real child runs stand up under this
+						// Generous on purpose. Four real child sessions stand up under this
 						// parent, and on a loaded machine — the whole workspace testing
 						// at once — that took longer than the five seconds this used to
 						// allow, which failed the parent with a timeout the test was
@@ -928,7 +928,7 @@ describe('Ctrl+T', () => {
 		activity.set([
 			agent({
 				viewId: 'agent-child',
-				description: 'Child run',
+				description: 'Child session',
 				transcript: [
 					{
 						id: 'child-row',
@@ -948,7 +948,7 @@ describe('Ctrl+T', () => {
 		screen.press('\x14')
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Child run'),
+			() => screen.viewport().join('\n').includes('Child session'),
 			'picker missing',
 		)
 		expect(screen.viewport().join('\n')).not.toContain('private child evidence')
@@ -1338,7 +1338,7 @@ describe('Ctrl+T', () => {
 	it('keeps a completed child open, publishes the parent once on return and can reopen its history', async () => {
 		const child = agent({
 			viewId: 'agent-child',
-			description: 'Child run',
+			description: 'Child session',
 			transcript: [{ id: 'child-row', kind: 'assistant', text: 'child is working' }],
 		})
 		activity.set([child])
@@ -1381,7 +1381,7 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport().join('\n')).toContain('Completed')
 		expect(screen.viewport().join('\n')).toContain('Latest ·')
 		expect(screen.viewport().join('\n')).not.toContain('Live ·')
-		expect(screen.viewport().join('\n')).toContain('Child run')
+		expect(screen.viewport().join('\n')).toContain('Child session')
 		expect(screen.viewport().join('\n')).not.toContain('parent finished')
 		screen.press('q')
 		await waitUntil(
@@ -1389,11 +1389,11 @@ describe('Ctrl+T', () => {
 			() => painted(screen).includes('parent finished'),
 			'parent result missing after returning from the child',
 		)
-		expect(screen.viewport().join('\n')).toContain('Child run · Completed')
+		expect(screen.viewport().join('\n')).toContain('Child session · Completed')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
 
 		await submit(screen, '/agents')
-		expect(screen.viewport().join('\n')).toContain('Child run')
+		expect(screen.viewport().join('\n')).toContain('Child session')
 		screen.press('\r')
 		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).toContain('child final answer')
@@ -1402,8 +1402,8 @@ describe('Ctrl+T', () => {
 })
 
 describe('/agents batches', () => {
-	it('selecting a past run opens the cockpit with the replayed banner', async () => {
-		// Nothing live: this run is entirely on disk, the way a past turn's
+	it('selecting a past turn opens the cockpit with the replayed banner', async () => {
+		// Nothing live: this turn is entirely on disk, the way a past turn's
 		// work looks once the process that ran it has exited.
 		activity.set([])
 		savedChildren.current = [
@@ -1418,7 +1418,7 @@ describe('/agents batches', () => {
 				transcript: [{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' }],
 			}),
 		]
-		orchestrationRuns.current = [
+		orchestrationBatches.current = [
 			{
 				id: 'saved-run-1',
 				name: 'Contract critic batch',
@@ -1456,7 +1456,7 @@ describe('/agents batches', () => {
 	it('reports an empty history rather than an empty picker', async () => {
 		activity.set([])
 		savedChildren.current = []
-		orchestrationRuns.current = []
+		orchestrationBatches.current = []
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
 		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
@@ -1471,9 +1471,9 @@ describe('/agents batches', () => {
 
 	it('drops a stale read once the operator has left the loading picker', async () => {
 		activity.set([])
-		orchestrationRuns.current = []
+		orchestrationBatches.current = []
 		let release: () => void = () => {}
-		orchestrationRuns.gate = new Promise<void>((resolve) => {
+		orchestrationBatches.gate = new Promise<void>((resolve) => {
 			release = resolve
 		})
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
@@ -1528,7 +1528,7 @@ describe('agent explorer projection', () => {
 		).toEqual(['done-sibling', 'live-sibling'])
 	})
 
-	it('does not revive a terminal cohort when another run reuses its provider batch id', () => {
+	it('does not revive a terminal cohort when another turn reuses its provider batch id', () => {
 		const old = agent({
 			viewId: 'old-run',
 			workflowId: 'run-old',
@@ -2628,7 +2628,7 @@ describe('parent narration', () => {
 		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('┌')
 	})
 
-	it('leaves a run with no narration exactly as it was', async () => {
+	it('leaves a turn with no narration exactly as it was', async () => {
 		activity.set([agent({ viewId: 'quiet-child', description: 'Quiet lens' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
 		mounted = screen

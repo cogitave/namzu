@@ -8,7 +8,7 @@ import { GuardCoordinator } from '../guard.js'
 /**
  * Budgets belong to the TURN, not to the process hosting it.
  *
- * A run checkpointed at $4.80 of a $5 cap used to come back with a brand-new
+ * A turn checkpointed at $4.80 of a $5 cap used to come back with a brand-new
  * $5 and a brand-new timeout clock, because the resume path replayed messages
  * and nothing else — while the checkpoint had faithfully persisted usage,
  * cost and elapsed time all along. A task that parked five times spent 5x its
@@ -71,15 +71,15 @@ describe('GuardCoordinator — elapsed time survives a resume', () => {
 		expect(guard.beforeIteration(runMgrAt({}), live).shouldStop).toBe(false)
 	})
 
-	it('a resumed run already over its cost cap stops on its first iteration', () => {
+	it('a resumed turn already over its cost cap stops on its first iteration', () => {
 		const guard = new GuardCoordinator({ tokenBudget: 0, timeoutMs: 600_000, costLimitUsd: 5 })
-		// Post-restore state: the run had already spent $4.90 before the park.
+		// Post-restore state: the turn had already spent $4.90 before the park.
 		const result = guard.beforeIteration(runMgrAt({ totalCost: 5.1 }), live)
 		expect(result.shouldStop).toBe(true)
 		expect(result.stopReason).toBe('cost_limit')
 	})
 
-	it('a resumed run already at its iteration cap stops on its first iteration', () => {
+	it('a resumed turn already at its iteration cap stops on its first iteration', () => {
 		const guard = new GuardCoordinator({
 			tokenBudget: 0,
 			timeoutMs: 600_000,
@@ -162,7 +162,7 @@ describe('TurnRecorder.restoreUsage', () => {
 		expect(mgr.costInfo.totalCost).toBe(4.8)
 		expect(mgr.currentIteration).toBe(7)
 
-		// And the run keeps accumulating from the restored point.
+		// And the turn keeps accumulating from the restored point.
 		mgr.accumulateUsage(
 			{
 				promptTokens: 1,

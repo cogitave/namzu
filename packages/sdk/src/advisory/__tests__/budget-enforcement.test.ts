@@ -54,7 +54,7 @@ function contextWith(budget: Parameters<typeof assertBudgetEnforceable>[0]['budg
 	)
 }
 
-describe('a per-run cost cap actually stops the next call', () => {
+describe('a per-turn cost cap actually stops the next call', () => {
 	it('allows a call while the accumulated cost is under the cap', () => {
 		const ctx = contextWith({ maxCostPerTurn: 1 })
 		ctx.recordCall(record(0.4))

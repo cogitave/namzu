@@ -53,7 +53,7 @@ describe('owned-work request projection', () => {
 		const after = inbox.describeOwnedWork() as string
 		expect(after).toContain('delivered-to-history')
 		expect(after).toContain('"state":"completed"')
-		expect(after).toContain('"runStatus":"completed"')
+		expect(after).toContain('"turnStatus":"completed"')
 		expect(inbox.drain()).toEqual([])
 		inbox.close()
 		expect(inbox.describeOwnedWork()).toBeUndefined()
@@ -226,7 +226,7 @@ function fakeGateway(): {
  *
  * Spelled out in each test rather than folded into `settle`, because it is the
  * statement under test in the scoping block below: an inbox hears about a task
- * only when its own run launched it.
+ * only when its own turn launched it.
  */
 function launch(inbox: CompletionInbox, taskId: string): void {
 	inbox.launched(taskId as TaskId)
@@ -346,9 +346,9 @@ describe('a completion the tool already delivered is never delivered twice', () 
 	})
 })
 
-describe('a launch nobody is waiting for holds the run open', () => {
+describe('a launch nobody is waiting for holds the turn open', () => {
 	it('counts an expected task as pending work before it settles', () => {
-		// Without this the run settles while a background worker is still
+		// Without this the turn settles while a background worker is still
 		// going and discards the result the launch existed to produce.
 		const { gateway } = fakeGateway()
 		const inbox = new CompletionInbox()
@@ -380,7 +380,7 @@ describe('a launch nobody is waiting for holds the run open', () => {
 		// finishes fast can be ANNOUNCED first: the listener then has nothing
 		// to take off the outstanding set, and `expect` puts the id on it
 		// afterwards. Draining emptied `unheard` and left `outstanding`
-		// holding an id nothing would ever clear, so the run reported pending
+		// holding an id nothing would ever clear, so the turn reported pending
 		// work — and paid a full grace period for it — every time it tried to
 		// settle, for a result that was already in its own transcript.
 		const { gateway, settle } = fakeGateway()
@@ -431,7 +431,7 @@ describe('a launch nobody is waiting for holds the run open', () => {
 
 	it('stops expecting a task that was cancelled', () => {
 		// `expect` is only cleared by a COMPLETION, so a cancelled worker used
-		// to keep the run open for the whole grace period, every time it tried
+		// to keep the turn open for the whole grace period, every time it tried
 		// to settle, waiting for a result that had been called off.
 		const { gateway } = fakeGateway()
 		const inbox = new CompletionInbox()
@@ -493,9 +493,9 @@ describe('a launch nobody is waiting for holds the run open', () => {
 		inbox.close()
 	})
 
-	it('gives up at the deadline rather than holding a run forever', async () => {
+	it('gives up at the deadline rather than holding a turn forever', async () => {
 		// The bound is the point: a worker that never finishes must not keep
-		// the run open indefinitely.
+		// the turn open indefinitely.
 		const { gateway } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
@@ -613,7 +613,7 @@ describe('the notification says which task and what it produced', () => {
  * A delegate's words, framed here as they are everywhere else.
  *
  * A worker is the component most likely to have consumed material nobody in
- * the run authored: it was told to read and report, and it ran `read`, `grep`
+ * the turn authored: it was told to read and report, and it ran `read`, `grep`
  * and `fetch` over whatever it found. Its text then lands in a parent holding
  * the broader tool grant. Blocking `create_task` and `wait_for_task` wrap that
  * text; this path pasted it bare, so the SAME bytes were material on one route
@@ -702,16 +702,16 @@ describe('the inbox does not require anything of a host gateway', () => {
 })
 
 /**
- * One gateway, two runs.
+ * One gateway, two turns.
  *
- * `onTaskCompleted` is a broadcast and `TaskHandle` carries no run id, so
+ * `onTaskCompleted` is a broadcast and `TaskHandle` carries no turn id, so
  * every attached inbox saw every completion — including one from a supervisor
  * it shares nothing with but the gateway object. A shared gateway is not an
  * abuse of the API: `SupervisorAgentConfig.gateway` takes one, and a host that
- * owns a gateway naturally reuses it across runs.
+ * owns a gateway naturally reuses it across turns.
  */
-describe('an inbox hears only about the tasks its own run launched', () => {
-	it(`ignores another run's worker on the same gateway`, () => {
+describe('an inbox hears only about the tasks its own turn launched', () => {
+	it(`ignores another turn's worker on the same gateway`, () => {
 		const { gateway, settle } = fakeGateway()
 		const mine = new CompletionInbox()
 		const theirs = new CompletionInbox()
@@ -721,13 +721,13 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 		launch(theirs, 'tsk_theirs')
 		settle(handleFor('tsk_theirs', "another supervisor's worker output"))
 
-		expect(mine.drain(), 'a run was handed a completion for a task it never launched').toEqual([])
+		expect(mine.drain(), 'a turn was handed a completion for a task it never launched').toEqual([])
 		expect(theirs.drain().map((h) => h.taskId)).toEqual(['tsk_theirs'])
 	})
 
-	it('does not hold a run open for work it did not start', () => {
+	it('does not hold a turn open for work it did not start', () => {
 		// The sharper half. A false notification is a lie the model has to
-		// account for; a false pending flag makes the run pay the settle grace
+		// account for; a false pending flag makes the turn pay the settle grace
 		// for somebody else's worker.
 		const { gateway, settle } = fakeGateway()
 		const mine = new CompletionInbox()

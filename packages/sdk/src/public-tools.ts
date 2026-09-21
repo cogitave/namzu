@@ -55,12 +55,12 @@ export { JobTool } from './tools/builtins/job.js'
 // the same unbacked suggestion `job` itself exists to fix.
 export { WaitForJobTool } from './tools/builtins/wait-for-job.js'
 // Loads a skill's instructions, and adopts the tool scope it declares.
-// NOT in the default builtin set: a run with no skills has nothing for it
+// NOT in the default builtin set: a turn with no skills has nothing for it
 // to do, and offering a tool that can only refuse is worse than not
 // offering it. Hosts register it alongside a skills registry.
 export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './tools/builtins/skill.js'
 // Both declare `category: 'network'`, which is what the authorization
-// presets branch on. NOT in the default builtin set: a run with no web
+// presets branch on. NOT in the default builtin set: a turn with no web
 // provider has nothing for them to do, and only the `unattended` preset --
 // the one requiring the sandbox to confine the network -- auto-approves
 // them.
@@ -72,14 +72,14 @@ export {
 } from './tools/builtins/web.js'
 // The paragraph neither tool owns: how to use the two together, and what a
 // fetched page is. Registered with the prompt contribution registry only
-// when the tools are — guidance about tools a run does not have spends the
+// when the tools are — guidance about tools a turn does not have spends the
 // cached prefix telling the model to cite a search it cannot run.
 export {
 	WEB_GUIDANCE_CONTRIBUTION_ID,
 	webGuidanceContribution,
 } from './tools/builtins/web-guidance.js'
-// A program the model wrote, calling this run's own tools in a loop. Opt-in
-// and NOT in the default builtin set: a run that does not need
+// A program the model wrote, calling this turn's own tools in a loop. Opt-in
+// and NOT in the default builtin set: a turn that does not need
 // model-authored control flow should not have a way to execute
 // model-authored text, and "the tool was there so it got used" is not a
 // threat model.

@@ -19,10 +19,10 @@ import {
 /**
  * A derived value maintained one event at a time.
  *
- * Everything derived from a run was computed by scanning what was in hand
- * when somebody asked. That works while the run fits in memory and stops
- * working the moment it does not: a caller wanting the status of a run
- * whose history was compacted, or of a run in another process, loads the
+ * Everything derived from a turn was computed by scanning what was in hand
+ * when somebody asked. That works while the turn fits in memory and stops
+ * working the moment it does not: a caller wanting the status of a turn
+ * whose history was compacted, or of a turn in another process, loads the
  * log and folds it, and every caller folds it slightly differently.
  *
  * The registry's refusals are what make this a property rather than a hope.
@@ -248,7 +248,7 @@ describe('the session status projection', () => {
 	})
 
 	it('stops saying so the moment the answer arrives', () => {
-		// On the ANSWER, not on the next tool call. A run that stayed
+		// On the ANSWER, not on the next tool call. A turn that stayed
 		// `awaiting_hitl` until it happened to do something else would show a
 		// human as owed an answer they had already given.
 		reset()
@@ -264,7 +264,7 @@ describe('the session status projection', () => {
 	})
 
 	it('does NOT treat a pause as a park', () => {
-		// A pause with no park is a run that stopped for a reason this
+		// A pause with no park is a turn that stopped for a reason this
 		// projection cannot name, and inventing `awaiting_hitl` would report
 		// a human as owing an answer nobody asked them for.
 		reset()
@@ -272,7 +272,7 @@ describe('the session status projection', () => {
 	})
 
 	it('lets a terminal state beat an outstanding park', () => {
-		// A run that finished is not waiting for anyone, whatever a stale
+		// A turn that finished is not waiting for anyone, whatever a stale
 		// park says — the rule `deriveTurnStatus` already owns, still owned by
 		// it and not re-implemented here.
 		reset()

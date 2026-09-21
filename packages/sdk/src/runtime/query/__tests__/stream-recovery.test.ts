@@ -178,7 +178,7 @@ describe('query stream recovery', () => {
 		)
 	})
 
-	it('preserves classified provider metadata through the primary run boundary', async () => {
+	it('preserves classified provider metadata through the primary turn boundary', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-provider-error-'))
 		workdirs.push(workingDirectory)
 		const events: SessionEvent[] = []
@@ -187,7 +187,7 @@ describe('query stream recovery', () => {
 			{
 				provider: new ClassifiedFailureProvider(),
 				// Retry off: this pins METADATA at the boundary, and a throttle
-				// is genuinely retryable — leaving retry on would spend the run's
+				// is genuinely retryable — leaving retry on would spend the turn's
 				// whole timeout backing off and settle it as a timeout instead,
 				// testing the retry policy rather than the thing named here.
 				retry: { maxRetries: 0 },

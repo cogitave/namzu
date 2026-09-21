@@ -24,7 +24,7 @@ import { drainQuery } from '../index.js'
  *
  * This is the regression test for the incident `wait_for_job` exists to
  * fix: research/resident/results/2026-09-14-exploration-policy-terra-tui.json
- * records a live run that launched one background job, then spent six
+ * records a live turn that launched one background job, then spent six
  * `job read` polls, three `job list` polls and an improvised `sleep 30`
  * waiting on it — more tokens on the wait than the work it was waiting for
  * cost. `provider.requests.length` is the same unit that incident was

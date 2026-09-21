@@ -15,7 +15,7 @@ import { runAgent } from '../runAgent.js'
  *
  * `skills` is the one with a caller in this repo. `@namzu/project` reads a
  * whole `skills/` directory, put them on the options, and every one was dropped
- * on the floor — the run was assembled without them and said nothing. These
+ * on the floor — the turn was assembled without them and said nothing. These
  * pin the forwarding rather than the cast, because the cast can come back and
  * a test that only asserted its absence would not notice.
  */
@@ -47,7 +47,7 @@ describe('runAgent forwards what the kernel takes', () => {
 
 	it('forwards the verification gate, so a denied tool does not run', async () => {
 		// The first version of this test asserted `run.status === 'completed'`
-		// with the gate set. It passed with the forwarding deleted — a run with
+		// with the gate set. It passed with the forwarding deleted — a turn with
 		// no gate completes too — so it proved nothing. A gate is only observable
 		// through a call it stops, which means the assertion has to be about
 		// whether the tool body ran.

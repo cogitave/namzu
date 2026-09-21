@@ -139,14 +139,14 @@ export function mcpPromptToToolDefinition(
 					),
 				}
 			} catch (err) {
-				// Cancellation belongs to the run, not to the remote prompt. Turning
+				// Cancellation belongs to the turn, not to the remote prompt. Turning
 				// it into an ordinary failed tool result would let the executor treat
 				// a withdrawn operation as one the model may route around.
 				if (context.abortSignal?.aborted) throw context.abortSignal.reason
 				// Returned to the MODEL rather than thrown. A prompt that
 				// cannot be fetched — a server that went away, an argument it
 				// rejected — is something the agent can work around, and
-				// killing the run over it would be the wrong trade for a
+				// killing the turn over it would be the wrong trade for a
 				// read-only lookup.
 				return {
 					success: false,

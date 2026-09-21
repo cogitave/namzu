@@ -103,7 +103,7 @@ function completed(content: string): StreamChunk[] {
 	]
 }
 
-describe('query-owned compaction verification stays inside the run boundary', () => {
+describe('query-owned compaction verification stays inside the turn boundary', () => {
 	let workdirs: string[] = []
 
 	afterEach(async () => {

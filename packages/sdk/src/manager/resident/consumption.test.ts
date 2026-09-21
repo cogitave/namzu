@@ -111,7 +111,7 @@ it('a copied run receipt invalidates both claims instead of double-counting or c
 	expect(report.unknown.ownUsageAttempts).toBe(2)
 })
 
-it('does not count different hexadecimal spellings of the same run UUID twice', async () => {
+it('does not count different hexadecimal spellings of the same turn UUID twice', async () => {
 	const lower = receipt({ turnId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa' })
 	const resolve = vi
 		.fn()

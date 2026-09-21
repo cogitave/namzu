@@ -101,7 +101,7 @@ CREATE TABLE usage_receipts (
 
 /**
  * The schema this store writes and reads. Versions 1 and 2 keyed observations
- * and receipts by a run id; a database at either (or any other version) is
+ * and receipts by a turn id; a database at either (or any other version) is
  * refused, never migrated — its rows name executions that no longer exist.
  */
 export const RESIDENT_LEARNING_STORE_VERSION = 3

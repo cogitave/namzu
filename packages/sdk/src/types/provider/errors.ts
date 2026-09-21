@@ -9,7 +9,7 @@
  *
  * The union is deliberately small. It answers exactly three questions the
  * runtime asks: is it worth retrying, should the delay come from the
- * server, and is this a context problem the run could recover from by
+ * server, and is this a context problem the turn could recover from by
  * shedding history.
  */
 export type ProviderErrorCode =
@@ -273,7 +273,7 @@ function codeFromMessage(message: string): ProviderErrorCode | undefined {
 		m.includes('prompt is too long') ||
 		// Real wordings that missed every phrase above and so classified as
 		// a plain invalid request — which is not retryable, and which the
-		// overflow rescue tests for by exact equality. The run died holding
+		// overflow rescue tests for by exact equality. The turn died holding
 		// the remedy.
 		m.includes('too long for') ||
 		m.includes('maximum length') ||

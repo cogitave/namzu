@@ -6,7 +6,7 @@ import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 /**
  * Grade an open-ended answer with a model.
  *
- * Every other scorer here is a pure function over the run, which is what
+ * Every other scorer here is a pure function over the turn, which is what
  * makes them cheap and reproducible — and also what makes them unable to
  * say anything about whether an answer is *good*. `containsScorer` can
  * check that a required phrase appears; it cannot tell a correct
@@ -46,7 +46,7 @@ export interface JudgeScorerConfig {
 	 */
 	scale?: number
 	/**
-	 * Show the judge which tools the run called. Default false.
+	 * Show the judge which tools the turn called. Default false.
 	 *
 	 * Useful when the rubric is about method rather than answer, and a
 	 * needless cost otherwise — the trajectory is usually longer than the
@@ -58,7 +58,7 @@ export interface JudgeScorerConfig {
 	 *
 	 * Truncation is disclosed IN the prompt. A judge shown a silently cut
 	 * answer marks it down for stopping mid-sentence, which scores our
-	 * truncation rather than the run.
+	 * truncation rather than the turn.
 	 */
 	maxOutputChars?: number
 	/**
@@ -224,7 +224,7 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 				provider.chatStream({
 					model: config.model,
 					messages: [{ role: 'user', content: buildPrompt(config, turn, evalCase, scale) }],
-					// The same run must grade the same way twice, or a
+					// The same turn must grade the same way twice, or a
 					// regression cannot be told from sampling noise.
 					temperature: 0,
 					maxTokens: 512,

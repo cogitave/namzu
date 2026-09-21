@@ -29,7 +29,7 @@ export interface ConnectorDefinition<TConfig = unknown> {
 	/**
 	 * Declared, not implemented — see {@link ConnectorTrigger}.
 	 *
-	 * @deprecated The SDK never reads this field or starts a run from it. Move
+	 * @deprecated The SDK never reads this field or starts a turn from it. Move
 	 * subscription metadata into a host-owned store before the next major.
 	 * It remains readable through `ConnectorRegistry` during this migration
 	 * release so existing host dispatchers do not break without warning.

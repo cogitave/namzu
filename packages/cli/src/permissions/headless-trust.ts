@@ -33,7 +33,7 @@
  * Anyone who can write `AGENTS.md` in that repository can write the build
  * script, the test file, the install hook — all of which run with tools
  * auto-approved. Declining to read the attacker's markdown while executing the
- * attacker's code blocks the weaker vector, reports success on a run that is
+ * attacker's code blocks the weaker vector, reports success on a turn that is
  * already compromised, and would make the instructions feature silently dead
  * in CI where nothing has ever been trusted.
  *
@@ -62,7 +62,7 @@ export type TrustDecision =
 
 export interface TrustCheck {
 	readonly cwd: string
-	/** `--trust` was passed: the operator accepts this folder for this run. */
+	/** `--trust` was passed: the operator accepts this folder for this turn. */
 	readonly trustFlag: boolean
 	/** Injectable for tests. Defaults to the persistent `~/.namzu/trust.json`. */
 	readonly trusted?: (dir: string) => boolean
@@ -81,7 +81,7 @@ export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
 			message: `refusing to run because the working directory changed or became unavailable while trust was being checked: ${check.cwd}`,
 		}
 	}
-	// `--trust` is per-run and is deliberately NOT written to the trust file.
+	// `--trust` is per-turn and is deliberately NOT written to the trust file.
 	// One reflexive use must not change the machine's state forever; the TUI
 	// stays the only path that records durable trust, because that is the one
 	// where a human is actually looking at a prompt.
@@ -98,7 +98,7 @@ export function decideHeadlessTrust(check: TrustCheck): TrustDecision {
 			'there is nobody to ask.',
 			'',
 			'Run `namzu` here once and accept the trust prompt to trust the folder',
-			'permanently, or pass --trust to accept it for this run only.',
+			'permanently, or pass --trust to accept it for this turn only.',
 		].join('\n'),
 	}
 }

@@ -80,7 +80,7 @@ describe('a worker that is still working is not killed for being slow', () => {
 			const waiting = waitForTaskWithBounds(
 				gateway,
 				'tsk_1' as TaskId,
-				{ runMs: 60_000, idleMs: 5_000 },
+				{ wallMs: 60_000, idleMs: 5_000 },
 				clock.now,
 			)
 
@@ -112,7 +112,7 @@ describe('a worker that has gone quiet is reported as quiet', () => {
 			const waiting = waitForTaskWithBounds(
 				gateway,
 				'tsk_1' as TaskId,
-				{ runMs: 600_000, idleMs: 5_000 },
+				{ wallMs: 600_000, idleMs: 5_000 },
 				clock.now,
 			)
 
@@ -147,7 +147,7 @@ describe('a worker that has gone quiet is reported as quiet', () => {
 	})
 })
 
-describe('the run bound still catches a worker that never stops', () => {
+describe('the turn bound still catches a worker that never stops', () => {
 	it('fires on elapsed time even while progress keeps arriving', async () => {
 		vi.useFakeTimers()
 		try {
@@ -157,7 +157,7 @@ describe('the run bound still catches a worker that never stops', () => {
 			const waiting = waitForTaskWithBounds(
 				gateway,
 				'tsk_1' as TaskId,
-				{ runMs: 10_000, idleMs: 5_000 },
+				{ wallMs: 10_000, idleMs: 5_000 },
 				clock.now,
 			)
 
@@ -170,7 +170,7 @@ describe('the run bound still catches a worker that never stops', () => {
 			const outcome = await waiting
 			expect(outcome.kind).toBe('timeout')
 			if (outcome.kind !== 'timeout') return
-			expect(outcome.cause).toBe('run')
+			expect(outcome.cause).toBe('wall')
 		} finally {
 			vi.useRealTimers()
 		}
@@ -187,7 +187,7 @@ describe('a gateway that cannot see its children', () => {
 			const waiting = waitForTaskWithBounds(
 				gateway,
 				'tsk_1' as TaskId,
-				{ runMs: 10_000, idleMs: 1_000 },
+				{ wallMs: 10_000, idleMs: 1_000 },
 				clock.now,
 			)
 
@@ -201,7 +201,7 @@ describe('a gateway that cannot see its children', () => {
 			const outcome = await waiting
 			expect(outcome.kind).toBe('timeout')
 			if (outcome.kind !== 'timeout') return
-			expect(outcome.cause).toBe('run')
+			expect(outcome.cause).toBe('wall')
 			// And the degradation is visible rather than silent.
 			expect(outcome.idleBoundArmed).toBe(false)
 		} finally {
@@ -212,7 +212,7 @@ describe('a gateway that cannot see its children', () => {
 	it('says so, instead of implying the worker was stuck', () => {
 		const text = describeWaitTimeout({
 			kind: 'timeout',
-			cause: 'run',
+			cause: 'wall',
 			elapsedMs: 3_600_000,
 			idleBoundArmed: false,
 		})
@@ -231,7 +231,7 @@ describe('a completion always wins', () => {
 			const waiting = waitForTaskWithBounds(
 				gateway,
 				'tsk_1' as TaskId,
-				{ runMs: 10_000, idleMs: 5_000 },
+				{ wallMs: 10_000, idleMs: 5_000 },
 				clock.now,
 			)
 

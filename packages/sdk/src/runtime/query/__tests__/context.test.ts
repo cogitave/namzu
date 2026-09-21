@@ -106,7 +106,7 @@ describe('TurnContextFactory.build', () => {
 		expect(ctx.recorder.turnId).toBe(turnId)
 	})
 
-	it("carries the caller's stop reason across into the run", () => {
+	it("carries the caller's stop reason across into the turn", () => {
 		const host = new AbortController()
 		const ctx = TurnContextFactory.build(buildConfig({ signal: host.signal }))
 

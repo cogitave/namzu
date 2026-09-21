@@ -23,7 +23,7 @@ const SESSION_ID = generateSessionId()
  *   Every `tool_use` block the model emits is answered by exactly one
  *   `tool_result`, on every path — gate denial, human rejection, partial
  *   approval — because an unanswered `tool_use` makes the NEXT provider
- *   request malformed and kills the run.
+ *   request malformed and kills the turn.
  *
  * Plus the policy invariant discovered alongside it: a human "approve" on
  * the gate's mixed-decision path must not execute the calls the gate

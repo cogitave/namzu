@@ -25,7 +25,7 @@ const SESSION_ID = generateSessionId()
  * defect on the default path, and every one of them was invisible because
  * the existing tests configured their way around it — the SDK default
  * `autoApproveHandler` means CI never once saw a rejection, so "every
- * decline kills the run" shipped and stayed shipped. The CLI wires a real
+ * decline kills the turn" shipped and stayed shipped. The CLI wires a real
  * permission prompt straight onto `reject_tools`, so a user declining a
  * tool was the first thing to hit it.
  *
@@ -182,7 +182,7 @@ async function drain(o: IterationOrchestrator) {
  *
  * An unanswered `tool_use` is a protocol violation — the wire replies
  * `400 messages.N: Did not find 1 tool_result block(s)` — and with no
- * provider retry that ends the run.
+ * provider retry that ends the turn.
  */
 function expectSendableHistory(messages: Message[]) {
 	const dangling = findDanglingMessages(messages)

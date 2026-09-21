@@ -19,7 +19,7 @@ const emptyRun = (): EvalTurn => ({
 	durationMs: 0,
 })
 
-describe('a case whose run THREW cannot score above zero', () => {
+describe('a case whose turn THREW cannot score above zero', () => {
 	it('scores 0 instead of a perfect step budget', async () => {
 		// `executeCase` catches the throw and returns an empty run, and an
 		// empty run walks into every scorer's happy path: 0 steps is within
@@ -52,7 +52,7 @@ describe('a case whose run THREW cannot score above zero', () => {
 		expect(report.cases[0]?.scores['step-budget']?.reason).toContain('provider exploded')
 	})
 
-	it('still scores a healthy run normally', async () => {
+	it('still scores a healthy turn normally', async () => {
 		const report = await runExperiment({
 			name: 'fine',
 			cases: [{ name: 'ok', input: 'x' }],

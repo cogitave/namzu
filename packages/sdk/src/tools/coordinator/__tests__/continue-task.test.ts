@@ -9,7 +9,7 @@ import { buildCoordinatorTools } from '../index.js'
  * own expiry condition.
  *
  * It read: on a live task the manager accepts the call and pushes onto
- * `pendingMessages`, and NOTHING drains that queue during a run — so the
+ * `pendingMessages`, and NOTHING drains that queue during a turn — so the
  * tool had no state it worked in. Terminal tasks refused it; live ones
  * accepted it into a queue nobody read. "If follow-ups on a live worker are
  * wanted, the work is a consumer for the queue."
@@ -54,7 +54,7 @@ function tools(over: Partial<TaskScheduler> = {}) {
 	return { gateway, created, byName }
 }
 
-/** Launch one, so it lands in this run's own `launchedHere` set. */
+/** Launch one, so it lands in this turn's own `launchedHere` set. */
 async function launch(t: ReturnType<typeof tools>) {
 	await t
 		.byName('create_task')
@@ -86,9 +86,9 @@ describe('a supervisor can redirect a worker it launched', () => {
 		expect(result?.output).toMatch(/result still arrives/)
 	})
 
-	it('refuses a task another run launched, and delivers nothing', async () => {
+	it('refuses a task another turn launched, and delivers nothing', async () => {
 		// The same fencing `wait_for_task` and `agent_task_list` apply. A
-		// shared gateway must not let one run steer another's worker, and the
+		// shared gateway must not let one turn steer another's worker, and the
 		// spy is what separates "refused" from "refused after sending".
 		const t = tools()
 		t.created.push(HANDLE({ taskId: '6a4ae909-5499-4697-8ebe-0dcd5d51574b' as TaskId }))
@@ -101,11 +101,11 @@ describe('a supervisor can redirect a worker it launched', () => {
 			)
 
 		expect(result?.success).toBe(false)
-		expect(result?.output).toMatch(/launched by this run/)
+		expect(result?.output).toMatch(/launched by this turn/)
 		expect(t.gateway.continueTask).not.toHaveBeenCalled()
 	})
 
-	it('does not confirm a task id the run was not supposed to know', async () => {
+	it('does not confirm a task id the turn was not supposed to know', async () => {
 		// "Never existed" and "belongs to someone else" get the same answer,
 		// because distinguishing them IS the leak in miniature.
 		const t = tools()

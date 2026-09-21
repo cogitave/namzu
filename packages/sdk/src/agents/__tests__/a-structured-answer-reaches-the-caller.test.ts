@@ -60,13 +60,13 @@ async function runWithSchema(workingDirectory: string) {
 }
 
 describe('runAgent with a schema', () => {
-	it('returns the parsed object, on the result and on the run', async () => {
+	it('returns the parsed object, on the result and on the turn', async () => {
 		const dir = await mkdtemp(join(tmpdir(), 'namzu-so-'))
 		const out = await runWithSchema(dir)
 
 		// Both, because they are two different promises to a caller: `run` is the
 		// durable record and `structuredOutput` is the ergonomic handle that did
-		// not exist. A fix that populated only the run would leave the front door
+		// not exist. A fix that populated only the turn would leave the front door
 		// exactly as unusable as it was.
 		expect(out.turn.structuredOutput).toEqual(ANSWER)
 		expect(out.structuredOutput).toEqual(ANSWER)

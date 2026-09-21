@@ -193,8 +193,8 @@ describe('namzu run in a folder nobody has trusted', () => {
 		expect(said).toContain('namzu')
 	})
 
-	it('is a code of its own, not the usage code and not a failed run', async () => {
-		// 64 says the caller's arguments are wrong and 1 says the run failed;
+	it('is a code of its own, not the usage code and not a failed turn', async () => {
+		// 64 says the caller's arguments are wrong and 1 says the turn failed;
 		// this is neither, and it is the only one a human decision about a
 		// folder can fix. A caller that cannot tell them apart matches on the
 		// message, and then the message can never be reworded.
@@ -367,7 +367,7 @@ describe('what gets past the gate', () => {
 		expect(code).toBe(0)
 	})
 
-	it('--trust, for this run', async () => {
+	it('--trust, for this turn', async () => {
 		const { code } = await runIn(stranger, ['--trust'])
 
 		expect(code).toBe(0)
@@ -396,7 +396,7 @@ describe('what does NOT get past the gate', () => {
 })
 
 describe('--trust does not remember', () => {
-	it('leaves the trust file alone, so the next run asks again', async () => {
+	it('leaves the trust file alone, so the next turn asks again', async () => {
 		// One reflexive use must not change the machine's state forever. The TUI
 		// is the only path that records durable trust, because it is the only one
 		// where a human is looking at a prompt.
@@ -435,7 +435,7 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 
 	it('says so in band AND exits 77', async () => {
 		// The one place this command departs from "every failure is an event and
-		// the exit code is 0". That rule is about a run that STARTED and failed,
+		// the exit code is 0". That rule is about a turn that STARTED and failed,
 		// which a host may sensibly retry. This is a refusal to start, and a host
 		// that cannot tell the two apart retries the one that must not be
 		// retried.

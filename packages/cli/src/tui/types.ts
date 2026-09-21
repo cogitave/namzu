@@ -96,7 +96,7 @@ export interface TuiContext {
 	readonly hooks?: HooksConfig
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
-	/** Configured per-run limits, also applied when rebuilding a session. */
+	/** Configured per-turn limits, also applied when rebuilding a session. */
 	readonly limits?: TurnLimitsConfig
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`.

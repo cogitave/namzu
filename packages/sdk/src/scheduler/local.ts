@@ -20,10 +20,10 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
 /**
  * How many launched tasks a gateway remembers.
  *
- * High enough that no realistic single run reaches it — a fan-out is eight,
+ * High enough that no realistic single turn reaches it — a fan-out is eight,
  * a long supervisory run is dozens — so the listing a supervisor reads at the
- * end of its run is always complete. It exists for the host that reuses one
- * gateway across runs, where the alternative is a set and a map that grow for
+ * end of its turn is always complete. It exists for the host that reuses one
+ * gateway across turns, where the alternative is a set and a map that grow for
  * the life of the process.
  */
 const GATEWAY_TASK_LEDGER_CAP = 1_000
@@ -137,7 +137,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 				projectId: this.taskContext.projectId,
 				parentActor: this.taskContext.parentActor,
 				// The caller's overrides, plus the span the caller supplied so a
-				// delegated run joins the trace it belongs to instead of
+				// delegated session joins the trace it belongs to instead of
 				// starting its own root.
 				//
 				// `options.configOverrides` used to be dropped here: this built
@@ -179,7 +179,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 			(event) => {
 				// A scheduler-wide observer and this task's observer are independent.
 				// Either may throw or reject: observation is not authority over the
-				// child, and one broken screen/export must neither stop the run nor
+				// child, and one broken screen/export must neither stop the turn nor
 				// suppress the other observer. Async listeners are deliberately not
 				// awaited, so a slow renderer cannot backpressure model streaming.
 				this.deliverEvent(this.listener, event, 'scheduler')
@@ -388,7 +388,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * and a long-lived host reusing one accumulates an id and a settled handle
 	 * per task it ever launched, for the life of the process — the doc above
 	 * says "bounded by the number the gateway itself launched", which is true
-	 * and is not a bound when the gateway outlives the run.
+	 * and is not a bound when the gateway outlives the turn.
 	 *
 	 * Both collections are evicted **together and in insertion order**. Losing
 	 * a tracked id while keeping its handle, or the reverse, would make a task
@@ -424,7 +424,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * Every event a child emits, reduced to "this one is still alive".
 	 *
 	 * Deliberately just the id. A caller that wanted the event itself has
-	 * the run listener; what an idle clock needs is the fact, and passing
+	 * the turn listener; what an idle clock needs is the fact, and passing
 	 * the payload here would make this a second way to read a worker's
 	 * output — one nobody documented and nothing frames as untrusted.
 	 */

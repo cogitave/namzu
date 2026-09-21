@@ -4,18 +4,18 @@ import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import { buildCoordinatorTools } from '../index.js'
 
 /**
- * Whether a run may delegate is not the same question as who it may delegate
+ * Whether a turn may delegate is not the same question as who it may delegate
  * to, and only the caller can answer the first.
  *
- * The roster answers WHO. It cannot answer WHETHER, because two runs are
+ * The roster answers WHO. It cannot answer WHETHER, because two turns are
  * indistinguishable in it: a supervisor whose roster happens to hold one
- * specialist, where delegating is the point; and a run whose own persona IS
+ * specialist, where delegating is the point; and a turn whose own persona IS
  * that specialist, where delegating is delegating to itself. A host builds the
  * second by putting a specialist's persona into the supervisor shell and its
  * id into the roster — so a predicate comparing the roster against the
  * executing agent sees two different ids and cheerfully says "can delegate".
  *
- * Measured before this existed: such a run carried `create_task`,
+ * Measured before this existed: such a turn carried `create_task`,
  * `wait_for_task`, `cancel_task` and `agent_task_list`, byte-identical to a
  * run that could actually delegate, and the model could only discover the
  * refusal by spending a turn on it.
@@ -46,7 +46,7 @@ function namesFor(opts: {
 	}).map((t) => t.name)
 }
 
-describe('a run can decline to delegate while still naming who it would have called', () => {
+describe('a turn can decline to delegate while still naming who it would have called', () => {
 	it('withholds the delegation tools when delegation is off', () => {
 		const names = namesFor({ agentIds: ['specialist'], allowDelegation: false })
 
@@ -64,7 +64,7 @@ describe('a run can decline to delegate while still naming who it would have cal
 		)
 	})
 
-	it('keeps the listing, because a run may still want to see what is running', () => {
+	it('keeps the listing, because a turn may still want to see what is running', () => {
 		expect(namesFor({ agentIds: ['specialist'], allowDelegation: false })).toContain(
 			'agent_task_list',
 		)
@@ -85,7 +85,7 @@ describe('an absent flag changes nothing', () => {
 
 		expect(names).toContain('create_task')
 		expect(names).toContain('wait_for_task')
-		// Steering a live worker is delegation too — a run that must not
+		// Steering a live worker is delegation too — a turn that must not
 		// delegate must not be able to redirect one either.
 		expect(names).toContain('continue_task')
 		expect(names).toContain('cancel_task')
@@ -111,7 +111,7 @@ describe('the flag is absolute', () => {
 		// It cannot, mechanically — the override pass in SupervisorAgent runs
 		// over the array this builder returns, and there is no entry for it to
 		// act on. And it should not: both values come from the same caller in
-		// the same call, so "this run must not delegate" plus "give it
+		// the same call, so "this turn must not delegate" plus "give it
 		// create_task" is a caller contradicting itself, not one who knows
 		// something extra.
 		//

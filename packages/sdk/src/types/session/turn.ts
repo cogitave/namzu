@@ -101,7 +101,7 @@ export interface Origin {
 	readonly protocol: OriginProtocol
 	/** The caller's own session, thread or context id. Any string; not required to be a UUID. */
 	readonly externalSessionId?: string
-	/** The caller's own id for this unit of work, such as the id an AG-UI client gives its run. Echoed back verbatim. */
+	/** The caller's own id for this unit of work, such as the id an AG-UI client gives its turn. Echoed back verbatim. */
 	readonly externalTurnId?: string
 	readonly kind?: TurnOriginKind
 	readonly goalId?: string

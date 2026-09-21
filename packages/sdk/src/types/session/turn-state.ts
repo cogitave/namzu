@@ -113,7 +113,7 @@ function requireEntityIds(record: Record<string, unknown>): Record<string, unkno
  * restore.
  *
  * A `RunState` (it carries `runId`) is refused with a message that names it:
- * the run model is gone and there is no migration. Resolve or abandon parked
+ * the turn model is gone and there is no migration. Resolve or abandon parked
  * runs on the previous major before upgrading.
  */
 export function parseTurnState(json: string | unknown): TurnState {

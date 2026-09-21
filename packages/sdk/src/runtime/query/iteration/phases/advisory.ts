@@ -115,13 +115,13 @@ export async function runAdvisoryPhase(
 
 		advisoryCtx.evaluator.recordFiring(trigger.id, iterationNum)
 
-		// An advisory call is a real model call on the run's dime. It was
+		// An advisory call is a real model call on the turn's dime. It was
 		// recorded into `callHistory` for reporting but never reached
-		// `recorder.tokenUsage`, so the guard could not see it: a run with
+		// `recorder.tokenUsage`, so the guard could not see it: a turn with
 		// `tokenBudget: 200_000` and an `on_error` trigger could send well
 		// past 200k and never trip `token_budget`. The usage is already in
 		// hand — this just tells the accountant about it.
-		// Priced against the ADVISOR's own driver and model, not the run's. An
+		// Priced against the ADVISOR's own driver and model, not the turn's. An
 		// advisor carries its own `provider`, so attributing its tokens to
 		// whoever is serving the main loop would price one vendor's work at
 		// another's card — which is the class of quiet wrongness the whole

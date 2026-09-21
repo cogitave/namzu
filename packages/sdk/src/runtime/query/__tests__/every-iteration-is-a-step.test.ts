@@ -2,8 +2,8 @@
  * One step per iteration, including the turn that produces the answer.
  *
  * `StepResult` is documented as "what one iteration of the agent loop did" and
- * `stepNumber` as "1-based, matching `iteration` on the run events". Both were
- * false for the last turn of every run: `if (forceFinalize || !hasToolCalls)`
+ * `stepNumber` as "1-based, matching `iteration` on the turn events". Both were
+ * false for the last turn of every turn: `if (forceFinalize || !hasToolCalls)`
  * broke out before `recordStep`, so the events said iteration N happened and
  * the ledger had no entry N.
  *
@@ -11,7 +11,7 @@
  * field, because the defect was never a wrong value — it was an absence, and an
  * absence is only visible against a total. Reconciliation against
  * `run.tokenUsage` is the sharpest form: it cannot pass by accident, and it is
- * the thing a host actually needs when it asks what a run cost.
+ * the thing a host actually needs when it asks what a turn cost.
  */
 
 import { mkdtemp } from 'node:fs/promises'
@@ -79,7 +79,7 @@ describe('every iteration leaves a step', () => {
 		return dir
 	}
 
-	it('reconciles the ledger with the run total, which it never did before', async () => {
+	it('reconciles the ledger with the turn total, which it never did before', async () => {
 		// The answering turn is the expensive one — it carries the whole
 		// conversation as its prompt — so this is scripted with the second turn
 		// costing twice the first. Before this change the ledger held 110 of 330
@@ -163,14 +163,14 @@ describe('every iteration leaves a step', () => {
 		const last = run.steps?.at(-1)
 		expect(last?.content).toBe('the final answer')
 		expect(last?.toolCalls).toEqual([])
-		// The turn that ends the run is the one a reader most wants to find, and
+		// The turn that ends the turn is the one a reader most wants to find, and
 		// it is the one that was missing.
 		expect(last?.finishReason).toBe('stop')
 	})
 
 	it('gives a text-only run one step rather than none', async () => {
 		// The commonest shape there is: a question, an answer, no tools. It used
-		// to produce an empty ledger on a run that plainly did something.
+		// to produce an empty ledger on a turn that plainly did something.
 		const provider = new MockLLMProvider({ turns: [{ text: 'just an answer' }] })
 
 		const run = await drainQuery({

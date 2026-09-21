@@ -27,7 +27,7 @@ export interface SessionMemoryCandidate {
 	readonly discoveries: readonly string[]
 	/** What the user said must hold. The most durable category of the four. */
 	readonly userRequirements: readonly string[]
-	/** Approaches that failed, so a later run does not pay for them again. */
+	/** Approaches that failed, so a later turn does not pay for them again. */
 	readonly failures: readonly string[]
 	/** Facts about the machine, the toolchain, the environment. */
 	readonly environment: readonly string[]
@@ -43,7 +43,7 @@ export interface SessionMemoryCandidate {
 }
 
 /**
- * Decide what a finished run should leave behind.
+ * Decide what a finished turn should leave behind.
  *
  * Called once, when the turn settles, with everything the compaction pass
  * extracted. Deliberately a callback rather than a store the runtime

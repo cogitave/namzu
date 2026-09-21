@@ -19,12 +19,12 @@ import { drainQuery } from '../index.js'
  *
  * The two consumers are synchronous and in the hot loop — the compaction
  * trigger and the per-iteration usage event. Turning either into an await
- * would put a network round trip on every iteration of every run, so the
+ * would put a network round trip on every iteration of every turn, so the
  * answer is resolved at the door and carried.
  *
  * And a driver that cannot answer must not cost anything. The table is
  * still there; a listing endpoint that is down for a minute is not a reason
- * for a run to fail.
+ * for a turn to fail.
  */
 
 registerMock()
@@ -140,7 +140,7 @@ describe('the context window is asked for once per run', () => {
 	})
 
 	it('completes on the table when the driver rejects', async () => {
-		// A run that would have worked must not fail because a listing
+		// A turn that would have worked must not fail because a listing
 		// endpoint was down. The window is an optimisation over a working
 		// default, not a prerequisite.
 		const provider = new ReportingProvider(async () => {
@@ -238,7 +238,7 @@ describe('the context window is asked for once per run', () => {
 		// The clock is fake for exactly this case, and it is advanced exactly
 		// once. No real timer appears anywhere below, in the assertions or in
 		// the waiting: the deadline under this clock is the only thing that
-		// can settle the run, so a step of the clock is a deterministic probe
+		// can settle the turn, so a step of the clock is a deterministic probe
 		// rather than a guess about how fast the machine is.
 		vi.useFakeTimers()
 		try {
@@ -246,9 +246,9 @@ describe('the context window is asked for once per run', () => {
 
 			await started
 
-			// `timeoutMs` is BOTH the run's budget and the resolver's deadline
+			// `timeoutMs` is BOTH the turn's budget and the resolver's deadline
 			// — `resolveProviderContextWindow` is handed `turnConfig.timeoutMs`
-			// — and on a real clock the two raced: the run's seam checks could
+			// — and on a real clock the two raced: the turn's seam checks could
 			// see a 20 ms budget already spent by the very wait the deadline
 			// exists to end, so this case measured the machine and failed in
 			// both directions (no request at all, or a second one after the
@@ -257,14 +257,14 @@ describe('the context window is asked for once per run', () => {
 			//
 			// The guard is built AFTER the fallback — `query()` awaits
 			// `resolveProviderContextWindow` before `new GuardCoordinator`, both
-			// in the same function — so the run's own budget starts at this
+			// in the same function — so the turn's own budget starts at this
 			// post-fallback instant and keeps reading zero for the rest of the
-			// case. Nothing below can time the run out, in either direction,
+			// case. Nothing below can time the turn out, in either direction,
 			// and nothing below consults a wall clock. Named rather than cited
 			// by line: a number here drifted once already.
 			await vi.advanceTimersByTimeAsync(20)
 
-			// Read BEFORE anything waits on the run. This is what a mutation
+			// Read BEFORE anything waits on the turn. This is what a mutation
 			// that drops the private deadline cannot produce, so it fails HERE,
 			// by name, instead of leaving Vitest waiting on a resolver that
 			// never answers.

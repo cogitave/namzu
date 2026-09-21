@@ -453,7 +453,7 @@ export async function* runToolReview(
 		case 'reject_plan':
 		// 'answer_question' belongs to an ask_user_question park, not a
 		// tool review — like the misdirected plan decisions above, warn
-		// and proceed with execution rather than stalling the run.
+		// and proceed with execution rather than stalling the turn.
 		case 'answer_question': {
 			ctx.log.warn('Unexpected plan decision during tool review', {
 				'namzu.runtime.action': reviewDecision.action,

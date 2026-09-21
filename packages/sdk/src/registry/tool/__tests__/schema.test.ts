@@ -64,7 +64,7 @@ describe('renderToolSchema', () => {
 
 	it('returns the identical object for the same schema — byte-stable across iterations', () => {
 		// `toLLMTools` runs once per iteration. A re-render that reordered a
-		// single key would invalidate the whole cached prefix for the run.
+		// single key would invalidate the whole cached prefix for the turn.
 		const schema = z.object({ a: z.string() })
 		const first = renderToolSchema(schema)
 		const second = renderToolSchema(schema)

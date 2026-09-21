@@ -21,11 +21,11 @@ import { heldCheckpointStore, memorySession, sessionWithCheckpoint } from './sup
  * A decision the runtime cannot apply must leave the park alone, and the
  * existing tests never looked.
  *
- * The refusal itself is asserted elsewhere — the run completes and the tool
+ * The refusal itself is asserted elsewhere — the turn completes and the tool
  * does not execute. What nothing checked is the durable consequence: the
  * park is still on the record afterwards, because the human's answer was
  * never carried out. Clearing it would be worse than leaving it: an approval
- * queue that forgets a request nobody answered shows a run with no way
+ * queue that forgets a request nobody answered shows a turn with no way
  * forward, while a park left standing is exactly what
  * `findPendingCheckpoint` exists to serve.
  */
@@ -186,7 +186,7 @@ describe('a resume whose decision the runtime cannot apply', () => {
 
 		// And the park is STILL outstanding. The decision was never carried
 		// out, so the request is still owed an answer; an approval queue that
-		// had this cleared for it would show the run as having nothing left to
+		// had this cleared for it would show the turn as having nothing left to
 		// do, when in fact it is waiting on the same question it was before.
 		const stillPending = await findPendingCheckpoint(target.session.sessionLog)
 		expect(stillPending?.checkpointId).toBe(reviewPark.checkpointId)

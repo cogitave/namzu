@@ -21,9 +21,9 @@ const SESSION_ID = generateSessionId()
 
 /**
  * The halt predicate is only consulted after tools have run, so there was
- * no seam at the point the model stops calling them: the run finalized
+ * no seam at the point the model stops calling them: the turn finalized
  * with whatever it had produced. Verify-then-fix — run the build, feed the
- * failure back, let it try again — meant starting a whole new run and
+ * failure back, let it try again — meant starting a whole new turn and
  * re-supplying the context the first one had already assembled.
  */
 
@@ -73,8 +73,8 @@ function scriptedRun(
 	}
 }
 
-describe('judging the answer a run is about to settle with', () => {
-	it('passes cancellation into command verification and preserves the cancelled run', async () => {
+describe('judging the answer a turn is about to settle with', () => {
+	it('passes cancellation into command verification and preserves the cancelled turn', async () => {
 		const controller = new AbortController()
 		const gate = createCommandGate({
 			commands: ['verify'],
@@ -133,7 +133,7 @@ describe('judging the answer a run is about to settle with', () => {
 
 	it('hands a rejected answer back and runs another turn', async () => {
 		// The whole point: the model gets another go WITH the context it
-		// already has, instead of the host starting a fresh run.
+		// already has, instead of the host starting a fresh turn.
 		let calls = 0
 		const scripted = scriptedRun(['first', 'second'], () => {
 			calls++
@@ -197,7 +197,7 @@ describe('judging the answer a run is about to settle with', () => {
 		await scripted.run()
 
 		// Two rejections, then the third call is the one that exceeds the
-		// limit and stops the run.
+		// limit and stops the turn.
 		expect(review).toHaveBeenCalledTimes(3)
 	})
 

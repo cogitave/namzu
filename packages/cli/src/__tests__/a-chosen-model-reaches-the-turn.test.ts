@@ -102,7 +102,7 @@ async function modelSentFor(prefs: Preferences): Promise<string | undefined> {
 	return turnConfig?.model
 }
 
-describe('the model a run is sent with', () => {
+describe('the model a turn is sent with', () => {
 	it('is the provider default when nothing was chosen', async () => {
 		const model = await modelSentFor({
 			version: 3,

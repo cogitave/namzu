@@ -13,7 +13,7 @@ import type { IterationContext } from '../context.js'
  *
  * All three decline paths reached a log line and stopped there. Every
  * command-line entry point silences the logger, so the outcome was invisible to
- * the user, to the host AND to the model at once — and the run carried on at
+ * the user, to the host AND to the model at once — and the turn carried on at
  * full context toward a provider rejection several turns later that named none
  * of this.
  *

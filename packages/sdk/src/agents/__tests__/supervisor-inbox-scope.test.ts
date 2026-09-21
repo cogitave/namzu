@@ -17,11 +17,11 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * A gateway the HOST owns, which is the case that goes wrong.
  *
  * `SupervisorAgentConfig.scheduler` is a first-class option, and a host that
- * built a scheduler reuses it — across sequential runs, and across concurrent
- * ones. The supervisor attached a fresh `CompletionInbox` to it on every run
- * and never detached, so the subscription set only grew: three runs, three
- * live listeners, each still holding its own run's handles and each still
- * being handed every other run's completions.
+ * built a scheduler reuses it — across sequential turns, and across concurrent
+ * ones. The supervisor attached a fresh `CompletionInbox` to it on every turn
+ * and never detached, so the subscription set only grew: three turns, three
+ * live listeners, each still holding its own turn's handles and each still
+ * being handed every other turn's completions.
  */
 class HostGateway implements TaskScheduler {
 	budget = SessionTokenBudget.create(200_000, {
@@ -120,7 +120,7 @@ describe('a supervisor releases the gateway it borrowed', () => {
 		}
 	}, 60_000)
 
-	it('releases it when setup throws before the run ever starts', async () => {
+	it('releases it when setup throws before the turn ever starts', async () => {
 		// The reason it is a `finally` covering the whole body and not a line
 		// after `drainQuery`. A host whose tool shares a coordinator name gets
 		// `ToolNameCollisionError` from the registration loop — after the inbox
@@ -133,11 +133,11 @@ describe('a supervisor releases the gateway it borrowed', () => {
 			ToolNameCollisionError,
 		)
 
-		expect(gateway.listeners.size, 'a run that threw left its listener attached').toBe(0)
+		expect(gateway.listeners.size, 'a turn that threw left its listener attached').toBe(0)
 	}, 60_000)
 
-	it('never hands a completion to a run that did not launch it', async () => {
-		// Two supervisors, one gateway. The second run's inbox is gone by the
+	it('never hands a completion to a turn that did not launch it', async () => {
+		// Two supervisors, one gateway. The second turn's inbox is gone by the
 		// time this fires, but the assertion that matters is the one above it:
 		// nothing is listening that should not be.
 		const gateway = new HostGateway()

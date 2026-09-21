@@ -20,7 +20,7 @@ import { RepeatCallTracker } from '../repeat-call.js'
  * The one thing the repeat tracker refuses.
  *
  * An operator watched a model ask a desktop it could not reach for a
- * screenshot, read the same error, and ask again, for as long as the run
+ * screenshot, read the same error, and ask again, for as long as the turn
  * was allowed to go on. The tracker only advised, and advice the model
  * could not act on was worth nothing. After four consecutive identical
  * failures the fifth identical call is answered with a refusal instead of

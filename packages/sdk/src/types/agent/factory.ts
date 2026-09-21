@@ -13,7 +13,7 @@ export interface AgentDefinition {
 	 * Build a fresh agent for a single spawn.
 	 *
 	 * `typedAgent` is ONE instance, and an instance refuses a second
-	 * concurrent run because it holds per-run state. So a delegation fan-out
+	 * concurrent run because it holds per-turn state. So a delegation fan-out
 	 * naming the same `agent_id` four times ran one child and lost three to
 	 * `ConcurrentInvocationError` — while `create_task`'s own description tells
 	 * a model that exactly this fan-out is the thing to do.

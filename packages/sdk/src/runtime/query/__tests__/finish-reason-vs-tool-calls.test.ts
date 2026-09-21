@@ -21,7 +21,7 @@ import { drainQuery } from '../index.js'
  *
  * The damage was total and silent: every requested call skipped, an
  * assistant turn left carrying tool_use blocks nothing ever answered, and
- * the run settling as though it had finished the work.
+ * the turn settling as though it had finished the work.
  *
  * The existing suite could not see it, because the scripted mock reports
  * `tool_calls` whenever it emits one — which is what an honest provider

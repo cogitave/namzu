@@ -6,7 +6,7 @@
  * including the empty string, which is what a truncated turn, a refusal, or an
  * exhausted `llmVerificationMaxTokens` produces. The result is a heading with
  * nothing under it, and because the summary becomes a leading system message it
- * then rides in EVERY subsequent prompt of the run.
+ * then rides in EVERY subsequent prompt of the turn.
  */
 
 import { describe, expect, it } from 'vitest'

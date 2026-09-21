@@ -66,7 +66,7 @@ describe('a derived supervisor always has a budget and a clock', () => {
 		const { config } = deriveSupervisorOptions(manifest, { provider, agentManager })
 
 		// Two front doors that default differently is a difference nobody would
-		// find until a run behaved unlike its sibling.
+		// find until a turn behaved unlike its sibling.
 		expect(config.tokenBudget).toBe(DEFAULT_TOKEN_BUDGET)
 		expect(config.timeoutMs).toBe(DEFAULT_TIMEOUT_MS)
 	})

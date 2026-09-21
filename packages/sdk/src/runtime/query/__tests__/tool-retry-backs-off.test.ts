@@ -217,7 +217,7 @@ describe('a retried tool call waits before trying again', () => {
 		expect(batch.results[0]?.isError).toBe(true)
 	})
 
-	it('stops retrying when the run is stopped mid-backoff, and still answers the call', async () => {
+	it('stops retrying when the turn is stopped mid-backoff, and still answers the call', async () => {
 		// An abort thrown from inside the wait would escape `executeSingle`
 		// and leave this `tool_use` unanswered in the transcript, which is
 		// the one invariant the executor is not allowed to break. The failure

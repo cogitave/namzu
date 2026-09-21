@@ -214,7 +214,7 @@ describe('refusing beats a reduction that would break the next turn', () => {
 })
 
 describe('the knob a caller reaches for', () => {
-	it('lets an explicit window override the run config', async () => {
+	it('lets an explicit window override the turn config', async () => {
 		const reduce = createSlidingWindowReducer({ keepRecentMessages: 2 })
 		const messages = [sys('prompt'), ...Array.from({ length: 10 }, (_, i) => user(`m${i}`))]
 

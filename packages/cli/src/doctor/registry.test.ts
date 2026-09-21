@@ -160,7 +160,7 @@ describe('runDoctor — aggregation + summary', () => {
 		expect(report.exit).toBe(69)
 	})
 
-	it('exit = 69 when the run was aborted before the checks answered', async () => {
+	it('exit = 69 when the turn was aborted before the checks answered', async () => {
 		const reg = createDoctorRegistry()
 		reg.register({
 			id: 'slow',

@@ -12,11 +12,11 @@ import { CheckpointManager } from '../checkpoint.js'
 
 /**
  * `CheckpointManager.buildSummary` is the card a human is shown before they
- * are asked to let a run continue. It had zero references in the test tree,
+ * are asked to let a turn continue. It had zero references in the test tree,
  * which for a projection this small means no test ever looked at the text a
  * person actually reads — and the interesting cases are exactly the ones a
  * plausible implementation gets wrong: the last assistant turn of a
- * tool-calling run has `content: null`, so "the last assistant message" and
+ * tool-calling turn has `content: null`, so "the last assistant message" and
  * "the last assistant message with something in it" are different answers.
  */
 
@@ -45,7 +45,7 @@ function runMgrStub(state: Partial<StubState>): TurnRecorder {
 	} as unknown as TurnRecorder
 }
 
-describe('the summary a run hands a human', () => {
+describe('the summary a turn hands a human', () => {
 	it('counts the messages and names the iteration it was taken at', () => {
 		const recorder = runMgrStub({
 			messages: [

@@ -87,7 +87,7 @@ async function runWith(opts: {
 			compactionConfig: CompactionConfigSchema.parse({
 				strategy: 'structured',
 				// Set explicitly. The trigger measures against the CONTEXT
-				// WINDOW, not `tokenBudget` — a run that leaves this unset
+				// WINDOW, not `tokenBudget` — a turn that leaves this unset
 				// falls back to the model table, which for a mock model is
 				// large enough that no fixture of a sane size ever triggers.
 				contextWindowTokens: opts.tokenBudget,
@@ -110,7 +110,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 	it('reports the clear with an exact count when it relieves enough pressure', async () => {
 		// Two oversized results and little else, so the clear alone brings the
 		// context back under the trigger. Deleting the `emitEvent` call leaves
-		// the run behaving identically and fails only here.
+		// the turn behaving identically and fails only here.
 		const { events, messages } = await runWith({
 			resultChars: 80_000,
 			filler: 2,
@@ -164,7 +164,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		// The event exists so `transcript.jsonl` can explain why a tool result
 		// it shows is empty. Adding it to `EPHEMERAL_EVENT_TYPES` — where the
 		// deltas and progress pings live — would keep every assertion above
-		// green and delete it from the one record that outlives the run.
+		// green and delete it from the one record that outlives the turn.
 		expect(
 			isEphemeralEvent({
 				type: 'compaction_tool_results_cleared',

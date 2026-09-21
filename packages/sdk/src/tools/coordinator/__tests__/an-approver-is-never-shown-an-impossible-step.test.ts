@@ -13,7 +13,7 @@ import { buildCoordinatorTools } from '../index.js'
  * `create_task` constrains `agent_id` with a closed enum; `approve_plan` typed
  * the same field as a bare string. So a model could propose, and a human could
  * approve, "delegate to X" for an X that `create_task` rejects at schema-parse
- * time — the run then burns a turn on a step a human had already blessed.
+ * time — the turn then burns a turn on a step a human had already blessed.
  *
  * The check lives in `execute`, not in the schema, and that is deliberate.
  * `approve_plan` is mounted even with an EMPTY roster, because planning with no
@@ -92,7 +92,7 @@ function build(roster: string[], pm: PlanManager) {
 		approvePlan.execute({ title: 'do it', summary: 'a plan', steps }, ctx())
 }
 
-describe('a plan may only name an agent the run can actually launch', () => {
+describe('a plan may only name an agent the turn can actually launch', () => {
 	it('refuses a step naming an agent outside the roster', async () => {
 		const { result } = await approve(
 			['researcher', 'writer'],
@@ -133,7 +133,7 @@ describe('a plan may only name an agent the run can actually launch', () => {
 		expect(pm.active).toBeNull()
 	})
 
-	it('says something different when the run has no delegates at all', async () => {
+	it('says something different when the turn has no delegates at all', async () => {
 		// `approve_plan` is mounted on an empty roster on purpose — planning
 		// without delegation is supported — so the message has to explain that
 		// rather than list an empty set.

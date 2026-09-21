@@ -86,7 +86,7 @@ export function toolResultScreenName(entry: ToolResultScreenConfig): ToolResultS
 /**
  * Built on demand rather than held in a table: a screen is cheap and
  * stateless, and a shared instance would be one more thing a caller could
- * mutate out from under a later run.
+ * mutate out from under a later turn.
  */
 function buildScreen(entry: ToolResultScreenConfig): ToolResultGuardrailSpec {
 	const name = toolResultScreenName(entry)

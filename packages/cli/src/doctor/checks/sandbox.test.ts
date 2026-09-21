@@ -32,7 +32,7 @@ describe('the verdict for a host that enforces everything', () => {
 
 describe('the verdict for a host that enforces some of it', () => {
 	it('warns rather than passing', () => {
-		// The run that depended on the missing control is the one that gets
+		// The turn that depended on the missing control is the one that gets
 		// hurt, so a partial boundary is not a whole one.
 		expect(verdict('linux-namespace').status).toBe('warn')
 	})

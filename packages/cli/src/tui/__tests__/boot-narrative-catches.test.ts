@@ -139,7 +139,7 @@ describe('agent.ts:713 — the token-refresh rebuild catch', () => {
 		open.push(s)
 
 		const records = capturingSink()
-		// After admitting the run address and any stored limits,
+		// After admitting the turn address and any stored limits,
 		// `resumeDurable` calls `refreshTokenIfNeeded()` — the same prelude `send()` runs, and
 		// the one reachable from this test without driving a full turn
 		// through `query()`. What `resumeSession` itself does with an

@@ -15,7 +15,7 @@ export type TaskType =
  * fallback.** That is stated because the rest are silently inert, and an
  * inert key is worse than an absent one — a host who sets `coding` reads it
  * as taking effect. The compaction summary is the call worth routing first
- * regardless: it is the only model call a run makes that nobody asked for,
+ * regardless: it is the only model call a turn makes that nobody asked for,
  * it reads a transcript and writes a summary, and it fires on exactly the
  * long runs where the primary model costs the most.
  *

@@ -3,9 +3,9 @@
  *
  * Two layers can tell the model a background job ended, and they divide the
  * cases rather than sharing them. The kernel owns the exit that lands while a
- * run is open — it rides out on the next tool result, or, since the run now
+ * run is open — it rides out on the next tool result, or, since the turn now
  * holds itself open for a job the model awaited, as the message that releases
- * that hold. The session owns the exit that lands when no run is open: the
+ * that hold. The session owns the exit that lands when no turn is open: the
  * kernel is not there to hear it, so it is held and opens the next turn.
  *
  * The seam between them is `abortRef`, and it is load-bearing rather than
@@ -135,7 +135,7 @@ async function say(screen: Screen, text: string, turns: number): Promise<void> {
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes(text))
 }
 
-it('does not re-announce a job exit that landed while a run was open', async () => {
+it('does not re-announce a job exit that landed while a turn was open', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
 	mounted = screen
 	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
@@ -149,7 +149,7 @@ it('does not re-announce a job exit that landed while a run was open', async () 
 	expect(sends[1]?.extraSystem ?? '').not.toContain('Background jobs that ended')
 
 	// The control, and the reason the guard is not simply "never announce": an
-	// exit with no run open reaches nobody else, so the session carries it.
+	// exit with no turn open reaches nobody else, so the session carries it.
 	announce?.(exited('job_2', 'pnpm test'))
 	await say(screen, 'third', 3)
 

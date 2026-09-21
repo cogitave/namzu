@@ -120,18 +120,18 @@ export const WaitForJobTool = defineTool({
 		// case the kernel's hold exists to back up, and one that started the
 		// wait and then ended its turn is the same case a beat later. Nothing
 		// infers this from the job's existence — a dev server the model never
-		// waited on never holds a run open. See `runtime/jobs/awaited-jobs.ts`.
+		// waited on never holds a turn open. See `runtime/jobs/awaited-jobs.ts`.
 		jobs.markAwaited?.(input.id)
 
 		let outcome: Awaited<ReturnType<typeof waitForJobWithBounds>>
 		try {
 			outcome = await waitForJobWithBounds(jobs, input.id, {
-				runMs: input.timeout_ms ?? DEFAULT_TIMEOUT_MS,
+				wallMs: input.timeout_ms ?? DEFAULT_TIMEOUT_MS,
 				idleMs: input.idle_timeout_ms ?? DEFAULT_IDLE_TIMEOUT_MS,
 				signal: context.abortSignal,
 			})
 		} catch {
-			// The signal fired before either bound did — Stop, or the run's
+			// The signal fired before either bound did — Stop, or the turn's
 			// own deadline. The job is untouched: ending a WAIT is not
 			// ending the WORK. The executor has already raced this same
 			// signal against the whole call and reports the cancellation

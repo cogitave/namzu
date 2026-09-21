@@ -204,7 +204,7 @@ describe('coordinator ask_user_question input schema', () => {
  * The failure they prevent is not hypothetical. A caller that mutates a schema
  * it received — normalizing it for one provider, adding a legacy alias — would
  * otherwise be editing the object every OTHER tool instance in the process is
- * also handing out, including definitions already registered in another run.
+ * also handing out, including definitions already registered in another turn.
  */
 describe('coordinator ask_user_question canonical schema isolation', () => {
 	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })

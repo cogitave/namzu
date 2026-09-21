@@ -21,7 +21,7 @@ import { type CheckpointedSession, sessionWithCheckpoint } from './support/sessi
 /**
  * A batch's results reach the history only when the WHOLE batch settles,
  * so a hard kill part-way through loses every result that had already come
- * back — and the resumed run re-executes those calls. For a `write_file`
+ * back — and the resumed turn re-executes those calls. For a `write_file`
  * that is waste; for a payment or an email it is a second one.
  *
  * Nothing new had to be recorded to fix it. The executor already awaits a

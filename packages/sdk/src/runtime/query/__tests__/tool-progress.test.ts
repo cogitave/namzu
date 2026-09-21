@@ -140,7 +140,7 @@ describe('a long-running tool can say how far along it is', () => {
 		// and returns void, so a tool can call it without wrapping it.
 		//
 		// Note what this does NOT claim: a HOST listener that throws still
-		// kills the run, because `drainQuery` awaits the listener unguarded
+		// kills the turn, because `drainQuery` awaits the listener unguarded
 		// for every event type. That is a general contract, not something
 		// specific to progress, and it is not this feature's to change.
 		let threw = false

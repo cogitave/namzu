@@ -81,19 +81,19 @@ describe('renderStoredMemorySection', () => {
 		omitted: 0,
 	}
 
-	it('shows what runs recorded under its own label and count, even when nothing else is stored', () => {
+	it('shows what turns recorded under its own label and count, even when nothing else is stored', () => {
 		const section = renderStoredMemorySection('/state/memory', none, runs)
 		expect(section).toBe(
-			'Recorded by runs (1), not in the index; search_memory finds them\n/state/memory\n\n- [fixed-the-flake](fixed-the-flake.md) — Decisions: retry once',
+			'Recorded by turns (1), not in the index; search_memory finds them\n/state/memory\n\n- [fixed-the-flake](fixed-the-flake.md) — Decisions: retry once',
 		)
 	})
 
-	it('lists the index first, then the run records, each with its own count', () => {
+	it('lists the index first, then the turn records, each with its own count', () => {
 		const index = { text: '- [a](a.md) — A\n- [b](b.md) — B', total: 2, omitted: 0 }
 		const section = renderStoredMemorySection('/state/memory', index, runs) ?? ''
 		expect(section.indexOf("Stored memories (2), in every turn's index")).toBe(0)
-		expect(section).toContain('Recorded by runs (1)')
-		expect(section.indexOf('[b](b.md)')).toBeLessThan(section.indexOf('Recorded by runs'))
+		expect(section).toContain('Recorded by turns (1)')
+		expect(section.indexOf('[b](b.md)')).toBeLessThan(section.indexOf('Recorded by turns'))
 	})
 
 	it('is null when nothing is stored', () => {

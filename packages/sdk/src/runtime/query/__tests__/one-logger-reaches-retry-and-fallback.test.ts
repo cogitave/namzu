@@ -1,5 +1,5 @@
 /**
- * The run's logger is built ONCE, not once per site that happened to need
+ * The turn's logger is built ONCE, not once per site that happened to need
  * one.
  *
  * Before this, `runtime/query/index.ts` read `getRootLogger()` three
@@ -11,7 +11,7 @@
  * frequency uncorrelated log path in the kernel. `TurnContextFactory
  * .buildLogger` exists so there is exactly one call, and this file is the
  * falsifiable half of that claim: it does not read log CONTENT (see
- * `retry-and-fallback-carry-the-runs-id.test.ts` for that) — it reads
+ * `retry-and-fallback-carry-the-turns-id.test.ts` for that) — it reads
  * IDENTITY, the property a content assertion cannot see. `withProviderRetry`,
  * `withProviderFallback` and `TurnContextFactory.build` are three
  * independent consumers; each getting a logger that logs the same fields
@@ -131,7 +131,7 @@ function failing(id: string, status: number): LLMProvider & { calls: number } {
 	} as unknown as LLMProvider & { calls: number }
 }
 
-describe('the run logger reaches withProviderRetry, withProviderFallback and build as one object', () => {
+describe('the turn logger reaches withProviderRetry, withProviderFallback and build as one object', () => {
 	let workdirs: string[] = []
 
 	afterEach(async () => {

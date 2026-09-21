@@ -136,10 +136,10 @@ export async function buildVerifiedSummary(
 	config: CompactionConfig,
 	onUsage?: UsageSink,
 	/**
-	 * The run's model. Required in practice: this used to send `model: ''`,
+	 * The turn's model. Required in practice: this used to send `model: ''`,
 	 * which some drivers quietly default and others reject outright — on
 	 * some backends the model id IS the endpoint. So compaction's verifier failed
-	 * exactly on the providers where a long run most needs it, and the
+	 * exactly on the providers where a long turn most needs it, and the
 	 * failure surfaced as compaction killing the run it exists to save.
 	 */
 	model?: string,
@@ -243,7 +243,7 @@ async function buildVerifiedSummaryWithProvider(
 	// content at all — and used to fall through to the append below, stamping a
 	// bare `## LLM Verification Additions` heading with nothing under it. That
 	// empty promise then rides in the compaction summary, and therefore in every
-	// subsequent system prompt, for the rest of the run. A heading with no body
+	// subsequent system prompt, for the rest of the turn. A heading with no body
 	// is not a verification result; treat a silent verifier the same as one that
 	// had nothing to say.
 	if (responseText === 'COMPLETE' || responseText.length === 0) {

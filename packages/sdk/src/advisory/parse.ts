@@ -36,7 +36,7 @@ function itemsIn(block: string): string[] {
  * parser returned `{ advice }` and nothing else, so an advisor's decisions
  * never reached working state and its warnings never reached the executing
  * agent. Both consumers were written, tested against hand-built results,
- * and permanently unreachable in a real run.
+ * and permanently unreachable in a real turn.
  */
 export function parseAdvisoryResponse(rawContent: string): AdvisoryResult {
 	const warnings: string[] = []

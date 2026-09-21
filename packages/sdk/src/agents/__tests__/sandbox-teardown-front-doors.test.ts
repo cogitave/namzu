@@ -237,7 +237,7 @@ describe('agent front doors preserve the sandbox workspace choice', () => {
 				steps: [{ name: 'step', execute: async () => 'done' }],
 				sandbox: { workspace: 'working-directory' },
 			} satisfies PipelineAgentConfig),
-		).rejects.toThrow(/cannot enforce a run-level sandbox/)
+		).rejects.toThrow(/cannot enforce a turn-level sandbox/)
 	})
 
 	it('runAgent roots the provider at its working directory', async () => {

@@ -19,10 +19,10 @@ import { readToolExecutions } from './tool-executions.js'
 import { isPauseForCall } from './tool-pause.js'
 
 /**
- * Apply a decision collected out-of-band to the tool calls a run parked on.
+ * Apply a decision collected out-of-band to the tool calls a turn parked on.
  *
  * This is the half of durable HITL that actually pays off. Recording the
- * park makes the request survive a restart; without this, a resumed run
+ * park makes the request survive a restart; without this, a resumed turn
  * still threw the approval away — the restore path repairs the unanswered
  * `tool_use` blocks and lets the model re-decide, so a human's "yes, delete
  * that row" became "ask the model again and hope it asks for the same
@@ -42,7 +42,7 @@ export interface PendingResumePlan {
 	 * replayed so that nothing runs twice. The caller resolves the park in both
 	 * cases — recovery answering the batch is what makes the question moot —
 	 * but only the first may write the human's decision down as what ended it.
-	 * Recording a decision recovery stood in for says the run carried out
+	 * Recording a decision recovery stood in for says the turn carried out
 	 * something it did not.
 	 */
 	readonly source: 'decision' | 'recovery'
@@ -154,7 +154,7 @@ export function planPendingResume(
  * action both endings share — `CheckpointManager.expire` records one for a
  * park that ran out of time, this one records another for a park whose
  * question crash recovery answered instead. A reader that tests
- * `pending.decision.action` alone can tell neither from a run still holding
+ * `pending.decision.action` alone can tell neither from a turn still holding
  * the park, and the reason is the only field left to carry the difference.
  *
  * A constant rather than a sentence written at the call site, and a PREFIX
@@ -180,7 +180,7 @@ export function isSupersededByRecovery(decision: HITLResumeDecision | undefined)
  * decision.
  *
  * Neither half of the obvious record is honest. Writing the human's decision
- * down would say the run carried it out, when the calls it named were answered
+ * down would say the turn carried it out, when the calls it named were answered
  * with an explicitly UNKNOWN outcome and nothing they asked for happened —
  * `planPendingResume` refused that decision in the first place, which is why
  * recovery spoke at all. Writing nothing would lose the fact that somebody
@@ -209,16 +209,16 @@ export function supersededByRecovery(decision: HITLResumeDecision): HITLResumeDe
  * something: the calls a `tool_review` park is about, and the tool a
  * `user_question` park is inside. An `iteration_checkpoint` park has neither,
  * so it produces no plan — and "no plan" must not be read as "nothing
- * happened". For this arm the decision IS the run's next move, and the loop
+ * happened". For this arm the decision IS the turn's next move, and the loop
  * that resumes carries it out by continuing; the park it answered therefore
  * has to be resolved exactly as the other arms' are.
  *
  * The set is `handleHITLDecision`'s continue arm, deliberately: these are the
- * decisions a resumed run carries out by going on. `pause` is not among them
+ * decisions a resumed turn carries out by going on. `pause` is not among them
  * — it is "hold this, I am not answering now", which the live path leaves the
- * park standing for, and a resumed run does not honour it either. Neither are
+ * park standing for, and a resumed turn does not honour it either. Neither are
  * `abort` and `reject_plan`: nothing on the resume path acts on them, so
- * recording one as the park's answer would say the run carried out something
+ * recording one as the park's answer would say the turn carried out something
  * it did not.
  */
 export function isCarriedOutByContinue(decision: HITLResumeDecision): boolean {
@@ -238,7 +238,7 @@ export function isCarriedOutByContinue(decision: HITLResumeDecision): boolean {
  * Whether `decision` is a verdict on the question a `plan_approval` park asks.
  *
  * The plan arm was the one park `isCarriedOutByContinue` did not cover and
- * nothing else did either, so a run resumed with `{action: 'approve_plan'}`
+ * nothing else did either, so a turn resumed with `{action: 'approve_plan'}`
  * completed with its park still outstanding: `findPendingCheckpoint` kept
  * serving a plan nobody was waiting on, a second resume of the FINISHED run
  * was refused `awaiting-decision`, and `prune`'s refusal to collect an
@@ -268,7 +268,7 @@ export function isPlanVerdict(decision: HITLResumeDecision): boolean {
  *
  * "Answered" is the ordinary continue path carrying the decision out, which
  * for the cadence arm means the loop going on and for the plan arm means the
- * verdict having been given. It does not mean the run did everything the
+ * verdict having been given. It does not mean the turn did everything the
  * decision implies — see {@link isPlanVerdict}.
  */
 export function answersParkOf(
@@ -413,7 +413,7 @@ export async function applyPendingResume(
 	const denials = new Map(plan.denials)
 	const reviewedById = new Map(plan.reviewedCalls?.map((call) => [call.id, call]))
 
-	// A gate denial belongs to the run, not to the process that first evaluated
+	// A gate denial belongs to the turn, not to the process that first evaluated
 	// it. Restore it before preparation so denied calls do not even reach a
 	// pre-tool hook after restart.
 	for (const call of plan.reviewedCalls ?? []) {
@@ -605,7 +605,7 @@ function derriveDenials(
  * `executeBatch` consumes a provider response; on resume the response is
  * long gone and the checkpointed assistant turn is the surviving record of
  * it. Usage is zeroed rather than re-invented — those tokens were already
- * billed to the run that produced the turn, and the checkpoint restored
+ * billed to the turn that produced the turn, and the checkpoint restored
  * that total.
  */
 function synthesizeResponse(assistant: AssistantMessage): ChatCompletionResponse {

@@ -215,7 +215,7 @@ import {
 	permissionReviewRefusal,
 	permissionReviewRows,
 } from './permission-review.js'
-import { describeTurnInterruption, describeTurnStop } from './run-interruption.js'
+import { describeTurnInterruption, describeTurnStop } from './turn-interruption.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -491,7 +491,7 @@ type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
 type StreamState = {
 	lastUsage?: Extract<AgentEvent, { kind: 'usage' }>
 	assistantId: string | null
-	/** Provider message boundary, independent of the parent run. */
+	/** Provider message boundary, independent of the parent session. */
 	sourceMessageId?: string
 	sourceTextPartId?: string
 	text: string
@@ -508,7 +508,7 @@ type StreamState = {
 	completed: boolean
 	/** Exact durable run outcome; notification wording is intentionally coarser. */
 	outcome: ConversationTurnOutcome | null
-	/** Durable conversation whose run evidence this stream writes. */
+	/** Durable conversation whose turn evidence this stream writes. */
 	sessionId: SessionId | null
 	/** More precise queue copy when a resumable SDK run stopped. */
 	queuePauseOutcome?: QueuePauseOutcome
@@ -765,7 +765,7 @@ export function App({
 	 *
 	 * Separate from `lastAssistantMessage`: feedback needs ids as soon as a
 	 * streamed message exists, while copying must keep the previous finished
-	 * answer until the current run reaches a normal `done`. A budget stop,
+	 * answer until the current turn reaches a normal `done`. A budget stop,
 	 * cancellation, guardrail or thrown error may leave partial text and must not
 	 * silently promote it to a completed answer. A resumed session is different:
 	 * the conversation store predates stop-reason persistence, so its last saved
@@ -966,7 +966,7 @@ export function App({
 		totalTokens: number
 		cost: CostInfo
 		/**
-		 * See the `usage` event: absent when the run resolved no window. Read
+		 * See the `usage` event: absent when the turn resolved no window. Read
 		 * by `/cost`, not by the footer — the persistent gauge was removed on
 		 * purpose (iteration 168) and the compaction tests pin its absence.
 		 */
@@ -1125,7 +1125,7 @@ export function App({
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const [composerHasDraft, setComposerHasDraft] = useState(false)
 	const composerDraftTokenRef = useRef(0)
-	/** Bounded child-run projection published by the current AgentSession. */
+	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
 	const subagentsRef = useRef<readonly SubagentActivity[]>([])
 	/**
@@ -3517,7 +3517,7 @@ export function App({
 		// same reason, as `neverPrompted` below.
 		availableTools: () => session?.toolNames() ?? [],
 		// From the session, not re-resolved: resolving builds a provider, and a
-		// second one would describe a different sandbox than the run is using.
+		// second one would describe a different sandbox than the turn is using.
 		sandbox: session?.sandbox ?? null,
 		mcp: () =>
 			session
@@ -3974,7 +3974,7 @@ export function App({
 				if (sourceScope && targetSessionId) {
 					sourceScope.sessionId = targetSessionId
 					conversationMaterializedRef.current = true
-					// A fresh conversation owns no runs yet, so this normally reads
+					// A fresh conversation owns no turns yet, so this normally reads
 					// nothing. It runs anyway because the rule is "the scope changed,
 					// re-read", and an exception here is how the resume path lost
 					// its own re-read.
@@ -6384,7 +6384,7 @@ export function App({
 							try {
 								if (goalCommand) await materializeConversation()
 								const durableSessions = sessionsRef.current
-								const runScope = scopeRef.current
+								const sessionScope = scopeRef.current
 								const taskStore = slash.name === 'tasks' ? session?.currentTaskStore?.() : undefined
 								if (slash.name === 'tasks' && !taskStore) {
 									pushMessage(
@@ -6400,11 +6400,11 @@ export function App({
 									kernelHostCommands({
 										allowedAgentIds: session?.agentIds ?? [],
 										...(taskStore ? { taskStore } : {}),
-										...(durableSessions && runScope && conversationMaterializedRef.current
+										...(durableSessions && sessionScope && conversationMaterializedRef.current
 											? {
 													goal: {
 														store: durableSessions.goals,
-														sessionId: runScope.sessionId,
+														sessionId: sessionScope.sessionId,
 														tenantId: durableSessions.tenantId,
 														activation: goalActivation,
 													},
@@ -8034,7 +8034,7 @@ export function App({
 				/>
 				{/* The parent's commentary, between the footer line and the rail:
 				    below the footer like every other panel, and above the rail's
-				    border so it reads as the run talking rather than as chrome the
+				    border so it reads as the turn talking rather than as chrome the
 				    panel drew. Not conditioned on the rail having rows — between two
 				    phases there are none, and that is exactly when a line saying what
 				    comes next is worth the row. It draws nothing when there is no

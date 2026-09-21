@@ -14,10 +14,10 @@ import type { MemoryStore } from '../types/memory/index.js'
 import type { PromoteMemory, SessionMemoryCandidate } from '../types/session/memory-promotion.js'
 
 /**
- * The categories that make a run worth remembering.
+ * The categories that make a turn worth remembering.
  *
  * Ordered as they are rendered. `userRequirements` first because it is the
- * most durable of the five — a constraint the user stated outlives the run
+ * most durable of the five — a constraint the user stated outlives the turn
  * that heard it, whereas a discovery about a codebase expires when the
  * codebase moves.
  */
@@ -32,7 +32,7 @@ const KNOWLEDGE = [
 /**
  * Tag every record this promoter writes, so a host can find or prune them.
  * Also its `metadata.source`, which keeps the record out of a Markdown
- * store's generated index: a record written after every run is not one
+ * store's generated index: a record written after every turn is not one
  * anybody chose to load into every prompt.
  */
 export const SESSION_MEMORY_TAG = SESSION_MEMORY_SOURCE
@@ -87,12 +87,12 @@ function render(
 	)
 	// The eviction counts, when there are any. Carried rather than hidden for
 	// the reason the candidate carries them: somebody reading this record
-	// should know they are reading a truncated account of the run, not a
+	// should know they are reading a truncated account of the turn, not a
 	// complete one.
 	const evicted = Object.entries(candidate.evicted).filter(([, n]) => n > 0)
 	if (evicted.length > 0) {
 		body.push(
-			`## Dropped during the run\n\n${evicted
+			`## Dropped during the turn\n\n${evicted
 				.map(([category, n]) => `- ${category}: ${n} entr${n === 1 ? 'y' : 'ies'} evicted`)
 				.join('\n')}`,
 		)
@@ -145,7 +145,7 @@ export function createMemoryPromoter(options: MemoryPromoterOptions): PromoteMem
 			tags: [...tags, knowledgeTag],
 			type: 'project',
 			format: 'markdown',
-			// The run id, so a record can be traced back to the run that formed
+			// The turn id, so a record can be traced back to the turn that formed
 			// it. Evidence rather than decoration: without it a surprising
 			// memory cannot be checked against what actually happened.
 			metadata: {

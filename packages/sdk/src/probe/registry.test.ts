@@ -403,7 +403,7 @@ describe('ProbeRegistry — veto API', () => {
 		// This asserted `allow`, with no rationale recorded for why. The
 		// result was that the SAME policy inverted its security posture
 		// depending on which surface it was written on: a content guardrail
-		// that throws blocks the run (and says so in its own comment —
+		// that throws blocks the turn (and says so in its own comment —
 		// "safety is unknown"), while a tool veto that threw waved the tool
 		// through. Nobody chose that asymmetry, which is how it survived.
 		//
@@ -446,7 +446,7 @@ describe('ProbeRegistry — veto API', () => {
 
 	it('still skips a throwing OBSERVER, which was never asked a question', () => {
 		// The asymmetry that IS deliberate. An observer has no answer to
-		// withhold, so taking a run down because a metrics handler crashed
+		// withhold, so taking a turn down because a metrics handler crashed
 		// would be the same mistake pointing the other way.
 		const reg = createProbeRegistry()
 		reg.setLogger(makeLogger())

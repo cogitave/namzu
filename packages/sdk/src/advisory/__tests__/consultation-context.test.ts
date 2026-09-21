@@ -71,7 +71,7 @@ describe('the context a tool-initiated consultation is given', () => {
 		expect(ctx.callContext()).toEqual({ messages: [], iteration: 0 })
 	})
 
-	it('is the live run once the runtime wires it', () => {
+	it('is the live turn once the runtime wires it', () => {
 		const ctx = contextFor(advisor())
 		const messages: Message[] = [{ role: 'user', content: 'the situation', timestamp: 1 }]
 
@@ -89,7 +89,7 @@ describe('the context a tool-initiated consultation is given', () => {
 		iteration = 4
 
 		// The tool is built once per run and called at an unknown later point.
-		// A snapshot would hand every advisor the state the run started with.
+		// A snapshot would hand every advisor the state the turn started with.
 		expect(ctx.callContext().iteration).toBe(4)
 	})
 })

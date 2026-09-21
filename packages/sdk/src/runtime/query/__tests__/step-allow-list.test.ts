@@ -182,7 +182,7 @@ describe('a narrowed step narrows what can run, not just what is shown', () => {
 		expect(output).toContain('not available on this step')
 	})
 
-	it('refuses a tool outside the run-level list too', async () => {
+	it('refuses a tool outside the turn-level list too', async () => {
 		const { output } = await run({ names: 'danger', allowedTools: ['read_only'] })
 
 		expect(danger).toBe(0)
@@ -196,7 +196,7 @@ describe('a narrowed step narrows what can run, not just what is shown', () => {
 	})
 
 	it('leaves an unnarrowed run alone', async () => {
-		// Absent means unrestricted. A run that never narrows anything must not
+		// Absent means unrestricted. A turn that never narrows anything must not
 		// suddenly start refusing its own tools.
 		const { output } = await run({ names: 'danger' })
 

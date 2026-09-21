@@ -21,16 +21,16 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	agentIds: string[]
 
 	/**
-	 * May this run invoke subagents at all? Defaults to `true`.
+	 * May this turn invoke subagents at all? Defaults to `true`.
 	 *
 	 * `agentIds` answers WHO may be called; this answers WHETHER, and they are
-	 * different questions. A run whose own persona is the single agent on the
+	 * different questions. A turn whose own persona is the single agent on the
 	 * list has a non-empty list and still must not call anyone.
 	 *
 	 * It cannot be derived. Comparing the list against the executing agent
 	 * fails where a host substitutes a specialist's persona into the
 	 * supervisor shell — the two ids differ, so the predicate says "can
-	 * delegate" about a run that cannot. And no predicate over `agentIds`
+	 * delegate" about a turn that cannot. And no predicate over `agentIds`
 	 * could work, because a supervisor whose list holds one specialist and a
 	 * run that IS that specialist are indistinguishable in it. The fact lives
 	 * with the caller, so the caller states it.
@@ -53,8 +53,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	/**
 	 * Called when the operator approves a plan.
 	 *
-	 * The hook a host uses to leave plan mode without ending the run — which
-	 * is what the mode's per-run lifetime used to force, discarding the
+	 * The hook a host uses to leave plan mode without ending the turn — which
+	 * is what the mode's per-turn lifetime used to force, discarding the
 	 * in-flight step and the tool-schema context to change one enum.
 	 */
 	onPlanApproved?: () => Promise<void> | void
@@ -131,7 +131,7 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * Optional human-in-the-loop hook for tool review and run-pause
 	 * decisions. When omitted, the supervisor delegates to drainQuery's
 	 * built-in `autoApproveHandler`, which approves every tool call
-	 * without prompting — the unattended mode, where the run is expected
+	 * without prompting — the unattended mode, where the turn is expected
 	 * to finish without a human at the keyboard.
 	 *
 	 * Hosts that want "Ask before acting" behaviour pass a custom
@@ -182,9 +182,9 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 
 	/**
 	 * Optional structured-compaction config. When omitted, `query()` never
-	 * builds a `WorkingStateManager` and compaction early-returns — the run
+	 * builds a `WorkingStateManager` and compaction early-returns — the turn
 	 * path is byte-identical to a non-compacting run. Hosts opt in (e.g. with
-	 * a `contextWindowTokens`) to keep a long single run alive instead of
+	 * a `contextWindowTokens`) to keep a long single turn alive instead of
 	 * silently truncating.
 	 */
 	compactionConfig?: CompactionConfig
@@ -202,8 +202,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * capability was always there and only the hop was missing.
 	 *
 	 * **What it buys, exactly.** Structured output is terminal and
-	 * exclusive by policy: `setStructuredOutput` overwrites `Run.result`
-	 * behind a sticky flag and the run ends on the turn that produces it.
+	 * exclusive by policy: `setStructuredOutput` overwrites `Turn.result`
+	 * behind a sticky flag and the turn ends on the turn that produces it.
 	 * So this gives a supervisor a schema-constrained FINAL ANSWER and
 	 * nothing more. It does not shape a delegated child's answer — a child
 	 * carries its own config — it does not run alongside prose, and it is
@@ -211,8 +211,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * the workers sets the schema on the workers.
 	 *
 	 * One consequence a supervisor host in particular should know: the
-	 * answer decides the run, so delegated work still running when it lands
-	 * is walked away from rather than waited for. It is recorded — the run
+	 * answer decides the turn, so delegated work still running when it lands
+	 * is walked away from rather than waited for. It is recorded — the turn
 	 * names it on `abandonedTaskIds` — but it is not delivered. That is the
 	 * same precedence a terminal tool has, stated in the iteration loop.
 	 */

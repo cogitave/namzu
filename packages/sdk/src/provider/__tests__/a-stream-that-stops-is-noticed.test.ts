@@ -14,7 +14,7 @@ import { withStreamIdleTimeout } from '../idle-timeout.js'
  * — so zero of seven re-armed on a stall unless a host set a config key it
  * had no reason to know about.
  *
- * A run in that state is not slow, it is stuck: holding its budget, its
+ * A turn in that state is not slow, it is stuck: holding its budget, its
  * claim and its process, settling never. That is the failure a kernel with
  * checkpoints and budgets exists to make impossible.
  */

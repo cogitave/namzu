@@ -4,10 +4,10 @@ import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 /**
  * End-to-end SubSession spawn flow.
  *
- * Builds Tenant → Project → Session → simulated Run → spawnSubAgent →
- * SubSession → child Run → child completion → SessionSummaryRef materialized
+ * Builds Tenant → Project → Session → simulated turn → spawnSubAgent →
+ * SubSession → child turn → child completion → SessionSummaryRef materialized
  * → parent reads the child summary via `sessionStore.drill`. Asserts the
- * event sequence matches §10.5 of session-hierarchy.md (spawn, child run,
+ * event sequence matches §10.5 of session-hierarchy.md (spawn, child session,
  * idled).
  *
  * Covers Phase 6 invariants #1–5 in the pattern doc checklist:
@@ -116,7 +116,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
-		// Parent Run in flight — session active while the spawn is happening.
+		// Parent turn in flight — session active while the spawn is happening.
 		await store.updateSession({ ...parentSession, status: 'active' }, tenant)
 
 		let summaryCounter = 0

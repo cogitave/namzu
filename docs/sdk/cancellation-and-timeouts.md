@@ -235,7 +235,7 @@ page's failure class: "the RAG tool dropped [the per-tool abort signal]
 before `KnowledgeBase.query`... A stopped turn therefore detached after its
 own wait bound while the owned embedding request kept running," fixed and
 pinned by
-`packages/sdk/src/runtime/query/__tests__/rag-embedding-cancellation-reaches-run.test.ts:17-23`.
+`packages/sdk/src/runtime/query/__tests__/rag-embedding-cancellation-reaches-turn.test.ts:17-23`.
 Any conformance work scoped to "every provider-shaped outbound call the
 kernel owns" should name this surface explicitly rather than silently
 excluding it because it isn't a `packages/providers/*` package.

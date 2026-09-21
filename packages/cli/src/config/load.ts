@@ -69,7 +69,7 @@ export interface LoadConfigOptions {
 	 *
 	 * A name that no file declares is an ERROR rather than a no-op. Someone
 	 * who typed `--profile revew` is running under settings they did not
-	 * choose, and every reading of the run after that is wrong; the cost of
+	 * choose, and every reading of the turn after that is wrong; the cost of
 	 * refusing is one retyped word.
 	 */
 	readonly profile?: string
@@ -202,7 +202,7 @@ function resolveConfigWithProvenance(
 	const managedCfg = readJsonIfExists(managedPath)
 	const { config: envCfg, variables: envVariables } = readEnv(env)
 
-	// The command line first, then the environment. A flag is this run; a
+	// The command line first, then the environment. A flag is this turn; a
 	// variable is this shell — so the narrower statement wins, the way it does
 	// everywhere else here.
 	const profileName = opts.profile ?? env.NAMZU_PROFILE
@@ -254,7 +254,7 @@ function resolveConfigWithProvenance(
  * profile of the same name is the ordinary case, and reporting both as "the
  * profile" would leave an operator opening the wrong file.
  *
- * Refuses a name nothing declares. The alternative is a run under settings
+ * Refuses a name nothing declares. The alternative is a turn under settings
  * nobody chose, reported as success.
  */
 function profileLayers(

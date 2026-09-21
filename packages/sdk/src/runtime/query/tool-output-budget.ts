@@ -13,7 +13,7 @@ import { digest, spillManifest } from '../../store/evidence/format.js'
  * Nothing capped tool output before this. `read` returned a whole file when
  * `limit` was omitted, `bash` allowed a 100 MB buffer, and the MCP adapter
  * joined every text block uncapped — so a 2 MB lockfile became ~500k tokens
- * in a single `tool_result` and the run died on a provider error with
+ * in a single `tool_result` and the turn died on a provider error with
  * everything lost.
  */
 export const DEFAULT_MAX_TOOL_OUTPUT_CHARS = 40_000
@@ -178,7 +178,7 @@ export interface ApplyToolOutputBudgetOptions {
  * Retention keeps the original while bounding its model-visible preview.
  * The host owns the recovery route and its permissions; a spill path is not
  * proof that workspace read/grep tools can access it. Middle-elision is the
- * fallback for a run with no directory to write to.
+ * fallback for a turn with no directory to write to.
  *
  * The preview keeps head AND tail because the two ends carry different
  * information: the head has the schema/opening of a document, the tail has
@@ -269,7 +269,7 @@ function spill(
 ): { path: string; integrity?: string } | undefined {
 	try {
 		// `0o700` on the directory and `0o600` on the file: a spilled output is
-		// routinely the largest and most sensitive thing a run produces — whole
+		// routinely the largest and most sensitive thing a turn produces — whole
 		// files, whole command outputs — and the default `0o755`/`0o644` made
 		// every one of them world-readable on a shared host.
 		//
@@ -311,7 +311,7 @@ function spill(
 		// EEXIST is reported as its own sentence rather than folded into the
 		// generic message, because the two causes lead to opposite next moves:
 		// a stale file from a reused output directory is housekeeping, while
-		// something arriving at a path only this run should know is the case
+		// something arriving at a path only this turn should know is the case
 		// the exclusive open exists to refuse, and an operator has to be able
 		// to tell them apart from the log line alone.
 		const code = (err as NodeJS.ErrnoException | undefined)?.code

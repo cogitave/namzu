@@ -40,7 +40,7 @@ function harness(
 	const messages = longHistory()
 	const config: CompactionConfig = {
 		...CompactionConfigSchema.parse({}),
-		// A tiny window puts the run over the trigger immediately.
+		// A tiny window puts the turn over the trigger immediately.
 		contextWindowTokens: 1_000,
 		keepRecentMessages: 4,
 		...over.compaction,
@@ -148,7 +148,7 @@ describe('a host reducer outranks the enum', () => {
 		expect(h.messages.length).toBe(3)
 	})
 
-	it('gets the window it has to fit, not the run token budget', async () => {
+	it('gets the window it has to fit, not the turn token budget', async () => {
 		let saw = 0
 		const reduce: ContextReducer = ({ contextWindowTokens, messages }) => {
 			saw = contextWindowTokens
@@ -171,7 +171,7 @@ describe('a reducer that cannot be trusted is not obeyed', () => {
 
 		await runCompactionCheck(h.ctx)
 
-		// Fail open: a broken reduction hook should not take down a healthy run,
+		// Fail open: a broken reduction hook should not take down a healthy turn,
 		// the same way a broken `prepareStep` does not.
 		expect(h.messages.length).toBe(41)
 		expect(h.warnings.some((w) => w.includes('threw'))).toBe(true)

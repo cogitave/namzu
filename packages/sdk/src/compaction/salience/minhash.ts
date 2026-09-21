@@ -5,7 +5,7 @@
  * a line number moves — and still the same output. Three-word shingles
  * hashed 64 ways give a Jaccard estimate that is stable against those
  * edits and cheap enough to compare every message against every other
- * once per pass at the sizes a run reaches. Hashing is FNV-1a with a
+ * once per pass at the sizes a turn reaches. Hashing is FNV-1a with a
  * per-slot seed; nothing here needs to be cryptographic, only consistent
  * within a process.
  */

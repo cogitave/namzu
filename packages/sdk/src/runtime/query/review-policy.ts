@@ -1,11 +1,11 @@
 /**
- * How a run resolves calls routed to review.
+ * How a turn resolves calls routed to review.
  *
  * An authorization rule says what a tool may do. A review policy says what
  * happens to calls the rules did not cover or explicitly routed to REVIEW.
  * The two axes are separate on purpose — a rule is a durable
  * statement an operator reviewed, and a mode is a property of ONE run, the
- * difference between "we never force-push" and "this run is unattended".
+ * difference between "we never force-push" and "this turn is unattended".
  *
  * Only calls the gate routed to review arrive here. A rule that denied one
  * already stopped it, and a rule that allowed one never asked. So a mode
@@ -78,7 +78,7 @@ export { PLAN_MODE_REFUSAL }
 
 /** What the model is told when a call is refused under `strict`. */
 export const STRICT_MODE_REFUSAL =
-	'Refused: this run only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.'
+	'Refused: this turn only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.'
 
 /** The tools `accept-edits` approves without asking. Everything else prompts. */
 export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write'])
@@ -98,7 +98,7 @@ export const ACCEPT_EDITS_TOOLS: ReadonlySet<string> = new Set(['edit', 'write']
  *
  * `save_memory` is deliberately NOT here. Content saved now is retrievable
  * by `search_memory` in a later session, so a tool result that talks the
- * model into saving something reaches a future run's reasoning. A write
+ * model into saving something reaches a future turn's reasoning. A write
  * that survives the process is not read-only under any reading.
  */
 export const REVIEW_EXEMPT_WRITES: ReadonlySet<string> = new Set([
@@ -153,7 +153,7 @@ export interface ToolReviewRequest {
 
 export type ToolReviewAnswer =
 	| { readonly kind: 'approve' }
-	/** Approve, and stop asking for the rest of the run. */
+	/** Approve, and stop asking for the rest of the turn. */
 	| { readonly kind: 'approve-all' }
 	| { readonly kind: 'reject'; readonly feedback?: string }
 
@@ -235,8 +235,8 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 
 /**
  * The mode as an `ApprovalPolicy`, named after itself so a durable log can
- * say which one approved a call. Swap it on a run's `SessionApprovalPolicy`
- * to change mode without ending the run.
+ * say which one approved a call. Swap it on a turn's `SessionApprovalPolicy`
+ * to change mode without ending the turn.
  */
 export function createReviewPolicy(options: ReviewPolicyOptions = {}): ApprovalPolicy {
 	const mode: ReviewMode = options.mode ?? (options.prompt ? 'prompt' : 'auto')

@@ -12,7 +12,7 @@ import { applyLifecycleHookResults } from './plugin-hooks.js'
 import type { ResultAssembler } from './result.js'
 
 /**
- * What a run does on its way out, once the loop has stopped.
+ * What a turn does on its way out, once the loop has stopped.
  *
  * The loop returns for any of a dozen reasons — an answer, a budget, a stop
  * condition, a cancelled signal — and this is the one place all of them pass
@@ -28,16 +28,16 @@ import type { ResultAssembler } from './result.js'
  * `running` run `completed` — the reverse order would overwrite the
  * cancellation the abort signal had already declared. And
  * `memory_consolidated` precedes `turn_completed`, so a host folding the
- * stream in order has the memory before the run that produced it.
+ * stream in order has the memory before the turn that produced it.
  *
  * `setSteps` keeps its position too, but on the move's terms rather than on
  * its own. This file used to claim the assembler needed it first "or the
- * returned `Run` loses the final turn's steps" — that is not true, and a
+ * returned `Turn` loses the final turn's steps" — that is not true, and a
  * mutation proves it: `completeTurn` reads `result`, `stopReason` and the
- * budget and never `steps`, the returned `Run` is built by `finalize()`
+ * budget and never `steps`, the returned `Turn` is built by `finalize()`
  * (which runs after the whole `try`/`catch`/`finally`), and moving
  * `setSteps` below the assembler leaves the suite green, including the test
- * that asserts `run.steps` on a returned run. What holds `setSteps` where it
+ * that asserts `turn.steps` on a returned turn. What holds `setSteps` where it
  * is, is the byte-identity of this move: every position was preserved, not
  * just the consequential ones. Its read is still deferred to the same
  * moment — after the `run_end` hooks, immediately before the record is
@@ -79,7 +79,7 @@ export async function* finalizeTurn(
 		)
 		applyLifecycleHookResults('turn_end', hookResults)
 		yield* eventTranslator.drainPending()
-		// A delegated run says so once more, by name, so a hook that
+		// A delegated session says so once more, by name, so a hook that
 		// only cares when a subagent finishes need not read parent ids
 		// off every run_end.
 		if (params.parentSessionId !== undefined) {
@@ -99,8 +99,8 @@ export async function* finalizeTurn(
 		}
 	}
 
-	// Hand the step record to the run before it settles, so the
-	// returned `Run` carries it.
+	// Hand the step record to the turn before it settles, so the
+	// returned `Turn` carries it.
 	ctx.recorder.setSteps(takeSteps())
 
 	// Gates the FINAL result, not the stream — `text_delta` already
@@ -109,11 +109,11 @@ export async function* finalizeTurn(
 	// token to gate the stream itself would trade the streaming UX
 	// for the guarantee, which is the host's call, not the SDK's.
 	if (params.outputGuardrails && params.outputGuardrails.length > 0) {
-		// Read what the run produced WITHOUT settling it. This used to
+		// Read what the turn produced WITHOUT settling it. This used to
 		// call `markCompleted()` just to materialize the text, which
-		// force-marked a cancelled or paused run `completed` merely
+		// force-marked a cancelled or paused turn `completed` merely
 		// because a guardrail was configured — the presence of a
-		// safety check silently rewrote the run's own outcome.
+		// safety check silently rewrote the turn's own outcome.
 		const produced = ctx.recorder.materializeResult()
 		const outputVerdict = await runOutputGuardrails(
 			params.outputGuardrails,
@@ -178,7 +178,7 @@ export async function* finalizeTurn(
 		})
 		if (entry) {
 			try {
-				// Same knowledge, same record: a later run that learned what an
+				// Same knowledge, same record: a later turn that learned what an
 				// earlier one already wrote down — archived included — adds nothing.
 				if (await isConsolidated(params.consolidateInto, entry)) {
 					ctx.log.info('consolidation skipped: this knowledge is already in the memory store', {

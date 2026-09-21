@@ -3,7 +3,7 @@
  * runs with.
  *
  * The chain is config → `AgentSessionOptions.toolResultScreens` →
- * `buildToolRegistry`, which is the ONE place the CLI builds a run's
+ * `buildToolRegistry`, which is the ONE place the CLI builds a turn's
  * registries — the session and its sub-agents both — so a key that reaches
  * here reaches every surface the CLI has. Before this existed the screen had
  * the reachability of a feature flag with no flag: `resultGuardrails` was a
@@ -11,7 +11,7 @@
  * nothing set it.
  *
  * It drives a real `send()` and then asks the registry the turn received the
- * same question a run would, which is what the executor does.
+ * same question a turn would, which is what the executor does.
  */
 
 import { mkdirSync, mkdtempSync } from 'node:fs'
@@ -105,8 +105,8 @@ function echoingConnectedTool(server = 'weather-co', tool = 'lookup'): ToolDefin
 	}
 }
 
-/** What a run hands the registry. See the executor's `buildToolContext`. */
-const RUN_DEFAULT = {
+/** What a turn hands the registry. See the executor's `buildToolContext`. */
+const TURN_DEFAULT = {
 	toolResultGuardrails: DEFAULT_TOOL_RESULT_GUARDRAILS,
 } as unknown as ToolContext
 
@@ -140,7 +140,7 @@ describe('toolResultScreens from the config', () => {
 	it('installs the named screen in the registry the turn runs with', async () => {
 		const tools = await registryFor(['correspondence'])
 
-		const result = await tools.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await tools.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('tool-result-correspondence')
@@ -148,11 +148,11 @@ describe('toolResultScreens from the config', () => {
 
 	it('turns the default off with an empty list', async () => {
 		// The operator's off switch, end to end. The registry is built with
-		// `[]`, which is explicit configuration and wins over the run's
+		// `[]`, which is explicit configuration and wins over the turn's
 		// default — so the echo survives a context carrying that default.
 		const tools = await registryFor([])
 
-		const result = await tools.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await tools.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(true)
 		// Unrefused: what the server sent is what the model reads, frame and
@@ -162,10 +162,10 @@ describe('toolResultScreens from the config', () => {
 
 	it('leaves an unconfigured session to the kernel default', async () => {
 		// Absent is not `[]`: the registry is built with no screens of its
-		// own, so the run's default applies exactly as it does for any host.
+		// own, so the turn's default applies exactly as it does for any host.
 		const tools = await registryFor(undefined)
 
-		const result = await tools.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await tools.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('tool-result-correspondence')
@@ -184,8 +184,8 @@ describe('a passthroughTools exemption from the config file', () => {
 			echoingConnectedTool('pricing', 'mcp_pricing_lookup'),
 		)
 
-		const exempt = await tools.execute('mcp_login-echo_echo', { query: QUERY }, RUN_DEFAULT)
-		const judged = await tools.execute('mcp_pricing_lookup', { query: QUERY }, RUN_DEFAULT)
+		const exempt = await tools.execute('mcp_login-echo_echo', { query: QUERY }, TURN_DEFAULT)
+		const judged = await tools.execute('mcp_pricing_lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(exempt.success).toBe(true)
 		expect(exempt.output).toContain(QUERY)

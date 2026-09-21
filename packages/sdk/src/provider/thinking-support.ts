@@ -32,7 +32,7 @@ export function assertThinkingUnsupported(
 	// `effort` is refused on exactly the same reasoning, and it is the worse
 	// silence of the two. A dropped `thinking` at least leaves an empty
 	// reasoning list a caller could notice; a dropped `effort` leaves a
-	// perfectly ordinary answer, so a run someone believes they paid for at
+	// perfectly ordinary answer, so a turn someone believes they paid for at
 	// `max` is indistinguishable from one at the model's default — including
 	// on the bill.
 	//
@@ -42,7 +42,7 @@ export function assertThinkingUnsupported(
 	// naming the neighbouring one.
 	if (params.effort !== undefined) {
 		throw new Error(
-			`${driverName} does not implement effort. Silently ignoring it would return an ordinary completion, so a run requested at "${params.effort}" would be indistinguishable from one at the model's default — including in what it cost. Drop \`effort\`, or use a driver that implements it.`,
+			`${driverName} does not implement effort. Silently ignoring it would return an ordinary completion, so a turn requested at "${params.effort}" would be indistinguishable from one at the model's default — including in what it cost. Drop \`effort\`, or use a driver that implements it.`,
 		)
 	}
 

@@ -69,8 +69,8 @@ function twoStepPlan(pm: PlanManager): void {
 
 const typesOf = (events: SessionEvent[]) => events.map((e) => e.type)
 
-describe('a settled plan says so on the run stream', () => {
-	it('emits plan_completed when the run settles a successful plan', async () => {
+describe('a settled plan says so on the turn stream', () => {
+	it('emits plan_completed when the turn settles a successful plan', async () => {
 		const events = await runWithPlan((p) => {
 			twoStepPlan(p)
 			p.updateStepStatus('step_1', 'completed')

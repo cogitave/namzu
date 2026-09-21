@@ -18,9 +18,9 @@ import { drainQuery } from '../index.js'
  *
  * `SandboxCreateConfig.workingDirectory` existed, the local provider ignored
  * it, and the kernel never set it: `drainQuery` built the sandbox from three
- * timeout/limit fields and dropped the run's own `cwd`. So a consumer
+ * timeout/limit fields and dropped the turn's own `cwd`. So a consumer
  * configuring a sandbox through `turnConfig.sandbox` always got a temp
- * directory, whatever the run was working on.
+ * directory, whatever the turn was working on.
  *
  * The direct SDK default stays ephemeral. Changing that would be a major and
  * would quietly point every existing embedded sandboxed run at real files.
@@ -118,7 +118,7 @@ describe('what a sandbox is rooted at', () => {
 		expect(seen[0]?.workingDirectory).toBeUndefined()
 	})
 
-	it("passes the run's own cwd when the caller asks for it", async () => {
+	it("passes the turn's own cwd when the caller asks for it", async () => {
 		// The whole defect: this argument was never populated. Reverting the
 		// `create()` call site fails only this.
 		const { seen } = await run({ workspace: 'working-directory', withWorkingDirectory: true })
@@ -134,7 +134,7 @@ describe('what a sandbox is rooted at', () => {
 		// asked to confine. Falling back to ephemeral is the other wrong
 		// answer: it reports success while confining nothing the caller meant.
 		// `drainQuery` settles a thrown run rather than rejecting, so the
-		// refusal shows up as a failed Run carrying the message — asserted
+		// refusal shows up as a failed turn carrying the message — asserted
 		// against the actual contract rather than the one that felt natural.
 		const { run: failed } = await run({
 			workspace: 'working-directory',

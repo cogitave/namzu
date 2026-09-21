@@ -13,7 +13,7 @@
  *
  * Options are parsed, not spoken: this command joined every argument into the
  * prompt, so the flags its streaming sibling accepts — `--cwd` above all —
- * were read aloud to the model while the run used this directory anyway. Both
+ * were read aloud to the model while the turn used this directory anyway. Both
  * commands now share one parser (`./run-flags.js`), because they are the same
  * one-shot differing only in how they print.
  */
@@ -36,8 +36,8 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { describeTurnInterruption, retryAfterMs } from '../tui/run-interruption.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
+import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
@@ -60,7 +60,7 @@ import type { CommandDef } from './types.js'
  *     cat notes.txt | namzu run "summarise this"
  *
  * sent the model three words and silently dropped the file. Nothing reported
- * it: the run succeeded, and the answer was about nothing. A pipe and a
+ * it: the turn succeeded, and the answer was about nothing. A pipe and a
  * question are the ordinary way to ask about a document, and taking only one
  * of the two is the worst reading of that command.
  *
@@ -129,7 +129,7 @@ export const runCommand: CommandDef = {
 		'A folder has to be trusted before namzu will work in it, because namzu',
 		'reads its files, runs commands in it and executes its code. Run `namzu`',
 		'here once and accept the prompt to trust it permanently, or pass --trust',
-		'to accept it for one run. --trust does not remember; that is the point.',
+		'to accept it for one turn. --trust does not remember; that is the point.',
 		'',
 		'--yolo does NOT imply --trust: one is about which tools may run inside a',
 		'folder, the other about the folder.',
@@ -143,14 +143,14 @@ export const runCommand: CommandDef = {
 		'--gate checks proposed answers with operator-supplied commands. Every',
 		'command must complete successfully; a failure returns diagnostics to the',
 		'model for correction. Repeat the flag to check several commands in order.',
-		'Budget exhaustion or cancellation may stop a run before verification.',
+		'Budget exhaustion or cancellation may stop a turn before verification.',
 		'',
 		'A failed gate may skip a retry when its Git change detector is unchanged.',
-		'The attempt still counts. Exhausted review attempts stop the run with',
+		'The attempt still counts. Exhausted review attempts stop the turn with',
 		'answer_rejected and a non-zero exit.',
 		'',
 		"The working directory's AGENTS.md files — that directory and every one up",
-		'to the repository root — are loaded as standing instructions for the run,',
+		'to the repository root — are loaded as standing instructions for the turn,',
 		'and the ones that were loaded are named on stderr.',
 		'',
 		'--continue and --resume refuse when the conversation cannot be reopened,',
@@ -165,7 +165,7 @@ export const runCommand: CommandDef = {
 		"run waits the provider's own delay when it named one (otherwise a minute,",
 		'doubling, at most fifteen) and resumes from the checkpoint in this process,',
 		'until the budget is spent. The `limits.waitForProviderMs` config key sets',
-		'the same budget for every run in the folder.',
+		'the same budget for every turn in the folder.',
 		'',
 		'Exit codes: 0 on a reply, 1 on a failed or unfinished turn, 2 when no',
 		'prompt was supplied, 64 when an argument is wrong, 75 when the provider',
@@ -178,7 +178,7 @@ export const runCommand: CommandDef = {
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
 		let ctx = bootstrapCtx
 		const flags = parseRunFlags(rawArgs)
-		// The run's leash: the config file's limits, with a flag overriding each.
+		// The turn's leash: the config file's limits, with a flag overriding each.
 		const limitsFromFlags = {
 			...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 			...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
@@ -284,8 +284,8 @@ export const runCommand: CommandDef = {
 
 		const gate = buildGate(flags, cwd)
 		// Attached BEFORE the session, and its failure is fatal. An operator who
-		// configured `telemetry.sessionExport` asked for this run to be
-		// recorded; continuing without it means the run happens and the record
+		// configured `telemetry.sessionExport` asked for this turn to be
+		// recorded; continuing without it means the turn happens and the record
 		// they were counting on does not exist, which is a failure they only
 		// discover when they go looking for a session that was never written.
 		let sessionExport: AttachedSessionExport | undefined
@@ -359,7 +359,7 @@ export const runCommand: CommandDef = {
 			rules: permissions.rules,
 			...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the
-			// answer. Spread rather than passed as undefined so a run without
+			// answer. Spread rather than passed as undefined so a turn without
 			// gates is byte-identical to the one that shipped before them.
 			...(gate ?? {}),
 			permissionMode: modeResult.mode,
@@ -388,7 +388,7 @@ export const runCommand: CommandDef = {
 			})
 			return 1
 		}
-		// A configured tool server that is not here means the run cannot do what
+		// A configured tool server that is not here means the turn cannot do what
 		// the operator set it up to do, and there is nobody watching to notice.
 		// The TUI reports and carries on, because a person can read the line and
 		// decide; a script has no such reader, so it refuses. Same principle as
@@ -517,10 +517,10 @@ export const runCommand: CommandDef = {
 		)
 
 		// A provider pause is answered by waiting, when the caller gave time to
-		// wait with. The kernel kept a checkpoint; the run resumes from it in
+		// wait with. The kernel kept a checkpoint; the turn resumes from it in
 		// this process, with its own context, rather than being re-prompted from
 		// notes by a wrapper that saw exit 75. A pause with no provider behind
-		// it is not waited on: that is a run parked on something else.
+		// it is not waited on: that is a turn parked on something else.
 		const waitBudgetMs = flags.waitForProviderMs ?? ctx.config.limits?.waitForProviderMs ?? 0
 		let waits = 0
 		let waitedMs = 0
@@ -563,7 +563,7 @@ export const runCommand: CommandDef = {
 		closeSessions(sessions)
 		// Drained with the session, not at process exit: a buffering sink that
 		// only flushed on `beforeExit` loses its tail whenever the CLI is
-		// interrupted, which is exactly the run somebody wanted the record of.
+		// interrupted, which is exactly the turn somebody wanted the record of.
 		await sessionExport?.shutdown()
 
 		if (measured.budget) {

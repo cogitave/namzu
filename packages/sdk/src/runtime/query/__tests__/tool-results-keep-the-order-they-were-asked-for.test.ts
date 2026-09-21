@@ -420,7 +420,7 @@ describe('a tool that must not run beside anything else', () => {
 	})
 })
 
-describe('a real run that asked for two tools at once', () => {
+describe('a real turn that asked for two tools at once', () => {
 	function concurrentRegistry() {
 		const finished: string[] = []
 		const secondFinished = latch()
@@ -542,7 +542,7 @@ describe('a real run that asked for two tools at once', () => {
 	it('announces both tool starts before the first completion', async () => {
 		const { events } = await runBoth()
 
-		// The same interleaving the executor produces, but seen from the run:
+		// The same interleaving the executor produces, but seen from the turn:
 		// `tool_executing` for both, then the completions in the order they
 		// really came back. Only the starts were ever asserted anywhere.
 		expect(toolEventPairs(events)).toEqual([

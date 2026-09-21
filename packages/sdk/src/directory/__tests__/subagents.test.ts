@@ -62,7 +62,7 @@ describe('a project that declares delegates', () => {
 
 	it('surfaces a delegate failure in the parent list', async () => {
 		// A delegate that could not load is a fact about THIS project. A caller
-		// reading one list should not have to walk the tree to discover the run
+		// reading one list should not have to walk the tree to discover the turn
 		// will be short a specialist.
 		const { manifest, ok, diagnostics } = await loadDirectory(
 			tree({ ...SYSTEM, 'agents/writer/tools/bad.js': 'this is not valid !!!' }),

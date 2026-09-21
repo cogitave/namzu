@@ -39,14 +39,14 @@ function createTaskTool() {
 }
 
 describe('the two delegation tools', () => {
-	it('agree on how long a delegated run may take', () => {
+	it('agree on how long a delegated session may take', () => {
 		// The pair is the assertion. Whichever way a future change moves one
 		// deadline, this fails unless it moves the other — which is exactly
 		// what did not happen the first time.
 		expect(agentTool().timeoutMs).toBe(createTaskTool().timeoutMs)
 	})
 
-	it('bound a delegated run by the hour rather than by the tool-call default', () => {
+	it('bound a delegated session by the hour rather than by the tool-call default', () => {
 		// Asserted against the executor default rather than against
 		// `DELEGATION_TIMEOUT_MS` alone: a test that only compares the tool to
 		// the constant it was built from still passes if the tool declares

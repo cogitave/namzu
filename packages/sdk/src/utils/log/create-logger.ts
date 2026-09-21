@@ -153,7 +153,7 @@ function build(
 		} catch {
 			// A host sink is arbitrary code the kernel does not control. The old
 			// direct `process.stderr.write` implementation could never throw into
-			// an in-flight run; a naive seam here would introduce that failure
+			// an in-flight turn; a naive seam here would introduce that failure
 			// mode for the first time — a broken sink aborting, say, a
 			// tool-completion path. Never rethrown, never logged through the same
 			// sink that just failed — counted instead, so a doctor check can

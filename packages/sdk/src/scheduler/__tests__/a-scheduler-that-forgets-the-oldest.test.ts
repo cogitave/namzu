@@ -76,10 +76,10 @@ async function launch(gateway: LocalTaskScheduler, count: number): Promise<void>
 	}
 }
 
-describe('a gateway that outlives its run forgets the oldest', () => {
-	it('keeps every task of a run that never reaches the cap', async () => {
+describe('a gateway that outlives its turn forgets the oldest', () => {
+	it('keeps every task of a turn that never reaches the cap', async () => {
 		// The control, and the case that must not change: a supervisor reading
-		// its listing at the end of a run sees everything it launched.
+		// its listing at the end of a turn sees everything it launched.
 		const gateway = new LocalTaskScheduler(
 			new CountingManager() as unknown as AgentManagerContract,
 			context(),

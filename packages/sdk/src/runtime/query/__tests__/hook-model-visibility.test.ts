@@ -16,7 +16,7 @@ import { drainQuery } from '../index.js'
 
 /**
  * Both model-call hooks fired directly beside the request and the reply and
- * were handed neither — only a run id and an iteration number. An extension
+ * were handed neither — only a turn id and an iteration number. An extension
  * could observe THAT a call happened and nothing about what it was, so a
  * prompt audit, a redaction pass, or a per-tenant token ledger had no way to
  * do its job from a hook.
@@ -76,7 +76,7 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 const pick = (seen: Seen[], event: PluginHookEvent) => seen.find((s) => s.event === event)?.ctx
 
 describe('what an extension is shown about a model call', () => {
-	it('shows the request the run is about to send', async () => {
+	it('shows the request the turn is about to send', async () => {
 		const seen: Seen[] = []
 		await runWithHooks(seen)
 
@@ -179,7 +179,7 @@ describe('what an extension is shown about a model call', () => {
 		expect(request?.model).toBe('mock-model')
 	})
 
-	it('hands over copies, so a write cannot reach the run history', async () => {
+	it('hands over copies, so a write cannot reach the turn history', async () => {
 		const seen: Seen[] = []
 		const run = await runWithHooks(seen)
 

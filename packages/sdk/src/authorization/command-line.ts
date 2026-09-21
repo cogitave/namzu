@@ -17,7 +17,7 @@
  *     true; git push origin main         -> did not match
  *     bash -c "git push origin main"     -> did not match
  *
- * A rule that fails to match reaches the permission mode, and a run with no
+ * A rule that fails to match reaches the permission mode, and a turn with no
  * terminal resolves that to `auto`. So an operator's prohibition was bypassed
  * by typing four characters in front of it, in exactly the unattended case the
  * prohibition exists for. The `bash` tool's own description tells the model to

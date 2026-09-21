@@ -1,13 +1,13 @@
 import type { SessionRecord } from '../types/session/index.js'
 
 /**
- * A derived value maintained incrementally from the run's event log.
+ * A derived value maintained incrementally from the turn's event log.
  *
- * Everything derived from a run was computed by scanning what was in hand
+ * Everything derived from a turn was computed by scanning what was in hand
  * at the moment somebody asked — `deriveTurnStatus` takes a status and a
- * park and answers about that instant. That works while the whole run fits
+ * park and answers about that instant. That works while the whole turn fits
  * in memory and stops working the moment it does not: a caller wanting the
- * status of a run whose history has been compacted, or of a run in another
+ * status of a turn whose history has been compacted, or of a turn in another
  * process, has to load the log and fold it, and every caller folds it
  * slightly differently.
  *
@@ -81,7 +81,7 @@ export class ReadModelCollisionError extends Error {
 }
 
 /**
- * Every projection of one run, advanced together.
+ * Every projection of one turn, advanced together.
  *
  * Together, and that is the design: a registry per run rather than per
  * model, so `lastSeq` is one number and a caller reading two projections

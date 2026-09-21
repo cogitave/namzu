@@ -8,7 +8,7 @@ import { DEFAULT_ASSUMED_CONTEXT_WINDOW, resolveContextWindow } from '../context
  *
  * That table's own header records the incident: one vendor family's
  * entries all carried 200k including the models whose window is 1M, so
- * those runs compacted at roughly 14% full and threw away the prompt-cache
+ * those turns compacted at roughly 14% full and threw away the prompt-cache
  * prefix to do it. Every model release drifts it again until somebody
  * edits it — and at least one driver
  * was already parsing the vendor's real `context_length` and discarding

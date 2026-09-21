@@ -8,7 +8,7 @@ import type { ToolProvenance } from '../tool/index.js'
  * namzu had three good gates on tool calls — probe veto, `AuthorizationGate`,
  * HITL review — and they all point the same way: they protect the world
  * from the agent. Nothing protected the user from the agent's own output,
- * and nothing looked at the prompt before the run started.
+ * and nothing looked at the prompt before the turn started.
  *
  * The concrete failure: an agent reads a credential file, the read is
  * allowed (it is a legitimate file), the secret enters context, and it is
@@ -19,7 +19,7 @@ import type { ToolProvenance } from '../tool/index.js'
 export interface InputGuardrailContext {
 	readonly sessionId: SessionId
 	readonly turnId: TurnId
-	/** The messages the run is about to start with. */
+	/** The messages the turn is about to start with. */
 	readonly messages: readonly Message[]
 	/** The assembled system prompt, when there is one. */
 	readonly systemPrompt?: string
@@ -28,7 +28,7 @@ export interface InputGuardrailContext {
 export interface OutputGuardrailContext {
 	readonly sessionId: SessionId
 	readonly turnId: TurnId
-	/** The run's final assistant text. */
+	/** The turn's final assistant text. */
 	readonly output: string
 	/** Full message history, for a guardrail that needs the conversation. */
 	readonly messages: readonly Message[]
@@ -95,8 +95,8 @@ export interface ToolResultGuardrailContext {
 /**
  * What a guardrail decided about a tool result.
  *
- * Deliberately NOT {@link GuardrailVerdict}. There, `block` ends the run —
- * it is the only thing it can mean when the subject is the run's input or
+ * Deliberately NOT {@link GuardrailVerdict}. There, `block` ends the turn —
+ * it is the only thing it can mean when the subject is the turn's input or
  * its final answer. At a tool boundary the useful refusal is usually the
  * other one: fail this call, tell the model why, and let it choose
  * something else. Reusing the word would give one spelling two meanings

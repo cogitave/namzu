@@ -84,7 +84,7 @@ describe('an edited skill is re-read', () => {
 	it('stamps at REGISTER, so the first load is already a cache hit', async () => {
 		// Without a stamp at registration the first `load` re-reads a file
 		// nothing has touched — invisible in the content and a wasted read on
-		// the model's path for every skill, every run.
+		// the model's path for every skill, every turn.
 		const dir = await skillDir('THE BODY')
 		const registry = new SkillRegistry(NOOP_LOGGER)
 		const registered = await registry.register(dir, 'full')

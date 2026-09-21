@@ -7,7 +7,7 @@ import type { MCPToolDefinition } from '../../types/connector/index.js'
  * Discovery used to take whatever the server offered, which puts the
  * REMOTE side in charge of what enters the agent's tool registry — the
  * exact inversion of least privilege. A server could add a tool between
- * two runs and it became callable with no one having agreed to it.
+ * two turns and it became callable with no one having agreed to it.
  */
 export interface MCPToolPolicy {
 	/**

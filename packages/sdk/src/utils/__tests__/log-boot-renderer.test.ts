@@ -109,7 +109,7 @@ describe('the boot narrative renders as a readout', () => {
 
 	it('gives one scope one colour, from the string alone', () => {
 		// Same input, same colour, in any process on any day. A hash seeded
-		// from insertion order or process state passes inside one run and
+		// from insertion order or process state passes inside one turn and
 		// fails the process-level check.
 		expect(scopeColour('config')).toBe(scopeColour('config'))
 		expect(scopeColour('sandbox')).toBe(scopeColour('sandbox'))

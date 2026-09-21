@@ -1,7 +1,7 @@
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
 
 /**
- * The starting value for a run: nothing accumulated, nothing unpriced.
+ * The starting value for a turn: nothing accumulated, nothing unpriced.
  *
  * Carries NO rate fields, and that is load-bearing rather than tidy. It is what
  * lets {@link import('../utils/cost.js').accumulateCost} tell "fresh" from
@@ -9,7 +9,7 @@ import type { CostInfo, TokenUsage } from '../types/common/index.js'
  * no rates AND no unpriced tokens AND a zero total, and no accumulated one can
  * have all three.
  *
- * It also stops reading as a rate card of zero. `inputCostPer1M: 0` on a run
+ * It also stops reading as a rate card of zero. `inputCostPer1M: 0` on a turn
  * nobody has priced says the model is free, which was exactly the confusion
  * `unpricedTokens` was added to end.
  */

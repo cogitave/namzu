@@ -27,7 +27,7 @@ export interface ToolingBootstrapConfig {
 	workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
-	/** A resolver, so an approval inside a run can change it. See the executor. */
+	/** A resolver, so an approval inside a turn can change it. See the executor. */
 	permissionMode: PermissionMode | (() => PermissionMode)
 	env: Record<string, string>
 	abortSignal: AbortSignal
@@ -35,7 +35,7 @@ export interface ToolingBootstrapConfig {
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 	toolTimeoutMs?: number
-	/** Host-owned and shared; the executor binds it to this run. */
+	/** Host-owned and shared; the executor binds it to this turn. */
 	backgroundJobs?: BackgroundJobRegistry
 	/** See `QueryParams.backgroundJobOwner`. */
 	backgroundJobOwner?: string
@@ -43,7 +43,7 @@ export interface ToolingBootstrapConfig {
 	onJobAwaited?: (id: string) => void
 	/** Where the `skill` tool reads from. */
 	skills?: SkillRegistryRef
-	/** How this run reaches the web. */
+	/** How this turn reaches the web. */
 	web?: import('../../types/tool/index.js').ToolContext['web']
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	maxToolConcurrency?: number

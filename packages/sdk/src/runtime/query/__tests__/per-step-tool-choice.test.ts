@@ -149,7 +149,7 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 		await drainQuery({
 			...(await baseParams(provider, tools)),
 			// Only the first step is forced. Without per-step scoping this
-			// would keep forcing and the run would never reach a text answer.
+			// would keep forcing and the turn would never reach a text answer.
 			prepareStep: ({ stepNumber }) =>
 				stepNumber === 1 ? { toolChoice: 'required' as const } : {},
 		})
@@ -158,7 +158,7 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 		expect(provider.requests.at(1)?.toolChoice).toBeUndefined()
 	})
 
-	it('a run whose every step forces a tool still ends, bounded by the loop', async () => {
+	it('a turn whose every step forces a tool still ends, bounded by the loop', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ id: 'c1', name: 'echo', rawArguments: '{}' }] },
@@ -174,7 +174,7 @@ describe('a forced choice cannot outlive the step that asked for it', () => {
 			prepareStep: () => ({ toolChoice: 'required' as const }),
 		})
 
-		// The knob cannot hang a run on its own: the iteration cap is still
+		// The knob cannot hang a turn on its own: the iteration cap is still
 		// the backstop, and it settles rather than spinning.
 		expect(['completed', 'failed']).toContain(run.status)
 	})

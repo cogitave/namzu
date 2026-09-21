@@ -2,9 +2,9 @@
  * `createMemoryPromoter` — the supplier `promoteMemory` never had.
  *
  * The assertions that matter are about the store's CONTENTS, not about a
- * write "succeeding". A promoter that wrote an empty record for every run
+ * write "succeeding". A promoter that wrote an empty record for every turn
  * would satisfy "it was called" and "it did not throw", and would then fill
- * the store the model reads on later runs with accounts of runs that
+ * the store the model reads on later turns with accounts of runs that
  * discovered nothing.
  */
 
@@ -36,7 +36,7 @@ async function stored(store: InMemoryMemoryStore) {
 	return page
 }
 
-describe('a run that learned something', () => {
+describe('a turn that learned something', () => {
 	it('leaves exactly one durable record', async () => {
 		const store = new InMemoryMemoryStore()
 		await createMemoryPromoter({ store })(
@@ -64,7 +64,7 @@ describe('a run that learned something', () => {
 		expect(body?.content).toContain('What the user requires')
 	})
 
-	it('traces the record back to the run that formed it', async () => {
+	it('traces the record back to the turn that formed it', async () => {
 		const store = new InMemoryMemoryStore()
 		await createMemoryPromoter({ store })(candidate({ decisions: ['use the outbox table'] }))
 
@@ -90,7 +90,7 @@ describe('a run that learned something', () => {
 		const body = await store.get(entry?.id as never)
 		// The candidate carries eviction counts rather than hiding them, and a
 		// promoter that dropped them would undo that: somebody reading this
-		// record should know the run's account of itself is incomplete.
+		// record should know the turn's account of itself is incomplete.
 		expect(body?.content).toContain('4 entries evicted')
 	})
 
@@ -116,7 +116,7 @@ describe('a run that learned something', () => {
 	})
 })
 
-describe('a run that learned nothing', () => {
+describe('a turn that learned nothing', () => {
 	it('leaves NO record at all — the store is empty', async () => {
 		const store = new InMemoryMemoryStore()
 		await createMemoryPromoter({ store })(candidate())
@@ -129,25 +129,25 @@ describe('a run that learned nothing', () => {
 		expect(page.entries).toEqual([])
 	})
 
-	it('writes nothing for a run whose only trace is the files it opened', async () => {
+	it('writes nothing for a turn whose only trace is the files it opened', async () => {
 		const store = new InMemoryMemoryStore()
 		await createMemoryPromoter({ store })(
 			candidate({ files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }),
 		)
 
-		// `files` is what was TOUCHED, not what was learned, and every run that
+		// `files` is what was TOUCHED, not what was learned, and every turn that
 		// opened anything has some. Counting it would make the filter fire on
-		// essentially every run, which is the same as having no filter.
+		// essentially every turn, which is the same as having no filter.
 		expect((await stored(store)).totalCount).toBe(0)
 	})
 
-	it('writes nothing for a run that only restated its task', async () => {
+	it('writes nothing for a turn that only restated its task', async () => {
 		const store = new InMemoryMemoryStore()
 		await createMemoryPromoter({ store })(candidate({ task: 'do the thing' }))
 
 		// Every candidate has a task — it is the prompt, restated by the
 		// extractor. A promoter that treated it as knowledge would write a
-		// record for literally every run.
+		// record for literally every turn.
 		expect((await stored(store)).totalCount).toBe(0)
 	})
 

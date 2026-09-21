@@ -762,7 +762,7 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/memory show')
 		await frameShows(harness.lastFrame, 'Stored memories (1)')
 		expect(harness.lastFrame() ?? '').toContain('[staging-is-read-only](staging-is-read-only.md)')
-		await frameShows(harness.lastFrame, 'Recorded by runs (1)')
+		await frameShows(harness.lastFrame, 'Recorded by turns (1)')
 		expect(harness.lastFrame() ?? '').toContain('RUN_RECORDED')
 	})
 

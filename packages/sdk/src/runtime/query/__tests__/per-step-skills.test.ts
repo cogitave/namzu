@@ -13,8 +13,8 @@ import type { Skill } from '../../../types/skills/index.js'
 import { drainQuery } from '../index.js'
 
 /**
- * A run's skills are fixed at `query()` time and rendered into the cached
- * system prefix, so every skill a run might ever need is paid for on every
+ * A turn's skills are fixed at `query()` time and rendered into the cached
+ * system prefix, so every skill a turn might ever need is paid for on every
  * turn. A phased agent rarely needs them all at once.
  *
  * A peer runtime resolves instructions, model, tools, skills and subagents
@@ -134,7 +134,7 @@ describe('a step skill does not outlive its step', () => {
 			prepareStep: () => ({ skills: [skill('search-the-web')] }),
 		})
 
-		// Appended for the call, never retained. Were it written into the run's
+		// Appended for the call, never retained. Were it written into the turn's
 		// history the section would stack up turn after turn — the same
 		// message repeated, growing the prompt and invalidating the cached
 		// prefix every iteration.

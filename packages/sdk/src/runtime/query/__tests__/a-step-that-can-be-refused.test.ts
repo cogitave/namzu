@@ -20,7 +20,7 @@ import { drainQuery } from '../index.js'
  * and cannot reject. `StopCondition` reads `steps`, so it fires only after
  * the step it disliked has already run and been paid for. The one
  * remaining path was a durable checkpoint built for HUMAN review of tool
- * calls, which pauses the run and waits for a person.
+ * calls, which pauses the turn and waits for a person.
  *
  * None of those is what a host with a live rate limit, a revoked tenant or
  * a spend ceiling has. They need the provider call not to happen.
@@ -40,7 +40,7 @@ class CountingProvider extends MockLLMProvider {
 	calls = 0
 	constructor() {
 		// Tool calls, so the loop reaches a SECOND step. A text-only turn
-		// ends the run after one iteration and the veto never gets a chance —
+		// ends the turn after one iteration and the veto never gets a chance —
 		// which is a fixture that proves nothing, not a passing hook.
 		super({
 			turns: [
@@ -123,7 +123,7 @@ describe('a host can refuse the next model call', () => {
 
 	it('fails CLOSED when the hook throws', async () => {
 		// The opposite of `prepareStep`, deliberately. A broken step-shaper
-		// skipped costs a run its tuning; a broken step-refuser skipped is a
+		// skipped costs a turn its tuning; a broken step-refuser skipped is a
 		// refusal that did not happen, which is the whole point of the hook.
 		const { provider, run: settled } = await run({
 			beforeStep: () => {
@@ -147,11 +147,11 @@ describe('a host can refuse the next model call', () => {
 			} = await run({
 				signal: controller.signal,
 				beforeStep: async ({ signal }) => {
-					if (!signal) throw new Error('The run signal was not supplied')
+					if (!signal) throw new Error('The turn signal was not supplied')
 					const aborted = new Promise<void>((resolve) => {
 						signal.addEventListener('abort', () => resolve(), { once: true })
 					})
-					controller.abort(new Error('Operator stopped the run'))
+					controller.abort(new Error('Operator stopped the turn'))
 					await aborted
 					if (response === 'throw') signal.throwIfAborted()
 					return response === 'refuse' ? { reason: 'stale policy reply' } : undefined
@@ -198,7 +198,7 @@ describe('a host can refuse the next model call', () => {
 	})
 
 	it('is inert when absent', async () => {
-		// The hook must cost a run that does not use it nothing at all — not
+		// The hook must cost a turn that does not use it nothing at all — not
 		// an extra event, not a different stop reason.
 		const withHook = await run({ beforeStep: () => undefined })
 		const without = await run({})

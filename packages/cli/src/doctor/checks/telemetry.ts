@@ -9,7 +9,7 @@ const TELEMETRY = '@namzu/telemetry'
  *
  * Per ses_004 D1=B, `@namzu/telemetry` is a separate optional package.
  * This check reports whether it is installed; absence is informational
- * (not a failure). Endpoint reachability + dry-run span export are
+ * (not a failure). Endpoint reachability + dry-turn span export are
  * deferred to a follow-up check that the consumer can register
  * themselves once their telemetry config is known.
  *

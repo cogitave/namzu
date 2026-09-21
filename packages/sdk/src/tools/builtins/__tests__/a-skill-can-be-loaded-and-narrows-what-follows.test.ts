@@ -8,7 +8,7 @@ import { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from '../skill.js'
  * A skill the model can actually open, and a scope it cannot decline.
  *
  * The manifest told the model a SKILL.md exists and to "read the SKILL.md
- * at its <location>" — a filesystem instruction, so a run without
+ * at its <location>" — a filesystem instruction, so a turn without
  * filesystem tools could see every skill and open none. The protocol text
  * even hedged: *"when the runtime exposes filesystem or skill-loading
  * tools"*. There was no skill-loading tool.
@@ -323,7 +323,7 @@ describe('a declared tool scope is adopted, not merely announced', () => {
 	})
 
 	it('still announces the scope where nothing can enforce it', async () => {
-		// A host driving this tool outside a run has no executor. Saying
+		// A host driving this tool outside a turn has no executor. Saying
 		// nothing there would be worse than advice.
 		const result = await SkillTool.execute(
 			{ name: 'reconcile' },

@@ -242,11 +242,11 @@ describe('a cross-process resume clears the park it acted on', () => {
 	})
 })
 
-describe('configuring an output guardrail does not rewrite the run outcome', () => {
-	it('leaves a cancelled run cancelled', async () => {
+describe('configuring an output guardrail does not rewrite the turn outcome', () => {
+	it('leaves a cancelled turn cancelled', async () => {
 		// The bug: the guardrail branch called `markCompleted()` purely to
 		// materialize the produced text, so merely ADDING a safety check
-		// turned a cancelled run into a completed one.
+		// turned a cancelled turn into a completed one.
 		const dir = await workdir()
 		const tools = new ToolRegistry()
 		const controller = new AbortController()

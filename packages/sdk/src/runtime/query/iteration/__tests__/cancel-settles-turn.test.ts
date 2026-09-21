@@ -237,7 +237,7 @@ describe('a turn cancelled mid-stream', () => {
 	it("propagates the caller's own abort reason, not a replacement for it", async () => {
 		// Settling the bookkeeping must not swallow the reason the turn ended,
 		// and it must not replace it either. `isCallerAbortError` — the
-		// classifier that decides between "cancelled" and "failed" at the run
+		// classifier that decides between "cancelled" and "failed" at the turn
 		// boundary — asks whether the thrown error IS the signal's reason. A
 		// wrapped or re-created Error carries the same message and settles the
 		// run as a FAILURE, which an operator's Stop must never be.

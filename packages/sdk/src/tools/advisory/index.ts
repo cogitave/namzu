@@ -77,7 +77,7 @@ export function buildAdvisoryTools(opts: AdvisoryToolsOptions): ToolDefinition[]
 		permissions: [],
 		readOnly: true,
 		destructive: false,
-		// Consultations debit one run account and one per-run advisory quota.
+		// Consultations debit one turn account and one per-turn advisory quota.
 		// Serial execution makes the next admission see the preceding receipt.
 		concurrencySafe: false,
 		async execute({ advisor_id, question, domain, urgency, include_context }) {

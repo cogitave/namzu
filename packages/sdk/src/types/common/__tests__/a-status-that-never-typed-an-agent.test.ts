@@ -6,8 +6,8 @@ import { isTerminalStatus } from '../index.js'
 /**
  * `AgentStatus` never typed an agent.
  *
- * Every one of its uses in this package was a run's status, a run's audit
- * outcome, or the status field of a run's result. `AbstractAgent` and
+ * Every one of its uses in this package was a turn's status, a turn's audit
+ * outcome, or the status field of a turn's result. `AbstractAgent` and
  * `ReactiveAgent` have no status of their own — an agent is a
  * configuration, and it is the RUN that is idle, running or cancelled. So
  * a reader importing `AgentStatus` to describe an agent's lifecycle was

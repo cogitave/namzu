@@ -18,7 +18,7 @@ import { ProbeRegistry } from '../registry.js'
 
 describe('the two halves of a probe registry', () => {
 	it('gives observation no way to refuse', () => {
-		// Enforced by `tsc`, not by this run. Adding `veto` to
+		// Enforced by `tsc`, not by this turn. Adding `veto` to
 		// `ProbeObservation` — or typing a consumer as the whole registry
 		// again — fails the Type check step, not this assertion.
 		expectTypeOf<ProbeObservation>().not.toHaveProperty('veto')

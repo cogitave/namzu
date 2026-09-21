@@ -11,7 +11,7 @@
  *
  * The kernel already bounds it. The reviewer is consulted only when the model
  * stopped calling tools, never on the forced-final turn, and a rejection
- * budget stops the run with `answer_rejected` — a stop reason that names the
+ * budget stops the turn with `answer_rejected` — a stop reason that names the
  * reviewer rather than blaming a token budget. None of that is re-implemented
  * here.
  *
@@ -30,7 +30,7 @@
  * is both cheaper and a different instruction.
  *
  * The attempt still advances. Skipping the command is a saving, not a pardon:
- * an answer that changed nothing has been rejected, and the run's budget must
+ * an answer that changed nothing has been rejected, and the turn's budget must
  * see that or a stuck model loops forever for free.
  *
  * And it fails open on the cheap side. No fingerprint — a git invocation that
@@ -86,7 +86,7 @@ export interface CommandGateOptions {
 	 * exhaustion. It does not accept: an answer that never passed the gate
 	 * has not passed the gate, and a reviewer that gave up by accepting would
 	 * hand back a green run over a red build — the exact outcome the gate
-	 * exists to prevent. What ENDS the run is the kernel's rejection budget,
+	 * exists to prevent. What ENDS the turn is the kernel's rejection budget,
 	 * so set that to the same number (the CLI does).
 	 */
 	readonly maxRetries?: number
@@ -182,7 +182,7 @@ function exhaustedFeedback(command: string, maxRetries: number): string {
 /**
  * Build a reviewer that accepts an answer only when every command passes.
  *
- * Stateful across calls within one run, deliberately: the whole point is that
+ * Stateful across calls within one turn, deliberately: the whole point is that
  * attempt N+1 can be compared with attempt N. Build one gate per run.
  */
 export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
@@ -195,7 +195,7 @@ export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 	clipOutput('', maxOutputChars)
 
 	// Built once and reused: constructing a context per attempt would re-stat
-	// the directory for no gain, and the context holds nothing per-run.
+	// the directory for no gain, and the context holds nothing per-turn.
 	const context = new LocalExecutionContext({ id: 'namzu-command-gate', cwd })
 	const exec: GateExec =
 		options.exec ?? ((command, args, opts) => context.executeCommand(command, args, opts))
@@ -276,7 +276,7 @@ export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 			if (signal?.aborted) return { accept: false, feedback: 'Verification was cancelled.' }
 			if (result.exitCode === 0 && result.termination === undefined) continue
 
-			// Taken AFTER the failure, not before the run: the comparison next
+			// Taken AFTER the failure, not before the turn: the comparison next
 			// time is against the tree this verdict was formed over. A snapshot
 			// from before the command would miss anything the command itself
 			// wrote — a formatter, a snapshot updater, a lockfile.

@@ -202,7 +202,7 @@ describe('supervisor coordinator-tool registration', () => {
  * before, so it gets a test that fails when the road is cut.
  */
 describe('allowDelegation reaches the tool surface', () => {
-	it('withholds the delegation tools when the run declines to delegate', async () => {
+	it('withholds the delegation tools when the turn declines to delegate', async () => {
 		const { names } = await runWith({ allowDelegation: false })
 
 		expect(names, 'the flag never reached buildCoordinatorTools').not.toContain('create_task')
@@ -210,7 +210,7 @@ describe('allowDelegation reaches the tool surface', () => {
 		expect(names).not.toContain('cancel_task')
 	})
 
-	it('keeps the listing, so a non-delegating run can still see what is running', async () => {
+	it('keeps the listing, so a non-delegating turn can still see what is running', async () => {
 		expect((await runWith({ allowDelegation: false })).names).toContain('agent_task_list')
 	})
 

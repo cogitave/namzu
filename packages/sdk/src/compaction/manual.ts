@@ -31,7 +31,7 @@ import { type CompactionVerificationOptions, buildVerifiedSummary } from './veri
  *
  * These are that entry point, built on the planner rather than on a second
  * copy of the boundary arithmetic. Nothing here touches an
- * `IterationContext`: there is no run, which is the whole point.
+ * `IterationContext`: there is no turn, which is the whole point.
  */
 
 export interface CompactionResult {
@@ -101,8 +101,8 @@ function splice(
 	retainedOlder: readonly Message[],
 	recentMessages: readonly Message[],
 ): { messages: Message[]; summary: Message } {
-	// A host-triggered pass has no run-scoped WorkingStateManager to carry the
-	// summary into a later query. Pin this summary itself: until a future run
+	// A host-triggered pass has no turn-scoped WorkingStateManager to carry the
+	// summary into a later query. Pin this summary itself: until a future turn
 	// has rebuilt equivalent state, this message is the only surviving record
 	// of what the pass removed.
 	const summary = { ...buildCompactionMessage(summaryBody), retain: true }
@@ -285,7 +285,7 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 	)
 
 	// Same cross-run ownership as compactNow: a selected region has been
-	// replaced outside a run, so its only surviving account is pinned.
+	// replaced outside a turn, so its only surviving account is pinned.
 	const summary = { ...buildCompactionMessage(body), retain: true }
 	const out = [...messages.slice(0, start), summary, ...retainedSelected, ...messages.slice(end)]
 

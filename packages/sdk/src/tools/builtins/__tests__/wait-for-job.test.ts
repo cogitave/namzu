@@ -106,7 +106,7 @@ describe('a job that is still producing output is not cut off for being slow', (
 			const waiting = waitForJobWithBounds(
 				jobs,
 				'job_1',
-				{ runMs: 60_000, idleMs: 5_000 },
+				{ wallMs: 60_000, idleMs: 5_000 },
 				clock.now,
 			)
 
@@ -143,7 +143,7 @@ describe('a job that has gone quiet is reported as quiet', () => {
 			const waiting = waitForJobWithBounds(
 				jobs,
 				'job_1',
-				{ runMs: 600_000, idleMs: 5_000 },
+				{ wallMs: 600_000, idleMs: 5_000 },
 				clock.now,
 			)
 
@@ -175,7 +175,7 @@ describe('a job that has gone quiet is reported as quiet', () => {
 	})
 })
 
-describe('the run bound still catches a job that never stops', () => {
+describe('the turn bound still catches a job that never stops', () => {
 	it('fires on elapsed time even while output keeps arriving', async () => {
 		vi.useFakeTimers()
 		try {
@@ -185,7 +185,7 @@ describe('the run bound still catches a job that never stops', () => {
 			const waiting = waitForJobWithBounds(
 				jobs,
 				'job_1',
-				{ runMs: 10_000, idleMs: 5_000 },
+				{ wallMs: 10_000, idleMs: 5_000 },
 				clock.now,
 			)
 
@@ -198,7 +198,7 @@ describe('the run bound still catches a job that never stops', () => {
 			const outcome = await waiting
 			expect(outcome.kind).toBe('timeout')
 			if (outcome.kind !== 'timeout') return
-			expect(outcome.cause).toBe('run')
+			expect(outcome.cause).toBe('wall')
 			// A run-bound timeout still hands back what it read on the way.
 			expect(outcome.output).toContain('tick 0')
 		} finally {
@@ -218,7 +218,7 @@ describe('an already-exited job', () => {
 			// No `advanceTimersByTimeAsync` anywhere in this test: if the
 			// result depended on a poll tick firing, this would hang against
 			// a fake clock that never moves.
-			const outcome = await waitForJobWithBounds(jobs, 'job_1', { runMs: 60_000, idleMs: 5_000 })
+			const outcome = await waitForJobWithBounds(jobs, 'job_1', { wallMs: 60_000, idleMs: 5_000 })
 
 			expect(outcome.kind).toBe('exited')
 			if (outcome.kind !== 'exited') return
@@ -238,7 +238,7 @@ describe('an abandoned wait', () => {
 			const { jobs } = jobFor()
 
 			const waiting = waitForJobWithBounds(jobs, 'job_1', {
-				runMs: 60_000,
+				wallMs: 60_000,
 				idleMs: 30_000,
 				signal: controller.signal,
 			})
@@ -258,7 +258,7 @@ describe('an abandoned wait', () => {
 		const { jobs } = jobFor()
 
 		await expect(
-			waitForJobWithBounds(jobs, 'job_1', { runMs: 60_000, signal: controller.signal }),
+			waitForJobWithBounds(jobs, 'job_1', { wallMs: 60_000, signal: controller.signal }),
 		).rejects.toThrow('already gone')
 	})
 })

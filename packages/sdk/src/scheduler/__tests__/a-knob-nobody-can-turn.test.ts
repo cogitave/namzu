@@ -28,9 +28,9 @@ function budgetFor(limit: number): SessionTokenBudget {
  * `CreateTaskOptions.configOverrides` was declared, typed, and never read.
  *
  * `createTask` built its OWN `configOverrides` object out of `parentSpan`
- * alone, so a caller pinning a delegated run to a cheaper model, or capping
+ * alone, so a caller pinning a delegated session to a cheaper model, or capping
  * its iterations, got the agent's defaults and nothing to say otherwise. The
- * field type-checked, the call succeeded, and the run was not the run that was
+ * field type-checked, the call succeeded, and the turn was not the turn that was
  * asked for.
  *
  * Reachability, not behaviour: what `configOverrides` DOES once it lands on
@@ -121,7 +121,7 @@ function context(): AgentTaskContext {
 	} as AgentTaskContext
 }
 
-describe('a delegated run is built with the config its caller asked for', () => {
+describe('a delegated session is built with the config its caller asked for', () => {
 	it('forwards configOverrides to the spawn', async () => {
 		const manager = new RecordingManager()
 		const gateway = new LocalTaskScheduler(manager, context())
@@ -194,7 +194,7 @@ describe('a delegated run is built with the config its caller asked for', () => 
  * Display-only, as everywhere else: they create no dependencies, barriers, or
  * serial execution. This asserts reachability, not meaning.
  */
-describe('a delegated run carries the display grouping its caller asked for', () => {
+describe('a delegated session carries the display grouping its caller asked for', () => {
 	it('forwards the four labels to the spawn', async () => {
 		const manager = new RecordingManager()
 		const gateway = new LocalTaskScheduler(manager, context())

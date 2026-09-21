@@ -19,23 +19,23 @@ import { settleGraceMs } from '../index.js'
 /**
  * How long a finishing run waits for a worker it launched.
  *
- * This used to be a constant — 120 seconds, unrelated to the run holding it.
- * Measured before the change: a run configured `timeoutMs: 20_000` was held
+ * This used to be a constant — 120 seconds, unrelated to the turn holding it.
+ * Measured before the change: a turn configured `timeoutMs: 20_000` was held
  * open for 120,267 ms, because the hold sits INSIDE an iteration and the guard
  * only checks between them, so nothing could interrupt it. The same constant
  * abandoned workers observed at 4m21s, 5m58s and 8m04s on runs that had hours
  * left.
  */
 
-describe('the grace is a share of what the run has left', () => {
+describe('the grace is a share of what the turn has left', () => {
 	it('takes half, so the turn that reads the result still has time to happen', () => {
 		// The fraction is the whole argument. Spending everything remaining
-		// would deliver a notification into a run with no turn left to act on
+		// would deliver a notification into a turn with no turn left to act on
 		// it — the failure this mechanism exists to prevent, in a new costume.
 		expect(settleGraceMs(60_000)).toBe(30_000)
 	})
 
-	it('holds for nothing when the run has nothing left', () => {
+	it('holds for nothing when the turn has nothing left', () => {
 		// A decision, not a rounding artefact: with no time left there is no
 		// turn in which to read a notification, so waiting can only delay a
 		// stop that is already due. Nothing is lost — `waitForArrival` returns
@@ -52,7 +52,7 @@ describe('the grace is a share of what the run has left', () => {
 	})
 
 	it('stops at the longest this subsystem ever waits for a worker', () => {
-		// Only reachable for a host whose run timeout exceeds two hours.
+		// Only reachable for a host whose turn timeout exceeds two hours.
 		expect(settleGraceMs(10 * 60 * 60 * 1000)).toBe(DELEGATION_TIMEOUT_MS)
 	})
 })
@@ -60,7 +60,7 @@ describe('the grace is a share of what the run has left', () => {
 describe('the guard reports time to the finalize point, not to the deadline', () => {
 	it('stops short of the closing reserve', () => {
 		// 90% of the budget, not 100%. The last tenth is what the guard keeps
-		// so a run can produce a closing answer; a wait sized against the
+		// so a turn can produce a closing answer; a wait sized against the
 		// deadline spends it on waiting instead.
 		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 60_000 })
 
@@ -71,7 +71,7 @@ describe('the guard reports time to the finalize point, not to the deadline', ()
 	})
 
 	it('subtracts the time a previous process already spent', () => {
-		// A run resumed from a checkpoint gets the remainder of ITS budget, not
+		// A turn resumed from a checkpoint gets the remainder of ITS budget, not
 		// a fresh clock — otherwise N resumes buy N x timeoutMs, and a hold
 		// sized from the fresh clock would outlive the real deadline.
 		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 60_000 })
@@ -81,7 +81,7 @@ describe('the guard reports time to the finalize point, not to the deadline', ()
 		expect(guard.remainingBeforeFinalizeMs()).toBeGreaterThan(1_000)
 	})
 
-	it('reports nothing once the run is already past the finalize point', () => {
+	it('reports nothing once the turn is already past the finalize point', () => {
 		// 95% elapsed: the guard is about to ask for a closing summary, and a
 		// hold opened here would be taken out of the answer's time.
 		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 60_000 })
@@ -98,7 +98,7 @@ describe('the guard reports time to the finalize point, not to the deadline', ()
 	})
 })
 
-describe('the hold cannot reach into the run closing reserve', () => {
+describe('the hold cannot reach into the turn closing reserve', () => {
 	it('ends before the finalize point however late it starts', () => {
 		// The failure the finalize-relative input exists for. Against the
 		// DEADLINE, a hold beginning at elapsed fraction e ends at
@@ -128,7 +128,7 @@ const ZERO_USAGE = {
 	cacheWriteTokens: 0,
 }
 
-/** Answers straight away. The hold is the only thing that can delay this run. */
+/** Answers straight away. The hold is the only thing that can delay this turn. */
 class AnswersImmediately implements LLMProvider {
 	readonly id = 'answers'
 	readonly name = 'Answers Immediately'
@@ -148,10 +148,10 @@ afterEach(async () => {
  * The loop, not the helper.
  *
  * `settleGraceMs` has its own tests above and every one of them passes with
- * the loop still calling a constant. Only a real run can say which number the
+ * the loop still calling a constant. Only a real turn can say which number the
  * hold actually used.
  */
-describe('the hold a run pays is the one its own budget allows', () => {
+describe('the hold a turn pays is the one its own budget allows', () => {
 	async function runHoldingFor(timeoutMs: number): Promise<number> {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-grace-'))
 		workdirs.push(workingDirectory)
@@ -190,17 +190,17 @@ describe('the hold a run pays is the one its own budget allows', () => {
 		return Date.now() - startedAt
 	}
 
-	it('a two-second run does not wait two minutes for a worker', async () => {
+	it('a two-second turn does not wait two minutes for a worker', async () => {
 		const elapsed = await runHoldingFor(2_000)
 
 		// Half of two seconds, plus whatever the turn itself costs. The number
 		// this replaced would have parked here for 120 s regardless.
-		expect(elapsed, 'the hold outlived the run budget that bounds it').toBeLessThan(5_000)
+		expect(elapsed, 'the hold outlived the turn budget that bounds it').toBeLessThan(5_000)
 	}, 200_000)
 
-	it('a run with no time left does not hold at all', async () => {
-		// The guard stops this run at the top of its first iteration, so no
-		// hold is even reached — which is the point: the last tenth of a run
+	it('a turn with no time left does not hold at all', async () => {
+		// The guard stops this turn at the top of its first iteration, so no
+		// hold is even reached — which is the point: the last tenth of a turn
 		// already never holds, so no artificial minimum has to defend it.
 		const elapsed = await runHoldingFor(1)
 

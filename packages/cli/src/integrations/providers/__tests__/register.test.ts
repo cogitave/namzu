@@ -62,7 +62,7 @@ const CLI_DEPENDENCIES: Record<string, string> = JSON.parse(
  *  - driving `ensureRegistered` for all seven ids caught it, at the cost of
  *    pulling four driver module graphs through vite's transform in this worker.
  *    That starved a neighbouring render-loop test badly enough to fail it in
- *    two runs out of three — and widening that test's wall-clock budget did not
+ *    two turns out of three — and widening that test's wall-clock budget did not
  *    help, because it then consumed whatever ceiling it was given. The cost was
  *    not marginal and paying it was not an option.
  *

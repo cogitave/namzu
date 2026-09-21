@@ -9,7 +9,7 @@ import { defineTool } from '../defineTool.js'
  *
  * The manifest in the system prompt told the model that a SKILL.md exists
  * and to "read the SKILL.md at its <location> before writing code" — which
- * is a filesystem instruction, so a run with no filesystem tools could see
+ * is a filesystem instruction, so a turn with no filesystem tools could see
  * every skill it had and open none of them. The protocol text even admits
  * it: *"when the runtime exposes filesystem or skill-loading tools"*. There
  * was no skill-loading tool.
@@ -274,7 +274,7 @@ export const SkillTool = defineTool({
 				success: false,
 				output: '',
 				error:
-					'This run has no skills registry, so there is nothing to load. Proceed without the skill.',
+					'This turn has no skills registry, so there is nothing to load. Proceed without the skill.',
 			}
 		}
 
@@ -433,7 +433,7 @@ export const SkillTool = defineTool({
 			// the field as a declaration.
 			//
 			// Absent `adoptSkillScope`, the notice still goes out and is all
-			// there is: a host driving this tool outside a run has no executor
+			// there is: a host driving this tool outside a turn has no executor
 			// to enforce anything, and saying nothing would be worse than
 			// advice.
 			context.adoptSkillScope?.({ skill: skill.metadata.name, allowedTools: allowed })

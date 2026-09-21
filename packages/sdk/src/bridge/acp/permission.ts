@@ -6,7 +6,7 @@ import type { HITLResumeDecision, ToolCallSummary } from '../../types/hitl/index
  * The kernel's own `ToolCallSummary`, not a re-declared one: this is the
  * shape the HITL path already produces, and a copy would be a second
  * definition of "which calls am I being asked about" that can drift from the
- * one the run actually parked on.
+ * one the turn actually parked on.
  */
 export interface AcpPermissionRequest {
 	readonly sessionId: string
@@ -19,7 +19,7 @@ export interface AcpPermissionRequest {
  * Three outcomes, matching what a human can actually mean about a batch of
  * calls: run it, run it and stop asking, or do not run it and here is why.
  * `reject` carries optional feedback because a denial with a reason is the
- * one a model can act on — "no, use the staging bucket" redirects a run,
+ * one a model can act on — "no, use the staging bucket" redirects a turn,
  * where a bare denial only ends it.
  */
 export type AcpPermissionOutcome =

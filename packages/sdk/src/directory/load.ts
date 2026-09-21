@@ -247,7 +247,7 @@ export async function loadDirectory(
  *
  * A delegate does not get delegates of its own. The cap is a real decision,
  * not a missing feature: unbounded nesting is a topology question — who may
- * spawn whom, and how deep a run may fan out — and answering it by default is
+ * spawn whom, and how deep a turn may fan out — and answering it by default is
  * how a directory layout ends up deciding a system's shape. It also removes
  * the cycle: `agents/a/agents/b/agents/a` cannot be built if the second level
  * is never read.
@@ -516,7 +516,7 @@ async function loadAt(
 			const child = await loadAt(entry.path, options, depth + 1)
 			// The child's diagnostics are the parent's. A delegate that could
 			// not load is a fact about THIS project, and a caller reading one
-			// list should not have to walk the tree to find out the run will be
+			// list should not have to walk the tree to find out the turn will be
 			// short a specialist.
 			for (const d of child.diagnostics) {
 				diagnostics.push({ ...d, message: entry.relativePath + ': ' + d.message })

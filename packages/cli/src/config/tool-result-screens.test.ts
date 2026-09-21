@@ -20,7 +20,7 @@ const anyInput = { safeParse: (value: unknown) => ({ success: true, data: value 
 /**
  * `toolResultScreens` is the operator's half of the tool-result boundary.
  *
- * The kernel installs a default screen on every run; this key is how the
+ * The kernel installs a default screen on every turn; this key is how the
  * shipped application lets an operator say otherwise, and there are three
  * answers rather than two. Absent means "the kernel decides", `[]` means
  * "none", and a list means exactly that list — and the difference between the
@@ -76,8 +76,8 @@ function registryFor(screens: readonly ToolResultScreenConfig[] | undefined): To
 	return new ToolRegistry(resolved === undefined ? undefined : { resultGuardrails: resolved })
 }
 
-/** What a run would hand the registry; the default, as `buildToolContext` installs it. */
-const RUN_DEFAULT = {
+/** What a turn would hand the registry; the default, as `buildToolContext` installs it. */
+const TURN_DEFAULT = {
 	toolResultGuardrails: DEFAULT_TOOL_RESULT_GUARDRAILS,
 } as unknown as ToolContext
 
@@ -88,7 +88,7 @@ describe('an absent key', () => {
 		expect(resolveToolResultScreens(undefined)).toBeUndefined()
 	})
 
-	it('leaves the registry unconfigured, so a run installs the default', () => {
+	it('leaves the registry unconfigured, so a turn installs the default', () => {
 		expect(registryFor(undefined)).toBeInstanceOf(ToolRegistry)
 	})
 })
@@ -97,11 +97,11 @@ describe('an empty list', () => {
 	it('turns the default off, at the registry it configures', async () => {
 		// The escape hatch, and the reason the precedence rule is
 		// "explicit configuration wins": a registry built with `[]` declared
-		// its policy, so a run's default must not overrule it.
+		// its policy, so a turn's default must not overrule it.
 		const registry = registryFor([])
 		registry.register(echoingConnectedTool())
 
-		const result = await registry.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await registry.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(true)
 		expect(result.output).toContain(QUERY)
@@ -113,7 +113,7 @@ describe('a list of names', () => {
 		const registry = registryFor(['correspondence'])
 		registry.register(echoingConnectedTool())
 
-		const result = await registry.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await registry.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('tool-result-correspondence')
@@ -128,7 +128,7 @@ describe('a list of names', () => {
 			},
 		})
 
-		const result = await registry.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await registry.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('tool-result-injection')
@@ -142,7 +142,7 @@ describe('a list of names', () => {
 		const registry = registryFor(['correspondence'])
 		registry.register(echoingHostTool())
 
-		const result = await registry.execute('web_fetch', { query: QUERY }, RUN_DEFAULT)
+		const result = await registry.execute('web_fetch', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(true)
 	})
@@ -160,8 +160,8 @@ describe('an entry that carries the screen’s options', () => {
 		registry.register(echoingConnectedTool('weather-co', 'mcp_weather-co_lookup'))
 		registry.register(echoingConnectedTool('pricing', 'mcp_pricing_lookup'))
 
-		const exempt = await registry.execute('mcp_weather-co_lookup', { query: QUERY }, RUN_DEFAULT)
-		const judged = await registry.execute('mcp_pricing_lookup', { query: QUERY }, RUN_DEFAULT)
+		const exempt = await registry.execute('mcp_weather-co_lookup', { query: QUERY }, TURN_DEFAULT)
+		const judged = await registry.execute('mcp_pricing_lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(exempt.success).toBe(true)
 		expect(exempt.output).toContain(QUERY)
@@ -174,7 +174,7 @@ describe('an entry that carries the screen’s options', () => {
 		const registry = registryFor([{ name: 'correspondence', passthroughTools: ['lookup'] }])
 		registry.register(echoingConnectedTool())
 
-		const result = await registry.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await registry.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		expect(result.success).toBe(true)
 	})
@@ -185,10 +185,10 @@ describe('an entry that carries the screen’s options', () => {
 		const registry = registryFor([{ name: 'injection' }])
 		registry.register(echoingConnectedTool())
 
-		const result = await registry.execute('lookup', { query: QUERY }, RUN_DEFAULT)
+		const result = await registry.execute('lookup', { query: QUERY }, TURN_DEFAULT)
 
 		// The kernel's default applies here — a registry built with a screen
-		// list declared its own policy, so the run's default does not — and the
+		// list declared its own policy, so the turn's default does not — and the
 		// list holds `injection` alone.
 		expect(result.success).toBe(true)
 		expect(result.output).toContain(QUERY)

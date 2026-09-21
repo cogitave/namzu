@@ -241,7 +241,7 @@ export class ProbeRegistry implements ProbeObservation, ProbeEnforcement {
 				//
 				// An OBSERVER that throws is still skipped, a few lines up.
 				// That asymmetry IS deliberate: an observer was never asked a
-				// question, so it has no answer to withhold, and taking a run
+				// question, so it has no answer to withhold, and taking a turn
 				// down because a metrics handler crashed would be the same
 				// mistake pointing the other way.
 				this.logThrow(entry.name ?? 'unnamed', frozen.type, error)

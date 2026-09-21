@@ -146,7 +146,7 @@ describe('ToolExecutor — per-tool deadline', () => {
 		expect(observed).toBe(true)
 	})
 
-	it('a per-tool timeoutMs overrides the run default', async () => {
+	it('a per-tool timeoutMs overrides the turn default', async () => {
 		const h = harness({
 			toolTimeoutMs: 5_000,
 			perToolTimeoutMs: { quick: 20 },

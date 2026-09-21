@@ -421,7 +421,7 @@ describe('a config that cannot be read', () => {
 
 	it('does not drop a permission table it failed to parse', () => {
 		// The finding, stated as the caller sees it. Before: this returned a
-		// config with no `permissions` key and the run continued unrestricted.
+		// config with no `permissions` key and the turn continued unrestricted.
 		const home = userConfig('permissions:\n  bash: "deny"\n   badly: indented\n')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(ConfigLoadError)
 	})

@@ -62,7 +62,7 @@ describe('an awaited job is the only thing that is outstanding', () => {
 
 	it('ignores a job that had already stopped', () => {
 		// The call that marks it is the call that returns its output, so there
-		// is nothing left to hold a run open for.
+		// is nothing left to hold a turn open for.
 		const registry = source([job({ id: 'job_1', status: 'exited', exitCode: 0 })])
 		const awaited = new AwaitedJobs(registry.api, 'run_1')
 		awaited.attach()
@@ -95,7 +95,7 @@ describe('an awaited job is the only thing that is outstanding', () => {
 
 		expect(awaited.drain().map((entry) => entry.id)).toEqual(['job_1'])
 		expect(awaited.drain()).toEqual([])
-		// Delivered is not outstanding: a run settling now has walked away
+		// Delivered is not outstanding: a turn settling now has walked away
 		// from nothing.
 		expect(awaited.outstandingJobIds).toEqual([])
 		expect(awaited.hasPendingWork).toBe(false)
@@ -206,7 +206,7 @@ describe('an awaited job is the only thing that is outstanding', () => {
 	it('goes on waiting for a running job after an unawaited job ends', async () => {
 		// The same regression as the delivered-record case above, seen from
 		// the wait: `job_1` was read, `job_3` was never awaited, and `job_2`
-		// is the one this run is actually waiting for.
+		// is the one this turn is actually waiting for.
 		const registry = source([job({ id: 'job_1' }), job({ id: 'job_2' }), job({ id: 'job_3' })])
 		let unread = true
 		const awaited = new AwaitedJobs(registry.api, 'run_1', () => unread)
@@ -226,7 +226,7 @@ describe('an awaited job is the only thing that is outstanding', () => {
 				setTimeout(() => resolve('waiting'), 25).unref?.()
 			}),
 		])
-		expect(early, 'a job nobody awaited ended the wait for one this run was').toBe('waiting')
+		expect(early, 'a job nobody awaited ended the wait for one this turn was').toBe('waiting')
 
 		registry.announce(job({ id: 'job_2', status: 'exited', exitCode: 0 }))
 		await expect(waited).resolves.toBeUndefined()
@@ -294,7 +294,7 @@ describe('the wait is bounded and interruptible', () => {
 	})
 
 	it('releases the waiter when the signal fires, leaving the job outstanding', async () => {
-		// Aborting ends the WAIT. The job is untouched, and a run that settles
+		// Aborting ends the WAIT. The job is untouched, and a turn that settles
 		// after this still has to name it.
 		const registry = source([job({ id: 'job_1' })])
 		const awaited = new AwaitedJobs(registry.api, 'run_1')

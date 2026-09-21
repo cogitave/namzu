@@ -2,7 +2,7 @@
  * A schema-configured child answers with an OBJECT, and both delegation
  * surfaces used to hand the parent its prose instead.
  *
- * The value was never missing — `Run.structuredOutput` has carried it
+ * The value was never missing — `Turn.structuredOutput` has carried it
  * throughout, and the eval harness reads it correctly, which is the proof the
  * parser works and only the ergonomic boundaries drop it. A supervisor fanning
  * out to five specialists received five strings and had to make the model

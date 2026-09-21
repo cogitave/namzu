@@ -387,7 +387,7 @@ export const residentCommand: CommandDef = {
 					const existing = readRunner(resident)
 					if (existing && ['reserved', 'running'].includes(existing.phase))
 						throw new Error(
-							'A resident runner already owns this agenda. Inspect status and stop it before another run.',
+							'A resident runner already owns this agenda. Inspect status and stop it before another turn.',
 						)
 					const controller = new AbortController()
 					const interrupt = () =>

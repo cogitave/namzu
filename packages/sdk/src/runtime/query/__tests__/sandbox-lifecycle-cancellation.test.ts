@@ -108,7 +108,7 @@ async function within<T>(promise: Promise<T>, label: string): Promise<T> {
 	}
 }
 
-describe('sandbox lifecycle belongs to the run', () => {
+describe('sandbox lifecycle belongs to the turn', () => {
 	it('an unlimited run acquires its sandbox without creating an overflowing timer', async () => {
 		const create = vi.fn(async () => {
 			await new Promise((resolve) => setTimeout(resolve, 15))
@@ -132,7 +132,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		expect(create).toHaveBeenCalledOnce()
 	})
 
-	it('does not start sandbox or model work for a pre-cancelled run', async () => {
+	it('does not start sandbox or model work for a pre-cancelled turn', async () => {
 		const create = vi.fn(async () => boundary(async () => {}))
 		const sandboxProvider: SandboxProvider = {
 			id: 'pre-cancelled',
@@ -248,7 +248,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		expect(model.requests).toHaveLength(0)
 	})
 
-	it('settles a held create on the run timeout without starting model work', async () => {
+	it('settles a held create on the turn timeout without starting model work', async () => {
 		let markStarted!: () => void
 		const started = new Promise<void>((resolve) => {
 			markStarted = resolve
@@ -261,7 +261,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 		})
 		const sandboxProvider = {
 			id: 'run-timeout',
-			name: 'Run timeout',
+			name: 'Turn timeout',
 			environment: 'basic',
 			create,
 		} satisfies SandboxProvider
@@ -328,7 +328,7 @@ describe('sandbox lifecycle belongs to the run', () => {
 
 		await started
 		caller.abort(new TurnCancelled('user'))
-		await within(pending, 'cancelled run did not settle before late allocation')
+		await within(pending, 'cancelled turn did not settle before late allocation')
 		allocation.resolve(sandbox)
 		await within(destroyed, 'late sandbox handle was not released')
 

@@ -19,7 +19,7 @@ import type { PendingAnswers, QuestionParkRecorder } from './question-park.js'
  *
  * This is that same machinery behind a function on `ToolContext`. Nothing
  * new is invented: the park is a real checkpoint, the answer routes back
- * on resume, and a pause is inert outside a run that supports one.
+ * on resume, and a pause is inert outside a turn that supports one.
  */
 
 /**
@@ -107,7 +107,7 @@ export function createToolPause(deps: ToolPauseDeps): RequestToolPause {
 	return async (request) => {
 		const id = pauseId(deps.toolUseId, request.name)
 
-		// An answer carried in from a resumed run, checked BEFORE parking.
+		// An answer carried in from a resumed turn, checked BEFORE parking.
 		// Re-entering the tool is how the answer gets delivered — the batch
 		// re-executes — so without this the resume would ask a human
 		// something they already answered, or headlessly discard it.

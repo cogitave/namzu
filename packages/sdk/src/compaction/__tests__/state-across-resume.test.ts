@@ -11,7 +11,7 @@ import { restoreWorkingState, snapshotWorkingState } from '../wire.js'
  * one supersedes it. Within a process that is true.
  *
  * Across a resume it was not: the manager was rebuilt empty on every
- * `query()`, so a resumed run's second compaction summarized only
+ * `query()`, so a resumed turn's second compaction summarized only
  * post-resume activity and deleted the block holding everything before it
  * — the block the restore path had deliberately carried forward as the
  * only surviving record of the compacted history.
@@ -80,7 +80,7 @@ describe('working state survives a process boundary', () => {
 
 	it('keeps accumulating after the restore rather than starting over', () => {
 		// This is the property the whole fix exists for: the SECOND
-		// compaction of a resumed run must summarize the first hour AND what
+		// compaction of a resumed turn must summarize the first hour AND what
 		// followed, because it is about to delete the block that held the
 		// first hour.
 		const restored = restoreWorkingState(snapshotWorkingState(firstHour()), config())

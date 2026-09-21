@@ -204,7 +204,7 @@ describe('a message queued for a child reaches it', () => {
 
 		expect(drain().map((m) => m.content)).toEqual(['switch to Y'])
 		// Drained, not read. A peek would re-deliver on every boundary for
-		// the rest of the run.
+		// the rest of the turn.
 		expect(drain()).toEqual([])
 		release()
 		await manager.waitForCompletion(task.taskId)

@@ -722,7 +722,7 @@ describe('ephemeral scoped evidence recall', () => {
 		)
 		expect(repeated.omittedOccurrences).toBe(0)
 		expect(result?.context).toContain('repetition is not corroboration')
-		expect(result?.context).toContain('seq orders events only within one run')
+		expect(result?.context).toContain('seq orders events only within one turn')
 	})
 
 	it('does not let duplicate observations change the bounded BM25 corpus statistics', async () => {

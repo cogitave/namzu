@@ -1,5 +1,5 @@
 /**
- * What the operator sees when their run changes hands, and what a sub-agent
+ * What the operator sees when their turn changes hands, and what a sub-agent
  * does NOT inherit.
  *
  * The swap itself is the kernel's, and it is proven there. These two properties
@@ -79,7 +79,7 @@ describe('the operator is told, every time', () => {
 	})
 
 	// A swap is not an error and must not close the assistant message or be
-	// rendered as a failure — the run continues.
+	// rendered as a failure — the turn continues.
 	it('is not an error event', () => {
 		expect(toAgentEvent(fallbackEvent(), presenter)?.kind).not.toBe('error')
 	})

@@ -22,15 +22,15 @@ import {
  *
  * A park had no deadline. Every timer in the SDK is an in-process
  * `setTimeout` and the park-record delay is deliberately `unref`'d, so
- * nothing in memory can outlive a redeploy: a run parks for approval, the
+ * nothing in memory can outlive a redeploy: a turn parks for approval, the
  * worker is replaced, nobody answers, and the checkpoint stays outstanding
- * forever — every approval-queue reader keeps serving it. The run timeout
+ * forever — every approval-queue reader keeps serving it. The turn timeout
  * cannot cover it either, because it is only checked between iterations
  * and a park suspends mid-iteration.
  *
- * And a checkpoint recorded no trace, so a run that crashed at iteration
+ * And a checkpoint recorded no trace, so a turn that crashed at iteration
  * 12 and resumed produced two traces with different ids and no link. The
- * run id correlates them well enough to find both by query and not well
+ * turn id correlates them well enough to find both by query and not well
  * enough to see one waterfall — and for a fork, which starts a new
  * session, not even that.
  */
@@ -175,7 +175,7 @@ describe('deciding whether a park has expired', () => {
 	})
 })
 
-describe('projecting a run onto the session-layer status', () => {
+describe('projecting a turn onto the session-layer status', () => {
 	const park = { request: request0(), parkedAt: 0, deadlineAt: 100 }
 
 	it('produces the variant that never had a producer', () => {
@@ -190,7 +190,7 @@ describe('projecting a run onto the session-layer status', () => {
 	})
 
 	it('lets a terminal run beat a stale park record', () => {
-		// A run that finished is not waiting for anyone, whatever the park
+		// A turn that finished is not waiting for anyone, whatever the park
 		// record still says.
 		expect(deriveTurnStatus({ status: 'completed', park, now: 200 })).toBe('succeeded')
 		expect(deriveTurnStatus({ status: 'failed', park, now: 200 })).toBe('failed')

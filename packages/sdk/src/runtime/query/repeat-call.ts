@@ -18,7 +18,7 @@ import { stableStringify } from './tool-grants.js'
  * design — so a repeat that keeps SUCCEEDING is only ever noticed. A repeat
  * that keeps FAILING the same way is different: an operator watched a
  * model ask a desktop it could not reach for a screenshot, read the same
- * error, and ask again, for as long as the run was allowed to go on. After
+ * error, and ask again, for as long as the turn was allowed to go on. After
  * `refuseFailedAfter` consecutive identical failures the next identical
  * call is answered with a refusal instead of being run, and the refusal
  * says why. A success resets the count, so a poll that fails a few times
@@ -58,8 +58,8 @@ export interface RepeatCallNotice {
 }
 
 /**
- * Run-scoped, like `ToolGrantSet` and for the same reason: a count carried
- * into a later run is a statement about work nobody repeated.
+ * Turn-scoped, like `ToolGrantSet` and for the same reason: a count carried
+ * into a later turn is a statement about work nobody repeated.
  */
 export class RepeatCallTracker {
 	private readonly counts = new Map<string, number>()
@@ -95,7 +95,7 @@ export class RepeatCallTracker {
 				toolName,
 				count,
 				level: 'escalated',
-				text: `You have now called \`${toolName}\` with identical arguments ${count} times in this run. Repeating it again will produce the same result. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`,
+				text: `You have now called \`${toolName}\` with identical arguments ${count} times in this turn. Repeating it again will produce the same result. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`,
 			}
 		}
 		if (count >= this.thresholds.notifyAfter && already === undefined) {
@@ -104,7 +104,7 @@ export class RepeatCallTracker {
 				toolName,
 				count,
 				level: 'notice',
-				text: `Note: this is call ${count} of \`${toolName}\` with identical arguments in this run. If the previous results were not what you needed, changing the arguments is more likely to help than repeating them.`,
+				text: `Note: this is call ${count} of \`${toolName}\` with identical arguments in this turn. If the previous results were not what you needed, changing the arguments is more likely to help than repeating them.`,
 			}
 		}
 		return undefined
@@ -124,7 +124,7 @@ export class RepeatCallTracker {
 	refusal(toolName: string, input: unknown): string | undefined {
 		const failed = this.failures.get(keyFor(toolName, input)) ?? 0
 		if (failed < this.thresholds.refuseFailedAfter) return undefined
-		return `Refused: \`${toolName}\` with these exact arguments has failed ${failed} times in a row in this run, with the same result each time. It will not be run again with these arguments. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`
+		return `Refused: \`${toolName}\` with these exact arguments has failed ${failed} times in a row in this turn, with the same result each time. It will not be run again with these arguments. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`
 	}
 }
 

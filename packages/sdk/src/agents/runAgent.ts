@@ -83,7 +83,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 *
 	 * The front door needs its own way to say this, because the registry it
 	 * was handed — usually the host's, assembled before this call — is not a
-	 * place a run can reach. Absent installs the shipped default
+	 * place a turn can reach. Absent installs the shipped default
 	 * ({@link DEFAULT_TOOL_RESULT_GUARDRAILS}: a connected server's result
 	 * that restates the request is refused). **An empty array is how a caller
 	 * turns that off**, and it is the reason this option is here at all: a
@@ -93,7 +93,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	toolResultGuardrails?: readonly import('../types/guardrail/index.js').ToolResultGuardrailSpec[]
 	/** Execute sandbox-aware tools inside this provider's boundary. */
 	sandboxProvider?: SandboxProvider
-	/** What a supplied sandbox is rooted at and its per-run limits. */
+	/** What a supplied sandbox is rooted at and its per-turn limits. */
 	sandbox?: import('../types/session/config.js').TurnConfig['sandbox']
 	/** Sandbox teardown wait; defaults to 30 seconds and `0` is unbounded. */
 	sandboxTeardownTimeoutMs?: number
@@ -103,7 +103,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 *
 	 * The kernel has taken these since it had a prompt builder; this door did
 	 * not forward them, so a caller who assembled skills — `@namzu/project`
-	 * reads a whole `skills/` directory — handed them over and got a run that
+	 * reads a whole `skills/` directory — handed them over and got a turn that
 	 * had never heard of them. Silent, because the `drainQuery` call below was
 	 * cast, and a cast seam reports nothing when a field goes missing.
 	 */
@@ -144,7 +144,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	maxIterations?: number
 	/** Default 200,000 cumulative tokens; 0 is unlimited and still metered. */
 	tokenBudget?: number
-	/** Default five minutes; 0 disables the run deadline. */
+	/** Default five minutes; 0 disables the turn deadline. */
 	timeoutMs?: number
 	/** Maximum provider-stream silence; defaults to five minutes. `0` disables. */
 	streamIdleTimeoutMs?: number
@@ -171,7 +171,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 * Extended-thinking request and response-effort level, forwarded on every
 	 * model call.
 	 *
-	 * These are here because the run config below is assembled by HAND, and a
+	 * These are here because the turn config below is assembled by HAND, and a
 	 * hand-listed literal silently drops whatever nobody remembered to add —
 	 * which is precisely what happened. `thinking` shipped on the turn config
 	 * and was reachable only from the raw kernel entry point, because this
@@ -179,7 +179,7 @@ export interface RunAgentOptions extends AgentIdentity {
 	 * from a fixed list. So the capability existed and the front door could not
 	 * open it.
 	 *
-	 * A live run is what found it: the unit tests passed because they drove the
+	 * A live turn is what found it: the unit tests passed because they drove the
 	 * kernel directly, and a real agent run through this function put no effort
 	 * on the wire at all.
 	 */
@@ -213,7 +213,7 @@ export interface RunAgentResult {
 	readonly turn: Turn
 
 	/**
-	 * The identity this run used, with anything generated filled in.
+	 * The identity this turn used, with anything generated filled in.
 	 *
 	 * Pass it straight back into the next call to continue the same session.
 	 */
@@ -223,7 +223,7 @@ export interface RunAgentResult {
 /**
  * Defaults chosen to be safe rather than generous.
  *
- * A front door exists so a first run works without a decision, and the cost of
+ * A front door exists so a first turn works without a decision, and the cost of
  * that convenience is that nobody reads these numbers before their first
  * runaway loop. So: a budget that ends a stuck run in seconds rather than
  * dollars, and an iteration cap that stops a tool-calling loop well before a
@@ -238,7 +238,7 @@ export const DEFAULT_TIMEOUT_MS = 300_000
  *
  * `drainQuery` is the kernel's real entry point and takes eleven required
  * parameters, four of which are identity fields that throw when missing. That
- * is the correct shape for a kernel — a run with no tenant is a run no auditor
+ * is the correct shape for a kernel — a turn with no tenant is a turn no auditor
  * can attribute — and it is the wrong shape for the first thing anybody
  * writes. The proof was in this repo: the eval suites, the test files and the
  * CLI each hand-assemble the same block, which is what a missing front door

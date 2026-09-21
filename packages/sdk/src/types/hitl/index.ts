@@ -11,7 +11,7 @@ export type HITLResumeDecision =
 			action: 'approve_tools'
 			/**
 			 * Grant keys to remember, so calls covered by them are not asked
-			 * about again for the rest of the run.
+			 * about again for the rest of the turn.
 			 *
 			 * Nothing is remembered unless this says so, and only an explicit
 			 * approval can say it — a denial or a non-response leaves nothing
@@ -38,7 +38,7 @@ export type HITLResumeDecision =
 			 * Echo of `UserQuestionData.questionId` — the misdirection
 			 * guard. The park/resolve registry on hosts is typically
 			 * keyed by run, so a stale client can answer question N
-			 * after question N+1 re-parked under the same run. When
+			 * after question N+1 re-parked under the same turn. When
 			 * present and it does not match the asking tool's own
 			 * questionId, the tool treats the decision as unanswered
 			 * instead of fabricating a selection against the wrong
@@ -177,16 +177,16 @@ export interface CheckpointSummary {
  * checkpoint written mid-run, so nothing on disk says "a human owes this
  * run an answer". Kill the process and the request is gone — the approval
  * queue a host would build from durable state has nothing to read, and a
- * resumed run silently re-asks the model instead of honoring the approval
+ * resumed turn silently re-asks the model instead of honoring the approval
  * that was already granted.
  *
  * `request` is stored verbatim so a fresh process can render exactly what
  * the human was shown, and apply the answer to exactly those tool calls.
  */
 export interface PendingDecision {
-	/** The request the run parked on, as the `resumeHandler` received it. */
+	/** The request the turn parked on, as the `resumeHandler` received it. */
 	readonly request: HITLDecisionRequest
-	/** Epoch ms at which the run parked. */
+	/** Epoch ms at which the turn parked. */
 	readonly parkedAt: number
 	/**
 	 * Epoch ms after which this park is no longer worth serving.
@@ -194,14 +194,14 @@ export interface PendingDecision {
 	 * Absolute, not a duration, so it survives the process that set it —
 	 * every timer in the SDK is an in-process `setTimeout` and the
 	 * park-record delay is deliberately `unref`'d, so nothing in-memory can
-	 * outlive a redeploy. Without it a run parks for approval, the worker is
+	 * outlive a redeploy. Without it a turn parks for approval, the worker is
 	 * replaced, nobody answers, and the checkpoint stays outstanding
 	 * forever: every approval-queue reader keeps serving it and its
 	 * workspace is never reclaimed.
 	 *
-	 * The run timeout cannot cover this. `checkLimitsDetailed` is only
+	 * The turn timeout cannot cover this. `checkLimitsDetailed` is only
 	 * reached between iterations and a park suspends mid-iteration, so a
-	 * long-lived process hard-stops the run immediately AFTER the human
+	 * long-lived process hard-stops the turn immediately AFTER the human
 	 * finally approves, while across a restart the restored elapsed time
 	 * excludes parked time entirely — the same configuration giving two
 	 * opposite outcomes.

@@ -8,7 +8,7 @@ import { anyOf, hasToolCall, stepCountIs } from '../step.js'
  * The only halt before this was `GuardCoordinator`, which consumes
  * `{aborted, totalTokens, totalCost, currentIteration, startTime}` and never
  * sees messages, tool calls or results. So a terminal `submit_answer` tool
- * could not end a run — the model had to be prompt-begged to stop, with
+ * could not end a turn — the model had to be prompt-begged to stop, with
  * `maxIterations: 200` or the token budget as the only backstop, which meant
  * a finished task still burned its whole envelope.
  */

@@ -135,7 +135,7 @@ describe('ProjectInstructionTracker', () => {
 		expect(snapshot?.content).not.toContain('Persisted stale policy.')
 	})
 
-	it('gives sibling runs independent drain cursors over shared discovery', async () => {
+	it('gives sibling sessions independent drain cursors over shared discovery', async () => {
 		const pkg = join(repo, 'pkg')
 		mkdirSync(pkg)
 		writeFileSync(join(pkg, 'AGENTS.md'), 'Package policy.')

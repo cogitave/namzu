@@ -73,7 +73,7 @@ export function renderTypedNoteResult(result: TypedNoteResult, text: string): st
 
 /**
  * The stored-memory part of `/memory`, or null when there is none: the index
- * lines every turn carries, then what runs recorded on their own under its
+ * lines every turn carries, then what turns recorded on their own under its
  * own label and count, since those never reach the prompt's index and would
  * otherwise be invisible here.
  */
@@ -90,7 +90,7 @@ export function renderStoredMemorySection(
 	}
 	if (derived?.text) {
 		sections.push(
-			`Recorded by runs (${derived.total}), not in the index; search_memory finds them\n${directory}\n\n${preview(derived.text, directory)}`,
+			`Recorded by turns (${derived.total}), not in the index; search_memory finds them\n${directory}\n\n${preview(derived.text, directory)}`,
 		)
 	}
 	return sections.length > 0 ? sections.join('\n\n') : null

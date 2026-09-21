@@ -11,7 +11,7 @@ import {
  *
  * A doctor row rather than only a boot line, because the two answer for
  * different people at different moments: the boot narrative tells whoever
- * started the run, and `namzu doctor` is what somebody runs when they are
+ * started the turn, and `namzu doctor` is what somebody runs when they are
  * asked "does this tool send our transcripts off the box" and need an answer
  * they can paste.
  *
@@ -54,7 +54,7 @@ export async function describeSessionExportStatus(
 	const redactorCount = configured.redactors?.length ?? 1
 	const typePhrase = configured.eventTypes
 		? `${configured.eventTypes.length} event type(s)`
-		: 'every run event'
+		: 'every session event'
 	return {
 		status: 'pass',
 		message: `Session export is ON: ${typePhrase} is written to ${configured.destination}, with ${redactorCount} redactor(s) installed.`,

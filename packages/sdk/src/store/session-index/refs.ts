@@ -14,7 +14,7 @@ import type { ExternalRef, Origin } from '../../types/session/turn.js'
 /**
  * The kinds of caller-side name the index resolves. The three session kinds
  * are {@link ExternalRef}'s; `turn` names one turn by the caller's own id for
- * it (`origin.externalTurnId`, such as the run id an AG-UI client sent).
+ * it (`origin.externalTurnId`, such as the turn id an AG-UI client sent).
  */
 export type ExternalRefKind = ExternalRef['kind'] | 'turn'
 

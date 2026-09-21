@@ -63,7 +63,7 @@ export function describeIsolationHealth(environment: SandboxEnvironment): Doctor
 			status: 'warn',
 			message: `${environment} enforces nothing — commands run unconfined`,
 			remediation:
-				'Run the agent inside a container per task (@namzu/sandbox, container tier), or pass requireIsolation so a run refuses rather than proceeding unconfined.',
+				'Run the agent inside a container per task (@namzu/sandbox, container tier), or pass requireIsolation so a turn refuses rather than proceeding unconfined.',
 		}
 	}
 

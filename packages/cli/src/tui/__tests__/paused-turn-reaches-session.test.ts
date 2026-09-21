@@ -29,7 +29,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 					},
 					explanation: {
 						id: 'provider.rate_limit',
-						message: 'The provider is rate limiting this run.',
+						message: 'The provider is rate limiting this turn.',
 						hint: 'Wait before continuing.',
 					},
 				}
@@ -93,7 +93,7 @@ it('publishes checkpoint identity, classification and remedy from session.send',
 			},
 			explanation: {
 				id: 'provider.rate_limit',
-				message: 'The provider is rate limiting this run.',
+				message: 'The provider is rate limiting this turn.',
 				hint: 'Wait before continuing.',
 			},
 		},

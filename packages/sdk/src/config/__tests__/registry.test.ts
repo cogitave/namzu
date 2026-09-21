@@ -164,7 +164,7 @@ describe('persistence', () => {
 			'fresh',
 			Schema,
 		)
-		// A config override is a preference. Refusing to start a run because
+		// A config override is a preference. Refusing to start a turn because
 		// one is unreadable turns a convenience into an outage.
 		expect(scope.get().attempts).toBe(3)
 	})
@@ -182,7 +182,7 @@ describe('scoping', () => {
 
 		a.update({ attempts: 20 })
 
-		// Two concurrent runs share a process and a store. Without a scope
+		// Two concurrent turns share a process and a store. Without a scope
 		// prefix the second would read the first's overrides and be retuned by
 		// somebody else's operator.
 		expect(a.get().attempts).toBe(20)
@@ -192,7 +192,7 @@ describe('scoping', () => {
 
 		// Registered AFTER A's update, which is where a shared store key
 		// actually leaks: B above was already resolved when A wrote, so it
-		// would have kept its own value either way. A run that starts later is
+		// would have kept its own value either way. A turn that starts later is
 		// the one that would silently inherit somebody else's tuning.
 		const runC = root.scope('61d260b3-706f-452e-8528-f7fd5f736b18')
 		expect(runC.register('mcp.files', Schema).get().attempts).toBe(3)
@@ -208,7 +208,7 @@ describe('scoping', () => {
 			})
 
 		// Scoped, not discarded: the store is shared on purpose so an
-		// operator's override is not lost when the run that carried it ends.
+		// operator's override is not lost when the turn that carried it ends.
 		const again = new ConfigRegistry({ store: shared })
 			.scope('90a466e2-f869-4a3c-b750-f2156342ff40')
 			.register('x', Schema)

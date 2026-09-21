@@ -147,7 +147,7 @@ describe('query long-document tool flow', () => {
 					// the work: six model turns and five file edits take ~3s
 					// alone and longer under a parallel suite. The outer vitest
 					// timeout was raised for exactly that reason and this one was
-					// missed, so the run kept aborting itself at 5s and the
+					// missed, so the turn kept aborting itself at 5s and the
 					// failure read as a broken flow rather than a slow machine.
 					timeoutMs: 120_000,
 					tokenBudget: 100_000,

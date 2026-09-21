@@ -20,7 +20,7 @@ import { drainQuery } from '../index.js'
  *
  * The unit tests check the runners in isolation; these check that a
  * blocked run actually settles as blocked and never calls the model, and
- * that a rewrite reaches `Run.result` — which is the only thing a host
+ * that a rewrite reaches `Turn.result` — which is the only thing a host
  * consumes.
  *
  * Since LOG-14: a guardrail BLOCK is also a first-class 'refused' entry in
@@ -104,7 +104,7 @@ describe('input guardrails through query()', () => {
 	it('writes the refusal down on its way out, exactly once', async () => {
 		// This return used to hand back `getRun()` WITHOUT persisting, so the
 		// blocked run's terminal state reached the disk only because the
-		// abandoned-consumer path found the run unsettled and settled it — a
+		// abandoned-consumer path found the turn unsettled and settled it — a
 		// branch that exists for runs whose consumer walked away, carrying a
 		// run whose consumer was still reading.
 		const log = sessionLog()
@@ -150,7 +150,7 @@ describe('output guardrails through query()', () => {
 
 		expect(result.result).not.toContain('AKIAIOSFODNN7EXAMPLE')
 		expect(result.result).toContain('[REDACTED:aws-access-key]')
-		// The run still succeeded — redaction beats discarding a correct answer.
+		// The turn still succeeded — redaction beats discarding a correct answer.
 		expect(result.stopReason).toBe('end_turn')
 
 		const triggered = events.find((e) => e.type === 'guardrail_triggered')

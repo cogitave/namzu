@@ -86,7 +86,7 @@ export const LspTool = defineTool({
 				success: false,
 				output: '',
 				error:
-					'This run has no code navigation provider, so there is nothing to resolve against. A host supplies one on the tool context; `grep` is the fallback, and it answers a different question.',
+					'This turn has no code navigation provider, so there is nothing to resolve against. A host supplies one on the tool context; `grep` is the fallback, and it answers a different question.',
 			}
 		}
 

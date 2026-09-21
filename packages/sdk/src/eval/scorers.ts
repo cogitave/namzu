@@ -4,7 +4,7 @@ import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
  * Longest common subsequence length between two tool sequences.
  *
  * Subsequence, not set intersection: order carries meaning in a
- * trajectory. Reading a file before editing it is not the same run as
+ * trajectory. Reading a file before editing it is not the same turn as
  * editing then reading, and a set-based score cannot tell them apart.
  */
 function lcsLength(a: readonly string[], b: readonly string[]): number {
@@ -24,7 +24,7 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
 }
 
 /**
- * How closely the run's tool sequence matched the expected one, as F1 over
+ * How closely the turn's tool sequence matched the expected one, as F1 over
  * the longest common subsequence.
  *
  * Trajectory, not final answer. Namzu's most load-bearing behavior is
@@ -35,8 +35,8 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
  * tool calls where it took one. Final-answer scoring cannot see that;
  * this can.
  *
- * Extra calls cut precision, missing calls cut recall, so a run that does
- * the right thing wastefully and a run that skips a step score
+ * Extra calls cut precision, missing calls cut recall, so a turn that does
+ * the right thing wastefully and a turn that skips a step score
  * differently — which is the distinction a final-answer score collapses.
  */
 export function trajectoryScorer(): Scorer {
@@ -81,19 +81,19 @@ export function trajectoryScorer(): Scorer {
 	}
 }
 
-/** The run settled cleanly rather than erroring or being cut off. */
+/** The turn settled cleanly rather than erroring or being cut off. */
 export function completionScorer(
 	acceptable: readonly string[] = ['end_turn', 'stop_condition'],
 ): Scorer {
 	return {
 		name: 'completion',
-		// Binary by construction: the run either settled cleanly or it did
+		// Binary by construction: the turn either settled cleanly or it did
 		// not, so there is no score between 0 and 1 for a mean to soften.
 		// Averaged in, a hard 0 here is carried by three good fuzzy scores.
 		severity: 'gate',
 		score(turn: EvalTurn): Score {
 			if (turn.error) {
-				return { score: 0, reason: `run failed: ${turn.error}` }
+				return { score: 0, reason: `turn failed: ${turn.error}` }
 			}
 			const ok = turn.stopReason !== undefined && acceptable.includes(turn.stopReason)
 			return {
@@ -108,7 +108,7 @@ export function completionScorer(
 }
 
 /**
- * The run stayed within a step budget.
+ * The turn stayed within a step budget.
  *
  * A regression that makes the agent take four turns where it took one is
  * invisible to correctness scoring and very visible on the bill.
@@ -153,7 +153,7 @@ export function containsScorer(...required: string[]): Scorer {
 }
 
 /**
- * Judge the run with a caller-supplied predicate.
+ * Judge the turn with a caller-supplied predicate.
  *
  * The escape hatch for anything the built-in scorers do not cover. For
  * a model-graded judge, reach for `judgeScorer` first: it handles the

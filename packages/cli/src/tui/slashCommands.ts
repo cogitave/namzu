@@ -189,7 +189,7 @@ export type SlashAction =
 	 */
 	| { kind: 'host-command'; name: string; args: readonly string[] }
 	/**
-	 * Record a judgment on the run's last assistant message.
+	 * Record a judgment on the turn's last assistant message.
 	 *
 	 * Carries the id rather than leaving App to re-derive it: the command
 	 * has already decided there IS one, and re-deriving would open a window
@@ -318,9 +318,9 @@ export interface SlashContext {
 		readonly totalTokens: number
 		readonly cost: CostInfo
 		/**
-		 * How full the context is, when the run knows: the numerator and the
+		 * How full the context is, when the turn knows: the numerator and the
 		 * window with their provenance, from the `usage` event. Absent when
-		 * the run resolved no window. Printed here, on request, rather than in
+		 * the turn resolved no window. Printed here, on request, rather than in
 		 * the footer — the persistent gauge was removed on purpose for a
 		 * quieter frame, and `/cost` is where a person asks.
 		 */
@@ -392,7 +392,7 @@ export interface SlashContext {
 	 */
 	readonly builtins?: readonly SlashCommand[]
 	/**
-	 * The last assistant message this run produced, or `null` before there
+	 * The last assistant message this turn produced, or `null` before there
 	 * is one.
 	 *
 	 * A function, like every other field here that moves while namzu runs —
@@ -797,7 +797,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					: {
 							kind: 'message',
 							role: 'system',
-							content: 'Nothing to rate yet — /feedback applies to the last answer in this run.',
+							content: 'Nothing to rate yet — /feedback applies to the last answer in this turn.',
 						}
 			}
 			const [rating, ...rest] = args
@@ -818,7 +818,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: 'Nothing to rate yet — /feedback applies to the last answer in this run.',
+					content: 'Nothing to rate yet — /feedback applies to the last answer in this turn.',
 				}
 			}
 
@@ -914,7 +914,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/memory import-notes',
 			],
 			details: [
-				'Show and list read stored and curated memory, with what runs recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
+				'Show and list read stored and curated memory, with what turns recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
 				"import-notes copies every top-level bullet of the project's curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.",
 			],
@@ -1399,7 +1399,7 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 		'  - anything that would let someone break the project without noticing',
 		'',
 		'Keep it short enough to be read in full. Every line costs context on every',
-		'future run, so a sentence that says nothing is not free.',
+		'future turn, so a sentence that says nothing is not free.',
 	].join('\n')
 }
 
@@ -1544,7 +1544,7 @@ export function renderCost(
 	}
 	if (details) {
 		lines.push(
-			'Cost covers this run’s own model calls, excluding delegated calls and earlier runs. These are not conversation totals.',
+			'Cost covers this turn’s own model calls, excluding delegated calls and earlier turns. These are not conversation totals.',
 		)
 		if (usage.cost.unpricedTokens > 0) {
 			lines.push('Missing prices do not mean those tokens were free.')
@@ -1565,7 +1565,7 @@ export function renderCost(
 
 /** What decides a tool call, in the order it actually decides it. */
 /**
- * One page holding both halves of what a run may do.
+ * One page holding both halves of what a turn may do.
  *
  * They are separate mechanisms and they answer separate questions — where a
  * write may land, and whether anyone is asked first — and neither implies the
@@ -1705,7 +1705,7 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 		rows.push([
 			'Workspace',
 			ctx.sandbox.workspace === 'ephemeral'
-				? 'temporary files; removed when the run ends'
+				? 'temporary files; removed when the turn ends'
 				: 'real project files; edits persist',
 		])
 	if (ctx.sessionId) rows.push(['Session', ctx.sessionId])
@@ -1743,7 +1743,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 		)
 	}
 	if (sandbox?.workspace === 'ephemeral') {
-		lines.push('Workspace: temporary files; removed when the run ends.')
+		lines.push('Workspace: temporary files; removed when the turn ends.')
 	} else if (sandbox?.workspace === 'working-directory' || sandbox?.workspace === 'host') {
 		lines.push('Workspace: real project files; edits persist.')
 	}

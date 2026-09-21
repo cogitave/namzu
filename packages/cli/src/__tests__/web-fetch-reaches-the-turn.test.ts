@@ -176,7 +176,7 @@ describe('web.fetch', () => {
 	})
 })
 
-it('passes explicit hosted search to the run without mounting a local search function', async () => {
+it('passes explicit hosted search to the turn without mounting a local search function', async () => {
 	const turn = await drive({ search: 'live', backend: 'native' })
 	expect(turn.turnConfig.webSearch).toEqual({ mode: 'live' })
 	expect(turn.toolNames).not.toContain('web_search')

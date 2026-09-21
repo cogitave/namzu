@@ -43,7 +43,7 @@ export type JsonSchemaDialect = 'draft-07' | '2020-12'
  * which is the waste `renderToolSchema`'s own cache exists to remove, and it
  * would hand a fresh object to the wire each time. The tools block renders at
  * position 0 of the prompt-cache prefix, so a differently-ordered but equal
- * object still invalidates the cache for the whole run. Caching the conversion
+ * object still invalidates the cache for the whole turn. Caching the conversion
  * keeps the bytes identical across iterations.
  */
 const CONVERTED = new Map<JsonSchemaDialect, WeakMap<object, Record<string, unknown>>>()

@@ -13,12 +13,12 @@ import { drainQuery } from '../index.js'
 
 /**
  * A transient provider fault that survived every retry is not the same
- * thing as a bad API key, and the run settles differently for a reason:
+ * thing as a bad API key, and the turn settles differently for a reason:
  * one can be resumed from its checkpoint and the other cannot.
  *
  * The stream turn flattened the driver's classified error to a message
  * and threw a fresh one, whose default for `provider_error` is
- * not-retryable — so a 429 settled the run FAILED and the documented
+ * not-retryable — so a 429 settled the turn FAILED and the documented
  * pause never happened. `toPlatformError` already projects the right
  * shape; it was simply never handed one.
  *
@@ -55,7 +55,7 @@ type Failure = { retryable?: boolean; details?: unknown; code?: string }
 
 async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
 	// The classification rides the `turn_failed` EVENT, which is where a
-	// host reads it; the settled Run carries only the message.
+	// host reads it; the settled turn carries only the message.
 	let failure: Failure | undefined
 	await drainQuery(
 		{
@@ -84,7 +84,7 @@ describe('a provider fault that survives the retries', () => {
 	it('keeps the classification the driver produced', async () => {
 		const settled = await runAgainst('rate_limit', 429)
 
-		// Without this the run cannot tell a 429 from a bad key, and the
+		// Without this the turn cannot tell a 429 from a bad key, and the
 		// documented pause-and-resume never fires.
 		expect(settled.failure?.retryable).toBe(true)
 		expect(JSON.stringify(settled.failure?.details)).toContain('429')
@@ -96,7 +96,7 @@ describe('a provider fault that survives the retries', () => {
 		expect((await runAgainst('auth', 401)).failure?.retryable).toBe(false)
 	})
 
-	it('tells the two apart at the run boundary', async () => {
+	it('tells the two apart at the turn boundary', async () => {
 		const transient = await runAgainst('rate_limit', 429)
 		const permanent = await runAgainst('auth', 401)
 

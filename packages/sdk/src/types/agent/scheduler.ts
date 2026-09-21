@@ -36,12 +36,12 @@ export interface CreateTaskOptions {
 	readonly beforeStart?: () => Promise<void>
 
 	/**
-	 * Observe events from this one delegated run when the scheduler can expose
+	 * Observe events from this one delegated session when the scheduler can expose
 	 * them.
 	 *
 	 * The built-in local scheduler supports this without replacing its
 	 * scheduler-wide listener. Delivery is observational and must not
-	 * backpressure or decide the child run; a remote/custom scheduler may omit
+	 * backpressure or decide the child session; a remote/custom scheduler may omit
 	 * it when that transport has no event stream. Callers must therefore settle
 	 * their task view from the returned {@link TaskHandle} as well.
 	 */
@@ -119,7 +119,7 @@ export interface CreateTaskOptions {
 	 *
 	 * **This was accepted and dropped.** `LocalTaskScheduler.createTask` built
 	 * its own `configOverrides` object out of `parentSpan` alone and never
-	 * read this field, so a caller pinning a delegated run to a cheaper model
+	 * read this field, so a caller pinning a delegated session to a cheaper model
 	 * got the agent's default model and no indication otherwise. It is
 	 * forwarded now, with the dedicated {@link parentSpan} option winning if
 	 * both name a span, since that one is the specific field for the job.
@@ -144,7 +144,7 @@ export interface TaskScheduler {
 
 	/**
 	 * Stop one task. A cause is relative to the child: a blocking delegation
-	 * abandoned by the run that launched it is cancelled by its `parent`.
+	 * abandoned by the turn that launched it is cancelled by its `parent`.
 	 *
 	 * Optional so existing host schedulers remain structurally compatible. A
 	 * scheduler that can preserve the cause should carry it to the task's abort

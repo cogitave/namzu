@@ -225,7 +225,7 @@ describe('the doctor row', () => {
 		expect(result.status).toBe('pass')
 		expect(result.message).toContain('/var/log/namzu/session.jsonl')
 		expect(result.message).toContain('1 redactor')
-		expect(result.message).toContain('every run event')
+		expect(result.message).toContain('every session event')
 	})
 
 	it('is a pass, not a warning, when export is on', async () => {
@@ -256,8 +256,8 @@ describe('the doctor row', () => {
 			absent as never,
 		)
 
-		// The run refuses in this state. A doctor that reported `pass` would
-		// send an operator into a run that cannot start.
+		// The turn refuses in this state. A doctor that reported `pass` would
+		// send an operator into a turn that cannot start.
 		expect(result.status).toBe('fail')
 		expect(result.remediation).toContain('@namzu/telemetry')
 	})

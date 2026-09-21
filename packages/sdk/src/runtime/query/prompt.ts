@@ -12,7 +12,7 @@ import type { Skill } from '../../types/skills/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 
 export interface PromptSegments {
-	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a run. */
+	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a turn. */
 	readonly static: string
 	/** Layers 7-10: tools, tier guidance, env context, sessionContext. May change per run. */
 	readonly dynamic: string
@@ -92,7 +92,7 @@ Resolve relative paths against the working directory above; use supplied absolut
 }
 
 /**
- * Does this run have a tool that needs to know where it is?
+ * Does this turn have a tool that needs to know where it is?
  *
  * Decided from what a tool DECLARES — `category: 'filesystem'` or a
  * `file_read` / `file_write` permission — not from its name.
@@ -177,7 +177,7 @@ export class PromptBuilder {
 	 * `static` and `dynamic` only, and the signature says so.
 	 *
 	 * A `turn` contribution rendered here would land in the system prompt —
-	 * cached for the run under `static`, or read as a standing instruction
+	 * cached for the turn under `static`, or read as a standing instruction
 	 * under `dynamic`. Either way the state it exists to report goes stale
 	 * silently, which is the exact failure `turn` was added to avoid. The
 	 * iteration loop renders those, into the ephemeral message.
@@ -248,7 +248,7 @@ export class PromptBuilder {
 		// Static then dynamic, in that order and nothing between them,
 		// because that is exactly how `buildSegmented` is rejoined upstream:
 		// `${static}\n\n---\n\n${dynamic}`. The two methods produce the same
-		// prompt for the same input, and a run that hits the prompt cache
+		// prompt for the same input, and a turn that hits the prompt cache
 		// must not be asking a different question from one that misses it.
 		parts.push(...this.renderContributions('static', workingDirectory))
 		parts.push(...this.renderContributions('dynamic', workingDirectory))

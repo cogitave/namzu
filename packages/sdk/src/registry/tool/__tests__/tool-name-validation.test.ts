@@ -54,7 +54,7 @@ describe('what a name may be', () => {
 describe('the registry', () => {
 	it('refuses at registration rather than at request time', () => {
 		const registry = new ToolRegistry()
-		// Failing here costs the run nothing and can still be attributed.
+		// Failing here costs the turn nothing and can still be attributed.
 		expect(() => registry.register(tool('plugin:tool') as never)).toThrow(
 			/cannot be sent to a provider/,
 		)

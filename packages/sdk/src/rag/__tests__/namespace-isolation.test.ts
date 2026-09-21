@@ -13,7 +13,7 @@ import { InMemoryVectorStore } from '../vector-store.js'
  * and every namespace in a tenant saw every other one's documents.
  */
 
-/** Deterministic and content-derived, so similarity is stable across runs. */
+/** Deterministic and content-derived, so similarity is stable across turns. */
 const embedder: EmbeddingProvider = {
 	async embed(texts: string[]) {
 		return texts.map((t) => [t.length % 7, t.charCodeAt(0) % 5, 1])

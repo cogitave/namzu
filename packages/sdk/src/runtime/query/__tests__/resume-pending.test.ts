@@ -22,7 +22,7 @@ import { type TurnStateScope, loadTurnState } from '../turn-state.js'
 import { type RecordDraft, heldCheckpointStore, rewriteSession } from './support/session.js'
 
 /**
- * The whole point of #14, end to end: a run parks on a tool approval in
+ * The whole point of #14, end to end: a turn parks on a tool approval in
  * ONE `query()` call, that call returns, and a SECOND `query()` — standing
  * in for a different process — honors the approval a human gave in
  * between.
@@ -129,7 +129,7 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 	}
 }
 
-/** Answers the first review by pausing, which ends the run still parked. */
+/** Answers the first review by pausing, which ends the turn still parked. */
 const pauseOnReview: ResumeHandler = (request) =>
 	Promise.resolve(
 		request.type === 'tool_review'
@@ -138,7 +138,7 @@ const pauseOnReview: ResumeHandler = (request) =>
 	)
 
 describe('an approval survives a process boundary', () => {
-	it('parks durably, then a second run applies the recorded decision', async () => {
+	it('parks durably, then a second turn applies the recorded decision', async () => {
 		const h = await harness()
 
 		// --- process 1: run until it parks on the destructive call ---
@@ -576,7 +576,7 @@ describe('park recording stays off the hot path', () => {
 		expect(h.calls).toEqual(['delete:5'])
 		expect(instant).toHaveBeenCalled()
 		// The iteration gate runs every iteration; recording each park
-		// unconditionally would triple a long run's checkpoint writes to
+		// unconditionally would triple a long turn's checkpoint writes to
 		// describe a park that never happened.
 		expect(await findPendingCheckpoint(h.log, { turnId: run.id })).toBeNull()
 	})

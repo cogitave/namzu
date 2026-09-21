@@ -12,7 +12,7 @@ function context(signal?: AbortSignal): ToolContext {
 }
 
 describe('the interactive model-switch request tool', () => {
-	it('reports pending acceptance and passes the owning run context to the host', async () => {
+	it('reports pending acceptance and passes the owning turn context to the host', async () => {
 		const requestSwitch = vi.fn<RequestModelSwitch>(async () => ({
 			kind: 'pending',
 			selection: { id: 'zen', model: 'muse-spark-1.3-contributor-free' },

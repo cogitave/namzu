@@ -22,14 +22,14 @@ import { copySession, heldCheckpointStore } from './support/session.js'
 /**
  * "Refresh the page and keep watching the answer arrive."
  *
- * The consumer is watching a run, the process holding it dies, and the
+ * The consumer is watching a turn, the process holding it dies, and the
  * consumer comes back. It must receive every non-ephemeral event it missed,
  * exactly once, in order — or be told, in a value it cannot ignore, that it
  * cannot have them.
  *
  * These drive `resumeSession`, which is the call a host makes to continue a run a
  * different process started. Entering at `query` instead would prove the
- * catch-up and not the road to it: `resumeSession` drained the run with NO listener
+ * catch-up and not the road to it: `resumeSession` drained the turn with NO listener
  * at all until this change, so every event it produced was discarded, and a
  * catch-up delivered into that reaches nobody.
  */
@@ -101,7 +101,7 @@ interface Crash {
 /**
  * A process that dies right after its first checkpoint: the consumer's view
  * up to then, and a copy of the log taken at that instant (what the disk
- * held). The original run goes on in its own copy; the dead process's log
+ * held). The original turn goes on in its own copy; the dead process's log
  * never hears of it, and reads back as an interrupted turn once the lease
  * is let go.
  */
@@ -140,7 +140,7 @@ async function crashedRun(): Promise<Crash> {
 		seen.push(event)
 		if (event.type === 'checkpoint_created') crashed = await copySession(sessionLog, [SCOPE])
 	}
-	if (!crashed) throw new Error('the run wrote no checkpoint')
+	if (!crashed) throw new Error('the turn wrote no checkpoint')
 	return { baseDir, log: crashed, seen }
 }
 
@@ -169,7 +169,7 @@ describe('a consumer that lost its connection', () => {
 
 		const numbered = received.filter((e) => e.seq !== undefined).map((e) => e.seq as number)
 		// Nothing below the cursor, nothing repeated, nothing it missed left
-		// out — and the resumed run's own events continue the log's sequence
+		// out — and the resumed turn's own events continue the log's sequence
 		// rather than restarting inside it. (An event's number is its record's
 		// `seq`; message records sit between them, so the numbers have gaps.)
 		const missed = recorded.map((e) => e.seq as number).filter((seq) => seq > cursor)
@@ -180,7 +180,7 @@ describe('a consumer that lost its connection', () => {
 		expect(numbered.length).toBeGreaterThan(missed.length)
 	})
 
-	it('is handed the missed events BEFORE the resumed run says anything new', async () => {
+	it('is handed the missed events BEFORE the resumed turn says anything new', async () => {
 		const crash = await crashedRun()
 		const { seen } = crash
 		const recorded = seen.filter((e) => e.seq !== undefined)
@@ -198,7 +198,7 @@ describe('a consumer that lost its connection', () => {
 		} as any)
 
 		// Any other order and a consumer cannot fold one stream into one state:
-		// it would apply the run's new events and then be handed the run's past
+		// it would apply the turn's new events and then be handed the turn's past
 		// on top of them.
 		const firstNewIndex = received.findIndex((e) => (e.seq ?? 0) > lastRecordedSeq)
 		const lastOldIndex = received.reduce(
@@ -231,7 +231,7 @@ describe('a consumer that lost its connection', () => {
 	})
 })
 
-describe('it refuses a cursor it cannot honour, and still resumes the run', () => {
+describe('it refuses a cursor it cannot honour, and still resumes the turn', () => {
 	it('calls a cursor above the log ahead, hands over nothing, and runs anyway', async () => {
 		const crash = await crashedRun()
 
@@ -250,7 +250,7 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 		} as any)
 
 		expect(replay).toEqual({ status: 'unavailable', reason: 'cursor_ahead' })
-		// The run was not held hostage to a client's bad cursor.
+		// The turn was not held hostage to a client's bad cursor.
 		expect(outcome.resumed).toBe(true)
 		expect(received.some((e) => e.seq !== undefined)).toBe(true)
 	})
@@ -280,7 +280,7 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 		expect(replay).toEqual({ status: 'unavailable', reason: 'generation_changed' })
 		// The assertion that carries the refusal: the log DOES hold events above
 		// the cursor here, so a catch-up that ignored the verdict would deliver
-		// them. Nothing at or below the old head may arrive — the resumed run
+		// them. Nothing at or below the old head may arrive — the resumed turn
 		// continues the sequence, so every legitimate event is above it.
 		//
 		// The first version of this test asserted on the replayed events'
@@ -292,7 +292,7 @@ describe('it refuses a cursor it cannot honour, and still resumes the run', () =
 })
 
 describe('the listener is the hop', () => {
-	it('delivers the resumed run’s own events, cursor or no cursor', async () => {
+	it('delivers the resumed turn’s own events, cursor or no cursor', async () => {
 		const crash = await crashedRun()
 
 		const received: SessionEvent[] = []
@@ -304,9 +304,9 @@ describe('the listener is the hop', () => {
 			// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
 		} as any)
 
-		// Before this parameter existed `resumeSession` drained the run and dropped
-		// every event it produced, so the one API for continuing a run another
-		// process started could not show anybody what the run was doing.
+		// Before this parameter existed `resumeSession` drained the turn and dropped
+		// every event it produced, so the one API for continuing a turn another
+		// process started could not show anybody what the turn was doing.
 		expect(received.length).toBeGreaterThan(0)
 		expect(received.some((e) => e.type === 'turn_completed')).toBe(true)
 	})

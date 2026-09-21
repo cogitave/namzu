@@ -42,7 +42,7 @@ export function normaliseModelId(model: string): string {
  * The rate card for a model, or `undefined` when nobody here has one.
  *
  * `undefined` is a real answer and the caller must keep it distinct from a
- * rate of zero. Zero means this run genuinely costs nothing — the local
+ * rate of zero. Zero means this turn genuinely costs nothing — the local
  * drivers, which bill per token exactly never. `undefined` means the total is
  * unknowable, and a caller that flattens the two reproduces the defect this
  * whole module exists to remove, one level down.
@@ -70,7 +70,7 @@ export function resolveModelPricing(
 	// Checked before the model id, deliberately. An unmetered driver bills
 	// nothing whatever it is asked to run, and its models are whatever the
 	// operator has pulled onto the machine — enumerable by nobody. Requiring a
-	// row for each would make every local run unpriced, which would report
+	// row for each would make every local turn unpriced, which would report
 	// "cost unknown" about the one case where the cost is known exactly.
 	if (vendor.unmetered) return UNMETERED
 	if (model === undefined) return undefined

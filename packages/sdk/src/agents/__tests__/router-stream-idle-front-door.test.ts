@@ -248,7 +248,7 @@ describe('RouterAgent owns the liveness of its routing model call', () => {
 		expect(caller.signal.aborted).toBe(false)
 	})
 
-	it('refuses a malformed bound before creating a run or calling either agent', async () => {
+	it('refuses a malformed bound before creating a turn or calling either agent', async () => {
 		const provider = new AbortAwareRoutingStall()
 		const delegate = recordingDelegate()
 		const caller = new AbortController()

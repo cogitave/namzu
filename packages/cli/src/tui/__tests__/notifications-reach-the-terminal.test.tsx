@@ -205,7 +205,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						},
 						explanation: {
 							id: 'provider.rate_limit',
-							message: 'The provider is rate limiting this run.',
+							message: 'The provider is rate limiting this turn.',
 							hint: 'Wait for the quota window to reset before continuing.',
 						},
 					} as AgentEvent
@@ -388,7 +388,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await submit(harness, 'depends on first')
 	gates[0]?.release()
 
-	await frameShows(harness, 'Turn paused [provider.rate_limit]: The provider is rate limiting this run.')
+	await frameShows(harness, 'Turn paused [provider.rate_limit]: The provider is rate limiting this turn.')
 	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
 	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
 	await frameShows(harness, 'Checkpoint preserved: 7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')

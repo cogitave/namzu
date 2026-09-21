@@ -18,7 +18,7 @@ import { generateSessionId, generateTaskId, generateTurnId } from '../utils/id.j
  * anything else falls through to the local scheduler untouched.
  *
  * **The mapping onto `TaskHandle` is the load-bearing part.** `taskSucceeded`
- * and `taskFailed` require the gateway state and the run status to AGREE,
+ * and `taskFailed` require the gateway state and the turn status to AGREE,
  * because locally they are two independent authorities and a check reading
  * only one of them has already shipped a failed worker as an answer. A
  * foreign delegate has only its own word, so both fields are written from

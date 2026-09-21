@@ -8,7 +8,7 @@ import type { PreparationTextRequest, PreparationTextResult } from './prepare-st
  * The halt predicate is only consulted after tools have run, so there was
  * no seam at the point the model stops calling them: the turn finalized
  * with whatever it had produced. Verify-then-fix — run the build, feed the
- * failure back, let it try again — meant starting a whole new run and
+ * failure back, let it try again — meant starting a whole new turn and
  * re-supplying the context the first one had already assembled.
  */
 export type AnswerReview =
@@ -31,7 +31,7 @@ export interface AnswerReviewContext {
 	readonly sessionId: SessionId
 	readonly turnId: TurnId
 	readonly iteration: number
-	/** Run cancellation; reviewers should forward it to verification operations. */
+	/** Turn cancellation; reviewers should forward it to verification operations. */
 	readonly signal?: AbortSignal
 	/** Canonical history currently retained by the turn; compaction may remove messages. */
 	readonly messages: readonly Message[]

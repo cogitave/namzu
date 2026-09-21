@@ -6,8 +6,8 @@ import type { ProviderErrorCode } from '../provider/errors.js'
 /**
  * What one iteration of the agent loop did.
  *
- * None of this was reachable before. `Run` and `BaseAgentResult` have no
- * `steps[]`, so a host that persisted the returned `Run` — the natural
+ * None of this was reachable before. The returned turn and `BaseAgentResult`
+ * had no `steps[]`, so a host that persisted the returned turn — the natural
  * thing — permanently lost per-step attribution: answering "which step
  * cost the most" meant correlating raw `SessionEvent`s by iteration number and
  * diffing cumulative counters, and per-tool duration was never emitted at
@@ -44,7 +44,7 @@ export interface StepResult {
 	 * recorded", and it is left meaning that rather than backfilled: the sdk
 	 * shipped a chain that could fall over one release before it recorded
 	 * which member did, so filling those in from the declared head would state
-	 * as fact the exact thing that release got wrong, on exactly the runs
+	 * as fact the exact thing that release got wrong, on exactly the turns
 	 * where it was wrong. Every step this build produces has it.
 	 *
 	 * **Reaches a host through the returned `Turn`.** The session log records
@@ -127,7 +127,7 @@ export interface StepProvenance extends ProviderRoute {}
 /**
  * Why a step ended in `finishReason: 'error'`.
  *
- * The step-level counterpart of the pair a failed run already carries —
+ * The step-level counterpart of the pair a failed turn already carries —
  * {@link import('./turn.js').Turn.lastError} and
  * {@link import('./turn.js').Turn.lastProviderError} — and shaped from the
  * same classification, so the two agree when the failed step is the one that

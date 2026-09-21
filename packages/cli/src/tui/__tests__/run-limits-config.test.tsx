@@ -97,7 +97,7 @@ async function command(harness: ReturnType<typeof render>, text: string) {
 	await tick(80)
 }
 
-it('opens limits from /config, edits a field, and forwards the next run without recreating its session', async () => {
+it('opens limits from /config, edits a field, and forwards the next turn without recreating its session', async () => {
 	const harness = render(<App ctx={{ cwd: '/w', version: '0.0.0-test', limits: { tokenBudget: 2000, maxIterations: 3, timeoutMs: 1000 } }} />)
 	mounted = harness
 	await waitFor(harness, '› Type a message')

@@ -105,16 +105,16 @@ export type { PhaseSignal } from './phases/index.js'
 export type { ToolReviewOutcome } from './phases/index.js'
 
 /**
- * How many times an answer may be handed back before the run stops.
+ * How many times an answer may be handed back before the turn stops.
  *
  * Bounded for the same reason the structured-output re-prompt is: a judge
  * that never accepts would otherwise spend the whole token budget
- * rediscovering that, and the run would end on a budget error rather than
+ * rediscovering that, and the turn would end on a budget error rather than
  * on the thing that actually went wrong.
  */
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
 
-// Ending a run changes the available actions, not the strength of its evidence.
+// Ending a turn changes the available actions, not the strength of its evidence.
 // Use the same standard for warning closure and empty-completion recovery.
 const CLOSING_RESPONSE_GUIDANCE =
 	'Give a concise response using only what the available evidence supports. Attribute unverified statements to their source instead of presenting them as observed facts. If evidence is missing or conflicting, state what cannot be established. Do not claim unfinished work is complete. Do not request any more tool calls.'
@@ -148,8 +148,8 @@ export class IterationOrchestrator {
 	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
 	private answerReviewAttempts = 0
 	/**
-	 * The last request envelope this run recorded, so an unchanged one
-	 * costs a hash and no event. Per RUNNER, not module-level: two runs in
+	 * The last request envelope this turn recorded, so an unchanged one
+	 * costs a hash and no event. Per RUNNER, not module-level: two turns in
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
@@ -166,10 +166,10 @@ export class IterationOrchestrator {
 	/**
 	 * The previous iteration held a `stopWhen` decision open for a worker.
 	 *
-	 * Set when the stop predicate fired and the run took one extra turn to
-	 * read a delegated result, so the turn that then ends the run can report
+	 * Set when the stop predicate fired and the turn took one extra turn to
+	 * read a delegated result, so the turn that then ends the turn can report
 	 * WHY it is over. Without it the outcome was right and the record was
-	 * wrong: the run stopped because the host said so and reported `end_turn`,
+	 * wrong: the turn stopped because the host said so and reported `end_turn`,
 	 * and this repo carries thirteen `StopReason` values precisely so that a
 	 * run which ends for a nameable reason names it.
 	 *
@@ -279,10 +279,10 @@ export class IterationOrchestrator {
 	}
 
 	/**
-	 * Adopt the run's span after construction.
+	 * Adopt the turn's span after construction.
 	 *
 	 * The orchestrator is built before `query()` enters its generator body,
-	 * which is where the run span is created — so the parent cannot be a
+	 * which is where the turn span is created — so the parent cannot be a
 	 * constructor argument without reordering setup around one field.
 	 */
 	setRootSpan(span: Span): void {
@@ -311,10 +311,10 @@ export class IterationOrchestrator {
 		// The latch exists so that a second overflow immediately after a
 		// successful compaction — meaning the prompt is irreducible — stops
 		// instead of looping. It was never meant to disarm the mechanism for
-		// the rest of the run, which is what a run-scoped flag did: one
+		// the rest of the turn, which is what a turn-scoped flag did: one
 		// relief at iteration 3 left iteration 40 to die on an overflow with
 		// obvious moves left. It is cleared by a turn that actually
-		// succeeded, which is the evidence that the run is no longer stuck.
+		// succeeded, which is the evidence that the turn is no longer stuck.
 		let overflowRelieved = false
 
 		const planSignal = yield* runPlanGate(this.ctx)
@@ -324,7 +324,7 @@ export class IterationOrchestrator {
 		// beside `iterSpan.end()` below: this loop leaves by eight `break`s,
 		// two `return`s and a `throw`, and a rule every future edit has to
 		// remember is a rule that gets forgotten — measured, it had been. Only
-		// the ordinary final-answer exit consulted the inbox, so a run that
+		// the ordinary final-answer exit consulted the inbox, so a turn that
 		// ended on a terminal tool, a structured output or the host's
 		// `stopWhen` settled over a finished worker's output and threw it away.
 		// A `finally` also covers a generator abandoned by its consumer, which
@@ -379,7 +379,7 @@ export class IterationOrchestrator {
 
 				if (guardResult.shouldStop) {
 					if (guardResult.isCancelled) {
-						this.ctx.log.info('Run cancelled by signal', {
+						this.ctx.log.info('Turn cancelled by signal', {
 							[NAMZU.TURN_ID]: recorder.turnId,
 						})
 						recorder.setStopReason('cancelled')
@@ -408,7 +408,7 @@ export class IterationOrchestrator {
 				// run and been paid for; this is the seam a host with a live
 				// rate limit or a revoked tenant actually needs.
 				const veto = await beforeStep(this.stepShaping(), recorder.currentIteration + 1)
-				// The hook may settle because its run signal was aborted. Stop
+				// The hook may settle because its turn signal was aborted. Stop
 				// before interpreting that settlement as a policy refusal or
 				// counting an iteration that will never reach the provider.
 				if (this.ctx.abortController.signal.aborted) {
@@ -450,7 +450,7 @@ export class IterationOrchestrator {
 
 				// Parent explicitly: this body is an async generator, so the
 				// ambient context at resume time belongs to the CONSUMER, not to
-				// whoever created the run span. Without this every iteration
+				// whoever created the turn span. Without this every iteration
 				// emits as its own root and a 20-turn run shows up as 21
 				// disconnected traces.
 				const iterSpan = tracer.startSpan(
@@ -487,7 +487,7 @@ export class IterationOrchestrator {
 					// the try rather than before it: a throw from any of these left
 					// the span open, and an iteration span that never ends is a
 					// trace that never closes — the export is incomplete for exactly
-					// the run that failed.
+					// the turn that failed.
 					this.ctx.toolExecutor.setParentSpan(iterSpan)
 
 					iterSpan.setAttributes({
@@ -533,7 +533,7 @@ export class IterationOrchestrator {
 					// risks a 400 because the history still carries
 					// tool_use/tool_result blocks.
 					// Snapshot the cumulative counters so the step can report ITS
-					// own usage rather than the run total.
+					// own usage rather than the turn total.
 					stepStartedAt = Date.now()
 
 					// Shape this step before calling the model. `stopWhen` decides
@@ -541,7 +541,7 @@ export class IterationOrchestrator {
 					// supplied no hook.
 					const contextModelBeforePreparation = this.ctx.contextModel ?? model
 					const step = await prepareStep(this.stepShaping(), iterationNum)
-					// Preparation inference belongs to the run, not the main-model step.
+					// Preparation inference belongs to the turn, not the main-model step.
 					usageBefore = { ...recorder.tokenUsage }
 					costBefore = { ...recorder.costInfo }
 					stepModel = step.model ?? model
@@ -581,7 +581,7 @@ export class IterationOrchestrator {
 					const baseMessages = recorder.messages
 
 					// Step guidance is appended to the REQUEST, never pushed onto
-					// the run's history: it applies to this step only, and pushing
+					// the turn's history: it applies to this step only, and pushing
 					// it would accumulate one stale instruction per iteration.
 					// Copy before it crosses the provider boundary. `recorder.messages`
 					// is the LIVE run array, and the loop pushes onto it after the
@@ -603,7 +603,7 @@ export class IterationOrchestrator {
 					// A supervision change rides the same ephemeral slot, and for
 					// the same reason: it applies to what happens next, not to the
 					// run's history. The model plans around how closely it is being
-					// watched — a run that silently stops asking a human leaves it
+					// watched — a turn that silently stops asking a human leaves it
 					// batching destructive calls it expects to be reviewed, and one
 					// that silently starts leaves it waiting on permission nobody
 					// is left to give.
@@ -615,7 +615,7 @@ export class IterationOrchestrator {
 					const policyNotice = policyChange
 						? `Approval policy changed from "${policyChange.from}" to "${policyChange.to}" (${policyChange.reason}). Tool calls from here on are reviewed under the new policy.`
 						: null
-					// State that changed during the run, reported once per turn.
+					// State that changed during the turn, reported once per turn.
 					// `turn` contributions are recomputed here, not fixed when the
 					// run's prompt is assembled. They retain system authority and
 					// may affect caching just like the other system contributions.
@@ -630,7 +630,7 @@ export class IterationOrchestrator {
 					// history, which every driver keeps there and a caching driver
 					// ends its breakpoint before — so a changed pin or a new turn
 					// snapshot costs its own tokens, not a re-read of the history.
-					// The working-memory slot keeps its place in the run's history
+					// The working-memory slot keeps its place in the turn's history
 					// (compaction preserves it there) and leaves the request's
 					// system run here.
 					const workingMemory = splitWorkingMemoryForRequest(baseMessages)
@@ -665,10 +665,10 @@ export class IterationOrchestrator {
 					// `prepareStep` rewrites the system text, narrows the tool
 					// list or swaps the model, and a step's skills ride the
 					// ephemeral preamble above. So a transcript showed one
-					// question for a run that had asked several.
+					// question for a turn that had asked several.
 					//
 					// Emitted only on a change: the digest is compared against
-					// the last one this run recorded, so the common case costs
+					// the last one this turn recorded, so the common case costs
 					// one hash and nothing else. Copying an unchanged system
 					// prompt every iteration is the fastest way to make a
 					// durable log too large to read.
@@ -676,7 +676,7 @@ export class IterationOrchestrator {
 						model: stepModel,
 						// Read off `messages`, which is what the request is actually
 						// built from — including the ephemeral preamble. Recomputing
-						// it from the run's history would describe a request nobody
+						// it from the turn's history would describe a request nobody
 						// sent the moment the two diverge.
 						systemPrompt: messages
 							.filter((m) => m.role === 'system')
@@ -720,14 +720,14 @@ export class IterationOrchestrator {
 								turnId: recorder.turnId,
 								iteration: iterationNum,
 								signal: this.ctx.abortController.signal,
-								// Built inside the guard: a run with no plugins installed
+								// Built inside the guard: a turn with no plugins installed
 								// pays nothing for a projection nobody reads.
 								request: Object.freeze({
 									context,
 									model: stepModel,
 									// Copied per turn, not handed over live: these are the
 									// run's own message objects, and a hook writing into
-									// one would edit the history the run is about to send.
+									// one would edit the history the turn is about to send.
 									messages: Object.freeze(messages.map((m) => Object.freeze({ ...m }))),
 									toolNames: Object.freeze(llmTools.map((t) => t.function.name)),
 									temperature: step.temperature ?? turnConfig.temperature,
@@ -811,7 +811,7 @@ export class IterationOrchestrator {
 							...(!forceFinalize && turnConfig.webSearch
 								? { webSearch: turnConfig.webSearch }
 								: {}),
-							// Thread the run abort into the model call so a Stop tears the
+							// Thread the turn abort into the model call so a Stop tears the
 							// in-flight turn down (provider passes it to fetch; the consumer
 							// also races it). Inert when never aborted.
 							signal: this.ctx.abortController.signal,
@@ -871,13 +871,13 @@ export class IterationOrchestrator {
 					// model it was asked for. This is the seam that ended the
 					// always-zero cost: the rate lookup happens per turn,
 					// against who actually answered, rather than against one
-					// table the run was constructed with.
+					// table the turn was constructed with.
 					recorder.recordTurnUsage(response.usage, {
 						providerId: servedBy.providerId,
 						model: servedBy.model,
 					})
 
-					// The turn went through, so the run is not sitting on an
+					// The turn went through, so the turn is not sitting on an
 					// irreducible prompt any more. Re-arm relief for the next one.
 					overflowRelieved = false
 
@@ -924,7 +924,7 @@ export class IterationOrchestrator {
 					// are measured here rather than left to be derived, since the
 					// only correct derivation needs internals a host cannot see.
 					//
-					// Absent when the run has no compaction config: nothing then
+					// Absent when the turn has no compaction config: nothing then
 					// resolves a window, and inventing one would be the guess this
 					// replaces.
 					const contextFigures = this.ctx.compactionConfig
@@ -1019,7 +1019,7 @@ export class IterationOrchestrator {
 						// Every task-dispatch tool (create_task, continue_task, Agent)
 						// is BLOCKING: the worker's output returns as the dispatching
 						// tool_use's canonical tool_result, so by the time the model
-						// ends its turn nothing launched by this run should still be
+						// ends its turn nothing launched by this turn should still be
 						// in flight. A running task here is an orphan (interrupted
 						// tool execution, cancel race) with no delivery path back to
 						// the parent — the <task-notification> producer was removed
@@ -1040,7 +1040,7 @@ export class IterationOrchestrator {
 						// It did not, and the ledger's own contract said it should:
 						// `StepResult` is documented as "what one iteration of the
 						// agent loop did" and `stepNumber` as "1-based, matching
-						// `iteration` on the run events". Every path below emits
+						// `iteration` on the turn events". Every path below emits
 						// `iteration_completed` with this iteration's number, and
 						// none of them recorded a step — so the events said
 						// iteration N happened and `steps` had no entry N. The
@@ -1072,7 +1072,7 @@ export class IterationOrchestrator {
 						// executor, and the empty-completion retry a few lines below
 						// all spend tokens inside an iteration without being one.
 						// Their usage reaches `run.tokenUsage` and no step, so the
-						// ledger reconciles with the run total for a run that makes
+						// ledger reconciles with the turn total for a turn that makes
 						// no side calls and undercounts by exactly those calls for a
 						// run that does. That residual is named rather than fixed
 						// here: attributing a side call needs a record that is not a
@@ -1241,10 +1241,10 @@ export class IterationOrchestrator {
 						//
 						// The stop predicate is only consulted after tools ran, so
 						// there was no seam here at all: the moment the model
-						// stopped calling tools the run finalized, whatever it had
+						// stopped calling tools the turn finalized, whatever it had
 						// produced. Verify-then-fix — run the build, feed the
 						// failure back, let it try again — meant starting a whole
-						// new run and re-supplying the context the first one had.
+						// new turn and re-supplying the context the first one had.
 						//
 						// Shaped after the structured-output re-prompt directly
 						// above, which solves the same problem for one specific
@@ -1280,7 +1280,7 @@ export class IterationOrchestrator {
 								}
 								const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
 								if (attempt > limit) {
-									this.ctx.log.warn('Answer rejected more times than the run allows', {
+									this.ctx.log.warn('Answer rejected more times than the turn allows', {
 										[NAMZU.TURN_ID]: recorder.turnId,
 										'namzu.runtime.attempts': attempt - 1,
 										'namzu.runtime.limit': limit,
@@ -1305,11 +1305,11 @@ export class IterationOrchestrator {
 						}
 
 						// A background worker is still out there, and this turn was
-						// about to end the run.
+						// about to end the turn.
 						//
 						// Settling here would throw away the very thing the launch
 						// existed to produce: the supervisor said "launched", the
-						// worker had not finished, and the run closed over it.
+						// worker had not finished, and the turn closed over it.
 						if (
 							!forceFinalize &&
 							(yield* holdForOutstandingWork(this.ctx, iterationNum, false, () =>
@@ -1362,7 +1362,7 @@ export class IterationOrchestrator {
 						})
 						yield* this.ctx.drainPending()
 						// A Stop that lands AFTER the final turn streamed but before
-						// this break must settle the run as cancelled, not end_turn —
+						// this break must settle the turn as cancelled, not end_turn —
 						// otherwise the just-produced answer is recorded as a clean
 						// completion. Mirrors the between-iteration cancel at :511.
 						if (this.ctx.abortController.signal.aborted) {
@@ -1375,11 +1375,11 @@ export class IterationOrchestrator {
 						// is prose, and `stopWhen` is consulted only after a tool
 						// batch, so the predicate is never asked again — reporting
 						// `end_turn` would name the shape of the last message rather
-						// than the reason the run is over.
+						// than the reason the turn is over.
 						//
 						// Only here. A terminal tool and a captured structured output
 						// also settle as `end_turn`, and there the deferred predicate
-						// is not why the run ended: those decided the answer
+						// is not why the turn ended: those decided the answer
 						// themselves.
 						recorder.setStopReason(
 							closingStopReason ??
@@ -1390,7 +1390,7 @@ export class IterationOrchestrator {
 
 					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
 
-					// The step record is built even for a rejected batch: a run that
+					// The step record is built even for a rejected batch: a turn that
 					// spent a turn getting its tools refused still spent the tokens,
 					// and a caller reconstructing cost per step must see it.
 					this.recordStep({
@@ -1485,7 +1485,7 @@ export class IterationOrchestrator {
 						break
 					}
 
-					// A tool the author declared terminal settles the run with its
+					// A tool the author declared terminal settles the turn with its
 					// own output, the same rule `structured_output` has always
 					// had. Without it a delegation cost the parent one more model
 					// call at full context whose only job was to restate what the
@@ -1538,7 +1538,7 @@ export class IterationOrchestrator {
 						// outstanding. One task deferred it once; two awaited
 						// jobs exiting a minute apart defer it twice, each time
 						// for a turn the model spends on news it has not read.
-						// `maxIterations` and the run's own deadline bound all of
+						// `maxIterations` and the turn's own deadline bound all of
 						// it regardless, and a leg with nothing pending never
 						// opens a hold at all.
 						if (
@@ -1547,7 +1547,7 @@ export class IterationOrchestrator {
 							)
 						) {
 							// Remember WHY the next turn exists, so the turn that
-							// ends the run can name the host's decision instead of
+							// ends the turn can name the host's decision instead of
 							// reporting the shape of the last message.
 							this.stopDeferredForOutstandingWork = true
 							continue
@@ -1655,7 +1655,7 @@ export class IterationOrchestrator {
 					// wrote down for itself. All three exits spend a turn: the
 					// cancellation breaks, the overflow-relief retry continues
 					// under a NEW iteration number (so its tokens belong to no
-					// later step), and the re-throw ends the run.
+					// later step), and the re-throw ends the turn.
 					//
 					// What it carries is what the iteration got as far as knowing.
 					// `usage` is the same subtraction a successful step makes, so
@@ -1672,7 +1672,7 @@ export class IterationOrchestrator {
 					// class of wrong as dropping them and harder to notice, since
 					// the ledger would look fuller rather than emptier. That turn's
 					// own verdict is already written down; the failure that
-					// followed it reaches the caller as the run's error.
+					// followed it reaches the caller as the turn's error.
 					if (this.steps.at(-1)?.stepNumber === iterationNum) {
 						this.ctx.log.warn('Iteration failed after its step was already recorded', {
 							[NAMZU.TURN_ID]: recorder.turnId,
@@ -1706,11 +1706,11 @@ export class IterationOrchestrator {
 					}
 
 					// A Stop that aborted the in-flight turn surfaces here as a
-					// thrown abort (the provider stream was raced against the run
+					// thrown abort (the provider stream was raced against the turn
 					// signal). Settle it as a CANCELLATION — mirroring the
 					// between-iteration cancel at the top of the loop — rather than
 					// recording it as an SDK failure (error span + failed activity)
-					// and re-throwing. The run then returns cleanly with a
+					// and re-throwing. The turn then returns cleanly with a
 					// 'cancelled' stop reason instead of propagating an error.
 					if (cancelled) {
 						recorder.setStopReason('cancelled')
@@ -1722,8 +1722,8 @@ export class IterationOrchestrator {
 					// about. `context_length_exceeded` is correctly non-retryable —
 					// resending the identical prompt cannot help — but the kernel
 					// owns a compaction subsystem that can make the prompt smaller.
-					// Without this the run died holding the remedy: the threshold
-					// path had simply guessed low, which a run carrying images or a
+					// Without this the turn died holding the remedy: the threshold
+					// path had simply guessed low, which a turn carrying images or a
 					// language the chars-per-token ratio does not fit will do.
 					//
 					// Relief is attempted ONCE per iteration and only when it
@@ -1788,7 +1788,7 @@ export class IterationOrchestrator {
 		}
 	}
 
-	/** Steps completed so far, exposed on the returned `Run`. */
+	/** Steps completed so far, exposed on the returned `Turn`. */
 	private readonly steps: StepResult[] = []
 
 	getSteps(): readonly StepResult[] {
@@ -1800,17 +1800,17 @@ export class IterationOrchestrator {
 	 *
 	 * Every field here was already computed somewhere in the loop; the only
 	 * new work is subtracting the cumulative counters so the step carries
-	 * ITS usage rather than the run's running total, which is the number a
+	 * ITS usage rather than the turn's running total, which is the number a
 	 * caller asking "what did this step cost" actually wants.
 	 */
 	/**
-	 * Take everything queued for this run since the last turn.
+	 * Take everything queued for this turn since the last turn.
 	 *
 	 * Both channels drain here. `inboundMessages` is the manager's queue —
 	 * what `continueTask` and `queueMessage` push onto and nothing ever
 	 * collected. `steering` is the host's, and it could only ride on a tool
 	 * result, so guidance queued during a turn that called no tools stayed
-	 * pending until the run ended.
+	 * pending until the turn ended.
 	 *
 	 * Returns the count so a caller can decide whether a turn is owed. An
 	 * empty drain must change nothing at all: a `continue` on nothing queued
@@ -1934,7 +1934,7 @@ export class IterationOrchestrator {
 		// Nothing here is allowed to throw over the failure that is already
 		// unwinding — the same rule `settleCancelledTurn` states for the
 		// cancellation path. A host callback that throws while being told a
-		// turn failed would REPLACE the reason the turn failed, so the run
+		// turn failed would REPLACE the reason the turn failed, so the turn
 		// would report the observer's bug and lose the original.
 		try {
 			this.ctx.onStepFinish?.(step)
@@ -1966,7 +1966,7 @@ export class IterationOrchestrator {
 	/**
 	 * The answer a terminal tool produced, or `undefined` to keep looping.
 	 *
-	 * Deliberately narrow. A terminal call decides the run only when it is
+	 * Deliberately narrow. A terminal call decides the turn only when it is
 	 * the ONLY call the model made in that turn: a model that asked for
 	 * other work meant to see those results, and settling here would throw
 	 * away answers it requested. Same for a failed terminal call — an
@@ -2019,7 +2019,7 @@ export class IterationOrchestrator {
 	 * by the time this runs — `runToolReview` settles it, side effects
 	 * included, before either of these is consulted — so settling here is
 	 * worse than discarding an answer the model wanted: the work happened,
-	 * its results went into the transcript, and the run ended before any
+	 * its results went into the transcript, and the turn ended before any
 	 * model turn could read them. Nothing consumed what was spent, and
 	 * nothing said so.
 	 *
@@ -2041,7 +2041,7 @@ export class IterationOrchestrator {
 	 * avoids it by not pairing.
 	 *
 	 * NOT charged to `maxRetries`. That budget bounds a model that cannot
-	 * satisfy the SCHEMA, and this one did. A run reading two files a turn
+	 * satisfy the SCHEMA, and this one did. A turn reading two files a turn
 	 * while optimistically attaching its answer is making progress, and it
 	 * must not die reported as `structured_output_failed` — a failure that
 	 * did not happen. `maxIterations` is the bound for a model that keeps
@@ -2220,9 +2220,9 @@ export class IterationOrchestrator {
 				totalCost: this.ctx.recorder.costInfo,
 			})
 		} catch (err) {
-			// A throwing predicate must not kill a run that is otherwise
+			// A throwing predicate must not kill a turn that is otherwise
 			// healthy; failing open keeps the existing budgets in charge.
-			this.ctx.log.error('Stop condition threw — continuing the run', {
+			this.ctx.log.error('Stop condition threw — continuing the turn', {
 				[NAMZU.TURN_ID]: this.ctx.recorder.turnId,
 				'exception.message': toErrorMessage(err),
 			})
@@ -2270,7 +2270,7 @@ export class IterationOrchestrator {
 			lastAssistant.content.length > 0
 
 		if (hasResult) return
-		// An empty completion may itself have exhausted the run. This fallback
+		// An empty completion may itself have exhausted the turn. This fallback
 		// is another billed request, so it must pass the same hard limits as
 		// the next normal iteration and preserve their unfinished stop reason.
 		const guardResult = this.ctx.guard.beforeIteration(
@@ -2300,7 +2300,7 @@ export class IterationOrchestrator {
 			// the working memory and any work context above.
 			finalMessages.push(
 				createRuntimeContextMessage(
-					`[SYSTEM] Run is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,
+					`[SYSTEM] Turn is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,
 					'limit-finalization',
 				),
 			)

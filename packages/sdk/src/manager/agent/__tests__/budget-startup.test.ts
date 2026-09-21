@@ -180,7 +180,7 @@ async function expectRolledBack(h: Awaited<ReturnType<typeof harness>>) {
 	expect(h.disposeWorkspace).toHaveBeenCalledExactlyOnceWith(h.workspace)
 }
 
-describe('a child runs inside its reservation', () => {
+describe('a child sessions inside its reservation', () => {
 	it.each([
 		{ requested: 0, expected: 500 },
 		{ requested: 10_000, expected: 500 },

@@ -97,6 +97,6 @@ export type {
 } from './salience/index.js'
 export { DEFAULT_SOFT_TARGET, planSalienceWorkingSet } from './plan.js'
 
-// Episodic → semantic: what a run learned, as the entry a later run searches.
+// Episodic → semantic: what a turn learned, as the entry a later turn searches.
 export { CONSOLIDATION_TAG, consolidationEntry, isConsolidated } from './consolidation.js'
 export type { ConsolidationMeta } from './consolidation.js'

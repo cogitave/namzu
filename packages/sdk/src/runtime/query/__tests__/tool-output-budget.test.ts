@@ -16,7 +16,7 @@ import {
  * Nothing capped tool output. `read` returned a whole file when `limit` was
  * omitted, `bash` allowed a 100 MB buffer, and the MCP adapter joined every
  * text block uncapped — so a 2 MB lockfile became ~500k tokens in a single
- * `tool_result` and the run died on a provider error with everything lost.
+ * `tool_result` and the turn died on a provider error with everything lost.
  */
 
 describe('applyToolOutputBudget', () => {
@@ -301,7 +301,7 @@ describe('applyToolOutputBudget', () => {
  * which creates-or-truncates and follows a symlink, so anything able to create
  * a file in that directory first could redirect the kernel's write onto a file
  * of its choosing. The directory and file were also created world-readable,
- * and a spilled output is routinely the largest and most sensitive thing a run
+ * and a spilled output is routinely the largest and most sensitive thing a turn
  * produces.
  */
 describe('the spill refuses to write through something already at its path', () => {

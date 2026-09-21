@@ -26,7 +26,7 @@ import { AgentManager } from '../lifecycle.js'
  * `AgentManager` builds a child's config on two branches. The bare-config
  * branch — taken only when a definition has NO `configBuilder` — has always
  * carried `env`. The `configBuilder` branch, which is what a host registering
- * a real agent actually uses, never stamped it. So a run given an environment
+ * a real agent actually uses, never stamped it. So a turn given an environment
  * handed its delegates none of it.
  *
  * This is the third field to go the same way: `parentSpan` and `resumeHandler`

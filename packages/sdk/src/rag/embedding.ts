@@ -116,7 +116,7 @@ export class HttpEmbeddingProvider implements EmbeddingProvider {
 			const reason = callerSignal?.reason
 			// Settle the public operation with the caller's exact reason before
 			// aborting fetch: transports commonly turn every abort into a generic
-			// DOMException, which would erase who stopped the run.
+			// DOMException, which would erase who stopped the turn.
 			rejectCallerAbort?.(reason)
 			if (!transport.signal.aborted) transport.abort(reason)
 		}

@@ -11,7 +11,7 @@ import { WEB_FETCH_TOOL_NAME, WEB_SEARCH_TOOL_NAME } from './web.js'
  * it twice and still leave the joint rule — search then fetch — belonging
  * to neither.
  *
- * `static`, because it depends on nothing that can change inside a run: the
+ * `static`, because it depends on nothing that can change inside a turn: the
  * two tool names are constants, and the guidance is the same on every turn.
  * That is what lets it sit in the cached prefix rather than being re-sent.
  *
@@ -26,7 +26,7 @@ export const WEB_GUIDANCE_CONTRIBUTION_ID = 'namzu.web.citations'
 /**
  * Registered only when the web tools are.
  *
- * Guidance about tools a run does not have is worse than absent: it spends
+ * Guidance about tools a turn does not have is worse than absent: it spends
  * the cached prefix telling the model to cite results from a search it
  * cannot run, and a model that follows it produces citations for pages
  * nobody fetched.

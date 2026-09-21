@@ -27,7 +27,7 @@ export interface ProviderRetryConfig extends BackoffPolicy {
 	 * was refused. The error carries `retryAfterMs`, so a host that wants to
 	 * come back in fifteen minutes can — that decision is above this loop.
 	 *
-	 * Raise it to let the run sleep longer; a request under the ceiling is
+	 * Raise it to let the turn sleep longer; a request under the ceiling is
 	 * still slept exactly as instructed.
 	 */
 	readonly maxRetryAfterMs: number
@@ -63,7 +63,7 @@ export interface WithProviderRetryOptions {
  * retry lives in a decorator rather than inside the loop: the loop cannot
  * un-emit.
  *
- * Aborts propagate untouched so a Stop still settles the run as
+ * Aborts propagate untouched so a Stop still settles the turn as
  * `cancelled` rather than being mistaken for a transport failure.
  */
 export function withProviderRetry(
@@ -148,7 +148,7 @@ export function withProviderRetry(
 					// The ORIGINAL escapes when the driver classified it. Two
 					// different consumers want two different things and both are
 					// right: this loop needs a retryable verdict, which the
-					// classification supplies, and the run boundary reports
+					// classification supplies, and the turn boundary reports
 					// `lastProviderError` as the driver's own `{kind, status,
 					// retryAfterMs}`, which only survives if the error itself
 					// does. Wrapping here would have kept the retry fix and lost
@@ -170,11 +170,11 @@ export function withProviderRetry(
 				// minutes was re-asked in half a second: the one instruction the
 				// server gave was the one thing discarded, and the retries that
 				// followed were sent to an endpoint that had already said it would
-				// not serve them. They cost the run its whole budget to rediscover
+				// not serve them. They cost the turn its whole budget to rediscover
 				// a 429 it had been told about in advance.
 				//
 				// The caller loses nothing it had. This throws the SAME error the
-				// exhausted path throws, so the run settles exactly as it did
+				// exhausted path throws, so the turn settles exactly as it did
 				// before — only sooner, and with `retryAfterMs` intact for a host
 				// that wants to schedule against it. What it gains is the wait
 				// itself, which no backoff of ours can honour: fifteen minutes is
@@ -182,7 +182,7 @@ export function withProviderRetry(
 				//
 				// With a chain declared it gains more than that. The error is a
 				// `rate_limit`, which is a fact about the MEMBER, so
-				// `withProviderFallback` moves to the next one — the run continues
+				// `withProviderFallback` moves to the next one — the turn continues
 				// on another provider instead of spending its budget arguing with
 				// the first. Under the old behaviour the chain did not see the
 				// failure until those attempts were gone.
@@ -296,7 +296,7 @@ export function withProviderRetry(
 		// missing until something consumed them. A member this wrapper drops
 		// does not fail — it reads as "this driver cannot answer", which is a
 		// legitimate state and therefore a silent one. Retry is on by
-		// default, so a dropped member is dropped on essentially every run.
+		// default, so a dropped member is dropped on essentially every turn.
 		//
 		// `effortLevelsFor` was in that position and had no consumer at all,
 		// which is exactly why nobody noticed: a driver's declared effort

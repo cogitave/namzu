@@ -98,7 +98,7 @@ export interface CompactionCliConfig {
 	readonly contextWindowTokens?: number
 	/**
 	 * Use consolidation (one `learning` entry) instead of the default
-	 * extracted-claim promoter when the run ends. Both write to the project's
+	 * extracted-claim promoter when the turn ends. Both write to the project's
 	 * memory store. This selects the writer; `memory.recall` controls retrieval.
 	 */
 	readonly consolidate?: boolean
@@ -156,7 +156,7 @@ export interface NamzuCliConfig {
 	 * What the operator believes the table above decides, checked at startup.
 	 *
 	 * Each entry names a tool, an input, and the expected `"allow" | "ask" |
-	 * "deny"`. A mismatch is reported by index and the run continues — the
+	 * "deny"`. A mismatch is reported by index and the turn continues — the
 	 * point is to say that a policy does not do what its author said, which
 	 * a table of globs cannot be read for. Absent means nothing is checked,
 	 * which is what it meant before this existed.
@@ -191,9 +191,9 @@ export interface NamzuCliConfig {
 	/** Executable extension bundles. Absent keeps discovery and imports off. */
 	readonly plugins?: PluginConfig
 	/**
-	 * How far one run may go before the kernel stops it. Headless `run` and
+	 * How far one turn may go before the kernel stops it. Headless `run` and
 	 * `run-stream` read these; `--max-iterations` and `--token-budget` override
-	 * them for one run. Absent means unlimited tokens, iterations and run duration.
+	 * them for one turn. Absent means unlimited tokens, iterations and run duration.
 	 * Explicit token budgets cover descendants.
 	 */
 	readonly limits?: TurnLimitsConfig
@@ -223,7 +223,7 @@ export interface NamzuCliConfig {
 	readonly web?: WebConfig
 	/**
 	 * Shell commands to run at points in the agent's loop: before or after a
-	 * tool call, when a run starts or ends. File-only, never from the
+	 * tool call, when a turn starts or ends. File-only, never from the
 	 * environment — a hook runs a command with the operator's authority, and
 	 * a shell profile must not be able to plant one. Exit `2` from a
 	 * `pre_tool_use` hook blocks the call and tells the model why; any other
@@ -357,7 +357,7 @@ export interface SandboxConfig {
 	 */
 	readonly workspace?: 'working-directory' | 'ephemeral'
 	/**
-	 * How long a completed or cancelled run waits for sandbox teardown.
+	 * How long a completed or cancelled turn waits for sandbox teardown.
 	 * Defaults to 30 seconds. Set to `0` to preserve the former unbounded wait.
 	 */
 	readonly teardownTimeoutMs?: number

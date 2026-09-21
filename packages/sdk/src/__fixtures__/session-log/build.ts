@@ -606,7 +606,7 @@ export function buildSessionLogFixtures(): Record<string, string> {
 		files['batch-annotated.jsonl'] = log.text()
 	}
 
-	// origin-external-refs: an AG-UI thread, its client run id, and desktop refs.
+	// origin-external-refs: an AG-UI thread, its client turn id, and desktop refs.
 	{
 		const log = new LogBuilder('origin')
 		log

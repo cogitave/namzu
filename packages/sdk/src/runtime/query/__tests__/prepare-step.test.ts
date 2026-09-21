@@ -15,12 +15,12 @@ import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
 /**
- * `stopWhen` let a run decide TO STOP from what its steps produced. This
+ * `stopWhen` let a turn decide TO STOP from what its steps produced. This
  * is the other half — deciding how the next step should be SHAPED.
  *
  * Without it the tool surface and the model are fixed at `query()` time,
  * so a phased agent (research with search tools, then write with file
- * tools, then verify with a cheaper model) had to be three separate runs,
+ * tools, then verify with a cheaper model) had to be three separate turns,
  * each starting blind to the last one's context.
  */
 
@@ -139,7 +139,7 @@ describe('prepareStep shapes each step', () => {
 	})
 
 	it('adds step guidance to the REQUEST without retaining it in history', async () => {
-		// Pushing it onto the run would accumulate one stale instruction per
+		// Pushing it onto the turn would accumulate one stale instruction per
 		// iteration.
 		const { provider, result } = await run({
 			turns: [{ toolCalls: [{ name: 'search', args: {} }] }, { text: 'done' }],
@@ -150,7 +150,7 @@ describe('prepareStep shapes each step', () => {
 		const first = provider.requests[0]?.messages ?? []
 		expect(JSON.stringify(first)).toContain('PHASE: research only')
 
-		// Not in the second request, and not in the run's history.
+		// Not in the second request, and not in the turn's history.
 		expect(JSON.stringify(provider.requests[1]?.messages ?? [])).not.toContain('PHASE:')
 		expect(JSON.stringify(result.messages)).not.toContain('PHASE:')
 	})
@@ -173,7 +173,7 @@ describe('prepareStep shapes each step', () => {
 })
 
 describe('prepareStep is safe to get wrong', () => {
-	it('fails OPEN — a throwing hook does not kill a healthy run', async () => {
+	it('fails OPEN — a throwing hook does not kill a healthy turn', async () => {
 		// Same reasoning as `stopWhen`, and deliberately opposite to a
 		// guardrail: nothing unsafe gets through when step shaping is
 		// skipped.
@@ -186,11 +186,11 @@ describe('prepareStep is safe to get wrong', () => {
 
 		expect(result.result).toBe('still fine')
 		expect(result.stopReason).toBe('end_turn')
-		// Fell back to the run's full surface.
+		// Fell back to the turn's full surface.
 		expect(provider.requests[0]?.tools).toHaveLength(2)
 	})
 
-	it('ignores tools that are not registered rather than failing the run', async () => {
+	it('ignores tools that are not registered rather than failing the turn', async () => {
 		// A phase list that outlives a tool rename should narrow the
 		// surface, not kill the agent mid-run.
 		const { provider, result } = await run({

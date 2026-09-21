@@ -45,7 +45,7 @@ export abstract class AbstractAgent<
 	 * IN-FLIGHT ONLY, and deliberately: a settled entry kept around would
 	 * turn deduplication into caching, and caching an agent's answer is a
 	 * decision about staleness that only the host can make. A retry that
-	 * arrives after the first finished runs again, which is the honest
+	 * arrives after the first finished turns again, which is the honest
 	 * behaviour — the world may have moved.
 	 */
 	private readonly inflightByKey = new Map<string, Promise<unknown>>()
@@ -141,10 +141,10 @@ export abstract class AbstractAgent<
 	 * error type that announces the refusal could never be thrown.
 	 *
 	 * They genuinely are unsafe. `abortController` and `currentSessionId` are
-	 * INSTANCE state: two overlapping runs share one abort controller, so
+	 * INSTANCE state: two overlapping turns share one abort controller, so
 	 * cancelling either kills both, and the second clobbers the first's
 	 * session, so `cancel()` afterwards cancels the wrong children. Neither failure
-	 * announces itself — the first run simply stops, or the wrong one does.
+	 * announces itself — the first turn simply stops, or the wrong one does.
 	 *
 	 * A host that wants parallelism constructs a second instance, which is
 	 * cheap; sharing one was never the supported shape, it merely was not
@@ -199,7 +199,7 @@ export abstract class AbstractAgent<
 			return await started
 		} finally {
 			// Cleared on settle, success or failure: keeping it would make the
-			// next retry a cache read rather than a fresh run.
+			// next retry a cache read rather than a fresh turn.
 			this.inflightByKey.delete(key)
 		}
 	}
@@ -210,7 +210,7 @@ export abstract class AbstractAgent<
 	 * operator's behalf is not — and a default would attribute every
 	 * unlabelled cancellation to a person who did not press anything.
 	 *
-	 * Children get `'parent'` regardless of what stopped this run: from a
+	 * Children get `'parent'` regardless of what stopped this turn: from a
 	 * child's side, the fact is that its parent went away.
 	 */
 	async cancel(cause?: CancelCause): Promise<void> {
@@ -246,14 +246,14 @@ export abstract class AbstractAgent<
 	 *
 	 * Constructor-time binding was the bug this exists to fix: an agent
 	 * constructed once and invoked twice (`forTurn` aside — a host is free to
-	 * reuse one instance across sequential runs, and every concrete `run()`
+	 * reuse one instance across sequential turns, and every concrete `run()`
 	 * takes fresh `input`/`config` precisely to allow it) held ONE logger for
 	 * its whole lifetime, so a warning from turn two carried turn one's id, or
 	 * none. Every concrete `run()` implementation calls this before touching
 	 * `this.log`, right after resolving the turn's id — see `RouterAgent`,
 	 * `PipelineAgent`, `SupervisorAgent` and `ReactiveAgent`.
 	 *
-	 * `log` lets a per-run override (`BaseAgentConfig.logger`, a host setting
+	 * `log` lets a per-turn override (`BaseAgentConfig.logger`, a host setting
 	 * on ONE call to `.run()`) win over the agent's construction-time base,
 	 * without reconstructing the agent to get it.
 	 *

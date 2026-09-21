@@ -178,7 +178,7 @@ function resolveTrustedWrapper(name: keyof typeof TRUSTED_WRAPPER_CANDIDATES): s
 /**
  * One output stream, accumulated under a byte cap that it reports hitting.
  *
- * The clipping was inline and the flag was not set, so a run whose output
+ * The clipping was inline and the flag was not set, so a turn whose output
  * ran past the cap returned a result that looked whole. The tool layer
  * already renders `stdoutTruncated` when a backend sets it — this one
  * simply never did, which is the silent truncation the contract's own doc
@@ -391,7 +391,7 @@ export function buildBwrapArgs(
 
 	const args = [
 		'--unshare-all',
-		// The child dies with the parent rather than outliving a killed run.
+		// The child dies with the parent rather than outliving a killed turn.
 		// Without it an escaped grandchild keeps the mount namespace alive and
 		// the sandbox's temporary root cannot be removed.
 		'--die-with-parent',
@@ -843,7 +843,7 @@ class LocalSandbox implements Sandbox {
 		this._status = 'destroyed'
 		// A generated temp root belongs to this allocation. A working-directory
 		// root belongs to the caller. Conflating those lifetimes turns normal run
-		// teardown into recursive deletion of the project the run just edited.
+		// teardown into recursive deletion of the project the turn just edited.
 		if (this.removeRootOnDestroy) {
 			await rm(this.rootDir, { recursive: true, force: true })
 		}
@@ -1118,7 +1118,7 @@ class LocalSandbox implements Sandbox {
 
 export interface LocalSandboxProviderOptions {
 	/**
-	 * Controls this run relies on. Construction throws when the detected
+	 * Controls this turn relies on. Construction throws when the detected
 	 * environment cannot enforce one of them, rather than downgrading to
 	 * whatever the host happens to offer.
 	 */
@@ -1163,7 +1163,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 			// process sees the whole host filesystem, the whole network, and
 			// every host process. The host-side controls that do survive (env
 			// scrubbed to a safe key set, cwd anchored, the SDK's own file
-			// helpers path-checked) are not process confinement, and a run
+			// helpers path-checked) are not process confinement, and a turn
 			// that reads "sandbox created" in its log has every reason to
 			// believe otherwise.
 			this.log.warn('No isolation available on this host; commands run unconfined', {

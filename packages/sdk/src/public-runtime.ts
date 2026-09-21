@@ -148,7 +148,7 @@ export { cancelCauseOf, TurnCancelled } from './types/session/cancel-cause.js'
 // env- or file-backed source without reimplementing an interface that asks
 // a different question.
 // The collaboration mode, durable per Topic. It was resolved once per run
-// and copied into the executor, so leaving plan mode meant ending the run
+// and copied into the executor, so leaving plan mode meant ending the turn
 // and discarding the in-flight step to change one enum.
 // The object a host holds between runs. There was none: no way to ask
 // whether the agent is running, and nowhere to put "when you next run,
@@ -510,7 +510,7 @@ export {
 	toClaimSummary,
 } from './store/session-claim.js'
 // Walking the actor chain — exported so the next cross-tree concern (an
-// audit over a subtree, a host asking whether one run is contained by
+// audit over a subtree, a host asking whether one turn is contained by
 // another) composes with the chain that is already persisted, rather than
 // building a second parent registry beside it.
 export {
@@ -669,7 +669,7 @@ export {
 export type { LocalSandboxProviderOptions, SandboxFileWalkExec } from './sandbox/index.js'
 
 // The classified provider-failure surface: a driver states what went wrong
-// first-hand, and the run boundary reads it to choose between a pause and a
+// first-hand, and the turn boundary reads it to choose between a pause and a
 // failure.
 // `classifyProviderHttpStatus` and `bodySaysContextOverflow` are here
 // because a driver outside this repo needs the same classification the
@@ -1212,7 +1212,7 @@ export {
 // the reporter accepts and the screen does not is an exemption the operator
 // believes is in force.
 export { passthroughToolNames } from './runtime/query/guardrail-presets.js'
-// What a run installs when its host configured no screens. Exported because a
+// What a turn installs when its host configured no screens. Exported because a
 // caller who wants to keep the default AND add to it has to be able to name
 // it: `[...DEFAULT_TOOL_RESULT_GUARDRAILS, myScreen()]`.
 export { DEFAULT_TOOL_RESULT_GUARDRAILS } from './runtime/query/guardrail-presets.js'

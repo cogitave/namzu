@@ -11,7 +11,7 @@
  *
  * Every piece of this existed already and none of it was reachable. The picker
  * could take a credential; the probe could see there was none; the phase
- * machine could route. Only a mounted app decides which of those runs, so a
+ * machine could route. Only a mounted app decides which of those turns, so a
  * unit test on any one of them stays green with the operator still stranded —
  * see "mutation check every test" on a helper test not
  * proving its caller.

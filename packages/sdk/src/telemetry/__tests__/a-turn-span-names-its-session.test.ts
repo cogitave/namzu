@@ -123,7 +123,7 @@ async function turnOf(
 }
 
 describe('the root span of a turn', () => {
-	it('is named for the turn, not a run', () => {
+	it('is named for the turn, not a turn', () => {
 		expect(agentTurnSpanName('Coder')).toBe('namzu.agent.turn Coder')
 	})
 

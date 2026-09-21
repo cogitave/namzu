@@ -142,7 +142,7 @@ export async function readConnectorResponseBody(
  *
  * The promise race is intentional. Forwarding a signal cannot settle a custom
  * fetch/body implementation that ignores it, and a connector lifecycle is a
- * public entry point independent of the run executor's own tool deadline.
+ * public entry point independent of the turn executor's own tool deadline.
  */
 export class ConnectorHttpOperation {
 	readonly signal: AbortSignal

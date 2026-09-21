@@ -30,7 +30,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import type { ToolExecutorConfig } from '../executor.js'
 
-/** Every config an executor was constructed with during a run. */
+/** Every config an executor was constructed with during a turn. */
 const built: ToolExecutorConfig[] = []
 
 vi.mock('../executor.js', async (importOriginal) => {
@@ -98,7 +98,7 @@ describe('the tool-retry backoff a caller sets reaches the executor', () => {
 		})
 	}
 
-	it('carries the policy through to the executor the run builds', async () => {
+	it('carries the policy through to the executor the turn builds', async () => {
 		await run({ toolRetryBackoff: { initialDelayMs: 0, maxDelayMs: 0 } })
 
 		expect(built.length).toBeGreaterThan(0)

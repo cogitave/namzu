@@ -23,8 +23,8 @@ function label(row: InvariantRow): string {
  * about whether the check reaches it.
  *
  * Every invariant is evaluated with `ctx: undefined`. `namzu doctor` runs
- * with no live run and no candidate compaction reduction — there is nothing
- * a real invariant's check could read that is specific to one run — so
+ * with no live turn and no candidate compaction reduction — there is nothing
+ * a real invariant's check could read that is specific to one turn — so
  * `undefined` is the honest context, not a shortcut: each check registered
  * against it is written to answer `unknown` rather than guess (see
  * `compaction.ts` and `claim-disk.ts` in `@namzu/sdk`), and this row reports
@@ -65,7 +65,7 @@ export async function describeInvariants(registry: InvariantRegistry): Promise<D
 		// behaviour of this row. `inconclusive` maps to exit 69 in
 		// `doctor/registry.ts` and means "I asked and could not establish an
 		// answer" — a real signal that something is wrong with the check
-		// itself. A runtime invariant outside a live run is a different thing:
+		// itself. A runtime invariant outside a live turn is a different thing:
 		// the question has no subject yet, every registered check is written
 		// to answer `unknown` here on purpose, and so this state is reached on
 		// EVERY doctor run. Reporting it as inconclusive made `namzu doctor`
@@ -75,11 +75,11 @@ export async function describeInvariants(registry: InvariantRegistry): Promise<D
 		// `skipped` is not "satisfied" either — the summary counts it
 		// separately from `pass`, and the message still names which invariants
 		// went unevaluated and how many violations each has accumulated. The
-		// violation counters above are what actually carry a live run's
+		// violation counters above are what actually carry a live turn's
 		// findings back to this row.
 		return {
 			status: 'skipped',
-			message: `${unknown.length}/${ids.length} invariant(s) have no subject outside a live run: ${names}`,
+			message: `${unknown.length}/${ids.length} invariant(s) have no subject outside a live turn: ${names}`,
 		}
 	}
 

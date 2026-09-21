@@ -82,7 +82,7 @@ const SEARCH_WEIGHT_ARGUMENT = 3
  * and the tools most likely to carry a bad name are registered deferred,
  * so it fired the moment one was activated with nothing naming the
  * culprit. Failing at registration instead names the tool, at the moment
- * something can still be done about it, and costs the run nothing.
+ * something can still be done about it, and costs the turn nothing.
  *
  * One driver already ratified passing names through untouched, on the
  * grounds that a confusing name is "a naming problem to fix in the
@@ -167,7 +167,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	/**
-	 * Snapshot membership and availability for another run without changing this
+	 * Snapshot membership and availability for another turn without changing this
 	 * registry. Discovery, registration and suspension then affect only the fork.
 	 * Definitions, handlers and configuration remain shared; this is not a deep
 	 * clone or an authorization boundary. Prepared executions belong only to the
@@ -595,7 +595,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				// asynchronously.
 				//
 				// Conditional because `toolUseId` is optional: a host calling
-				// a tool directly, outside a run, has no call to correlate to,
+				// a tool directly, outside a turn, has no call to correlate to,
 				// and an attribute set to `undefined` is worse than an absent
 				// one — it reaches the exporter as a key with no value.
 				span.setAttributes({
@@ -695,8 +695,8 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						// Explicit configuration wins, at whichever boundary it
 						// was made. A registry built WITH `resultGuardrails`
 						// has stated its policy — including `[]`, which means
-						// none — and a run must not overrule it. A registry
-						// built without one declared none, so the run's apply;
+						// none — and a turn must not overrule it. A registry
+						// built without one declared none, so the turn's apply;
 						// that is the ordinary case, since a host assembles a
 						// registry and hands it to a run it does not own.
 						this.resultGuardrails ?? runResultGuardrails,
@@ -737,7 +737,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					// tool call. Everything below turns an exception into a
 					// result the model reads and works around, which is what
 					// `refuse` is for — doing it to a `halt` would silently
-					// demote the one verdict that says the run must not
+					// demote the one verdict that says the turn must not
 					// continue.
 					if (err instanceof ToolResultHalted) {
 						span.setAttributes({

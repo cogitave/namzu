@@ -18,13 +18,13 @@ import type { WorkingMemoryProvider } from './working-memory.js'
 
 export interface ReactiveAgentConfig extends BaseAgentConfig {
 	systemPrompt?: string
-	/** Provider-hosted search for this run; the selected driver must support it. */
+	/** Provider-hosted search for this turn; the selected driver must support it. */
 	webSearch?: { mode: 'live' | 'cached' }
 
 	persona?: AgentPersona
 
 	/**
-	 * Channel a host uses to hand guidance to this run's current turn.
+	 * Channel a host uses to hand guidance to this turn's current turn.
 	 *
 	 * Present here for the same reason it is on `SupervisorAgentConfig`, and
 	 * the reason that file gives twice already: a capability the kernel
@@ -91,7 +91,7 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	 * `AgentManager` spawns and what the estate's own applications call —
 	 * and it forwarded none of them. So a per-tool deadline, a provider
 	 * retry policy, a guardrail, a stop condition: all of it was reachable
-	 * only by dropping down to `query()` and rebuilding the run wiring by
+	 * only by dropping down to `query()` and rebuilding the turn wiring by
 	 * hand. Features that a consumer cannot reach are features that do not
 	 * exist for them.
 	 *
@@ -127,8 +127,8 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	outputGuardrails?: readonly OutputGuardrailSpec[]
 
 	/**
-	 * Span this run should hang off, when it is a delegated one. Absent for
-	 * a top-level run, which correctly starts its own root trace.
+	 * Span this turn should hang off, when it is a delegated one. Absent for
+	 * a top-level turn, which correctly starts its own root trace.
 	 */
 	parentSpan?: import('@opentelemetry/api').Span
 }

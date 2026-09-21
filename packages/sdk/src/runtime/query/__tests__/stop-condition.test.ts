@@ -24,7 +24,7 @@ const SESSION_ID = generateSessionId()
  * mock provider — which is exactly what that provider was rebuilt for.
  *
  * Before this the only halt was `GuardCoordinator`: four numeric budgets,
- * never the messages. A terminal `submit_answer` tool could not end a run,
+ * never the messages. A terminal `submit_answer` tool could not end a turn,
  * so a finished task kept iterating until `maxIterations: 200` or the token
  * budget stopped it, burning the whole envelope after the work was done.
  */
@@ -182,7 +182,7 @@ async function drain(h: Harness) {
 }
 
 describe('stopWhen ends the loop', () => {
-	it('a terminal tool ends the run — and its result is still recorded', async () => {
+	it('a terminal tool ends the turn — and its result is still recorded', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ name: 'read' }] },
@@ -195,7 +195,7 @@ describe('stopWhen ends the loop', () => {
 
 		await drain(h)
 
-		// The terminal tool RAN — the run ends after it, not instead of it.
+		// The terminal tool RAN — the turn ends after it, not instead of it.
 		expect(h.executedTools).toEqual(['read', 'submit_answer'])
 		expect(h.stopReason()).toBe('stop_condition')
 		expect(h.steps).toHaveLength(2)
@@ -225,7 +225,7 @@ describe('stopWhen ends the loop', () => {
 		expect(h.steps.length).toBeGreaterThanOrEqual(4)
 	})
 
-	it('a throwing predicate does not kill an otherwise healthy run', async () => {
+	it('a throwing predicate does not kill an otherwise healthy turn', async () => {
 		const provider = new MockLLMProvider({ turns: [{ toolCalls: [{ name: 'read' }] }] })
 		const h = harness({
 			provider,

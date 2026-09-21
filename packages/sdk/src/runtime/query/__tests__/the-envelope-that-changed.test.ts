@@ -17,7 +17,7 @@ import type { PrepareStep, SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
- * A transcript showed one prompt for a run that had asked several
+ * A transcript showed one prompt for a turn that had asked several
  * questions.
  *
  * `turn_started` records a system prompt once, and tool schemas never
@@ -115,7 +115,7 @@ async function run(opts: {
 }
 
 describe('what the model was asked, recorded when it changed', () => {
-	it('emits exactly one envelope for a run whose request never changes', async () => {
+	it('emits exactly one envelope for a turn whose request never changes', async () => {
 		// Equality, not `toBeGreaterThan`. An implementation that emitted per
 		// iteration satisfies "at least one" and produces a durable log too
 		// large to read — which is the failure this suppression exists to
@@ -189,8 +189,8 @@ describe('what the model was asked, recorded when it changed', () => {
 		).toBe(false)
 	})
 
-	it('starts fresh for a second run, so one cannot suppress the other', async () => {
-		// The suppression key is per RUNNER. Module-level, a second run in the
+	it('starts fresh for a second turn, so one cannot suppress the other', async () => {
+		// The suppression key is per RUNNER. Module-level, a second turn in the
 		// same process with an identical envelope would record nothing at all
 		// — and its transcript would have no record of what was asked.
 		const first = await run({ turns: 1 })

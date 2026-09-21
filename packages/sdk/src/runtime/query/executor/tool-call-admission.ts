@@ -441,7 +441,7 @@ async function requestRepair(
 		})
 	} catch (err) {
 		// A broken repairer must not turn a recoverable tool error into a
-		// failed run: the original error is still a perfectly good answer
+		// failed turn: the original error is still a perfectly good answer
 		// to give the model.
 		host.log.error('repairToolCall threw — falling back to the original error', {
 			[NAMZU.TURN_ID]: host.config.turnId,

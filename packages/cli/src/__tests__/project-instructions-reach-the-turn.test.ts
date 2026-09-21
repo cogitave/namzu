@@ -11,7 +11,7 @@
  * that a loader test passes with every hop after it deleted. The composed
  * block being correct proves nothing about it being composed INTO anything;
  * the failure mode this feature invites is the string existing and being
- * dropped one function short of the provider, which is silent — the run
+ * dropped one function short of the provider, which is silent — the turn
  * succeeds and writes code the project would reject, exactly as it did before
  * the feature existed.
  *
@@ -166,7 +166,7 @@ describe("the project's instructions", () => {
 		// The loader returns `null` for "no file", and the composition is a join
 		// over a list. Drop the filter that removes the empty slots and the
 		// literal four characters `null` are sent to the model between the
-		// identity block and the skills block, on every run in every directory
+		// identity block and the skills block, on every turn in every directory
 		// with no AGENTS.md — while the assertion above still passes.
 		expect(systemPrompt, 'an absent block must be absent, not the word null').not.toContain('null')
 		expect(systemPrompt, 'the identity block still has to be there').toContain('You are Namzu')

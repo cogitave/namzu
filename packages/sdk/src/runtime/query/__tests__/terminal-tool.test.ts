@@ -101,7 +101,7 @@ describe('a tool whose output is the answer', () => {
 		expect(result.result).not.toBe(WORKER_ANSWER)
 	})
 
-	it('settles the run with the tool output when declared terminal', async () => {
+	it('settles the turn with the tool output when declared terminal', async () => {
 		const { result, turns } = await run({ terminal: true, turns: delegateThenSummarize })
 
 		// One model call, and the caller receives the worker's words rather
@@ -113,7 +113,7 @@ describe('a tool whose output is the answer', () => {
 
 	it('keeps looping when the terminal call shared its turn', async () => {
 		// The model asked for other work in the same turn and meant to see
-		// those results; ending the run would discard answers it requested.
+		// those results; ending the turn would discard answers it requested.
 		const { result, turns } = await run({
 			terminal: true,
 			extraTool: true,

@@ -54,7 +54,7 @@ vi.mock('../../tui/agent.js', () => ({
 			sessionOptions.push(opts)
 			// This file asserts on the OPTIONS the session was constructed with,
 			// captured above, so the session itself only has to exist. `send`
-			// yields nothing on purpose: these runs are not driven to a result.
+			// yields nothing on purpose: these turns are not driven to a result.
 			return fakeAgentSession({
 				providerSummary: 'stub',
 				modelSummary: 'stub',
@@ -120,7 +120,7 @@ describe('streaming reasoning effort', () => {
 
 describe('run-stream does not turn options into prompt text', () => {
 	it('consumes --cwd instead of speaking it to the model', async () => {
-		// With `--cwd` unparsed these two tokens WERE the prompt, so the run
+		// With `--cwd` unparsed these two tokens WERE the prompt, so the turn
 		// proceeded. Reaching "no prompt" is what proves they were consumed.
 		const lines = await run(['--cwd', '/tmp/somewhere'])
 
@@ -142,7 +142,7 @@ describe('run-stream does not turn options into prompt text', () => {
 	})
 
 	it('still emits a terminal event when it refuses, so a host is not left hanging', async () => {
-		// The NDJSON contract is that every run ends with `done`. A refusal that
+		// The NDJSON contract is that every turn ends with `done`. A refusal that
 		// skipped it would strand a host line-scanning stdout.
 		const lines = await run(['--bogus', 'hello'])
 
@@ -175,7 +175,7 @@ describe('run-stream works in the directory it was pointed at', () => {
 	})
 
 	it('refuses a --cwd that is not there instead of quietly using this one', async () => {
-		// The silent fallback is the whole defect: the run proceeds, searches the
+		// The silent fallback is the whole defect: the turn proceeds, searches the
 		// wrong tree, finds nothing, and reports that the file does not exist.
 		const lines = await run(['--cwd', join(tmpdir(), 'namzu-no-such-dir'), 'hello'])
 

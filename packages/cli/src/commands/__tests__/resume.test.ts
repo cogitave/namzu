@@ -45,7 +45,7 @@ beforeEach(() => {
 })
 
 describe('asking for nothing', () => {
-	it('is a fresh run, not an error', async () => {
+	it('is a fresh turn, not an error', async () => {
 		const out = await resolveResume(sessions, { continueLast: false, sessionId: null }, CWD)
 
 		expect(out.kind).toBe('fresh')

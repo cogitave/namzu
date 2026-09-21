@@ -86,10 +86,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 	}
 
 	/**
-	 * One run at a time per instance.
+	 * One turn at a time per instance.
 	 *
 	 * `abortController` and `currentSessionId` are instance state, so two
-	 * overlapping runs share one abort controller — cancelling either kills
+	 * overlapping turns share one abort controller — cancelling either kills
 	 * both — and the second clobbers the first's session, so a later
 	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
@@ -175,7 +175,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// same person. It does not grant the root-only question tool.
 				// Without the handler, workers silently auto-approved themselves.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-				// Handed down for the same reason: a worker is a fresh run whose
+				// Handed down for the same reason: a worker is a fresh turn whose
 				// executor installs the shipped screens unless the spawn says
 				// otherwise, so the supervisor's own choice — including an
 				// empty list, which `config.toolResultGuardrails` distinguishes
@@ -212,7 +212,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
 
 		// Created here because the TOOLS are created here: the durability
-		// channel has to reach the tool instance, and the run that supplies
+		// channel has to reach the tool instance, and the turn that supplies
 		// it does not exist yet. `query` binds them once it does.
 		const questionParks = new QuestionParkBinding()
 		const pendingAnswers = new PendingAnswers()
@@ -280,7 +280,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			// tools — but the coordinator tools were registered before that and
 			// unconditionally, so `{ create_task: 'disabled' }` was honoured
 			// everywhere except the one surface a host would most want to decline.
-			// A run that must not delegate had prompt text and a gateway refusal as
+			// A turn that must not delegate had prompt text and a gateway refusal as
 			// its only defences.
 			//
 			// Collision REFUSES rather than overwrites, and the principle is
@@ -293,7 +293,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			// decision made about the old binding stale.
 			//
 			// The counter-argument is that today the host's tool merely loses
-			// quietly and the run still works, so six reserved names is a real cost
+			// quietly and the turn still works, so six reserved names is a real cost
 			// on a name a consumer may have chosen long ago. It does not hold,
 			// because "loses quietly" is not what happens. `registerOne` ends with
 			// `availability.set(id, state)` and this call passes no state, so a tool
@@ -456,7 +456,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// literal did not copy it" as a defect it was written to close.
 				// This literal still did not copy it, so the same defect was live
 				// in the one archetype nobody checked: the value would have been
-				// produced, recorded on the run, serialized into `result`, and
+				// produced, recorded on the turn, serialized into `result`, and
 				// absent from the type a supervisor host actually reads.
 				structuredOutput: turn.structuredOutput,
 				lastError: turn.lastError,

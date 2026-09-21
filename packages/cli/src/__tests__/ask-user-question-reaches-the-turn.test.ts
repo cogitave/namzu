@@ -2,7 +2,7 @@
  * `ask_user_question` is mounted where somebody can answer, and the answer
  * the operator gives is the answer the model gets.
  *
- * The SDK tool parks the run through the handler it was BUILT with; the CLI
+ * The SDK tool parks the turn through the handler it was BUILT with; the CLI
  * builds it once per session and routes the park to the turn's `onQuestion`.
  * So the hop that can silently break is the routing: a tool that exists,
  * parks, and returns "the user did not answer" because the holder was never

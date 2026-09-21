@@ -6,7 +6,7 @@
  * `fallbackProviders` entirely — a unit test on a helper says nothing about
  * whether the caller invokes it
  * ("mutation check every test"). So this file drives
- * `query()` itself and asserts on the run's own events.
+ * `query()` itself and asserts on the turn's own events.
  */
 
 import { mkdtemp } from 'node:fs/promises'
@@ -84,7 +84,7 @@ describe('query() drives the declared provider chain', () => {
 		return dir
 	}
 
-	it('falls over to a declared member and finishes the run on it', async () => {
+	it('falls over to a declared member and finishes the turn on it', async () => {
 		const primary = failing('primary', 401)
 		const fallback = new MockLLMProvider({ turns: [{ text: 'the fallback answered' }] })
 		const events: SessionEvent[] = []

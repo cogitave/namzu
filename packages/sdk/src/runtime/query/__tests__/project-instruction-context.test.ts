@@ -284,7 +284,7 @@ describe('live project instruction context', () => {
 		expect(provider.requests).toHaveLength(0)
 	})
 
-	it('flushes a tool-discovered snapshot before a first-batch stop settles the run', async () => {
+	it('flushes a tool-discovered snapshot before a first-batch stop settles the turn', async () => {
 		const cwd = await workingTree()
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'read', args: { path: 'packages/a/file.ts' } }] }],

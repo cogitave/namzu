@@ -12,7 +12,7 @@ import { createSubagentRuntime } from '../runtime.js'
 /**
  * A delegated child keeps only the CLI's retention of checkpoints.
  *
- * The child runs through `ReactiveAgent`, whose turn config was a hand-listed
+ * The child sessions through `ReactiveAgent`, whose turn config was a hand-listed
  * literal with no retention in it, so a long child kept every checkpoint
  * whatever the parent kept. Asserted on disk, after a real child turn through
  * the real stores, because the files left behind are what the bound is for.
@@ -75,7 +75,7 @@ it('bounds the checkpoints a delegated child leaves', async () => {
 		resolveParent: parent.resolveParent,
 		buildTools,
 		buildProvider: () => child,
-		// Nobody is at the terminal: approve every tool review so the child runs.
+		// Nobody is at the terminal: approve every tool review so the child sessions.
 		resolveResumeHandler: () => async (request) =>
 			request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
 		paths: new SessionPaths({ home: stateRoot, slug: '-work-child-retention' }),

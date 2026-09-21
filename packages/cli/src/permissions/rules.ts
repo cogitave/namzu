@@ -8,7 +8,7 @@
  * to "ask a human". This turns a `[permissions]` table into that array.
  *
  * The whole surface is pure: config in, rules out. The gate stays the only
- * thing that decides anything, which is what keeps this testable without a run.
+ * thing that decides anything, which is what keeps this testable without a turn.
  */
 
 import { type AuthorizationRule, builtinCommandArguments } from '@namzu/sdk'

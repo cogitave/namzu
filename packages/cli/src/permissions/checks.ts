@@ -34,7 +34,7 @@
  *
  * Re-implementing the matching here would check this file against itself. The
  * check compiles the operator's table to rules and hands them to the same
- * `AuthorizationGate` a run uses, so what it verifies is the decision that will
+ * `AuthorizationGate` a turn uses, so what it verifies is the decision that will
  * actually be taken.
  *
  * The floor is deliberately OFF while checking. `denyDangerousPatterns` would

@@ -17,7 +17,7 @@ const SESSION_ID = generateSessionId()
  * The probe-veto branch was the only result-producing branch in the
  * executor that left `isError` off, and `isError` being optional meant the
  * compiler could not notice. Five lines above it, the `tool_completed`
- * event for the same veto carried `isError: true` — so the run's event
+ * event for the same veto carried `isError: true` — so the turn's event
  * stream and the result it returned disagreed about the same call, in the
  * same function.
  *

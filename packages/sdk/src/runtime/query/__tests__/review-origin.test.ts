@@ -9,7 +9,7 @@ import {
 
 const SESSION_ID = generateSessionId()
 
-it('preserves each originating run when identical child reviews overlap', async () => {
+it('preserves each originating turn when identical child reviews overlap', async () => {
 	const seen: ToolReviewRequest[] = []
 	const resolve: Array<(answer: ToolReviewAnswer) => void> = []
 	const handler = createReviewHandler({

@@ -61,7 +61,7 @@ export const WebFetchTool = defineTool({
 			return {
 				success: false,
 				output: '',
-				error: 'This run has no web fetch provider configured, so no URL can be fetched.',
+				error: 'This turn has no web fetch provider configured, so no URL can be fetched.',
 			}
 		}
 
@@ -126,7 +126,7 @@ export const WebSearchTool = defineTool({
 				success: false,
 				output: '',
 				error:
-					'This run has no web search provider configured. Namzu ships no search backend; a host supplies one.',
+					'This turn has no web search provider configured. Namzu ships no search backend; a host supplies one.',
 			}
 		}
 

@@ -20,14 +20,14 @@ import { drainQuery } from '../index.js'
 /**
  * A notification appended after the answer must not become the answer's grave.
  *
- * `TurnRecorder.resolveResult` assembles `Run.result` by walking the message
+ * `TurnRecorder.resolveResult` assembles `Turn.result` by walking the message
  * tail BACKWARDS and stopping at the first non-assistant message, and it runs
  * at `markCompleted` — after the loop has finished. So a task notification
  * pushed after the final assistant turn hides that turn from the assembler
  * entirely.
  *
  * This is not hypothetical. It was introduced by the change that made every
- * exit hand over a finished worker's output, and measured here: a run whose
+ * exit hand over a finished worker's output, and measured here: a turn whose
  * model had just said "THIS IS THE RUN ANSWER." returned `run.result ===
  * undefined`. Trading a lost worker result for a lost RUN result is strictly
  * worse than the defect the delivery exists to fix, and every one of the
@@ -162,7 +162,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 		// Both halves, because either one alone is satisfied by a broken fix:
 		// dropping the delivery keeps the answer, and dropping the answer fix
 		// keeps the notification.
-		expect(run.result, 'the notification buried the run answer').toBe(ANSWER)
+		expect(run.result, 'the notification buried the turn answer').toBe(ANSWER)
 		expect(
 			(run.messages as { content: unknown }[]).some(
 				(m) => typeof m.content === 'string' && m.content.includes('THE WORKER RESULT'),

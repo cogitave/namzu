@@ -49,7 +49,7 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	maxRetries?: number
 	/** Return shape shown to the model; see {@link ToolDefinition.outputSchema}. */
 	outputSchema?: Record<string, unknown>
-	/** Settle the run with this tool's output; see {@link ToolDefinition.terminal}. */
+	/** Settle the turn with this tool's output; see {@link ToolDefinition.terminal}. */
 	terminal?: boolean
 	/**
 	 * The argument holding a shell command line; see

@@ -91,7 +91,7 @@ describe('a host command answers from what the kernel owns', () => {
 	it('reports an empty roster as an empty report, not a refusal', async () => {
 		// The mirror case, and the reason the distinction is not a blanket
 		// rule: "who may I call" with the answer "nobody" is complete and
-		// correct for a run with delegation off.
+		// correct for a turn with delegation off.
 		const outcome = await registryWith(kernelHostCommands({ allowedAgentIds: [] })).dispatch(
 			'/agents',
 		)

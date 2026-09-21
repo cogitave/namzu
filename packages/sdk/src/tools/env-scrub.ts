@@ -35,7 +35,7 @@
  * a build script dumping config on failure — therefore returned the operator's
  * API keys as tool output. That output is not ephemeral: it is appended to the
  * durable transcript, persisted by the session store, and re-sent to the model
- * provider as history on every later turn of the run. One incidental `env` in
+ * provider as history on every later turn of the turn. One incidental `env` in
  * a build script converted a local secret into a permanently recorded one that
  * had also been transmitted to a third party.
  *

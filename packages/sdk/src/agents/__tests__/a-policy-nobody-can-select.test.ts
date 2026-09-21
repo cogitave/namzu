@@ -29,7 +29,7 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * policy, and the tests it had all constructed the gateway directly, so they
  * passed while nothing upstream could turn it on.
  *
- * The assertion is deliberately the cancellation itself. Asserting that the run
+ * The assertion is deliberately the cancellation itself. Asserting that the turn
  * completed would pass with the forwarding deleted — a fan-out under
  * `'continue'` completes too — and prove nothing.
  */
@@ -41,7 +41,7 @@ const SLOW = 'patient' as const
 
 /**
  * A manager whose slow child only settles when someone cancels it — which is
- * what an abort actually does, and what lets this run terminate at all.
+ * what an abort actually does, and what lets this turn terminate at all.
  */
 class FanOutManager implements AgentManagerContract {
 	readonly cancelled: TaskId[] = []
@@ -57,7 +57,7 @@ class FanOutManager implements AgentManagerContract {
 	 * Without this the test is a race it usually wins: the sibling policy only
 	 * cancels tasks the gateway is already tracking, so if the failure lands
 	 * before the slow child finishes registering, nothing is cancelled, nothing
-	 * releases the slow child, and the run hangs until the delegation timeout.
+	 * releases the slow child, and the turn hangs until the delegation timeout.
 	 * That happened once here. A fan-out where one leg dies while another is
 	 * genuinely in flight is the scenario being tested, so the harness states
 	 * it instead of hoping for it.
@@ -117,7 +117,7 @@ class FanOutManager implements AgentManagerContract {
 			await this.bothLaunched.then(() => undefined)
 			// Safety valve, and it is what makes a REGRESSION legible. If the
 			// policy never reaches the gateway, nothing cancels the slow child
-			// and this run hangs until the delegation timeout — so the test
+			// and this turn hangs until the delegation timeout — so the test
 			// would report "timed out after 60s" instead of "the sibling was
 			// not cancelled". Releasing it here means the assertion below is
 			// what fails, and it fails in a second.

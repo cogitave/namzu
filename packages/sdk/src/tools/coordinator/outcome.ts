@@ -7,11 +7,11 @@ import type { TaskHandle } from '../../types/agent/scheduler.js'
  * gets reported as an answer:
  *
  * 1. **`TaskHandle.state`** — the gateway's terminal task state. Some gateways
- *    map a failed run to `state: 'failed'`; others forward whatever the agent
- *    manager set, which does not always reflect run-level failure. The kernel's
+ *    map a failed turn to `state: 'failed'`; others forward whatever the agent
+ *    manager set, which does not always reflect turn-level failure. The kernel's
  *    own `finalizeChild` always calls `markCompleted`, so `state` is
  *    `'completed'` for a child that ran and returned `status: 'failed'`.
- * 2. **`BaseAgentResult.status`** — the run's own status, and the canonical
+ * 2. **`BaseAgentResult.status`** — the turn's own status, and the canonical
  *    answer to whether the agent finished its work. `lastError` carries the
  *    message when it did not.
  *
@@ -28,8 +28,8 @@ import type { TaskHandle } from '../../types/agent/scheduler.js'
  * caller reaches rather than in each caller's memory.
  */
 export function taskSucceeded(handle: Pick<TaskHandle, 'state' | 'result'>): boolean {
-	const runStatus = handle.result?.status
-	return handle.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
+	const turnStatus = handle.result?.status
+	return handle.state === 'completed' && (turnStatus === undefined || turnStatus === 'completed')
 }
 
 /**
@@ -43,7 +43,7 @@ export function taskSucceeded(handle: Pick<TaskHandle, 'state' | 'result'>): boo
  * was still working.
  *
  * The two-authority rule applies here too, for the same reason: the kernel's
- * `finalizeChild` always calls `markCompleted`, so a run that returned
+ * `finalizeChild` always calls `markCompleted`, so a turn that returned
  * `status: 'failed'` carries `state: 'completed'`, and a check that read only
  * the gateway state would never see it fail.
  *
@@ -60,7 +60,7 @@ export function taskFailed(handle: Pick<TaskHandle, 'state' | 'result'>): boolea
  * What to call the failure, in the words of whichever layer reported it.
  *
  * The gateway state wins when it is the one that disagrees, because a task that
- * never reached `completed` failed in a way the run status cannot describe — it
+ * never reached `completed` failed in a way the turn status cannot describe — it
  * was cancelled, or it timed out, and saying "failed" for those loses the
  * distinction a reader needs to decide what to do next.
  */

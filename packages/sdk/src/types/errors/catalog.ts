@@ -150,13 +150,13 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 	{
 		id: 'provider.auth',
 		when: (facts) => facts.code === 'auth' || facts.status === 401,
-		message: 'The provider rejected the credentials for this run.',
+		message: 'The provider rejected the credentials for this turn.',
 		hint: 'Check that the API key is set, is not expired, and belongs to the account the model is billed to. Retrying will not help until it changes.',
 	},
 	{
 		id: 'provider.rate_limit',
 		when: (facts) => facts.code === 'rate_limit' || facts.status === 429,
-		message: 'The provider is rate limiting this run.',
+		message: 'The provider is rate limiting this turn.',
 		hint: 'Respect the provider retry delay when reported. Lower concurrency, or wait for the quota window to reset before resuming.',
 	},
 	{
@@ -172,7 +172,7 @@ export const DEFAULT_ERROR_RULES: readonly ErrorCatalogRule[] = [
 			facts.code === 'overloaded' ||
 			(facts.status !== undefined && facts.status >= 500),
 		message: 'The provider is failing on its own side.',
-		hint: 'Nothing in the run is wrong. Resume from the last checkpoint once the provider recovers.',
+		hint: 'Nothing in the turn is wrong. Resume from the last checkpoint once the provider recovers.',
 	},
 	{
 		id: 'provider.network',

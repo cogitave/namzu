@@ -84,10 +84,10 @@ export interface AgentTaskContext {
 	resumeHandler?: ResumeHandler
 
 	/**
-	 * The tool-result screens in force for the parent run, handed down so a
+	 * The tool-result screens in force for the parent session, handed down so a
 	 * delegated child screens its results the same way.
 	 *
-	 * A child is a fresh run with its own executor, so without this it
+	 * A child is a fresh turn with its own executor, so without this it
 	 * installs `DEFAULT_TOOL_RESULT_GUARDRAILS` whatever the parent decided —
 	 * and a host that turned the screens off with `[]` (or substituted a
 	 * `passthroughTools` exemption for a tool it knows) would find the
@@ -98,7 +98,7 @@ export interface AgentTaskContext {
 	 * stamps this onto the child config after the builder runs.
 	 *
 	 * Absent means the parent stated no policy of its own, and the child
-	 * installs the shipped default — which is what every run does when its
+	 * installs the shipped default — which is what every turn does when its
 	 * host configured nothing.
 	 */
 	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
@@ -121,7 +121,7 @@ export interface AgentTaskContext {
 	readonly toolDenies?: readonly string[]
 
 	/**
-	 * Where the parent keeps its run state, handed to every child it
+	 * Where the parent keeps its turn state, handed to every child it
 	 * delegates to. See {@link ChildSessionStorage}. `SupervisorAgent` sets it
 	 * from its own `sessionLog` and `paths`; a host that builds its own
 	 * context for a `LocalTaskScheduler` beside an in-memory `query()` sets it

@@ -13,7 +13,7 @@ import { tokenize } from '../tokenize.js'
 
 /**
  * The compaction pass chose what to keep by position, so a fact stated in
- * the middle of a long run aged out at the same rate as chatter. Salience
+ * the middle of a long turn aged out at the same rate as chatter. Salience
  * gives every message a number from what the kernel can observe without a
  * model. These are the four things the plan says the scorer must prove.
  */

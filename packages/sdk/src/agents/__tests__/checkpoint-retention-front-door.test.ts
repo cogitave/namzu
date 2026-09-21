@@ -18,7 +18,7 @@ import { ReactiveAgent } from '../ReactiveAgent.js'
  * `pruneKeepLast` reaches a turn started through an agent.
  *
  * It existed only on the raw kernel's turn config, and `ReactiveAgent` builds
- * that config from a hand-listed literal, so a host that bounds its own runs
+ * that config from a hand-listed literal, so a host that bounds its own turns
  * could not bound a delegated child's: the child kept every checkpoint.
  * Checkpoints live at `<session-id>/checkpoints/`, one directory per session.
  */

@@ -44,11 +44,11 @@ export function createCallbackInference(
 			used = true
 			// No deadline of our own on the request — see the note on
 			// `PreparationTextRequest.timeoutMs`. The two bounds that remain are
-			// the ones every other model request in the run has: the run's own
+			// the ones every other model request in the turn has: the turn's own
 			// cancellation, and the provider's request timeout. An expired local
 			// deadline here would abort a CONTACTED request, and a request that
 			// ends without its usage receipt leaves the shared ledger unresolved,
-			// which stops the whole run — so a stage that gave up on its own
+			// which stops the whole turn — so a stage that gave up on its own
 			// optional inference would take the operator's turn with it. That is
 			// not hypothetical: it is what a 10s deadline did to every turn
 			// against a reasoning model slower than 10s per auxiliary answer.

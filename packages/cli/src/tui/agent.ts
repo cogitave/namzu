@@ -341,7 +341,7 @@ export type AgentEvent =
 			 * This was `costUsd: number`, narrowed from the same object at the
 			 * mapping site, and the number on its own cannot answer the
 			 * question the screen asks. A total of zero means two different
-			 * things — the run cost nothing, or nobody could price it — and
+			 * things — the turn cost nothing, or nobody could price it — and
 			 * `unpricedTokens` is what separates them. Passing only the total
 			 * left every surface downstream to guess, and both of them guessed
 			 * "free".
@@ -361,7 +361,7 @@ export type AgentEvent =
 			 * cannot mark an estimated numerator honestly while silently
 			 * treating an assumed window as measured.
 			 *
-			 * All four absent when the run resolved no window — then there is
+			 * All four absent when the turn resolved no window — then there is
 			 * no proportion to show, only the spend.
 			 */
 			readonly contextTokens?: number
@@ -372,8 +372,8 @@ export type AgentEvent =
 	/**
 	 * Context was discarded, or an attempt to discard it declined.
 	 *
-	 * Everything else this session fixed was the run quietly not doing what the
-	 * operator asked. This is the same class with the opposite sign: the run
+	 * Everything else this session fixed was the turn quietly not doing what the
+	 * operator asked. This is the same class with the opposite sign: the turn
 	 * quietly doing something they did not ask for. Compaction deletes messages
 	 * irrecoverably, and the first time a user learned it existed was when the
 	 * agent had forgotten something they were relying on — which reads as the
@@ -649,7 +649,7 @@ export interface AgentSession {
 	 *
 	 * Carried on the session rather than re-resolved by whoever asks, because
 	 * resolving builds a provider — and a second one would answer about a
-	 * different sandbox than the one the run is using.
+	 * different sandbox than the one the turn is using.
 	 */
 	readonly sandbox: SandboxSummary
 	readonly providerSummary: string | null
@@ -915,7 +915,7 @@ export interface AgentSession {
 	 * Cancel and settle live sends, compactions and durable resumes, then release
 	 * what the session holds — today, the external tool servers.
 	 *
-	 * A stdio server is a CHILD PROCESS, and closing it while a live run still
+	 * A stdio server is a CHILD PROCESS, and closing it while a live turn still
 	 * owns one of its tools is a use-after-close race. Idempotent, waits for the
 	 * operations it cancelled, and safe to call on a session that connected
 	 * nothing. Calls made after close refuse before provider work starts.
@@ -1309,10 +1309,10 @@ const NAMZU_IDENTITY = [
  *
  * The store used to be constructed inside this function and discarded, which
  * is why namzu could only ever remember something the model had explicitly
- * decided to write down with `save_memory`. The run's own extracted
+ * decided to write down with `save_memory`. The turn's own extracted
  * knowledge had nowhere to go: `promoteMemory` is called at settle with the
  * compaction pass's structured output, and supplying it needs THIS store —
- * the same one `search_memory` reads on the next run, or a promoted memory
+ * the same one `search_memory` reads on the next turn, or a promoted memory
  * would be written somewhere nothing looks.
  */
 interface BuiltTools {
@@ -1374,9 +1374,9 @@ function buildToolRegistry(
 	checkpoints: FileCheckpointStore | undefined,
 	screens?: readonly ToolResultScreenConfig[],
 ): BuiltTools {
-	// Configured here rather than on the run, so every registry this CLI
-	// builds for a run carries the operator's choice — including the sub-agent
-	// registries below, which a run-level option would reach only if each
+	// Configured here rather than on the turn, so every registry this CLI
+	// builds for a turn carries the operator's choice — including the sub-agent
+	// registries below, which a turn-level option would reach only if each
 	// child's config were threaded as well. An absent key stays absent, so the
 	// kernel's default applies exactly as it does for any other host.
 	const screensConfig = resolveToolResultScreens(screens)
@@ -1454,7 +1454,7 @@ export interface AgentSessionOptions {
 	 * Taken as an argument rather than read from `process.cwd()` at each of
 	 * those four points, which is what let `--cwd` reach the session store and
 	 * the skill search and stop there: the caller parsed a directory, the agent
-	 * globbed a different one, and the run reported finding nothing rather than
+	 * globbed a different one, and the turn reported finding nothing rather than
 	 * having looked in the wrong place.
 	 */
 	readonly cwd?: string
@@ -1504,12 +1504,12 @@ export interface AgentSessionOptions {
 	 * feedback when it is not good enough.
 	 *
 	 * A SESSION option rather than a `SendOptions` one, because a gate is a
-	 * standing condition on the run — "don't finish until the build passes" —
+	 * standing condition on the turn — "don't finish until the build passes" —
 	 * not a property of one message. Absent leaves the loop byte-identical.
 	 */
 	readonly reviewAnswer?: ReviewAnswer
 	/**
-	 * Rejections the reviewer is allowed before the run stops with
+	 * Rejections the reviewer is allowed before the turn stops with
 	 * `answer_rejected`. Absent uses the kernel's default.
 	 */
 	readonly maxAnswerReviews?: number
@@ -1547,7 +1547,7 @@ export interface AgentSessionOptions {
 	/** See `NamzuCliConfig.compaction`. Absent means the kernel's structured strategy. */
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
-	/** See `NamzuCliConfig.limits`: how many model calls and tokens one run may spend. */
+	/** See `NamzuCliConfig.limits`: how many model calls and tokens one turn may spend. */
 	readonly limits?: TurnLimitsConfig
 	/**
 	 * Where this session's events are recorded, if anywhere.
@@ -1694,7 +1694,7 @@ export async function createAgentSession(
 		// can actually be entered. What still arrives here is a headless caller —
 		// `run`, `run-stream`, `drain` — which has no picker and for which both
 		// pieces of advice below are real: an environment variable, or
-		// `--provider`. Keeping the refusal is what makes those runs fail rather
+		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
 		return emptySession(
 			`No credential found for ${entry.label}${entry.id === 'zen' ? ' with the selected model. Choose muse-spark-1.3-contributor-free for public access' : ''}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
@@ -2513,7 +2513,7 @@ export async function createAgentSession(
 		// somebody is there to read it, the same condition `ask_user_question`
 		// mounts under further down. A child's roster is the registry
 		// `buildTools` builds above, which carries none of these: that is what
-		// keeps narration the run's own voice rather than a child's. And a
+		// keeps narration the turn's own voice rather than a child's. And a
 		// headless host — `run`, `run-stream`, `drain`, the resident step —
 		// has no rail for a line to appear above, so a tool whose entire
 		// result is "the operator saw this" would be answering with something
@@ -2616,11 +2616,11 @@ export async function createAgentSession(
 	// It is also why `toolNames` below reads the registry rather than a list
 	// captured on this line. The count at connect time is unchanged; what
 	// changes is that asking again later gets a later answer.
-	const taskStoreFor = (runScope: SessionScope): TaskStore =>
+	const taskStoreFor = (sessionScope: SessionScope): TaskStore =>
 		new DiskTaskStore({
 			paths,
-			session: { sessionId: runScope.sessionId },
-			tenantId: runScope.tenantId,
+			session: { sessionId: sessionScope.sessionId },
+			tenantId: sessionScope.tenantId,
 		})
 	let selectedTaskStore: { scope: SessionScope; store: TaskStore } | undefined
 	let taskSelectionGeneration = 0
@@ -2642,10 +2642,10 @@ export async function createAgentSession(
 		// and other asynchronous setup are still being prepared.
 		resetTaskStore()
 		const generation = taskSelectionGeneration
-		return (runScope: SessionScope): TaskStore => {
-			const store = taskStoreFor(runScope)
-			if (generation === taskSelectionGeneration && matchesCurrentScope(runScope)) {
-				selectedTaskStore = { scope: { ...runScope }, store }
+		return (sessionScope: SessionScope): TaskStore => {
+			const store = taskStoreFor(sessionScope)
+			if (generation === taskSelectionGeneration && matchesCurrentScope(sessionScope)) {
+				selectedTaskStore = { scope: { ...sessionScope }, store }
 			}
 			return store
 		}
@@ -3325,7 +3325,7 @@ export async function createAgentSession(
 										})
 									: { contributions: createResidentStepContributions(contextOptions), tools: [] }
 							if (bundle.tools.length) {
-								// Per-send membership: neither another send nor delegated runs inherit this tool.
+								// Per-send membership: neither another send nor delegated sessions inherit this tool.
 								runTools = runTools.fork()
 								for (const tool of bundle.tools) runTools.register(tool)
 							}
@@ -3480,7 +3480,7 @@ export async function createAgentSession(
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
 								...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
-								// Tasks join this run's registry inside query, after the fork.
+								// Tasks join this turn's registry inside query, after the fork.
 								// Keep the existing eager path unless deferral was requested.
 								runtimeToolOverrides: {
 									task_create: options.toolLoading === 'deferred' ? 'deferred' : 'active',
@@ -3836,7 +3836,7 @@ export async function describeProviderModels(
 		signal?.throwIfAborted()
 		// constructProvider calls ProviderRegistry.create, which throws
 		// "Unsupported provider type" until the vendor package has registered
-		// itself. The run path registers lazily via ensureRegistered; the
+		// itself. The turn path registers lazily via ensureRegistered; the
 		// listing path must do the same or every provider returns nothing.
 		await ensureRegistered(id)
 		signal?.throwIfAborted()
@@ -4101,7 +4101,7 @@ interface TurnParams {
 	readonly provider: LLMProvider
 	/** The kernel's compaction configuration for this session, strategy included. */
 	readonly compactionConfig: CompactionConfig
-	/** Where the run's learnings go when the project asked for consolidation. */
+	/** Where the turn's learnings go when the project asked for consolidation. */
 	readonly consolidateInto?: MemoryStore
 	/** The session's job registry and the owner its jobs are bound to. */
 	readonly backgroundJobs?: BackgroundJobRegistry
@@ -4133,16 +4133,16 @@ interface TurnParams {
 	readonly limits?: TurnLimitsConfig
 	/** The project tree a sandboxed turn is rooted at. */
 	readonly sandboxWorkspace: 'working-directory' | 'ephemeral'
-	/** Operator rules for this run, already compiled. */
+	/** Operator rules for this turn, already compiled. */
 	readonly rules: readonly AuthorizationRule[] | undefined
 	/** Standing verdict on the answer this turn settles with. See {@link AgentSessionOptions}. */
 	readonly structuredOutput: StructuredOutputConfig | undefined
 	readonly reviewAnswer: ReviewAnswer | undefined
 	readonly maxAnswerReviews: number | undefined
-	/** What this run should leave behind when it settles. */
+	/** What this turn should leave behind when it settles. */
 	readonly promoteMemory: PromoteMemory | undefined
 	readonly prepareStep?: PrepareStepChain
-	/** Exact interactive authority shared with children launched by this run. */
+	/** Exact interactive authority shared with children launched by this turn. */
 	readonly resumeHandler: ResumeHandler
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
@@ -4239,15 +4239,15 @@ async function* runTurn({
 			...(opts?.origin ? { origin: opts.origin } : {}),
 			...(opts?.abandonInterrupted ? { abandonInterrupted: true } : {}),
 			// Omitted rather than empty when there is no tail. `query` treats the
-			// two the same, but an absent option reads as "this run has no chain"
-			// where `[]` reads as "this run has a chain with nothing in it".
+			// two the same, but an absent option reads as "this turn has no chain"
+			// where `[]` reads as "this turn has a chain with nothing in it".
 			...(fallbackProviders.length > 0 ? { fallbackProviders } : {}),
 			tools,
 			...(pluginManager ? { pluginManager } : {}),
 			...(skillRegistry ? { skillRegistry } : {}),
 			...(skills ? { skills } : {}),
 			// Withheld at both provider and executor boundaries on every ordinary
-			// turn. An admitted send owns the exact run-scoped authority above.
+			// turn. An admitted send owns the exact turn-scoped authority above.
 			...(!opts?.goalRound ? { deniedTools: SESSION_GOAL_TOOL_NAMES } : {}),
 			taskStore,
 			...(taskGateway ? { taskScheduler: taskGateway } : {}),
@@ -4273,7 +4273,7 @@ async function* runTurn({
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 			},
 			// The operator's gate, if they set one. Omitted rather than passed
-			// as undefined so a run with no gate is byte-identical to the one
+			// as undefined so a turn with no gate is byte-identical to the one
 			// that shipped before gates existed.
 			...(reviewAnswer ? { reviewAnswer } : {}),
 			...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
@@ -4748,7 +4748,7 @@ function describeCompactionFailure(event: {
  * the logs use.
  */
 const FALLBACK_REASONS: Readonly<Record<string, string>> = {
-	rate_limit: 'it rate limited this run and the retries did not clear it',
+	rate_limit: 'it rate limited this turn and the retries did not clear it',
 	overloaded: 'it was overloaded and the retries did not clear it',
 	server_error: 'it kept failing and the retries did not clear it',
 	timeout: 'it did not answer in time',
@@ -4759,7 +4759,7 @@ const FALLBACK_REASONS: Readonly<Record<string, string>> = {
 }
 
 /**
- * The one line an operator reads when their run changes hands.
+ * The one line an operator reads when their turn changes hands.
  *
  * Both members are named with their chain position, because naming only the
  * replacement leaves an operator with four declared members unable to tell
@@ -5036,7 +5036,7 @@ function emptySession(
 		},
 		// Throws rather than reporting `no-checkpoint`. A resume that reported
 		// "there is nothing to continue" when the truth is "this session has no
-		// provider" would let a drainer mark every run in a queue as a dead end
+		// provider" would let a drainer mark every turn in a queue as a dead end
 		// and move on — an unavailable capability degrading a check into a
 		// wrong answer, on the one path where the answer is destructive.
 		resumeDurable: async () => {

@@ -26,7 +26,7 @@ import { drainQuery } from '../index.js'
  * field by field. So the busier surface kept showing `toolName: 'create_task'`
  * and nothing else — the precise behaviour the change was supposed to end.
  *
- * A live run did not catch it either: the run observes `plan_ready`, which
+ * A live turn did not catch it either: the turn observes `plan_ready`, which
  * carries whole `PlanStep`s and therefore always had `agentId`. Watching the
  * event stream confirmed the field existed somewhere, which is not the same
  * question as whether the approver gets it.

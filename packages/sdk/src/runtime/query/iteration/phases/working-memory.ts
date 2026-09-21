@@ -78,7 +78,7 @@ export function splitWorkingMemoryForRequest(messages: readonly Message[]): {
  * The slot is an EPHEMERAL system message placed as the LAST leading system
  * message (after the cached static + dynamic system messages), so it rides
  * inside the compaction-preserved leading-system run. That is its place in
- * the run's HISTORY only: a request carries it as request-only context after
+ * the turn's HISTORY only: a request carries it as request-only context after
  * the history ({@link splitWorkingMemoryForRequest}), so a changed pin never
  * busts the cached conversation prefix.
  *

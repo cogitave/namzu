@@ -18,7 +18,7 @@ import { type QueryParams, drainQuery } from '../index.js'
 import { checkpointStoreFor, memorySession } from './support/session.js'
 
 /**
- * The run-level arm of "a store that cannot record the park must not take
+ * The turn-level arm of "a store that cannot record the park must not take
  * the tool down with it".
  *
  * The binding-level contract is covered — `durable-question-park.test.ts`
@@ -30,13 +30,13 @@ import { checkpointStoreFor, memorySession } from './support/session.js'
  * only the cross-process handoff is lost.
  *
  * A question that is lost loudly is a deployment problem. A question that
- * takes the tool down with it is a run that dies for a reason nobody can
+ * takes the tool down with it is a turn that dies for a reason nobody can
  * act on.
  */
 
 const PAUSE = {
 	name: 'target_environment',
-	prompt: 'which environment should this run against?',
+	prompt: 'which environment should this turn against?',
 	options: [
 		{ id: 'staging', label: 'Staging' },
 		{ id: 'production', label: 'Production' },
@@ -227,7 +227,7 @@ describe('a question whose park cannot be recorded', () => {
 		// Named plainly because it is the cost of the recovery: a host
 		// building an approval queue from durable state never sees this
 		// question, and a process that died mid-park could not have resumed
-		// it. The run is unaffected; the cross-process handoff is gone.
+		// it. The turn is unaffected; the cross-process handoff is gone.
 		expect(store.refused).toHaveLength(1)
 		expect(store.refused[0]).toMatch(/^[0-9a-f-]{36}$/)
 		expect(

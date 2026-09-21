@@ -19,7 +19,7 @@ import {
 } from '@namzu/sdk'
 
 import { subagentParentFixture } from '../__fixtures__/parent.js'
-import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../policy.js'
+import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from '../policy.js'
 import { GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
 /**
@@ -165,19 +165,19 @@ describe('the Agent tool parents a delegated child to the turn that asked for it
 	it('defaults the tool, scheduler and child turn to no deadline', async () => {
 		const { agentTool, close, gateway, registered } = await buildAgentTool()
 		try {
-			expect(agentTool.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(agentTool.timeoutMs).toBe(CLI_INTERACTIVE_TURN_TIMEOUT_MS)
 			expect(agentTool.timeoutMs).toBe(0)
 
 			const manager = Object.values(gateway as unknown as Record<string, unknown>).find(
 				(value) => value instanceof AgentManager,
 			) as { config?: { childTimeoutMs?: number } } | undefined
-			expect(manager?.config?.childTimeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(manager?.config?.childTimeoutMs).toBe(CLI_INTERACTIVE_TURN_TIMEOUT_MS)
 
 			const general = registered.find(
 				(definition) => definition.info.id === GENERAL_PURPOSE_SUBAGENT,
 			)
 			const config = (await general?.configBuilder?.({})) as ReactiveAgentConfig | undefined
-			expect(config?.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(config?.timeoutMs).toBe(CLI_INTERACTIVE_TURN_TIMEOUT_MS)
 		} finally {
 			await close()
 		}

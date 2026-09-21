@@ -34,7 +34,7 @@
  * Conservative default for a model we do not recognise.
  *
  * Under-estimating is the safe direction: it compacts earlier than needed,
- * costing a summarization pass. Over-estimating means the run dies on a
+ * costing a summarization pass. Over-estimating means the turn dies on a
  * provider `context_length_exceeded` with nothing recoverable.
  */
 export const DEFAULT_ASSUMED_CONTEXT_WINDOW = 128_000
@@ -133,7 +133,7 @@ export function resolveContextWindow(
 	 *
 	 * A plain number rather than a promise, because both call sites are
 	 * synchronous and sit in the hot loop. Resolving happens once at the
-	 * start of a run; this parameter is that answer being carried in.
+	 * start of a turn; this parameter is that answer being carried in.
 	 */
 	providerReported?: number,
 ): ResolvedContextWindow {

@@ -65,7 +65,7 @@ export default function(host) {
    ${fail ? "throw new Error('Independent evaluation was interrupted.');" : ''}
    const trials=side=>Array.from({length:10},(_,i)=>{
     const passed=side==='candidate'||i>1, taskId=context.stage+'-'+Math.floor(i/2);
-    return {taskId,trial:i%2,conditions:context.stage+'-'+i,trajectoryId:side+'-'+context.stage+'-'+i,result:{case:taskId,passed,status:passed?'passed':'failed',mean:Number(passed),scores:{exact:{score:Number(passed),reason:'Independent fixture check.'}},run:{output:passed?'observed':'missing',steps:[],toolCalls:[],totalTokens:1,totalCostUsd:0,durationMs:1}}};
+    return {taskId,trial:i%2,conditions:context.stage+'-'+i,trajectoryId:side+'-'+context.stage+'-'+i,result:{case:taskId,passed,status:passed?'passed':'failed',mean:Number(passed),scores:{exact:{score:Number(passed),reason:'Independent fixture check.'}},turn:{output:passed?'observed':'missing',steps:[],toolCalls:[],totalTokens:1,totalCostUsd:0,durationMs:1}}};
    });
    const baseline=trials('baseline'), candidate=trials('candidate');
    return {usageComplete:true,batch:{baselineRevision:context.baselineRevision,candidateRevision:context.candidateRevision,baseline,candidate,attributions:[{taskId:context.stage+'-0',effect:'improvement',reason:'Independent trace comparison.',baselineTrajectories:baseline.slice(0,2).map(t=>t.trajectoryId),candidateTrajectories:candidate.slice(0,2).map(t=>t.trajectoryId)}]}};

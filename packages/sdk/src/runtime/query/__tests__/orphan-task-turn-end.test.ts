@@ -20,7 +20,7 @@ import { drainQuery } from '../index.js'
  * Gateway that permanently reports one running task. Every dispatch
  * tool is blocking, so a running task at end-of-turn is an orphan —
  * there is no notification producer that could ever deliver its
- * result (the listener was removed in dc16d58). The run must NOT
+ * result (the listener was removed in dc16d58). The turn must NOT
  * busy-wait on it.
  */
 function orphanTaskGateway(): TaskScheduler {
@@ -58,10 +58,10 @@ describe('end of turn with running agent tasks', () => {
 	// turn ended while the gateway still listed a running task — but
 	// nothing has pushed onto that queue since dc16d58 removed the
 	// onTaskCompleted producer, so the wait always injected nothing and
-	// the run hung for minutes. The vitest per-test timeout is the
+	// the turn hung for minutes. The vitest per-test timeout is the
 	// hang detector here: with the busy-wait present this test times
 	// out instead of completing.
-	it('ends the run promptly instead of busy-waiting on orphan tasks', async () => {
+	it('ends the turn promptly instead of busy-waiting on orphan tasks', async () => {
 		// One text turn, no tools — the mock's default script shape.
 		const provider = new MockLLMProvider({
 			turns: [{ text: 'Final answer.' }],
@@ -102,7 +102,7 @@ describe('end of turn with running agent tasks', () => {
 		expect(run.stopReason).toBe('end_turn')
 		expect(run.result).toBe('Final answer.')
 		// One turn only — no futile re-invocation loop on the orphan.
-		// Exactly one model call: the run must NOT busy-wait on the orphan.
+		// Exactly one model call: the turn must NOT busy-wait on the orphan.
 		expect(provider.requests).toHaveLength(1)
 		expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
 	}, 10_000)

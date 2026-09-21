@@ -25,7 +25,7 @@ function stubLogger(): never {
 	} as never
 }
 
-describe('the sandbox for a run', () => {
+describe('the sandbox for a turn', () => {
 	it('is on when nothing is configured', () => {
 		// The whole point. Absent used to mean off, and not by decision.
 		const resolved = resolveSandbox(stubLogger(), undefined)

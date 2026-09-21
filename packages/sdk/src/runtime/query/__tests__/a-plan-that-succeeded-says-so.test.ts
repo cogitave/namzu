@@ -14,14 +14,14 @@ import { drainQuery } from '../index.js'
 /**
  * Nothing settled a plan that SUCCEEDED.
  *
- * The error path calls `failPlan`, so a run that blew up said so. The success
+ * The error path calls `failPlan`, so a turn that blew up said so. The success
  * path never touched the plan manager at all — so a plan could reach `failed`
  * or sit at `executing` forever, but never `completed`. A host reading
- * `plan.status` after a successful run was told the work was still going.
+ * `plan.status` after a successful turn was told the work was still going.
  *
  * Settlement is conditional on every step having reported, and the condition is
  * read rather than caught: `completePlan` refuses an unreported step on
- * purpose, and letting that throw here would turn a run that worked into a run
+ * purpose, and letting that throw here would turn a turn that worked into a turn
  * that crashed on its way out — a worse version of the bug the refusal exists
  * to prevent.
  */
@@ -66,7 +66,7 @@ function twoStepPlan(pm: PlanManager): void {
 	pm.startExecution()
 }
 
-describe('a run that succeeded settles the plan it was executing', () => {
+describe('a turn that succeeded settles the plan it was executing', () => {
 	it('reports completed when every step reported', async () => {
 		const pm = await runWithPlan((p) => {
 			twoStepPlan(p)
@@ -89,8 +89,8 @@ describe('a run that succeeded settles the plan it was executing', () => {
 
 	it('leaves it executing — and does not throw — when a step never reported', async () => {
 		// The honest answer. The caller and the plan disagree about whether the
-		// work is over, and the end of a successful run is not the place to
-		// resolve that by guessing. The run itself must still finish cleanly,
+		// work is over, and the end of a successful turn is not the place to
+		// resolve that by guessing. The turn itself must still finish cleanly,
 		// which is the half that would break if the refusal were caught here
 		// instead of checked.
 		const pm = await runWithPlan((p) => {
@@ -101,7 +101,7 @@ describe('a run that succeeded settles the plan it was executing', () => {
 		expect(pm.active?.status).toBe('executing')
 	})
 
-	it('does nothing when the run had no plan at all', async () => {
+	it('does nothing when the turn had no plan at all', async () => {
 		const pm = await runWithPlan(() => {})
 
 		expect(pm.active).toBeNull()

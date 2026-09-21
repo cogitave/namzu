@@ -13,7 +13,7 @@ import { planPendingResume } from '../resume-pending.js'
 /**
  * `ask_user_question` parked through the raw handler under a synthetic
  * `cp_question_<toolUseId>` id that was never written. The checkpoint
- * therefore did not exist: nothing on disk said a human owed this run an
+ * therefore did not exist: nothing on disk said a human owed this turn an
  * answer, and a remote host could not even OBSERVE the question except
  * through the in-process callback.
  *
@@ -132,8 +132,8 @@ describe('recording the park', () => {
 	})
 
 	it('is inert when nothing has bound it', async () => {
-		// The tool outlives the run that binds it, so an unbound channel is
-		// the normal state outside a run — and must behave exactly as it
+		// The tool outlives the turn that binds it, so an unbound channel is
+		// the normal state outside a turn — and must behave exactly as it
 		// did before any of this existed.
 		const parks = new QuestionParkBinding()
 		expect(await parks.record({ questionId: 't1' } as never)).toBeNull()
@@ -142,7 +142,7 @@ describe('recording the park', () => {
 		).resolves.toBeUndefined()
 	})
 
-	it('stops writing into a run that has settled', async () => {
+	it('stops writing into a turn that has settled', async () => {
 		const parks = new QuestionParkBinding()
 		parks.bind({
 			record: async () => '1987ac99-6017-40a3-8e0a-2de666031408' as CheckpointId,
@@ -197,7 +197,7 @@ describe('re-entering the tool with the answer', () => {
 	})
 
 	it('consumes an answer once', async () => {
-		// A tool that asks the same question twice in one resumed run is
+		// A tool that asks the same question twice in one resumed turn is
 		// asking something genuinely new the second time; answering it from
 		// a stale record would fabricate consent.
 		const pending = new PendingAnswers()

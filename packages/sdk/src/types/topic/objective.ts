@@ -1,10 +1,10 @@
 import type { SessionId, TenantId, TopicId, TurnId } from '../ids/index.js'
 
 /**
- * Work that outlives one run.
+ * Work that outlives one turn.
  *
  * Nothing in this kernel survived a single `query()` call. `stopWhen` and
- * `prepareStep` shape one loop, the completion inbox holds one run open for
+ * `prepareStep` shape one loop, the completion inbox holds one turn open for
  * a worker, and the topic manager owned a container with no work state in
  * it at all — so a host wanting "keep going until X is done, stop safely if
  * it stalls or runs long, let a human pause and inspect" had to hand-roll

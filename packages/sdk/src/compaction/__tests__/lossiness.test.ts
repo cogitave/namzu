@@ -9,7 +9,7 @@ import { serializeState } from '../serializer.js'
  * What survives compaction is the ONLY record of the history it replaced.
  * Two ways that record was quietly degrading:
  *
- * 1. Capped lists evicted with `shift()` — oldest-first — so on a long run
+ * 1. Capped lists evicted with `shift()` — oldest-first — so on a long turn
  *    the 26th assistant note silently deleted the 1st. The early entries
  *    are the load-bearing ones (the original requirement, the decision
  *    that set the approach); the recent ones are still in the un-compacted

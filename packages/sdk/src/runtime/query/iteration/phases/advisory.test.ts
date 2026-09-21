@@ -3,7 +3,7 @@
  *
  *   This file pins the live mutation boundary that `src/advisory/*` tests
  *   intentionally do NOT cover: the advisory phase IS where advisories
- *   inject user messages into the run via `ctx.recorder.pushMessage(...)`
+ *   inject user messages into the turn via `ctx.recorder.pushMessage(...)`
  *  . A regression that drops the `pushMessage` call — silently
  *   dropping all advisor output — would pass `src/advisory` tests,
  *   typecheck, and lint. This file is the only thing that catches it.
@@ -153,7 +153,7 @@ function makeCtx(options: MockCtxOptions = {}): {
 		recorder: {
 			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 			messages: [],
-			// An advisory call is a billed model call on the run's budget;
+			// An advisory call is a billed model call on the turn's budget;
 			// the phase now reports it so the guard can see it.
 			accumulateUsage: vi.fn(),
 			tokenUsage: {

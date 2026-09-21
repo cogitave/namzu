@@ -42,7 +42,7 @@ export class InMemoryConfigOverrideStore implements ConfigOverrideStore {
  * Whole-file rather than append-and-replay: this holds tens of small
  * objects, not a log, and a rewrite is the shape a human can open and read.
  * A corrupt file loads as empty rather than throwing — a config override is
- * a preference, and refusing to start a run because one is unreadable would
+ * a preference, and refusing to start a turn because one is unreadable would
  * make a convenience into an outage.
  */
 export class DiskConfigOverrideStore implements ConfigOverrideStore {

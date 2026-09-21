@@ -10,8 +10,8 @@ import type { CommandContext } from '../types.js'
  * run from its checkpoint in this process.
  *
  * Before this, a rate limit ended a headless run with the same code as a
- * failure, and the only way on was a wrapper re-prompting a fresh run from
- * whatever notes the first had left — the run's own context was gone. The
+ * failure, and the only way on was a wrapper re-prompting a fresh turn from
+ * whatever notes the first had left — the turn's own context was gone. The
  * kernel had kept a checkpoint the whole time; nothing headless could reach it.
  */
 
@@ -73,7 +73,7 @@ const PAUSE = {
 	},
 	explanation: {
 		id: 'provider.rate_limit',
-		message: 'The provider is rate limiting this run.',
+		message: 'The provider is rate limiting this turn.',
 		hint: 'Wait before continuing.',
 	},
 }
@@ -85,7 +85,7 @@ async function run(rawArgs: string[], config: Record<string, unknown> = {}) {
 	return { code, ...captured }
 }
 
-describe('a paused run, given time to wait', () => {
+describe('a paused turn, given time to wait', () => {
 	it('waits the provider delay, resumes from the checkpoint, and finishes with 0', async () => {
 		sessionStub.send = (() =>
 			stream([{ kind: 'delta', text: 'first half, ' }, PAUSE])) as AgentSession['send']
@@ -150,7 +150,7 @@ describe('a paused run, given time to wait', () => {
 	})
 
 	it('does not wait on a pause with no provider behind it', async () => {
-		// A run parked on something other than the provider is not a rate limit;
+		// A turn parked on something other than the provider is not a rate limit;
 		// waiting would resume it into the same park.
 		sessionStub.send = (() =>
 			stream([

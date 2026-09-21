@@ -89,7 +89,7 @@ describe('a gate scorer', () => {
 	})
 
 	it('does not fail the case when it could not judge at all', async () => {
-		// Unavailable is not zero. A gate that threw did not judge the run
+		// Unavailable is not zero. A gate that threw did not judge the turn
 		// badly, it failed to judge it — the inconclusive path, not a
 		// failure, and the two demand opposite responses.
 		const report = await runExperiment({

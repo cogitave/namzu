@@ -28,7 +28,7 @@ describe('status through the chain', () => {
 
 	it('finds it three layers down', () => {
 		const classified = classifyProviderError(
-			wrap('run failed', wrap('step failed', wrap('request failed', throttled))),
+			wrap('turn failed', wrap('step failed', wrap('request failed', throttled))),
 		)
 		expect(classified.code).toBe('rate_limit')
 	})

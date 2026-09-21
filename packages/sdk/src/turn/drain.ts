@@ -30,7 +30,7 @@
  * tool, and neither text settles the other.
  *
  * The unit of work is a callback, so this module never needs a provider, a
- * tool registry or a sandbox — the half of a run that cannot be serialized
+ * tool registry or a sandbox — the half of a turn that cannot be serialized
  * stays with the caller, exactly as `resumeSession` already splits it.
  */
 

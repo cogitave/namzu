@@ -38,7 +38,7 @@ export interface ConnectorMethod<TInput = unknown, TOutput = unknown> {
 
 /**
  * **Declared, not implemented.** Nothing reads a trigger and nothing emits
- * a {@link ConnectorEvent}; no inbound event starts a run today.
+ * a {@link ConnectorEvent}; no inbound event starts a turn today.
  *
  * Said here rather than left to be discovered, because a connector author
  * who declares triggers gets no error and no events — the worst combination

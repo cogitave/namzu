@@ -2,7 +2,7 @@ import type { Sandbox, SandboxCreateConfig, SandboxProvider } from '../../types/
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
-/** A sandbox release gets thirty seconds before the run stops waiting for it. */
+/** A sandbox release gets thirty seconds before the turn stops waiting for it. */
 export const DEFAULT_SANDBOX_TEARDOWN_TIMEOUT_MS = 30_000
 
 export function resolveSandboxTeardownTimeoutMs(value: number | undefined): number {
@@ -55,10 +55,10 @@ function notifyLateTeardown(
 /**
  * Release a sandbox under a fresh owner.
  *
- * The run signal is deliberately not an input: cleanup normally begins because
+ * The turn signal is deliberately not an input: cleanup normally begins because
  * that signal is already aborted. A private signal gives the implementation a
  * chance to stop its transport at the teardown deadline, while the independent
- * race keeps a third-party implementation that ignores it from pinning the run.
+ * race keeps a third-party implementation that ignores it from pinning the turn.
  */
 export async function teardownSandbox(
 	sandbox: Sandbox,
@@ -97,7 +97,7 @@ export async function teardownSandbox(
 /**
  * Acquire a sandbox without allowing foreign setup to outlive run authority.
  *
- * Cancellation or the run timeout settles this function even when a provider
+ * Cancellation or the turn timeout settles this function even when a provider
  * ignores the signal.
  * A handle that arrives later is never published and is released exactly once.
  * This proves host/run liveness and cleanup of every handle the provider
@@ -109,7 +109,7 @@ export async function acquireSandbox(options: {
 	readonly provider: SandboxProvider
 	readonly config: Omit<SandboxCreateConfig, 'signal'>
 	readonly signal: AbortSignal
-	/** Remaining wall-clock owned by the run, not a second sandbox budget. */
+	/** Remaining wall-clock owned by the turn, not a second sandbox budget. */
 	readonly timeoutMs: number
 	readonly teardownTimeoutMs: number
 	readonly onLateTeardown?: (result: SandboxTeardownResult) => void

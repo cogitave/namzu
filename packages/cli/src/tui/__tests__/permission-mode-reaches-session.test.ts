@@ -105,7 +105,7 @@ describe('the TUI permission-mode hop', () => {
 		expect(await handler?.(review)).toEqual({
 			action: 'reject_tools',
 			feedback:
-				'Refused: this run only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
+				'Refused: this turn only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
 		})
 		expect(onPermission).not.toHaveBeenCalled()
 	})

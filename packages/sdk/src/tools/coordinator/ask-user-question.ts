@@ -1,12 +1,12 @@
 /**
- * The one tool that turns a run around to face the human.
+ * The one tool that turns a turn around to face the human.
  *
  * It used to be built inside `buildCoordinatorTools`, which needs a gateway,
  * a scheduler and a roster the question has no use for — so a host that
  * wanted only this tool (an interactive terminal with no delegation) had to
  * assemble the whole coordinator set and fish the question out of it, and
- * had to invent a run id at build time because the builder demanded one.
- * This builder needs the park handler and nothing else; the run id is read
+ * had to invent a turn id at build time because the builder demanded one.
+ * This builder needs the park handler and nothing else; the turn id is read
  * from the calling `ToolContext` unless the host pins one.
  */
 
@@ -186,7 +186,7 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 				allowFreeText,
 			}
 
-			// An answer carried in from a resumed run. Checked before the
+			// An answer carried in from a resumed turn. Checked before the
 			// park, because re-entering this tool is HOW the answer gets
 			// delivered: the batch is re-executed, and without this the
 			// re-execution would ask the user something they already
@@ -243,7 +243,7 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 			if (decision.action !== 'answer_question') return noAnswer
 			if (decision.questionId !== undefined && decision.questionId !== toolUseId) {
 				// Misdirection guard: this answer was meant for a different
-				// question parked under the same run (stale client). Never
+				// question parked under the same turn (stale client). Never
 				// fabricate a selection against the wrong question.
 				return noAnswer
 			}

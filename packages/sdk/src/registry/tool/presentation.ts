@@ -53,7 +53,7 @@ export function genericLabel(input: unknown): string {
 }
 
 /**
- * `registry` is the `ToolRegistryContract` a run already holds, so a
+ * `registry` is the `ToolRegistryContract` a turn already holds, so a
  * presenter never needs its own copy of what is registered — and a tool
  * added at runtime by a plugin is presentable the moment it is registered.
  */

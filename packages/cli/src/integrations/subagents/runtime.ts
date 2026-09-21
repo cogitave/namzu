@@ -90,7 +90,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
-import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
+import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
 import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
 
 /**
@@ -151,7 +151,7 @@ const SUBAGENT_PROMPT = [
 	'- If you need to research and have no web tool available, say so plainly and answer from your own knowledge with that caveat — do not invent sources, data, or URLs.',
 	'- Do not invent command output or results. If you cannot complete the task, say what blocked you.',
 	'',
-	// The same working rules the parent runs under. A delegated task edits the
+	// The same working rules the parent sessions under. A delegated task edits the
 	// same repository, and a child that reads a file before editing it while
 	// the parent does not is the same defect in the other direction.
 	NAMZU_WORKING_DOCTRINE,
@@ -242,7 +242,7 @@ export interface SubagentRuntimeOptions {
 	 * Produces the "where and when" block for a child, at the moment the child
 	 * is built rather than once for the session.
 	 *
-	 * A function because both facts it carries can change while the parent runs:
+	 * A function because both facts it carries can change while the parent sessions:
 	 * a long session crosses midnight, and the parent may itself have checked
 	 * out a branch since it started. A string captured at startup would hand
 	 * every later sub-agent a confident, stale answer.
@@ -457,7 +457,7 @@ export async function createSubagentRuntime(
 		const manager = new AgentManager(
 			registry,
 			{
-				childTimeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+				childTimeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				capacityBehavior: 'queue',
 			},
 			{
@@ -734,7 +734,7 @@ export async function createSubagentRuntime(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS),
+		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			const {
 				description,
@@ -1000,7 +1000,7 @@ export async function createSubagentRuntime(
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS),
+		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			const gateway = await gatewayForTurn(context.turnId)
 			let taskId: TaskId
@@ -1524,7 +1524,7 @@ function buildDefinition(
 			return {
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
-				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				maxIterations: limits.maxIterations,
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,

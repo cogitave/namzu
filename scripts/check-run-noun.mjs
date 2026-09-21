@@ -112,7 +112,7 @@ const AG_UI_PATHS = [/^packages\/ag-ui\//, /^docs\/sdk\/ag-ui\.md$/];
 export const INTENTIONAL = new Map([
 	// parseTurnState refuses a RunState by its `runId` and names it.
 	["packages/sdk/src/types/session/turn-state.ts", new Set(["RunState", "runId"])],
-	["packages/sdk/src/runtime/query/__tests__/durable-run-state.test.ts", new Set(["RunState", "runId"])],
+	["packages/sdk/src/runtime/query/__tests__/durable-turn-state.test.ts", new Set(["RunState", "runId"])],
 	// A session record never carries the live-only `runId`; the schema refuses it.
 	["packages/sdk/src/types/session/records.ts", new Set(["runId"])],
 	// The fixtures pin that run-era type names and a `runId` field are refused.

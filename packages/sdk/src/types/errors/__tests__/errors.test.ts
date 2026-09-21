@@ -8,7 +8,7 @@ import { NamzuError, isNamzuError, toPlatformError } from '../index.js'
  * `PlatformError` was declared and never constructed — a shape nothing
  * produced and nothing consumed — while the runtime threw bare `Error`
  * everywhere. A caller catching a failure from `query()` could not tell
- * "the model rate-limited us" from "the run was configured wrong" from
+ * "the model rate-limited us" from "the turn was configured wrong" from
  * "that checkpoint does not exist". Matching on message text was the only
  * recourse, and message text is not an interface.
  */

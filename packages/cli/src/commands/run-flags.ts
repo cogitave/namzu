@@ -49,7 +49,7 @@ export interface RunFlags {
 	/** --yolo / --dangerously-skip-permissions was given. */
 	skipPermissions: boolean
 	/**
-	 * `--trust`: the operator accepts this working directory, for this run.
+	 * `--trust`: the operator accepts this working directory, for this turn.
 	 *
 	 * Separate from `skipPermissions` on purpose, and the two must never imply
 	 * each other. Skipping permissions is a statement about which tool calls may
@@ -69,7 +69,7 @@ export interface RunFlags {
 	/** `--token-budget <n>`: cumulative token limit; 0 is unlimited. */
 	tokenBudget: number | null
 	/**
-	 * `--wait-for-provider <duration>`: how long the run may spend waiting out
+	 * `--wait-for-provider <duration>`: how long the turn may spend waiting out
 	 * provider pauses (a rate limit, an outage) before it gives up with 75.
 	 * Milliseconds; null means the flag was not given and the config decides.
 	 */
@@ -86,7 +86,7 @@ export interface RunFlags {
 	gates: string[]
 	/**
 	 * `--gate-retries <n>`: how many times a failing gate may hand the answer
-	 * back before the run stops with `answer_rejected`.
+	 * back before the turn stops with `answer_rejected`.
 	 */
 	gateRetries: number | null
 	/**
@@ -339,7 +339,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
  * Relative values resolve against the process's own directory, which is the
  * only base a caller can predict. A path that is missing or is not a directory
  * is refused rather than silently falling back: falling back is how a typo'd
- * `--cwd` becomes a run that searched somewhere else and reported finding
+ * `--cwd` becomes a turn that searched somewhere else and reported finding
  * nothing, which reads as "the file isn't there".
  */
 export function resolveWorkingDirectory(raw: string | null): { cwd: string } | { error: string } {
@@ -389,13 +389,13 @@ export async function loadSkillsContext(
  * Lives beside the parser for the reason at the top of this file: both
  * headless commands take the same input, so both must build the same gate
  * from it. A flag parsed by the shared parser and honoured by only one
- * command is worse than a flag neither has — the operator gets a run that
+ * command is worse than a flag neither has — the operator gets a turn that
  * accepted `--gate` and settled on a red build, with nothing to read that
  * says why.
  *
  * Returns the reviewer AND the rejection budget together, because the two
- * have to agree: the gate stops executing after `maxRetries` and the run
- * stops after `maxAnswerReviews`, and a run whose budget outlasts its gate
+ * have to agree: the gate stops executing after `maxRetries` and the turn
+ * stops after `maxAnswerReviews`, and a turn whose budget outlasts its gate
  * spends its remaining turns being told the same thing.
  */
 export function buildGate(

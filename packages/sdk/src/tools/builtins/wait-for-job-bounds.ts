@@ -14,7 +14,7 @@ import type { BackgroundJobRegistryRef } from '../../types/tool/index.js'
  * as progress would make the idle bound unable to fire for a wedged job at
  * all, which is the exact failure this exists to catch.
  *
- *  - the **run bound** counts elapsed time and is never refreshed. It
+ *  - the **wall-clock bound** counts elapsed time and is never refreshed. It
  *    exists for a job that stays busy forever (a server, a stuck build).
  *  - the **idle bound** counts time since output last grew, and resets
  *    whenever it does. It exists for a job that stopped producing anything
@@ -26,10 +26,10 @@ import type { BackgroundJobRegistryRef } from '../../types/tool/index.js'
  */
 export interface JobWaitOptions {
 	/** Elapsed-time ceiling, never refreshed. */
-	readonly runMs: number
+	readonly wallMs: number
 	/**
 	 * Time-without-new-output ceiling, refreshed whenever `read` returns
-	 * more than it did last tick. Omit to bound by the run clock alone.
+	 * more than it did last tick. Omit to bound by the turn clock alone.
 	 */
 	readonly idleMs?: number
 	/** Resume from here rather than the start of what the job has retained. */
@@ -53,7 +53,7 @@ export type JobWaitOutcome =
 	| ({
 			readonly kind: 'timeout'
 			/** Which clock ran out. */
-			readonly cause: 'idle' | 'run'
+			readonly cause: 'idle' | 'wall'
 			readonly elapsedMs: number
 	  } & JobWaitProgress)
 
@@ -126,11 +126,11 @@ export async function waitForJobWithBounds(
 				if (settled) return
 				drain()
 				const elapsed = now() - startedAt
-				if (elapsed >= options.runMs) {
+				if (elapsed >= options.wallMs) {
 					clearInterval(tick)
 					resolve({
 						kind: 'timeout',
-						cause: 'run',
+						cause: 'wall',
 						elapsedMs: elapsed,
 						output,
 						nextOffset: cursor,

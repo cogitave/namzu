@@ -28,7 +28,7 @@ export function applyLifecycleHookResults(
 				continue
 			case 'skip':
 				// The one lifecycle event with a verdict: a hook may refuse the
-				// prompt before the model sees it, and the run ends there.
+				// prompt before the model sees it, and the turn ends there.
 				if (event === 'user_prompt_submit') {
 					throw new NamzuError({
 						code: 'plugin_error',

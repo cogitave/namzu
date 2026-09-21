@@ -14,7 +14,7 @@ import type { QuestionParkBinding } from './question-park.js'
 import { teardownSandbox } from './sandbox-lifecycle.js'
 
 /**
- * Everything a run borrows, handed back when it ends.
+ * Everything a turn borrows, handed back when it ends.
  *
  * A turn attaches to process-wide things it does not own — a
  * shared background-job registry, a question channel a tool outlived, a task
@@ -24,9 +24,9 @@ import { teardownSandbox } from './sandbox-lifecycle.js'
  * abandonment run this just as settlement does.
  *
  * The order is the contract, and the awaits are in it: unsubscribe from job exits, close the wait-intent recorder, kill
- * only this run's jobs, unbind the question channel, promote what the run
+ * only this turn's jobs, unbind the question channel, promote what the turn
  * learned, tear the sandbox down, unsubscribe from the task store, record the
- * duration under the status the run actually settled with, and end the root
+ * duration under the status the turn actually settled with, and end the root
  * span last.
  */
 export interface TurnResources {
@@ -35,7 +35,7 @@ export interface TurnResources {
 	readonly unsubscribeJobExits: (() => void) | undefined
 	readonly unsubscribeTaskStore: (() => void) | undefined
 	readonly awaitedJobs: AwaitedJobs | undefined
-	/** Jobs a host bound to its session are the host's to stop, not this run's. */
+	/** Jobs a host bound to its session are the host's to stop, not this turn's. */
 	readonly backgroundJobs: BackgroundJobRegistry | undefined
 	readonly backgroundJobOwner: string | undefined
 	readonly questionParks: QuestionParkBinding
@@ -77,22 +77,22 @@ export async function* releaseTurnResources(
 
 	// A background job outlives the tool call that started it — that
 	// is what it is for — so nothing but this stops it outliving the
-	// RUN. Scoped to this run's id: a shared registry serving several
+	// RUN. Scoped to this turn's id: a shared registry serving several
 	// runs must not have one of them tear down another's work.
 	//
 	// Awaited, and its failure swallowed. A job that would not die is
-	// worth a log line, and is not worth retracting a run's answer.
+	// worth a log line, and is not worth retracting a turn's answer.
 	unsubscribeJobExits?.()
 	// The wait-intent recorder listens on the same shared registry and
 	// leaks the same way if it is left attached.
 	awaitedJobs?.close()
-	// Only jobs bound to this run. Jobs a host bound to its session are
+	// Only jobs bound to this turn. Jobs a host bound to its session are
 	// the host's to stop, when the session ends.
 	if (backgroundJobs && (backgroundJobOwner ?? ctx.turnId) === ctx.turnId) {
 		try {
 			const stopped = await backgroundJobs.killOwner(ctx.turnId)
 			if (stopped.length > 0) {
-				ctx.log.info('Background jobs stopped with the run', {
+				ctx.log.info('Background jobs stopped with the turn', {
 					[NAMZU.TURN_ID]: ctx.turnId,
 					'namzu.jobs.stopped': stopped.length,
 				})
@@ -107,11 +107,11 @@ export async function* releaseTurnResources(
 
 	// Same reasoning for the question channel: the tools outlive the
 	// run that bound them, so leaving it attached would have a later
-	// run's question written into this run's checkpoint store.
+	// run's question written into this turn's checkpoint store.
 	questionParks.unbind()
 
-	// Offer what the run learned to whoever decides what is worth
-	// keeping. In `finally` and awaited: a run that failed still
+	// Offer what the turn learned to whoever decides what is worth
+	// keeping. In `finally` and awaited: a turn that failed still
 	// discovered things, and a fire-and-forget write would race the
 	// process exiting on a one-shot CLI run. A throw here is
 	// swallowed — a memory that failed to form must not retract an
@@ -121,7 +121,7 @@ export async function* releaseTurnResources(
 		try {
 			await promoteMemory(candidate)
 		} catch (promoteErr) {
-			ctx.log.error('Memory promotion threw — the run is unaffected', {
+			ctx.log.error('Memory promotion threw — the turn is unaffected', {
 				[NAMZU.TURN_ID]: ctx.turnId,
 				'exception.message': promoteErr instanceof Error ? promoteErr.message : String(promoteErr),
 			})
@@ -148,8 +148,8 @@ export async function* releaseTurnResources(
 	}
 
 	unsubscribeTaskStore?.()
-	// Keyed by HOW it settled, not just that it did: a run that was
-	// cancelled and a run that hit its budget have very different
+	// Keyed by HOW it settled, not just that it did: a turn that was
+	// cancelled and a turn that hit its budget have very different
 	// duration distributions, and averaging them together describes
 	// neither.
 	recordTurnDuration(ctx.recorder.getTurn().status ?? 'unknown', Date.now() - runStartedAt)

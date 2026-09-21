@@ -162,7 +162,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 			})
 			expect(jobs.list(owner)).toHaveLength(1)
 			const job = jobs.list(owner)[0]
-			if (!job) throw new Error('Expected the run to register a sandbox-owned job')
+			if (!job) throw new Error('Expected the turn to register a sandbox-owned job')
 			expect(job).toMatchObject({ owner, command, status: 'running' })
 			output.write('sandbox-output')
 			expect(jobs.read(job.id).chunk).toBe('sandbox-output')

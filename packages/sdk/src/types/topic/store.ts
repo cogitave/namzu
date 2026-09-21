@@ -1,6 +1,6 @@
 /**
  * TopicStore — canonical persistence contract for the Topic layer
- * (Project → **Topic** → Session → SubSession → Run).
+ * (Project → **Topic** → Session → SubSession → Turn).
  *
  * Topics are pure containers (Phase 0 decision B.1). They have no own
  * message stream and no fan-in `deriveStatus()` — status is owner-managed

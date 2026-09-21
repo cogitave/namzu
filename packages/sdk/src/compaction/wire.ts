@@ -10,7 +10,7 @@ import type { FileSlot, PinSlot, PlanSlot, ToolResultSlot, WorkingState } from '
  * it — `serializeState` is cumulative, so within one process that is true.
  *
  * Across a resume it was not. The manager was rebuilt empty on every
- * `query()`, so the second compaction of a resumed run summarized only
+ * `query()`, so the second compaction of a resumed turn summarized only
  * post-resume activity and deleted the summary that held everything
  * before it. The restore path goes out of its way to carry that summary
  * forward (it is the only surviving record of the history the first pass

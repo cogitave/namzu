@@ -15,7 +15,7 @@ import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { InMemorySessionLog } from '../session-log/index.js'
 
 /**
- * Invariant test (ses_020 §5, LOG-14): for a completed run, `replayAudit`
+ * Invariant test (ses_020 §5, LOG-14): for a completed turn, `replayAudit`
  * reconstructs the SAME cost and status the derived `Turn` settled
  * with — reading the audit trail alone, through the real `drainQuery`
  * orchestration rather than a hand-simulated call to `recordAudit`. A

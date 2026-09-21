@@ -400,7 +400,7 @@ describe('HttpEmbeddingProvider', () => {
 			dimensions: 1,
 		})
 		const pending = provider.embedQuery('cancel me', { signal: caller.signal })
-		const reason = new Error('operator stopped the run')
+		const reason = new Error('operator stopped the turn')
 
 		caller.abort(reason)
 

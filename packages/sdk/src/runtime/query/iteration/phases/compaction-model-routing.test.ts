@@ -9,7 +9,7 @@ import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 /**
- * The compaction summary is the only model call a run makes that nobody
+ * The compaction summary is the only model call a turn makes that nobody
  * asked for, and it was hardwired to the primary model. `taskRouter` had been
  * accepted, schema-validated and threaded through four types since it was
  * added, with `resolveTaskModel` exported and never called — so a host who

@@ -52,7 +52,7 @@ export default function setup() {
 				test: {
 					include: ['home.test.mjs'],
 					setupFiles: [setupFile],
-					// Teardowns run in reverse: recreate state after the run cleanup.
+					// Teardowns run in reverse: recreate state after the turn cleanup.
 					globalSetup:
 						mode === 'late writer' ? [lateWriterSetup, globalSetupFile] : [globalSetupFile],
 					globals: true,

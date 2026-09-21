@@ -293,7 +293,7 @@ describe('a host can ask for compaction', () => {
 	})
 
 	it('does not touch the array it was given', async () => {
-		// There is no run here. The array belongs to the host, and editing it
+		// There is no turn here. The array belongs to the host, and editing it
 		// in place is the difference between a function and a side effect —
 		// the in-loop path writes to the live array on purpose, this one must
 		// not.

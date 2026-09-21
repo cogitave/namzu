@@ -23,7 +23,7 @@ import { defaultSessionPaths } from '../session-storage.js'
  *
  * The old default put generated state inside whatever directory the agent was
  * pointed at: repositories gained a `.namzu/`, package tests left one in the
- * package, and a run started in `$HOME` wrote into the CLI's `~/.namzu`. The
+ * package, and a turn started in `$HOME` wrote into the CLI's `~/.namzu`. The
  * runner points `NAMZU_HOME` into its owned root, so this checks the home the
  * kernel resolved, whatever it is.
  */

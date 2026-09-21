@@ -33,7 +33,7 @@ function makeContext(): ToolContext {
  *
  * The listing is scoped to what this tool set launched, so a fixture that
  * only stuffed `listTasks()` would now list nothing — and a gateway holding
- * tasks these tools never launched is precisely the sibling-run case the
+ * tasks these tools never launched is precisely the sibling session case the
  * scope exists to refuse. So the tests launch through the front door and the
  * fixture plays along.
  */
@@ -99,7 +99,7 @@ function handle(input: {
  * Build the coordinator surface, launch each seeded handle through
  * `create_task`, and return `agent_task_list`.
  *
- * Launching is what puts the tasks in this run's scope. Reaching past it to
+ * Launching is what puts the tasks in this turn's scope. Reaching past it to
  * seed the gateway directly would test a listing nobody can produce.
  */
 async function agentTaskListOver(seeded: TaskHandle[]) {

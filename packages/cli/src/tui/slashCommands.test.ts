@@ -522,7 +522,7 @@ describe('/cost', () => {
 	})
 
 	it('gives the free and the unknown run different answers', () => {
-		// The assertion the old code could not have passed: both runs have a
+		// The assertion the old code could not have passed: both turns have a
 		// total of zero, and a reader has to be able to tell them apart. A test
 		// that only checked one of them in isolation would have passed against
 		// the single sentence that used to serve both.
@@ -1191,7 +1191,7 @@ describe('/cost and the context', () => {
 		expect(text).toContain('Estimated by Namzu; window assumed from a table or default')
 	})
 
-	it('says nothing about the context when the run resolved no window', () => {
+	it('says nothing about the context when the turn resolved no window', () => {
 		const text = renderCost({ totalTokens: 12_345, cost })
 		expect(text).not.toContain('Context:')
 	})

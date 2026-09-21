@@ -4,7 +4,7 @@
  *
  * Every bound that can be tuned wants the same three answers, and the third
  * is the one worth sharing: a variable set to `soon`, to `-1` or to nothing
- * at all falls back rather than parsing, because a run must not wait, hold or
+ * at all falls back rather than parsing, because a turn must not wait, hold or
  * time out for `NaN`.
  *
  * `process.env` is read on every call, so where it is called decides when the

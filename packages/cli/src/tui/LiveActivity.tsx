@@ -27,7 +27,7 @@ export interface LiveActivityProps {
 	readonly activeTools: readonly ActiveTool[]
 	/** The parent turn is active, including while answer text is streaming. */
 	readonly working: boolean
-	/** Actual child runs retained by the current conversation. */
+	/** Actual child sessions retained by the current conversation. */
 	readonly agentCount?: number
 	/** Whether Esc currently reaches an abortable parent turn. */
 	readonly interruptible?: boolean

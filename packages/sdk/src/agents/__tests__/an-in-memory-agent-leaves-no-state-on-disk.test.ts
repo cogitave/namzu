@@ -77,7 +77,7 @@ function echoTools(): ToolRegistry {
 	return registry
 }
 
-/** A tool call, so the run writes an iteration checkpoint, then an answer. */
+/** A tool call, so the turn writes an iteration checkpoint, then an answer. */
 function workerProvider(): MockLLMProvider {
 	return new MockLLMProvider({
 		turns: [

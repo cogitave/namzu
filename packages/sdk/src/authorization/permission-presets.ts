@@ -23,7 +23,7 @@ import { defaultSandboxedGateConfig, defaultSandboxedShellGateConfig } from './p
  */
 
 export interface PermissionPreset {
-	/** Stable, and written into the run's log. */
+	/** Stable, and written into the turn's log. */
 	readonly name: string
 	/** One sentence an operator reads when choosing between them. */
 	readonly description: string
@@ -43,7 +43,7 @@ export interface PermissionPreset {
 	 *
 	 * Advisory rather than enforced: this package cannot install a handler,
 	 * and a preset that pretended to would be claiming an authority it does
-	 * not have. It is here so a host can compare it against the run's actual
+	 * not have. It is here so a host can compare it against the turn's actual
 	 * policy and so the pairing is written down in one place instead of
 	 * living in whoever wired it.
 	 */
@@ -179,7 +179,7 @@ export function permissionPreset(name: string): PermissionPreset | undefined {
  *
  * The check is the reason this function exists rather than a property
  * lookup. A host reaching for `unattended` on a `basic` tier is asking for
- * a run that approves everything with nothing enforcing the boundary it is
+ * a turn that approves everything with nothing enforcing the boundary it is
  * approving on the strength of; the answer is no, with the missing controls
  * named so the host can fix the sandbox rather than guess.
  */

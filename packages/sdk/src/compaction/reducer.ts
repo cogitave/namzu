@@ -9,7 +9,7 @@ import { findRetainedIndices } from './retention.js'
  * them apart has to guess. `'threshold'` is speculative — the estimate says
  * the window is filling, nothing has failed, and declining costs only some
  * headroom. `'overflow'` is the provider having already rejected the
- * prompt: declining there ends the run.
+ * prompt: declining there ends the turn.
  */
 export type ContextReductionReason = 'threshold' | 'overflow'
 
@@ -22,17 +22,17 @@ export interface ContextReduction {
 	readonly estimatedTokens: number
 	/** What it has to fit in. Resolved from the model when the host did not say. */
 	readonly contextWindowTokens: number
-	/** The model this run is calling, for a reducer that varies by model. */
+	/** The model this turn is calling, for a reducer that varies by model. */
 	readonly model: string
-	/** The run's configured recent-window size, as a starting point. */
+	/** The turn's configured recent-window size, as a starting point. */
 	readonly keepRecentMessages: number
 }
 
 /**
- * Replace the run's history with a shorter one.
+ * Replace the turn's history with a shorter one.
  *
  * Returning `undefined` means "I could not shorten this" and is a first-class
- * answer, not a failure — on `'threshold'` the run simply continues, and on
+ * answer, not a failure — on `'threshold'` the turn simply continues, and on
  * `'overflow'` it fails with an irreducible-prompt error instead of retrying
  * a prompt nothing changed. That is deliberate: a reducer that returned the
  * input unchanged while reporting success would send the same rejected
@@ -50,7 +50,7 @@ export interface ContextReduction {
  *    working-memory slot; dropping them changes who the agent is.
  * 2. `tool_use` and its `tool_result` stay together. A split pair is a 400
  *    from the provider, so a reducer that splits one turns a context problem
- *    into a dead run. {@link findSafeTrimIndex} is exported for this.
+ *    into a dead turn. {@link findSafeTrimIndex} is exported for this.
  * 3. Messages marked `retain` survive. That marker is how a caller says a
  *    fact in the middle of the conversation outranks recency.
  */
@@ -60,7 +60,7 @@ export type ContextReducer = (
 
 export interface SlidingWindowOptions {
 	/**
-	 * How many trailing messages to keep. Defaults to the run's configured
+	 * How many trailing messages to keep. Defaults to the turn's configured
 	 * `keepRecentMessages`, so the same knob governs both strategies.
 	 */
 	readonly keepRecentMessages?: number

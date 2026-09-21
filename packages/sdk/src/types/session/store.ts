@@ -44,7 +44,7 @@ export interface CreateSessionParams {
 	projectId: ProjectId
 	/**
 	 * Initial owner of the session. May be `null` for bootstrap scenarios where
-	 * the first Run attaches an actor; the store rejects mutations against
+	 * the first turn attaches an actor; the store rejects mutations against
 	 * actor-less sessions from downstream consumers.
 	 */
 	currentActor: ActorRef | null

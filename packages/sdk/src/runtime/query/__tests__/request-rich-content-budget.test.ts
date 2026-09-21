@@ -204,7 +204,7 @@ describe('the request-only rich-content projection', () => {
 })
 
 describe('one accumulated budget covers user and tool rich content', () => {
-	it('omits the oldest tool image on the third real provider request without editing the run', async () => {
+	it('omits the oldest tool image on the third real provider request without editing the turn', async () => {
 		const first = 'A'.repeat(8)
 		const second = 'B'.repeat(8)
 		const pending = [first, second]
@@ -392,7 +392,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 	})
 })
 
-describe('the budget is resolved before a run can spend anything', () => {
+describe('the budget is resolved before a turn can spend anything', () => {
 	it('still refuses an unresolved stored reference before a provider call', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
 
@@ -437,7 +437,7 @@ describe('the budget is resolved before a run can spend anything', () => {
 		},
 	)
 
-	it('persists the effective default in the run evidence', async () => {
+	it('persists the effective default in the turn evidence', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 		const settled = await run({
 			provider,

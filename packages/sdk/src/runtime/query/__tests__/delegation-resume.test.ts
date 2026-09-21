@@ -105,7 +105,7 @@ describe('a fan-out interrupted part-way through', () => {
 
 	it('takes over the turn rather than letting the model re-decide', async () => {
 		// The ordinary repair strips the assistant turn and lets the model
-		// re-issue every delegation — which is precisely the second run.
+		// re-issue every delegation — which is precisely the second turn.
 		const plan = planCrashResume(restored(), new Map([['w1', {}]]), makeLogger())
 
 		expect(plan).not.toBeNull()

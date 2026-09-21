@@ -242,7 +242,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		expect(creationOptions().limits).toEqual(limits)
 	})
 
-	it('forwards the whole configured session and flag overrides, with isolated run identity', async () => {
+	it('forwards the whole configured session and flag overrides, with isolated turn identity', async () => {
 		const config: NamzuCliConfig = {
 			permissions: { bash: 'deny' },
 			mcpServers: { tools: { command: 'fixture-server' } },

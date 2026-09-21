@@ -173,7 +173,7 @@ async function harness() {
 
 	const spawn = async (ctx: AgentTaskContext, opts?: Partial<SendMessageOptions>) => {
 		await manager.sendMessage(options(opts), ctx)
-		// The child runs detached; give it a tick to reach `agent.run`.
+		// The child sessions detached; give it a tick to reach `agent.run`.
 		await new Promise((r) => setTimeout(r, 20))
 	}
 

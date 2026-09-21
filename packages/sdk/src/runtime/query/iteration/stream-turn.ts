@@ -272,7 +272,7 @@ export async function* streamProviderTurn(
 			: provider.chatStream(streamParams)
 	) as AsyncIterable<StreamChunk>
 
-	// Drive the stream manually so each `.next()` can be RACED against the run
+	// Drive the stream manually so each `.next()` can be RACED against the turn
 	// abort: a Stop tears the in-flight model request down (the provider got
 	// `params.signal`), and we ALSO stop pulling within a tick even if a
 	// transport buffers or ignores the signal. The abort rejection propagates
@@ -712,7 +712,7 @@ export async function* streamProviderTurn(
 		// identical faults settled oppositely depending on whether compaction
 		// happened to run that iteration.
 		if (streamCause instanceof ProviderError) throw streamCause
-		// The newer classified shape carries the same guarantee, and the run
+		// The newer classified shape carries the same guarantee, and the turn
 		// boundary reads it to decide between a pause and a failure.
 		if (isProviderRequestError(streamCause)) throw streamCause
 
@@ -756,8 +756,8 @@ export async function* streamProviderTurn(
 	}
 
 	// The same numbers as a MEASUREMENT, not only as a span attribute.
-	// A span answers "what happened in this run"; a metric answers "what is
-	// this costing across every run", and no amount of span attributes adds
+	// A span answers "what happened in this turn"; a metric answers "what is
+	// this costing across every turn", and no amount of span attributes adds
 	// up to the second question without a trace backend willing to
 	// aggregate them.
 	recordTokenUsage(params.model, usage)

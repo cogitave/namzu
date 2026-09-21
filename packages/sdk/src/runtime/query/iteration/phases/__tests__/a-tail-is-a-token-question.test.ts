@@ -37,7 +37,7 @@ describe('sizing the retained tail by tokens', () => {
 
 	it('keeps the final message even when it alone exceeds the budget', () => {
 		// It is the live turn. Dropping it to satisfy a size preference
-		// deletes the thing the run is answering, and the pass reports that
+		// deletes the thing the turn is answering, and the pass reports that
 		// it did not reach the reset threshold rather than lying about it.
 		const messages = [text(40), text(40), text(500_000)]
 
@@ -46,7 +46,7 @@ describe('sizing the retained tail by tokens', () => {
 
 	it('checks the budget before adding, not after', () => {
 		// Adding first and trimming afterwards admits exactly one oversized
-		// message on every run — the failure mode is invisible because the
+		// message on every turn — the failure mode is invisible because the
 		// tail still looks bounded, just always by one message too many.
 		// 1_000 tokens is 4_000 chars: two 2_000-char messages fit, a third
 		// does not.

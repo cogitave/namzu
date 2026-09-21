@@ -158,7 +158,7 @@ describe('query() repairs provider-invalid tool history at the real boundary', (
 				messages: [
 					createUserMessage('continue'),
 					assistant,
-					createSystemMessage('stale host prompt that this fresh run rebuilds'),
+					createSystemMessage('stale host prompt that this fresh turn rebuilds'),
 					observed,
 					createUserMessage('what happened?'),
 				],

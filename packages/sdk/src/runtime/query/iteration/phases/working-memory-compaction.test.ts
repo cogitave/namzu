@@ -2,7 +2,7 @@
  * Regression test for the ses_055 Layer-B SDK seam (#104):
  *
  *   1. **Compaction FIRES** under a small `contextWindowTokens` even with the
- *      run-level `tokenBudget = 0` (UNLIMITED) — proving the F1 fix repointed
+ *      turn-level `tokenBudget = 0` (UNLIMITED) — proving the F1 fix repointed
  *      BOTH the `<= 0` guard AND the divisor, closing the silent-no-op trap.
  *   2. **The pinned working-memory slot SURVIVES** the compaction pass (it is a
  *      leading system message → preserved by header identity).

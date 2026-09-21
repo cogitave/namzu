@@ -32,7 +32,7 @@ export interface ProjectInstructionCallbackContext {
 export type ProjectInstructionSnapshotUpdate = UserMessage | null | undefined
 
 /**
- * Host-owned live project policy for one run.
+ * Host-owned live project policy for one turn.
  *
  * Tool results are observed only after the registry has produced its final
  * result and the complete tool-result batch is in `context.messages`. Each

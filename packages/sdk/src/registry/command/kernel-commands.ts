@@ -20,7 +20,7 @@ import type { TaskStore } from '../../types/task/index.js'
  * A registry with nothing in it is a declaration, and this repo has a rule
  * about those. These are facts a host would otherwise have to reach into
  * kernel internals to answer: the current Session goal, tracked work,
- * operator-invocable skills, and the agents this run may delegate to. Each is
+ * operator-invocable skills, and the agents this turn may delegate to. Each is
  * computed or owned here and should not acquire a second host-specific source.
  *
  * Deliberately NOT here: anything that would need a decision the kernel
@@ -31,13 +31,13 @@ import type { TaskStore } from '../../types/task/index.js'
  */
 
 export interface KernelCommandOptions {
-	/** Absent is a real state — not every run tracks tasks. */
+	/** Absent is a real state — not every turn tracks tasks. */
 	readonly taskStore?: TaskStore
 	readonly allowedAgentIds?: readonly string[]
 	/**
-	 * The run's skills, for the operator-facing half of the listing.
+	 * The turn's skills, for the operator-facing half of the listing.
 	 *
-	 * Absent is a real state: a run with no skills registry has none, which
+	 * Absent is a real state: a turn with no skills registry has none, which
 	 * is different from having none registered.
 	 */
 	readonly skills?: readonly Skill[]
@@ -265,17 +265,17 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 		},
 		{
 			name: 'tasks',
-			description: 'List the work this run is tracking.',
+			description: 'List the work this turn is tracking.',
 			hint: 'id, status, owner and subject for every task in the store',
 			async handler() {
 				// REFUSED rather than an empty report. "There are no tasks" and
-				// "this run has no task store" are different answers, and a host
+				// "this turn has no task store" are different answers, and a host
 				// that shows the first for the second gives an operator a
 				// confident zero nobody computed.
 				if (!options.taskStore) {
 					return {
 						kind: 'refused',
-						reason: 'This run has no task store, so there is nothing to list.',
+						reason: 'This turn has no task store, so there is nothing to list.',
 					}
 				}
 				const tasks = await options.taskStore.list()
@@ -304,7 +304,7 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 				if (!options.skills) {
 					return {
 						kind: 'refused',
-						reason: 'This run has no skills registry, so there is nothing to list.',
+						reason: 'This turn has no skills registry, so there is nothing to list.',
 					}
 				}
 				return {
@@ -322,12 +322,12 @@ export function kernelHostCommands(options: KernelCommandOptions): HostCommandDe
 		},
 		{
 			name: 'agents',
-			description: 'List the agents this run may delegate to.',
+			description: 'List the agents this turn may delegate to.',
 			hint: 'the roster, as the delegation tools see it',
 			handler() {
 				// An empty roster IS the answer here, unlike the store above: the
 				// question is "who may I call", and "nobody" is a complete and
-				// correct reply that a run with delegation off should get.
+				// correct reply that a turn with delegation off should get.
 				return {
 					kind: 'report',
 					title: 'Agents',

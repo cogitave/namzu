@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto'
  *
  * Truncated deliberately. This distinguishes two bodies; it is not a
  * security boundary, and a full digest per read costs bytes in a structure
- * that lives for the whole run.
+ * that lives for the whole turn.
  */
 export function fingerprintContent(content: string): string {
 	return createHash('sha256').update(content, 'utf-8').digest('hex').slice(0, 16)

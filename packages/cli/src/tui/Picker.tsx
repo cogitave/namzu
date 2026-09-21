@@ -232,7 +232,7 @@ const NOT_DETECTED_HEADING = 'Not detected — enter a credential to use these:'
  * The line above the box that is not the box's.
  *
  * Ink draws this screen below whatever the app has already written — the boot
- * banner, on the run that shows this picker first — and a terminal keeps the
+ * banner, on the turn that shows this picker first — and a terminal keeps the
  * last `rows` lines of all of it. A box that fills the terminal exactly
  * therefore loses its own top border, and under that border is the notice the
  * screen exists to deliver.

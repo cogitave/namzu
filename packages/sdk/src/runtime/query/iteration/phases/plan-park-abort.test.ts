@@ -16,10 +16,10 @@ import { query } from '../../index.js'
 /**
  * The plan gate is a HITL park, and a Stop has to resolve it.
  *
- * `awaitDecisionOrAbort` races every other park against the run's abort
+ * `awaitDecisionOrAbort` races every other park against the turn's abort
  * signal — the tool review and the iteration checkpoint both go through
  * `awaitDecisionDurably` — but `runPlanGate` awaited `resumeHandler`
- * directly. A run parked on plan approval therefore ignored a Stop until
+ * directly. A turn parked on plan approval therefore ignored a Stop until
  * the host answered, which is the same hang the abort race was introduced
  * to remove elsewhere.
  *
@@ -30,7 +30,7 @@ import { query } from '../../index.js'
 
 registerMock()
 
-/** Long enough for the run to settle if it can, short enough to fail fast. */
+/** Long enough for the turn to settle if it can, short enough to fail fast. */
 const SETTLE_WINDOW_MS = 750
 
 function delay(ms: number): Promise<'hung'> {
@@ -40,7 +40,7 @@ function delay(ms: number): Promise<'hung'> {
 interface ParkedPlanTurn {
 	/** Resolves the moment the host is asked to approve the plan. */
 	parked: Promise<void>
-	/** Resolves with the run's terminal value, or 'hung' if it never settles. */
+	/** Resolves with the turn's terminal value, or 'hung' if it never settles. */
 	settled: Promise<Turn | 'hung'>
 	events: SessionEvent[]
 	requests: HITLDecisionRequest[]
@@ -74,7 +74,7 @@ function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 			requests.push(request)
 			markParked()
 			// The host that never answers. This is the ordinary shape of a
-			// parked run: a human is reading the plan, or an approval queue is
+			// parked turn: a human is reading the plan, or an approval queue is
 			// holding it for one, and the SDK has no idea which.
 			return new Promise<HITLResumeDecision>(() => {})
 		},
@@ -86,7 +86,7 @@ function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 	})
 
 	const settled = (async (): Promise<Turn | 'hung'> => {
-		// A manual drain rather than `for await`, because the run's terminal
+		// A manual drain rather than `for await`, because the turn's terminal
 		// value is the thing under test and `for await` discards it.
 		const iterator = generator[Symbol.asyncIterator]()
 		try {
@@ -105,11 +105,11 @@ function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 		settled: Promise.race([settled, delay(SETTLE_WINDOW_MS)]),
 		events,
 		requests,
-		abort: () => controller.abort(new Error('operator stopped the run')),
+		abort: () => controller.abort(new Error('operator stopped the turn')),
 	}
 }
 
-describe('a Stop while the run is parked on plan approval', () => {
+describe('a Stop while the turn is parked on plan approval', () => {
 	it('resolves the park as cancelled instead of waiting for the host', async () => {
 		const run = startTurnParkedOnPlanApproval()
 

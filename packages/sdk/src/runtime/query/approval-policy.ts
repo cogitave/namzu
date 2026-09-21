@@ -11,8 +11,8 @@ import type { SessionEventDraft } from './events.js'
  *
  * Every call site that used to close over `params.resumeHandler` reads
  * `.current.handler` instead, which is the entire mechanism: a closure
- * captured at `query()` start cannot be changed without ending the run, and
- * ending the run to change one setting discards the in-flight step and the
+ * captured at `query()` start cannot be changed without ending the turn, and
+ * ending the turn to change one setting discards the in-flight step and the
  * context it was built from. `permissionMode` learned this first and is the
  * shape this follows.
  */

@@ -24,7 +24,7 @@
  *
  * ## What the exit code means
  *
- * It used to be explained as "a run that STARTED and failed exits 0; a refusal
+ * It used to be explained as "a turn that STARTED and failed exits 0; a refusal
  * to start exits non-zero", and that rule did not sort the cases it was applied
  * to. An unknown option, a missing prompt, a `--cwd` that is not there and a
  * tool server that will not connect are all refusals to start, and all four
@@ -34,13 +34,13 @@
  *
  * The axis that does sort them:
  *
- *   CAN THE CALLER REACH THE RUN IT ASKED FOR BY CHANGING WHAT IT SENDS?
+ *   CAN THE CALLER REACH THE TURN IT ASKED FOR BY CHANGING WHAT IT SENDS?
  *
  * - **Yes → `0`.** The host reads the `error` event and fixes its own
  *   invocation. An unknown option, no prompt, a `--cwd` that does not exist, a
  *   `--permission-mode` that is not a mode, an interactive command named
  *   headlessly, a provider id that is not a provider.
- * - **A run that started and failed → `0`.** Unchanged: that is an outcome to
+ * - **A turn that started and failed → `0`.** Unchanged: that is an outcome to
  *   render, and possibly to retry.
  * - **Not now → `75`.** The conversation already has an active turn — a
  *   paused one waiting on a decision or a drain, or one another process is
@@ -135,18 +135,18 @@ export const runStreamCommand: CommandDef = {
 		'History is bound with --session <id>. --continue and --resume are `run`',
 		'options and are refused here rather than ignored.',
 		'Without --session, optional stdin must be one complete JSON Message[];',
-		'invalid or provider-incomplete tool history is refused before a run.',
+		'invalid or provider-incomplete tool history is refused before a turn.',
 		'',
 		'The folder has to be trusted: run `namzu` here once and accept the',
-		'prompt, or pass --trust for one run. An untrusted folder emits an error',
+		'prompt, or pass --trust for one turn. An untrusted folder emits an error',
 		'event and exits 77 without running anything.',
 		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
 		'',
 		'Every failure is an event on stdout. The exit code says whether YOU can',
-		'do anything about it: 0 when changing what you send would reach the run',
-		'(a wrong option, no prompt, a bad --cwd) and when a run started and',
+		'do anything about it: 0 when changing what you send would reach the turn',
+		'(a wrong option, no prompt, a bad --cwd) and when a turn started and',
 		'failed; 1 when it would not (no provider, a tool server that is not',
 		'there, a conversation that cannot be opened); 75 when the --session',
 		'conversation already has an active turn (a paused one: finish it with',
@@ -162,7 +162,7 @@ export const runStreamCommand: CommandDef = {
 		 * Report and stop.
 		 *
 		 * Always in band, always terminated with `done`, and the code says only
-		 * whether the caller can reach the run by sending something else. The
+		 * whether the caller can reach the turn by sending something else. The
 		 * argument for each case is in this file's header; the two spellings exist
 		 * so that every call site below has to state which side it is on rather
 		 * than inheriting a default nobody re-reads.
@@ -179,7 +179,7 @@ export const runStreamCommand: CommandDef = {
 		}
 
 		const flags = parseRunFlags(rawArgs)
-		// The run's leash: the config file's limits, with a flag overriding each.
+		// The turn's leash: the config file's limits, with a flag overriding each.
 		const limitsFromFlags = {
 			...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 			...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
@@ -217,7 +217,7 @@ export const runStreamCommand: CommandDef = {
 		//
 		// Reported BOTH ways, which is the one place this command departs from
 		// its "every failure is an in-band event and the exit code is 0" rule.
-		// That rule is about a run that STARTED and failed, which a host should
+		// That rule is about a turn that STARTED and failed, which a host should
 		// render and may sensibly retry. This is a refusal to start at all, and
 		// a host that cannot tell the two apart will retry the one that must not
 		// be retried — so the event carries the explanation and the exit code
@@ -245,7 +245,7 @@ export const runStreamCommand: CommandDef = {
 		}
 		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
 
-		// Resolve the workspace's central Project for every run. A session key
+		// Resolve the workspace's central Project for every turn. A session key
 		// additionally binds a durable conversation; without one, stdin history
 		// remains stateless and no Session record is created.
 		let cli: Awaited<ReturnType<typeof openSessions>>
@@ -317,7 +317,7 @@ export const runStreamCommand: CommandDef = {
 			)
 		}
 		// --provider/--model override the persona's configured provider+model for
-		// this run, so the Namzu tab's picks win over ~/.namzu/preferences.json.
+		// this turn, so the Namzu tab's picks win over ~/.namzu/preferences.json.
 		prefs = applyProviderFlags(prefs, flags)
 
 		// The operator's rules and mode reach this command too. They did not:
@@ -342,7 +342,7 @@ export const runStreamCommand: CommandDef = {
 		}
 
 		// The resolved `--cwd` is what the agent's tools resolve against, not just
-		// where the session store lives — a run told to work in another checkout
+		// where the session store lives — a turn told to work in another checkout
 		// has to glob, read and edit files there.
 		const gate = buildGate(flags, cwd)
 		const session = await createAgentSession(prefs, probe.detected, {
@@ -359,7 +359,7 @@ export const runStreamCommand: CommandDef = {
 			...(conversationId ? { conversationSessions: cli } : { ephemeral: true }),
 			rules: permissions.rules,
 			// The operator's --gate commands, as a standing condition on the
-			// answer. Spread rather than passed as undefined so a run without
+			// answer. Spread rather than passed as undefined so a turn without
 			// gates is byte-identical to the one that shipped before them.
 			...(gate ?? {}),
 			permissionMode: modeResult.mode,
@@ -411,7 +411,7 @@ export const runStreamCommand: CommandDef = {
 
 		// "Printed on every launch" has to reach a host UI too, or the one caller
 		// with no human watching is the one that never hears it. Its own event
-		// kind rather than an `error`: the run is proceeding, and a host that
+		// kind rather than an `error`: the turn is proceeding, and a host that
 		// treats this as a failure would be wrong.
 		for (const notice of session.configNotices) {
 			write({ kind: 'notice', message: notice })

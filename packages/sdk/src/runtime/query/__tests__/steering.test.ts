@@ -6,7 +6,7 @@ import { SteeringBinding, attachSteering, formatSteeringNote } from '../steering
 /**
  * `AgentManager.queueMessage` / `drainMessages` have existed for a while and
  * nothing in the iteration loop ever read them — the type says so outright.
- * So a host watching a run go wrong could cancel it, throwing away every tool
+ * So a host watching a turn go wrong could cancel it, throwing away every tool
  * result already paid for, or reject through the review gate, which only
  * works when a call happens to be pending approval and says "no" when the
  * host meant "yes, but read this first".
@@ -93,7 +93,7 @@ describe('steering a running turn', () => {
 		// delivers it at the next-turn boundary — see
 		// `queued-text-arrives-at-the-boundary.test.ts`, which asserts the
 		// run produces one more turn carrying it. This assertion used to be
-		// the end of the story, and the run settled with the channel full.
+		// the end of the story, and the turn settled with the channel full.
 		expect(channel.pending).toBe(true)
 	})
 

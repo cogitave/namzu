@@ -87,7 +87,7 @@ async function runToPlanApproval(): Promise<{
 		(_event) => {},
 	)
 
-	if (!planManager) throw new Error('the run did not create a plan manager')
+	if (!planManager) throw new Error('the turn did not create a plan manager')
 	return { session, turnId, requests, approvals, plans: planManager }
 }
 
@@ -95,7 +95,7 @@ describe('a plan approval reaching a human', () => {
 	it('is delivered with a plan, an id, and the answer applied', async () => {
 		const { requests, approvals, plans } = await runToPlanApproval()
 
-		// The plan manager outlives the run, so a review raised after it
+		// The plan manager outlives the turn, so a review raised after it
 		// returned is the same wiring a run-time review takes.
 		plans.startGenerating('first plan')
 		plans.addStep({ id: 'step_1', description: 'the work', dependsOn: [], order: 1 })

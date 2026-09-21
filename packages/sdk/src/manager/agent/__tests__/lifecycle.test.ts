@@ -160,7 +160,7 @@ async function buildHarness(
 		{ topicId: thread.id, projectId: project.id, currentActor: user(tenantId) },
 		tenantId,
 	)
-	// Parent runs kick the session into 'active' so the materializer can
+	// Parent sessions kick the session into 'active' so the materializer can
 	// flip it back to 'idle' once the child completes.
 	await store.updateSession({ ...parentSession, status: 'active' }, tenantId)
 
@@ -563,7 +563,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
  * neither.
  *
  * Reach, not durability. `agent_pending` is handed straight to a host's
- * listener and never enters a run's log (see the `seq` contract in
+ * listener and never enters a turn's log (see the `seq` contract in
  * `types/session/events.ts`), so what the listener receives is the whole of what
  * the kernel promises — which is exactly what these tests assert against.
  */
@@ -1095,7 +1095,7 @@ describe('bounded queued delegation admission', () => {
 		}
 	})
 
-	it('shares FIFO admission across parent runs and never starts or budgets a canceled waiter', async () => {
+	it('shares FIFO admission across parent sessions and never starts or budgets a canceled waiter', async () => {
 		const releases = Array.from({ length: 3 }, deferred)
 		const started: string[] = []
 		const child = makeAgent('worker', async (input) => {

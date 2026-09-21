@@ -634,7 +634,7 @@ describe('the two composer destinations', () => {
 			await typeAndPress(screen, 'active', '\r')
 			await waitUntil(screen, () => sent.length === 1, 'first turn did not start')
 
-			// This Return happened before the Tab submission. If the first run ends
+			// This Return happened before the Tab submission. If the first turn ends
 			// without asking the SDK for live input, that chronology must survive the
 			// fallback into the ordinary FIFO.
 			await typeAndPress(screen, 'return-first', '\r')

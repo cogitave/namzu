@@ -106,7 +106,7 @@ export interface ProviderRegistryEntry {
 	 * Default model when the user does not pick one in the picker.
 	 *
 	 * **These are namzu's picks, not the provider's, and they go stale.** A
-	 * hardcoded default fails silently: nothing errors, the run just happens on
+	 * hardcoded default fails silently: nothing errors, the turn just happens on
 	 * an older model than the operator assumes, and only a reader who already
 	 * knows the current generation would notice. One sat two generations behind
 	 * for exactly that reason.

@@ -26,6 +26,6 @@ export interface WorkingMemoryTurnContext {
  * is injected (the byte-identical-when-empty property). Async so the host can
  * `stat` the output dir / read the registry each turn. Failure-isolated by the
  * SDK: a throwing/slow provider degrades to "no refresh this turn", never
- * breaks the run.
+ * breaks the turn.
  */
 export type WorkingMemoryProvider = (ctx: WorkingMemoryTurnContext) => string | Promise<string>

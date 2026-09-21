@@ -163,7 +163,7 @@ export interface PluginModelRequest {
 	/** SDK provider-input content inventory; excludes adapter/server-private transformations. */
 	readonly context?: {
 		readonly snapshot: RequestContextSnapshot
-		/** Compared with the preceding pre_llm_call in this run; absent on the first. */
+		/** Compared with the preceding pre_llm_call in this turn; absent on the first. */
 		readonly change?: RequestContextChange
 	}
 	readonly model: string
@@ -242,8 +242,8 @@ export interface PluginHookContext {
 	 * accident of registration order.
 	 *
 	 * The freeze is one level deep, as elsewhere: each message is a frozen
-	 * copy, so writing to one is inert and cannot reach the run's history,
-	 * but a nested array inside a message is still the run's own.
+	 * copy, so writing to one is inert and cannot reach the turn's history,
+	 * but a nested array inside a message is still the turn's own.
 	 */
 	readonly request?: Readonly<PluginModelRequest>
 
@@ -260,7 +260,7 @@ export interface PluginHookContext {
 	 * The runtime stops waiting on a slow hook either way, but in-process
 	 * JavaScript cannot be forcibly stopped. Without a signal the hook itself
 	 * never learns it was abandoned: an HTTP request inside it keeps a socket
-	 * open and its eventual side effects can happen after the run moved on. A
+	 * open and its eventual side effects can happen after the turn moved on. A
 	 * hook doing I/O must forward this signal and stop publishing when it
 	 * aborts.
 	 */

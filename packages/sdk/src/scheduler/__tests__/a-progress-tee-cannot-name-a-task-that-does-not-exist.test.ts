@@ -27,7 +27,7 @@ function budgetFor(limit: number): SessionTokenBudget {
  * A child that spoke before its own spawn resolved killed the launch.
  *
  * The progress tee handed to `sendMessage` read `task.taskId` — the `const`
- * that the very same `await` assigns. So any run event emitted by the child
+ * that the very same `await` assigns. So any turn event emitted by the child
  * before `sendMessage` returned reached that line inside the temporal dead
  * zone and threw `Cannot access 'task' before initialization`, taking the whole
  * `create_task` down with it.

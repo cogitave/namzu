@@ -30,7 +30,7 @@ function normalize<T>(spec: T | { name: string; check: T }): { name?: string; ch
 /**
  * Run input guardrails before the first model call.
  *
- * Cheapest possible place to stop a run: nothing has been spent yet. The
+ * Cheapest possible place to stop a turn: nothing has been spent yet. The
  * previous surface could not do this at all — `turn_start` fires with only
  * `{ sessionId, turnId }` and the `turn_started` event carries only `systemPrompt`, so
  * the user's prompt was unreachable from any hook.
@@ -46,14 +46,14 @@ export async function runInputGuardrails(
 		const { name, check } = normalize(spec)
 		const verdict = await safely(() => check(ctx), nameOf({ name }, index), log)
 		if (verdict.action === 'block') {
-			log.warn('Input guardrail blocked the run', {
+			log.warn('Input guardrail blocked the turn', {
 				[NAMZU.TURN_ID]: ctx.turnId,
 				'namzu.guardrail.name': nameOf({ name }, index),
 				'namzu.runtime.reason': verdict.reason,
 			})
 			return { blocked: true, name: nameOf({ name }, index), reason: verdict.reason }
 		}
-		// `rewrite` is meaningless on input: the run has not produced
+		// `rewrite` is meaningless on input: the turn has not produced
 		// anything to rewrite, and silently editing a user's prompt is a
 		// different (and worse) feature than refusing it.
 		if (verdict.action === 'rewrite') {
@@ -125,7 +125,7 @@ export async function runOutputGuardrails(
  * A guardrail that throws FAILS CLOSED.
  *
  * The opposite of the stop-condition policy, and deliberately so: a broken
- * halt predicate should not kill a healthy run, but a broken safety check
+ * halt predicate should not kill a healthy turn, but a broken safety check
  * must not silently wave content through. If the thing that decides
  * whether output is safe is itself broken, the honest answer is that
  * safety is unknown.

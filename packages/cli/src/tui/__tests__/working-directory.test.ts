@@ -3,7 +3,7 @@
  *
  * `--cwd` was parsed, and reached the session store and the skill search, and
  * stopped there: the agent run itself was started with the PROCESS's directory,
- * so a run pointed at another checkout globbed this one and reported finding
+ * so a turn pointed at another checkout globbed this one and reported finding
  * nothing — which reads as "the file isn't there" rather than "I looked in the
  * wrong place". Nothing caught it because no test ran a file tool against a
  * directory that was not the process's own, so both directories were the same
@@ -144,7 +144,7 @@ describe('createAgentSession runs where it is told to', () => {
 	)
 
 	it.runIf(process.platform !== 'win32')(
-		'hands background jobs and the default sandbox to the same run',
+		'hands background jobs and the default sandbox to the same turn',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
 			const parentScope = await scope()
@@ -214,7 +214,7 @@ describe('createAgentSession runs where it is told to', () => {
 		await session.close()
 	})
 
-	it('passes the caller-supplied cwd to the run, not the process directory', async () => {
+	it('passes the caller-supplied cwd to the turn, not the process directory', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(prefs, detectedAnthropic(), {
 			cwd: workDir,
@@ -249,7 +249,7 @@ describe('createAgentSession runs where it is told to', () => {
 		})
 
 		for await (const _ of session.send([{ role: 'user', content: 'hello', timestamp: 0 }])) {
-			// drained; the assertion is on the run configuration
+			// drained; the assertion is on the turn configuration
 		}
 
 		expect(queryCalls[0]).toMatchObject({

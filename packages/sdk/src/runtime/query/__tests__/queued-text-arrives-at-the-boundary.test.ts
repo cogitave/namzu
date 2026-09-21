@@ -31,7 +31,7 @@ const SESSION_ID = generateSessionId()
  *
  * The steering channel had the mirror-image hole. It can only append to a
  * settled tool result, so guidance queued during a turn that called no
- * tools stayed pending, and the loop then ended the run with the channel
+ * tools stayed pending, and the loop then ended the turn with the channel
  * still full.
  *
  * Every assertion here is on what the PROVIDER was sent. A test that
@@ -211,7 +211,7 @@ describe('text queued between turns arrives at the next one', () => {
 
 	it('delivers steering guidance stranded by a turn that called no tools', async () => {
 		// The channel can only ride on a settled tool result. A turn of pure
-		// prose has none, so this guidance used to sit pending until the run
+		// prose has none, so this guidance used to sit pending until the turn
 		// ended — and the steering suite pinned that as correct.
 		const steering = new SteeringBinding()
 		steering.steer('actually, use the other file')
@@ -223,7 +223,7 @@ describe('text queued between turns arrives at the next one', () => {
 
 		expect(textOf(requests[1] as Message[])).toContain('actually, use the other file')
 		// And the channel is empty, because it was delivered rather than
-		// carried into a run that has ended.
+		// carried into a turn that has ended.
 		expect(steering.pending).toBe(false)
 	})
 
@@ -239,7 +239,7 @@ describe('text queued between turns arrives at the next one', () => {
 		expect(withQueue.requests).toHaveLength(without.requests.length + 1)
 	})
 
-	it('changes nothing at all for a run with an empty queue', async () => {
+	it('changes nothing at all for a turn with an empty queue', async () => {
 		// The overwhelmingly common case. An empty drain must not cost an
 		// iteration, a model call, or a message in the history.
 		const withCallback = await run({ turns: [{ text: 'done' }], inbound: () => [] })
@@ -267,7 +267,7 @@ describe('text queued between turns arrives at the next one', () => {
 
 	it('does not deliver the same message twice', async () => {
 		// The queue is drained, not read. A drain that peeked would re-deliver
-		// on every boundary for the rest of the run.
+		// on every boundary for the rest of the turn.
 		const { requests } = await run({
 			turns: [{ text: 'a' }, { text: 'b' }, { text: 'done' }],
 			inbound: onceQueue(createUserMessage('exactly once')),

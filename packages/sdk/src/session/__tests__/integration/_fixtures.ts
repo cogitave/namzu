@@ -66,7 +66,7 @@ export const OTHER_TENANT = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
  *
  * `Logger` needs no import from the test framework and drops the mocks out of
  * the emitted declaration entirely. Nothing here asserts on these mocks; they
- * exist to keep a run quiet.
+ * exist to keep a turn quiet.
  */
 export function stubLogger(): Logger {
 	return {

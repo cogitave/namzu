@@ -17,7 +17,7 @@ import type { MCPToolDefinition } from '../../types/connector/index.js'
  * `client.listTools()` and registered whatever came back.
  *
  * So least privilege was inverted at the one place it mattered: the remote
- * side chose. Tools land as `deferred` and a run's `allowedTools` filters the
+ * side chose. Tools land as `deferred` and a turn's `allowedTools` filters the
  * model-visible catalogue, so this was not "arbitrary tools reach the model
  * immediately" — but the check written for exactly this was not on the path.
  */

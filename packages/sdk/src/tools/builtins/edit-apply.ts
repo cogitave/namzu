@@ -117,7 +117,7 @@ function normalizeInsertLine(
 		// the file" reaches for the word it knows, and every one of these says
 		// the same unambiguous thing. Refusing them bought strictness and cost
 		// a full model round trip per occurrence — measured by a consuming host
-		// as the single largest source of tool-call waste in its runs.
+		// as the single largest source of tool-call waste in its turns.
 		if (END_ALIASES.has(normalized)) return { success: true, value: 'end' }
 		const parsed = Number(value)
 		if (Number.isInteger(parsed) && parsed >= 0) return { success: true, value: parsed }

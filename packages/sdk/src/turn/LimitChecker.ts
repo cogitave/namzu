@@ -8,9 +8,9 @@ export interface LimitCheckerState {
 	 * Tokens accumulated at no known rate, from `CostInfo.unpricedTokens`.
 	 *
 	 * The cost checks below read `totalCost`, and `totalCost` omits whatever
-	 * these cost. Without this field they cannot tell a run that has spent
+	 * these cost. Without this field they cannot tell a turn that has spent
 	 * nothing from one whose spend was never computed, so a `costLimitUsd`
-	 * silently never fires — which is what every run did, because nothing fed
+	 * silently never fires — which is what every turn did, because nothing fed
 	 * the cost calculation at all.
 	 */
 	unpricedTokens: number
@@ -44,7 +44,7 @@ export function checkLimitsDetailed(
 			return { type: 'hard_stop', reason: 'cost_limit' }
 		}
 		// Checked BEFORE the comparison can pass, not after. `totalCost` is
-		// only the part of the run that had a rate, so a run whose spend is
+		// only the part of the turn that had a rate, so a turn whose spend is
 		// partly unknown can sit under any limit forever while spending without
 		// bound. Continuing here would be the check answering "the budget is
 		// satisfied" to the question "can the budget be evaluated?", which is

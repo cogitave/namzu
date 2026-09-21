@@ -137,7 +137,7 @@ export class ResidentHost {
 
 	/**
 	 * Signal current work and durably close future admission. Resolving this method
-	 * is NOT quiescence: await the run promise before claiming the callback stopped.
+	 * is NOT quiescence: await the turn promise before claiming the callback stopped.
 	 * An interrupted admitted pursuit remains unresolved until reconciled explicitly.
 	 */
 	async pause(): Promise<void> {

@@ -5,7 +5,7 @@
  * thinking row is shown while the model reasons, and once the reply starts
  * the row is gone and its text is in no message. Reasoning is ephemeral in
  * the kernel's own transcript; a TUI that promoted it to history would be
- * inventing a record the run does not keep.
+ * inventing a record the turn does not keep.
  */
 
 import { render } from 'ink-testing-library'

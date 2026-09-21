@@ -218,12 +218,12 @@ export function measureContext(ctx: IterationContext): {
  * Shed history because the PROVIDER said the prompt is too long.
  *
  * The threshold path guesses when to compact and can guess low — the
- * estimate is a heuristic, and a run carrying images or a language the
+ * estimate is a heuristic, and a turn carrying images or a language the
  * chars-per-token ratio does not fit will hit the real window while still
  * reading as comfortable. When that happens the provider tells us exactly
  * what is wrong, and the kernel already classifies it precisely and then
  * did nothing with it: the call was correctly marked non-retryable
- * (resending the identical prompt cannot help) and the run died holding a
+ * (resending the identical prompt cannot help) and the turn died holding a
  * compaction subsystem that could have made room.
  *
  * Forced rather than threshold-gated, because the threshold is the thing
@@ -278,7 +278,7 @@ function totalChars(messages: readonly { content: unknown }[]): number {
 /**
  * Run a reducer and install what it returns, or leave the history alone.
  *
- * Three ways to decline, all of them ending the same way — the run keeps its
+ * Three ways to decline, all of them ending the same way — the turn keeps its
  * full history. `undefined` is the reducer saying so; a throw is treated as
  * the same answer, because a broken reduction hook should not kill a healthy
  * run any more than a broken `prepareStep` should; and a result that splits a
@@ -299,7 +299,7 @@ function totalChars(messages: readonly { content: unknown }[]): number {
  *
  * All three decline paths reached a log line and stopped there. Every
  * command-line entry point silences the logger, so the outcome was invisible
- * to the user, to the host and to the model at once — and the run carried on
+ * to the user, to the host and to the model at once — and the turn carried on
  * at full context toward a provider rejection several turns later that named
  * none of this. A shed that did not happen is as consequential as one that
  * did, and only one of them was observable.
@@ -600,7 +600,7 @@ async function runCompactionCheckInner(
 		applyLifecycleHookResults('pre_compact', results)
 	}
 
-	// A reducer, when the run has one, OWNS reduction — the structured pass
+	// A reducer, when the turn has one, OWNS reduction — the structured pass
 	// below does not also run. `strategy: 'sliding-window'` resolves to the
 	// built-in one; a host-supplied reducer outranks the strategy entirely,
 	// because someone who wrote a reducer has said what they want more
@@ -649,7 +649,7 @@ async function runCompactionCheckInner(
 	//
 	// The decision is `planCompaction`'s; installing it is this file's. The
 	// planner touches no `ctx` at all, which is what lets the boundary
-	// arithmetic be tested without a run.
+	// arithmetic be tested without a turn.
 	if (salience) {
 		let openTasks: string[] | undefined
 		if (ctx.taskStore) {
@@ -703,8 +703,8 @@ async function runCompactionCheckInner(
 	}
 
 	// Second call, over the cleared CANDIDATE when there is one. An
-	// insufficient clear stays off the live Run until summary verification
-	// succeeds. If that side call stalls, fails or is cancelled, the run keeps
+	// insufficient clear stays off the live turn until summary verification
+	// succeeds. If that side call stalls, fails or is cancelled, the turn keeps
 	// one coherent pre-edit history instead of publishing half a pass.
 	const stagedClear = clearPlan.kind === 'cleared' ? clearPlan : undefined
 	const messages = stagedClear?.messages ?? ctx.recorder.messages
@@ -720,7 +720,7 @@ async function runCompactionCheckInner(
 	if (plan.kind !== 'plan') {
 		// One log line per reason, with the fields each one was already
 		// reporting. The planner names the reason; what it means to an
-		// operator reading a run is this file's to say.
+		// operator reading a turn is this file's to say.
 		if (plan.kind === 'skip') {
 			switch (plan.reason) {
 				case 'too_few_messages':
@@ -775,7 +775,7 @@ async function runCompactionCheckInner(
 					providerId: ctx.recorder.servingProviderId,
 					model: compactionModel,
 				}),
-			// The one model call a run makes that the user never asked for. It
+			// The one model call a turn makes that the user never asked for. It
 			// reads a transcript and writes a summary, which is the cheapest
 			// thing a small model does well, and it fires on exactly the long
 			// runs where the primary model is most expensive. `taskRouter` had
@@ -790,7 +790,7 @@ async function runCompactionCheckInner(
 
 	const compactionMessage = buildCompactionMessage(compactedContent)
 
-	// Drop a replaceable PRIOR `[COMPACTED CONTEXT]` summary from this run's
+	// Drop a replaceable PRIOR `[COMPACTED CONTEXT]` summary from this turn's
 	// leading floor — `serializeState` is cumulative, so the new summary
 	// supersedes it. A retained summary came from outside this manager's state
 	// horizon (for example a host-triggered pass between runs) and remains

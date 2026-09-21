@@ -19,7 +19,7 @@ import { query } from '../index.js'
  * A job outlives the call that started it, and the model used to learn
  * that it had finished only by asking. Now the exit rides out on the
  * next tool result as a notice, and reaches the host as an event; and a
- * host that binds jobs to its session keeps them past the run's end.
+ * host that binds jobs to its session keeps them past the turn's end.
  */
 
 registerMock()
@@ -128,7 +128,7 @@ describe('a finished background job is not polled for', () => {
 		).toBe(true)
 	})
 
-	it('stops run-owned jobs when the run ends, and leaves session-owned ones to the host', async () => {
+	it('stops run-owned jobs when the turn ends, and leaves session-owned ones to the host', async () => {
 		const runOwned = new BackgroundJobRegistry()
 		await run(runOwned, undefined, 'sleep 30')
 		expect(

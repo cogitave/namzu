@@ -118,7 +118,7 @@ describe('saying a schema in the dialect a wire parses', () => {
 
 	it('returns the same converted object every time it is asked', () => {
 		// Same reason. Conversion runs once per schema per dialect; a fresh
-		// object each iteration would invalidate the cache for the whole run
+		// object each iteration would invalidate the cache for the whole turn
 		// even though the bytes were equal.
 		const schema = { type: 'array', items: [{ type: 'integer' }] }
 

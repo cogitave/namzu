@@ -7,7 +7,7 @@
  *   layer disagrees — the canonical bug review caught was that a
  *   failed subagent could be reported as successful when the gateway
  *   forwarded `state: 'completed'` from a manager that did not
- *   propagate the run's `status: 'failed'`.
+ *   propagate the turn's `status: 'failed'`.
  * - Returns the subagent's `result` string as the tool output on
  *   success.
  */

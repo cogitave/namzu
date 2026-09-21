@@ -8,7 +8,7 @@ import { ManagedRegistry } from '../ManagedRegistry.js'
  *
  * Registration ran at `info`, once per item, and a CLI run registers dozens —
  * every builtin tool, every agent, every task tool. So the first twenty lines
- * of a run were `Registered: read`, `Registered: write`, `Registered: glob`,
+ * of a turn were `Registered: read`, `Registered: write`, `Registered: glob`,
  * and the lines an operator could act on were somewhere below them.
  *
  * That is the same failure as the CLI silencing its own logger, with the sign

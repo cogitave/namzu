@@ -268,7 +268,7 @@ describe('a forced prose summary preserves the reason it bypassed review', () =>
 		{ reason: 'token_budget', limits: { tokenBudget: 1_000 } },
 		{ reason: 'cost_limit', limits: { costLimitUsd: 0.001 } },
 		{ reason: 'timeout', limits: { timeoutMs: 10_000 } },
-	] as const)('reports %s on the run and terminal event', async ({ reason, limits }) => {
+	] as const)('reports %s on the turn and terminal event', async ({ reason, limits }) => {
 		let now = Date.now()
 		vi.spyOn(Date, 'now').mockImplementation(() => now)
 		const review = vi.fn(() => ({ accept: true as const }))

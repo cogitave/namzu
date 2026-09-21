@@ -38,7 +38,7 @@ export async function* runIterationCheckpoint(
 	//
 	// A failed prune is logged, not thrown. The checkpoint this iteration
 	// needs was written above; failing to delete OLD ones costs disk, and
-	// ending a live run over disk that can be reclaimed at its next
+	// ending a live turn over disk that can be reclaimed at its next
 	// iteration trades the user's work for housekeeping.
 	const pruneKeepLast = ctx.turnConfig.pruneKeepLast
 	if (pruneKeepLast !== undefined && pruneKeepLast >= 1) {

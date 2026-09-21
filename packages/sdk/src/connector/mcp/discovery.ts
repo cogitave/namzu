@@ -116,7 +116,7 @@ export class MCPToolDiscovery {
 
 		// The boundary. Without it the REMOTE side decides what enters the
 		// agent's registry, which inverts least privilege: a server could
-		// add a tool between two runs and it became callable with nobody
+		// add a tool between two turns and it became callable with nobody
 		// having agreed to it.
 		const policy = this.options.policies?.[state.serverName] ?? this.options.policies?.['*']
 		const { admitted, refused } = applyToolPolicy(advertised, policy)

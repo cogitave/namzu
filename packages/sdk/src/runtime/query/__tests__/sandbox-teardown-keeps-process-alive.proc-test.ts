@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 /**
- * A teardown deadline is part of the run, not background housekeeping.
+ * A teardown deadline is part of the turn, not background housekeeping.
  *
  * An awaited promise does not keep Node alive. If the deadline timer is
  * `unref()`'d and a third-party `destroy()` has no active handle of its own,
@@ -64,7 +64,7 @@ process.on('exit', () => console.log('LAST ' + last))
 `
 
 describe('sandbox teardown keeps its own process alive', () => {
-	it('returns the completed run after the teardown deadline', () => {
+	it('returns the completed turn after the teardown deadline', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-sandbox-teardown-process-'))
 		dirs.push(dir)
 		const script = join(dir, 'run.mjs')
@@ -76,7 +76,7 @@ describe('sandbox teardown keeps its own process alive', () => {
 			timeout: 60_000,
 		})
 
-		expect(out, `the run exited before teardown settled:\n${out}`).toContain('RESULT ')
+		expect(out, `the turn exited before teardown settled:\n${out}`).toContain('RESULT ')
 		expect(out).toContain('"status":"completed"')
 		expect(out).toContain('"result":"done"')
 		expect(out).toContain('"last":"turn_completed"')

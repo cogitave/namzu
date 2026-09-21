@@ -36,7 +36,7 @@
  * named, on every affected run, instead of surfacing as an unrelated test
  * failing one time in ten.
  *
- * Leftover directories can persist across runs. The warning names the path for
+ * Leftover directories can persist across turns. The warning names the path for
  * investigation and later cleanup; OS reclamation is not guaranteed.
  *
  * ## What is NOT claimed

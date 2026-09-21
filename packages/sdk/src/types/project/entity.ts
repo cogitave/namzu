@@ -48,7 +48,7 @@ export type ProjectStatus = 'open' | 'archived'
  * something to the code, not only to a listing.
  *
  * "Workspace" is a different noun in this codebase and is already taken:
- * see `WorkspaceRef`, which is per-run provisioning. This is the durable
+ * see `WorkspaceRef`, which is per-turn provisioning. This is the durable
  * one, and the prose above used to say the other word.
  */
 export interface Project {

@@ -145,7 +145,7 @@ describe('when the named conversation cannot be opened', () => {
 	})
 
 	it('still ends the stream, so a host scanning stdout is not left hanging', async () => {
-		// The NDJSON contract is that every run ends with `done`, refusals
+		// The NDJSON contract is that every turn ends with `done`, refusals
 		// included.
 		vi.mocked(openSessions).mockImplementation(async () => {
 			throw new Error('EACCES')

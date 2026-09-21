@@ -27,7 +27,7 @@ import { AgentManager } from '../lifecycle.js'
  * and in the agents it delegates to", and until now the kernel did not do the
  * second half.
  *
- * A child is a fresh run with its own executor, which installs
+ * A child is a fresh turn with its own executor, which installs
  * `DEFAULT_TOOL_RESULT_GUARDRAILS` whenever nothing said otherwise — so a
  * parent that turned the screens off with `[]`, or substituted a screen with
  * its own `passthroughTools`, had that decision revert the moment it
@@ -196,7 +196,7 @@ async function spawnWith(options: {
 
 const NONE: readonly ToolResultGuardrailSpec[] = Object.freeze([])
 
-describe('the screens a parent run chose', () => {
+describe('the screens a parent session chose', () => {
 	it('reach a child whose configBuilder never heard of them', async () => {
 		const config = await spawnWith({
 			inherited: [
@@ -232,7 +232,7 @@ describe('the screens a parent run chose', () => {
 
 	it('are left to the default when the parent stated none', async () => {
 		// Not `[]`. Absent means the parent configured nothing, and the child
-		// installs the shipped default exactly as any other run does.
+		// installs the shipped default exactly as any other turn does.
 		const config = await spawnWith({})
 
 		expect(config?.toolResultGuardrails).toBeUndefined()

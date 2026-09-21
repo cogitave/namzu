@@ -485,7 +485,7 @@ describe('the scope', () => {
 	it("is the host's call, which is why the exemption list exists", async () => {
 		// What `scope: 'all'` costs, stated rather than implied: the fetch
 		// above is refused until the host names it, and the exemption is the
-		// difference between the two runs.
+		// difference between the two turns.
 		const tool = toolReturning('https://docs.internal.example.com/rollback-procedure')
 		const call = {
 			url: 'https://docs.internal.example.com/rollback-procedure',
@@ -865,7 +865,7 @@ describe('a result the screen cannot read', () => {
 
 describe('the default a host gets without configuring anything', () => {
 	it('does not screen: a restated request is returned as the tool produced it', async () => {
-		// The screen ships as a preset, not as the default — the run config,
+		// The screen ships as a preset, not as the default — the turn config,
 		// not the preset, is where a default belongs, and #426 established
 		// that adding a control must not change an existing host's behaviour
 		// on upgrade. This pins the preset's own half of that; the registry's

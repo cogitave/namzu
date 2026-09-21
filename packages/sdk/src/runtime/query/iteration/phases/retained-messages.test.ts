@@ -17,7 +17,7 @@ import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 /**
- * Everything the run protected from compaction was protected by POSITION:
+ * Everything the turn protected from compaction was protected by POSITION:
  * the leading system run, the working-memory slot, the last N turns, the
  * most recent tool results. So a standing constraint stated in the MIDDLE
  * of a conversation aged out at the same rate as chatter, and no
@@ -67,7 +67,7 @@ function makeCtx(messages: Message[]): IterationContext {
 	} as unknown as IterationContext
 }
 
-/** A long run whose middle holds one message worth keeping. */
+/** A long turn whose middle holds one message worth keeping. */
 function longRun(pin: (m: Message) => Message = (m) => m): Message[] {
 	const msgs: Message[] = [createSystemMessage(`STATIC SYSTEM PROMPT ${FILLER}`, 'cache')]
 	for (let i = 0; i < 8; i++) {
@@ -112,7 +112,7 @@ describe('a message the host marked as never-evictable', () => {
 		expect(kept).toBeLessThan(lastTurn)
 	})
 
-	it('does not keep the run alive by pinning everything', async () => {
+	it('does not keep the turn alive by pinning everything', async () => {
 		// The marker is a budget the setter spends, and the pass must still
 		// reclaim what was not pinned.
 		const messages = longRun(pinned)

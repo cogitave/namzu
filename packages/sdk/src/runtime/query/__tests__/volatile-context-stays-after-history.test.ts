@@ -133,7 +133,7 @@ describe('the working-memory slot in a request', () => {
 			}
 		}
 
-		// The run's own history still keeps the slot where compaction
+		// The turn's own history still keeps the slot where compaction
 		// preserves it: in the leading system run.
 		const history = (result as { messages?: Message[] }).messages ?? []
 		const lead: Message[] = []
@@ -188,7 +188,7 @@ describe('a context contribution', () => {
 			expect(messages.map(text).join('\n').split('OBSERVED AT').length - 1).toBe(1)
 		}
 
-		// Request-only: never pushed onto the run's history.
+		// Request-only: never pushed onto the turn's history.
 		const history = (result as { messages?: Message[] }).messages ?? []
 		expect(history.map(text).join('\n')).not.toContain('OBSERVED AT')
 	})

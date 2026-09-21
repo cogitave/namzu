@@ -56,9 +56,9 @@ import { assertMaxToolCalls } from './tool-call-budget.js'
 /**
  * Everything `query()` needs from its prelude, handed over as one value.
  *
- * The prelude is where the run is DECIDED — what it refuses, which provider
+ * The prelude is where the turn is DECIDED — what it refuses, which provider
  * chain serves it, which history it starts from — and it is deliberately
- * separated from the run that then executes, because the two answer different
+ * separated from the turn that then executes, because the two answer different
  * questions and only the second one streams. Nothing here is a bag of mutable
  * state passed back in: each field is a value the prelude produced and the
  * body reads afterwards.
@@ -78,10 +78,10 @@ export interface PreparedTurn {
 	readonly eventTranslator: EventTranslator
 	readonly executeUserInterruptHooks: (terminalError: unknown) => Promise<void>
 	/**
-	 * Repair reports this run owes its log.
+	 * Repair reports this turn owes its log.
 	 *
-	 * Created here and KEPT: the run's resume path pushes one more as it
-	 * restores a checkpoint, and the run emits the whole list once it is
+	 * Created here and KEPT: the turn's resume path pushes one more as it
+	 * restores a checkpoint, and the turn emits the whole list once it is
 	 * writable. The array identity is part of the contract, not an accident of
 	 * the return value being an object.
 	 */
@@ -111,7 +111,7 @@ export type SelectedResumeState = TurnState & {
 export const selectedResumeStates = new WeakMap<QueryParams, SelectedResumeState>()
 
 /**
- * Refuse to price a run whose tokens two differently-priced members may produce.
+ * Refuse to price a turn whose tokens two differently-priced members may produce.
  *
  * `TurnRecorder` holds ONE {@link ModelPricing} table and applies it to every
  * accumulation regardless of which model produced the tokens. Across a swap that
@@ -123,7 +123,7 @@ export const selectedResumeStates = new WeakMap<QueryParams, SelectedResumeState
  * So the total is refused rather than blended. Naming what that costs is part
  * of the refusal, because the caller loses `costLimitUsd` with it: the guard
  * enforces that limit from this same accumulated total, and a limit enforced
- * with the wrong rate card stops a run early or late by the same unbounded
+ * with the wrong rate card stops a turn early or late by the same unbounded
  * margin. A budget that is quietly wrong is worse than a budget that is
  * declined.
  *
@@ -143,9 +143,9 @@ function assertCostIsAttributable(
 		code: 'invalid_config',
 		message:
 			`A provider chain of ${chain.length} members was declared together with a single pricing table. ` +
-			'One table cannot price two members, so the run would report a total that is wrong by an unbounded ' +
+			'One table cannot price two members, so the turn would report a total that is wrong by an unbounded ' +
 			'margin — and `turnConfig.costLimitUsd` would be enforced against that same wrong total. ' +
-			'Either drop `pricing` (usage is still reported per model in the run) or declare one member.',
+			'Either drop `pricing` (usage is still reported per model in the turn) or declare one member.',
 		details: { chainLength: chain.length },
 	})
 }
@@ -156,7 +156,7 @@ function assertCostIsAttributable(
  * `turnConfig.costLimitUsd` is enforced against `costInfo.totalCost`, and that
  * total only moves for tokens something has a rate for. A model no rate card
  * covers therefore produced a limit that could never trip — a host that set a
- * cost cap had no cost cap, and nothing said so. That was every run before the
+ * cost cap had no cost cap, and nothing said so. That was every turn before the
  * price catalogue existed, which is how it went unnoticed.
  *
  * Refusing at the front is the cheap half of the answer: it costs the caller
@@ -181,9 +181,9 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 		code: 'invalid_config',
 		message:
 			`turnConfig.costLimitUsd is set to ${limit}, but no rate is known for model "${model}" on ` +
-			`provider "${params.provider.id}". The limit is enforced against the run's accumulated ` +
+			`provider "${params.provider.id}". The limit is enforced against the turn's accumulated ` +
 			'cost, and tokens with no rate never reach that total — so the budget would read as ' +
-			'satisfied for the whole run and stop nothing. Either pass `pricing` to declare the rate ' +
+			'satisfied for the whole turn and stop nothing. Either pass `pricing` to declare the rate ' +
 			'yourself, add the model to packages/sdk/src/pricing/rates.source.json, or drop ' +
 			'`costLimitUsd` and bound the turn with `tokenBudget`, which is measurable here.',
 		details: { model, providerId: params.provider.id, costLimitUsd: limit },
@@ -192,12 +192,12 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 
 /**
  * Ask the driver what this model's window is, and never let the answer
- * cost the run.
+ * cost the turn.
  *
  * Three outcomes collapse to two here on purpose. No member and a resolved
  * `undefined` both mean "no answer" — the distinction matters to a driver
  * author, not to a caller about to fall through to the table. A rejection
- * is the third, and it is logged rather than propagated: a run that would
+ * is the third, and it is logged rather than propagated: a turn that would
  * have worked on the table must not fail because a listing endpoint was
  * down.
  */
@@ -227,9 +227,9 @@ export async function resolveProviderContextWindow(
 		onAbort = () => resolve(interrupted)
 		resolverSignal.addEventListener('abort', onAbort, { once: true })
 	})
-	// Direct QueryParams callers can supply a large run deadline. The clamp
+	// Direct QueryParams callers can supply a large turn deadline. The clamp
 	// avoids Node's >2^31-1 one-millisecond timer coercion during metadata lookup.
-	// Metadata discovery remains optional and bounded even without a run deadline.
+	// Metadata discovery remains optional and bounded even without a turn deadline.
 	const deadlineMs = timeoutMs === 0 ? 5_000 : Math.min(Math.max(0, timeoutMs), 2_147_483_647)
 	const timer = setTimeout(() => {
 		deadline.abort(new Error(`Provider context-window lookup exceeded ${deadlineMs}ms`))
@@ -266,14 +266,14 @@ export interface PendingHistoryRepairEvent {
 }
 
 /**
- * Project historical system messages exactly as a new run will persist them.
+ * Project historical system messages exactly as a new turn will persist them.
  *
- * Arbitrary historical prompt floors are rebuilt for this run and therefore
+ * Arbitrary historical prompt floors are rebuilt for this turn and therefore
  * never reach its provider-bound conversation. Repair must happen AFTER that
  * removal: treating a soon-to-be-dropped system message as a tool-result
  * boundary can replace an exact real result with an invented unknown outcome.
  * The two state-bearing system forms survive; fresh inherited compaction is
- * pinned until this run can prove it reconstructed equivalent state.
+ * pinned until this turn can prove it reconstructed equivalent state.
  */
 export function projectStateBearingHistory(
 	messages: readonly Message[],
@@ -297,7 +297,7 @@ export function projectStateBearingHistory(
 export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	assertMaxToolCalls(params.maxToolCalls)
 	// Required types do not protect JavaScript callers. Reject missing scope
-	// before opening a budget or persisting a run without its owning identity.
+	// before opening a budget or persisting a turn without its owning identity.
 	const missingFields = (['sessionId', 'topicId', 'projectId', 'tenantId'] as const).filter(
 		(field) => !params[field],
 	)
@@ -310,7 +310,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	}
 	const selectedResumeState = selectedResumeStates.get(params)
 	selectedResumeStates.delete(params)
-	// Resolved at the DOOR, before a run id exists or a logger is built.
+	// Resolved at the DOOR, before a turn id exists or a logger is built.
 	// A caller who set both spellings of a renamed field has a config bug,
 	// and refusing it here costs them nothing; refusing it at the read site
 	// deep in the loop turns the same bug into a mid-run failure, after a
@@ -322,7 +322,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		params.turnConfig.maxRequestRichContentBytes,
 	)
 	const sandboxTeardownTimeoutMs = resolveSandboxTeardownTimeoutMs(params.sandboxTeardownTimeoutMs)
-	// Persist the EFFECTIVE value, not only an override. A run replayed after a
+	// Persist the EFFECTIVE value, not only an override. A turn replayed after a
 	// later release must be able to explain which liveness policy settled it;
 	// an absent field whose meaning follows the currently-installed default
 	// would rewrite that evidence at read time.
@@ -372,7 +372,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		tenantId: params.tenantId,
 	})
 
-	// Every model call in the run — the loop's turns, the forced-final
+	// Every model call in the turn — the loop's turns, the forced-final
 	// summary, advisory and compaction side calls — goes through this one
 	// wrapped provider, so the retry policy cannot be bypassed by a code
 	// path that happens to hold the raw driver.
@@ -412,10 +412,10 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 					canRetry: () => budget.remaining > 0,
 				})
 	}
-	// Who is serving right now, for the run RECORD rather than for the request.
+	// Who is serving right now, for the turn RECORD rather than for the request.
 	//
 	// It starts at the head and moves only when the chain does, which is the
-	// whole of the truth because the cursor never rewinds. The run cannot read
+	// whole of the truth because the cursor never rewinds. The turn cannot read
 	// this off `resilientProvider`: that wrapper reports the head's `id` on
 	// purpose, so asking it produces the declaration back — the defect this
 	// record exists to fix.
@@ -442,7 +442,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 
 	// Asked ONCE, here, before the loop exists. Both readers are synchronous
 	// and hot, so this can never move inside the iteration — and a driver
-	// that rejects, or one that hangs until the run is cancelled, must not
+	// that rejects, or one that hangs until the turn is cancelled, must not
 	// take down a run the table could have served perfectly well. That is
 	// why the failure path is a swallow with a log rather than a throw: the
 	// window is an optimisation over a working default, not a prerequisite.
@@ -456,17 +456,17 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 	const modelContextWindows = new Map<string, number | undefined>()
 	if (turnConfig.model) modelContextWindows.set(turnConfig.model, providerContextWindow)
 
-	// The mode this conversation was left in, when the run config names none.
+	// The mode this conversation was left in, when the turn config names none.
 	// Read once, before the loop exists, for the same reason the context
 	// window is: the executor's resolver is synchronous and hot.
 	//
-	// A store that throws is not a run failure — the run falls back to the
+	// A store that throws is not a turn failure — the turn falls back to the
 	// config's answer, which is exactly what it did before this existed.
 	const topicState = params.topicStateStore
 		? await params.topicStateStore
 				.getState(params.topicId, params.tenantId)
 				.catch((err: unknown) => {
-					log.debug('Could not read the topic state; using the run config', {
+					log.debug('Could not read the topic state; using the turn config', {
 						'namzu.topic.id': params.topicId,
 						'namzu.error.message': toErrorMessage(err),
 					})
@@ -474,8 +474,8 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 				})
 		: null
 
-	// Whatever a host left for "the next run", taken and cleared in one
-	// compare-and-set write. Prepended to the messages this run starts from,
+	// Whatever a host left for "the next turn", taken and cleared in one
+	// compare-and-set write. Prepended to the messages this turn starts from,
 	// so it is in the FIRST request rather than arriving a turn late.
 	//
 	// Cleared as it is read: a queue read and cleared separately re-delivers
@@ -493,13 +493,13 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			)
 		: []
 
-	// One effective list, used everywhere the run is seeded from. Three
+	// One effective list, used everywhere the turn is seeded from. Three
 	// branches below push from it, and computing it at each would be three
 	// places to forget the queue.
 	//
 	// Stored attachments are resolved HERE, once, before the messages reach
-	// the run record. Resolving later — at the provider boundary — would put
-	// refs in the durable transcript and in every checkpoint, and a run
+	// the turn record. Resolving later — at the provider boundary — would put
+	// refs in the durable transcript and in every checkpoint, and a turn
 	// resumed against a store that had since forgotten a ref would fail
 	// replaying its own history rather than at the moment somebody asked for
 	// the bytes. Every failure refuses: a message that silently lost its
@@ -562,9 +562,9 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			params.signal?.throwIfAborted()
 		} catch (error) {
 			// Attachment materialization precedes TurnContext construction so stored
-			// bytes never enter a live run's checkpoints. Cancellation still belongs
+			// bytes never enter a live turn's checkpoints. Cancellation still belongs
 			// to that run: preserve the exact input refs, build the context below, and
-			// let its normal terminal path classify/persist a cancelled Run. Every
+			// let its normal terminal path classify/persist a cancelled turn. Every
 			// other store failure remains a pre-run refusal.
 			if (!params.signal?.aborted || error !== params.signal.reason) throw error
 			resolvedInitialMessages = [...seeded]
@@ -590,8 +590,8 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 				snapshot = prepared
 			} catch (error) {
 				// This callback runs before TurnContext owns its child controller. A
-				// caller cancellation here still belongs to the run: publish no late
-				// snapshot and let the context below settle the normal cancelled Run.
+				// caller cancellation here still belongs to the turn: publish no late
+				// snapshot and let the context below settle the normal cancelled turn.
 				// Compare the exact reason: a callback failure that won first must not
 				// be erased merely because cancellation arrived before this catch ran.
 				if (!preparationSignal.aborted || error !== preparationSignal.reason) throw error
@@ -629,7 +629,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 				source: 'fresh-history',
 				report: initialRepair.report,
 			})
-			log.warn('Repaired provider-invalid tool history before starting the run', {
+			log.warn('Repaired provider-invalid tool history before starting the turn', {
 				[NAMZU.TURN_ID]: turnId,
 				'namzu.history.source': 'fresh-history',
 				'namzu.history.duplicate_tool_results_removed':
@@ -647,7 +647,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		//
 		// The HANDOUT is therefore deliberately NOT here. A host given the box
 		// at this point can call `set` synchronously, `emit` reaches
-		// `eventTranslator` inside its temporal dead zone, and the run dies
+		// `eventTranslator` inside its temporal dead zone, and the turn dies
 		// before it starts. That is not hypothetical: it is what the first
 		// version of this did, and the test that hands out the box and
 		// immediately swaps the policy is the one that found it.
@@ -657,7 +657,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 				// By identity against the default, not by presence. `resumeHandler`
 				// is REQUIRED on `QueryParams` — `drainQuery` substitutes
 				// `autoApproveHandler` before calling here — so "is it set" is
-				// always yes and would name every run `host`, including the ones
+				// always yes and would name every turn `host`, including the ones
 				// approving everything unattended. Identity is what actually
 				// separates the two.
 				name:
@@ -676,7 +676,7 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 				planApprovalIds.set(request.planId, checkpointId)
 			}
 			// `.current.handler`, never a captured `params.resumeHandler`. That
-			// capture is what made changing the policy mean ending the run.
+			// capture is what made changing the policy mean ending the turn.
 			const decision = await approvalPolicy.current.handler({
 				type: 'plan_approval',
 				sessionId: ctx.sessionId,
@@ -745,8 +745,8 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			} catch (error) {
 				// Cancellation is the terminal authority. A hook event sink or an
 				// unexpected manager failure is reported, but cannot turn Stop into a
-				// failed run or prevent the durable cancellation verdict.
-				ctx.log.error('Run interrupt hooks did not settle cleanly', {
+				// failed turn or prevent the durable cancellation verdict.
+				ctx.log.error('Turn interrupt hooks did not settle cleanly', {
 					[NAMZU.TURN_ID]: ctx.turnId,
 					...errorAttributes(error),
 				})

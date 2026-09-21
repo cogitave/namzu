@@ -32,14 +32,14 @@
  *                             not been trusted, so a headless run refused to
  *                             start. Its own code because a caller has to be
  *                             able to tell it from 64 (your arguments are
- *                             wrong) and from 1 (the run failed): this one is
+ *                             wrong) and from 1 (the turn failed): this one is
  *                             fixed by a human decision about a folder, and
  *                             nothing else is. A caller who cannot tell them
  *                             apart matches on the message string, and then
  *                             the message can never be reworded.
  *   78  EXIT_BAD_CONFIG     — sysexits EX_CONFIG; a config source is present
  *                             and cannot be read or contains a known setting
- *                             with an invalid value, so the run refuses rather
+ *                             with an invalid value, so the turn refuses rather
  *                             than silently substituting another setting.
  *                             Distinct from 2 for
  *                             the reason 2 is distinct from 0: "namzu is not

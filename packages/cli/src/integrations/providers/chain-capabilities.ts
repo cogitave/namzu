@@ -13,7 +13,7 @@
  * chain. That is worse, and worse in the direction that matters. An operator who
  * adds a weaker fallback to gain resilience would find their PRIMARY had quietly
  * lost tool support, permanently, with nothing saying so — a capability given up
- * on every run to guard against a failure that happens rarely. So a disagreement
+ * on every turn to guard against a failure that happens rarely. So a disagreement
  * is refused and named, and an operator who wants the intersection anyway says
  * so explicitly.
  *
@@ -28,18 +28,18 @@
  * provider IS. A check that overstates its authority is how someone later finds
  * the runtime disagreed with it and stops believing it.
  *
- * ## And it is a property of the CHAIN, not of a run
+ * ## And it is a property of the CHAIN, not of a turn
  *
  * Every sentence here says what becomes unavailable IF the chain falls over,
- * and that stays the right tense now that it does. A run negotiates
+ * and that stays the right tense now that it does. A turn negotiates
  * capabilities once, against the primary, and keeps that answer across a swap —
  * so at the moment this check runs, no degradation has happened and claiming
  * one would be a confident statement about a turn that may never come.
  *
  * The conditional is also what makes the refusal worth having. Because the
  * negotiated answer does NOT follow the swap, a chain that disagrees would put
- * a run on a member holding a request shaped for someone else. Catching that
- * here, before a run starts, is cheaper than discovering it during one.
+ * a turn on a member holding a request shaped for someone else. Catching that
+ * here, before a turn starts, is cheaper than discovering it during one.
  */
 
 import type { ResolvedProviderCapabilities } from '@namzu/sdk'
@@ -161,7 +161,7 @@ export function chainCapabilityDisagreements(
 }
 
 /**
- * A smaller output ceiling is the same problem wearing a number: a run served by
+ * A smaller output ceiling is the same problem wearing a number: a turn served by
  * that member produces shorter replies than the chain was configured for.
  * Reported against the LARGEST declared ceiling, for the reason the booleans are
  * reported against the first member that has the capability.
@@ -234,7 +234,7 @@ export function describeCapabilityRefusal(
 		'The providers in your chain declare different capabilities, so namzu cannot honour the chain as written:',
 		...disagreements.map((d) => `  - ${d.sentence}`),
 		'',
-		'Taking the strongest answer would advertise abilities a fallback does not have. Taking the weakest would cost your primary a capability on every run, to guard against a failure that happens rarely. Neither is chosen for you.',
+		'Taking the strongest answer would advertise abilities a fallback does not have. Taking the weakest would cost your primary a capability on every turn, to guard against a failure that happens rarely. Neither is chosen for you.',
 		'Either drop the member that disagrees, or set "allowCapabilityMismatch": true in ~/.namzu/preferences.json to accept the limitation — it is printed on every launch.',
 	].join('\n')
 }

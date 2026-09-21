@@ -173,7 +173,7 @@ describe('a scope narrows, and can never widen', () => {
 	})
 
 	it('is the whole scope when the turn was unrestricted', async () => {
-		// No run-level list means unrestricted, so the intersection has
+		// No turn-level list means unrestricted, so the intersection has
 		// nothing to intersect with — the scope itself becomes the list.
 		const seen: (readonly string[] | undefined)[] = []
 		const executor = executorWith(seen)

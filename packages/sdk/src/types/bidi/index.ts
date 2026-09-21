@@ -4,7 +4,7 @@ import type { LLMToolSchema } from '../tool/index.js'
 /**
  * A conversation with no turn boundary.
  *
- * Every other seam in this kernel is turn-based by construction: a run
+ * Every other seam in this kernel is turn-based by construction: a turn
  * has iterations, an iteration sends a complete message list and reads a
  * stream back, and a checkpoint is taken between two of them. That shape
  * is load-bearing everywhere it appears and it cannot describe a duplex

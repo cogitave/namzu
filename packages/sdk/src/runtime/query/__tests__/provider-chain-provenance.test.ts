@@ -1,5 +1,5 @@
 /**
- * The run RECORD names the member that served.
+ * The turn RECORD names the member that served.
  *
  * The wire and the metering already followed the chain when this file was
  * written; the durable record did not. It named the head — which is worse than
@@ -112,7 +112,7 @@ function baseParams(
 	}
 }
 
-describe('the run record names the member that served', () => {
+describe('the turn record names the member that served', () => {
 	let workdirs: string[] = []
 
 	afterEach(async () => {
@@ -333,7 +333,7 @@ describe('the run record names the member that served', () => {
 		})
 
 		// Nothing served, so no step can carry `servedBy` — which is exactly the
-		// case `metadata.servingProvider` exists for. The run still has to be
+		// case `metadata.servingProvider` exists for. The turn still has to be
 		// able to say whose failure ended it.
 		//
 		// This used to assert an EMPTY ledger, and that assertion was only ever
@@ -386,7 +386,7 @@ describe('the run record names the member that served', () => {
 		])
 	})
 
-	it('records the declared provider on a run with no chain, rather than nothing', async () => {
+	it('records the declared provider on a turn with no chain, rather than nothing', async () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ id: 'c1', name: 'echo', rawArguments: '{}' }] }, { text: 'ok' }],
 		})
@@ -407,12 +407,12 @@ describe('the run record names the member that served', () => {
 			chainIndex: 0,
 		})
 		// Absence here is the statement "the declared provider served every
-		// call", so a run that never fell over must not carry it.
+		// call", so a turn that never fell over must not carry it.
 		expect(run.metadata.servingProvider).toBeUndefined()
 	})
 
-	it("records the model the STEP asked for, not the run's", async () => {
-		// No chain anywhere in this case. The ledger took the run's model while
+	it("records the model the STEP asked for, not the turn's", async () => {
+		// No chain anywhere in this case. The ledger took the turn's model while
 		// the request took `step.model ?? model` from the line above it, so a
 		// host routing one step to a cheaper model read the expensive one back.
 		const provider = new MockLLMProvider({
@@ -432,7 +432,7 @@ describe('the run record names the member that served', () => {
 			messages: [createUserMessage('hello')],
 		})
 
-		// The third entry is the answering turn, which asked for the run's model
+		// The third entry is the answering turn, which asked for the turn's model
 		// because `prepareStep` only overrode step 2.
 		expect(run.steps?.map((s) => s.model)).toEqual([
 			'primary-model',

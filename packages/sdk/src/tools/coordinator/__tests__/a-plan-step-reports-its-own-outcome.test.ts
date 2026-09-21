@@ -137,7 +137,7 @@ describe('a delegated step reports through the launch that carries it out', () =
 	it('fails the step when the worker failed, from both authorities', async () => {
 		// The handle is `state: 'completed'` with `result.status: 'failed'` —
 		// the split that made a failed worker read as an answer. The step must
-		// follow the run status, not the gateway state.
+		// follow the turn status, not the gateway state.
 		const pm = approvedPlan()
 		const named = toolsOver(pm, gatewayReturning('failed'))
 
@@ -222,7 +222,7 @@ describe('the two bindings together let a plan settle', () => {
 	it('leaves the plan unsettled while a step is still silent', async () => {
 		// The state the kernel reads before deciding whether to settle. An
 		// unreported step means the caller and the plan disagree about whether
-		// the work is over, and the run must not resolve that by guessing.
+		// the work is over, and the turn must not resolve that by guessing.
 		const pm = approvedPlan()
 		const named = toolsOver(pm, gatewayReturning('ok'))
 

@@ -207,7 +207,7 @@ describe('repairToolCall', () => {
 		expect(batch.results[0]?.isError).toBe(true)
 	})
 
-	it('a throwing repairer does not take the run down', async () => {
+	it('a throwing repairer does not take the turn down', async () => {
 		const { executor } = makeExecutor(registry, {
 			repairToolCall: () => {
 				throw new Error('repair model unavailable')

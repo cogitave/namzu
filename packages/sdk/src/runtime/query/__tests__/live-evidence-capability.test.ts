@@ -127,7 +127,7 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 	expect(captureTextEvidence).toHaveBeenCalledTimes(2)
 })
 
-it('local preparation cancellation refuses late capture without cancelling the run', async () => {
+it('local preparation cancellation refuses late capture without cancelling the turn', async () => {
 	const local = new AbortController()
 	const captureTextEvidence = vi.fn(async () => {
 		local.abort(new Error('local deadline'))

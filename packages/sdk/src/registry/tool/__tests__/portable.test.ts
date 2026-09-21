@@ -130,7 +130,7 @@ describe('collapsing a tuple into a shape both dialects read', () => {
 	it('hands back the very same object when there is nothing to rewrite', () => {
 		// Not an equal object — the SAME one. The tools block sits at position 0
 		// of the prompt-cache prefix; a fresh copy per request would invalidate
-		// the cache for the whole run even though the bytes matched.
+		// the cache for the whole turn even though the bytes matched.
 		const schema = {
 			type: 'object',
 			properties: { path: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } },

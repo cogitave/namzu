@@ -96,7 +96,7 @@ describe('a rule can name one tool and one argument at once', () => {
 describe('a prohibition cannot be smuggled past', () => {
 	// The gap these were written from. Each line below was measured against the
 	// gate before the fix and came back "no match", which reaches the permission
-	// mode — and a run with no terminal resolves that to `auto`. So an
+	// mode — and a turn with no terminal resolves that to `auto`. So an
 	// operator's deny was bypassed by typing something harmless in front of it,
 	// in exactly the unattended case the deny exists for.
 	it.each([

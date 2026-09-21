@@ -31,7 +31,7 @@ const SESSION_ID = generateSessionId()
  * the barrel re-export. A host needing `{verdict, findings}` from an agent
  * that also uses tools had to register the tool by hand and hope: nothing
  * forced the call, nothing stopped the loop when it came, and a schema
- * mismatch surfaced as a ZodError AFTER the run had paid for itself.
+ * mismatch surfaced as a ZodError AFTER the turn had paid for itself.
  */
 
 const TURN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as TurnId
@@ -195,7 +195,7 @@ async function drain(o: IterationOrchestrator) {
 }
 
 describe('structured final output', () => {
-	it('lands the validated value on the run and ends there', async () => {
+	it('lands the validated value on the turn and ends there', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ name: 'read' }] },
@@ -207,7 +207,7 @@ describe('structured final output', () => {
 						},
 					],
 				},
-				// Would keep going if the run did not end on the output.
+				// Would keep going if the turn did not end on the output.
 				{ text: 'should never be reached' },
 			],
 		})
@@ -287,7 +287,7 @@ describe('structured final output', () => {
 	 * turn, because "a model that asked for other work meant to see those
 	 * results". `captureStructuredOutput` had no such guard, and the batch
 	 * executes BEFORE either is consulted — so a shared turn ran the other
-	 * tools, side effects and all, and then ended the run before any model
+	 * tools, side effects and all, and then ended the turn before any model
 	 * turn could read what came back.
 	 */
 	describe('when it shared its turn with other calls', () => {
@@ -327,7 +327,7 @@ describe('structured final output', () => {
 			// next request to the model, which is the only thing that makes
 			// having run them worth anything.
 			const secondRequest = provider.requests[1]
-			expect(secondRequest, 'the run settled instead of taking another turn').toBeDefined()
+			expect(secondRequest, 'the turn settled instead of taking another turn').toBeDefined()
 			const relayed = (secondRequest?.messages ?? []).filter((m) => m.role === 'tool')
 			expect(JSON.stringify(relayed)).toContain('inspect_build ok')
 
@@ -340,7 +340,7 @@ describe('structured final output', () => {
 
 		it('does not spend a schema retry on a turn that produced a valid answer', async () => {
 			// `maxRetries: 1` allows one re-prompt. Charging these relays to
-			// that budget would kill the run on the second one, reported as
+			// that budget would kill the turn on the second one, reported as
 			// `structured_output_failed` — a schema failure that did not
 			// happen, on a model that is visibly making progress.
 			const provider = new MockLLMProvider({

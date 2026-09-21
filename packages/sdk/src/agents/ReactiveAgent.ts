@@ -30,10 +30,10 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 	}
 
 	/**
-	 * One run at a time per instance.
+	 * One turn at a time per instance.
 	 *
 	 * `abortController` and `currentSessionId` are instance state, so two
-	 * overlapping runs share one abort controller — cancelling either kills
+	 * overlapping turns share one abort controller — cancelling either kills
 	 * both — and the second clobbers the first's session, so a later
 	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.

@@ -16,7 +16,7 @@ import { scrubInheritedEnv } from '../env-scrub.js'
 // still alias their own var to `NAMZU_BASH_TIMEOUT_MS` at deploy
 // time if they want a unified knob.
 // Two minutes, not an hour. The old default meant a wedged command held
-// the turn — and, before per-tool deadlines existed, the whole run — for
+// the turn — and, before per-tool deadlines existed, the whole turn — for
 // up to 3600s while ignoring Stop entirely. The model can still ask for
 // longer via the tool's own `timeout` argument when it knows a build is
 // slow; the point is that the DEFAULT is survivable.
@@ -361,7 +361,7 @@ export const BashTool = defineTool({
 		// Sandbox-aware: route through sandbox.exec() when available.
 		//
 		// `context.workingDirectory` is the HOST-side workspace path the
-		// SDK consumer chose for the run (Vandal: `/var/lib/vandal/sessions/<task>`),
+		// SDK consumer chose for the turn (Vandal: `/var/lib/vandal/sessions/<task>`),
 		// which is meaningless inside the sandbox container. Forwarding
 		// it as `cwd` would either land on a path that doesn't exist
 		// (and the worker would `mkdir -p` it inside the container,

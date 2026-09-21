@@ -38,7 +38,7 @@ function findPendingToolCalls(messages: readonly Message[]): ToolCall[] {
 /**
  * Apply an ordered list of {@link Mutation} to a checkpoint's message
  * history at the fork point, producing a new message array that the
- * resumed iteration loop consumes. Pure function; does not touch the run
+ * resumed iteration loop consumes. Pure function; does not touch the turn
  * store, does not emit events.
  *
  * Throws {@link MutationNotApplicableError} when an `injectToolResponse`

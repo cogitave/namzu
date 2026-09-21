@@ -14,7 +14,7 @@ import { LocalSandboxProvider, buildBwrapArgs } from '../provider/local.js'
  * what makes that a measurement rather than a claim.
  *
  * The table is the load-bearing thing in this subsystem — `assertIsolation`
- * refuses a run whose required control a tier cannot supply, and every caller
+ * refuses a turn whose required control a tier cannot supply, and every caller
  * that turns isolation on is trusting one row of it. The sibling tier is
  * exactly why: `linux-namespace` unshares a mount namespace, sounds confined,
  * and reports `filesystem: false` because the child still sees the whole host.

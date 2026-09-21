@@ -32,7 +32,7 @@ export interface RegisterSharedSessionPlanInput {
 }
 
 /**
- * A `_work` directory a run's agents share — files, a manifest, a plan and
+ * A `_work` directory a turn's agents share — files, a manifest, a plan and
  * per-agent records — offered to hosts and applied by none of them.
  *
  * **Nothing in this SDK calls it, and that is the design, not an omission.**
@@ -44,7 +44,7 @@ export interface RegisterSharedSessionPlanInput {
  * Look at what {@link SharedSessionWorkspaceConfig} asks for: `hostRoot`, where
  * the directory lives on the machine running the kernel, and `runtimeRoot`,
  * the path an agent will see — `/mnt/user-data/outputs/_work` under one
- * container layout, the same directory as `hostRoot` in a local run, a bind
+ * container layout, the same directory as `hostRoot` in a local turn, a bind
  * target somewhere else entirely under a third. Those two roots are a
  * deployment shape. A kernel that picked them would be choosing a filesystem
  * layout for a host that has already chosen one, and would then have to be
@@ -59,7 +59,7 @@ export interface RegisterSharedSessionPlanInput {
  *
  * A host wires it by calling {@link create} with both roots, passing
  * `refs()` into its agents' runtime notes, and reading the manifest back when
- * the run ends. If a future default gateway grows an opinion about where
+ * the turn ends. If a future default gateway grows an opinion about where
  * `_work` belongs, this is the thing it should call rather than reimplement.
  */
 export class SharedSessionWorkspace {
@@ -145,8 +145,8 @@ export class SharedSessionWorkspace {
 			'# Source Inventory',
 			'',
 			sources.length
-				? 'These are the canonical input references for this run. Prefer this inventory and targeted source reads over rediscovering uploads in every worker.'
-				: 'No user-uploaded source files were registered for this run.',
+				? 'These are the canonical input references for this turn. Prefer this inventory and targeted source reads over rediscovering uploads in every worker.'
+				: 'No user-uploaded source files were registered for this turn.',
 			'',
 			...sources.map((source) =>
 				[

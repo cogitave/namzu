@@ -38,7 +38,7 @@ const ANSWER = (id: string, option: string): HITLResumeDecision => ({
 
 const request = {
 	name: 'target_environment',
-	prompt: 'which environment should this run against?',
+	prompt: 'which environment should this turn against?',
 	options: [
 		{ id: 'staging', label: 'Staging' },
 		{ id: 'production', label: 'Production' },
@@ -151,7 +151,7 @@ describe('a pause raised from inside a tool', () => {
 		expect(await pause(request)).toMatchObject({ status: 'unanswered' })
 	})
 
-	it('answers from a resumed run without parking again', async () => {
+	it('answers from a resumed turn without parking again', async () => {
 		const record = vi.fn(async () => '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as never)
 		const answers = new PendingAnswers()
 		answers.set(
@@ -225,7 +225,7 @@ describe('the id a resume gate matches on', () => {
 		// Why this is a prefix test against ids that are really there and
 		// not `split(':')[0]`. Splitting yields `call`, which is nobody's
 		// call, so the pause would be refused for a reason that has nothing
-		// to do with the run.
+		// to do with the turn.
 		const pause = pauseId('call:9', 'confirm')
 
 		expect(isPauseForCall(pause, 'call:9')).toBe(true)

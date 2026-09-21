@@ -421,8 +421,8 @@ export class AgentManager {
 		// A shell this task has to itself, not the registry's shared instance.
 		//
 		// `resolve` returns one `typedAgent` per registered id, and an instance
-		// refuses a second concurrent `run` because it holds per-run state. So
-		// a fan-out naming the same `agent_id` four times drove four runs at one
+		// refuses a second concurrent `run` because it holds per-turn state. So
+		// a fan-out naming the same `agent_id` four times drove four turns at one
 		// shell: one worked and three died with `ConcurrentInvocationError` —
 		// while `create_task`'s own description tells the model that this
 		// fan-out is the thing to do. Observed live on 12.0.1, four launches,
@@ -534,7 +534,7 @@ export class AgentManager {
 			// A check that cannot fail reads as a safeguard and is not one. The
 			// predicate is exported for the callers that do face an actor they
 			// did not construct: an audit walking a subtree, a host asking
-			// whether one run's actor is contained by another's.
+			// whether one turn's actor is contained by another's.
 			//
 			// Union, not replace, and not "innermost wins": a descendant may
 			// narrow further and may never widen.
@@ -677,7 +677,7 @@ export class AgentManager {
 				//
 				// Without this every delegated child fell through to
 				// `autoApproveHandler`, so a host's "ask before acting" gate
-				// covered the top-level run and nothing it delegated.
+				// covered the top-level turn and nothing it delegated.
 				const inheritedHandler = options.configOverrides?.resumeHandler ?? context.resumeHandler
 				if (inheritedHandler) childConfig.resumeHandler = inheritedHandler
 
@@ -737,12 +737,12 @@ export class AgentManager {
 				}
 			}
 
-			// The screens in force for the parent run, stamped onto the child
+			// The screens in force for the parent session, stamped onto the child
 			// the way the trace parent and the review handler are — and after
 			// both branches, because the bare-config branch builds its whole
 			// config by hand and would otherwise omit this one field.
 			//
-			// A child run builds its own executor, which installs
+			// A child session builds its own executor, which installs
 			// `DEFAULT_TOOL_RESULT_GUARDRAILS` when nothing said otherwise — so
 			// without this a parent that turned the screens off, or exempted a
 			// tool it knows, had that decision revert the moment it delegated,
@@ -801,7 +801,7 @@ export class AgentManager {
 			// Narrowing only: the deny list is SUBTRACTED from whatever the child
 			// would otherwise have. `allowedTools` absent means "every registered
 			// tool", so a deny with no existing allow-list has to be resolved
-			// against the registry at the run rather than here — which `query()`
+			// against the registry at the turn rather than here — which `query()`
 			// does, and which is why this appends to `deniedTools` rather than
 			// synthesising an allow-list.
 			if (resolvedDenies.length > 0) {
@@ -1071,7 +1071,7 @@ export class AgentManager {
 	 * naming where it sits in the tree (`parent`: the spawning session, turn
 	 * and tool call, the root session, the depth, and the kind of spawn).
 	 *
-	 * Written here, before the child runs, because only the manager knows all
+	 * Written here, before the child sessions, because only the manager knows all
 	 * of it: a child's config carries its parent session and turn but not the
 	 * tool call or the root. The child's own turn then finds the log started
 	 * and appends after it. A log that already has records is left alone.

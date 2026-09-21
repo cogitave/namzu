@@ -5,7 +5,7 @@
  * mocks — so it proves the command builds a gate and hands it over, and
  * nothing about whether the session passes it on. That last hop is a
  * one-line spread inside a 1700-line file, and deleting it is silent: the
- * flag parses, the gate is constructed, the run settles on a red build, and
+ * flag parses, the gate is constructed, the turn settles on a red build, and
  * there is nothing anywhere to read that says why.
  *
  * Measured: with only the flag test, removing that spread left the suite
@@ -101,7 +101,7 @@ describe('a gate supplied to the session', () => {
 		const params = await drive()
 
 		// Absent, not present-and-undefined. The kernel branches on presence,
-		// and a run with no gate must be byte-identical to one from before
+		// and a turn with no gate must be byte-identical to one from before
 		// gates existed.
 		expect('reviewAnswer' in params).toBe(false)
 		expect('maxAnswerReviews' in params).toBe(false)

@@ -25,7 +25,7 @@ const SESSION_ID = generateSessionId()
  * The unit tests above check the scorers in isolation; this checks the
  * thing that actually matters — that a behavior change in the agent shows
  * up as a score drop. Every piece this depends on had to land first:
- * `Run.steps` (otherwise a trajectory scorer would correlate raw events by
+ * `Turn.steps` (otherwise a trajectory scorer would correlate raw events by
  * iteration number) and a mock that can emit tool calls (otherwise the
  * loop cannot be driven at all).
  */
@@ -176,7 +176,7 @@ const HEALTHY = [
 	{ toolCalls: [{ name: 'finish' }] },
 ]
 
-describe('the harness scores a real run', () => {
+describe('the harness scores a real turn', () => {
 	it('projects a finished Turn into the shape scorers consume', async () => {
 		const run = await driveAgent(HEALTHY)
 		const projected = evalTurnFromTurn(run)

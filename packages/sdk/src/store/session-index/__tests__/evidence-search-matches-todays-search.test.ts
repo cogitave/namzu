@@ -60,7 +60,7 @@ afterEach(() => {
 /**
  * Today's evidence search, applied to the same records: `recordTexts` picks
  * the text parts and `passageMatcher` finds the first passage in each, as
- * `store/evidence/disk.ts` does for a run's event log.
+ * `store/evidence/disk.ts` does for a turn's event log.
  */
 async function todaysSearch(query: (typeof QUERIES)[number]): Promise<EvidenceHit[]> {
 	const hits: EvidenceHit[] = []

@@ -151,7 +151,7 @@ export class BackgroundJobRegistry {
 	/**
 	 * Be told when a job ends, whoever owns it. A job outlives the call that
 	 * started it, so the one thing the model could not do was learn that it
-	 * had finished without polling; a run subscribes here and turns the exit
+	 * had finished without polling; a turn subscribes here and turns the exit
 	 * into a notice on its next tool result. Returns the unsubscribe.
 	 */
 	onExit(listener: (job: BackgroundJob) => void): () => void {
@@ -192,7 +192,7 @@ export class BackgroundJobRegistry {
 		const running = this.list(params.owner).filter((job) => job.status === 'running')
 		if (running.length >= this.maxJobs) {
 			// Refused, not queued. A queue would accept the call and start the
-			// work minutes later against a run that has since ended — the model
+			// work minutes later against a turn that has since ended — the model
 			// would be told its job is running and poll an id that does nothing.
 			throw new BackgroundJobLimitError({ owner: params.owner, limit: this.maxJobs })
 		}

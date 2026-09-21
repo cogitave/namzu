@@ -745,7 +745,7 @@ describe('recoverable hand edits and interrupted writes', () => {
 		)
 		// Dated explicitly: the filesystem stamps mtime from a coarse clock that
 		// can read a few milliseconds behind the `Date.now()` the update wrote,
-		// which made the newer file look older about one run in three.
+		// which made the newer file look older about one turn in three.
 		const newTime = new Date(Date.now() + 60_000)
 		await utimes(oldPath, newTime, newTime)
 		await expect(store.list()).rejects.toThrow(

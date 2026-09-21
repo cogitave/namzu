@@ -1,0 +1,99 @@
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
+
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { MockLLMProvider, registerMock } from '../../../provider/index.js'
+import { ToolRegistry } from '../../../registry/index.js'
+import { defineTool } from '../../../tools/defineTool.js'
+import type { SessionId, TenantId } from '../../../types/ids/index.js'
+import { createUserMessage } from '../../../types/message/index.js'
+import type { MockTurn } from '../../../types/provider/index.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
+import { query } from '../index.js'
+
+/**
+ * Under `strategy: 'salience'` the context is held near half the window,
+ * by evicting the least salient messages, long before the summary
+ * trigger — and the summary path is not paid for on the way.
+ */
+
+registerMock()
+
+const dirs: string[] = []
+afterEach(async () => {
+	await removeTempDirs(dirs)
+	dirs.length = 0
+})
+
+const dump = (i: number): MockTurn => ({
+	toolCalls: [{ id: `d${i}`, name: 'dump', args: { which: i } }],
+	finishReason: 'tool_calls',
+})
+
+function tools(): ToolRegistry {
+	const registry = new ToolRegistry()
+	registry.register(
+		defineTool({
+			name: 'dump',
+			description: 'returns a lot',
+			inputSchema: z.object({ which: z.number() }),
+			category: 'analysis',
+			permissions: [],
+			readOnly: true,
+			destructive: false,
+			concurrencySafe: true,
+			execute: async ({ which }) => ({
+				success: true,
+				output: `dump ${which}: ${'filler text '.repeat(400)}`,
+			}),
+		}),
+	)
+	return registry
+}
+
+describe('a turn under the salience strategy', () => {
+	it('clears low-salience results at the soft target and never summarises below the trigger', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-salience-'))
+		dirs.push(workingDirectory)
+		const events: SessionEvent[] = []
+		const turns = Array.from({ length: 8 }, (_, i) => dump(i))
+		for await (const event of query({
+			provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
+			tools: tools(),
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 500_000, maxIterations: 12 },
+			agentId: 'a',
+			agentName: 'A',
+			messages: [createUserMessage('dump everything, then tell me about dump 7')],
+			workingDirectory,
+			sessionId: '1e0301cb-9455-48d1-a22a-76f7bcae0981' as SessionId,
+			topicId: 'f85fe271-5d7f-43be-b197-75d2e0b019bb' as TopicId,
+			projectId: '77591058-6566-4123-826e-b2c57da6bb8a' as ProjectId,
+			tenantId: '5ebe0c1e-9c3b-4abc-870d-affb0cea1850' as TenantId,
+			resumeHandler: async () => ({ action: 'continue' }),
+			// Partial on purpose: the kernel applies the schema's defaults, so a
+			// host need not spell out twenty fields to pick a strategy.
+			compactionConfig: {
+				strategy: 'salience',
+				contextWindowTokens: 8_000,
+				keepRecentMessages: 2,
+				llmVerification: false,
+			} as never,
+		})) {
+			events.push(event)
+		}
+		const cleared = events.filter((e) => e.type === 'compaction_tool_results_cleared')
+		expect(cleared.length).toBeGreaterThan(0)
+		// Held near half the window: after the first pass, no request went out
+		// with the context above the summary trigger.
+		const contexts = events.flatMap((e) =>
+			e.type === 'token_usage_updated' && e.contextTokens !== undefined ? [e.contextTokens] : [],
+		)
+		expect(Math.max(...contexts)).toBeLessThan(8_000 * 0.7)
+		expect(events.some((e) => e.type === 'compaction_completed')).toBe(false)
+		expect(events.some((e) => e.type === 'turn_completed')).toBe(true)
+	})
+})

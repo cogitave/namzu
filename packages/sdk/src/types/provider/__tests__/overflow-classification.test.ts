@@ -92,7 +92,7 @@ describe('wordings that used to miss', () => {
 		const classified = classifyProviderError(
 			Object.assign(new Error('The model id is not valid'), { status: 400 }),
 		)
-		// Overreaching here would send a run into compaction it cannot be
+		// Overreaching here would send a turn into compaction it cannot be
 		// rescued by, and hide the real error behind a retry.
 		expect(classified.code).toBe('invalid_request')
 	})

@@ -118,7 +118,7 @@ describe('a foreign delegate answers through the scheduler the tools already spe
 
 	it('reads as succeeded to the predicate the tools use', async () => {
 		// The whole point of the mapping. `taskSucceeded` requires the gateway
-		// state and the run status to AGREE, because locally they are two
+		// state and the turn status to AGREE, because locally they are two
 		// authorities — a foreign delegate has one word, written onto both.
 		const scheduler = new DelegatingTaskScheduler({
 			delegates: [delegate('remote', { status: 'completed', output: 'ok' })],
@@ -193,7 +193,7 @@ describe('a foreign delegate answers through the scheduler the tools already spe
 
 	it('forwards the parent’s environment to the delegate', async () => {
 		// The reason the `Agent` tool forwards it to a local child: a delegate
-		// that cannot see it runs against different services than the run that
+		// that cannot see it runs against different services than the turn that
 		// launched it, silently.
 		let seen: Readonly<Record<string, string>> | undefined
 		const scheduler = new DelegatingTaskScheduler({

@@ -12,13 +12,13 @@ import { ResultAssembler } from '../result.js'
 
 /**
  * A 503 that survived every in-turn recovery — retry with jitter, the
- * one-shot compaction relief, mid-stream salvage — settled the run as
+ * one-shot compaction relief, mid-stream salvage — settled the turn as
  * `failed`, identically to a bad API key. The host could not tell them
  * apart, and recovering meant knowing about checkpoints and driving
  * replay itself.
  *
  * The state was never the problem: checkpoints are written every iteration
- * by default and the failed run is persisted with full messages. Only the
+ * by default and the failed turn is persisted with full messages. Only the
  * settle and the signal were missing.
  */
 
@@ -133,7 +133,7 @@ describe('a transient failure with somewhere to resume from', () => {
 		expect(spanStatus).toEqual([1])
 	})
 
-	it('records why it stopped without marking the run failed', async () => {
+	it('records why it stopped without marking the turn failed', async () => {
 		const { marks } = await settle(transient(), CP)
 		expect(marks).toContain('lastError')
 	})
@@ -180,7 +180,7 @@ describe('a failure that pausing would not help', () => {
 	})
 
 	it('still fails when there is no checkpoint to resume from', async () => {
-		// Pausing with nowhere to resume from is a run that can never be
+		// Pausing with nowhere to resume from is a turn that can never be
 		// picked up again — strictly worse than reporting the failure.
 		const { emitted } = await settle(transient(), undefined)
 		expect(emitted.map((e) => e.type)).toEqual(['turn_failed'])

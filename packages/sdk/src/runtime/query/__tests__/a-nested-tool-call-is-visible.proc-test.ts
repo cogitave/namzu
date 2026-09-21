@@ -26,10 +26,10 @@ import { ToolExecutor } from '../executor.js'
 const SESSION_ID = generateSessionId()
 
 /**
- * A tool call a PROGRAM made, visible in the run's own stream.
+ * A tool call a PROGRAM made, visible in the turn's own stream.
  *
  * `run_code` dispatches through the registry, and that dispatch reached the
- * permission gate and reached the event stream not at all. A run whose
+ * permission gate and reached the event stream not at all. A turn whose
  * transcript showed one `run_code` call and nothing about the eleven writes
  * it performed is a transcript nobody can audit — the tool would be the one
  * place in the system where work happens off the record.

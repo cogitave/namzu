@@ -15,7 +15,7 @@ import { ManagedRegistry } from '../registry/ManagedRegistry.js'
  *
  * Three states, not two, for the same reason {@link InvariantOutcome} shares
  * its shape with NZ-BOOT-02's `CapabilityProbe`: a check that could not run
- * — no live run to point it at, a dependency not wired yet — is not the same
+ * — no live turn to point it at, a dependency not wired yet — is not the same
  * fact as a check that ran and found nothing wrong, and collapsing the two
  * turns "I do not know" into the strongest possible wrong answer. See
  * "an optional dependency may not degrade a check".
@@ -91,7 +91,7 @@ interface InvariantDefinition {
 	readonly name: string
 	/**
 	 * Erased to `never` at storage. Two invariants close over unrelated
-	 * context shapes — a candidate message list here, a run directory and a
+	 * context shapes — a candidate message list here, a turn directory and a
 	 * presented fence there — and one map cannot state both statically. The
 	 * pairing of a check with the shape of `ctx` it expects is a contract the
 	 * CALLER of `evaluate`/`assert` keeps by knowing which id it is asking,

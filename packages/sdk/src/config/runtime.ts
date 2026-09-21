@@ -35,7 +35,7 @@ export const CompactionConfigSchema = z.object({
 	/**
 	 * Optional model context-window size (tokens) the compaction trigger
 	 * measures the CURRENT window against. NO default: when omitted the
-	 * trigger falls back to the run-level cumulative `tokenBudget` exactly as
+	 * trigger falls back to the turn-level cumulative `tokenBudget` exactly as
 	 * before, so existing consumers are byte-identical. Hosts that keep
 	 * `tokenBudget` unlimited (0) set this so compaction fires on
 	 * window-pressure instead of being a silent no-op.
@@ -51,7 +51,7 @@ export const CompactionConfigSchema = z.object({
 	 * trigger armed, so the next iteration compacts again — paying a
 	 * summarization call and busting the prompt-cache prefix each time, for
 	 * nothing. A pass that cannot reach this level logs the shortfall and
-	 * the run continues rather than repeating a move that does not work.
+	 * the turn continues rather than repeating a move that does not work.
 	 *
 	 * The field was declared and set by the shipped CLI but read by nothing;
 	 * the choice was to implement it or delete it, and thrash is a real
@@ -121,7 +121,7 @@ export const CompactionConfigSchema = z.object({
 	/**
 	 * Entries pinned at the head of each capped list, never evicted.
 	 *
-	 * Eviction used to drop the OLDEST entry, so a long run silently
+	 * Eviction used to drop the OLDEST entry, so a long turn silently
 	 * deleted the decision that set its approach while keeping the last
 	 * twenty-five incidental notes. The early entries are the load-bearing
 	 * ones and the recent ones are still in the un-compacted tail.

@@ -32,7 +32,7 @@ import { drainQuery } from '../index.js'
  * it: the loop runs only if `Promise.all([...parallel, serial])` resolves,
  * and `serial = serial.then(run)` means one per-call rejection skips every
  * LATER serial call and rejects the batch. Nothing is answered on that path
- * — no messages are produced at all — and the run fails, leaving a
+ * — no messages are produced at all — and the turn fails, leaving a
  * transcript whose assistant turn has unanswered `tool_use` blocks for a
  * resume to repair.
  *
@@ -40,9 +40,9 @@ import { drainQuery } from '../index.js'
  * otherwise guess at. Two reachable routes are driven:
  *
  *  - `executeBatch` called with calls it must run itself, where
- *    `executeSingle` reaches the pre-tool hook and the hook's own run event
+ *    `executeSingle` reaches the pre-tool hook and the hook's own turn event
  *    is a store write that fails;
- *  - a real run, where the call throws on its retry admission — the
+ *  - a real turn, where the call throws on its retry admission — the
  *    admission `executeSingle` takes from inside the batch, so the batch's
  *    `Promise.all` is what rejects.
  */
@@ -164,7 +164,7 @@ describe('a batch whose per-call work throws', () => {
 	})
 })
 
-describe('a run whose tool batch throws', () => {
+describe('a turn whose tool batch throws', () => {
 	it('fails, and leaves the assistant turn unanswered for a resume to repair', async () => {
 		const executions: string[] = []
 		// Fails once and is retryable, so the call reaches its retry admission

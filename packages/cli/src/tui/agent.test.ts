@@ -249,7 +249,7 @@ describe('toAgentEvent', () => {
 				presenter,
 			),
 			// The cost record travels whole. Narrowing it to a single number
-			// here is what left every surface downstream unable to tell a run
+			// here is what left every surface downstream unable to tell a turn
 			// that cost nothing from one nobody could price.
 		).toEqual({
 			kind: 'usage',
@@ -373,7 +373,7 @@ describe('isPromptExempt', () => {
 
 	it('prompts for save_memory, which declares readOnly: false', () => {
 		// The whole point. It sat on a list called READ_ONLY_TOOLS while
-		// declaring the opposite, and what it writes outlives the run: content
+		// declaring the opposite, and what it writes outlives the turn: content
 		// saved now is retrievable by `search_memory` in a later session, out of
 		// the user's own repository under <cwd>/.namzu/memory.
 		expect(isPromptExempt(registry, 'save_memory', {})).toBe(false)

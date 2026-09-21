@@ -21,7 +21,7 @@ import type { CommandContext } from '../types.js'
 // missing something production always sets.
 const sessionStub = fakeAgentSession()
 
-// These tests are about exit codes for a run that STARTED. Standing in a
+// These tests are about exit codes for a turn that STARTED. Standing in a
 // trusted folder is the ordinary production state and is what they need; the
 // gate that refuses an untrusted one is tested in
 // `__tests__/headless-trust-gate.test.ts`.
@@ -81,7 +81,7 @@ async function runWith(events: unknown[]): Promise<{
 	return { code, printed, errors }
 }
 
-describe('namzu run exit code reflects whether the run finished', () => {
+describe('namzu run exit code reflects whether the turn finished', () => {
 	it('prints the settled answer without rejected answers or intermediate narration', async () => {
 		const { code, printed } = await runWith([
 			{ kind: 'delta', text: 'Inspecting files. ' },
@@ -114,7 +114,7 @@ describe('namzu run exit code reflects whether the run finished', () => {
 	})
 
 	it('exits 1 when an output guardrail refused the answer', async () => {
-		// The empty-output case. Exiting 0 here told a shell script the run had
+		// The empty-output case. Exiting 0 here told a shell script the turn had
 		// succeeded and handed it nothing.
 		const { code, errors } = await runWith([{ kind: 'done', stopReason: 'output_guardrail' }])
 
@@ -143,7 +143,7 @@ describe('namzu run exit code reflects whether the run finished', () => {
 
 	it('exits 75 on a pause, keeps partial output and names a resumable checkpoint', async () => {
 		// 75 is EX_TEMPFAIL: a wrapper can tell "the provider said not now" from
-		// a run that failed, and wait instead of re-running into the same limit.
+		// a turn that failed, and wait instead of re-running into the same limit.
 		const { code, printed, errors } = await runWith([
 			{ kind: 'delta', text: 'useful partial answer' },
 			{
@@ -152,7 +152,7 @@ describe('namzu run exit code reflects whether the run finished', () => {
 				reason: 'slow down',
 				explanation: {
 					id: 'provider.rate_limit',
-					message: 'The provider is rate limiting this run.',
+					message: 'The provider is rate limiting this turn.',
 					hint: 'Wait before continuing.',
 				},
 			},

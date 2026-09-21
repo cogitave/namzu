@@ -1,4 +1,4 @@
-/** A real run carries the read fingerprint into the later full-file write. */
+/** A real turn carries the read fingerprint into the later full-file write. */
 
 import { writeFileSync } from 'node:fs'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'

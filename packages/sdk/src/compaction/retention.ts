@@ -12,10 +12,10 @@ import type { AssistantMessage, Message, ToolMessage } from '../types/message/in
  * is host-rendered per turn and does not know what the user said.
  *
  * `retain` says it directly. The cost of the marker is paid by whoever
- * sets it: pinned turns are exempt from the reclaim that keeps a long run
+ * sets it: pinned turns are exempt from the reclaim that keeps a long turn
  * alive, so pinning the whole history is a way to make compaction useless.
  * Nothing here enforces a ceiling — a limit would have to guess which pin
- * mattered, and dropping the wrong one silently is worse than the run
+ * mattered, and dropping the wrong one silently is worse than the turn
  * overflowing loudly.
  */
 

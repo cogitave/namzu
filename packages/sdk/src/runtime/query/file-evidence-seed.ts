@@ -51,7 +51,7 @@ export interface ObservationSeedContext {
 	readonly workingDirectory: string
 	/** See `ToolContext.additionalDirectories`; part of the tools' resolution. */
 	readonly additionalDirectories?: readonly string[]
-	/** True when this run's tools address a sandbox, whose keys are paths as written. */
+	/** True when this turn's tools address a sandbox, whose keys are paths as written. */
 	readonly sandboxed?: boolean
 }
 
@@ -97,7 +97,7 @@ export async function seedObservationLedger(
  * pass should not run at all.
  *
  * `undefined` for a history with nothing to reconstruct and for one past the
- * ceiling. A path the resolver refuses — it escapes the roots this run may
+ * ceiling. A path the resolver refuses — it escapes the roots this turn may
  * reach, or the working directory itself is gone — is simply left unkeyed;
  * the replay then treats the mutation that named it as unattributable, which
  * is the fail-closed answer and the same one it gives a call it cannot parse.

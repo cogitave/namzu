@@ -165,8 +165,8 @@ describe('a retried invocation carrying the same key', () => {
 
 describe('an invocation without a key', () => {
 	it('is refused while another is running, as before', async () => {
-		// The lock still owns the no-key case: two overlapping runs share one
-		// abort controller and one run id, and neither failure announces
+		// The lock still owns the no-key case: two overlapping turns share one
+		// abort controller and one turn id, and neither failure announces
 		// itself.
 		const { provider, release } = blockingProvider()
 		const a = agent()

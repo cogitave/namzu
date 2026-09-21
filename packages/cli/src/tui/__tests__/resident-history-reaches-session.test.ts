@@ -221,7 +221,7 @@ it('does not mount resident recall for an ordinary conversation', async () => {
 	expect(session.toolNames()).not.toContain('read_resident_history')
 })
 
-it('loads only requested resident guidance, rejects foreign and settled runs, and leaves the next send clean', async () => {
+it('loads only requested resident guidance, rejects foreign and settled turns, and leaves the next send clean', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-resident-skills-session-'))
 	roots.push(cwd)
 	const sessions = await openSessions(cwd, { stateRoot: join(cwd, 'state') })

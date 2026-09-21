@@ -32,10 +32,10 @@ export function toolGrantKeys(call: Pick<ToolCallSummary, 'name' | 'input'>): To
 }
 
 /**
- * Grants recorded during one run.
+ * Grants recorded during one turn.
  *
- * Run-scoped, not persisted: an approval is a statement about this run's
- * work, and carrying it into a later run would be reuse nobody agreed to.
+ * Turn-scoped, not persisted: an approval is a statement about this turn's
+ * work, and carrying it into a later turn would be reuse nobody agreed to.
  * The durable half is the checkpointed decision, which is evidence of what
  * was approved, not a standing permission.
  */

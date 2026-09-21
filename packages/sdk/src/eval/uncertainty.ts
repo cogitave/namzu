@@ -1,7 +1,7 @@
 /**
  * How much of a score is signal.
  *
- * A suite reported a mean and nothing else, so two runs differing by three
+ * A suite reported a mean and nothing else, so two experiments differing by three
  * points read as a difference. At the n a hand-built suite has, that is
  * usually noise, and there was no number on the page that would have said
  * so.
@@ -111,7 +111,7 @@ export function uncertaintyOf(scores: readonly number[]): ScoreUncertainty {
  *
  * Names the interval rather than only the mean, because the mean alone is
  * the thing that has been over-read. An interval spanning most of the
- * scale says the suite cannot currently tell two runs apart, and that is
+ * scale says the suite cannot currently tell two experiments apart, and that is
  * the most useful sentence such a suite can produce.
  */
 export function describeUncertainty(mean: number, u: ScoreUncertainty): string {

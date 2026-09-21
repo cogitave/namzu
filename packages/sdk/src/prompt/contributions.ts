@@ -51,7 +51,7 @@ export interface PromptContributionContext {
  * hits — or, worse, gets served the first turn's text forever.
  *
  * The rule: `static` iff the output depends only on things that cannot
- * change inside one run.
+ * change inside one turn.
  */
 export type PromptPlacement = 'static' | 'dynamic' | 'turn' | 'context'
 
@@ -63,10 +63,10 @@ export type PromptPlacement = 'static' | 'dynamic' | 'turn' | 'context'
  * the provider across turns. `turn` is not in the system prompt at all. It
  * rides the ephemeral trailing message that a step's guidance, its skills
  * and the approval-policy notice already use: appended to the request,
- * never pushed onto the run's history, and gone the moment the request is
+ * never pushed onto the turn's history, and gone the moment the request is
  * sent.
  *
- * That is the placement for state that changes DURING a run — a budget
+ * That is the placement for state that changes DURING a turn — a budget
  * running down, a queue draining, a policy that just moved. Putting such a
  * thing in `static` serves the first iteration's value forever; putting it
  * in `dynamic` re-sends it in a position the model reads as part of its
@@ -85,7 +85,7 @@ export type PromptPlacement = 'static' | 'dynamic' | 'turn' | 'context'
  * the request-only context channel rather than as a system message: a
  * runtime-context user message of kind `step-context`, after the history,
  * the same channel `PrepareStepResult.context` and the kernel's working
- * memory use. Never pushed onto the run's history.
+ * memory use. Never pushed onto the turn's history.
  *
  * The difference is where a driver puts it. A driver may hoist every
  * system message ahead of the conversation — some render tools, then
@@ -177,7 +177,7 @@ export const SKILLS_CONTRIBUTION_ID = 'namzu.skills'
 /**
  * Skills, as a contribution.
  *
- * `static`, because a run's skill set is fixed for the run — a STEP's
+ * `static`, because a turn's skill set is fixed for the turn — a STEP's
  * skills are a different thing entirely and ride the ephemeral trailing
  * system message, which is what keeps them out of the cached prefix.
  *

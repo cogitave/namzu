@@ -20,11 +20,11 @@ import { AgentNotRunningError, createAgentHandle } from '../handle.js'
  *
  * No way to ask whether the agent was running, and nowhere to put "when you
  * next run, start with this" — so a host either held a steer until it
- * observed a run starting, or carried the text itself and passed it
+ * observed a turn starting, or carried the text itself and passed it
  * manually on the next `run()` call.
  *
  * Two delivery targets with stated lifetimes, and no silent third state.
- * `steer` reaches the run that is happening; `queueForNextTurn` reaches the
+ * `steer` reaches the turn that is happening; `queueForNextTurn` reaches the
  * one that has not started. `steer` on an idle handle THROWS rather than
  * accepting into a queue nothing will read.
  */
@@ -110,7 +110,7 @@ describe('steering an idle agent is refused, not queued', () => {
 		expect(await topicStateStore.getState(TOPIC, TENANT)).toBeNull()
 	})
 
-	it('delivers to the channel when a run IS in flight', async () => {
+	it('delivers to the channel when a turn IS in flight', async () => {
 		const steering = new SteeringBinding()
 		const handle = createAgentHandle({
 			steering,
@@ -145,7 +145,7 @@ describe('status answers at the moment it is asked', () => {
 	})
 })
 
-describe('a message queued for the next run arrives in its first request', () => {
+describe('a message queued for the next turn arrives in its first request', () => {
 	it('is delivered, and only once', async () => {
 		const topicStateStore = new InMemoryTopicStateStore()
 		const handle = createAgentHandle({
@@ -162,12 +162,12 @@ describe('a message queued for the next run arrives in its first request', () =>
 
 		// FIRST request, not a turn late.
 		expect(textOf(first[0] as Message[])).toContain('start with the migration')
-		// Cleared as it was read, so a later run does not carry it again.
+		// Cleared as it was read, so a later turn does not carry it again.
 		expect(textOf(second[0] as Message[])).not.toContain('start with the migration')
 	})
 
 	it('survives the store instance that wrote it', async () => {
-		// Written through one instance, read by a run built from a fresh one
+		// Written through one instance, read by a turn built from a fresh one
 		// over the same directory. An in-memory-only implementation fails.
 		const rootDir = await mkdtemp(join(tmpdir(), 'namzu-handle-disk-'))
 		dirs.push(rootDir)
@@ -201,7 +201,7 @@ describe('a message queued for the next run arrives in its first request', () =>
 		)
 	})
 
-	it('changes nothing for a run with an empty queue', async () => {
+	it('changes nothing for a turn with an empty queue', async () => {
 		const topicStateStore = new InMemoryTopicStateStore()
 
 		const sent = await runOnce(topicStateStore)

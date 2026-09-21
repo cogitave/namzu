@@ -270,7 +270,7 @@ afterEach(async () => {
 	vi.restoreAllMocks()
 })
 
-describe('a run owns the token refresh that precedes it', () => {
+describe('a turn owns the token refresh that precedes it', () => {
 	it('refreshes an expired Claude session and publishes its rotating grant before query', async () => {
 		borrowedExternal.current = {
 			accessToken: 'cc-borrowed',

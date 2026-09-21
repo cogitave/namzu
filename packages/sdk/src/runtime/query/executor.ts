@@ -303,7 +303,7 @@ export interface ToolExecutorConfig {
 	 * Read LIVE, not frozen at run start.
 	 *
 	 * The mode used to be resolved once per run and copied in here, so
-	 * leaving plan mode meant ending the run — discarding the in-flight step
+	 * leaving plan mode meant ending the turn — discarding the in-flight step
 	 * and the tool-schema context to change one enum. A function lets an
 	 * approval flip it inside the same conversation.
 	 *
@@ -318,19 +318,19 @@ export interface ToolExecutorConfig {
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	/**
-	 * Where background jobs this run starts are held.
+	 * Where background jobs this turn starts are held.
 	 *
 	 * The registry is host-owned and shared; the executor binds it to THIS
 	 * run's id before a tool ever sees it, so a tool cannot start a job
-	 * billed to another run, nor read or kill one. Absent means the host
+	 * billed to another turn, nor read or kill one. Absent means the host
 	 * offers no background mode, and `bash run_in_background` refuses rather
 	 * than falling back to `cmd &` — see `runtime/jobs/registry.ts` for why
 	 * that fallback is a lie rather than a lesser version.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
 	/**
-	 * Which owner the run's jobs are bound to. The run id by default, which
-	 * scopes them to the run; a host that wants jobs to outlive a turn (a
+	 * Which owner the turn's jobs are bound to. The turn id by default, which
+	 * scopes them to the turn; a host that wants jobs to outlive a turn (a
 	 * dev server started in one, read in the next) binds them to its
 	 * session and stops them itself when the session ends.
 	 */
@@ -339,7 +339,7 @@ export interface ToolExecutorConfig {
 	 * Where `wait_for_job` records that the model is waiting on a job.
 	 *
 	 * A callback rather than the recorder itself: the executor's part is to
-	 * hand the tools a bound ref, and what the run does with the intent —
+	 * hand the tools a bound ref, and what the turn does with the intent —
 	 * hold itself open for the job — is the iteration loop's business. Absent
 	 * means the bound ref has no `markAwaited` at all, so a host that wires no
 	 * recorder gets no hold rather than a marking call that goes nowhere.
@@ -353,11 +353,11 @@ export interface ToolExecutorConfig {
 	 * this config is host-facing and a host may hold its skills anywhere.
 	 */
 	skills?: SkillRegistryRef
-	/** How this run reaches the web. See `ToolContext.web`. */
+	/** How this turn reaches the web. See `ToolContext.web`. */
 	web?: ToolContext['web']
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
-	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
+	/** Turn-level default deadline; per-tool `timeoutMs` overrides it. */
 	toolTimeoutMs?: number
 	/**
 	 * Wait between in-loop retries of a failed tool call. Defaults to
@@ -365,7 +365,7 @@ export interface ToolExecutorConfig {
 	 *
 	 * Applies only to a tool that opted into retrying at all
 	 * ({@link ToolDefinition.maxRetries}) or to a `post_tool_use` hook that
-	 * asked for one, so a run whose tools all take the shipped default of
+	 * asked for one, so a turn whose tools all take the shipped default of
 	 * zero retries never sleeps here.
 	 */
 	toolRetryBackoff?: Partial<BackoffPolicy>
@@ -379,7 +379,7 @@ export interface ToolExecutorConfig {
 	/**
 	 * Builds the durable-pause seam handed to one tool call.
 	 *
-	 * Absent when the run has no route to a human, which is why
+	 * Absent when the turn has no route to a human, which is why
 	 * {@link ToolContext.requestPause} is optional: a tool must be able to
 	 * run in a headless context and decide what to do without one.
 	 */
@@ -492,7 +492,7 @@ export type ToolCallDenials = ReadonlyMap<string, string>
  *
  * A batch's results reach the history only when the whole batch settles,
  * so a hard kill part-way through loses whatever had already come back and
- * the resumed run re-executes those calls. Supplying them here answers
+ * the resumed turn re-executes those calls. Supplying them here answers
  * those `tool_use` blocks from the record instead of by running the tool
  * again — which for a payment or an email is the difference between
  * resuming and repeating.
@@ -567,14 +567,14 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Rebuild this run's observation ledger from history a resume restored.
+	 * Rebuild this turn's observation ledger from history a resume restored.
 	 *
 	 * Once, and only from a history that has already been repaired — the ledger
 	 * has to describe what the model is about to be shown, not what was
 	 * checkpointed before the repair removed an abandoned call. `sandboxed` is
-	 * passed rather than read off this executor's config because a resumed run
+	 * passed rather than read off this executor's config because a resumed turn
 	 * restores its history before it acquires a sandbox, so the config does not
-	 * know yet what the run's tool paths will be keyed on.
+	 * know yet what the turn's tool paths will be keyed on.
 	 *
 	 * Awaited, and the only filesystem work anywhere in this feature: the seed
 	 * has to write its entries under the keys the mutation tools will look them
@@ -622,7 +622,7 @@ export class ToolExecutor {
 	 * Narrow what this turn may call, or clear the narrowing.
 	 *
 	 * Re-set each turn by the orchestrator for the same reason the parent span
-	 * is: `prepareStep` can hand a different list to every step, and the run's
+	 * is: `prepareStep` can hand a different list to every step, and the turn's
 	 * own `allowedTools` is only the default when a step names none.
 	 *
 	 * Without this the executor could only ever see the RUN-level list, so a
@@ -742,7 +742,7 @@ export class ToolExecutor {
 		return typeof configured === 'function' ? configured() : configured
 	}
 
-	/** Evaluate the run's operator policy against one already-prepared value. */
+	/** Evaluate the turn's operator policy against one already-prepared value. */
 	evaluatePreparedAuthorization(toolName: string, input: unknown) {
 		return this.config.authorizationGate?.evaluate({
 			toolName,
@@ -870,7 +870,7 @@ export class ToolExecutor {
 		// A model response is the ownership boundary for concurrent siblings.
 		// Scope the first call id to its durable run: custom providers are not
 		// required to make call ids globally unique, so the raw id alone could
-		// collide with a later run retained by a host-side activity monitor.
+		// collide with a later turn retained by a host-side activity monitor.
 		const firstToolUseId = toolCalls[0]?.id
 		const toolBatchId = firstToolUseId
 			? JSON.stringify([String(baseContext.turnId), firstToolUseId])
@@ -1041,7 +1041,7 @@ export class ToolExecutor {
 	 * Run a tool on behalf of another tool, and put it on the record.
 	 *
 	 * These used to go straight to `registry.execute`, so they reached the
-	 * permission gate and reached the event stream not at all — a run whose
+	 * permission gate and reached the event stream not at all — a turn whose
 	 * transcript showed one `run_code` call and nothing about the eleven
 	 * writes it performed is a transcript nobody can audit.
 	 *
@@ -1352,7 +1352,7 @@ export class ToolExecutor {
 			invocationState: this.config.invocationState,
 			captureSessionEvidence: this.config.captureSessionEvidence,
 			toolRegistry: this.config.tools,
-			// The step's list wins where it has one; the run's is the default.
+			// The step's list wins where it has one; the turn's is the default.
 			// Same precedence the request already uses when it decides which
 			// schemas to send, so the menu and the kitchen agree.
 			allowedTools: this.effectiveAllowedTools(),
@@ -1362,10 +1362,10 @@ export class ToolExecutor {
 				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
 			},
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
-			// The run's screens, defaulted HERE rather than on the registry: a
+			// The turn's screens, defaulted HERE rather than on the registry: a
 			// host builds the registry and hands it over, so a registry-side
 			// default is the host's to write and the shipped one reaches
-			// nobody. `[]` survives the `??` and is how a run says "none".
+			// nobody. `[]` survives the `??` and is how a turn says "none".
 			toolResultGuardrails: this.config.toolResultGuardrails ?? DEFAULT_TOOL_RESULT_GUARDRAILS,
 			...(this.config.skills ? { skills: this.config.skills } : {}),
 			...(this.config.web ? { web: this.config.web } : {}),
@@ -1381,9 +1381,9 @@ export class ToolExecutor {
 				this.dispatchNested(name, input, context, recordObservation, undefined, options),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
-			// Bound to this run, once. Binding here rather than passing the
+			// Bound to this turn, once. Binding here rather than passing the
 			// owner from the tool is what makes the scoping structural: there
-			// is no argument a tool could pass to reach another run's jobs.
+			// is no argument a tool could pass to reach another turn's jobs.
 			//
 			// The registry's process substrate is the HOST. It must not coexist
 			// with a Sandbox in one tool context: handing both to every tool lets
@@ -1621,7 +1621,7 @@ export class ToolExecutor {
 				// model read a SUCCESSFUL result whose body begins "Error: …"
 				// and the failure-recovery path it was trained on never
 				// fired. The persisted step recorded a literal
-				// `isError: false`, so the run record contradicted its own
+				// `isError: false`, so the turn record contradicted its own
 				// event stream. And compaction's guard against clearing error
 				// results silently excluded vetoed ones.
 				isError: true,
@@ -1878,7 +1878,7 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Run a tool under a deadline, with the run abort folded in.
+	 * Run a tool under a deadline, with the turn abort folded in.
 	 *
 	 * `ToolContext.abortSignal` existed but was produced and consumed by
 	 * nothing: a Stop tore down the model stream and then parked inside
@@ -1895,7 +1895,7 @@ export class ToolExecutor {
 	 *
 	 * A timeout is reported as a normal failed result, not a throw: the
 	 * model sees "this timed out" as a `tool_result` and can route around
-	 * it. A throw would end the run over one slow tool.
+	 * it. A throw would end the turn over one slow tool.
 	 */
 	private async executeWithDeadline(
 		toolName: string,
@@ -2066,7 +2066,7 @@ export class ToolExecutor {
 	 * `setSandbox()` now finishes against the config it STARTED with rather
 	 * than against the new one. Distinguishing the two readings needs
 	 * `setSandbox` to be called from a hook awaited in the middle of one
-	 * admission — its only call site is the run's sandbox acquisition,
+	 * admission — its only call site is the turn's sandbox acquisition,
 	 * before the loop, so nothing in this tree can tell them apart.
 	 */
 	private admissionHost(): ToolAdmissionHost {
@@ -2334,7 +2334,7 @@ export class ToolExecutor {
 		const reason = abortReasonText(this.config.abortSignal.reason)
 		return this.recordSyntheticHookOutcome(toolCallId, toolName, input, {
 			kind: 'error',
-			output: `Tool "${toolName}" was not started because the run was cancelled${reason ? `: ${reason}` : '.'}`,
+			output: `Tool "${toolName}" was not started because the turn was cancelled${reason ? `: ${reason}` : '.'}`,
 		})
 	}
 
@@ -2408,7 +2408,7 @@ export class ToolExecutor {
 				? content
 				: content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n')
 		const notice = richWithheld
-			? `[rich content withheld: ${size} base64 chars exceeds this run's ${cap} cap] ${describeDroppedContent(content) ?? ''}`
+			? `[rich content withheld: ${size} base64 chars exceeds this turn's ${cap} cap] ${describeDroppedContent(content) ?? ''}`
 			: undefined
 		if (richWithheld) {
 			this.log.warn('Tool result content exceeded the rich-content budget', {

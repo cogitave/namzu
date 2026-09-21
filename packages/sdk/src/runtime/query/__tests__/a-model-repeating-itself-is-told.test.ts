@@ -250,16 +250,16 @@ describe('a model repeating itself is told, not stopped', () => {
 		}
 	})
 
-	it('starts at zero for a second run, so a count cannot leak across runs', async () => {
-		// Run-scoped, like `ToolGrantSet`. A module-level map would carry the
-		// first run's three calls into the second and advise on its first.
+	it('starts at zero for a second turn, so a count cannot leak across turns', async () => {
+		// Turn-scoped, like `ToolGrantSet`. A module-level map would carry the
+		// first turn's three calls into the second and advise on its first.
 		//
 		// The argument is unique to this test on purpose. Sharing `{ q: 'x' }`
 		// with the cases above made this pass under a module-scoped tracker —
 		// by then the key had already been announced, so the suppression that
 		// stops a notice repeating also hid the leak. A test that cannot fail
 		// because an earlier test exhausted its subject is not testing this.
-		// TWO calls in the first run, one in the second — chosen so the second
+		// TWO calls in the first turn, one in the second — chosen so the second
 		// run's single call is the one that would cross `notifyAfter: 3` if the
 		// counts carried. Three-then-one does NOT discriminate: a shared
 		// tracker would already have announced at three, and the suppression
@@ -277,7 +277,7 @@ describe('the notice survives a result the inline slot cannot hold', () => {
 	 * `attachRepeatNotice` used to require the trailing tool result's
 	 * content to be a plain string, and silently drop the notice otherwise
 	 * — the exact shape a screenshot, a document, or an MCP resource block
-	 * returns. This reproduces that shape end to end: a real run, a real
+	 * returns. This reproduces that shape end to end: a real turn, a real
 	 * threshold crossing, and a check of every message the model could
 	 * actually read, not just the tool-result slot the old code assumed.
 	 */
@@ -328,7 +328,7 @@ describe('the notice survives a result the inline slot cannot hold', () => {
 			toolName: 'probe',
 			count: 3,
 			level: 'notice',
-			text: 'Note: this is call 3 of `probe` with identical arguments in this run.',
+			text: 'Note: this is call 3 of `probe` with identical arguments in this turn.',
 		}
 		const batch = [createToolMessage([{ type: 'text', text: 'same answer' }], 'c3')]
 

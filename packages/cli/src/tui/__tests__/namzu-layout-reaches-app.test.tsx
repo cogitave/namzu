@@ -192,7 +192,7 @@ function recorder(screen: Screen, initialColumns: number, initialRows: number) {
 
 function expectActiveLayout(screen: Screen): void {
 	const viewport = screen.viewport().join('\n')
-	// Check every size even if one fails, so the same run records all affected layouts.
+	// Check every size even if one fails, so the same turn records all affected layouts.
 	expect.soft(viewport).toContain('Check keyboard')
 	expect.soft(viewport).toContain('then compare output')
 	expect.soft(viewport).toContain('Working')

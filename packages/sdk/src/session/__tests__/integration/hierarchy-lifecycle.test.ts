@@ -1,5 +1,5 @@
 /**
- * Integration — Tenant → Project → Session → SubSession → Run hierarchy
+ * Integration — Tenant → Project → Session → SubSession → Turn hierarchy
  * lifecycle against a real {@link InMemorySessionStore}.
  *
  * Covers roadmap §5 invariants §4 (branded IDs), §4.3 (currentActor

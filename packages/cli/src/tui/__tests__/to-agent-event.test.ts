@@ -209,7 +209,7 @@ describe('toAgentEvent carries the stop reason across', () => {
 		} as const
 		const explanation = {
 			id: 'provider.rate_limit',
-			message: 'The provider is rate limiting this run.',
+			message: 'The provider is rate limiting this turn.',
 			hint: 'Wait for the quota window to reset.',
 		}
 
@@ -466,7 +466,7 @@ describe('toAgentEvent carries the context figures across', () => {
 	})
 
 	it('leaves an unreported context absent rather than zero', () => {
-		// The kernel omits all four when a run resolved no window. A `0` here
+		// The kernel omits all four when a turn resolved no window. A `0` here
 		// would be indistinguishable from an empty context and would render a
 		// gauge reading 0% — a confident wrong answer where the contract is
 		// to show no proportion at all.

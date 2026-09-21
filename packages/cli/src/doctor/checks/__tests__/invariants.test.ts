@@ -38,8 +38,8 @@ describe('describeInvariants', () => {
 		// `skipped` rather than `inconclusive` because of what the latter costs
 		// downstream. `doctor/registry.ts` maps any inconclusive row to exit 69,
 		// which is meant to say "a check could not answer" — and every registered
-		// invariant answers `unknown` outside a live run BY DESIGN, so reporting
-		// it that way made `namzu doctor` exit 69 on every single run and retired
+		// invariant answers `unknown` outside a live turn BY DESIGN, so reporting
+		// it that way made `namzu doctor` exit 69 on every single turn and retired
 		// the code. `skipped` is the doctor's existing word for a question that
 		// does not apply here, counted separately from `pass` in the summary.
 		const reg = createInvariantRegistry()
@@ -56,7 +56,7 @@ describe('describeInvariants', () => {
 	it('leaves a clean doctor run at exit 0 rather than 69', async () => {
 		// The regression this pair exists to stop: `builtInDoctorChecks` now
 		// contains the invariants row, every invariant it holds answers
-		// `unknown` outside a run, and an `inconclusive` here would make the
+		// `unknown` outside a turn, and an `inconclusive` here would make the
 		// whole command exit 69 unconditionally.
 		const { createDoctorRegistry } = await import('../../registry.js')
 		const reg = createDoctorRegistry()

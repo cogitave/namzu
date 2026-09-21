@@ -54,7 +54,7 @@ export async function* runPlanGate(
 	// on every iteration and the wrong one for a gate that runs once and is
 	// read by a human. Only the AWAIT below is raced.
 	await ctx.checkpointMgr.park(planCheckpoint, request)
-	// Raced against the run's abort signal, like every other park. A bare
+	// Raced against the turn's abort signal, like every other park. A bare
 	// `await ctx.resumeHandler(request)` here meant a Stop did nothing until
 	// the host answered: `runPlanGate` runs in the iteration loop rather than
 	// inside a tool call, so nothing downstream bounded the wait. A Stop now

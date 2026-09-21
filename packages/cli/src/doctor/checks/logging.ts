@@ -59,7 +59,7 @@ export function describeLogPipeline(counters: LogSinkCounters | undefined): Doct
 			status: 'fail',
 			message: `${counters.dropped} log record(s) never reached the sink — ${summarise(counters)}`,
 			remediation:
-				'A record is counted dropped when the installed sink threw, or when the sink is NOOP_SINK. Check the sink passed to installProcessSink: a sink that throws is caught so one bad record cannot fail a run, which is exactly why the count is the only place this shows up.',
+				'A record is counted dropped when the installed sink threw, or when the sink is NOOP_SINK. Check the sink passed to installProcessSink: a sink that throws is caught so one bad record cannot fail a turn, which is exactly why the count is the only place this shows up.',
 		}
 	}
 

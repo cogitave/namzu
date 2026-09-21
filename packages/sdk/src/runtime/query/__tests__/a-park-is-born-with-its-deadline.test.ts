@@ -20,7 +20,7 @@ import { memorySession } from './support/session.js'
  *
  * The manager-level default is covered — `durable-park-and-trace.test.ts`
  * drives `setParkTtl` directly. What was not covered is the hop from a host's
- * config to that call. Delete it and every park a real run records becomes
+ * config to that call. Delete it and every park a real turn records becomes
  * immortal: the worker is redeployed, nobody answers, and the checkpoint
  * stays outstanding forever while every approval-queue reader keeps serving
  * it. The setting looks wired, the manager is correct, and nothing between
@@ -59,8 +59,8 @@ function reviewRegistry(): ToolRegistry {
 async function runUntilParked(options: { hitlParkTtlMs?: number }): Promise<{
 	events: SessionEvent[]
 	/**
-	 * The parks as they stood while the run was still waiting — read before
-	 * the abort, because a cancelled run resolves its own park on the way out
+	 * The parks as they stood while the turn was still waiting — read before
+	 * the abort, because a cancelled turn resolves its own park on the way out
 	 * and an outstanding-park assertion taken afterwards would be about the
 	 * teardown rather than about the park.
 	 */
@@ -80,7 +80,7 @@ async function runUntilParked(options: { hitlParkTtlMs?: number }): Promise<{
 	})
 
 	// The handler never answers, so the park is still outstanding when the
-	// test looks at it — and the run is cancelled from the outside once the
+	// test looks at it — and the turn is cancelled from the outside once the
 	// park is on the durable record.
 	const caller = new AbortController()
 	const drained = (async () => {
@@ -133,8 +133,8 @@ async function runUntilParked(options: { hitlParkTtlMs?: number }): Promise<{
 	return { events, parked, servedWhileParked, session }
 }
 
-describe("a host's park time-to-live reaches the run that records the park", () => {
-	it('stamps an ABSOLUTE deadline on the park a real run writes', async () => {
+describe("a host's park time-to-live reaches the turn that records the park", () => {
+	it('stamps an ABSOLUTE deadline on the park a real turn writes', async () => {
 		const { parked: parkedList } = await runUntilParked({ hitlParkTtlMs: 60_000 })
 
 		const parked = parkedList[0]
@@ -143,7 +143,7 @@ describe("a host's park time-to-live reaches the run that records the park", () 
 		// Absolute, so it survives the process that set it. Without the hop
 		// from `turnConfig`, `setParkTtl` is never called, no deadline is
 		// written, and this park is immortal — the manager would still be
-		// right, and the run would still be wrong.
+		// right, and the turn would still be wrong.
 		// Read back from the log, `parkedAt` is the record's time, taken as it
 		// was appended — a moment after the deadline was computed from.
 		const parkedAt = parked?.pending.parkedAt ?? 0
@@ -163,7 +163,7 @@ describe("a host's park time-to-live reaches the run that records the park", () 
 	})
 })
 
-describe('the time-to-live the run writes is the one the store will enforce', () => {
+describe('the time-to-live the turn writes is the one the store will enforce', () => {
 	it('serves the park before the deadline and stops serving it after', async () => {
 		const { parked, servedWhileParked, session } = await runUntilParked({ hitlParkTtlMs: 60_000 })
 		const recorded = parked[0] as RecordedPark
@@ -182,10 +182,10 @@ describe('the time-to-live the run writes is the one the store will enforce', ()
 	})
 })
 
-describe('a park this run did not ask for', () => {
-	it('is not made immortal by a time-to-live the run never got', async () => {
+describe('a park this turn did not ask for', () => {
+	it('is not made immortal by a time-to-live the turn never got', async () => {
 		// The negative control for the two cases above: with no TTL configured
-		// there is no deadline to inherit, so nothing about this run's parks
+		// there is no deadline to inherit, so nothing about this turn's parks
 		// can be expired — which is what makes the first case's positive
 		// result a fact about the config rather than about parking at all.
 		const { parked } = await runUntilParked({})

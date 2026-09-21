@@ -152,7 +152,7 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 	})
 
 	it('withdraws it just the same through the unknown-outcome result repair writes', () => {
-		// A resumed run is seeded from the REPAIRED history, where that same
+		// A resumed turn is seeded from the REPAIRED history, where that same
 		// unanswered call wears the synthetic error result the kernel inserts for
 		// it. The repair's own words are `Its outcome is unknown`, so a walk that
 		// read it as "changed nothing" would be reading the opposite of what the
@@ -480,7 +480,7 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
  * would then match a fingerprint the seed had just handed it, while the drift
  * refusal that is meant to withdraw the claim landed on the canonical key and
  * never reached it: a claim the runtime could not take back for the life of
- * the run. So the seed resolves paths the way the tools do.
+ * the turn. So the seed resolves paths the way the tools do.
  */
 describe('a rebuilt ledger is filed where the tools will look for it', () => {
 	async function linkedWorkspace(): Promise<{ root: string; real: string }> {

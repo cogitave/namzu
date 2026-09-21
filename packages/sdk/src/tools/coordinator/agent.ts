@@ -52,7 +52,7 @@ export interface AgentToolOptions {
 	onTaskLaunched?: TaskLaunchedCallback
 
 	/**
-	 * Settle the parent run with the subagent's answer instead of looping
+	 * Settle the parent session with the subagent's answer instead of looping
 	 * once more to restate it. See {@link ToolDefinition.terminal}.
 	 *
 	 * For a router — an agent whose whole job is to pick a specialist —
@@ -83,7 +83,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 	// while leaving it open in the exported one is exactly that oversight.
 	if (agentIds.length === 0) {
 		throw new Error(
-			'buildAgentTool requires at least one entry in allowedAgentIds. An empty roster means this run may delegate to nobody, so there is no subagent the tool could name — do not build the tool.',
+			'buildAgentTool requires at least one entry in allowedAgentIds. An empty roster means this turn may delegate to nobody, so there is no subagent the tool could name — do not build the tool.',
 		)
 	}
 	const subagentTypeEnum = z.enum(agentIds as [string, ...string[]])
@@ -136,7 +136,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			// callers do it — so a schema-only check leaves the roster
 			// unenforced on that path, and the id would reach the gateway to be
 			// resolved against an AgentManager that is typically shared and may
-			// well hold an agent this run's roster deliberately omits. Every
+			// well hold an agent this turn's roster deliberately omits. Every
 			// access checked for authority, not only the mediated one
 			// (Saltzer & Schroeder §I.A.3(c), complete mediation).
 			if (!agentIds.includes(agentId)) {
@@ -163,10 +163,10 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
 					// The parent's environment, which is the whole point of setting
 					// one: a delegate that cannot see it runs against different
-					// services than the run that launched it, silently.
+					// services than the turn that launched it, silently.
 					// `ToolContext.env` is the parent's own resolved map, per run.
 					//
-					// The run's screens ride the same channel for the same
+					// The turn's screens ride the same channel for the same
 					// reason: the child's executor installs the shipped default
 					// unless the spawn says otherwise, so a parent that turned
 					// the screens off had that decision revert on the far side

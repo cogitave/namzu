@@ -37,11 +37,11 @@ function normalize<T>(spec: T | { name: string; check: T }): { name?: string; ch
 }
 
 /**
- * A guardrail that throws FAILS CLOSED, as the run-level ones do.
+ * A guardrail that throws FAILS CLOSED, as the turn-level ones do.
  *
  * `refuse` rather than `halt` for the same reason the tool boundary has a
  * recoverable refusal at all: a broken screen means this result's safety is
- * unknown, not that the run is unsalvageable. The model is told and can
+ * unknown, not that the turn is unsalvageable. The model is told and can
  * choose differently.
  */
 async function safely(
@@ -96,7 +96,7 @@ export async function screenToolResult(
 		)
 
 		if (verdict.action === 'halt') {
-			log.error('Tool-result guardrail halted the run', {
+			log.error('Tool-result guardrail halted the turn', {
 				[GENAI.TOOL_NAME]: ctx.toolName,
 				'namzu.guardrail.name': label,
 				'namzu.registry.reason': verdict.reason,

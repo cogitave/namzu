@@ -8,7 +8,7 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 5 * 60_000
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
-/** Resolve the shared run/router stream bound before either creates durable run identity. */
+/** Resolve the shared run/router stream bound before either creates durable turn identity. */
 export function resolveStreamIdleTimeoutMs(value: number | undefined): number {
 	const resolved = value ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
 	if (!Number.isInteger(resolved) || resolved < 0 || resolved > MAX_TIMER_DELAY_MS) {
@@ -29,7 +29,7 @@ export function resolveStreamIdleTimeoutMs(value: number | undefined): number {
  * and then went quiet does not trip: the request is fine, the bytes have
  * simply stopped.
  *
- * A run in that state is not slow, it is stuck. It holds its budget, its
+ * A turn in that state is not slow, it is stuck. It holds its budget, its
  * claim and its process, and nothing settles it until an operator
  * notices — which is the failure mode a kernel with checkpoints and
  * budgets exists to make impossible.
@@ -125,7 +125,7 @@ export function withStreamIdleTimeout(
 							const error = new ProviderRequestError({
 								kind: 'network',
 								providerId: provider.id,
-								detail: `stream idle for ${duration} — aborting so the run lifecycle can settle it`,
+								detail: `stream idle for ${duration} — aborting so the turn lifecycle can settle it`,
 							})
 							// Latch BEFORE the transport is aborted. Some provider SDKs
 							// synchronously reject their pending `next()` with a generic

@@ -112,7 +112,7 @@ export interface Citation {
  * Inline base64 puts the bytes in the durable transcript, in every
  * checkpoint, in every compaction pass, and — because a conversation
  * resends its history — on the wire once per turn. A 4 MB PDF attached once
- * is 4 MB per request for the rest of the run.
+ * is 4 MB per request for the rest of the turn.
  */
 export interface StoredAttachmentRef {
 	readonly type: 'stored'
@@ -170,7 +170,7 @@ export interface BaseMessage {
 	/**
 	 * Exempt this message from compaction and from tool-result clearing.
 	 *
-	 * Everything the run protected before was protected by POSITION — the
+	 * Everything the turn protected before was protected by POSITION — the
 	 * leading system run, the working-memory slot, the last N turns, the
 	 * most recent tool results. A standing constraint stated in the middle
 	 * of a conversation ("the account id is X; never bill a different
@@ -184,10 +184,10 @@ export interface BaseMessage {
 	 * or an assistant-first retained tail, is not a smaller history — it is
 	 * one the provider rejects.
 	 *
-	 * Pinned turns are exempt from the reclaim that keeps a long run
+	 * Pinned turns are exempt from the reclaim that keeps a long turn
 	 * alive, so this is a budget the setter spends. Nothing caps it: a cap
 	 * would have to guess which pin mattered, and dropping the wrong one
-	 * quietly is worse than a run that overflows in the open.
+	 * quietly is worse than a turn that overflows in the open.
 	 */
 	retain?: boolean
 }

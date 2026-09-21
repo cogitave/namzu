@@ -4,7 +4,7 @@ import { TurnCancelled, cancelCauseOf } from '../../types/session/cancel-cause.j
 import { abortReasonText } from '../../utils/abort.js'
 
 /**
- * `stopReason: 'cancelled'` said a run was cancelled and nothing more, and
+ * `stopReason: 'cancelled'` said a turn was cancelled and nothing more, and
  * the cases behind it want different responses. An operator pressing
  * cancel is not a defect. A parent abandoning its children is a fact about
  * the parent, and looking for the child's problem wastes the reader's
@@ -21,7 +21,7 @@ import { abortReasonText } from '../../utils/abort.js'
 describe('an abort reason that carries a cause', () => {
 	it('is legible to the cause reader and silent to the prose renderer', () => {
 		// One signal, both assertions, because the pair is the design. The
-		// cause must NOT become prose in the run's error text — that is the
+		// cause must NOT become prose in the turn's error text — that is the
 		// noise `abortReasonText` exists to suppress — and it must still be
 		// recoverable by something asking for it directly.
 		const controller = new AbortController()

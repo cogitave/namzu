@@ -110,7 +110,7 @@ async function runUntilCompactionSnapshot(options: {
 			prepareStepCalls++
 			// An opaque host wait between compaction and provider admission. The
 			// status transition must cross the generator boundary before this
-			// callback can hold the run.
+			// callback can hold the turn.
 			await new Promise((resolve) => setTimeout(resolve, 40))
 			return {}
 		},

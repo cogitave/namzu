@@ -18,8 +18,8 @@ import { findSafeTrimIndex } from '../dangling.js'
  * message in it at all, so essentially every boundary landed wrong.
  *
  * The failure was unrecoverable, too. The resulting rejection is not
- * classified as an overflow, so relief never fires and the run dies —
- * compaction, whose whole job is keeping a long run alive, becoming the
+ * classified as an overflow, so relief never fires and the turn dies —
+ * compaction, whose whole job is keeping a long turn alive, becoming the
  * thing that ends it.
  */
 

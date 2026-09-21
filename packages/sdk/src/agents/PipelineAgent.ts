@@ -66,10 +66,10 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 	}
 
 	/**
-	 * One run at a time per instance.
+	 * One turn at a time per instance.
 	 *
 	 * `abortController` and `currentSessionId` are instance state, so two
-	 * overlapping runs share one abort controller — cancelling either kills
+	 * overlapping turns share one abort controller — cancelling either kills
 	 * both — and the second clobbers the first's session, so a later
 	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
@@ -91,7 +91,7 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 	): Promise<PipelineAgentResult> {
 		if (config.sandbox) {
 			throw new Error(
-				'PipelineAgent cannot enforce a run-level sandbox around developer-authored step callbacks. Configure confinement inside each step or use a tool-running agent.',
+				'PipelineAgent cannot enforce a turn-level sandbox around developer-authored step callbacks. Configure confinement inside each step or use a tool-running agent.',
 			)
 		}
 		const startTime = Date.now()

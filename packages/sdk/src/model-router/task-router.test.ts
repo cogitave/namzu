@@ -38,11 +38,11 @@ const TASK_TYPES = [
 ] as const
 
 describe('resolveTaskModel', () => {
-	it('keeps the run’s model when there is no router at all', () => {
+	it('keeps the turn’s model when there is no router at all', () => {
 		// The three steps exist because each answers a different host's
 		// config: someone who routed this task type, someone who routed
 		// everything else, and someone who never configured the router. The
-		// last must be the model the run was started with — substituting a
+		// last must be the model the turn was started with — substituting a
 		// provider default for an unconfigured router would move a host's
 		// work to a model they did not pick.
 		expect(resolveTaskModel('compaction', undefined, 'primary-model')).toBe('primary-model')
@@ -71,7 +71,7 @@ describe('resolveTaskModel', () => {
 	it('falls to the primary model when the router routes nothing this task could use', () => {
 		// Step three, and the one that must not drift: an empty router is what
 		// a config schema produces before a host fills it in, and the answer
-		// for it is the model the run was started with.
+		// for it is the model the turn was started with.
 		expect(resolveTaskModel('compaction', {}, 'primary-model')).toBe('primary-model')
 		expect(resolveTaskModel('coding', { compaction: 'cheap-model' }, 'primary-model')).toBe(
 			'primary-model',

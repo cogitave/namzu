@@ -23,7 +23,7 @@ export interface DeliverableJobExits {
  * `CompletionInbox` gives a run a bounded, zero-token wait for a delegated
  * task nobody is blocked on, and `holdForOutstandingWork` spends it: the
  * model stops calling tools, the loop races the inbox against operator input,
- * and the run only settles once the result is in the transcript or the grace
+ * and the turn only settles once the result is in the transcript or the grace
  * is gone. Background shell jobs had none of it — so a model that started a
  * job and then had nothing left to do improvised, and the recorded run
  * (research/resident/results/2026-09-14-exploration-policy-terra-tui.json)
@@ -42,7 +42,7 @@ export interface DeliverableJobExits {
  * session open for its grace period. The model that wants to wait says so.
  */
 export class AwaitedJobs {
-	/** Awaited and still running. Nothing else can hold a run open. */
+	/** Awaited and still running. Nothing else can hold a turn open. */
 	private readonly outstanding = new Set<string>()
 	/** Exits since the last {@link drain}. */
 	private exits: BackgroundJob[] = []
@@ -54,7 +54,7 @@ export class AwaitedJobs {
 		/** Whose jobs these are — the turn or the session the jobs are bound to. */
 		private readonly owner: string,
 		/**
-		 * Whether the exit notice this run queues for the model is still
+		 * Whether the exit notice this turn queues for the model is still
 		 * unread. A second opinion on {@link noticesDelivered}, and it can
 		 * only ever narrow what counts as pending.
 		 *
@@ -113,7 +113,7 @@ export class AwaitedJobs {
 	 * Called by `wait_for_job`, and by nothing else: the wait is the whole
 	 * signal. A job that has ALREADY stopped is not recorded, because the
 	 * call that marks it is the same call that returns its output — holding
-	 * the run open afterwards would buy a turn to read a result the model has
+	 * the turn open afterwards would buy a turn to read a result the model has
 	 * just read. `CompletionInbox.expect` skips an already-claimed task for
 	 * the same reason.
 	 *
@@ -158,7 +158,7 @@ export class AwaitedJobs {
 	 *
 	 * Bounded by the caller, exactly as `CompletionInbox.waitForArrival` is: a
 	 * job that never exits — a dev server someone did await — must not keep a
-	 * run open, and only the run's own budget knows how long is long enough.
+	 * run open, and only the turn's own budget knows how long is long enough.
 	 */
 	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 		if (signal?.aborted) return Promise.resolve()
@@ -212,7 +212,7 @@ export class AwaitedJobs {
 	 *
 	 * The pairing is the whole method. Draining the exits first and then
 	 * asking for the notice loses them on the branch that finds none: the
-	 * records are gone, no text was written, and the exit the run held itself
+	 * records are gone, no text was written, and the exit the turn held itself
 	 * open for is delivered by nobody. So {@link drain} is not called until
 	 * the delivery is certain, and an exit this could not deliver stays in
 	 * hand for the next one.
@@ -243,7 +243,7 @@ export class AwaitedJobs {
 	/**
 	 * Awaited jobs still running.
 	 *
-	 * Read when a run ends, so it can say which wait it walked away from.
+	 * Read when a turn ends, so it can say which wait it walked away from.
 	 * Nothing here is stopped by being read — the ids are a statement, and a
 	 * job's lifetime belongs to whoever owns it.
 	 */
@@ -254,8 +254,8 @@ export class AwaitedJobs {
 	/**
 	 * Stop listening. Safe to call more than once.
 	 *
-	 * A run that ends without this leaves its listener on a registry the host
-	 * reuses across runs — the leak `CompletionInbox.close` exists to prevent,
+	 * A turn that ends without this leaves its listener on a registry the host
+	 * reuses across turns — the leak `CompletionInbox.close` exists to prevent,
 	 * on the other subsystem.
 	 */
 	close(): void {

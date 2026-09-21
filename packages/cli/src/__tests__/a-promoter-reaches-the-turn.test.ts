@@ -1,10 +1,10 @@
 /**
- * What the run learned reaches the store the next run reads from.
+ * What the turn learned reaches the store the next turn reads from.
  *
  * `promoteMemory` is invoked once at settle with the compaction pass's
  * structured output, and **no shipped app supplied the hook** — so every
- * decision, discovery and stated requirement a run extracted was serialized
- * into one system message and dropped when the run ended. The promoter's own
+ * decision, discovery and stated requirement a turn extracted was serialized
+ * into one system message and dropped when the turn ended. The promoter's own
  * unit tests prove what it writes; they prove nothing about whether anybody
  * asks it, and the hop from `createAgentSession` to `query()` is one line.
  *
@@ -109,9 +109,9 @@ async function drive(): Promise<(c: SessionMemoryCandidate) => void | Promise<vo
 	}
 	expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
 	const promoteMemory = queryCalls[0]?.promoteMemory
-	// Deleting the line that hands it over leaves every run's extracted
-	// knowledge on the floor at settle — silently, because a run that
-	// remembers nothing looks exactly like a run that learned nothing.
+	// Deleting the line that hands it over leaves every turn's extracted
+	// knowledge on the floor at settle — silently, because a turn that
+	// remembers nothing looks exactly like a turn that learned nothing.
 	expect(typeof promoteMemory).toBe('function')
 	return promoteMemory as (c: SessionMemoryCandidate) => void | Promise<void>
 }
@@ -127,7 +127,7 @@ function toolContext(): ToolContext {
 	}
 }
 
-describe('the run memory promoter', () => {
+describe('the turn memory promoter', () => {
 	it('is handed to every turn', async () => {
 		await drive()
 	})
@@ -163,7 +163,7 @@ describe('the run memory promoter', () => {
 		const store = sessionMemoryStore(cwd)
 		expect((await store.list()).totalCount).toBe(1)
 		expect((await store.readIndex()).text).toBe('')
-		// A run's record changes nothing the prompt cache is keyed on.
+		// A turn's record changes nothing the prompt cache is keyed on.
 		expect((await turn()).systemPrompt).toBe(first.systemPrompt)
 	})
 
@@ -307,14 +307,14 @@ describe('the run memory promoter', () => {
 		expect(readFileSync(outsidePath, 'utf-8')).toBe(outsideBytes)
 	})
 
-	it('leaves the store empty for a run that learned nothing', async () => {
+	it('leaves the store empty for a turn that learned nothing', async () => {
 		const promote = await drive()
 
 		await promote(candidate({ files: ['src/a.ts'] }))
 
 		const store = sessionMemoryStore(cwd)
 		// Emptiness, not "the write succeeded". The model reads this store on
-		// later runs, so a record per run is context spent on runs that found
+		// later turns, so a record per run is context spent on runs that found
 		// nothing.
 		expect((await store.list()).totalCount).toBe(0)
 	})

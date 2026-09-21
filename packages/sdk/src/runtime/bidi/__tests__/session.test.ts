@@ -13,7 +13,7 @@ import { createMockBidiProvider } from '../mock.js'
 import { BidiSessionCloseTimeoutError, startBidiTurn } from '../session.js'
 
 /**
- * Every other seam in this kernel is turn-based by construction: a run
+ * Every other seam in this kernel is turn-based by construction: a turn
  * has iterations, an iteration sends a complete message list and reads a
  * stream back, and a checkpoint is taken between two of them. A duplex
  * session has none of those boundaries — input keeps arriving while

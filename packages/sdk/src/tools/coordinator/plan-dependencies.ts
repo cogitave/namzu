@@ -106,7 +106,7 @@ export function resolvePlanDependencies(
 	// A cycle is the failure worth catching hardest. Every step in one waits
 	// for another that is waiting for it, so the dependency gate never
 	// releases any of them and a plan that reads as fine simply stops. There
-	// is no error to observe at that point — the run just makes no progress.
+	// is no error to observe at that point — the turn just makes no progress.
 	const cycle = findCycle(resolved, (index) => idOf(index))
 	if (cycle) {
 		return {

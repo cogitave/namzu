@@ -49,7 +49,7 @@ export interface SessionApprovalPolicy {
 	 * The change the model has not been told about yet — and reading it is
 	 * what marks it told.
 	 *
-	 * The model plans around how closely it is being watched. A run that
+	 * The model plans around how closely it is being watched. A turn that
 	 * silently stops asking a human, or silently starts, leaves the model
 	 * working from a supervision assumption that is no longer true: it will
 	 * keep batching destructive calls it expects to be reviewed, or keep

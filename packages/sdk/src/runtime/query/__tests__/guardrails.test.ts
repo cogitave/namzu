@@ -10,7 +10,7 @@ import { runInputGuardrails, runOutputGuardrails } from '../guardrails.js'
  * namzu had three good gates on tool calls — probe veto, AuthorizationGate,
  * HITL review — and all three point the same way: they protect the world
  * from the agent. Nothing protected the user from the agent's own output,
- * and nothing looked at the prompt before the run started.
+ * and nothing looked at the prompt before the turn started.
  *
  * The concrete failure: an agent reads a credential file, the read is
  * ALLOWED because it is a legitimate read, the secret enters context, and
@@ -128,7 +128,7 @@ describe('output guardrails', () => {
 
 describe('a throwing guardrail FAILS CLOSED', () => {
 	// Deliberately the opposite of the stop-condition policy. A broken halt
-	// predicate must not kill a healthy run; a broken safety check must not
+	// predicate must not kill a healthy turn; a broken safety check must not
 	// wave content through. If the thing deciding whether output is safe is
 	// itself broken, safety is unknown.
 	it('blocks on input', async () => {
