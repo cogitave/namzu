@@ -1163,7 +1163,7 @@ export class AnthropicProvider implements LLMProvider {
 								new ProviderRequestError({
 									kind: 'network',
 									providerId: 'anthropic',
-									detail: `stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the run lifecycle can emit run_failed`,
+									detail: `stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the turn lifecycle can emit turn_failed`,
 								}),
 							)
 						}, streamIdleTimeoutMs)

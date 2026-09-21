@@ -32,7 +32,7 @@
     "provenance": true
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=5.0.0"
+    "@namzu/sdk": ">=44.0.0"
   },
   "dependencies": {
     "zod": "^3.25.76"

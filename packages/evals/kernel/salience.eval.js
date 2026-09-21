@@ -14,18 +14,19 @@ import { join } from "node:path";
  * provider, so a score that moves is the kernel moving.
  */
 import {
-	DefaultPathBuilder,
 	MockLLMProvider,
+	SessionPaths,
 	ToolRegistry,
 	autoApproveHandler,
 	customScorer,
 	drainQuery,
-	evalRunFromRun,
+	evalTurnFromTurn,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 	runExperiment,
+	slugForCwd,
 } from "@namzu/sdk";
 import { z } from "zod";
 
@@ -81,10 +82,10 @@ async function runCase(input) {
 	// case used to leave its directory, and the run state in it, behind.
 	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-sal-"));
 	try {
-		const run = await drainQuery({
+		const turn = await drainQuery({
 			provider: new MockLLMProvider({ turns: turns() }),
 			tools: registry(),
-			runConfig: {
+			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,
 				tokenBudget: 1_000_000,
@@ -96,7 +97,10 @@ async function runCase(input) {
 			workingDirectory: scratch,
 			// State under the scratch directory, not the default root: the
 			// directory is removed below, and with it everything the run wrote.
-			pathBuilder: new DefaultPathBuilder(join(scratch, ".namzu")),
+			paths: new SessionPaths({
+				home: join(scratch, ".namzu"),
+				slug: slugForCwd(scratch),
+			}),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
@@ -116,8 +120,8 @@ async function runCase(input) {
 				llmVerification: false,
 			},
 		});
-		const finalMessages = run.messages ?? [];
-		return Object.assign(evalRunFromRun(run), {
+		const finalMessages = turn.messages ?? [];
+		return Object.assign(evalTurnFromTurn(turn), {
 			finalMessages,
 			contextChars: contextChars(finalMessages),
 		});
@@ -156,17 +160,17 @@ async function withBaseline(input) {
 	});
 }
 
-const settled = customScorer("settled", (run) =>
-	run.error
-		? { score: 0, reason: `run threw: ${run.error}` }
-		: { score: 1, reason: `settled as ${run.stopReason ?? "unknown"}` },
+const settled = customScorer("settled", (turn) =>
+	turn.error
+		? { score: 0, reason: `turn threw: ${turn.error}` }
+		: { score: 1, reason: `settled as ${turn.stopReason ?? "unknown"}` },
 );
 
-const noOrphanedResults = customScorer("no-orphaned-tool-results", (run) => {
+const noOrphanedResults = customScorer("no-orphaned-tool-results", (turn) => {
 	const callIds = new Set();
-	for (const m of run.finalMessages ?? [])
+	for (const m of turn.finalMessages ?? [])
 		for (const tc of m.toolCalls ?? []) callIds.add(tc.id);
-	const orphans = (run.finalMessages ?? []).filter(
+	const orphans = (turn.finalMessages ?? []).filter(
 		(m) => m.role === "tool" && !callIds.has(m.toolCallId),
 	);
 	return orphans.length === 0
@@ -178,8 +182,8 @@ const noOrphanedResults = customScorer("no-orphaned-tool-results", (run) => {
 });
 
 /** The fact a later turn cited is still readable verbatim at the end. */
-const needleSurvives = customScorer("cited-fact-survives", (run) => {
-	const verbatim = (run.finalMessages ?? []).some(
+const needleSurvives = customScorer("cited-fact-survives", (turn) => {
+	const verbatim = (turn.finalMessages ?? []).some(
 		(m) =>
 			m.role === "tool" &&
 			typeof m.content === "string" &&
@@ -194,24 +198,24 @@ const needleSurvives = customScorer("cited-fact-survives", (run) => {
 });
 
 /** The final history within the window it was held to. */
-const heldWithinWindow = customScorer("held-within-window", (run) => {
-	const tokens = Math.ceil(run.contextChars / 4);
+const heldWithinWindow = customScorer("held-within-window", (turn) => {
+	const tokens = Math.ceil(turn.contextChars / 4);
 	return {
 		score: tokens <= 8_000 * 0.7 ? 1 : 0,
 		reason: `final history ~${tokens.toLocaleString("en-US")} tokens against an 8,000 window`,
-		details: { contextChars: run.contextChars },
+		details: { contextChars: turn.contextChars },
 	};
 });
 
 /** Keeps what structured lost, without a larger final history. */
-const betterThanStructured = customScorer("keeps-more-for-no-more", (run) => {
-	const baseline = run.baseline?.contextChars ?? Number.POSITIVE_INFINITY;
-	const structuredKept = run.baseline?.needleSurvived ?? true;
+const betterThanStructured = customScorer("keeps-more-for-no-more", (turn) => {
+	const baseline = turn.baseline?.contextChars ?? Number.POSITIVE_INFINITY;
+	const structuredKept = turn.baseline?.needleSurvived ?? true;
 	return {
-		score: run.contextChars <= baseline * 1.1 && !structuredKept ? 1 : 0,
-		reason: `final history ${run.contextChars.toLocaleString("en-US")} chars against ${baseline.toLocaleString("en-US")} structured; structured ${structuredKept ? "kept" : "lost"} the cited fact`,
+		score: turn.contextChars <= baseline * 1.1 && !structuredKept ? 1 : 0,
+		reason: `final history ${turn.contextChars.toLocaleString("en-US")} chars against ${baseline.toLocaleString("en-US")} structured; structured ${structuredKept ? "kept" : "lost"} the cited fact`,
 		details: {
-			salienceChars: run.contextChars,
+			salienceChars: turn.contextChars,
 			structuredChars: baseline,
 			structuredKeptNeedle: structuredKept,
 		},

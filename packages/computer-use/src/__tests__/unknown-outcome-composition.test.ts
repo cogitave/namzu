@@ -1,7 +1,13 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type RunId, type ToolContext, ToolRegistry, createComputerUseTool } from '@namzu/sdk'
+import {
+	type ToolContext,
+	ToolRegistry,
+	createComputerUseTool,
+	generateSessionId,
+	generateTurnId,
+} from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 import { SubprocessComputerUseHost } from '../SubprocessComputerUseHost.js'
 import type { Adapter } from '../adapters/types.js'
@@ -9,7 +15,8 @@ import { runCommandOrThrow } from '../util/spawn.js'
 
 function makeContext(workingDirectory: string): ToolContext {
 	return {
-		runId: '841a0019-cca9-4434-8d34-004d29bbffcf' as RunId,
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},
