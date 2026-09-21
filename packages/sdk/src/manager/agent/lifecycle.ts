@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises'
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { GENAI } from '../../constants/telemetry/index.js'
@@ -954,6 +955,16 @@ export class AgentManager {
 
 	private async rollbackSpawnResources(spawnRecord: ChildSpawnRecord): Promise<void> {
 		spawnRecord.releaseLog?.()
+		// A child that never started leaves no meta document naming it: the
+		// session it describes is being deleted below.
+		if (spawnRecord.placement) {
+			await rm(spawnRecord.placement.metaPath, { force: true }).catch((err) =>
+				this.log.warn('Unstarted child meta removal failed', {
+					'namzu.store.path': spawnRecord.placement?.metaPath,
+					'exception.message': toErrorMessage(err),
+				}),
+			)
+		}
 		await this.disposeChildWorkspace(spawnRecord)
 		try {
 			// The edge must be removed before its child: stores reject deletion
