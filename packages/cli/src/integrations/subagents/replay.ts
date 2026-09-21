@@ -81,6 +81,18 @@ export async function readSavedChildren(
 	scope: SavedChildScope,
 	limit: number,
 ): Promise<readonly SavedChild[]> {
+	return (await readSavedChildrenPage(scope, limit)).children
+}
+
+/**
+ * The newest `limit` children, as {@link readSavedChildren}, plus how many
+ * children the index lists in all, so a bounded listing can say exactly how
+ * many it left out.
+ */
+export async function readSavedChildrenPage(
+	scope: SavedChildScope,
+	limit: number,
+): Promise<{ readonly children: readonly SavedChild[]; readonly total: number }> {
 	const sessionId = asSessionId(scope.session.sessionId)
 	try {
 		await scope.index.refresh({
@@ -109,7 +121,7 @@ export async function readSavedChildren(
 			})
 		}
 	}
-	return found
+	return { children: found, total: children.length }
 }
 
 /**

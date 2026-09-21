@@ -6,7 +6,12 @@ import {
 	readSessionLog,
 } from '@namzu/sdk'
 
-import { type SavedChild, type SavedChildScope, readSavedChildren } from './replay.js'
+import {
+	type SavedChild,
+	type SavedChildScope,
+	readSavedChildren,
+	readSavedChildrenPage,
+} from './replay.js'
 
 /** Saved agents one listing returns, newest first; the rest are counted, not shown. */
 export const MAX_LISTED_SAVED_AGENTS = 20
@@ -64,12 +69,11 @@ export const SAVED_AGENTS_GUIDANCE =
 export function createSavedAgentHistory(scope: SavedChildScope): SavedAgentHistory {
 	return {
 		async list() {
-			const children = await readSavedChildren(scope, MAX_READ_SAVED_AGENTS + 1)
+			const { children, total } = await readSavedChildrenPage(scope, MAX_READ_SAVED_AGENTS)
 			const shown = children.slice(0, MAX_LISTED_SAVED_AGENTS).map(savedAgent)
-			// One more than the read bound is asked for, so a listing that hit the
-			// bound says so instead of claiming it saw everything.
-			const read = Math.min(children.length, MAX_READ_SAVED_AGENTS)
-			return { agents: shown, omitted: Math.max(0, read - shown.length) }
+			// Counted against every child the index lists, not against the read
+			// bound, so a conversation past the bound reports how many it left out.
+			return { agents: shown, omitted: Math.max(0, total - shown.length) }
 		},
 		async read(childSessionId) {
 			if (!isEntityId(childSessionId, 'session'))

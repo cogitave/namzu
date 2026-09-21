@@ -1,4 +1,9 @@
-import { type PrepareStepContext, generateTurnId } from '@namzu/sdk'
+import {
+	type ChildSessionSummary,
+	type PrepareStepContext,
+	generateSessionId,
+	generateTurnId,
+} from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -9,7 +14,9 @@ import {
 	parentSession,
 	spawnChild,
 } from '../__fixtures__/session-logs.js'
+import type { SavedChildIndex } from '../replay.js'
 import {
+	MAX_LISTED_SAVED_AGENTS,
 	MAX_SAVED_OUTPUT_CODE_UNITS,
 	createSavedAgentHistory,
 	createSavedAgentsStep,
@@ -105,3 +112,34 @@ it('names earlier turns’ agents in the system prompt, leaving out this turn’
 		await step({ ...context, contextBudget: { remainingTokens: 100, windowTokens: 1000 } }),
 	).toBeUndefined()
 })
+
+it.each([200, 201, 1000])(
+	'counts every child it leaves out, past the read bound (%i children)',
+	async (count) => {
+		const fixture = await home()
+		const parent = await parentSession(fixture)
+		const turnId = generateTurnId()
+		const children = Array.from(
+			{ length: count },
+			(_, i) =>
+				({
+					sessionId: generateSessionId(),
+					parentTurnId: turnId,
+					description: `child ${i}`,
+					status: 'completed',
+					spawnedAt: new Date(1_000_000 + i).toISOString(),
+				}) as unknown as ChildSessionSummary,
+		)
+		const index = {
+			refresh: async () => undefined,
+			listChildren: async () => children,
+		} as unknown as SavedChildIndex
+		const { agents, omitted } = await createSavedAgentHistory({
+			index,
+			paths: fixture.paths,
+			session: { sessionId: parent.sessionId },
+		}).list()
+		expect(agents).toHaveLength(MAX_LISTED_SAVED_AGENTS)
+		expect(omitted).toBe(count - MAX_LISTED_SAVED_AGENTS)
+	},
+)
