@@ -6,10 +6,11 @@ import {
 	type MCPJsonRpcMessage,
 	type MCPTransport,
 	type Message,
-	type RunEvent,
+	type SessionEvent,
 	ToolRegistry,
 	asMessageId,
-	asRunId,
+	asSessionId,
+	asTurnId,
 	createAssistantMessage,
 	createToolPresenter,
 } from '@namzu/sdk'
@@ -18,7 +19,7 @@ import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionOptions, SendOptions } from '../../tui/agent.js'
-import { type AcpRuntimeDependencies, createCliAcpRuntime } from '../acp.js'
+import { type AcpRuntimeDependencies, createCliAcpRuntime, resolveAcpSession } from '../acp.js'
 import type { CommandContext } from '../types.js'
 
 function deferred<T>() {
@@ -83,15 +84,19 @@ function context(config: CommandContext['config'] = {}): CommandContext {
 	}
 }
 
-function event(text: string): RunEvent {
+function event(text: string): SessionEvent {
 	return {
 		type: 'text_delta',
-		runId: asRunId(fixtureUuid(`run_acp_${text}`)),
+		sessionId: asSessionId(fixtureUuid(`ses_acp_${text}`)),
+		turnId: asTurnId(fixtureUuid(`turn_acp_${text}`)),
 		messageId: asMessageId(fixtureUuid(`msg_acp_${text}`)),
 		iteration: 0,
 		text,
-	} as RunEvent
+	} as SessionEvent
 }
+
+/** Stands in for the index: every opaque wire id is a name nobody has claimed yet. */
+const unclaimed = (wireSessionId: string) => resolveAcpSession(wireSessionId, async () => undefined)
 
 describe('the CLI ACP runtime', () => {
 	it('settles a cancelled wire prompt while its late session candidate remains owned', async () => {
@@ -131,6 +136,7 @@ describe('the CLI ACP runtime', () => {
 			}),
 			decideTrust: ({ cwd }: { cwd: string }) => ({ allowed: true as const, cwd }),
 			resolveProjectContext: (ctx: CommandContext) => ctx,
+			resolveSession: unclaimed,
 		} as unknown as AcpRuntimeDependencies
 		const runtime = createCliAcpRuntime(context(), deps)
 		const wire = wirePair()
@@ -284,10 +290,11 @@ describe('the CLI ACP runtime', () => {
 								sandbox: { enabled: false, teardownTimeoutMs: 202 },
 							},
 				),
+			resolveSession: unclaimed,
 		} as unknown as AcpRuntimeDependencies
 		const runtime = createCliAcpRuntime(bootstrap, deps)
-		const routedA: RunEvent[] = []
-		const routedB: RunEvent[] = []
+		const routedA: SessionEvent[] = []
+		const routedB: SessionEvent[] = []
 		const permissionRequests: AcpPermissionRequest[] = []
 		const ask = async (request: AcpPermissionRequest) => {
 			permissionRequests.push(request)
@@ -325,8 +332,8 @@ describe('the CLI ACP runtime', () => {
 
 		const eventA = event('from-a')
 		const eventB = event('from-b')
-		optionsByCwd.get('/canonical/a')?.onRunEvent?.(eventA)
-		optionsByCwd.get('/canonical/b')?.onRunEvent?.(eventB)
+		optionsByCwd.get('/canonical/a')?.onSessionEvent?.(eventA)
+		optionsByCwd.get('/canonical/b')?.onSessionEvent?.(eventB)
 		expect(routedA).toEqual([eventA])
 		expect(routedB).toEqual([eventB])
 
@@ -366,6 +373,13 @@ describe('the CLI ACP runtime', () => {
 				sandbox: { enabled: false, teardownTimeoutMs: 202 },
 			}),
 		)
+		// An opaque wire id is never a namzu id: each gets its own new session,
+		// and its origin records the wire name so the index can find it again.
+		const identityA = optionsByCwd.get('/canonical/a') as { sessionId?: string; origin?: unknown }
+		const identityB = optionsByCwd.get('/canonical/b') as { sessionId?: string; origin?: unknown }
+		expect(identityA.origin).toEqual({ protocol: 'acp', externalSessionId: 'session-a' })
+		expect(identityB.origin).toEqual({ protocol: 'acp', externalSessionId: 'session-b' })
+		expect(identityA.sessionId).not.toBe(identityB.sessionId)
 		expect(optionsByCwd.get('/canonical/a')?.rules).toEqual([
 			{ type: 'deny_by_name', toolNames: ['bash'] },
 		])
@@ -422,6 +436,7 @@ describe('the CLI ACP runtime', () => {
 			}),
 			decideTrust: ({ cwd }: { cwd: string }) => ({ allowed: true as const, cwd }),
 			resolveProjectContext: (ctx: CommandContext) => ctx,
+			resolveSession: unclaimed,
 		} as unknown as AcpRuntimeDependencies
 		const runtime = createCliAcpRuntime(context(), deps)
 		const prompt = runtime.gateway.prompt({
@@ -471,6 +486,7 @@ describe('the CLI ACP runtime', () => {
 			})),
 			decideTrust: ({ cwd }: { cwd: string }) => ({ allowed: true as const, cwd }),
 			resolveProjectContext: (ctx: CommandContext) => ctx,
+			resolveSession: unclaimed,
 		} as unknown as AcpRuntimeDependencies
 		const runtime = createCliAcpRuntime(context(), deps)
 		const controller = new AbortController()
@@ -490,5 +506,32 @@ describe('the CLI ACP runtime', () => {
 
 		expect(await prompt).toEqual({ stopReason: 'cancelled' })
 		await runtime.close()
+	})
+})
+
+describe('mapping an ACP wire session id onto a namzu session', () => {
+	it('takes a SessionId as the namzu session itself, without a lookup', async () => {
+		const id = fixtureUuid('ses_acp_direct')
+		const lookup = vi.fn(async () => undefined)
+		expect(await resolveAcpSession(id, lookup)).toEqual({ sessionId: id })
+		expect(lookup).not.toHaveBeenCalled()
+	})
+
+	it('resolves an opaque id through the acp session refs', async () => {
+		const sessionId = asSessionId(fixtureUuid('ses_acp_claimed'))
+		const lookup = vi.fn(async () => ({
+			protocol: 'acp',
+			kind: 'session' as const,
+			externalId: 'host-7',
+			sessionId,
+		}))
+		expect(await resolveAcpSession('host-7', lookup)).toEqual({ sessionId })
+		expect(lookup).toHaveBeenCalledWith('acp', 'session', 'host-7')
+	})
+
+	it('opens a new UUIDv7 session for an unclaimed name and records the name as its origin', async () => {
+		const target = await resolveAcpSession('host-8', async () => undefined)
+		expect(target.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-/)
+		expect(target.origin).toEqual({ protocol: 'acp', externalSessionId: 'host-8' })
 	})
 })
