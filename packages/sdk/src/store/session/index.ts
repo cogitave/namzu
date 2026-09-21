@@ -1,16 +1,12 @@
-// Sub-barrel for the session-scoped persistence module (Convention #4).
+// Sub-barrel for the session-entity persistence module (Convention #4).
 //
-// Messages are scoped to a `SessionId` and every accessor carries explicit
-// `TenantId` (Convention #17). Concrete implementations live in sibling
-// files; re-export them here so consumers import via
-// `../store/session/index.js`. The `SessionMessage` shape lives under
-// `types/session/messages.ts` — re-exported here for convenience.
+// Projects, sessions, sub-session edges and summaries, every accessor
+// carrying an explicit `TenantId` (Convention #17). A session's conversation
+// is not here: it is the session log (`store/session-log`), and listing
+// across sessions is the session index (`store/session-index`).
 
 export { InMemorySessionStore } from './memory.js'
 export { DiskSessionStore } from './disk.js'
-export { SqliteSessionStore } from './sqlite.js'
-export type { SqliteSessionStoreConfig } from './sqlite.js'
 export type { DiskSessionStoreConfig } from './disk.js'
-export type { SessionMessage } from '../../types/session/messages.js'
 export { getAncestry, getChildren, orderChildren } from './linkage.js'
 export type { LinkageView } from './linkage.js'

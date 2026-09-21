@@ -127,7 +127,7 @@ describe('a retried invocation carrying the same key', () => {
 		// One model call, and both callers hold the same answer — not an
 		// error telling the second one to go away.
 		expect(calls()).toBe(1)
-		expect(two.runId).toBe(one.runId)
+		expect(two.turnId).toBe(one.turnId)
 	})
 
 	it('shares the failure too', async () => {

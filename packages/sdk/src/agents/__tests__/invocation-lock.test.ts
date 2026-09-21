@@ -10,10 +10,10 @@ import { ConcurrentInvocationError } from '../lock.js'
  * invocations of one agent instance were never prevented, and the error
  * type that announces the refusal could not be thrown by anything.
  *
- * They genuinely are unsafe: `abortController` and `currentRunId` are
+ * They genuinely are unsafe: `abortController` and `currentSessionId` are
  * INSTANCE state. Two overlapping runs share one abort controller, so
- * cancelling either kills both, and the second clobbers the first's run
- * id, so a later `cancel()` cancels the wrong run. Neither failure
+ * cancelling either kills both, and the second clobbers the first's
+ * session, so a later `cancel()` cancels the wrong children. Neither failure
  * announces itself — the first run simply stops, or the wrong one does.
  */
 

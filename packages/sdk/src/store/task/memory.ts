@@ -1,4 +1,4 @@
-import type { RunId, TaskId } from '../../types/ids/index.js'
+import type { SessionId, TaskId } from '../../types/ids/index.js'
 import type {
 	CreateTaskParams,
 	Task,
@@ -8,7 +8,8 @@ import type {
 	TaskStore,
 	UpdateTaskParams,
 } from '../../types/task/index.js'
-import { generateTaskId } from '../../utils/id.js'
+import { isTerminalTaskStatus } from '../../types/task/index.js'
+import { asSessionId, asTurnId, generateTaskId } from '../../utils/id.js'
 
 // `failed` ranks alongside `completed` rather than after it: both are
 // terminal, and neither may transition to the other. Ranking it higher would
@@ -48,7 +49,8 @@ export class InMemoryTaskStore implements TaskStore {
 	async create(params: CreateTaskParams): Promise<Task> {
 		const task: Task = {
 			id: generateTaskId(),
-			runId: params.runId,
+			sessionId: asSessionId(params.sessionId),
+			turnId: asTurnId(params.turnId),
 			tenantId: params.tenantId,
 			subject: params.subject,
 			description: params.description,
@@ -105,7 +107,9 @@ export class InMemoryTaskStore implements TaskStore {
 			if (updates.status === 'in_progress' && !task.startedAt) {
 				task.startedAt = Date.now()
 			}
-			if (updates.status === 'completed') {
+			// Either terminal status, as on disk: the task context places a
+			// closed task in the turn that closed it (spec §4.5).
+			if (isTerminalTaskStatus(updates.status)) {
 				task.completedAt = Date.now()
 			}
 		}
@@ -142,7 +146,9 @@ export class InMemoryTaskStore implements TaskStore {
 		return true
 	}
 
-	async list(filter?: { status?: TaskStatus; owner?: string; runId?: RunId }): Promise<Task[]> {
+	async list(filter?: { status?: TaskStatus; owner?: string; sessionId?: SessionId }): Promise<
+		Task[]
+	> {
 		let results = Array.from(this.tasks.values())
 
 		if (filter?.status) {
@@ -151,11 +157,11 @@ export class InMemoryTaskStore implements TaskStore {
 		if (filter?.owner) {
 			results = results.filter((t) => t.owner === filter.owner)
 		}
-		if (filter?.runId) {
-			results = results.filter((t) => t.runId === filter.runId)
+		if (filter?.sessionId) {
+			results = results.filter((t) => t.sessionId === filter.sessionId)
 		}
 
-		return results.sort((a, b) => a.createdAt - b.createdAt)
+		return results.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 	}
 
 	async claim(id: TaskId, owner: string): Promise<Task | undefined> {

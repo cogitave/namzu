@@ -21,15 +21,15 @@ registerMock()
 
 describe('running an agent through the front door', () => {
 	it('runs from a provider, a model and a prompt', async () => {
-		const { output, run } = await runAgent({
+		const { output, turn } = await runAgent({
 			provider: new MockLLMProvider({ turns: [{ text: 'four' }] }),
 			model: 'mock-model',
 			prompt: 'What is 2 + 2?',
 		})
 
 		expect(output).toBe('four')
-		expect(run.status).toBe('completed')
-		expect(run.stopReason).toBe('end_turn')
+		expect(turn.status).toBe('completed')
+		expect(turn.stopReason).toBe('end_turn')
 	})
 
 	it('hands back the identity it generated, so a second turn can continue', async () => {
@@ -148,7 +148,7 @@ describe('running an agent through the front door', () => {
 		// The point of a default budget is that a caller who set none is still
 		// protected. Two iterations here rather than the default sixteen, so
 		// the test pins the mechanism without paying for it.
-		const { run } = await runAgent({
+		const { turn } = await runAgent({
 			provider: new MockLLMProvider({
 				turns: Array.from({ length: 10 }, () => ({
 					toolCalls: [{ id: 'c', name: 'again', rawArguments: '{}' }],
@@ -160,6 +160,6 @@ describe('running an agent through the front door', () => {
 			maxIterations: 2,
 		})
 
-		expect(run.currentIteration).toBeLessThanOrEqual(2)
+		expect(turn.currentIteration).toBeLessThanOrEqual(2)
 	})
 })

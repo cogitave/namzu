@@ -1,7 +1,8 @@
-import { mkdir, readdir, unlink } from 'node:fs/promises'
+import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { NAMZU } from '../../constants/telemetry/index.js'
-import type { RunId, TaskId, TenantId } from '../../types/ids/index.js'
+import type { SessionLocator, SessionPaths } from '../../session/paths.js'
+import type { SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type {
 	CreateTaskParams,
 	Task,
@@ -11,32 +12,39 @@ import type {
 	TaskStore,
 	UpdateTaskParams,
 } from '../../types/task/index.js'
-import { asRunId, asTaskId, asTenantId, generateTaskId, isEntityId } from '../../utils/id.js'
+import { isTerminalTaskStatus } from '../../types/task/index.js'
+import { asSessionId, asTenantId, asTurnId, generateTaskId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
-import { defineSchema } from '../schema.js'
+import { SchemaVersionError, defineSchema } from '../schema.js'
 
 /**
- * This store's on-disk format, versioned as a unit — which is how a
- * migration would actually be written and shipped, and it keeps every call
- * site free of schema plumbing.
+ * This store's on-disk format, versioned as a unit.
  *
- * Bump `current` and add the migration for the step you are leaving when
- * the shape changes.
+ * Version 2 keys a task by session (`<session-id>/tasks/<task-id>.json`) and
+ * records the turn that created it. A version-1 task was keyed by run and
+ * lived in a tree this build never reads (a clean start, not a migration), so
+ * the step from 1 refuses rather than inventing a session for it.
  */
-const SCHEMA = defineSchema({ kind: 'task-store', current: 1, migrations: {} })
+const SCHEMA = defineSchema({
+	kind: 'task-store',
+	current: 2,
+	migrations: {
+		1: () => {
+			throw new SchemaVersionError({
+				kind: 'task-store',
+				found: 1,
+				supported: 2,
+				message:
+					'A version-1 task was keyed by run; tasks are now kept per session under <session-id>/tasks/, and the old ones are not read.',
+			})
+		},
+	},
+})
 
 /**
  * Read, write and list, through the one implementation.
- *
- * This file used to carry its own `readFile` + `JSON.parse` + `migrate`
- * with ENOENT collapsed to null, its own `atomicWriteJson`, and three
- * separate `readdir` scans — the same twenty lines four stores each kept a
- * copy of. The properties are not obvious ones (a missing file is an empty
- * read, a record from a NEWER build is refused rather than silently
- * downgraded, a listing needs a stable order), and every one fixed here had
- * to be remembered into the other three.
  *
  * The try/catch at each call site stays. The primitive THROWS on a
  * corrupt record; this store logs and returns null, because a single
@@ -46,13 +54,35 @@ const SCHEMA = defineSchema({ kind: 'task-store', current: 1, migrations: {} })
 const records = new DiskRecordStore<Task>(SCHEMA)
 
 export interface DiskTaskStoreConfig {
-	baseDir: string
+	/** The project layout the session lives in. */
+	paths: SessionPaths
 
-	defaultRunId: RunId
+	/**
+	 * The session whose tasks this store keeps, at `<session-id>/tasks/`.
+	 * A child session names its ancestors, root first, as everywhere else in
+	 * the layout.
+	 */
+	session: SessionLocator
 
+	/** Stamped on a task whose creator names no tenant. */
 	tenantId?: TenantId
 
 	logger?: Logger
+}
+
+/** A task was addressed to a session other than the one this store keeps. */
+export class TaskSessionMismatchError extends Error {
+	override readonly name = 'TaskSessionMismatchError'
+	readonly expected: SessionId
+	readonly actual: SessionId
+
+	constructor(expected: SessionId, actual: SessionId) {
+		super(
+			`This task store keeps the tasks of session ${expected}; a task for session ${actual} belongs in that session's own store.`,
+		)
+		this.expected = expected
+		this.actual = actual
+	}
 }
 
 // `failed` ranks alongside `completed` rather than after it: both are
@@ -72,32 +102,38 @@ function isForwardTransition(from: TaskStatus, to: TaskStatus): boolean {
 }
 
 export class DiskTaskStore implements TaskStore {
-	private baseDir: string
-	private defaultRunId: RunId
-	private tenantId?: TenantId
+	private readonly paths: SessionPaths
+	private readonly session: SessionLocator
+	private readonly tenantId?: TenantId
 	private log: Logger
 	private listeners: TaskEventListener[] = []
 
 	private locks = new Map<TaskId, Promise<void>>()
 
 	constructor(config: DiskTaskStoreConfig) {
-		this.baseDir = config.baseDir
-		this.defaultRunId = asRunId(config.defaultRunId)
+		this.paths = config.paths
+		this.session = {
+			sessionId: asSessionId(config.session.sessionId),
+			ancestors: (config.session.ancestors ?? []).map((id) => asSessionId(id)),
+		}
 		this.tenantId = config.tenantId === undefined ? undefined : asTenantId(config.tenantId)
 		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/task/disk' })
+		// Resolved once, so a malformed locator is refused here rather than at
+		// the first write.
+		this.paths.tasks(this.session)
 	}
 
-	private taskDir(runId: RunId): string {
-		asRunId(runId)
-		if (this.tenantId) {
-			return join(this.baseDir, 'tenants', this.tenantId, 'tasks', runId)
-		}
-		return join(this.baseDir, 'tasks', runId)
+	/** The session this store keeps the tasks of. */
+	get sessionId(): SessionId {
+		return this.session.sessionId
 	}
 
-	private taskPath(runId: RunId, taskId: TaskId): string {
-		asTaskId(taskId)
-		return join(this.taskDir(runId), `${taskId}.json`)
+	private taskDir(): string {
+		return this.paths.tasks(this.session)
+	}
+
+	private taskPath(taskId: TaskId): string {
+		return this.paths.taskFile(this.session, taskId)
 	}
 
 	private async withLock<T>(taskId: TaskId, fn: () => Promise<T>): Promise<T> {
@@ -133,9 +169,6 @@ export class DiskTaskStore implements TaskStore {
 	 * Duplicates are removed; each ID is locked exactly once.
 	 */
 	private async withLocks<T>(taskIds: readonly TaskId[], fn: () => Promise<T>): Promise<T> {
-		// `new Set(readonly TaskId[])` is a `Set<TaskId>`; spreading and sorting
-		// it keeps that. The `as TaskId[]` this replaced asserted a type the
-		// expression already had.
 		const unique = [...new Set(taskIds)].sort()
 		const acquire = async (i: number): Promise<T> => {
 			if (i >= unique.length) return fn()
@@ -167,12 +200,17 @@ export class DiskTaskStore implements TaskStore {
 	}
 
 	async create(params: CreateTaskParams): Promise<Task> {
+		const sessionId = asSessionId(params.sessionId)
+		if (sessionId !== this.session.sessionId) {
+			throw new TaskSessionMismatchError(this.session.sessionId, sessionId)
+		}
+		const turnId = asTurnId(params.turnId)
 		const taskId = generateTaskId()
-		const runId = params.runId ?? this.defaultRunId
 
 		const task: Task = {
 			id: taskId,
-			runId,
+			sessionId,
+			turnId,
 			tenantId: params.tenantId ?? this.tenantId,
 			subject: params.subject,
 			description: params.description,
@@ -185,50 +223,46 @@ export class DiskTaskStore implements TaskStore {
 			createdAt: Date.now(),
 		}
 
-		const dir = this.taskDir(runId)
-		await mkdir(dir, { recursive: true })
+		await mkdir(this.taskDir(), { recursive: true, mode: 0o700 })
 
 		const blockers = params.blockedBy ?? []
 		if (blockers.length === 0) {
-			await records.write(this.taskPath(runId, taskId), task)
+			await records.write(this.taskPath(taskId), task)
 		} else {
 			// Hold locks on all blockers while establishing the bidirectional edge:
 			// update each blocker's `blocks` list AND write the new task together,
 			// so concurrent delete(blockerId) sees a consistent pair.
 			await this.withLocks(blockers, async () => {
 				for (const blockerId of blockers) {
-					const blocker = await this.readTask(runId, blockerId)
+					const blocker = await this.readTask(blockerId)
 					if (blocker && !blocker.blocks.includes(taskId)) {
 						blocker.blocks.push(taskId)
-						await records.write(this.taskPath(runId, blockerId), blocker)
+						await records.write(this.taskPath(blockerId), blocker)
 					}
 					// If blocker is missing, we still write the new task with its
 					// blockedBy reference; the dangling reference is visible to
 					// subsequent readers rather than silently pruned.
 				}
-				await records.write(this.taskPath(runId, taskId), task)
+				await records.write(this.taskPath(taskId), task)
 			})
 		}
 
 		this.log.info('Task created', {
 			'namzu.task.id': taskId,
 			'namzu.store.subject': params.subject,
-			[NAMZU.RUN_ID]: runId,
+			[NAMZU.TURN_ID]: turnId,
 		})
 		this.emit({ type: 'task.created', taskId, task, timestamp: Date.now() })
 		return task
 	}
 
 	async get(id: TaskId): Promise<Task | undefined> {
-		return this.findTask(id)
+		return (await this.readTask(id)) ?? undefined
 	}
 
 	async update(id: TaskId, updates: UpdateTaskParams): Promise<Task | undefined> {
-		const found = await this.findTask(id)
-		if (!found) return undefined
-
 		return this.withLock(id, async () => {
-			const task = await this.readTask(found.runId, id)
+			const task = await this.readTask(id)
 			if (!task) return undefined
 
 			const previousStatus = task.status
@@ -252,21 +286,21 @@ export class DiskTaskStore implements TaskStore {
 				if (updates.status === 'in_progress' && !task.startedAt) {
 					task.startedAt = Date.now()
 				}
-				if (updates.status === 'completed') {
+				// Stamped on either terminal status. The task context shows a
+				// closed task only in the turn that closed it (spec §4.5), and a
+				// failure with no time could never be placed in one.
+				if (isTerminalTaskStatus(updates.status)) {
 					task.completedAt = Date.now()
 				}
 			}
 
-			await records.write(this.taskPath(task.runId, id), task)
+			await records.write(this.taskPath(id), task)
 			this.emit({ type: 'task.updated', taskId: id, task, previousStatus, timestamp: Date.now() })
 			return task
 		})
 	}
 
 	async delete(id: TaskId): Promise<boolean> {
-		const found = await this.findTask(id)
-		if (!found) return false
-
 		// Read the task once (unlocked) to discover its related IDs, then acquire
 		// locks on the entire set (self + blockers + blocked) in canonical order.
 		// Locking the full set up-front in sorted order prevents deadlock when two
@@ -276,9 +310,9 @@ export class DiskTaskStore implements TaskStore {
 		// create()/block() adds a NEW relation between preview and lock acquisition,
 		// we will mutate that neighbor without holding its lock. The alternative
 		// (retry loop with expanding lock set) adds substantial complexity for a
-		// rare interleaving in a single-tenant single-writer store; revisit if the
-		// store grows concurrent writers.
-		const preview = await this.readTask(found.runId, id)
+		// rare interleaving in a single-writer store; the session lease is what
+		// keeps a second process out.
+		const preview = await this.readTask(id)
 		if (!preview) return false
 
 		const relatedIds: TaskId[] = [id, ...preview.blockedBy, ...preview.blocks]
@@ -286,26 +320,26 @@ export class DiskTaskStore implements TaskStore {
 		return this.withLocks(relatedIds, async () => {
 			// Re-read under lock: the task's block graph may have changed between
 			// the unlocked preview and lock acquisition.
-			const task = await this.readTask(found.runId, id)
+			const task = await this.readTask(id)
 			if (!task) return false
 
 			for (const blockerId of task.blockedBy) {
-				const blocker = await this.readTask(task.runId, blockerId)
+				const blocker = await this.readTask(blockerId)
 				if (blocker) {
 					blocker.blocks = blocker.blocks.filter((bid) => bid !== id)
-					await records.write(this.taskPath(task.runId, blockerId), blocker)
+					await records.write(this.taskPath(blockerId), blocker)
 				}
 			}
 			for (const blockedId of task.blocks) {
-				const blocked = await this.readTask(task.runId, blockedId)
+				const blocked = await this.readTask(blockedId)
 				if (blocked) {
 					blocked.blockedBy = blocked.blockedBy.filter((bid) => bid !== id)
-					await records.write(this.taskPath(task.runId, blockedId), blocked)
+					await records.write(this.taskPath(blockedId), blocked)
 				}
 			}
 
 			try {
-				await unlink(this.taskPath(task.runId, id))
+				await unlink(this.taskPath(id))
 			} catch (err) {
 				const code = (err as NodeJS.ErrnoException).code
 				if (code !== 'ENOENT') {
@@ -326,9 +360,16 @@ export class DiskTaskStore implements TaskStore {
 		})
 	}
 
-	async list(filter?: { status?: TaskStatus; owner?: string; runId?: RunId }): Promise<Task[]> {
-		const runId = filter?.runId ?? this.defaultRunId
-		const dir = this.taskDir(runId)
+	/**
+	 * Every task of this store's session, oldest first. A `sessionId` filter
+	 * naming a different session lists nothing: that session's tasks are in
+	 * its own directory, not here.
+	 */
+	async list(filter?: { status?: TaskStatus; owner?: string; sessionId?: SessionId }): Promise<
+		Task[]
+	> {
+		if (filter?.sessionId !== undefined && filter.sessionId !== this.session.sessionId) return []
+		const dir = this.taskDir()
 
 		let files: string[]
 		try {
@@ -363,15 +404,12 @@ export class DiskTaskStore implements TaskStore {
 			results = results.filter((t) => t.owner === filter.owner)
 		}
 
-		return results.sort((a, b) => a.createdAt - b.createdAt)
+		return results.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 	}
 
 	async claim(id: TaskId, owner: string): Promise<Task | undefined> {
-		const found = await this.findTask(id)
-		if (!found) return undefined
-
 		return this.withLock(id, async () => {
-			const task = await this.readTask(found.runId, id)
+			const task = await this.readTask(id)
 			if (!task) return undefined
 			if (task.status !== 'pending') return undefined
 			if (task.owner !== undefined) return undefined
@@ -380,30 +418,24 @@ export class DiskTaskStore implements TaskStore {
 			task.status = 'in_progress'
 			task.startedAt = Date.now()
 
-			await records.write(this.taskPath(task.runId, id), task)
+			await records.write(this.taskPath(id), task)
 			this.emit({ type: 'task.claimed', taskId: id, task, timestamp: Date.now() })
 			return task
 		})
 	}
 
 	async block(blockerId: TaskId, blockedId: TaskId): Promise<void> {
-		const blockerFound = await this.findTask(blockerId)
-		const blockedFound = await this.findTask(blockedId)
-		if (!blockerFound || !blockedFound) return
-
 		// Acquire BOTH locks before mutating either side of the edge. Sequential
 		// single-locks allow a concurrent operation to interleave and observe
 		// a half-established relationship.
 		await this.withLocks([blockerId, blockedId], async () => {
-			const blocker = await this.readTask(blockerFound.runId, blockerId)
-			const blocked = await this.readTask(blockedFound.runId, blockedId)
+			const blocker = await this.readTask(blockerId)
+			const blocked = await this.readTask(blockedId)
 
-			// Re-validate under lock: either side may have been deleted between
-			// the pre-check (findTask) and lock acquisition. Establishing only
-			// one side of the edge would leave a dangling reference; skip the
-			// whole operation instead.
+			// Either side may be missing. Establishing only one side of the edge
+			// would leave a dangling reference; skip the whole operation instead.
 			if (!blocker || !blocked) {
-				this.log.warn('block(): task disappeared before lock acquired; skipping', {
+				this.log.warn('block(): a task of the edge does not exist; skipping', {
 					'namzu.store.blocker_id': blockerId,
 					'namzu.store.blocked_id': blockedId,
 					'namzu.store.blocker_exists': !!blocker,
@@ -415,12 +447,12 @@ export class DiskTaskStore implements TaskStore {
 			let mutated = false
 			if (!blocker.blocks.includes(blockedId)) {
 				blocker.blocks.push(blockedId)
-				await records.write(this.taskPath(blocker.runId, blockerId), blocker)
+				await records.write(this.taskPath(blockerId), blocker)
 				mutated = true
 			}
 			if (!blocked.blockedBy.includes(blockerId)) {
 				blocked.blockedBy.push(blockerId)
-				await records.write(this.taskPath(blocked.runId, blockedId), blocked)
+				await records.write(this.taskPath(blockedId), blocked)
 				mutated = true
 			}
 			if (!mutated) {
@@ -442,7 +474,7 @@ export class DiskTaskStore implements TaskStore {
 	}
 
 	async reset(): Promise<void> {
-		const dir = this.taskDir(this.defaultRunId)
+		const dir = this.taskDir()
 		const files = await records.scanNames(dir, '')
 		for (const file of files) {
 			if (file.endsWith('.json')) {
@@ -451,8 +483,8 @@ export class DiskTaskStore implements TaskStore {
 		}
 	}
 
-	private async readTask(runId: RunId, taskId: TaskId): Promise<Task | null> {
-		const path = this.taskPath(runId, taskId)
+	private async readTask(taskId: TaskId): Promise<Task | null> {
+		const path = this.taskPath(taskId)
 		try {
 			return await records.read(path)
 		} catch (err) {
@@ -462,57 +494,6 @@ export class DiskTaskStore implements TaskStore {
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return null
-		}
-	}
-
-	/**
-	 * Locate a task by id, whichever run wrote it.
-	 *
-	 * A task is written under `params.runId ?? defaultRunId` and this read
-	 * only the default, so every lookup missed as soon as the two differed
-	 * — the normal case rather than an edge one: the task tools are built
-	 * with the LIVE run id while a long-lived host constructs the store
-	 * once with a fixed default. `create` then succeeded, `list` succeeded
-	 * (it takes the run id as a filter), and `update`, `delete`, `claim`
-	 * and every dependency link answered "not found" for a task the caller
-	 * could see. The in-memory store keys by task id alone, so nothing
-	 * caught it.
-	 *
-	 * The default is tried first because it is right whenever the two
-	 * agree, which keeps the common path one stat rather than a scan.
-	 */
-	private async findTask(id: TaskId): Promise<Task | undefined> {
-		const direct = await this.readTask(this.defaultRunId, id)
-		if (direct) return direct
-
-		for (const runId of await this.knownRunIds()) {
-			if (runId === this.defaultRunId) continue
-			const task = await this.readTask(runId, id)
-			if (task) return task
-		}
-		return undefined
-	}
-
-	/** Run directories that exist on disk, or none when the tree is absent. */
-	private async knownRunIds(): Promise<RunId[]> {
-		const root = this.tenantId
-			? join(this.baseDir, 'tenants', this.tenantId, 'tasks')
-			: join(this.baseDir, 'tasks')
-		try {
-			const entries = await readdir(root, { withFileTypes: true })
-			// The tasks directory identifies runs; either ID encoding is valid.
-			return entries
-				.filter((e) => e.isDirectory() && isEntityId(e.name, 'run'))
-				.map((e) => e.name as RunId)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code !== 'ENOENT') {
-				this.log.warn('Failed to enumerate task run directories', {
-					'namzu.store.root': root,
-					'exception.message': err instanceof Error ? err.message : String(err),
-				})
-			}
-			return []
 		}
 	}
 }

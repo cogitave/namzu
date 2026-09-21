@@ -14,7 +14,7 @@ import type {
 	AgentTaskState,
 	SendMessageOptions,
 } from '../../types/agent/task.js'
-import type { RunId, TaskId } from '../../types/ids/index.js'
+import type { SessionId, TaskId, TurnId } from '../../types/ids/index.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 
 /**
@@ -86,7 +86,8 @@ class FanOutManager implements AgentManagerContract {
 			...(failing
 				? {
 						result: {
-							runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId,
+							sessionId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as SessionId,
+							turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId,
 							status: 'failed',
 							result: 'it broke',
 						},

@@ -27,6 +27,7 @@
  */
 
 import { withTokenBudget } from '../provider/token-budget.js'
+import type { SessionTokenBudget } from '../store/budget/index.js'
 import type {
 	AgentInput,
 	AgentMetadata,
@@ -35,9 +36,12 @@ import type {
 	PipelineStepResult,
 	StepContext,
 } from '../types/agent/index.js'
-import type { RunEventListener } from '../types/run/index.js'
+import type { SessionId, TurnId } from '../types/ids/index.js'
+import type { SessionEvent, SessionEventListener } from '../types/session/events.js'
+import type { TurnSettlement } from '../types/session/turn.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
+import { generateMessageId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 import { resolveAgentBudget } from './budget.js'
@@ -64,16 +68,16 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 	/**
 	 * One run at a time per instance.
 	 *
-	 * `abortController` and `currentRunId` are instance state, so two
+	 * `abortController` and `currentSessionId` are instance state, so two
 	 * overlapping runs share one abort controller — cancelling either kills
-	 * both — and the second clobbers the first's run id, so a later
-	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * both — and the second clobbers the first's session, so a later
+	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
 	 */
 	async run(
 		input: AgentInput,
 		config: PipelineAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<PipelineAgentResult> {
 		return await this.underIdempotencyKey(config.idempotencyKey, () =>
 			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
@@ -83,7 +87,7 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 	private async runExclusive(
 		input: AgentInput,
 		config: PipelineAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<PipelineAgentResult> {
 		if (config.sandbox) {
 			throw new Error(
@@ -91,16 +95,27 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 			)
 		}
 		const startTime = Date.now()
-		const runId = this.createRunId()
-		this.bindRun(runId, config.logger)
-		const budget = await resolveAgentBudget(input, config, runId)
+		const sessionId = this.resolveSessionId(config.sessionId)
+		const turnId = this.createTurnId()
+		this.bindTurn(sessionId, turnId, config.logger)
+		const budget = await resolveAgentBudget(input, config, { sessionId, turnId })
+		const settlement = (status: TurnSettlement['status'], iterations: number): TurnSettlement => ({
+			status,
+			iterations,
+			usage: budget.ownUsage,
+			cost: { ...ZERO_COST, unpricedTokens: budget.ownTokens },
+			durationMs: Date.now() - startTime,
+			resultSource: 'model',
+			abandonedTaskIds: [],
+			abandonedJobIds: [],
+		})
 		const provider = config.provider ? withTokenBudget(config.provider, budget) : undefined
 		try {
 			const stepResults: PipelineStepResult[] = []
 			const previousResults = new Map<string, unknown>()
 			let completedSteps = 0
 
-			await this.emitEvent({ type: 'run_started', runId }, listener)
+			await this.emitEvent(turnStarted(sessionId, turnId, config, budget), listener)
 
 			let currentInput: unknown = input.messages
 				.filter((m) => m.role === 'user')
@@ -122,10 +137,14 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 					continue
 				}
 
-				await this.emitEvent({ type: 'iteration_started', runId, iteration: i + 1 }, listener)
+				await this.emitEvent(
+					{ type: 'iteration_started', sessionId, turnId, iteration: i + 1 },
+					listener,
+				)
 
 				const context: StepContext = {
-					runId,
+					sessionId,
+					turnId,
 					stepIndex: i,
 					totalSteps: config.steps.length,
 					previousResults,
@@ -175,16 +194,19 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 					if (!config.continueOnError) {
 						await this.emitEvent(
 							{
-								type: 'run_failed',
-								runId,
+								type: 'turn_failed',
+								sessionId,
+								turnId,
 								error: errorMsg,
 								budget: budget.summary(),
+								settlement: settlement('failed', i + 1),
 							},
 							listener,
 						)
 
 						return {
-							runId,
+							sessionId,
+							turnId,
 							status: 'failed',
 							stopReason: 'error',
 							usage: budget.ownUsage,
@@ -205,18 +227,36 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 			const finalStatus = completedSteps === config.steps.length ? 'completed' : 'failed'
 			const lastOutput = stepResults[stepResults.length - 1]?.output
 
+			const result = typeof lastOutput === 'string' ? lastOutput : JSON.stringify(lastOutput)
+
+			// A pipeline that finished with failed steps (under `continueOnError`)
+			// did not complete its turn, so it settles as `turn_failed`: the
+			// terminal verdict is the event type (spec §2.10).
 			await this.emitEvent(
-				{
-					type: 'run_completed',
-					budget: budget.summary(),
-					runId,
-					result: typeof lastOutput === 'string' ? lastOutput : JSON.stringify(lastOutput),
-				},
+				finalStatus === 'completed'
+					? {
+							type: 'turn_completed',
+							sessionId,
+							turnId,
+							budget: budget.summary(),
+							result,
+							stopReason: 'end_turn',
+							settlement: settlement('completed', config.steps.length),
+						}
+					: {
+							type: 'turn_failed',
+							sessionId,
+							turnId,
+							budget: budget.summary(),
+							error: `${config.steps.length - completedSteps} of ${config.steps.length} pipeline steps failed`,
+							settlement: settlement('failed', config.steps.length),
+						},
 				listener,
 			)
 
 			return {
-				runId,
+				sessionId,
+				turnId,
 				status: finalStatus,
 				stopReason: 'end_turn',
 				usage: budget.ownUsage,
@@ -225,7 +265,7 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 				iterations: config.steps.length,
 				durationMs: Date.now() - startTime,
 				messages: input.messages,
-				result: typeof lastOutput === 'string' ? lastOutput : JSON.stringify(lastOutput),
+				result,
 				stepResults,
 				completedSteps,
 				totalSteps: config.steps.length,
@@ -234,5 +274,30 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 			budget.settle()
 			await budget.flush()
 		}
+	}
+}
+
+/**
+ * The turn a pipeline runs, announced the way `query()` announces one. The
+ * user message id names the input the steps were handed; nothing is written
+ * to a session log, because the steps are callbacks, not model calls.
+ */
+function turnStarted(
+	sessionId: SessionId,
+	turnId: TurnId,
+	config: PipelineAgentConfig,
+	budget: SessionTokenBudget,
+): SessionEvent {
+	return {
+		type: 'turn_started',
+		sessionId,
+		turnId,
+		userMessageId: generateMessageId(),
+		config: {
+			model: config.model,
+			tokenBudget: config.tokenBudget,
+			timeoutMs: config.timeoutMs,
+		},
+		...(budget.binding ? { budget: budget.binding } : {}),
 	}
 }

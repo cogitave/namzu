@@ -8,7 +8,7 @@ import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
-import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
+import { SessionPaths } from '../../session/paths.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -83,17 +83,13 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		const stateRoot = await mkdtemp(join(tmpdir(), 'namzu-reach-state-'))
 		dirs.push(stateRoot)
 
+		const paths = new SessionPaths({ home: stateRoot, slug: '-reach' })
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
-			{ ...config, pathBuilder: new DefaultPathBuilder(stateRoot) },
+			{ ...config, paths },
 		)
 
-		const runPath = new DefaultPathBuilder(stateRoot).runDir(
-			config.projectId as ProjectId,
-			config.sessionId as SessionId,
-			result.runId,
-		)
-		expect(existsSync(runPath)).toBe(true)
+		expect(existsSync(paths.sessionLog({ sessionId: result.sessionId }))).toBe(true)
 		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)
 	})
 
@@ -232,16 +228,15 @@ describe('SupervisorAgent forwards the durable layout seam', () => {
 			topicId: 'c6e9492e-e27d-461e-a820-6b2cf9a7b3ae' as TopicId,
 			projectId: '6bb45fce-1fff-4b69-9226-df7b5778ca2c' as ProjectId,
 			tenantId: 'ed2de0d4-61b2-41f3-87a5-2ec372d324f1' as TenantId,
-			pathBuilder: new DefaultPathBuilder(stateRoot),
+			paths: new SessionPaths({ home: stateRoot, slug: '-reach' }),
 		} as never)
 
+		expect(result.sessionId).toBe('4c21c3a0-fd74-4425-8175-3e3e3d436269')
 		expect(
 			existsSync(
-				new DefaultPathBuilder(stateRoot).runDir(
-					'6bb45fce-1fff-4b69-9226-df7b5778ca2c' as ProjectId,
-					'4c21c3a0-fd74-4425-8175-3e3e3d436269' as SessionId,
-					result.runId,
-				),
+				new SessionPaths({ home: stateRoot, slug: '-reach' }).sessionLog({
+					sessionId: result.sessionId,
+				}),
 			),
 		).toBe(true)
 		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)

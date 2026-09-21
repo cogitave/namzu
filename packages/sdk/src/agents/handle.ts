@@ -23,12 +23,10 @@ import type { Message } from '../types/message/index.js'
 /**
  * Whether a run is in flight, as this handle sees it.
  *
- * NOT `AgentStatus` — that name is taken by a deprecated alias of
- * `RunExecutionStatus` whose own test records that it never typed an agent
- * and is being removed in the next major. Reusing it here would silently
- * change what a consumer's `AgentStatus` MEANS rather than failing their
- * build, which is the worse of the two outcomes and the one a deprecation
- * window exists to avoid.
+ * NOT `AgentStatus` — that name was a deprecated alias of the execution
+ * status which never typed an agent. Reusing it here would silently change
+ * what a consumer's `AgentStatus` MEANS rather than failing their build,
+ * which is the worse of the two outcomes.
  */
 export type AgentHandleStatus = 'idle' | 'running'
 

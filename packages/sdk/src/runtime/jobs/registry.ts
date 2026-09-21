@@ -31,7 +31,7 @@ export type BackgroundJobStatus = 'running' | 'exited' | 'killed'
 
 export interface BackgroundJob {
 	readonly id: string
-	/** Whoever the job dies with — a run id, in practice. */
+	/** Whoever the job dies with — a turn id, or the session id for a job bound to the session. */
 	readonly owner: string
 	readonly command: string
 	readonly status: BackgroundJobStatus
@@ -83,8 +83,8 @@ export interface BackgroundJobRegistryConfig {
 	/**
 	 * Refused past this many LIVE jobs for one owner.
 	 *
-	 * Per owner rather than global: one run spawning a hundred watchers must
-	 * not be able to refuse a different run its first.
+	 * Per owner rather than global: one turn spawning a hundred watchers must
+	 * not be able to refuse a different turn its first.
 	 */
 	readonly maxJobsPerOwner?: number
 	/** Retained output per job. Oldest bytes go first, and are counted. */
@@ -393,7 +393,7 @@ export class BackgroundJobRegistry {
 	/**
 	 * Kill everything one owner started.
 	 *
-	 * The teardown call. Without it a run that ends leaves its jobs running
+	 * The teardown call. Without it a turn that ends leaves its jobs running
 	 * with nothing left that knows their ids — the orphan this whole module
 	 * exists to make impossible.
 	 */
@@ -420,8 +420,8 @@ export class BackgroundJobRegistry {
  *
  * The owner is bound here rather than passed by the caller, which is the
  * whole point: a tool holding this cannot start a job billed to somebody
- * else's run, nor read or kill one. `list` and the lookups are filtered to
- * the same owner, so an id from another run reads as unknown — the same
+ * else's turn, nor read or kill one. `list` and the lookups are filtered to
+ * the same owner, so an id from another turn reads as unknown — the same
  * answer the tenant checks give elsewhere in this tree, and for the same
  * reason.
  */
@@ -440,9 +440,9 @@ export function bindOwner(
 		/**
 		 * Be told that the model said it is waiting on a job's exit.
 		 *
-		 * The registry does not keep this: wait-intent belongs to the RUN that
-		 * expressed it, not to a registry a host may share across runs and
-		 * sessions. The run passes its own recorder here — `AwaitedJobs`, which
+		 * The registry does not keep this: wait-intent belongs to the TURN that
+		 * expressed it, not to a registry a host may share across turns and
+		 * sessions. The turn passes its own recorder here — `AwaitedJobs`, which
 		 * is what the iteration loop holds open for. Absent means nobody is
 		 * listening, and `markAwaited` is then absent from the bound ref rather
 		 * than present and silently doing nothing.

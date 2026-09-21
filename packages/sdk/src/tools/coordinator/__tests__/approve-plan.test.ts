@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { TaskScheduler } from '../../../types/agent/scheduler.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { PlanApprovalResponse } from '../../../types/plan/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -31,7 +31,8 @@ function unusedGateway(): TaskScheduler {
 
 function testToolContext(): ToolContext {
 	return {
-		runId: '302e1709-cddd-42e2-b4f7-56186ce7faa2' as RunId,
+		sessionId: '302e1709-cddd-42e2-b4f7-56186ce7faa2' as SessionId,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -40,7 +41,7 @@ function testToolContext(): ToolContext {
 }
 
 async function executeApprovePlan(approval: PlanApprovalResponse) {
-	const pm = new PlanManager('302e1709-cddd-42e2-b4f7-56186ce7faa2' as RunId, async () => approval)
+	const pm = new PlanManager('0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never, async () => approval)
 	const tools = buildCoordinatorTools({
 		gateway: unusedGateway(),
 		workingDirectory: '/tmp/test',

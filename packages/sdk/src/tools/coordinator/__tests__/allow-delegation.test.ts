@@ -39,7 +39,8 @@ function namesFor(opts: {
 		...(opts.withHitl
 			? {
 					resumeHandler: (async () => ({ action: 'continue' })) as never,
-					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+					sessionId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+					turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 				}
 			: {}),
 	}).map((t) => t.name)

@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { TokenBudget } from '../../../run/token-budget.js'
 import { toolResultCorrespondenceGuardrail } from '../../../runtime/query/guardrail-presets.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import { fixtureId, fixtureUuid } from '../../../test-support/ids.js'
@@ -18,7 +18,7 @@ import type { ToolResultGuardrailSpec } from '../../../types/guardrail/index.js'
 import type { AgentId, TenantId } from '../../../types/ids/index.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
@@ -60,7 +60,8 @@ function recordingAgent(seen: { config?: BaseAgentConfig }) {
 		async run(_input: unknown, config: BaseAgentConfig): Promise<BaseAgentResult> {
 			seen.config = config
 			return {
-				runId: fixtureId.run('child'),
+				sessionId: fixtureId.session('child'),
+				turnId: fixtureId.turn('child'),
 				status: 'completed',
 				result: 'ok',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -159,11 +160,15 @@ async function spawnWith(options: {
 	})
 
 	const context: AgentTaskContext = {
-		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		parentSessionId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		}),
 		tenantId: TENANT,
 		topicId: thread.id,
 		sessionId: parentSession.id,

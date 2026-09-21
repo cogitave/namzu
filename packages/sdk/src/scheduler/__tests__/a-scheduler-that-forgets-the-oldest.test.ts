@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../utils/id.js'
+import { SessionTokenBudget } from '../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 
 import type { AgentManagerContract } from '../../types/agent/manager.js'
 import type { AgentTask, AgentTaskContext } from '../../types/agent/task.js'
 import type { AgentId, TaskId } from '../../types/ids/index.js'
 import { LocalTaskScheduler } from '../local.js'
+
+function budgetFor(limit: number): SessionTokenBudget {
+	return SessionTokenBudget.create(limit, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	})
+}
 
 /**
  * The gateway's two ledgers — `trackedTaskIds` and `settledHandles` — had `add`
@@ -39,11 +46,12 @@ class CountingManager {
 
 function context(): AgentTaskContext {
 	return {
-		parentRunId: '5eba9421-a64b-4bf1-94b0-b0c3985daf28' as never,
+		parentSessionId: '5eba9421-a64b-4bf1-94b0-b0c3985daf28' as never,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(1_000_000, budgetRunId()),
+		budget: budgetFor(1_000_000),
 		tenantId: '0655203a-fe49-4e68-bb77-0f3889421e4c' as never,
 		sessionId: '314d67db-e2b9-420a-9f10-cee9b361a899' as never,
 		projectId: '8e77b3c0-cb1f-4ed2-b6d4-fd16fff77c89' as never,

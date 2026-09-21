@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
-import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
+import { SessionPaths } from '../../session/paths.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -15,11 +15,12 @@ import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { ReactiveAgent } from '../ReactiveAgent.js'
 
 /**
- * `pruneKeepLast` reaches a run started through an agent.
+ * `pruneKeepLast` reaches a turn started through an agent.
  *
- * It existed only on the raw kernel's run config, and `ReactiveAgent` builds
+ * It existed only on the raw kernel's turn config, and `ReactiveAgent` builds
  * that config from a hand-listed literal, so a host that bounds its own runs
  * could not bound a delegated child's: the child kept every checkpoint.
+ * Checkpoints live at `<session-id>/checkpoints/`, one directory per session.
  */
 
 const scope = {
@@ -56,7 +57,7 @@ async function checkpointsLeft(pruneKeepLast?: number): Promise<number> {
 		category: 'test',
 		description: 'checkpoint retention reachability',
 	})
-	const pathBuilder = new DefaultPathBuilder(join(root, 'state'))
+	const paths = new SessionPaths({ home: join(root, 'home'), slug: '-work' })
 	const result = await agent.run(
 		{ messages: [createUserMessage('probe six times')], workingDirectory: root },
 		{
@@ -66,19 +67,17 @@ async function checkpointsLeft(pruneKeepLast?: number): Promise<number> {
 			tokenBudget: 100_000,
 			timeoutMs: 10_000,
 			maxIterations: 10,
-			pathBuilder,
+			paths,
 			...(pruneKeepLast !== undefined ? { pruneKeepLast } : {}),
 			...scope,
 		} satisfies ReactiveAgentConfig,
 	)
-	const dir = join(
-		pathBuilder.runDir(scope.projectId, scope.sessionId, result.runId),
-		'checkpoints',
-	)
+	expect(result.sessionId).toBe(scope.sessionId)
+	const dir = paths.checkpoints({ sessionId: result.sessionId })
 	return (await readdir(dir)).filter((name) => name.endsWith('.json')).length
 }
 
-it('bounds the checkpoints of a run started through ReactiveAgent', async () => {
+it('bounds the checkpoints of a turn started through ReactiveAgent', async () => {
 	expect(await checkpointsLeft()).toBeGreaterThan(4)
 	expect(await checkpointsLeft(2)).toBeLessThanOrEqual(2)
 })

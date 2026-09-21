@@ -8,7 +8,7 @@ import type {
 	BaseAgentConfig,
 	BaseAgentResult,
 } from '../types/agent/index.js'
-import type { RunEventListener } from '../types/run/index.js'
+import type { SessionEventListener } from '../types/session/events.js'
 
 export interface DefineAgentOptions<
 	TConfig extends BaseAgentConfig = BaseAgentConfig,
@@ -21,7 +21,7 @@ export interface DefineAgentOptions<
 	category: string
 	description: string
 	capabilities?: Partial<AgentCapabilities>
-	run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
+	run(input: AgentInput, config: TConfig, listener?: SessionEventListener): Promise<TResult>
 	cancel?(): Promise<void>
 }
 
@@ -45,7 +45,11 @@ export function defineAgent<
 		type: options.type,
 		metadata,
 
-		async run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult> {
+		async run(
+			input: AgentInput,
+			config: TConfig,
+			listener?: SessionEventListener,
+		): Promise<TResult> {
 			return options.run(input, config, listener)
 		},
 

@@ -51,7 +51,7 @@ export class AwaitedJobs {
 
 	constructor(
 		private readonly source: AwaitedJobSource,
-		/** Whose jobs these are — the run or the session the jobs are bound to. */
+		/** Whose jobs these are — the turn or the session the jobs are bound to. */
 		private readonly owner: string,
 		/**
 		 * Whether the exit notice this run queues for the model is still

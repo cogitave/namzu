@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises'
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { GENAI } from '../../constants/telemetry/index.js'
@@ -6,9 +7,14 @@ import {
 	type CapacityValidator,
 	DelegationCapacityExceeded,
 } from '../../session/handoff/capacity.js'
+import type { SessionLocator, SessionPaths } from '../../session/paths.js'
 import type { SessionSummaryMaterializer } from '../../session/summary/materialize.js'
 import type { WorkspaceBackendRegistry } from '../../session/workspace/registry.js'
-import { InMemoryRunStore } from '../../store/run/memory.js'
+import {
+	DiskSessionLog,
+	InMemorySessionLog,
+	type SessionLog,
+} from '../../store/session-log/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
 import type {
 	AgentLifecycleEvent,
@@ -23,15 +29,16 @@ import type {
 } from '../../types/agent/task.js'
 import { isTerminalAgentTaskState } from '../../types/agent/task.js'
 import { NamzuError } from '../../types/errors/index.js'
-import type { RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
+import type { SessionId, TaskId, TenantId, ToolUseId, TurnId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import { type CancelCause, RunCancelled } from '../../types/run/cancel-cause.js'
-import type { RunEvent, RunEventListener } from '../../types/run/events.js'
-import type { Lineage } from '../../types/run/lineage.js'
-import { RUN_EVENT_SCHEMA_VERSION } from '../../types/run/schema-version.js'
 import type { ActorRef } from '../../types/session/actor.js'
+import { type CancelCause, TurnCancelled } from '../../types/session/cancel-cause.js'
+import type { SessionEvent, SessionEventListener } from '../../types/session/events.js'
 import type { SubSessionId } from '../../types/session/ids.js'
+import type { Lineage } from '../../types/session/lineage.js'
+import type { ChildSessionMeta } from '../../types/session/records.js'
 import type { SessionStore } from '../../types/session/store.js'
+import type { TurnExecutionStatus } from '../../types/session/turn.js'
 import type { SessionSummaryOutcome } from '../../types/summary/ref.js'
 import type { WorkspaceRef } from '../../types/workspace/ref.js'
 import { createChildAbortController } from '../../utils/abort.js'
@@ -43,6 +50,7 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { requireOpenProject } from '../project/lifecycle.js'
 import { type TopicManagerDependency, resolveTopicManager } from '../topic/dependency.js'
 import type { TopicManager } from '../topic/lifecycle.js'
+import { registerChildSessionLog, writeChildSessionMeta } from './child-session.js'
 
 /**
  * Dependencies threaded into {@link AgentManager}. Phase 6 promoted the
@@ -77,10 +85,22 @@ interface AgentManagerBaseDeps {
 	 * which is SDK-only) — but the field is genuinely host-reachable: it is
 	 * a plain object-literal parameter (no exported type import required to
 	 * satisfy it structurally) on `AgentManager`, which IS exported from
-	 * `public-runtime.ts`. Same standing as `RunConfig.logger` when it was
+	 * `public-runtime.ts`. Same standing as `TurnConfig.logger` when it was
 	 * first added.
 	 */
 	readonly log?: Logger
+
+	/**
+	 * The project layout child sessions are written into when a child config
+	 * names no `sessionLog` and no `paths` of its own: the child's log at
+	 * `<parent-session-dir>/subagents/<child-id>.jsonl` and its
+	 * `<child-id>.meta.json` beside it, nested under each ancestor. Absent,
+	 * a child with no storage of its own resolves its log the way any turn
+	 * does (the default layout under `NAMZU_HOME`), and no meta document is
+	 * written. A parent held in memory (`AgentTaskContext.childStorage`)
+	 * gives its children in-memory logs whatever this says.
+	 */
+	readonly paths?: SessionPaths
 }
 
 /**
@@ -101,7 +121,7 @@ interface PendingSpawn {
 	readonly task: AgentTask
 	readonly options: SendMessageOptions
 	readonly context: AgentTaskContext
-	readonly listener?: RunEventListener
+	readonly listener?: SessionEventListener
 	readonly removeAbortListener: () => void
 }
 
@@ -110,8 +130,26 @@ interface ChildSpawnRecord {
 	childSessionId: SessionId
 	tenantId: TenantId
 	parentSessionId: SessionId
+	/** The parent turn whose tool call spawned the child. */
+	parentTurnId: TurnId
 	rootSessionId: SessionId
+	/** The parent's ancestors and the parent itself, root first: the child's `SessionLocator.ancestors`. */
+	ancestry: readonly SessionId[]
 	childDepth: number
+	/**
+	 * Where the child's log and meta document were placed, when this manager
+	 * placed them (a layout was known and the child named no storage).
+	 */
+	placement?: {
+		readonly paths: SessionPaths
+		readonly metaPath: string
+		readonly createdAt: string
+		readonly toolCallId: string
+		readonly agentType: string
+		readonly description: string
+	}
+	/** Removes the child's log from the process-local lookup. */
+	releaseLog?: () => void
 	workspaceRef?: WorkspaceRef
 	/**
 	 * What this child was actually granted, after the ancestor union.
@@ -182,7 +220,7 @@ export class AgentManager {
 	async sendMessage(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<AgentTask> {
 		if (this.disposed) throw new Error('Agent manager is disposed')
 		if (this.config.capacityBehavior === 'queue')
@@ -193,7 +231,7 @@ export class AgentManager {
 	private async enqueueMessage(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<AgentTask> {
 		context.parentAbortController.signal.throwIfAborted()
 		if (context.depth >= this.config.maxDepth)
@@ -215,7 +253,7 @@ export class AgentManager {
 			state: 'pending',
 			pendingMessages: [],
 			createdAt: Date.now(),
-			runEventListener: listener,
+			sessionEventListener: listener,
 		}
 		this.instances.set(task.taskId, task)
 		const onAbort = (): void => {
@@ -248,7 +286,8 @@ export class AgentManager {
 		try {
 			await listener?.({
 				type: 'agent_pending',
-				runId: context.parentRunId,
+				sessionId: context.parentSessionId,
+				turnId: context.parentTurnId,
 				taskId: task.taskId,
 				parentAgentId: context.parentAgentId,
 				childAgentId: options.agentId,
@@ -332,8 +371,11 @@ export class AgentManager {
 		if (isTerminalAgentTaskState(task.state)) return
 		task.childAbortController.abort(reason)
 		const error = toErrorMessage(reason)
+		// The child never got a session, so its result names the parent turn
+		// that asked for it.
 		task.result = {
-			runId: entry.context.parentRunId,
+			sessionId: entry.context.parentSessionId,
+			turnId: entry.context.parentTurnId,
 			status: 'failed',
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -345,9 +387,10 @@ export class AgentManager {
 		task.state = 'failed'
 		task.completedAt = Date.now()
 		this.emit({ type: 'failed', taskId: task.taskId, error })
-		this.emitRunEvent(task, {
+		this.emitSessionEvent(task, {
 			type: 'agent_failed',
-			runId: entry.context.parentRunId,
+			sessionId: entry.context.parentSessionId,
+			turnId: entry.context.parentTurnId,
 			taskId: task.taskId,
 			error,
 		})
@@ -358,7 +401,7 @@ export class AgentManager {
 	private async startMessage(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 		queuedTask?: AgentTask,
 	): Promise<AgentTask> {
 		await options.beforeStart?.()
@@ -500,7 +543,8 @@ export class AgentManager {
 			const resolvedDenies = [...new Set([...inheritedDenies, ...ownDenies])]
 
 			const childContext: AgentTaskContext = {
-				parentRunId: context.parentRunId,
+				parentSessionId: context.parentSessionId,
+				parentTurnId: context.parentTurnId,
 				parentAgentId: context.parentAgentId,
 				parentAbortController: context.parentAbortController,
 				depth: context.depth + 1,
@@ -524,7 +568,7 @@ export class AgentManager {
 				state: 'pending',
 				pendingMessages: queuedTask?.pendingMessages ?? [],
 				createdAt: queuedTask?.createdAt ?? Date.now(),
-				runEventListener: listener,
+				sessionEventListener: listener,
 			} satisfies AgentTask)
 
 			childAbortController.signal.throwIfAborted()
@@ -544,7 +588,8 @@ export class AgentManager {
 				if (!queuedTask)
 					await listener({
 						type: 'agent_pending',
-						runId: context.parentRunId,
+						sessionId: context.parentSessionId,
+						turnId: context.parentTurnId,
 						taskId,
 						parentAgentId: context.parentAgentId,
 						childAgentId: options.agentId,
@@ -560,14 +605,25 @@ export class AgentManager {
 					depth: spawnRecord.childDepth,
 				}
 				await listener({
-					type: 'subsession_spawned',
-					runId: context.parentRunId,
-					subSessionId: spawnRecord.subSessionId,
-					parentSessionId: spawnRecord.parentSessionId,
-					spawnedBy: context.parentActor,
+					type: 'child_session_spawned',
+					sessionId: spawnRecord.parentSessionId,
+					turnId: spawnRecord.parentTurnId,
+					childSessionId: spawnRecord.childSessionId,
+					toolCallId: spawnToolCallId(taskId),
+					kind: 'agent_spawn',
+					description: describeSpawn(options),
+					path: childLogPath(spawnRecord.childSessionId),
+					...(options.workflow
+						? {
+								batch: {
+									batchId: options.workflow,
+									name: options.workflow,
+									...(options.phase ? { phase: options.phase } : {}),
+								},
+							}
+						: {}),
+					budgetAccountId: childBudget.accountId,
 					lineage,
-					schemaVersion: RUN_EVENT_SCHEMA_VERSION,
-					at: new Date(),
 				})
 			}
 			this.log.info('Agent task pending', {
@@ -589,7 +645,9 @@ export class AgentManager {
 						...(context.factoryOptions ?? {}),
 						tokenBudget: allocatedTokens,
 						timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
-						parentRunId: context.parentRunId as string | undefined,
+						sessionId: spawnRecord.childSessionId,
+						parentSessionId: spawnRecord.parentSessionId,
+						parentTurnId: spawnRecord.parentTurnId,
 						depth: context.depth + 1,
 						...options.configOverrides,
 					})),
@@ -672,7 +730,8 @@ export class AgentManager {
 					topicId: context.topicId,
 					projectId: context.projectId,
 					tenantId: context.tenantId,
-					parentRunId: context.parentRunId,
+					parentSessionId: spawnRecord.parentSessionId,
+					parentTurnId: spawnRecord.parentTurnId,
 					depth: context.depth + 1,
 					resumeHandler: options.configOverrides?.resumeHandler ?? context.resumeHandler,
 				}
@@ -703,8 +762,9 @@ export class AgentManager {
 			// Lineage is assigned by the spawning manager, not proposed by the
 			// child definition. A fixed configBuilder can ignore its inputs and
 			// configOverrides is caller-authored; neither may turn a child back
-			// into depth zero or attach it to a different parent run.
-			childConfig.parentRunId = context.parentRunId
+			// into depth zero or attach it to a different parent session.
+			childConfig.parentSessionId = spawnRecord.parentSessionId
+			childConfig.parentTurnId = spawnRecord.parentTurnId
 			childConfig.depth = context.depth + 1
 			childConfig.budget = childBudget
 			// The reservation is the execution ceiling, regardless of a builder's
@@ -751,29 +811,27 @@ export class AgentManager {
 			}
 			if (options.personaOverride) childConfig.persona = options.personaOverride
 
-			// The parent's storage choice, stamped after the builder for the
+			// Where the child session lives, stamped after the builder for the
 			// same reason as everything above: a `configBuilder` cannot forward
-			// a field it was never told about. Without it a child of a run held
-			// in memory had no run store and no path builder, so it built disk
-			// stores under `defaultStateRoot()` and left its evidence, its
-			// checkpoints and their history there — a tree its parent never
-			// asked for, with nothing that removes it.
+			// a field it was never told about.
 			//
-			// A fresh run store per child, never the parent's: an
-			// `InMemoryRunStore` is bound to one run, and rebinding the
-			// parent's would drop the parent's evidence. A child config that
-			// names a run store or a path builder of its own chose where it
-			// goes, and keeps it.
-			const inherited = context.childStorage
-			if (
-				inherited?.kind === 'memory' &&
-				childConfig.runStore === undefined &&
-				childConfig.pathBuilder === undefined
-			) {
-				childConfig.runStore = new InMemoryRunStore()
-				if (inherited.checkpointStore && childConfig.checkpointStore === undefined) {
-					childConfig.checkpointStore = inherited.checkpointStore
-				}
+			// A parent held in memory gives its child a fresh in-memory log (a
+			// log is one session's, never shared), and its checkpoint store
+			// when it named one, so the child writes nothing under
+			// `NAMZU_HOME`. Otherwise, with a layout known, the child's log goes
+			// under its parent (`<parent>/subagents/<child-id>.jsonl`) with its
+			// meta document beside it. A child config that names a session log
+			// or paths of its own chose where it goes, and keeps it.
+			const childLog = await this.placeChildSession(
+				spawnRecord,
+				childConfig,
+				context,
+				options,
+				taskId,
+			)
+			if (childLog) {
+				childConfig.sessionLog = childLog
+				spawnRecord.releaseLog = registerChildSessionLog(childLog)
 			}
 
 			// Outside the branch, like the scope above it and for the same reason:
@@ -805,6 +863,12 @@ export class AgentManager {
 					} catch (writeError) {
 						failure = writeError
 					}
+					// The child's turn is over either way; its parent hears so first.
+					await this.settleChildSession(
+						runningTask,
+						spawnRecord,
+						runningTask.state === 'canceled' ? 'cancelled' : 'failed',
+					)
 					// Cancellation may already have published a terminal handle. Its
 					// invocation has only NOW stopped; release the persisted edge here.
 					if (!this.instances.has(taskId) || isTerminalAgentTaskState(runningTask.state)) {
@@ -813,7 +877,7 @@ export class AgentManager {
 				})
 				.finally(() => {
 					this.executingTasks.delete(taskId)
-					if (!this.instances.has(taskId)) this.spawnRecords.delete(taskId)
+					if (!this.instances.has(taskId)) this.dropSpawnRecord(taskId)
 					this.pumpAdmissions(options.parentSessionId)
 				})
 				.catch((error) =>
@@ -854,9 +918,10 @@ export class AgentManager {
 			const error = toErrorMessage(reason)
 			this.emit({ type: 'failed', taskId: agentTask.taskId, error })
 			try {
-				await agentTask.runEventListener?.({
+				await agentTask.sessionEventListener?.({
 					type: 'agent_failed',
-					runId: agentTask.context.parentRunId,
+					sessionId: agentTask.context.parentSessionId,
+					turnId: agentTask.context.parentTurnId,
 					taskId: agentTask.taskId,
 					error,
 				})
@@ -870,7 +935,8 @@ export class AgentManager {
 		this.clearEvictionTimer(agentTask.taskId)
 		if (retainHandle) {
 			agentTask.result ??= {
-				runId: agentTask.context.parentRunId,
+				sessionId: agentTask.context.parentSessionId,
+				turnId: agentTask.context.parentTurnId,
 				status: 'failed',
 				usage: { ...EMPTY_TOKEN_USAGE },
 				cost: { ...ZERO_COST },
@@ -882,12 +948,23 @@ export class AgentManager {
 			agentTask.completedAt = Date.now()
 			this.scheduleEviction(agentTask.taskId)
 		} else this.instances.delete(agentTask.taskId)
-		this.spawnRecords.delete(agentTask.taskId)
+		this.dropSpawnRecord(agentTask.taskId)
 		this.resolveCompletionCallbacks(agentTask.taskId)
 		await this.rollbackSpawnResources(spawnRecord)
 	}
 
 	private async rollbackSpawnResources(spawnRecord: ChildSpawnRecord): Promise<void> {
+		spawnRecord.releaseLog?.()
+		// A child that never started leaves no meta document naming it: the
+		// session it describes is being deleted below.
+		if (spawnRecord.placement) {
+			await rm(spawnRecord.placement.metaPath, { force: true }).catch((err) =>
+				this.log.warn('Unstarted child meta removal failed', {
+					'namzu.store.path': spawnRecord.placement?.metaPath,
+					'exception.message': toErrorMessage(err),
+				}),
+			)
+		}
 		await this.disposeChildWorkspace(spawnRecord)
 		try {
 			// The edge must be removed before its child: stores reject deletion
@@ -902,6 +979,89 @@ export class AgentManager {
 		}
 	}
 
+	/** Forget a spawn record, and take its child's log out of the process-local lookup. */
+	private dropSpawnRecord(taskId: TaskId): void {
+		this.spawnRecords.get(taskId)?.releaseLog?.()
+		this.spawnRecords.delete(taskId)
+	}
+
+	/** The parent session's place in the tree: its ancestors, root first. */
+	private parentLocator(spawnRecord: ChildSpawnRecord): SessionLocator {
+		return {
+			sessionId: spawnRecord.parentSessionId,
+			ancestors: spawnRecord.ancestry.slice(0, -1),
+		}
+	}
+
+	/** The meta document for a placed child, as it stands at spawn. */
+	private childMeta(spawnRecord: ChildSpawnRecord): ChildSessionMeta {
+		const placement = spawnRecord.placement
+		if (!placement) throw new Error('A child session placed by no layout has no meta document')
+		return {
+			v: 1,
+			kind: 'child-session',
+			sessionId: spawnRecord.childSessionId,
+			parentSessionId: spawnRecord.parentSessionId,
+			parentTurnId: spawnRecord.parentTurnId,
+			rootSessionId: spawnRecord.rootSessionId,
+			depth: spawnRecord.childDepth,
+			toolCallId: placement.toolCallId,
+			agentType: placement.agentType,
+			description: placement.description,
+			status: 'running',
+			createdAt: placement.createdAt,
+		}
+	}
+
+	/**
+	 * Decide where a child session's log lives, and write its meta document
+	 * when this manager places it.
+	 *
+	 * - A config that names a `sessionLog` keeps it; one that names `paths`
+	 *   gets its log in that layout, under its parent.
+	 * - A parent held in memory gives a fresh `InMemorySessionLog`, plus its
+	 *   checkpoint store when it named one.
+	 * - Otherwise, with {@link AgentManagerDeps.paths} known, the log goes to
+	 *   `<parent-session-dir>/subagents/<child-id>.jsonl`, nested under every
+	 *   ancestor, with `<child-id>.meta.json` beside it.
+	 *
+	 * Returns the log the child should append to, or `undefined` to leave
+	 * the child's config as it is.
+	 */
+	private async placeChildSession(
+		spawnRecord: ChildSpawnRecord,
+		childConfig: BaseAgentConfig,
+		context: AgentTaskContext,
+		options: SendMessageOptions,
+		taskId: TaskId,
+	): Promise<SessionLog | undefined> {
+		if (childConfig.sessionLog !== undefined) return undefined
+		const inherited = context.childStorage
+		if (inherited?.kind === 'memory' && childConfig.paths === undefined) {
+			if (inherited.checkpointStore && childConfig.checkpointStore === undefined) {
+				childConfig.checkpointStore = inherited.checkpointStore
+			}
+			return new InMemorySessionLog({ sessionId: spawnRecord.childSessionId })
+		}
+		const paths = childConfig.paths ?? this.deps.paths
+		if (!paths) return undefined
+		childConfig.paths = paths
+		const parent = this.parentLocator(spawnRecord)
+		spawnRecord.placement = {
+			paths,
+			metaPath: paths.subagentMeta(parent, spawnRecord.childSessionId),
+			createdAt: new Date().toISOString(),
+			toolCallId: spawnToolCallId(taskId),
+			agentType: options.agentId,
+			description: describeSpawn(options),
+		}
+		await writeChildSessionMeta(spawnRecord.placement.metaPath, this.childMeta(spawnRecord))
+		return DiskSessionLog.at(paths, {
+			sessionId: spawnRecord.childSessionId,
+			ancestors: spawnRecord.ancestry,
+		})
+	}
+
 	cancel(taskId: TaskId, cause?: CancelCause): void {
 		if (this.cancelingTasks.has(taskId)) return
 		const agentTask = this.instances.get(taskId)
@@ -914,18 +1074,18 @@ export class AgentManager {
 		// must not reenter this method and replace an explicit user's cause.
 		this.cancelingTasks.add(taskId)
 		try {
-			agentTask.childAbortController.abort(cause ? new RunCancelled(cause) : undefined)
+			agentTask.childAbortController.abort(cause ? new TurnCancelled(cause) : undefined)
 			this.markCanceled(taskId, cause)
 		} finally {
 			this.cancelingTasks.delete(taskId)
 		}
 	}
 
-	cancelAll(parentRunId: RunId, cause: CancelCause = 'parent'): void {
+	cancelAll(parentSessionId: SessionId, cause: CancelCause = 'parent'): void {
 		// `'parent'` by default, because this call site IS a parent
 		// abandoning its children. `AbstractAgent.cancel` takes no default
 		// for the opposite reason: its caller could be anyone.
-		for (const agentTask of this.listByParent(parentRunId)) {
+		for (const agentTask of this.listByParent(parentSessionId)) {
 			this.cancel(agentTask.taskId, cause)
 		}
 	}
@@ -987,8 +1147,10 @@ export class AgentManager {
 		return this.spawnRecords.get(taskId)
 	}
 
-	listByParent(parentRunId: RunId): AgentTask[] {
-		return Array.from(this.instances.values()).filter((t) => t.context.parentRunId === parentRunId)
+	listByParent(parentSessionId: SessionId): AgentTask[] {
+		return Array.from(this.instances.values()).filter(
+			(t) => t.context.parentSessionId === parentSessionId,
+		)
 	}
 
 	listActive(): AgentTask[] {
@@ -1017,7 +1179,7 @@ export class AgentManager {
 			if (isTerminalAgentTaskState(agentTask.state)) {
 				this.clearEvictionTimer(taskId)
 				this.instances.delete(taskId)
-				if (!this.executingTasks.has(taskId)) this.spawnRecords.delete(taskId)
+				if (!this.executingTasks.has(taskId)) this.dropSpawnRecord(taskId)
 			}
 		}
 	}
@@ -1033,7 +1195,8 @@ export class AgentManager {
 			this.clearEvictionTimer(taskId)
 		}
 		// Every live child, not the children of one parent. This used to call
-		// `cancelAll('' as RunId)`, and `cancelAll` filters by parent run —
+		// `cancelAll` with an invented empty parent id, and `cancelAll` filters
+		// by parent —
 		// no task has an empty parent, so it matched nothing and the lines
 		// below then dropped every reference to work that was still running.
 		for (const taskId of [...this.instances.keys()]) {
@@ -1041,7 +1204,7 @@ export class AgentManager {
 		}
 		this.instances.clear()
 		for (const taskId of this.spawnRecords.keys())
-			if (!this.executingTasks.has(taskId)) this.spawnRecords.delete(taskId)
+			if (!this.executingTasks.has(taskId)) this.dropSpawnRecord(taskId)
 		this.listeners.length = 0
 	}
 
@@ -1272,7 +1435,9 @@ export class AgentManager {
 			childSessionId: childSession.id,
 			tenantId: context.tenantId,
 			parentSessionId: options.parentSessionId,
+			parentTurnId: context.parentTurnId,
 			rootSessionId,
+			ancestry: parentAncestry,
 			childDepth,
 			workspaceRef,
 		}
@@ -1282,7 +1447,7 @@ export class AgentManager {
 		agentTask: AgentTask,
 		options: SendMessageOptions,
 		childConfig: BaseAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<void> {
 		this.updateState(agentTask.taskId, 'running')
 		this.emit({ type: 'running', taskId: agentTask.taskId })
@@ -1296,22 +1461,24 @@ export class AgentManager {
 		const childListener = this.wrapChildListener(listener, spawnRecord)
 
 		const result = await agentTask.agent.run(input, childConfig, childListener)
-		agentTask.context.budget.bindRun(result.runId)
+		agentTask.context.budget.bindTurn(result.sessionId, result.turnId)
 		agentTask.context.budget.settle(result.usage?.totalTokens)
 		await agentTask.context.budget.flush()
 		await this.finalizeChild(agentTask, result)
 	}
 
 	/**
-	 * Wraps the parent listener so every event emitted from the child's run
-	 * carries the session-hierarchy `lineage` + `schemaVersion: 2` stamp.
-	 * Replaces the old `Object.assign({sourceAgentId, parentTaskId}, event)`
-	 * loose-cast pattern entirely — the types now encode the linkage.
+	 * Wraps the parent listener so every event relayed from the child session
+	 * carries its `lineage`. The child's own `seq` is dropped: it is a
+	 * position in the CHILD's log, and a parent listener keeping a reconnect
+	 * cursor per session must not read it as one in the parent's. Replaces the
+	 * old `Object.assign({sourceAgentId, parentTaskId}, event)` loose-cast
+	 * pattern entirely — the types now encode the linkage.
 	 */
 	private wrapChildListener(
-		listener: RunEventListener | undefined,
+		listener: SessionEventListener | undefined,
 		spawnRecord: ChildSpawnRecord | undefined,
-	): RunEventListener | undefined {
+	): SessionEventListener | undefined {
 		if (!listener) return undefined
 		if (!spawnRecord) return listener
 
@@ -1321,13 +1488,9 @@ export class AgentManager {
 			depth: spawnRecord.childDepth,
 		}
 
-		return async (event: RunEvent): Promise<void> => {
-			const stamped: RunEvent = {
-				...(event as RunEvent),
-				lineage,
-				schemaVersion: RUN_EVENT_SCHEMA_VERSION,
-			} as RunEvent
-			await listener(stamped)
+		return async (event: SessionEvent): Promise<void> => {
+			const { seq: _childSeq, ...relayed } = event
+			await listener({ ...relayed, lineage } as SessionEvent)
 		}
 	}
 
@@ -1387,7 +1550,7 @@ export class AgentManager {
 				//
 				// It runs after the summary is sealed and the sub-session flipped
 				// to `idle`, so nothing the terminalization path reads is gone
-				// before it reads it. It also runs BEFORE the `subsession_idled`
+				// before it reads it. It also runs BEFORE the `child_session_idled`
 				// emission below: a listener cannot reach into the workspace from
 				// that event. Stated rather than hedged — no consumer does today,
 				// and holding a worktree open for a hypothetical one is what this
@@ -1401,34 +1564,67 @@ export class AgentManager {
 			}
 		}
 
-		// Emit subsession_idled event on success before marking the task
-		// completed — consumers expect the ordering `run_completed (child) →
-		// subsession_idled → run_completed (parent)` per §10.5.
-		if (spawnRecord && agentTask.runEventListener && result.status === 'completed') {
-			const lineage: Lineage = {
-				parentSessionId: spawnRecord.parentSessionId,
-				rootSessionId: spawnRecord.rootSessionId,
-				depth: spawnRecord.childDepth,
-			}
+		if (spawnRecord) await this.settleChildSession(agentTask, spawnRecord, result.status)
+
+		this.markCompleted(agentTask.taskId, result)
+	}
+
+	/**
+	 * The child's turn is over: its meta document records how, and the
+	 * parent hears `child_session_idled`, before the task is marked settled —
+	 * consumers expect `turn_completed (child) → child_session_idled →
+	 * turn_completed (parent)`.
+	 *
+	 * Idled on every outcome, not only success: the event says the child's
+	 * turn ended and nothing is queued, which a failure is too. It is the
+	 * parent writer's cue to append `child_session_ended`, read from the
+	 * child's own terminal record (`childSessionEnded`).
+	 */
+	private async settleChildSession(
+		agentTask: AgentTask,
+		spawnRecord: ChildSpawnRecord,
+		status: TurnExecutionStatus,
+	): Promise<void> {
+		if (spawnRecord.placement) {
 			try {
-				await agentTask.runEventListener({
-					type: 'subsession_idled',
-					runId: agentTask.context.parentRunId,
-					subSessionId: spawnRecord.subSessionId,
-					parentSessionId: spawnRecord.parentSessionId,
-					lineage,
-					schemaVersion: RUN_EVENT_SCHEMA_VERSION,
-					at: new Date(),
-				})
+				await writeChildSessionMeta(
+					spawnRecord.placement.paths.subagentMeta(
+						this.parentLocator(spawnRecord),
+						spawnRecord.childSessionId,
+					),
+					{
+						...this.childMeta(spawnRecord),
+						status,
+						endedAt: new Date().toISOString(),
+					},
+				)
 			} catch (err) {
-				this.log.error('subsession_idled emission error', {
+				this.log.warn('Child session meta update failed', {
 					'namzu.task.id': agentTask.taskId,
 					'exception.message': toErrorMessage(err),
 				})
 			}
 		}
-
-		this.markCompleted(agentTask.taskId, result)
+		const listener = agentTask.sessionEventListener
+		if (!listener) return
+		try {
+			await listener({
+				type: 'child_session_idled',
+				sessionId: spawnRecord.parentSessionId,
+				turnId: spawnRecord.parentTurnId,
+				childSessionId: spawnRecord.childSessionId,
+				lineage: {
+					parentSessionId: spawnRecord.parentSessionId,
+					rootSessionId: spawnRecord.rootSessionId,
+					depth: spawnRecord.childDepth,
+				},
+			})
+		} catch (err) {
+			this.log.error('child_session_idled emission error', {
+				'namzu.task.id': agentTask.taskId,
+				'exception.message': toErrorMessage(err),
+			})
+		}
 	}
 
 	private markCompleted(taskId: TaskId, result: BaseAgentResult): void {
@@ -1439,9 +1635,10 @@ export class AgentManager {
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'completed')
 		this.emit({ type: 'completed', taskId, result })
-		this.emitRunEvent(agentTask, {
+		this.emitSessionEvent(agentTask, {
 			type: 'agent_completed',
-			runId: agentTask.context.parentRunId,
+			sessionId: agentTask.context.parentSessionId,
+			turnId: agentTask.context.parentTurnId,
 			taskId,
 			result,
 		})
@@ -1454,8 +1651,12 @@ export class AgentManager {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
+		// The child's own turn when its budget was bound to one; the parent
+		// turn that asked for it otherwise.
+		const bound = agentTask.context.budget.turn
 		agentTask.result = {
-			runId: agentTask.context.budget.runId ?? agentTask.context.parentRunId,
+			sessionId: bound?.sessionId ?? agentTask.context.parentSessionId,
+			turnId: bound?.turnId ?? agentTask.context.parentTurnId,
 			status: 'failed',
 			usage: agentTask.context.budget.ownUsage,
 			budget: agentTask.context.budget.summary(),
@@ -1468,9 +1669,10 @@ export class AgentManager {
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'failed')
 		this.emit({ type: 'failed', taskId, error })
-		this.emitRunEvent(agentTask, {
+		this.emitSessionEvent(agentTask, {
 			type: 'agent_failed',
-			runId: agentTask.context.parentRunId,
+			sessionId: agentTask.context.parentSessionId,
+			turnId: agentTask.context.parentTurnId,
 			taskId,
 			error,
 		})
@@ -1549,9 +1751,10 @@ export class AgentManager {
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'canceled')
 		this.emit({ type: 'canceled', taskId })
-		this.emitRunEvent(agentTask, {
+		this.emitSessionEvent(agentTask, {
 			type: 'agent_canceled',
-			runId: agentTask.context.parentRunId,
+			sessionId: agentTask.context.parentSessionId,
+			turnId: agentTask.context.parentTurnId,
 			taskId,
 			...(cause ? { cancelCause: cause } : {}),
 		})
@@ -1584,7 +1787,7 @@ export class AgentManager {
 
 		const timer = setTimeout(() => {
 			this.instances.delete(taskId)
-			if (!this.executingTasks.has(taskId)) this.spawnRecords.delete(taskId)
+			if (!this.executingTasks.has(taskId)) this.dropSpawnRecord(taskId)
 			this.evictionTimers.delete(taskId)
 			this.log.info('Agent task evicted', { 'namzu.agent.task_id': taskId })
 		}, this.config.evictionMs)
@@ -1621,10 +1824,11 @@ export class AgentManager {
 		}
 	}
 
-	private emitRunEvent(agentTask: AgentTask, event: RunEvent): void {
-		if (!agentTask.runEventListener) return
+	private emitSessionEvent(agentTask: AgentTask, event: SessionEvent): void {
+		const listener = agentTask.sessionEventListener
+		if (!listener) return
 		const reportFailure = (error: unknown): void => {
-			this.log.error('RunEvent emission error', {
+			this.log.error('SessionEvent emission error', {
 				'namzu.event.type': event.type,
 				'exception.message': toErrorMessage(error),
 			})
@@ -1632,11 +1836,46 @@ export class AgentManager {
 		try {
 			// Terminal observation must not delay completion or leak a rejected
 			// listener promise into the host as an unhandled rejection.
-			void Promise.resolve(agentTask.runEventListener(event)).catch(reportFailure)
+			void Promise.resolve(listener(event)).catch(reportFailure)
 		} catch (error) {
 			reportFailure(error)
 		}
 	}
+}
+
+/**
+ * The id `child_session_spawned` and the meta document name as the call that
+ * spawned the child.
+ *
+ * The provider's tool-call id does not reach this manager: neither
+ * `CreateTaskOptions` nor `SendMessageOptions` carries it. Until it does, the
+ * spawn's task id stands in, which is unique per spawn and is the id every
+ * `agent_*` event for this child already carries.
+ */
+function spawnToolCallId(taskId: TaskId): ToolUseId {
+	return taskId as string as ToolUseId
+}
+
+/** Longest spawn description kept on the record. */
+const SPAWN_DESCRIPTION_MAX_CHARS = 200
+
+/**
+ * One line saying what the child was asked to do: the first line of the last
+ * user message it was handed, or its agent id when there is none.
+ */
+function describeSpawn(options: SendMessageOptions): string {
+	for (let i = options.input.messages.length - 1; i >= 0; i--) {
+		const message = options.input.messages[i]
+		if (message?.role !== 'user' || typeof message.content !== 'string') continue
+		const line = message.content.trim().split('\n', 1)[0]?.trim() ?? ''
+		if (line.length > 0) return line.slice(0, SPAWN_DESCRIPTION_MAX_CHARS)
+	}
+	return options.agentId
+}
+
+/** The child's log, relative to the parent's session directory. */
+function childLogPath(childSessionId: SessionId): string {
+	return `subagents/${childSessionId}.jsonl`
 }
 
 /**

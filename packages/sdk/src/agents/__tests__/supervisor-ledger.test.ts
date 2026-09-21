@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentTaskResult, BaseAgentResult } from '../../types/agent/index.js'
 import type { TaskHandle } from '../../types/agent/scheduler.js'
-import type { RunId, TaskId } from '../../types/ids/index.js'
+import type { SessionId, TaskId, TurnId } from '../../types/ids/index.js'
 import { countCompletedTasks, synthesizeTaskResults } from '../SupervisorAgent.js'
 
-const RUN_ID = 'run-supervisor' as RunId
+const SUPERVISOR = {
+	sessionId: 'session-supervisor' as SessionId,
+	turnId: 'turn-supervisor' as TurnId,
+}
 const NOW = 1_000_000
 
 function at(results: AgentTaskResult[], index: number): AgentTaskResult {
@@ -26,7 +29,8 @@ function handle(overrides: Partial<TaskHandle> & Pick<TaskHandle, 'state'>): Tas
 
 function completedResult(): BaseAgentResult {
 	return {
-		runId: 'run-worker' as RunId,
+		sessionId: 'session-worker' as SessionId,
+		turnId: 'turn-worker' as TurnId,
 		status: 'completed',
 		usage: {
 			promptTokens: 10,
@@ -58,21 +62,21 @@ describe('supervisor ledger truthfulness', () => {
 			// empty outputs (observed in a live supervised run).
 			const results = synthesizeTaskResults(
 				[handle({ state: 'completed', result: undefined })],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
 			expect(results).toHaveLength(1)
 			expect(at(results, 0).result.status).toBe('failed')
 			expect(at(results, 0).result.status).not.toBe('completed')
-			expect(at(results, 0).result.runId).toBe(RUN_ID)
+			expect(at(results, 0).result).toMatchObject(SUPERVISOR)
 			expect(at(results, 0).result.durationMs).toBe(NOW - (NOW - 5_000))
 		})
 
 		it('synthesizes a FAILED result for a genuinely failed handle', () => {
 			const results = synthesizeTaskResults(
 				[handle({ state: 'failed', result: undefined })],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
@@ -82,7 +86,7 @@ describe('supervisor ledger truthfulness', () => {
 		it('synthesizes a FAILED result for a canceled handle with no result', () => {
 			const results = synthesizeTaskResults(
 				[handle({ state: 'canceled', result: undefined })],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
@@ -93,7 +97,7 @@ describe('supervisor ledger truthfulness', () => {
 			const real = completedResult()
 			const results = synthesizeTaskResults(
 				[handle({ state: 'completed', result: real })],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
@@ -106,7 +110,7 @@ describe('supervisor ledger truthfulness', () => {
 			const failed: BaseAgentResult = { ...completedResult(), status: 'failed' }
 			const results = synthesizeTaskResults(
 				[handle({ state: 'failed', result: failed })],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
@@ -132,7 +136,7 @@ describe('supervisor ledger truthfulness', () => {
 						result: completedResult(),
 					}),
 				],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
@@ -158,7 +162,7 @@ describe('supervisor ledger truthfulness', () => {
 						result: completedResult(),
 					}),
 				],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
@@ -176,7 +180,7 @@ describe('supervisor ledger truthfulness', () => {
 					}),
 					handle({ taskId: 'task-b' as TaskId, agentId: 'b', state: 'running', result: undefined }),
 				],
-				RUN_ID,
+				SUPERVISOR,
 				NOW,
 			)
 
