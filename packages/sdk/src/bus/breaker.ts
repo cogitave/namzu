@@ -2,18 +2,19 @@ import {
 	DEFAULT_BREAKER_FAILURE_THRESHOLD,
 	DEFAULT_BREAKER_RESET_TIMEOUT_MS,
 } from '../constants/bus/index.js'
+import { NAMZU } from '../constants/telemetry/index.js'
 import type {
 	AgentBusEvent,
 	CircuitBreakerSnapshot,
 	CircuitBreakerState,
 } from '../types/bus/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId } from '../types/ids/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 
 interface MutableBreakerState {
 	state: CircuitBreakerState
-	agentRunId: RunId
+	agentSessionId: SessionId
 	consecutiveFailures: number
 	lastFailureAt?: number
 	lastSuccessAt?: number
@@ -39,8 +40,8 @@ export class CircuitBreaker {
 		this.emit = emit
 	}
 
-	canExecute(agentRunId: RunId): boolean {
-		const breaker = this.breakers.get(agentRunId)
+	canExecute(agentSessionId: SessionId): boolean {
+		const breaker = this.breakers.get(agentSessionId)
 		if (!breaker) return true
 
 		switch (breaker.state) {
@@ -51,10 +52,10 @@ export class CircuitBreaker {
 				if (elapsed >= this.resetTimeoutMs) {
 					breaker.state = 'half_open'
 					this.log.info('circuit breaker transitioning to half_open', {
-						'namzu.agent.run_id': agentRunId,
+						[NAMZU.SESSION_ID]: agentSessionId,
 						'namzu.bus.elapsed': elapsed,
 					})
-					this.emit({ type: 'breaker_half_open', agentRunId })
+					this.emit({ type: 'breaker_half_open', agentSessionId })
 					return true
 				}
 				return false
@@ -68,8 +69,8 @@ export class CircuitBreaker {
 		}
 	}
 
-	recordSuccess(agentRunId: RunId): void {
-		const breaker = this.breakers.get(agentRunId)
+	recordSuccess(agentSessionId: SessionId): void {
+		const breaker = this.breakers.get(agentSessionId)
 		if (!breaker) return
 
 		const previousState = breaker.state
@@ -83,14 +84,14 @@ export class CircuitBreaker {
 				breaker.state = 'closed'
 				breaker.trippedAt = undefined
 				this.log.info('circuit breaker reset after probe success', {
-					'namzu.agent.run_id': agentRunId,
+					[NAMZU.SESSION_ID]: agentSessionId,
 				})
-				this.emit({ type: 'breaker_probe_success', agentRunId })
-				this.emit({ type: 'breaker_reset', agentRunId })
+				this.emit({ type: 'breaker_probe_success', agentSessionId })
+				this.emit({ type: 'breaker_reset', agentSessionId })
 				break
 			case 'open':
 				this.log.warn('recordSuccess called while breaker is open', {
-					'namzu.agent.run_id': agentRunId,
+					[NAMZU.SESSION_ID]: agentSessionId,
 					'namzu.bus.previous_state': previousState,
 				})
 				break
@@ -101,15 +102,15 @@ export class CircuitBreaker {
 		}
 	}
 
-	recordFailure(agentRunId: RunId): void {
-		let breaker = this.breakers.get(agentRunId)
+	recordFailure(agentSessionId: SessionId): void {
+		let breaker = this.breakers.get(agentSessionId)
 		if (!breaker) {
 			breaker = {
 				state: 'closed',
-				agentRunId,
+				agentSessionId,
 				consecutiveFailures: 0,
 			}
-			this.breakers.set(agentRunId, breaker)
+			this.breakers.set(agentSessionId, breaker)
 		}
 
 		breaker.consecutiveFailures += 1
@@ -121,12 +122,12 @@ export class CircuitBreaker {
 					breaker.state = 'open'
 					breaker.trippedAt = Date.now()
 					this.log.warn('circuit breaker tripped', {
-						'namzu.agent.run_id': agentRunId,
+						[NAMZU.SESSION_ID]: agentSessionId,
 						'namzu.bus.consecutive_failures': breaker.consecutiveFailures,
 					})
 					this.emit({
 						type: 'breaker_tripped',
-						agentRunId,
+						agentSessionId,
 						consecutiveFailures: breaker.consecutiveFailures,
 					})
 				}
@@ -135,12 +136,12 @@ export class CircuitBreaker {
 				breaker.state = 'open'
 				breaker.trippedAt = Date.now()
 				this.log.warn('circuit breaker re-tripped from half_open', {
-					'namzu.agent.run_id': agentRunId,
+					[NAMZU.SESSION_ID]: agentSessionId,
 				})
-				this.emit({ type: 'breaker_probe_failure', agentRunId })
+				this.emit({ type: 'breaker_probe_failure', agentSessionId })
 				this.emit({
 					type: 'breaker_tripped',
-					agentRunId,
+					agentSessionId,
 					consecutiveFailures: breaker.consecutiveFailures,
 				})
 				break
@@ -153,13 +154,13 @@ export class CircuitBreaker {
 		}
 	}
 
-	getSnapshot(agentRunId: RunId): CircuitBreakerSnapshot | undefined {
-		const breaker = this.breakers.get(agentRunId)
+	getSnapshot(agentSessionId: SessionId): CircuitBreakerSnapshot | undefined {
+		const breaker = this.breakers.get(agentSessionId)
 		if (!breaker) return undefined
 
 		return {
 			state: breaker.state,
-			agentRunId: breaker.agentRunId,
+			agentSessionId: breaker.agentSessionId,
 			consecutiveFailures: breaker.consecutiveFailures,
 			lastFailureAt: breaker.lastFailureAt,
 			lastSuccessAt: breaker.lastSuccessAt,
@@ -167,15 +168,15 @@ export class CircuitBreaker {
 		}
 	}
 
-	reset(agentRunId: RunId): void {
-		const breaker = this.breakers.get(agentRunId)
+	reset(agentSessionId: SessionId): void {
+		const breaker = this.breakers.get(agentSessionId)
 		if (!breaker) return
 
 		breaker.state = 'closed'
 		breaker.consecutiveFailures = 0
 		breaker.trippedAt = undefined
-		this.log.info('circuit breaker manually reset', { 'namzu.agent.run_id': agentRunId })
-		this.emit({ type: 'breaker_reset', agentRunId })
+		this.log.info('circuit breaker manually reset', { [NAMZU.SESSION_ID]: agentSessionId })
+		this.emit({ type: 'breaker_reset', agentSessionId })
 	}
 
 	listTripped(): CircuitBreakerSnapshot[] {
@@ -184,7 +185,7 @@ export class CircuitBreaker {
 			if (breaker.state === 'open' || breaker.state === 'half_open') {
 				tripped.push({
 					state: breaker.state,
-					agentRunId: breaker.agentRunId,
+					agentSessionId: breaker.agentSessionId,
 					consecutiveFailures: breaker.consecutiveFailures,
 					lastFailureAt: breaker.lastFailureAt,
 					lastSuccessAt: breaker.lastSuccessAt,

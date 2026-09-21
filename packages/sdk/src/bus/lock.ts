@@ -8,7 +8,7 @@ import {
 	LOCK_ACQUIRE_POLL_INTERVAL_MS,
 } from '../constants/bus/index.js'
 import type { AgentBusEvent, FileLock, LockAcquireResult, LockId } from '../types/bus/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId } from '../types/ids/index.js'
 import { asLockId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
 
@@ -45,7 +45,7 @@ export class FileLockManager {
 		return asLockId(randomUUID())
 	}
 
-	private getAgentLockSet(owner: RunId): Set<string> {
+	private getAgentLockSet(owner: SessionId): Set<string> {
 		let lockSet = this.agentLocks.get(owner)
 		if (!lockSet) {
 			lockSet = new Set()
@@ -54,7 +54,7 @@ export class FileLockManager {
 		return lockSet
 	}
 
-	private tryAcquire(filePath: string, owner: RunId): LockAcquireResult {
+	private tryAcquire(filePath: string, owner: SessionId): LockAcquireResult {
 		const existing = this.locks.get(filePath)
 		if (existing) {
 			if (existing.owner === owner) {
@@ -106,7 +106,7 @@ export class FileLockManager {
 		return { acquired: true, lock }
 	}
 
-	async acquire(filePath: string, owner: RunId): Promise<LockAcquireResult> {
+	async acquire(filePath: string, owner: SessionId): Promise<LockAcquireResult> {
 		this.expireStale()
 
 		const immediate = this.tryAcquire(filePath, owner)
@@ -131,7 +131,7 @@ export class FileLockManager {
 		}
 	}
 
-	release(filePath: string, owner: RunId): boolean {
+	release(filePath: string, owner: SessionId): boolean {
 		const existing = this.locks.get(filePath)
 		if (!existing || existing.owner !== owner) {
 			return false
@@ -158,7 +158,7 @@ export class FileLockManager {
 		return true
 	}
 
-	releaseAll(owner: RunId): number {
+	releaseAll(owner: SessionId): number {
 		const agentLockSet = this.agentLocks.get(owner)
 		if (!agentLockSet) return 0
 
@@ -196,7 +196,7 @@ export class FileLockManager {
 		return true
 	}
 
-	getHolder(filePath: string): RunId | undefined {
+	getHolder(filePath: string): SessionId | undefined {
 		const lock = this.locks.get(filePath)
 		if (!lock) return undefined
 		if (lock.expiresAt !== undefined && Date.now() > lock.expiresAt) {

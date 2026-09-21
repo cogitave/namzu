@@ -3,7 +3,7 @@ import { probe as defaultProbeRegistry } from '../probe/registry.js'
 import type { ProbeObservation } from '../probe/registry.js'
 import type { ProviderCallId, ProviderCallUsage } from '../types/bus/index.js'
 import type { TokenUsage } from '../types/common/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId, TurnId } from '../types/ids/index.js'
 import type { ChatCompletionParams } from '../types/provider/chat.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { StreamChunk } from '../types/provider/stream.js'
@@ -11,7 +11,10 @@ import type { StreamChunk } from '../types/provider/stream.js'
 export interface ProviderInstrumentationOptions {
 	/** Observation only — a provider wrapper records, it never refuses. */
 	readonly probes?: ProbeObservation
-	readonly runId?: RunId
+	/** The session whose calls this wrapper observes. */
+	readonly sessionId?: SessionId
+	/** The turn whose calls this wrapper observes. */
+	readonly turnId?: TurnId
 }
 
 let providerCallCounter = 0
@@ -37,7 +40,11 @@ export function wrapProviderWithProbes(
 	opts: ProviderInstrumentationOptions = {},
 ): LLMProvider {
 	const probes = opts.probes ?? defaultProbeRegistry
-	const runId = opts.runId
+	const { sessionId, turnId } = opts
+	const scope = {
+		...(sessionId !== undefined ? { sessionId } : {}),
+		...(turnId !== undefined ? { turnId } : {}),
+	}
 
 	const wrapped: LLMProvider = {
 		id: provider.id,
@@ -48,7 +55,7 @@ export function wrapProviderWithProbes(
 
 		async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 			const callId = nextCallId()
-			const ctx = buildProbeContext({ runId })
+			const ctx = buildProbeContext(scope)
 			const startedAt = Date.now()
 			probes.dispatch(
 				{
@@ -56,7 +63,7 @@ export function wrapProviderWithProbes(
 					providerId: provider.id,
 					model: params.model,
 					callId,
-					runId,
+					...scope,
 				},
 				ctx,
 			)
@@ -72,7 +79,7 @@ export function wrapProviderWithProbes(
 						providerId: provider.id,
 						model: params.model,
 						callId,
-						runId,
+						...scope,
 						durationMs: Date.now() - startedAt,
 						usage: extractStreamUsage(lastUsage),
 					},
@@ -85,7 +92,7 @@ export function wrapProviderWithProbes(
 						providerId: provider.id,
 						model: params.model,
 						callId,
-						runId,
+						...scope,
 						durationMs: Date.now() - startedAt,
 						error: error instanceof Error ? error.message : String(error),
 					},

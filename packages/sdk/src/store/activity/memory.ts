@@ -6,7 +6,7 @@ import type {
 	ActivityType,
 } from '../../types/activity/index.js'
 import { isTerminalActivityStatus } from '../../types/activity/index.js'
-import type { ActivityId, RunId } from '../../types/ids/index.js'
+import type { ActivityId, TurnId } from '../../types/ids/index.js'
 import { generateActivityId } from '../../utils/id.js'
 
 export interface ActivityEvent {
@@ -24,12 +24,12 @@ export type ActivityEventListener = (event: ActivityEvent) => void
 
 export class ActivityStore {
 	private activities = new Map<ActivityId, Activity>()
-	private runId: RunId
+	private turnId: TurnId
 	private config: ActivityTrackingConfig
 	private listeners: ActivityEventListener[] = []
 
-	constructor(runId: RunId, config: ActivityTrackingConfig) {
-		this.runId = runId
+	constructor(turnId: TurnId, config: ActivityTrackingConfig) {
+		this.turnId = turnId
 		this.config = config
 	}
 
@@ -67,7 +67,7 @@ export class ActivityStore {
 
 		const activity: Activity = {
 			id: generateActivityId(),
-			runId: this.runId,
+			turnId: this.turnId,
 			type: params.type,
 			status: 'pending',
 			description: params.description,

@@ -22,7 +22,7 @@ import { fixtureUuid } from '../test-support/ids.js'
  *     "yourself" sentinel) but the public `acquire()` swallows that and
  *     keeps polling for `acquireTimeoutMs` (there's no short-circuit
  *     for cap-exceeded). When the deadline expires and no lock exists
- *     on the file, the final `holder` is `''` (empty `RunId`) because
+ *     on the file, the final `holder` is `''` (empty `SessionId`) because
  *     the fallback reads `this.locks.get(filePath)?.owner ?? ''`.
  *   - `release(path, owner)` deletes the lock + emits `lock_released`
  *     when the current lock's owner matches; cleans up the per-owner
@@ -38,14 +38,14 @@ import { fixtureUuid } from '../test-support/ids.js'
  *     emit `lock_expired`; returns the count.
  *   - Re-acquiring a path after its lock expires succeeds and assigns
  *     a FRESH `lockId` (the old id is never reused).
- *   - Lock state is per-`RunId`; no tenant dimension (design.md §2.1
+ *   - Lock state is per-`SessionId`; no tenant dimension (design.md §2.1
  *     aspirational).
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentBusEvent } from '../types/bus/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId } from '../types/ids/index.js'
 import type { Logger } from '../utils/logger.js'
 
 import { FileLockManager } from './lock.js'
@@ -55,8 +55,8 @@ function makeLogger(): Logger {
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-function runId(n: number): RunId {
-	return fixtureUuid(`run_${n}`) as RunId
+function sessionId(n: number): SessionId {
+	return fixtureUuid(`session_${n}`) as SessionId
 }
 
 function makeManager(
@@ -86,10 +86,10 @@ describe('FileLockManager', () => {
 		it('acquires an unheld lock immediately + emits lock_acquired', async () => {
 			const { mgr, events } = makeManager()
 			const before = Date.now()
-			const result = await mgr.acquire('/tmp/a.txt', runId(1))
+			const result = await mgr.acquire('/tmp/a.txt', sessionId(1))
 			expect(result.acquired).toBe(true)
 			if (result.acquired) {
-				expect(result.lock.owner).toBe(runId(1))
+				expect(result.lock.owner).toBe(sessionId(1))
 				expect(result.lock.filePath).toBe('/tmp/a.txt')
 				expect(result.lock.lockId).toMatch(
 					/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
@@ -103,9 +103,9 @@ describe('FileLockManager', () => {
 
 		it('is idempotent for the same owner — returns the existing lock, emits nothing', async () => {
 			const { mgr, events } = makeManager()
-			const first = await mgr.acquire('/tmp/a.txt', runId(1))
+			const first = await mgr.acquire('/tmp/a.txt', sessionId(1))
 			events.length = 0
-			const second = await mgr.acquire('/tmp/a.txt', runId(1))
+			const second = await mgr.acquire('/tmp/a.txt', sessionId(1))
 			expect(second.acquired).toBe(true)
 			if (first.acquired && second.acquired) {
 				expect(second.lock.lockId).toBe(first.lock.lockId)
@@ -117,13 +117,13 @@ describe('FileLockManager', () => {
 	describe('acquire (contention)', () => {
 		it('emits lock_denied when another owner holds the lock and no release happens', async () => {
 			const { mgr, events } = makeManager({ acquireTimeoutMs: 120 })
-			await mgr.acquire('/tmp/a.txt', runId(1))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
 			events.length = 0
 
-			const result = await mgr.acquire('/tmp/a.txt', runId(2))
+			const result = await mgr.acquire('/tmp/a.txt', sessionId(2))
 			expect(result.acquired).toBe(false)
 			if (!result.acquired) {
-				expect(result.holder).toBe(runId(1))
+				expect(result.holder).toBe(sessionId(1))
 				expect(result.filePath).toBe('/tmp/a.txt')
 			}
 			expect(events.some((e) => e.type === 'lock_denied')).toBe(true)
@@ -131,30 +131,30 @@ describe('FileLockManager', () => {
 
 		it('succeeds on a retry once the holder releases before the deadline', async () => {
 			const { mgr } = makeManager({ acquireTimeoutMs: 500 })
-			await mgr.acquire('/tmp/a.txt', runId(1))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
 
-			const contender = mgr.acquire('/tmp/a.txt', runId(2))
-			setTimeout(() => mgr.release('/tmp/a.txt', runId(1)), 120)
+			const contender = mgr.acquire('/tmp/a.txt', sessionId(2))
+			setTimeout(() => mgr.release('/tmp/a.txt', sessionId(1)), 120)
 
 			const result = await contender
 			expect(result.acquired).toBe(true)
-			if (result.acquired) expect(result.lock.owner).toBe(runId(2))
+			if (result.acquired) expect(result.lock.owner).toBe(sessionId(2))
 		})
 	})
 
 	describe('maxLocksPerAgent cap', () => {
 		it('denies a new acquisition when the owner is at cap — polls to deadline, then names no holder', async () => {
 			const { mgr } = makeManager({ maxLocksPerAgent: 2, acquireTimeoutMs: 60 })
-			await mgr.acquire('/tmp/a.txt', runId(1))
-			await mgr.acquire('/tmp/b.txt', runId(1))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
+			await mgr.acquire('/tmp/b.txt', sessionId(1))
 
-			const over = await mgr.acquire('/tmp/c.txt', runId(1))
+			const over = await mgr.acquire('/tmp/c.txt', sessionId(1))
 			expect(over.acquired).toBe(false)
 			if (!over.acquired) {
 				// ABSENT, not `''`. Nothing holds /tmp/c.txt — the refusal is the
 				// per-owner cap, not contention — and this used to report an empty
-				// string wearing a `RunId`, which no caller could tell apart from a
-				// real holder. `holder?: RunId` says what is true: there is nobody
+				// string wearing a `SessionId`, which no caller could tell apart from a
+				// real holder. `holder?: SessionId` says what is true: there is nobody
 				// to name. (NZ-SURF-11; the nominal ids will not express `''`.)
 				expect(over.holder).toBeUndefined()
 				expect('holder' in over).toBe(false)
@@ -166,40 +166,40 @@ describe('FileLockManager', () => {
 	describe('release', () => {
 		it('releases an owned lock + emits lock_released', async () => {
 			const { mgr, events } = makeManager()
-			await mgr.acquire('/tmp/a.txt', runId(1))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
 			events.length = 0
 
-			expect(mgr.release('/tmp/a.txt', runId(1))).toBe(true)
+			expect(mgr.release('/tmp/a.txt', sessionId(1))).toBe(true)
 			expect(mgr.isLocked('/tmp/a.txt')).toBe(false)
 			expect(events.some((e) => e.type === 'lock_released')).toBe(true)
 		})
 
 		it('returns false + emits nothing when the caller is not the holder', async () => {
 			const { mgr, events } = makeManager()
-			await mgr.acquire('/tmp/a.txt', runId(1))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
 			events.length = 0
 
-			expect(mgr.release('/tmp/a.txt', runId(2))).toBe(false)
+			expect(mgr.release('/tmp/a.txt', sessionId(2))).toBe(false)
 			expect(mgr.isLocked('/tmp/a.txt')).toBe(true)
 			expect(events).toEqual([])
 		})
 
 		it('returns false when no lock exists', () => {
 			const { mgr, events } = makeManager()
-			expect(mgr.release('/tmp/never.txt', runId(1))).toBe(false)
+			expect(mgr.release('/tmp/never.txt', sessionId(1))).toBe(false)
 			expect(events).toEqual([])
 		})
 	})
 
 	describe('releaseAll', () => {
-		it('drops every lock owned by the runId, emits one event per lock, returns count', async () => {
+		it('drops every lock owned by the sessionId, emits one event per lock, returns count', async () => {
 			const { mgr, events } = makeManager()
-			await mgr.acquire('/tmp/a.txt', runId(1))
-			await mgr.acquire('/tmp/b.txt', runId(1))
-			await mgr.acquire('/tmp/c.txt', runId(2))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
+			await mgr.acquire('/tmp/b.txt', sessionId(1))
+			await mgr.acquire('/tmp/c.txt', sessionId(2))
 			events.length = 0
 
-			const count = mgr.releaseAll(runId(1))
+			const count = mgr.releaseAll(sessionId(1))
 			expect(count).toBe(2)
 			expect(mgr.isLocked('/tmp/a.txt')).toBe(false)
 			expect(mgr.isLocked('/tmp/b.txt')).toBe(false)
@@ -209,7 +209,7 @@ describe('FileLockManager', () => {
 
 		it('returns 0 when the owner has no locks', () => {
 			const { mgr } = makeManager()
-			expect(mgr.releaseAll(runId(99))).toBe(0)
+			expect(mgr.releaseAll(sessionId(99))).toBe(0)
 		})
 	})
 
@@ -217,8 +217,8 @@ describe('FileLockManager', () => {
 		it('expireStale drops expired locks + emits lock_expired per drop', async () => {
 			vi.useFakeTimers()
 			const { mgr, events } = makeManager({ lockTimeoutMs: 10_000 })
-			await mgr.acquire('/tmp/a.txt', runId(1))
-			await mgr.acquire('/tmp/b.txt', runId(2))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
+			await mgr.acquire('/tmp/b.txt', sessionId(2))
 			events.length = 0
 
 			vi.advanceTimersByTime(10_001)
@@ -230,7 +230,7 @@ describe('FileLockManager', () => {
 		it('isLocked / getHolder auto-expire a stale lock before answering', async () => {
 			vi.useFakeTimers()
 			const { mgr, events } = makeManager({ lockTimeoutMs: 5_000 })
-			await mgr.acquire('/tmp/a.txt', runId(1))
+			await mgr.acquire('/tmp/a.txt', sessionId(1))
 
 			vi.advanceTimersByTime(5_001)
 			events.length = 0
@@ -246,28 +246,28 @@ describe('FileLockManager', () => {
 		it('a fresh acquire after expiry assigns a new lockId', async () => {
 			vi.useFakeTimers()
 			const { mgr } = makeManager({ lockTimeoutMs: 1_000 })
-			const first = await mgr.acquire('/tmp/a.txt', runId(1))
+			const first = await mgr.acquire('/tmp/a.txt', sessionId(1))
 			vi.advanceTimersByTime(1_001)
 			mgr.expireStale()
 
 			vi.useRealTimers()
-			const second = await mgr.acquire('/tmp/a.txt', runId(2))
+			const second = await mgr.acquire('/tmp/a.txt', sessionId(2))
 			expect(first.acquired && second.acquired).toBe(true)
 			if (first.acquired && second.acquired) {
 				expect(second.lock.lockId).not.toBe(first.lock.lockId)
-				expect(second.lock.owner).toBe(runId(2))
+				expect(second.lock.owner).toBe(sessionId(2))
 			}
 		})
 	})
 
-	describe('per-runId isolation', () => {
-		it('different runIds can hold locks on different files concurrently', async () => {
+	describe('per-sessionId isolation', () => {
+		it('different sessionIds can hold locks on different files concurrently', async () => {
 			const { mgr } = makeManager()
-			const a = await mgr.acquire('/tmp/a.txt', runId(1))
-			const b = await mgr.acquire('/tmp/b.txt', runId(2))
+			const a = await mgr.acquire('/tmp/a.txt', sessionId(1))
+			const b = await mgr.acquire('/tmp/b.txt', sessionId(2))
 			expect(a.acquired && b.acquired).toBe(true)
-			expect(mgr.getHolder('/tmp/a.txt')).toBe(runId(1))
-			expect(mgr.getHolder('/tmp/b.txt')).toBe(runId(2))
+			expect(mgr.getHolder('/tmp/a.txt')).toBe(sessionId(1))
+			expect(mgr.getHolder('/tmp/b.txt')).toBe(sessionId(2))
 		})
 	})
 })
