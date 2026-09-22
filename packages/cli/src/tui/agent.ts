@@ -217,6 +217,7 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
+import { activeZenCatalogue } from '../integrations/providers/zen-catalogue.js'
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
@@ -3759,6 +3760,9 @@ export function constructProvider(
 						}),
 				baseURL: det?.baseUrl,
 				model,
+				// Read at every lookup, so the launch's background catalogue refresh
+				// reaches this provider whenever it lands, including after now.
+				catalogue: activeZenCatalogue,
 				...(context.sessionId ? { sessionId: context.sessionId } : {}),
 			})
 			return provider

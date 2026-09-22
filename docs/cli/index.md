@@ -33,6 +33,7 @@ The operator application.
 * [namzu drain](drain.md) - One bounded pass that continues parked turns another process left behind, through the session index and each session's lease.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.
+* [The model catalogue refresh](model-catalogue.md) - How every launch refreshes the Zen and Zen Go model catalogue in the background, the last-good copy, what a failure keeps, and the modelCatalogueRefresh key that turns it off.
 
 * [CLI release validation](release-validation.md) - Live terminal acceptance evidence and boundaries for the pending release.
 

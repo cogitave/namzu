@@ -25,8 +25,9 @@ export {
 	ZenGoProvider,
 } from './client.js'
 export type { ZenConfig, ZenGoConfig, ZenProviderConfig, ZenGoProviderConfig } from './types.js'
-export { getZenModels, findZenModel } from './models.js'
+export { ZEN_OMITTED_MODELS, getZenModels, findZenModel } from './models.js'
 export type { ZenModel, ZenProtocol, ZenService } from './models.js'
+export type { ZenCatalogue } from './catalogue/catalogue.js'
 export type {
 	ChatCompletionParams,
 	ModelInfo,

@@ -26,6 +26,10 @@
     "./models": {
       "types": "./dist/models.d.ts",
       "import": "./dist/models.js"
+    },
+    "./catalogue": {
+      "types": "./dist/catalogue/index.d.ts",
+      "import": "./dist/catalogue/index.js"
     }
   },
   "files": [

@@ -125,7 +125,9 @@ does not displace them when no provider preference is saved.
 The CLI supports `--provider zen` and `--provider zen-go`; its
 model picker uses live discovery.
 
-Anonymous access is restricted to these explicit bundled model IDs:
+In the bundled catalogue, anonymous access is restricted to these explicit
+model IDs; a runtime catalogue admits the ones the Zen page's free-model list
+names on the day it is fetched:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
@@ -149,8 +151,9 @@ recorded rather than ignored. Its own `/models` answer advertises two further
 free ids on Zen — `deepseek-v4-flash-free` and `muse-spark-1.2-contributor-free`
 — which appear on no page, so no wire is stated for either and neither can be
 routed. They are not bundled, `src/models.review.json` records that decision by
-name, and the gate fails if a served id is neither carried nor omitted, so this
-stays a decision rather than a gap nobody noticed.
+name, and the snapshot generator refuses to report agreement while a served id is
+neither carried nor omitted, so this stays a decision rather than a gap nobody
+noticed.
 
 An id can also leave the catalogue while the services still serve it, and
 `union-alpha` did that on 2026-09-18 in two steps worth telling apart. First
@@ -171,7 +174,8 @@ real credential, because anonymous admission is a claim this catalogue makes
 only about models it carries.
 
 The driver does not infer public admission from an arbitrary model name or
-zero price: the bundled `ZenModel.supportsAnonymousAccess` flag must be
+zero price: the catalogue's `ZenModel.supportsAnonymousAccess` flag (the
+runtime catalogue's when one is injected, otherwise the bundled one) must be
 explicitly `true`. Paid and unknown models require a real key, even when a caller
 supplies a `protocol` override. The public convention follows OpenCode's
 [provider loader](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L172),
@@ -180,7 +184,8 @@ Credential entry types are defined in OpenCode's
 [auth module](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/auth/index.ts#L12).
 
 `ZenConfig` accepts optional `apiKey`, `sessionId`, `model`,
-`baseURL`, `timeout` and `protocol`. `timeout` is a positive request timeout
+`baseURL`, `timeout`, `protocol` and `catalogue` (see
+[A catalogue refreshed at run time](#a-catalogue-refreshed-at-run-time)). `timeout` is a positive request timeout
 in milliseconds, defaulting to 120,000. `baseURL` permits an HTTP(S)
 host-owned proxy and rejects embedded credentials, query strings and
 fragments. Model calls receive the SDK's current attribution headers;
@@ -203,7 +208,7 @@ context limits, pricing or effort support.
 `getZenModels('zen' | 'go')` returns supported bundled metadata;
 `findZenModel(service, id)` performs exact lookup. `listModels(signal?)`
 requests the selected service's `/models` endpoint and intersects its IDs
-with that metadata. A live model without a supported local entry is not
+with that metadata. A live model without a supported entry is not
 advertised as ready to use. Anonymous discovery additionally restricts the
 result to the explicit public model set above.
 
@@ -212,37 +217,98 @@ That intersection is why the catalogue has to keep up: the service's own
 else — no wire, no limits, no price — so live discovery can confirm that a
 model EXISTS and nothing about how to call it. A model whose route is unknown
 cannot be routed, and a wrong route is a request to the wrong endpoint rather
-than a clean failure. `src/models.ts` is therefore generated, and refreshed by
-one command:
-
-```bash
-node scripts/generate-zen-models.mjs
-```
+than a clean failure.
 
 Routes and prices come from Zen's and Go's own documentation pages; limits,
 tool support, modalities and effort options come from `models.dev`; and the two
 services' own `/models` answers say which ids are actually served. Each answers
 a question the others cannot: a page is the only place a wire is stated, and the
 service's own answer is the only place a model that no page documents appears at
-all.
+all. The rules that read them live in `src/catalogue/derive.ts`, and the same
+code produces two things: the bundled snapshot in `src/models.ts`, and a
+catalogue derived at run time when a host asks for one.
 
-A model the pages document must be either carried in the catalogue or omitted
-with a reason in `src/models.review.json`, so a new upstream model is a decision
-somebody makes rather than a row that arrives by itself. An id the service
-serves and no page documents is in the same position for a different reason:
-there is no wire to derive, so it cannot be carried, and it is reported rather
-than dropped in silence. The CI gate **Zen catalogue matches its source** runs
-the same script with `--check` and fails, naming every model, on either. Exit 1
-means the catalogue disagrees with upstream or a curation decision is
-outstanding; exit 2 means a source was unreachable, no longer has the shape the
-script parses, or the formatter the module is rendered through is not installed.
-Neither is a skip.
+### A catalogue refreshed at run time
+
+Nothing in this package goes to the network for the catalogue unless a caller
+asks: importing it, constructing a provider, `getZenModels` and `findZenModel`
+read the bundled snapshot and fetch nothing. A host that wants the roster as
+upstream states it today opts in through the `@namzu/zen/catalogue` subpath:
+
+```ts
+import { ZenProvider } from '@namzu/zen'
+import { fetchZenCatalogue } from '@namzu/zen/catalogue'
+
+const { catalogue, report } = await fetchZenCatalogue({ timeoutMs: 10_000 })
+const provider = new ZenProvider({ apiKey: process.env.OPENCODE_API_KEY, catalogue })
+
+// Served by a service, documented on no page: listed, never guessed.
+console.log(catalogue.unrouted.zen, report.servedUndocumented)
+```
+
+`fetchZenCatalogue` reads the five sources with a deadline per read
+(`timeoutMs`, default 15,000), a byte limit per source (`limits`: 1 MiB for each
+page and each `/models` answer, 32 MiB for models.dev), redirects refused and an
+optional `signal`. It either returns a whole catalogue or rejects with
+`ZenCatalogueSourceError`, or with the signal's reason. A source it cannot
+read, a page whose route table no longer parses, a hostile endpoint cell, a
+models.dev entry that lost its fields, an effort level the SDK has no
+`ReasoningEffort` for, or a roster that fell below 80% of the bundled one on
+either service all reject the whole result, so there is no partial list. It
+applies the review decisions the snapshot was generated under
+(`ZEN_OMITTED_MODELS`, exported from `@namzu/zen/models`) unless given
+`omissions`. `buildZenCatalogue(sources)` does the same derivation from texts a
+host fetched itself.
+
+The result is plain data. `JSON.stringify` stores it, and `parseZenCatalogue`
+re-admits a stored copy with the same strictness, refusing a torn, edited or
+other-version document as a whole with `ZenCatalogueFormatError`.
+
+`ZenConfig.catalogue` takes the catalogue, or a function returning it (or
+`undefined` for the bundled snapshot alone) that is called at every lookup, so a
+host can swap in a fresher one for providers it has already built. Every lookup
+checks the runtime catalogue first and the bundled snapshot second, for routing,
+anonymous admission, listing, context windows and effort levels.
+`findZenCatalogueModel(catalogue, service, id)` is that lookup on its own.
+
+A runtime catalogue also names, in `unrouted`, each served id it neither
+carries nor omits by review. `listModels()` lists such an id as
+`<id> (no known wire format)`, with no price, limits or effort levels, and
+never for anonymous access. Calling it without `protocol` fails with
+`bad_request` ("no source states its wire format"); with `protocol` set it is
+sent on that wire. The bundled snapshot alone lists no such ids, as before.
+
+The Namzu CLI refreshes the catalogue this way in the background on every
+launch and keeps a last-good copy. See
+[The model catalogue refresh](../cli/model-catalogue.md).
+
+### The bundled snapshot
+
+`src/models.ts` is generated and refreshed by hand:
+
+```bash
+pnpm --filter @namzu/zen build && node scripts/generate-zen-models.mjs
+```
+
+A model the pages document must be either carried in the snapshot or omitted
+with a reason in `src/models.review.json`, so a new upstream model in the
+snapshot is a decision somebody makes rather than a row that arrives by itself.
+An id the service serves and no page documents is in the same position for a
+different reason: there is no wire to derive, so it cannot be carried, and it
+is reported rather than dropped in silence. `--check` compares instead of
+writing. Exit 1 means the snapshot disagrees with upstream or a curation
+decision is outstanding; exit 2 means a source was unreachable, no longer has
+the shape the rules parse, or the formatter the module is rendered through is
+not installed. No CI gate runs it: a gate that read upstream turned `main` red
+whenever upstream moved, which is exactly what the runtime refresh now absorbs.
+The generator's own tests are hermetic and run in CI as **Zen snapshot
+generator tests**.
 
 A route row can also state no wire. The Zen page routes `jev-1.13` and
 `jev-1.13-free` on an endpoint whose AI SDK package column carries the dash
 that page gives a cell with no value, and a row shaped like that is read rather
 than refused — it names a model, an id and an endpoint, which is the page
-saying something rather than a row this script lost. Such a model reaches the
+saying something rather than a row the rules lost. Such a model reaches the
 same decision list, because the package column is one of the two halves a route
 is made of and no source states the other: `models.dev` carries an entry for
 both ids and no package either. Neither is carried, both are omitted by name in
@@ -250,25 +316,20 @@ both ids and no package either. Neither is carried, both are omitted by name in
 list, which grants nothing here — anonymous admission comes from the flag on a
 model the catalogue carries, and this one is not carried.
 
-The guard is unchanged around the new shape, which is what makes reading it
+The guard is unchanged around that shape, which is what makes reading it
 safe: a row that has LOST that column, or carries a marker the page does not
-use, is still a page that moved and still stops the turn at exit 2. What
-separates the two is that one is a statement the page makes and the other is a
-row the script no longer reads.
+use, is still a page that moved and still stops the derivation. What separates
+the two is that one is a statement the page makes and the other is a row the
+rules no longer read.
 
-Keeping it fresh is one command, or the scheduled refresh workflow
-(`.github/workflows/zen-catalogue-refresh.yml`), which re-derives the catalogue
-daily and opens a pull request when upstream has moved — carrying the
-generator's own added, removed and changed report and the served-but-uncurried
-list, so a reviewer sees what upstream did without running anything. The commit
-carries the changeset that releases it, its bump read mechanically from that
-report: a removal is `major`, because a carried id stops resolving, and an
-addition or a repricing is `minor`. The catalogue does not update itself: the
-job proposes and a person merges.
+A snapshot refresh carries the changeset that releases it, its bump read from
+the generator's added, removed and changed report: a removal is `major`,
+because a carried id stops resolving, and an addition or a repricing is `minor`.
 
-Catalogue-only consumers can import `getZenModels`, `findZenModel` and the
-model types from `@namzu/zen/models`. This lightweight subpath avoids loading
-the four native transport adapters; the CLI uses it for provider selection.
+Catalogue-only consumers can import `getZenModels`, `findZenModel`,
+`ZEN_OMITTED_MODELS` and the model types from `@namzu/zen/models`, and the
+runtime catalogue API from `@namzu/zen/catalogue`. Neither subpath loads the
+four native transport adapters; the CLI uses both for provider selection.
 
 The snapshot's `inputPrice` and `outputPrice` are documented USD per million
 tokens at the base tier. They are estimates for SDK accounting, not exact
@@ -354,18 +415,19 @@ response text. Retry and fallback remain kernel policy.
 ## Evidence and source snapshot
 
 The implementation uses Namzu's own conversion, replay and lifecycle code
-around the official provider adapters. The catalogue is no longer a pinned
-snapshot checked against a fixed revision: `src/models.ts` is generated from
+around the official provider adapters. The catalogue is not a pinned snapshot
+checked against a fixed revision: `src/models.ts` is generated from
 [the Zen page](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/zen.mdx)
 and [the Go page](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/go.mdx)
 on OpenCode's default branch, from `https://models.dev/api.json`, and from the
 two services' own `/models` answers on `https://opencode.ai`, by
-`scripts/generate-zen-models.mjs`. The page it leaves behind names the day the
-roster last moved; the gate is what establishes whether it is still true, and
-the refresh workflow is what makes it move without anybody remembering.
-`NAMZU_ZEN_DOCS_REF` selects another branch for the two pages and
-`NAMZU_ZEN_MODELS_BASE` another host for the served rosters, for a turn that has
-to read elsewhere.
+`scripts/generate-zen-models.mjs`, and the same sources are what
+`fetchZenCatalogue` reads at run time. The snapshot names the day its roster
+last moved; a runtime catalogue carries the moment it was fetched as
+`fetchedAt`. For the generator, `NAMZU_ZEN_DOCS_REF` selects another branch for
+the two pages and `NAMZU_ZEN_MODELS_BASE` another host for the served rosters;
+`fetchZenCatalogue` takes `docsRef`, `modelsDevUrl` and `serviceBase` for the
+same purpose.
 OpenCode's [provider
 integration](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts)
 is the source for the public sentinel convention.
