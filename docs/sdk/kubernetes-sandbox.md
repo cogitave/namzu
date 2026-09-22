@@ -1347,6 +1347,12 @@ It is a separate verb from `createSandboxProvider` on purpose: a
 (`workspaceModes: ['ephemeral']`), and a workspace is the opposite promise.
 `warmPoolName` is ignored here.
 
+Repositories a workspace should always have are a
+[sandbox seed](sandbox-seeds.md): call `ensureSandboxSeed(workspace, seed, {
+root })` after every create and resume, with `root` on the template's disk
+mount. The first call clones; every later one only checks each repository, and
+two hosts preparing the same disk at once do not collide.
+
 ### Calling it twice reattaches
 
 The Sandbox is named `namzu-ws-<workspaceId>`, deterministically, which is the
@@ -2993,6 +2999,25 @@ Unlike the provider's once-per-backend check, these run on every
 `createKubernetesWorkspace` call — neither memo outlives the call — because
 creating a workspace is a rare, explicit act with nothing to amortise, and a
 policy deleted or widened since the last call has to be noticed.
+
+### An egress profile goes in `config.egress`
+
+A `SandboxEgressProfile` reaches this backend through
+`kubernetesEgressFromProfile(profile, { engine: 'cilium' })`, whose result is an
+ordinary `KubernetesEgressConfig` for `config.egress`. That is the one path:
+`createSandboxProvider` refuses `egressProfile` on a kubernetes backend, because
+`createKubernetesWorkspace` takes the backend config directly and a
+provider-level profile would never reach a workspace. Through `config.egress`
+the profile bounds task sandboxes and workspaces alike, with every check above.
+
+No hosts translate to `deny-all`, hosts to a `static` allowlist, and ports to
+`ciliumNarrowing.hostPorts` (refused without `engine: 'cilium'`). The profile's
+name becomes the pod's egress-profile label only with `profileLabel: true`: the
+label moves the default policy object to `${template}-${profile}-egress`, needs
+the key's domain in the controller's `allowed-label-domains`, and stops an
+existing workspace that lacks it from adopting, so the default leaves it off and
+the translation equal to a hand-written config. See
+[Sandbox egress profiles](sandbox-egress-profiles.md).
 
 ### There is no delete-compute-keep-disk verb
 

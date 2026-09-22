@@ -24,6 +24,11 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import {
+	EGRESS_PROXY_CONFIG_V2_ENV,
+	EGRESS_PROXY_IMAGE_CONFIG_LABEL,
+} from '../../src/backends/docker/index.js'
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DOCKERFILE = readFileSync(join(HERE, '../Dockerfile'), 'utf8')
 const ENTRYPOINT = readFileSync(join(HERE, '../server.mjs'), 'utf8')
@@ -80,5 +85,14 @@ describe('egress-proxy/Dockerfile', () => {
 		// two values the backend's argv and the sandbox's `HTTP_PROXY` depend on.
 		expect(DOCKERFILE).toContain(`CMD ["node", "${INSTALL_ROOT}/server.mjs"]`)
 		expect(DOCKERFILE).toContain('EXPOSE 2025')
+	})
+
+	it('declares that it reads the V2 configuration, under the label the backend checks', () => {
+		// The backend reads this label with `docker image inspect` before it
+		// starts a proxy whose egress profile carries ports, and refuses an image
+		// without it. A label renamed on one side alone would refuse every
+		// rebuilt image, which is why the name is read off the backend here.
+		expect(DOCKERFILE).toContain(`LABEL ${EGRESS_PROXY_IMAGE_CONFIG_LABEL}="2"`)
+		expect(ENTRYPOINT).toContain(`'${EGRESS_PROXY_CONFIG_V2_ENV}'`)
 	})
 })

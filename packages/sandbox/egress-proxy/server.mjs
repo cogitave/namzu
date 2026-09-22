@@ -65,6 +65,30 @@ import { pathToFileURL } from 'node:url'
 const CONFIG_ENV = 'NAMZU_EGRESS_PROXY_CONFIG'
 
 /**
+ * The second version of the same policy, which adds port rules.
+ *
+ * A separate variable rather than a new field in the first, so that an image
+ * built before port rules existed cannot read a policy with ports and enforce
+ * it without them: such an image reads only `CONFIG_ENV`, finds it unset when
+ * the backend sends this one alone, and exits, which fails closed. The backend
+ * sends this variable only when a profile carries ports, and checks the image's
+ * `ai.namzu.egress-proxy.config` label first so the usual case is a named
+ * refusal rather than a proxy that never came up.
+ */
+const CONFIG_ENV_V2 = 'NAMZU_EGRESS_PROXY_CONFIG_V2'
+
+/** Every field a V2 config may carry. Anything else is refused, not ignored. */
+const V2_FIELDS = new Set([
+	'port',
+	'allowedHosts',
+	'credentials',
+	'allowInwardFor',
+	'upgradeToHttps',
+	'selfNames',
+	'hostPorts',
+])
+
+/**
  * Whether this file is the process's command, or was imported by one.
  *
  * The container's `CMD` is `node /opt/namzu-egress/server.mjs`, so every
@@ -142,9 +166,107 @@ function optionalStringArray(value, where) {
  * defaulting it the other way is an open proxy. Neither is a guess this file
  * is entitled to make.
  */
-export function parseProxyConfig(raw) {
+export function parseProxyConfig(raw, envName = CONFIG_ENV) {
+	const parsed = parseConfigObject(raw, envName)
+	if (!Array.isArray(parsed.allowedHosts)) {
+		fail(`${envName}.allowedHosts must be an array of hostnames (an empty array means deny-all)`)
+	}
+
+	const port = parsed.port ?? DEFAULT_PORT
+	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+		fail(`${envName}.port must be an integer between 1 and 65535; got ${JSON.stringify(port)}`)
+	}
+
+	const credentials = parsed.credentials ?? []
+	if (!Array.isArray(credentials)) fail(`${envName}.credentials must be an array`)
+	for (const [index, credential] of credentials.entries()) {
+		if (credential === null || typeof credential !== 'object' || Array.isArray(credential)) {
+			fail(`${envName}.credentials[${index}] must be an object`)
+		}
+		requireString(credential.host, `${envName}.credentials[${index}].host`)
+		requireString(credential.header, `${envName}.credentials[${index}].header`)
+		requireString(credential.value, `${envName}.credentials[${index}].value`)
+	}
+
+	if (parsed.upgradeToHttps !== undefined && typeof parsed.upgradeToHttps !== 'boolean') {
+		fail(`${envName}.upgradeToHttps must be a boolean`)
+	}
+
+	return {
+		port,
+		allowedHosts: parsed.allowedHosts.map((entry, index) =>
+			requireString(entry, `${envName}.allowedHosts[${index}]`),
+		),
+		credentials,
+		allowInwardFor: optionalStringArray(parsed.allowInwardFor, `${envName}.allowInwardFor`),
+		upgradeToHttps: parsed.upgradeToHttps,
+		selfNames: optionalStringArray(parsed.selfNames, `${envName}.selfNames`),
+	}
+}
+
+/**
+ * Read a V2 policy: everything a V1 policy carries, plus `hostPorts`, the
+ * egress profile's rules as `[{ host, ports? }]`. Every rule of the profile is
+ * listed, with or without ports, because the port a host may use is the union
+ * over every rule that matches it and a rule left out would change that union.
+ *
+ * Stricter than V1 on purpose: a field this file does not know is refused
+ * rather than ignored, because a V2 config comes from a backend newer than
+ * this parser may be, and an ignored field there is a rule not enforced.
+ */
+export function parseProxyConfigV2(raw) {
+	const base = parseProxyConfig(raw, CONFIG_ENV_V2)
+	const parsed = parseConfigObject(raw, CONFIG_ENV_V2)
+	for (const key of Object.keys(parsed)) {
+		if (!V2_FIELDS.has(key)) {
+			fail(
+				`${CONFIG_ENV_V2}.${key} is not a field this proxy reads; refusing rather than ignoring it`,
+			)
+		}
+	}
+	if (!Array.isArray(parsed.hostPorts)) {
+		fail(`${CONFIG_ENV_V2}.hostPorts must be an array of { host, ports? } rules`)
+	}
+	const hostPorts = parsed.hostPorts.map((rule, index) => {
+		const where = `${CONFIG_ENV_V2}.hostPorts[${index}]`
+		if (rule === null || typeof rule !== 'object' || Array.isArray(rule)) {
+			fail(`${where} must be an object`)
+		}
+		for (const key of Object.keys(rule)) {
+			if (key !== 'host' && key !== 'ports') fail(`${where}.${key} is not a field this proxy reads`)
+		}
+		const host = requireString(rule.host, `${where}.host`)
+		if (rule.ports === undefined) return { host }
+		if (!Array.isArray(rule.ports) || rule.ports.length === 0) {
+			fail(`${where}.ports must be a non-empty array of ports, or absent for every port`)
+		}
+		const seen = new Set()
+		for (const [portIndex, port] of rule.ports.entries()) {
+			if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+				fail(
+					`${where}.ports[${portIndex}] must be an integer between 1 and 65535; got ${JSON.stringify(port)}`,
+				)
+			}
+			if (seen.has(port)) fail(`${where}.ports[${portIndex}] repeats port ${port}`)
+			seen.add(port)
+		}
+		return { host, ports: [...rule.ports] }
+	})
+	return { ...base, hostPorts }
+}
+
+/**
+ * The policy this container was started with: V2 when the backend sent it,
+ * otherwise V1. Never both, and never a merge of the two.
+ */
+export function readProxyConfig(env) {
+	if (env[CONFIG_ENV_V2] !== undefined) return parseProxyConfigV2(env[CONFIG_ENV_V2])
+	return parseProxyConfig(env[CONFIG_ENV])
+}
+
+function parseConfigObject(raw, envName) {
 	if (typeof raw !== 'string' || raw.length === 0) {
-		fail(`${CONFIG_ENV} is not set; this container has no policy to enforce`)
+		fail(`${envName} is not set; this container has no policy to enforce`)
 	}
 	let parsed
 	try {
@@ -161,45 +283,12 @@ export function parseProxyConfig(raw) {
 			error instanceof Error
 				? error.message.match(/at position \d+ \(line \d+ column \d+\)/)?.[0]
 				: undefined
-		fail(`${CONFIG_ENV} is not valid JSON${at === undefined ? '' : ` (${at})`}`)
+		fail(`${envName} is not valid JSON${at === undefined ? '' : ` (${at})`}`)
 	}
 	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-		fail(`${CONFIG_ENV} must be a JSON object`)
+		fail(`${envName} must be a JSON object`)
 	}
-	if (!Array.isArray(parsed.allowedHosts)) {
-		fail(`${CONFIG_ENV}.allowedHosts must be an array of hostnames (an empty array means deny-all)`)
-	}
-
-	const port = parsed.port ?? DEFAULT_PORT
-	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-		fail(`${CONFIG_ENV}.port must be an integer between 1 and 65535; got ${JSON.stringify(port)}`)
-	}
-
-	const credentials = parsed.credentials ?? []
-	if (!Array.isArray(credentials)) fail(`${CONFIG_ENV}.credentials must be an array`)
-	for (const [index, credential] of credentials.entries()) {
-		if (credential === null || typeof credential !== 'object' || Array.isArray(credential)) {
-			fail(`${CONFIG_ENV}.credentials[${index}] must be an object`)
-		}
-		requireString(credential.host, `${CONFIG_ENV}.credentials[${index}].host`)
-		requireString(credential.header, `${CONFIG_ENV}.credentials[${index}].header`)
-		requireString(credential.value, `${CONFIG_ENV}.credentials[${index}].value`)
-	}
-
-	if (parsed.upgradeToHttps !== undefined && typeof parsed.upgradeToHttps !== 'boolean') {
-		fail(`${CONFIG_ENV}.upgradeToHttps must be a boolean`)
-	}
-
-	return {
-		port,
-		allowedHosts: parsed.allowedHosts.map((entry, index) =>
-			requireString(entry, `${CONFIG_ENV}.allowedHosts[${index}]`),
-		),
-		credentials,
-		allowInwardFor: optionalStringArray(parsed.allowInwardFor, `${CONFIG_ENV}.allowInwardFor`),
-		upgradeToHttps: parsed.upgradeToHttps,
-		selfNames: optionalStringArray(parsed.selfNames, `${CONFIG_ENV}.selfNames`),
-	}
+	return parsed
 }
 
 async function loadDefaultProxy() {
@@ -215,7 +304,19 @@ async function loadDefaultProxy() {
  * because nothing but a test passes one.
  */
 export async function startEgressProxy(config, loadProxy = loadDefaultProxy) {
-	const { EgressProxy } = await loadProxy()
+	const loaded = await loadProxy()
+	const { EgressProxy } = loaded
+	// Port rules are enforced by the boundary module's own implementation of
+	// the profile's union rule, never by a second copy of it in this file.
+	let allowedPorts
+	if (config.hostPorts !== undefined) {
+		if (typeof loaded.egressPortsForRules !== 'function') {
+			fail(
+				'the boundary module in this image has no egressPortsForRules, so it cannot enforce port rules; rebuild the image',
+			)
+		}
+		allowedPorts = loaded.egressPortsForRules(config.hostPorts)
+	}
 
 	// The proxy's own container name and network alias are the names a client
 	// on the internal network reaches it by, so they are the names the loop
@@ -231,6 +332,7 @@ export async function startEgressProxy(config, loadProxy = loadDefaultProxy) {
 		...(config.allowInwardFor ? { allowInwardFor: config.allowInwardFor } : {}),
 		...(config.upgradeToHttps !== undefined ? { upgradeToHttps: config.upgradeToHttps } : {}),
 		...(selfNames.length > 0 ? { selfNames } : {}),
+		...(allowedPorts !== undefined ? { allowedPorts } : {}),
 		// The container IS the boundary: the sandbox sits on an internal
 		// network with nothing but this container on it. See
 		// `EgressProxyOptions.bindHost`.
@@ -242,13 +344,13 @@ export async function startEgressProxy(config, loadProxy = loadDefaultProxy) {
 	// reading `docker logs` needs to know the boundary is up and on which
 	// port, and a log is not a place to spill what it is holding.
 	process.stdout.write(
-		`namzu-egress-proxy: listening on 0.0.0.0:${running.port} with ${config.allowedHosts.length} allowed host(s) and ${config.credentials.length} brokered credential(s)\n`,
+		`namzu-egress-proxy: listening on 0.0.0.0:${running.port} with ${config.allowedHosts.length} allowed host(s)${config.hostPorts !== undefined ? `, ${config.hostPorts.length} port rule(s)` : ''} and ${config.credentials.length} brokered credential(s)\n`,
 	)
 	return running
 }
 
 async function main() {
-	const config = parseProxyConfig(process.env[CONFIG_ENV])
+	const config = readProxyConfig(process.env)
 
 	// Registered BEFORE the boundary is up, so a stop that arrives while this
 	// process is still starting is handled rather than killing it by default

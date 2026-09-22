@@ -112,6 +112,37 @@ images on a runner that has a daemon, so the Dockerfiles are known to build.
 `deny-all` and `allow-all` need none of this beyond the internal network
 `deny-all` already required.
 
+### Port rules
+
+An [egress profile](sandbox-egress-profiles.md) whose rules carry `ports` is
+enforced by the proxy on **the port the socket is about to open**: a plain-HTTP
+request that names no port is dialled on 443 when it is upgraded to HTTPS (the
+default), and a `CONNECT` that names no port on 443, so those are the ports
+checked, not the ones the request spells. The check sits beside the allowlist
+check, before any brokered credential is looked up, and a refusal is named:
+`Egress denied: <host>:<port> is not an allowed port.` A host's allowed ports
+are the union over every profile rule that matches it, a matching rule without
+ports allowing every port, which is the same rule the kubernetes translation
+gets from Cilium. `EgressProxyOptions.allowedPorts` is the option on the proxy
+itself; absent, nothing about ports is checked, as before. To give it a
+profile's rules with the same union rule, pass
+`egressPortsForRules(profile.hosts)`, exported from `@namzu/sandbox`.
+
+The configuration then travels as `NAMZU_EGRESS_PROXY_CONFIG_V2`, which adds
+`hostPorts` (every rule of the profile, with or without ports) and refuses a
+field it does not know rather than ignoring it. It is sent **instead of**
+`NAMZU_EGRESS_PROXY_CONFIG`, never beside it, so an image built before port
+rules finds its only variable unset and exits: that fails closed. The usual
+case is caught before that: the image carries the label
+`ai.namzu.egress-proxy.config="2"`, and before starting a proxy with port rules
+the backend reads it with `docker image inspect` and refuses an image without
+it, naming the rebuild. A single inspect after `docker run --detach` could not
+guarantee the refusal, because an old image can exit after that inspect has
+passed. `docker image inspect` does not pull, so an image that lives in a
+registry has to be pulled onto the daemon first. **Rebuild the proxy image
+before using `ports`**; a profile without ports sends the V1 configuration and
+argv exactly as before, and needs nothing.
+
 Two more things are refused rather than started: `egressProxyUpstreamNetwork`
 set to `'none'`, and set to the internal network itself — either leaves the
 proxy with no default route, which is a boundary in front of nothing while the
@@ -130,7 +161,25 @@ exists. The removal is issued after the container exists and does not travel on
 the caller's signal, which is what closes that ordering rather than narrowing
 it.
 
-That last property is NOT claimed of the ordinary teardown, and the difference
+Overlapping `setNetworkPolicy()` calls on one sandbox run one at a time, in
+the order they were made, and each resolves only once the container started
+with ITS allowlist is running. They used to interleave against the one proxy
+container name: a pre-start removal or a failure path's removal by name from one
+call could land on the other call's container after that call had resolved, so
+the sandbox was left with no proxy while its caller was told the policy was in
+force, and one call's readiness check could read the other call's container as
+running. There is no coalescing: a call that a later call is about to replace
+still applies and verifies its own policy, because resolving it while a
+different policy is in force would be the same misreport. A call whose
+allowlist equals the one the running container was started with (same hosts,
+same order) issues no docker call; after a failed swap the state is unknown,
+and the next call swaps whatever it asks for. A call waiting its turn when the
+sandbox is destroyed fails with the sandbox's retirement, and starts nothing.
+`src/backends/docker/__tests__/set-network-policy-queue.test.ts` pins this
+against a fake daemon that keeps unique container names; its overlap case fails
+on the unqueued swap with no proxy left running.
+
+The removal-after-teardown property above is NOT claimed of the ordinary teardown, and the difference
 matters to anyone reading this as "the proxy is always removed". A `destroy()`
 whose own `signal` was already aborted issues no `rm -f` at all — not for the
 proxy, and not for the sandbox either. `Sandbox.destroy` binds an

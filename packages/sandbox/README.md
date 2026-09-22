@@ -761,6 +761,36 @@ Both methods are capability-checked. A backend that cannot preserve the same
 isolation and ownership boundary omits them; callers must not fall back to a
 host process or a different sandbox.
 
+## Egress profiles
+
+`defineEgressProfile({ name, hosts: [{ host, ports? }] })` is one named,
+validated allowlist a host can give any backend. `createSandboxProvider({
+egressProfile })` turns it into `deny-all` (no hosts) or a `static` allowlist
+on docker, runsc and firecracker, and refuses at construction, before any I/O,
+what a backend cannot honour: ports on firecracker, any profile on the ACI
+standby pool, a profile beside `defaultEgress`, and a brokered credential for a
+host outside the profile. On kubernetes, put
+`kubernetesEgressFromProfile(profile, { engine: 'cilium' })` in
+`backend.egress`, which also covers workspaces. On docker and runsc the egress
+proxy enforces a rule's `ports` on the port it dials; rebuild the proxy image
+from `egress-proxy/Dockerfile` first, since the backend refuses an image
+without its `ai.namzu.egress-proxy.config="2"` label. A profile carries no
+credentials and has no wildcard. See
+[docs/sdk/sandbox-egress-profiles.md](../../docs/sdk/sandbox-egress-profiles.md).
+
+## Sandbox seeds
+
+`ensureSandboxSeed(sandbox, defineSandboxSeed({ name, repositories }), { root })`
+makes git repositories present under `root`, doing only what is missing: every
+call checks each repository (origin, and that its pinned or recorded commit is
+an ancestor of HEAD; a changed `ref` is drift unless the checkout already holds
+it), refuses drift without touching anything, clones what is
+missing into a partial directory and moves it into place. `root` is required:
+put it on a kubernetes workspace's disk mount, or `layout.scratch` on docker,
+never the docker outputs root. URLs with credentials, `ssh://` and `git@` are
+refused, so nothing secret enters the guest. See
+[docs/sdk/sandbox-seeds.md](../../docs/sdk/sandbox-seeds.md).
+
 ## Firecracker network policy
 
 At microVM creation, the Firecracker backend maps the resolved egress decision

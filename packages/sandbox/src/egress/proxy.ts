@@ -102,6 +102,19 @@ export interface EgressProxyOptions {
 	readonly selfNames?: readonly string[]
 	/** Injected in tests. Defaults to the platform resolver. */
 	readonly resolveAddresses?: ScreeningLookupOptions['resolve']
+	/**
+	 * The TCP ports a host may be dialled on, or `'any'`. Absent means every
+	 * port, which is the behaviour before this option existed.
+	 *
+	 * Checked against the port the socket is about to open, not the port the
+	 * request names: a plain-HTTP request to `http://host/` is dialled on 443
+	 * when `upgradeToHttps` is on, and a `CONNECT host` with no port on
+	 * 443. The check sits beside the allowlist check, before any credential is
+	 * looked up, and a denial is named. A function that throws denies.
+	 * `egressPortsForRules` builds one from an egress profile's rules with the
+	 * profile's union rule.
+	 */
+	readonly allowedPorts?: (host: string) => readonly number[] | 'any'
 }
 
 export interface RunningEgressProxy {
@@ -142,6 +155,7 @@ export class EgressProxy {
 	private readonly inwardAllowed: readonly string[]
 	private readonly bindHost: string
 	private readonly selfNames: readonly string[]
+	private readonly allowedPorts: ((host: string) => readonly number[] | 'any') | undefined
 
 	constructor(options: EgressProxyOptions) {
 		this.resolveAllowed = options.allowedHosts
@@ -151,6 +165,7 @@ export class EgressProxy {
 		this.inwardAllowed = options.allowInwardFor ?? []
 		this.bindHost = options.bindHost ?? LOOPBACK_BIND_HOST
 		this.selfNames = options.selfNames ?? []
+		this.allowedPorts = options.allowedPorts
 		this.lookup = createScreeningLookup(
 			{
 				...(options.allowInwardFor ? { allowInwardFor: options.allowInwardFor } : {}),
@@ -226,6 +241,19 @@ export class EgressProxy {
 		}
 	}
 
+	/** Whether `port` is one `host` may be dialled on. See {@link EgressProxyOptions.allowedPorts}. */
+	private portAllowed(host: string, port: number): boolean {
+		if (this.allowedPorts === undefined) return true
+		try {
+			const ports = this.allowedPorts(host)
+			return ports === 'any' || ports.includes(port)
+		} catch {
+			// A port table that could not be read is a policy that could not be
+			// read, and is denied for the reason `allowed` denies one.
+			return false
+		}
+	}
+
 	private deny(host: string, reason: string): void {
 		this.onDenied?.(host, reason)
 	}
@@ -269,6 +297,19 @@ export class EgressProxy {
 			return
 		}
 
+		// The port the socket will open, which is not always the port in the
+		// request: `http://host/` is dialled on 443 when the request is upgraded.
+		// Checked here, beside the allowlist and before the credential lookup,
+		// so a refused port never meets a token.
+		const secure = this.upgradeToHttps || target.protocol === 'https:'
+		const dialPort = target.port ?? (secure ? 443 : 80)
+		if (!this.portAllowed(target.host, dialPort)) {
+			this.deny(target.host, `port ${dialPort} is not allowed`)
+			res.writeHead(DENIED_STATUS, { 'content-type': 'text/plain' })
+			res.end(`Egress denied: ${target.host}:${dialPort} is not an allowed port.\n`)
+			return
+		}
+
 		const literal = this.literalDenial(target.host)
 		if (literal) {
 			this.deny(target.host, `is a ${literal} address`)
@@ -295,13 +336,12 @@ export class EgressProxy {
 			headers[credential.header.toLowerCase()] = credential.value
 		}
 
-		const secure = this.upgradeToHttps || target.protocol === 'https:'
 		const send = secure ? httpsRequest : httpRequest
 		const upstream = send(
 			{
 				protocol: secure ? 'https:' : 'http:',
 				host: target.host,
-				port: target.port ?? (secure ? 443 : 80),
+				port: dialPort,
 				method: req.method,
 				path: target.path,
 				headers,
@@ -370,6 +410,16 @@ export class EgressProxy {
 			return
 		}
 
+		const dialPort = port ?? 443
+		if (!this.portAllowed(host, dialPort)) {
+			this.deny(host, `port ${dialPort} is not allowed`)
+			socket.write(
+				`HTTP/1.1 ${DENIED_STATUS} Forbidden\r\nContent-Type: text/plain\r\n\r\nEgress denied: ${host}:${dialPort} is not an allowed port.\n`,
+			)
+			socket.end()
+			return
+		}
+
 		const literal = this.literalDenial(host)
 		if (literal) {
 			this.deny(host, `is a ${literal} address`)
@@ -384,7 +434,7 @@ export class EgressProxy {
 		// brokered credential, so the loss here is reach rather than a token —
 		// but an allowlisted name pointing inward still turns this proxy into
 		// a route to the host's own network, which is what a sandbox is for.
-		const upstream = netConnect({ port: port ?? 443, host, lookup: this.lookup }, () => {
+		const upstream = netConnect({ port: dialPort, host, lookup: this.lookup }, () => {
 			socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 			if (head.length > 0) upstream.write(head)
 			upstream.pipe(socket)
