@@ -68,7 +68,8 @@ function releaseSteps(overrides = {}) {
 	]
 }
 
-const RECORD_JOB = '  validated-tree:\n    name: Record the validated tree\n    needs: [check]\n    runs-on: ubuntu-latest\n'
+const RECORD_IF = "${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}"
+const RECORD_JOB = `  validated-tree:\n    name: Record the validated tree\n    needs: [check]\n    if: ${RECORD_IF}\n    runs-on: ubuntu-latest\n`
 
 function check({ ci = ciSteps(), release = releaseSteps(), gatesLeg = true, ciJobKeys = '', releaseJobKeys = '', recordJob = RECORD_JOB } = {}) {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-parity-'))
@@ -190,7 +191,7 @@ describe('check-workflow-gate-parity', () => {
 	it('fails when ci.yml gates wait on matrix.gates and no leg sets it', () => {
 		const { status, out } = check({ gatesLeg: false })
 		assert.equal(status, 1)
-		assert.match(out, /no matrix entry sets `gates: true`/)
+		assert.match(out, /job `check` has gates under `if: matrix\.gates` and no entry in its own `strategy\.matrix\.include` sets `gates: true`/)
 	})
 
 	// A gate under continue-on-error fails while its job, and the run, succeed:
@@ -266,6 +267,57 @@ describe('check-workflow-gate-parity', () => {
 		const { status, out } = check({ recordJob: '' })
 		assert.equal(status, 1)
 		assert.match(out, /ci\.yml has no `validated-tree` job/)
+	})
+
+	// `matrix.gates` is read in the step's OWN job: in a job with no matrix it
+	// is empty, the step is skipped, the job succeeds and the record is written.
+	const docsJob = (jobKeys = '') =>
+		`  docs:\n    runs-on: ubuntu-latest\n${jobKeys}    steps:\n      - name: Docs fence gate\n        if: matrix.gates\n        run: echo fence\n`
+
+	it('fails when matrix.gates guards a gate in a job with no matrix, though another job has a gates leg', () => {
+		const { status, out } = check({ recordJob: docsJob() + RECORD_JOB.replace('needs: [check]', 'needs: [check, docs]') })
+		assert.equal(status, 1)
+		assert.match(out, /ci\.yml job `docs` has gates under `if: matrix\.gates` and no entry in its own `strategy\.matrix\.include` sets `gates: true`/)
+		assert.doesNotMatch(out, /job `check` has gates under/)
+	})
+
+	it('fails when the only gates leg sits under exclude', () => {
+		const jobKeys = '    strategy:\n      matrix:\n        include:\n          - node-version: 24\n        exclude:\n          - node-version: 24\n            gates: true\n'
+		const { status, out } = check({ recordJob: docsJob(jobKeys) + RECORD_JOB.replace('needs: [check]', 'needs: [check, docs]') })
+		assert.equal(status, 1)
+		assert.match(out, /ci\.yml job `docs` has gates under `if: matrix\.gates`/)
+	})
+
+	it('accepts matrix.gates in a job whose own include sets gates: true', () => {
+		const jobKeys = '    strategy:\n      matrix:\n        include:\n          - node-version: 24\n            gates: true\n'
+		const { out } = check({ recordJob: docsJob(jobKeys) + RECORD_JOB.replace('needs: [check]', 'needs: [check, docs]') })
+		assert.doesNotMatch(out, /has gates under `if: matrix\.gates`/)
+	})
+
+	// A job skipped by its own condition does not fail the run.
+	it('fails when a ci.yml job running gates carries a job-level if', () => {
+		const { status, out } = check({ ciJobKeys: "    if: github.event_name == 'merge_group'\n" })
+		assert.equal(status, 1)
+		assert.match(out, /The ci\.yml job `check` runs gates under a job-level `if: github\.event_name == 'merge_group'`/)
+	})
+
+	it('fails when validated-tree runs under !failure() rather than success()', () => {
+		const recordJob = RECORD_JOB.replace(RECORD_IF, "${{ !failure() && !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}")
+		const { status, out } = check({ recordJob })
+		assert.equal(status, 1)
+		assert.match(out, /`validated-tree` in ci\.yml runs under `if: !failure\(\)/)
+	})
+
+	it('fails when validated-tree has no if', () => {
+		const { status, out } = check({ recordJob: RECORD_JOB.replace(`    if: ${RECORD_IF}\n`, '') })
+		assert.equal(status, 1)
+		assert.match(out, /`validated-tree` in ci\.yml runs under `if: \(none\)`/)
+	})
+
+	it('fails when validated-tree drops the event filter', () => {
+		const { status, out } = check({ recordJob: RECORD_JOB.replace(RECORD_IF, 'success()') })
+		assert.equal(status, 1)
+		assert.match(out, /`validated-tree` in ci\.yml runs under `if: success\(\)`/)
 	})
 
 	it('still fails on an exemption for a step that is gone', () => {

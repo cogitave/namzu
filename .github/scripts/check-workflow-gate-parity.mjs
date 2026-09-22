@@ -44,8 +44,15 @@
  *     it, because publishing needs `dist` and that check measures what ships;
  *   - the step that produces the skip exists, has no condition of its own, and
  *     comes before every step it guards;
- *   - a `ci.yml` gate carries no `if:` or exactly `matrix.gates`, and some
- *     matrix entry sets `gates: true`, so the run the skip trusts ran it;
+ *   - a `ci.yml` gate carries no `if:` or exactly `matrix.gates`, and
+ *     `matrix.gates` only in a job whose OWN `strategy.matrix.include` has an
+ *     entry setting `gates: true` — in any other job the expression is empty
+ *     and the step is skipped, and a skipped step is green;
+ *   - no `ci.yml` job that runs a gate carries a job-level `if:`: a skipped
+ *     job does not fail the run either;
+ *   - `validated-tree`'s own `if:` is exactly `success() && (pull_request or
+ *     merge_group)`, so a skipped or failed gate job leaves no record — a
+ *     spelling such as `!failure()` would write one over a skipped job;
  *   - no gate, on either path, and no job running one carries
  *     `continue-on-error` (other than a literal `false`): on ci.yml it lets a
  *     gate fail under a successful run, which the validated-tree record then
@@ -161,6 +168,69 @@ function jobContinueOnError(file) {
 }
 
 /**
+ * Each job's own lines, keyed by job id: from its two-space `id:` line under
+ * the top-level `jobs:` to the next job or top-level key.
+ */
+function jobBlocks(file) {
+	const lines = readFileSync(join(root, '.github', 'workflows', file), 'utf8').split('\n')
+	const found = new Map()
+	let inJobs = false
+	let job
+	for (const line of lines) {
+		if (/^\S/.test(line)) {
+			inJobs = /^jobs:\s*$/.test(line)
+			job = undefined
+			continue
+		}
+		if (!inJobs) continue
+		const jobHead = line.match(/^ {2}([A-Za-z0-9_-]+):\s*$/)
+		if (jobHead) {
+			job = jobHead[1]
+			found.set(job, [])
+			continue
+		}
+		if (job) found.get(job).push(line)
+	}
+	return found
+}
+
+/** The lines nested under the first `key:` line at exactly `indent` spaces. */
+function nestedBlock(lines, indent, key) {
+	const start = lines.findIndex((line) => new RegExp(`^ {${indent}}${key}:\\s*$`).test(line))
+	if (start === -1) return undefined
+	const block = []
+	for (const line of lines.slice(start + 1)) {
+		if (line.trim() === '' || line.trim().startsWith('#')) continue
+		if (line.match(/^(\s*)/)[1].length <= indent) break
+		block.push(line)
+	}
+	return block
+}
+
+/** A job's own `if:`, raw, or undefined. Any value at all, block scalars included. */
+function jobIf(lines) {
+	const line = lines.find((l) => /^ {4}if:/.test(l))
+	return line === undefined ? undefined : normaliseCondition(line.replace(/^ {4}if:/, '')) || '(empty)'
+}
+
+/**
+ * Whether the job's OWN matrix has a leg on which `matrix.gates` is true: an
+ * entry under `strategy.matrix.include` that sets `gates: true`, and no
+ * `exclude` that could remove it. Flow style, `fromJSON` and anything else
+ * this cannot read answer no.
+ */
+function jobHasGatesLeg(lines) {
+	const strategy = nestedBlock(lines, 4, 'strategy')
+	if (!strategy) return false
+	const matrix = nestedBlock(strategy, 6, 'matrix')
+	if (!matrix) return false
+	if (matrix.some((line) => /^ {8}exclude:/.test(line))) return false
+	const include = nestedBlock(matrix, 8, 'include')
+	if (!include) return false
+	return include.some((line) => /^ {10}(- | {2})gates: true\s*$/.test(line))
+}
+
+/**
  * `continue-on-error` turns a failing step green, and a failing step in a job
  * green too. Only a literal `false` — the default spelled out — leaves a gate
  * able to fail; an expression may evaluate to true, so it is refused like `true`.
@@ -219,10 +289,26 @@ for (const step of ciSteps) {
 		'    one that would run on neither path.',
 	)
 }
-if (ciSteps.some((step) => step.if === CI_GATE_CONDITION) && !/^\s+gates: true\s*$/m.test(ciText)) {
+// `matrix.gates` is read in the step's own job. A job without a matrix, or
+// whose matrix has no `gates: true` leg, evaluates it to empty and skips the
+// step on every run; the job still succeeds and the record is still written.
+const ciJobBlocks = jobBlocks('ci.yml')
+for (const job of new Set(ciSteps.filter((step) => step.if === CI_GATE_CONDITION).map((step) => step.job))) {
+	if (jobHasGatesLeg(ciJobBlocks.get(job) ?? [])) continue
 	problems.push(
-		`ci.yml gates run under \`if: ${CI_GATE_CONDITION}\` and no matrix entry sets \`gates: true\`.`,
+		`ci.yml job \`${job}\` has gates under \`if: ${CI_GATE_CONDITION}\` and no entry in its own \`strategy.matrix.include\` sets \`gates: true\`.`,
 		'    Those gates run on no leg, and a skipped step is green.',
+	)
+}
+// A job skipped by its own condition does not fail the run: its gates did not
+// run, and the run, and so the validated-tree record, still read as success.
+for (const job of new Set(ciSteps.map((step) => step.job))) {
+	const condition = jobIf(ciJobBlocks.get(job) ?? [])
+	if (condition === undefined) continue
+	problems.push(
+		`The ci.yml job \`${job}\` runs gates under a job-level \`if: ${condition}\`.`,
+		'    A skipped job leaves the run green, so the validated-tree record and the skip in',
+		'    release.yml would trust gates that never ran. Drop the condition.',
 	)
 }
 
@@ -255,6 +341,8 @@ for (const job of new Set(ciSteps.map((step) => step.job))) {
 // `needs`. A gate in a job it does not wait on can fail, or still be running,
 // when the record is written.
 const RECORD_JOB = 'validated-tree'
+/** The one condition the record job may carry. */
+const RECORD_CONDITION = "success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
 const recordNeeds = ciText.match(new RegExp(`^ {2}${RECORD_JOB}:\\s*\\n(?:(?: {4,}.*| *#.*|\\s*)\\n)*? {4}needs: (.+)$`, 'm'))
 if (!new RegExp(`^ {2}${RECORD_JOB}:\\s*$`, 'm').test(ciText)) {
 	problems.push(
@@ -270,6 +358,15 @@ if (!new RegExp(`^ {2}${RECORD_JOB}:\\s*$`, 'm').test(ciText)) {
 			.map((name) => name.trim())
 			.filter(Boolean),
 	)
+	const recordIf = jobIf(ciJobBlocks.get(RECORD_JOB) ?? [])
+	if (recordIf !== RECORD_CONDITION) {
+		problems.push(
+			`\`${RECORD_JOB}\` in ci.yml runs under \`if: ${recordIf ?? '(none)'}\`.`,
+			`    It runs under exactly \`${RECORD_CONDITION}\`. \`success()\` is what`,
+			'    keeps a failed, cancelled or skipped gate job from leaving a record; any other',
+			'    spelling (`!failure()`, `always()`, a missing event filter) is one this check cannot vouch for.',
+		)
+	}
 	for (const job of new Set(ciSteps.map((step) => step.job))) {
 		if (needed.has(job)) continue
 		problems.push(

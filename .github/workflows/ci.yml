@@ -417,7 +417,9 @@ jobs:
   # carry every gate (`matrix.gates` partitions them, it does not duplicate
   # them), and `docs`. `needs` on a matrix job waits for every leg, and the
   # default `success()` fails closed on any leg that failed, was cancelled or
-  # was skipped.
+  # was skipped. The parity check holds this job's `if:` to exactly the
+  # spelling below and refuses a job-level `if:` on any job that runs gates:
+  # `!failure()` would write the record over a gate job that was skipped.
   #
   # What it records is the git TREE of the commit the gates checked out, not the
   # commit. A PR run builds `refs/pull/N/merge`; when `main` has not moved by the
