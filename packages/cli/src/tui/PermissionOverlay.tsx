@@ -105,6 +105,27 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 	return `Do you want to run these ${toolCalls.length} tools?`
 }
 
+/**
+ * What the batch reaches past the turn's boundary, one line each, or none.
+ *
+ * Said above the operation rather than left to be read out of it: a path in
+ * a JSON body does not look outside the project, and a boolean named
+ * `dangerously_disable_sandbox` at the end of a long command is easy to miss.
+ */
+export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall[]): string[] {
+	const notes: string[] = []
+	if (toolCalls.some((call) => call.escalation?.sandboxEscape === true)) {
+		notes.push(
+			'Runs OUTSIDE the sandbox, on this machine. Asked every time; "allow all" never covers it.',
+		)
+	}
+	const outside = toolCalls.flatMap((call) => call.escalation?.outsidePaths ?? [])
+	if (outside.length > 0) {
+		notes.push(`Outside the working directory: ${outside.join(', ')}`)
+	}
+	return notes
+}
+
 /** The three answers; session approval applies to all tools. */
 export function permissionChoices(toolCalls: readonly PermissionToolCall[]): readonly string[] {
 	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
@@ -116,7 +137,9 @@ export function permissionChoices(toolCalls: readonly PermissionToolCall[]): rea
 	}
 	return [
 		'Yes',
-		'Yes, allow all tools for this session',
+		toolCalls.some((call) => call.escalation?.sandboxEscape === true)
+			? 'Yes, and allow other tools for this session (not sandbox escapes)'
+			: 'Yes, allow all tools for this session',
 		'No, and tell namzu what to do differently (esc)',
 	]
 }
@@ -171,6 +194,7 @@ export function PermissionOverlay({
 	const last = Math.min(rows.length, offset + pageRows)
 	const destructive = toolCalls.some((call) => call.isDestructive)
 	const choices = permissionChoices(toolCalls)
+	const escalationNotes = permissionEscalationNotes(toolCalls)
 
 	return (
 		<Box
@@ -194,6 +218,11 @@ export function PermissionOverlay({
 					{terminalDisplayText(sourceLabel)}
 				</Text>
 			) : null}
+			{escalationNotes.map((note) => (
+				<Text key={note} color={theme.status.error}>
+					{terminalDisplayText(note)}
+				</Text>
+			))}
 			<Box flexDirection="column" paddingLeft={2}>
 				{visibleRows.map((row) => (
 					<Box key={row.index} width="100%">

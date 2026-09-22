@@ -214,6 +214,7 @@ import {
 	permissionReviewPageRows,
 	permissionReviewRefusal,
 	permissionReviewRows,
+	releasedByApproveAll,
 } from './permission-review.js'
 import { describeTurnInterruption, describeTurnStop } from './turn-interruption.js'
 import { moveSelection } from './selection-window.js'
@@ -3713,7 +3714,14 @@ export function App({
 				resolve(decision)
 			}
 			if (decision.kind === 'approve-all') {
-				for (const pending of permissionQueueRef.current.splice(0)) pending.resolve(decision)
+				// A queued sandbox escape stays queued: "allow all" was answered
+				// on another prompt, and an escape is confirmed only on its own.
+				const kept: typeof permissionQueueRef.current = []
+				for (const pending of permissionQueueRef.current.splice(0)) {
+					if (releasedByApproveAll(pending.permission.toolCalls)) pending.resolve(decision)
+					else kept.push(pending)
+				}
+				permissionQueueRef.current.push(...kept)
 			}
 			const next = permissionQueueRef.current.shift()
 			setQueuedPermissionCount(permissionQueueRef.current.length)
@@ -6347,7 +6355,40 @@ export function App({
 							pushMessage('system', 'No session yet; /add-dir works once one has started.')
 							return
 						}
-						void dirs.add(slash.path).then((result) => {
+						void dirs
+							.add(slash.path, {
+								// Outside the working directory, adding it lets every file
+								// tool reach it unasked, so it is asked about once here.
+								approve: (absolute) => {
+									if (questionRef.current) {
+										pushMessage(
+											'system',
+											'Answer the open question first; /add-dir asks one of its own.',
+										)
+										return Promise.resolve(false)
+									}
+									return askQuestion({
+										questionId: `add-dir:${absolute}`,
+										question: `Let the file tools read and write ${absolute} for this session?`,
+										header: 'Outside the working directory',
+										options: [
+											{
+												id: 'yes',
+												label: 'Yes, add it',
+												description:
+													'File tools reach it without asking again; a sandboxed turn binds it read-write.',
+											},
+											{ id: 'no', label: 'No', description: 'Leave it out' },
+										],
+										multiSelect: false,
+										allowFreeText: false,
+									}).then(
+										(answer) =>
+											answer.kind === 'answer' && answer.selectedOptionIds.includes('yes'),
+									)
+								},
+							})
+							.then((result) => {
 							pushMessage(
 								'system',
 								result.added

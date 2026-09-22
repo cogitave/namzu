@@ -57,3 +57,7 @@ exemptions from silently resolving the request. The selected review policy still
 decides: prompt modes ask, strict/plan refuse, and auto or remembered approval
 can approve. Existing scoped tool grants remain prior approval; a deny rule still
 outranks them. Custom hosts providing their own handlers own those decisions.
+
+# Escalated calls
+
+A call carrying `ToolCallSummary.escalation` — a path outside the turn's roots, or a request to leave the sandbox — is always reviewed: `batchNeedsReview` is true for it and `accept-edits` does not approve it alone. A path outside the roots is then decided by the mode like any other call. A sandbox escape is asked about in every mode that does not refuse it, `auto` and a remembered `approve-all` included, and approved only with its id in `confirmedEscalations`; with no `prompt` it is refused with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL` unless `unattendedSandboxEscape: 'allow'`. See [Crossing the tool boundary](escalations.md).

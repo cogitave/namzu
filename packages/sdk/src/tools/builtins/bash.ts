@@ -66,6 +66,12 @@ const inputSchema = z.object({
 		.describe(
 			'Start the command as a background job and return its id immediately, instead of waiting. The turn is not held open; await its completion with `wait_for_job` — one call, no waiting turns. Use `job` with action "read" only for incremental output while it keeps running, or to pick up after a `wait_for_job` call times out. Use for watchers, dev servers and long builds. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
 		),
+	dangerously_disable_sandbox: z
+		.boolean()
+		.optional()
+		.describe(
+			'Run this one command on the host, outside the sandbox. Only meaningful when commands are sandboxed, and only for a command that cannot work inside it (it needs the network, a path the sandbox does not mount, a host tool). The user is asked to approve it every time, whatever the permission mode; with nobody to ask it is refused. Never set it to get around a permission refusal, and never with run_in_background.',
+		),
 })
 
 type BashInput = z.infer<typeof inputSchema>
@@ -279,6 +285,13 @@ function isDangerousCommand(command: string): boolean {
 export const SANDBOX_CANNOT_DETACH =
 	'run_in_background is unavailable: this sandbox cannot start a detached process, and the job will not be run on the host to get around it. Run the command in the foreground, or raise `timeout` up to the tool maximum.'
 
+/**
+ * The refusal when a call asks to leave the sandbox without a confirmed
+ * approval; exported so the test states the same words.
+ */
+export const SANDBOX_ESCAPE_NOT_APPROVED =
+	'dangerously_disable_sandbox was not approved for this call, so the command did not run. Leaving the sandbox needs the user to confirm it each time, and this turn either cannot ask or does not allow it. Run the command inside the sandbox, or tell the user what it needs and let them run it.'
+
 export const BashTool = defineTool({
 	name: 'bash',
 	description:
@@ -289,6 +302,9 @@ export const BashTool = defineTool({
 	// so a permission rule about it is a rule about several commands more often
 	// than not. Naming the argument is what lets the gate read it that way.
 	commandArgument: 'command',
+	// The kernel reviews a call that sets it under a sandbox every time and
+	// confirms it only by id; see `ToolDefinition.sandboxEscapeArgument`.
+	sandboxEscapeArgument: 'dangerously_disable_sandbox',
 	permissions: ['shell_execute'],
 	readOnly: false,
 	destructive: (input: BashInput) => isDangerousCommand(input.command),
@@ -306,6 +322,27 @@ export const BashTool = defineTool({
 				success: false,
 				output: '',
 				error: `Dangerous command blocked: "${input.command}"`,
+			}
+		}
+
+		// Asked to leave the sandbox. Honoured only on the executor's word that
+		// a reviewer confirmed THIS call (`sandboxEscapeApproved`); the input
+		// alone is the model's request, never the permission. Without a
+		// sandbox there is nothing to leave and the flag changes nothing.
+		const leaveSandbox = input.dangerously_disable_sandbox === true && context.sandbox !== undefined
+		if (leaveSandbox && context.sandboxEscapeApproved !== true) {
+			return {
+				success: false,
+				output: '',
+				error: SANDBOX_ESCAPE_NOT_APPROVED,
+			}
+		}
+		if (leaveSandbox && input.run_in_background) {
+			return {
+				success: false,
+				output: '',
+				error:
+					'dangerously_disable_sandbox cannot be combined with run_in_background: a job started on the host would outlive the approval given for this one call. Run it in the foreground.',
 			}
 		}
 
@@ -376,7 +413,7 @@ export const BashTool = defineTool({
 		// `SandboxExecOptions.workspaceRelativeCwd` field; the bash
 		// builtin doesn't have that requirement today.
 		const onOutput = shellProgress(context.report)
-		if (context.sandbox) {
+		if (context.sandbox && !leaveSandbox) {
 			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
 				timeout: input.timeout,
 				env: context.env,
@@ -451,7 +488,7 @@ export const BashTool = defineTool({
 			return {
 				success: true,
 				output: formatShellOutput(stdout, stderr) || '(no output)',
-				data: { exitCode: 0 },
+				data: { exitCode: 0, ...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}) },
 			}
 		} catch (err) {
 			const failure = err as NodeJS.ErrnoException & {
@@ -495,6 +532,7 @@ export const BashTool = defineTool({
 				output: output || '(no output)',
 				data: {
 					...(exitCode !== undefined ? { exitCode } : {}),
+					...(leaveSandbox ? { sandboxed: false, sandboxEscape: true } : {}),
 					timedOut,
 					stdoutTruncated: failure.stdoutTruncated ?? false,
 					stderrTruncated: failure.stderrTruncated ?? false,

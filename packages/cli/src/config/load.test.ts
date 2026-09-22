@@ -269,6 +269,8 @@ describe('semantic validation of known file settings', () => {
 		[{ permissionChecks: {} }, 'permissionChecks'],
 		[{ mcpServers: [] }, 'mcpServers'],
 		[{ sandbox: { enabled: 'yes' } }, 'sandbox.enabled'],
+		[{ sandbox: { allowEscape: 'ask' } }, 'sandbox.allowEscape'],
+		[{ sandbox: { allowUnattendedEscape: 1 } }, 'sandbox.allowUnattendedEscape'],
 		[{ sandbox: { requireIsolation: 'filesystem' } }, 'sandbox.requireIsolation'],
 		[{ sandbox: { requireIsolation: ['filesystem', 'memory'] } }, 'sandbox.requireIsolation[1]'],
 		[{ sandbox: { workspace: 'session' } }, 'sandbox.workspace'],
@@ -347,6 +349,23 @@ describe('semantic validation of known file settings', () => {
 		expect(error).toMatchObject({
 			settingPath: 'sandbox.requireIsolation[1]',
 			source: { kind: 'file', path: managedPath },
+		})
+	})
+
+	it('reads the two escape switches as written', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(
+			join(cwd, 'namzu.config.json'),
+			JSON.stringify({
+				sandbox: { enabled: true, allowEscape: false, allowUnattendedEscape: true },
+			}),
+		)
+
+		const config = loadConfig({ home: tmpdir(), cwd, env: {} })
+		expect(config.sandbox).toEqual({
+			enabled: true,
+			allowEscape: false,
+			allowUnattendedEscape: true,
 		})
 	})
 

@@ -80,6 +80,8 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.sandboxTeardownTimeoutMs !== undefined
 					? { sandboxTeardownTimeoutMs: config.sandboxTeardownTimeoutMs }
 					: {}),
+				...(config.outsideRootAccess ? { outsideRootAccess: config.outsideRootAccess } : {}),
+				...(config.sandboxEscape ? { sandboxEscape: config.sandboxEscape } : {}),
 				// Working-memory / compaction seam (optional; absent => unchanged run path).
 				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
 				...(config.workingMemoryProvider

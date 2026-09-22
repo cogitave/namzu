@@ -61,6 +61,10 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	 * hand-written definitions can use.
 	 */
 	commandArgument?: string
+	/** The argument holding a filesystem path; see {@link ToolDefinition.pathArgument}. */
+	pathArgument?: string
+	/** The argument asking to leave the sandbox; see {@link ToolDefinition.sandboxEscapeArgument}. */
+	sandboxEscapeArgument?: string
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
 }
 
@@ -80,6 +84,10 @@ export function defineTool<S extends z.ZodType>(
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
 		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
+		...(options.pathArgument !== undefined ? { pathArgument: options.pathArgument } : {}),
+		...(options.sandboxEscapeArgument !== undefined
+			? { sandboxEscapeArgument: options.sandboxEscapeArgument }
+			: {}),
 		...(options.presentCall ? { presentCall: options.presentCall } : {}),
 		...(options.presentResult ? { presentResult: options.presentResult } : {}),
 		...(options.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),

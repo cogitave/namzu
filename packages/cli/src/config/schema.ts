@@ -328,14 +328,39 @@ export type SessionExportRedactorName = 'secrets'
 
 export interface SandboxConfig {
 	/**
-	 * Run commands inside a sandbox. Default `true`.
+	 * Run commands inside an OS sandbox.
 	 *
-	 * Setting it to `false` is a real choice with a real reason — a host
-	 * that provides its own isolation, or a platform where the sandbox
-	 * cannot start — and it is announced on startup rather than assumed.
-	 * It is not a way to make a failing sandbox quiet.
+	 * Off by default: commands and file tools run on this machine, under the
+	 * permission prompts, the way other coding agents run them — a shell
+	 * command is reviewed before it runs, and a file tool's path outside the
+	 * working directory and the added directories is an approval request,
+	 * not a refusal. `true` confines each command to the working directory
+	 * and the added directories, with the network cut where the platform can
+	 * cut it; whatever the sandbox cannot reach then needs `/add-dir` or a
+	 * per-command escape the user approves.
+	 *
+	 * Unset, it is on when `requireIsolation` names a control or `workspace`
+	 * is `ephemeral`: both only mean anything inside a sandbox, and dropping
+	 * a requirement because a switch was left at its default is the silent
+	 * downgrade this key exists to prevent. The resolved state is announced
+	 * on startup either way.
 	 */
 	readonly enabled?: boolean
+	/**
+	 * Whether a sandboxed `bash` call may ask to run one command outside the
+	 * sandbox (`dangerously_disable_sandbox`). Default `true`: the request is
+	 * put to the user every time — in every permission mode, `auto` and
+	 * `--yolo` included — and written to the session's audit trail. `false`
+	 * refuses every such request.
+	 */
+	readonly allowEscape?: boolean
+	/**
+	 * Whether that escape may be granted with nobody to ask (a headless or
+	 * `--print` turn, a drained turn). Default `false`: an unattended escape
+	 * is refused. `true` grants it without a prompt, on the audit record;
+	 * set it only for a host where leaving the sandbox is already decided.
+	 */
+	readonly allowUnattendedEscape?: boolean
 	/**
 	 * Controls this machine must actually enforce, or the CLI refuses to
 	 * start.

@@ -20,9 +20,32 @@ import type { SandboxConfig } from '../config/schema.js'
  * to every command the model chose to run. The isolation the docs
  * described held on no path.
  *
- * On by default now. What it enforces is a property of the machine, and
- * this module's other job is to make sure nobody has to guess which.
+ * It was then turned on by default, and that default is reversed again, on
+ * purpose and for a different reason: on a machine where the sandbox binds
+ * only the working directory and cuts the network, a coding agent could not
+ * read a file the user pointed it at, reach a package registry, or run a
+ * host tool, and every one of those failures read to the model like a wall.
+ * The default is now host execution under the permission system — each shell
+ * command reviewed, each path outside the working directory an approval
+ * request — and the sandbox is the opt-in (`sandbox.enabled: true`) for an
+ * operator who wants commands confined. What it enforces when on is a
+ * property of the machine, and this module's other job is to make sure
+ * nobody has to guess which.
  */
+
+/**
+ * Whether the operator asked for the sandbox.
+ *
+ * `enabled` decides when it is written. Unset, a `requireIsolation` that names
+ * a control or an `ephemeral` workspace turns it on: both only mean something
+ * inside a sandbox, and silently dropping a stated requirement because a
+ * switch sat at its default is the downgrade `requireIsolation` exists to
+ * make impossible.
+ */
+export function sandboxRequested(config: SandboxConfig | undefined): boolean {
+	if (config?.enabled !== undefined) return config.enabled
+	return (config?.requireIsolation?.length ?? 0) > 0 || config?.workspace === 'ephemeral'
+}
 
 /**
  * What a reader needs to know about the sandbox, without the live provider.
@@ -76,10 +99,12 @@ export interface ResolvedSandbox extends SandboxSummary {
  * answer than the true one.
  */
 export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): ResolvedSandbox {
-	if (config?.enabled === false) {
+	if (!sandboxRequested(config)) {
 		return {
 			notice:
-				"Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.",
+				config?.enabled === false
+					? "Sandbox off by configuration: commands and file tools run on this machine, with this shell's environment, under the permission prompts; a path outside the working directory asks before it is used. Set `sandbox.enabled: true` to confine commands."
+					: "Sandbox off (the default): commands and file tools run on this machine, with this shell's environment, under the permission prompts; a path outside the working directory asks before it is used. Set `sandbox.enabled: true` to confine commands.",
 			unconfined: true,
 			enforced: [],
 			required: (config?.requireIsolation ?? []) as readonly SandboxIsolationControl[],

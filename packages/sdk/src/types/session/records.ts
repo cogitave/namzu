@@ -523,9 +523,9 @@ export const AuditRecordSchema = recordSchema('audit', {
 	tool: text.min(1).optional(),
 	/** What the action targeted when that is narrower than the tool, for example a guardrail's name. */
 	resource: text.min(1).optional(),
-	outcome: z.enum(['success', 'failure', 'refused']),
+	outcome: z.enum(['success', 'failure', 'refused', 'approved']),
 	cost: CostInfoSchema.optional(),
-	/** Present on `refused` and `failure`. */
+	/** Present on `refused`, `failure` and `approved`. */
 	reason: text.optional(),
 	/** The active span when the entry was recorded; both or neither. */
 	traceId: text.min(1).optional(),

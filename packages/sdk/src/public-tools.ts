@@ -15,7 +15,14 @@ export { defineTool } from './tools/defineTool.js'
 // Containment, for a host or sibling package that resolves caller-supplied
 // paths against a root. Both were internal while three call sites outside
 // this file needed them.
-export { isWithin, resolveWithin, resolveWithinReal } from './tools/paths.js'
+export {
+	OUTSIDE_ROOTS_GUIDANCE,
+	isWithin,
+	pathOutsideRoots,
+	resolveWithin,
+	resolveWithinReal,
+	toolRoots,
+} from './tools/paths.js'
 // A host that surfaces its own untrusted content to a model needs the same
 // framing the kernel applies to connector prompts and delegated results — and
 // the reader for it, because a screen that judges a result has to reach past
@@ -40,7 +47,7 @@ export { builtinCommandArguments, commandArgumentOf } from './tools/command-argu
 export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
 export { EditTool } from './tools/builtins/edit.js'
-export { BashTool } from './tools/builtins/bash.js'
+export { BashTool, SANDBOX_ESCAPE_NOT_APPROVED } from './tools/builtins/bash.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './tools/builtins/lsp.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'

@@ -178,7 +178,7 @@ session hook, task and sandbox bookkeeping — may omit it.
 | `decision_expired` | `decisionId` |
 | `compaction` | `compactionId`, `strategy`, `trigger` (`auto`/`manual`), `replacesSeqRange`, `summary` (messages, or a spill), `keptMessageIds`, `pinned?`, `tokensBefore`, `tokensAfter` |
 | `child_session_ended` | `childSessionId`, `status`, `stopReason?`, `resultMessageId?`, `usage`, `cost`; `turnId` optional (below) |
-| `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure` or `refused`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
+| `audit` | `auditId`, `actor`, `persona?`, `action`, `tool?`, `resource?`, `outcome` (`success`, `failure`, `refused` or `approved`), `cost?`, `reason?`, `traceId?` and `spanId?` (together or not at all) |
 | `budget_bound` | `rootSessionId`, `rootTurnId`, `accountId` |
 | `log_repaired` | `truncatedBytes`, `lastGoodSeq` |
 

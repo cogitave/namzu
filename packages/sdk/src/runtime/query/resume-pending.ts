@@ -5,6 +5,7 @@ import type {
 	CheckpointId,
 	HITLDecisionRequest,
 	HITLResumeDecision,
+	ToolCallEscalation,
 	ToolCallSummary,
 } from '../../types/hitl/index.js'
 import type { MessageId } from '../../types/ids/index.js'
@@ -62,6 +63,8 @@ export interface PendingResumePlan {
 	readonly reviewedCalls?: readonly ToolCallSummary[]
 	/** Calls whose raw input the human replaced in the durable decision. */
 	readonly modifiedCallIds?: ReadonlySet<string>
+	/** Calls whose sandbox escape the durable decision confirmed; see `HITLResumeDecision`. */
+	readonly confirmedEscalations?: readonly string[]
 	/**
 	 * Answers to deliver to tools that parked on a question, keyed by the
 	 * asking call's id. Present only on a question resume.
@@ -144,6 +147,10 @@ export function planPendingResume(
 		denials,
 		reviewedCalls: pending.request.toolCalls,
 		modifiedCallIds: modifiedCallIds(decision),
+		...((decision.action === 'approve_tools' || decision.action === 'modify_tools') &&
+		decision.confirmedEscalations
+			? { confirmedEscalations: decision.confirmedEscalations }
+			: {}),
 	}
 }
 
@@ -464,12 +471,35 @@ export async function applyPendingResume(
 				'The durable review predates bound authorization metadata; review this call again before execution.'
 		}
 
+		reason ??= escalationRefusal(
+			call.escalation,
+			reviewed,
+			wasModified,
+			plan.confirmedEscalations,
+			call.id,
+		)
+
 		if (reason) {
 			denials.set(call.id, reason)
 			await recorder.recordAudit({
-				what: { action: 'tool_call', tool: call.name },
+				what: { action: call.escalation ? 'sandbox_escape' : 'tool_call', tool: call.name },
 				outcome: 'refused',
 				reason,
+			})
+			continue
+		}
+		if (call.escalation?.sandboxEscape) {
+			await recorder.recordAudit({
+				what: { action: 'sandbox_escape', tool: call.name },
+				outcome: 'approved',
+				reason: 'the reviewer confirmed this call by id, answered across a restart',
+			})
+		}
+		for (const path of call.escalation?.outsidePaths ?? []) {
+			await recorder.recordAudit({
+				what: { action: 'outside_root_access', tool: call.name, resource: path },
+				outcome: 'approved',
+				reason: "the turn's review approved this call, answered across a restart",
 			})
 		}
 	}
@@ -481,6 +511,39 @@ export async function applyPendingResume(
 	for (const msg of batch.messages) {
 		recorder.pushMessage(msg)
 	}
+}
+
+/**
+ * Why a re-prepared call's escalation may not run on a durable decision, or
+ * `undefined` when the decision covers it.
+ *
+ * The approval was given to what the reviewer was SHOWN. A call re-prepared
+ * in this process may reach further than that — a directory was removed
+ * from the session, a hook rewrote the path — and the decision says nothing
+ * about the difference. So every path it reaches must have been in the
+ * reviewed escalation, an escape must have been shown AND confirmed by id,
+ * and a call nobody reviewed, or whose input was modified afterwards, gets
+ * no escalation at all.
+ */
+export function escalationRefusal(
+	escalation: ToolCallEscalation | undefined,
+	reviewed: ToolCallSummary | undefined,
+	wasModified: boolean,
+	confirmed: readonly string[] | undefined,
+	id: string,
+): string | undefined {
+	if (!escalation) return undefined
+	const refusal =
+		"Refused after resume: this call reaches past the turn's boundary, and the durable approval does not cover what it reaches now. Ask for the approval again."
+	if (!reviewed || wasModified) return refusal
+	const shown = reviewed.escalation
+	for (const path of escalation.outsidePaths ?? []) {
+		if (!shown?.outsidePaths?.includes(path)) return refusal
+	}
+	if (escalation.sandboxEscape && (!shown?.sandboxEscape || !confirmed?.includes(id))) {
+		return 'Refused after resume: running this command outside the sandbox needs a person to confirm it for this call, and the durable approval did not.'
+	}
+	return undefined
 }
 
 function modifiedCallIds(decision: HITLResumeDecision): ReadonlySet<string> {

@@ -70,6 +70,9 @@ export const LspTool = defineTool({
 		'Resolves a symbol through a language server: where it is declared, and everywhere it is used. Use it instead of grep when the answer has to be right — grep finds the identifier in comments and strings and misses call sites that come through a re-export.',
 	inputSchema,
 	category: 'filesystem',
+	// Declared so a path outside the turn's roots can be reviewed before the
+	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
+	pathArgument: 'path',
 	permissions: ['file_read'],
 	readOnly: true,
 	destructive: false,

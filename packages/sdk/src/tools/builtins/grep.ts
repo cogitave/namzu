@@ -94,6 +94,9 @@ export const GrepTool = defineTool({
 		'Searches file contents using a regular expression. Returns matching lines with file paths, line numbers, and optional context lines. Searches incrementally with a bounded traversal; identifies incomplete searches. Skips binary files, files over 5 MB, and symlinks. Choose the narrowest relevant directory.',
 	inputSchema,
 	category: 'analysis',
+	// Declared so a path outside the turn's roots can be reviewed before the
+	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
+	pathArgument: 'path',
 	permissions: ['file_read'],
 	readOnly: true,
 	destructive: false,

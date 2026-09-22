@@ -66,7 +66,7 @@ export function resolveWithinPosix(root: string, candidate: string | undefined):
 	const rel = relativePosix(root, resolved)
 	if (rel.startsWith('..')) {
 		throw new Error(
-			`Path escapes the working directory: ${candidate}. Tools may only reach inside ${root}.`,
+			`Path escapes the working directory: ${candidate}. Inside this sandbox the file tools reach only ${root}; nothing else is mounted, so no spelling of the path will be found. Ask the user to add the directory to the session (a later sandboxed turn binds it), rather than retrying.`,
 		)
 	}
 	return resolved

@@ -357,6 +357,28 @@ export interface ToolContext {
 	 * directory; an absolute path inside any of these is accepted.
 	 */
 	additionalDirectories?: readonly string[]
+	/**
+	 * Absolute paths outside the working directory and the added directories
+	 * that THIS call was approved to reach.
+	 *
+	 * Set by the executor only for a call a review approved after the
+	 * kernel named these paths in it (`ToolCallSummary.escalation`), and only
+	 * when the turn asked for that (`QueryParams.outsideRootAccess:
+	 * 'review'`). The file tools treat each as one more root for this call
+	 * alone; nothing here widens the next call. Absent is the ordinary case:
+	 * a path outside the roots is refused.
+	 */
+	approvedPaths?: readonly string[]
+	/**
+	 * This call was approved to run outside the turn's sandbox.
+	 *
+	 * Set by the executor only when a reviewer CONFIRMED the escape for this
+	 * call by id (`HITLResumeDecision.confirmedEscalations`) and the turn
+	 * allows escapes at all (`QueryParams.sandboxEscape: 'review'`). A tool
+	 * that offers an escape honours it only when this is `true`, and refuses
+	 * the request otherwise.
+	 */
+	sandboxEscapeApproved?: boolean
 	abortSignal: AbortSignal
 	env: Record<string, string>
 	log: (level: 'info' | 'warn' | 'error', message: string) => void
@@ -715,6 +737,27 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * chaining — has nothing to decompose and must not claim otherwise.
 	 */
 	commandArgument?: string
+	/**
+	 * The argument that holds a filesystem path the tool resolves against the
+	 * turn's roots (the working directory and the added directories).
+	 *
+	 * Declared so the kernel can see, BEFORE the call runs, that it names a
+	 * path outside those roots and turn it into an approval request instead
+	 * of a refusal (`QueryParams.outsideRootAccess: 'review'`). A tool that
+	 * does not declare it keeps refusing such a path at execution, which is
+	 * the safe direction to be wrong in.
+	 */
+	pathArgument?: string
+	/**
+	 * The boolean argument by which a call asks to run outside the turn's
+	 * sandbox, when the tool offers that at all (the shipped `bash` does).
+	 *
+	 * A call that sets it under a sandbox is always reviewed, is never
+	 * approved by a mode, a remembered grant or an `allow` rule, and runs
+	 * unconfined only when a reviewer confirmed it by id. See
+	 * `ToolContext.sandboxEscapeApproved`.
+	 */
+	sandboxEscapeArgument?: string
 	execute(input: TInput, context: ToolContext): Promise<ToolResult>
 	tier?: string
 	permissions?: ToolPermission[]

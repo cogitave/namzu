@@ -132,15 +132,38 @@ export function isReviewExempt(
 
 export type ReviewExemption = (name: string, input: unknown) => boolean
 
-/** Review explicit requests and calls that are destructive or not exempt. */
+/**
+ * Review explicit requests, escalated calls, and calls that are destructive
+ * or not exempt.
+ *
+ * An escalated call (`ToolCallSummary.escalation`) is reviewed even when its
+ * tool only reads: a read of a file outside the working directory is exactly
+ * the read the boundary was about, and "the tool is read-only" answers a
+ * different question.
+ */
 export function batchNeedsReview(
 	toolCalls: readonly ToolCallSummary[],
 	exempt: ReviewExemption,
 ): boolean {
 	return toolCalls.some(
-		(tc) => tc.authorization?.explicitReview || tc.isDestructive || !exempt(tc.name, tc.input),
+		(tc) =>
+			tc.authorization?.explicitReview ||
+			tc.escalation !== undefined ||
+			tc.isDestructive ||
+			!exempt(tc.name, tc.input),
 	)
 }
+
+/**
+ * What the model is told when a batch asks to leave the sandbox and nobody
+ * can be asked.
+ *
+ * The whole batch is refused rather than the escape alone: the policy
+ * answers for the batch as a unit, and approving its other calls while the
+ * one that needed a person is dropped would run a plan with a hole in it.
+ */
+export const SANDBOX_ESCAPE_UNATTENDED_REFUSAL =
+	'Refused: a call in this batch asks to run outside the sandbox, which needs a person to confirm it each time, and nobody can be asked in this session. Nothing in this batch ran. Run the command inside the sandbox, or resend the other calls without the escape.'
 
 /** The batch a person is asked about. */
 export interface ToolReviewRequest {
@@ -173,6 +196,17 @@ export interface ReviewPolicyOptions {
 	 * read the same fact; omitted, the policy keeps one privately.
 	 */
 	readonly remembered?: { all: boolean }
+	/**
+	 * What happens to a sandbox escape when there is no `prompt`.
+	 *
+	 * `'refuse'` (the default) refuses the batch: an escape is consented to by
+	 * a person, per call, and a turn with nobody to ask has no one to consent.
+	 * `'allow'` confirms it without asking, for an unattended host whose
+	 * operator decided in configuration that its commands may leave the
+	 * sandbox. With a `prompt` this is not consulted: the person is asked,
+	 * in every mode that does not refuse the call outright.
+	 */
+	readonly unattendedSandboxEscape?: 'refuse' | 'allow'
 }
 
 /** The handler behind `createReviewPolicy`, for a host that wants only the function. */
@@ -200,6 +234,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			request.toolCalls.every(
 				(tc) =>
 					!tc.authorization?.explicitReview &&
+					tc.escalation === undefined &&
 					!tc.isDestructive &&
 					(ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
 			)
@@ -210,6 +245,37 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// state or carry explicit review; plan mode does not grant that authority.
 		if (mode === 'plan') return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
+		// A sandbox escape is asked about every time, in every mode that got
+		// this far — `auto` and a remembered "approve all" included, because
+		// both are answers somebody gave BEFORE this command existed. The
+		// kernel refuses an escape an approval does not name by id, so the
+		// ids below are the consent, and only a person (or an operator's
+		// explicit unattended setting) supplies them.
+		const escapes = request.toolCalls
+			.filter((tc) => tc.escalation?.sandboxEscape === true)
+			.map((tc) => tc.id)
+		if (escapes.length > 0) {
+			if (!prompt) {
+				return options.unattendedSandboxEscape === 'allow'
+					? { action: 'approve_tools', confirmedEscalations: escapes }
+					: { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
+			}
+			const answer = await prompt({
+				sessionId: request.sessionId,
+				turnId: request.turnId,
+				toolCalls: request.toolCalls,
+			})
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? 'User declined to run the proposed tool(s).',
+				}
+			}
+			// "Approve all" still latches for the calls that follow; it never
+			// reaches the next escape, which is asked about above regardless.
+			if (answer.kind === 'approve-all') remembered.all = true
+			return { action: 'approve_tools', confirmedEscalations: escapes }
+		}
 		if (mode === 'auto' || !prompt || remembered.all) {
 			return { action: 'approve_tools' }
 		}

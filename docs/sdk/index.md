@@ -49,6 +49,7 @@ The kernel.
 * [Delegation events](delegation-events.md) - What the kernel says when a turn delegates to a child session, which fields a host may act on, which are captions for a screen, and what the logs keep.
 * [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks (`turn_start`, `turn_end`, `session_start`, …), what each carries, which can answer with a verdict, and the JSON a shell hook reads on stdin.
 * [The review policy](review-policy.md) - The five modes a turn resolves undecided tool calls under, which calls skip review, and how a host supplies the person to ask.
+* [Crossing the tool boundary](escalations.md) - A file tool's path outside the turn's roots, or a command outside its sandbox, as a reviewed question: `outsideRootAccess`, `sandboxEscape`, `confirmedEscalations` and the audit records.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 
 * [Session log](session-log.md) - The one append-only, hash-chained JSONL file per session: record schema, turn rules, the fold, and the layout under NAMZU_HOME.

@@ -888,12 +888,16 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as {
 			enabled?: unknown
+			allowEscape?: unknown
+			allowUnattendedEscape?: unknown
 			requireIsolation?: unknown
 			workspace?: unknown
 			teardownTimeoutMs?: unknown
 		}
-		if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
-			return invalidConfigValue(context, ['enabled'], 'must be a boolean')
+		for (const key of ['enabled', 'allowEscape', 'allowUnattendedEscape'] as const) {
+			if (raw[key] !== undefined && typeof raw[key] !== 'boolean') {
+				return invalidConfigValue(context, [key], 'must be a boolean')
+			}
 		}
 		if (raw.requireIsolation !== undefined && !Array.isArray(raw.requireIsolation)) {
 			return invalidConfigValue(context, ['requireIsolation'], 'must be a list')
@@ -933,7 +937,11 @@ const CONFIG_READERS: ConfigReaders = {
 			)
 		}
 		return {
-			...(raw.enabled !== undefined ? { enabled: raw.enabled } : {}),
+			...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+			...(raw.allowEscape !== undefined ? { allowEscape: raw.allowEscape as boolean } : {}),
+			...(raw.allowUnattendedEscape !== undefined
+				? { allowUnattendedEscape: raw.allowUnattendedEscape as boolean }
+				: {}),
 			...(requireIsolation !== undefined
 				? {
 						requireIsolation: requireIsolation as readonly ('filesystem' | 'network' | 'process')[],

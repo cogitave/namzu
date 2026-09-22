@@ -327,16 +327,24 @@ session. In particular, `sandbox yes` describes the local runtime provider that
 will execute tools; it is independent of the optional-package installation row
 reported by `namzu doctor`.
 
-The coding session defaults that provider to the canonical working directory.
+Tools run on the host under the permission system by default: each shell
+command goes through the permission rules and mode, and a file tool's path
+outside the working directory is an approval request rather than a refusal.
+The OS sandbox is opt-in with `sandbox.enabled: true`; a sandboxed `bash` call
+may ask to run one command outside it, and that request is put to you every
+time, in every permission mode, and refused when nobody can be asked. See
+`docs/cli/tool-boundary.md`.
+
+With the sandbox on, the provider defaults to the canonical working directory.
 Each turn owns and tears down a fresh sandbox handle, while the caller-owned
 project files survive and remain visible to later turns and delegated agents.
 Set `sandbox.workspace` to `ephemeral` only when a disposable per-turn tree is
 the intended behavior; `/status` reports which mode is active.
 
-The default sandbox exposes Bash as a foreground, serialized operation. It does
-not advertise the background-job tool or a `run_in_background` input that the
-sandbox cannot preserve. Use delegated agents for independent concurrent work;
-turning the sandbox off restores the host background-job capability.
+A sandbox that cannot start a detached process exposes Bash as a foreground,
+serialized operation and refuses `run_in_background`. Use delegated agents for
+independent concurrent work; host execution keeps the background-job
+capability.
 
 Ctrl+L clears only the rendered terminal transcript while idle. It preserves
 model context, durable conversation history and copy/export targets; an active

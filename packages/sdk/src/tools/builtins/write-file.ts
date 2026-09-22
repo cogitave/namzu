@@ -77,6 +77,9 @@ export const WriteFileTool = defineTool({
 	validationErrorHint:
 		'Required shape: {"path":"file.md","content":"complete file body"}. Pass the whole body, not a diff.',
 	category: 'filesystem',
+	// Declared so a path outside the turn's roots can be reviewed before the
+	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
+	pathArgument: 'path',
 	permissions: ['file_write'],
 	readOnly: false,
 	destructive: true,

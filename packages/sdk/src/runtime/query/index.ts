@@ -483,6 +483,35 @@ export interface QueryParams {
 	 * `ToolContext.additionalDirectories`.
 	 */
 	additionalDirectories?: readonly string[]
+	/**
+	 * What a file tool's path outside `workingDirectory` and
+	 * `additionalDirectories` becomes, on a turn with no sandbox.
+	 *
+	 * `'refuse'` (the default) keeps the boundary a refusal the tool returns.
+	 * `'review'` makes it a question asked before the call runs: the call is
+	 * marked (`ToolCallSummary.escalation.outsidePaths`), routed to the
+	 * turn's review even when its tool only reads and even where an `allow`
+	 * rule or a remembered grant would have covered it, and — once approved
+	 * — reaches exactly the named paths for that call alone. A `deny` rule
+	 * still refuses it. The review's own mode decides it, so a turn whose
+	 * policy approves everything approves these too, on the audit record.
+	 *
+	 * Only tools that declare `pathArgument` are looked at; a sandboxed turn
+	 * is never, because the path is not mounted there to be reached.
+	 */
+	outsideRootAccess?: 'refuse' | 'review'
+	/**
+	 * Whether a call may ask to run outside the turn's sandbox (the shipped
+	 * `bash` tool's `dangerously_disable_sandbox`).
+	 *
+	 * `'refuse'` (the default) refuses every such request. `'review'` routes
+	 * it to the turn's review every time; it runs unconfined only when the
+	 * decision confirms its id (`HITLResumeDecision.confirmedEscalations`),
+	 * which `createReviewHandler` does only after asking a person, or with
+	 * `unattendedSandboxEscape: 'allow'`. Every confirmation and refusal is
+	 * written to the audit trail.
+	 */
+	sandboxEscape?: 'refuse' | 'review'
 	pricing?: ModelPricing
 	enableActivityTracking?: boolean
 	messages: Message[]
@@ -1161,6 +1190,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 				...(params.additionalDirectories?.length
 					? { additionalDirectories: params.additionalDirectories }
 					: {}),
+				...(params.outsideRootAccess ? { outsideRootAccess: params.outsideRootAccess } : {}),
+				...(params.sandboxEscape ? { sandboxEscape: params.sandboxEscape } : {}),
 				permissionMode: () => ctx.permissionMode.current,
 				env: turnConfig.env ?? {},
 				abortSignal: ctx.abortController.signal,

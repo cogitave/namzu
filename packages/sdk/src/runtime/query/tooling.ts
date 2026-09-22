@@ -27,6 +27,10 @@ export interface ToolingBootstrapConfig {
 	workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
+	/** See `QueryParams.outsideRootAccess`. */
+	outsideRootAccess?: 'refuse' | 'review'
+	/** See `QueryParams.sandboxEscape`. */
+	sandboxEscape?: 'refuse' | 'review'
 	/** A resolver, so an approval inside a turn can change it. See the executor. */
 	permissionMode: PermissionMode | (() => PermissionMode)
 	env: Record<string, string>
@@ -82,6 +86,8 @@ export class ToolingBootstrap {
 				...(config.additionalDirectories?.length
 					? { additionalDirectories: config.additionalDirectories }
 					: {}),
+				...(config.outsideRootAccess ? { outsideRootAccess: config.outsideRootAccess } : {}),
+				...(config.sandboxEscape ? { sandboxEscape: config.sandboxEscape } : {}),
 				permissionMode: config.permissionMode,
 				env: config.env,
 				abortSignal: config.abortSignal,

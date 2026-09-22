@@ -27,8 +27,26 @@ export type HITLResumeDecision =
 			 * only way out was a blanket grant that also covered `rm -rf`.
 			 */
 			remember?: readonly string[]
+			/**
+			 * Ids of calls whose sandbox escape a reviewer confirmed.
+			 *
+			 * A call that asks to leave the sandbox
+			 * (`ToolCallSummary.escalation.sandboxEscape`) runs unconfined only
+			 * when its id is here. An approval that does not list it refuses
+			 * that call and runs the rest, so a policy that answers
+			 * `approve_tools` to everything — an auto mode, a remembered
+			 * "approve all", a host's own blanket handler — cannot grant an
+			 * escape by accident. `createReviewHandler` fills it only after a
+			 * person said yes to a batch that showed the escape.
+			 */
+			confirmedEscalations?: readonly string[]
 	  }
-	| { action: 'modify_tools'; modifications: ToolModification[] }
+	| {
+			action: 'modify_tools'
+			modifications: ToolModification[]
+			/** See the `approve_tools` field of the same name. */
+			confirmedEscalations?: readonly string[]
+	  }
 	| { action: 'reject_tools'; feedback: string }
 	| {
 			action: 'answer_question'
@@ -99,6 +117,33 @@ export interface ToolCallSummary {
 		/** A matching rule requested review; read-only exemptions must not bypass it. */
 		explicitReview?: true
 	}
+	/**
+	 * What this call reaches beyond the turn's ordinary boundary, as the
+	 * kernel found it in the prepared input. Absent for the ordinary call.
+	 *
+	 * A call carrying one is always reviewed: an `allow` rule, a remembered
+	 * grant, a read-only declaration and `accept-edits` all decline to
+	 * approve it on their own. A `deny` rule still refuses it outright.
+	 */
+	escalation?: ToolCallEscalation
+}
+
+/** See {@link ToolCallSummary.escalation}. */
+export interface ToolCallEscalation {
+	/**
+	 * Absolute paths the call names outside the working directory and the
+	 * added directories. Present only when the turn reviews such paths
+	 * (`QueryParams.outsideRootAccess: 'review'`) and runs without a sandbox;
+	 * an approval lets this call, and only this call, reach them.
+	 */
+	outsidePaths?: readonly string[]
+	/**
+	 * The call asks to run outside the turn's sandbox. Present only when the
+	 * turn has a sandbox and allows escapes (`QueryParams.sandboxEscape:
+	 * 'review'`). Honoured only when the decision lists the call's id in
+	 * `confirmedEscalations`.
+	 */
+	sandboxEscape?: true
 }
 
 export interface ToolModification {

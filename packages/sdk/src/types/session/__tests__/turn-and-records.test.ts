@@ -202,8 +202,8 @@ describe('a record between turns and the audit trail', () => {
 		expect(SessionRecordSchema.safeParse(between).success).toBe(true)
 	})
 
-	it('accepts only the three audit outcomes, and a trace link only whole', () => {
-		for (const outcome of ['success', 'failure', 'refused']) {
+	it('accepts only the four audit outcomes, and a trace link only whole', () => {
+		for (const outcome of ['success', 'failure', 'refused', 'approved']) {
 			expect(SessionRecordSchema.safeParse(audit({ outcome })).success, outcome).toBe(true)
 		}
 		expect(SessionRecordSchema.safeParse(audit({ outcome: 'allowed' })).success).toBe(false)

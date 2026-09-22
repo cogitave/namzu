@@ -40,6 +40,9 @@ export const ReadFileTool = defineTool({
 		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files. Without a window it returns the first 2000 lines and says so — pass offset/limit to continue.',
 	inputSchema,
 	category: 'filesystem',
+	// Declared so a path outside the turn's roots can be reviewed before the
+	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
+	pathArgument: 'path',
 	permissions: ['file_read'],
 	readOnly: true,
 	destructive: false,

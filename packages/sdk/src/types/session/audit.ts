@@ -11,8 +11,14 @@ import type { TurnExecutionStatus } from './turn.js'
  * a guardrail block each produced nothing durable with cost/outcome/identity
  * attached — the one outcome an auditor most needs was the one absent from
  * the trail. See ses_020's logging design §5.
+ *
+ * `'approved'` is its counterpart for an action that crossed a boundary with
+ * consent: a path outside the working directory a review approved, a command
+ * a reviewer confirmed outside the sandbox. Like `'refused'` it is one action
+ * inside an open turn, never the turn's verdict, so {@link replayAudit} skips
+ * it.
  */
-export type AuditOutcome = 'success' | 'failure' | 'refused'
+export type AuditOutcome = 'success' | 'failure' | 'refused' | 'approved'
 
 /**
  * Who acted, in the compliance-audit sense: the actor's identity and the
@@ -91,7 +97,7 @@ export interface AuditEvent {
 	readonly what: AuditAction
 	readonly outcome: AuditOutcome
 	readonly cost: CostInfo
-	/** Present on `'refused'` and `'failure'` — the reason a reader needs. */
+	/** Present on `'refused'`, `'failure'` and `'approved'` — the reason a reader needs. */
 	readonly reason?: string
 	/**
 	 * The active span's identity at the moment this entry was recorded —

@@ -28,23 +28,69 @@ export function resolveWithin(root: string, candidate: string | undefined): stri
 	// different drive on Windows); a leading `..` means it climbed out.
 	if (rel.startsWith('..') || isAbsolute(rel)) {
 		throw new Error(
-			`Path escapes the working directory: ${candidate}. Tools may only reach inside ${resolvedRoot}.`,
+			`Path escapes the working directory: ${candidate}. ${OUTSIDE_ROOTS_GUIDANCE(`inside ${resolvedRoot}`)}`,
 		)
 	}
 	return resolved
 }
 
-/** True when `candidate` resolves inside `root`. */
+/**
+ * What a refusal says after naming the path: where the tools DO reach, and
+ * how that is widened.
+ *
+ * It used to end at "Tools may only reach inside X", which reads as a wall.
+ * It is not one: a host can add a directory to the session, and a host that
+ * reviews such paths (`QueryParams.outsideRootAccess: 'review'`) turns them
+ * into an approval request before the tool ever runs, so a model that meets
+ * this text is in a turn where that did not happen. Told only "may only", a
+ * model either rewords the path forever or tells the user the file cannot be
+ * read at all; told the route, it asks for the directory.
+ */
+export const OUTSIDE_ROOTS_GUIDANCE = (reach: string): string =>
+	`This turn's file tools reach ${reach}. The boundary is the session's, not the file system's: ask the user to add the directory to the session (or approve the path, where the host asks), rather than retrying another spelling of the same path.`
+
 /**
  * The directories a tool may reach: the working directory first, then any
- * the host added for the session (`/add-dir`). Relative paths resolve
- * against the first; an absolute path is accepted inside any.
+ * the host added for the session (`/add-dir`), then any path a review
+ * approved for THIS call (`ToolContext.approvedPaths`). Relative paths
+ * resolve against the first; an absolute path is accepted inside any.
  */
 export function toolRoots(context: {
 	readonly workingDirectory: string
 	readonly additionalDirectories?: readonly string[]
+	readonly approvedPaths?: readonly string[]
 }): readonly string[] {
-	return [context.workingDirectory, ...(context.additionalDirectories ?? [])]
+	return [
+		context.workingDirectory,
+		...(context.additionalDirectories ?? []),
+		...(context.approvedPaths ?? []),
+	]
+}
+
+/**
+ * The absolute path `candidate` names when it lies outside every root, or
+ * `undefined` when a tool would accept it as it stands.
+ *
+ * Decided with {@link resolveWithinAnyReal} — the resolver the file tools
+ * run — so the review and the execution cannot disagree about which side of
+ * the boundary a path is on, symlinks included. The returned path is the
+ * lexical one, which is what {@link toolRoots} is then handed: a link inside
+ * the working directory that points outside is approved under the name the
+ * reviewer saw.
+ */
+export async function pathOutsideRoots(
+	roots: readonly string[],
+	candidate: string | undefined,
+): Promise<string | undefined> {
+	if (candidate === undefined || candidate === '') return undefined
+	const [first] = roots
+	if (first === undefined) return undefined
+	try {
+		await resolveWithinAnyReal(roots, candidate)
+		return undefined
+	} catch {
+		return resolve(resolve(first), candidate)
+	}
 }
 
 function describeRoots(roots: readonly string[]): string {
@@ -69,7 +115,7 @@ export function resolveWithinAny(roots: readonly string[], candidate: string | u
 		if (isWithin(root, resolved)) return resolveWithin(root, resolved)
 	}
 	throw new Error(
-		`Path escapes the working directory: ${candidate}. Tools may only reach ${describeRoots(roots)}.`,
+		`Path escapes the working directory: ${candidate}. ${OUTSIDE_ROOTS_GUIDANCE(describeRoots(roots))}`,
 	)
 }
 
@@ -94,7 +140,7 @@ export async function resolveWithinAnyReal(
 		}
 	}
 	throw new Error(
-		`Path escapes the working directory: ${candidate}. Tools may only reach ${describeRoots(roots)}.`,
+		`Path escapes the working directory: ${candidate}. ${OUTSIDE_ROOTS_GUIDANCE(describeRoots(roots))}`,
 		{ cause: firstError },
 	)
 }
@@ -182,7 +228,7 @@ export async function resolveWithinReal(
 	const rel = relative(realRoot, existing)
 	if (rel.startsWith('..') || isAbsolute(rel)) {
 		throw new Error(
-			`Path escapes the working directory: ${candidate}. It resolves through a link to ${existing}, outside ${realRoot}.`,
+			`Path escapes the working directory: ${candidate}. It resolves through a link to ${existing}, outside ${realRoot}. ${OUTSIDE_ROOTS_GUIDANCE(`inside ${realRoot}`)}`,
 		)
 	}
 

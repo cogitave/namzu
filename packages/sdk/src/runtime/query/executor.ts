@@ -12,7 +12,9 @@ import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
+import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
+import type { ToolCallEscalation } from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -106,11 +108,14 @@ export interface PreparedToolBatch {
 		readonly id: string
 		readonly name: string
 		readonly input: unknown
+		/** What the prepared value reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
+		readonly escalation?: ToolCallEscalation
 	}[]
 }
 
 interface OwnedPreparedToolBatch extends PreparedToolBatch {
 	readonly calls: ReadonlyMap<string, PreparedDirectCall>
+	readonly escalations: ReadonlyMap<string, ToolCallEscalation>
 }
 
 function assertUniqueToolCallIds(toolCalls: readonly ToolCall[]): void {
@@ -299,6 +304,10 @@ export interface ToolExecutorConfig {
 	workingDirectory: string
 	/** See `ToolContext.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
+	/** See `QueryParams.outsideRootAccess`. Default `'refuse'`. */
+	outsideRootAccess?: 'refuse' | 'review'
+	/** See `QueryParams.sandboxEscape`. Default `'refuse'`. */
+	sandboxEscape?: 'refuse' | 'review'
 	/**
 	 * Read LIVE, not frozen at turn start.
 	 *
@@ -759,10 +768,56 @@ export class ToolExecutor {
 	async prepareBatchForReview(response: ChatCompletionResponse): Promise<PreparedToolBatch> {
 		assertUniqueToolCallIds(response.message.toolCalls ?? [])
 		const calls = new Map<string, PreparedDirectCall>()
+		const escalations = new Map<string, ToolCallEscalation>()
 		for (const toolCall of response.message.toolCalls ?? []) {
-			calls.set(toolCall.id, await prepareDirectCall(this.admissionHost(), toolCall))
+			const call = await prepareDirectCall(this.admissionHost(), toolCall)
+			calls.set(toolCall.id, call)
+			const escalation = await this.escalationOf(call)
+			if (escalation) escalations.set(toolCall.id, escalation)
 		}
-		return this.publishPreparedBatch(calls)
+		return this.publishPreparedBatch(calls, escalations)
+	}
+
+	/**
+	 * What a prepared call reaches past the turn's boundary, decided on the
+	 * value that will execute — after repairs and pre-tool hooks, so a hook
+	 * that rewrites a path is reviewed under the path it wrote.
+	 *
+	 * Each half is computed only when the turn asked for it; with neither,
+	 * this is `undefined` for every call and the tools refuse as they always
+	 * have. Paths are looked at only without a sandbox: inside one the tools
+	 * resolve against the sandbox's own root, and a host path outside the
+	 * roots is not mounted there to be approved. The escape is looked at only
+	 * WITH one, since without one there is nothing to escape.
+	 */
+	private async escalationOf(call: PreparedDirectCall): Promise<ToolCallEscalation | undefined> {
+		if (call.kind === 'synthetic') return undefined
+		const tool = this.config.tools.get(call.toolName)
+		if (!tool || call.input === null || typeof call.input !== 'object') return undefined
+		const input = call.input as Record<string, unknown>
+		const sandboxed = this.config.sandbox !== undefined
+		let outsidePaths: string[] | undefined
+		if (
+			this.config.outsideRootAccess === 'review' &&
+			!sandboxed &&
+			tool.pathArgument !== undefined
+		) {
+			const value = input[tool.pathArgument]
+			if (typeof value === 'string') {
+				const outside = await pathOutsideRoots(toolRoots(this.config), value)
+				if (outside !== undefined) outsidePaths = [outside]
+			}
+		}
+		const sandboxEscape =
+			this.config.sandboxEscape === 'review' &&
+			sandboxed &&
+			tool.sandboxEscapeArgument !== undefined &&
+			input[tool.sandboxEscapeArgument] === true
+		if (!outsidePaths && !sandboxEscape) return undefined
+		return {
+			...(outsidePaths ? { outsidePaths } : {}),
+			...(sandboxEscape ? { sandboxEscape: true as const } : {}),
+		}
 	}
 
 	/** Re-prepare only calls whose raw input a reviewer actually changed. */
@@ -776,28 +831,41 @@ export class ToolExecutor {
 			throw new Error('Prepared tool batch is not owned by this executor.')
 		}
 		const calls = new Map((previous as OwnedPreparedToolBatch).calls)
+		const escalations = new Map((previous as OwnedPreparedToolBatch).escalations)
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
-				calls.set(toolCall.id, await prepareDirectCall(this.admissionHost(), toolCall))
+				const call = await prepareDirectCall(this.admissionHost(), toolCall)
+				calls.set(toolCall.id, call)
+				const escalation = await this.escalationOf(call)
+				if (escalation) escalations.set(toolCall.id, escalation)
+				else escalations.delete(toolCall.id)
 			}
 		}
-		return this.publishPreparedBatch(calls)
+		return this.publishPreparedBatch(calls, escalations)
 	}
 
-	private publishPreparedBatch(calls: ReadonlyMap<string, PreparedDirectCall>): PreparedToolBatch {
+	private publishPreparedBatch(
+		calls: ReadonlyMap<string, PreparedDirectCall>,
+		escalations: ReadonlyMap<string, ToolCallEscalation>,
+	): PreparedToolBatch {
 		const reviewCalls = [...calls.values()]
 			.filter(
 				(call): call is Exclude<PreparedDirectCall, { kind: 'synthetic' }> =>
 					call.kind !== 'synthetic',
 			)
-			.map((call) => ({
-				id: call.toolCall.id,
-				name: call.toolName,
-				input: call.input,
-			}))
+			.map((call) => {
+				const escalation = escalations.get(call.toolCall.id)
+				return {
+					id: call.toolCall.id,
+					name: call.toolName,
+					input: call.input,
+					...(escalation ? { escalation } : {}),
+				}
+			})
 		const batch: OwnedPreparedToolBatch = Object.freeze({
 			reviewCalls: Object.freeze(reviewCalls),
 			calls: new Map(calls),
+			escalations: new Map(escalations),
 		})
 		this.preparedBatches.add(batch)
 		return batch
@@ -952,10 +1020,18 @@ export class ToolExecutor {
 				toolUseId: toolCall.id as ToolUseId,
 				toolName: toolCall.function.name,
 			})
+			// Reached only by a call that was not denied, and a call carrying an
+			// escalation cannot skip review (`runToolReview` routes it to a
+			// decision, and refuses an escape the decision did not confirm), so
+			// this grants what a reviewer approved for THIS call and nothing
+			// more. A batch executed without a preparation carries none.
+			const escalation = preparedBatch?.escalations.get(toolCall.id)
 			const ctx: ToolContext = {
 				...baseContext,
 				toolUseId: toolCall.id,
 				...(toolBatchId ? { toolBatchId } : {}),
+				...(escalation?.outsidePaths ? { approvedPaths: escalation.outsidePaths } : {}),
+				...(escalation?.sandboxEscape ? { sandboxEscapeApproved: true } : {}),
 				source: { kind: 'direct' },
 				// Overridden per call, so a nested dispatch can name the call
 				// that made it. The base context has no `toolUseId`, and a
@@ -1179,8 +1255,18 @@ export class ToolExecutor {
 			return { success: false, output: '', error: reason }
 		}
 
-		const { toolBatchId: directBatch, ...contextWithoutDirectBatch } = context
+		// A review approved the PARENT's escalation, as the parent's input
+		// showed it. A nested call is a different call nobody reviewed, so it
+		// inherits neither the parent's approved paths nor its sandbox escape.
+		const {
+			toolBatchId: directBatch,
+			approvedPaths: parentPaths,
+			sandboxEscapeApproved: parentEscape,
+			...contextWithoutDirectBatch
+		} = context
 		void directBatch
+		void parentPaths
+		void parentEscape
 		const childContext: ToolContext = {
 			...contextWithoutDirectBatch,
 			abortSignal: signal,

@@ -209,6 +209,9 @@ export const LsTool = defineTool({
 		'Lists directory contents. Shows files and directories with sizes. Supports recursive listing with depth limit, and hidden file display.',
 	inputSchema,
 	category: 'filesystem',
+	// Declared so a path outside the turn's roots can be reviewed before the
+	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
+	pathArgument: 'path',
 	permissions: ['file_read'],
 	readOnly: true,
 	destructive: false,

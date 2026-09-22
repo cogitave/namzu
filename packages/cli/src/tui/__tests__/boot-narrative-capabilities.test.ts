@@ -119,7 +119,7 @@ describe('the aggregate runtime capability row', () => {
 		vi.mocked(probeCapabilities).mockResolvedValueOnce(allAbsent())
 		const records = capturingSink()
 
-		const opened = await session()
+		const opened = await session({ sandbox: { enabled: true } })
 
 		const summary = records.find(
 			(record) =>
@@ -127,6 +127,19 @@ describe('the aggregate runtime capability row', () => {
 		)
 		expect(opened.sandbox.unconfined).toBeTypeOf('boolean')
 		expect(summary?.body).toBe('sandbox yes · files no · computer-use no · telemetry no')
+	})
+
+	it('reports sandbox no by default, since the sandbox is opt-in', async () => {
+		vi.mocked(probeCapabilities).mockResolvedValueOnce(allAbsent())
+		const records = capturingSink()
+
+		await session()
+
+		const summary = records.find(
+			(record) =>
+				record.eventName === 'namzu.capability.detected' && record.severityText === 'info',
+		)
+		expect(summary?.body).toBe('sandbox no · files no · computer-use no · telemetry no')
 	})
 
 	it('reports sandbox no when configuration actually disabled the runtime provider', async () => {

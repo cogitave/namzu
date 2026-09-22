@@ -67,6 +67,10 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	sandboxProvider?: SandboxProvider
 	/** See {@link QueryParams.sandboxTeardownTimeoutMs}. */
 	sandboxTeardownTimeoutMs?: number
+	/** See {@link QueryParams.outsideRootAccess}. Default `'refuse'`. */
+	outsideRootAccess?: 'refuse' | 'review'
+	/** See {@link QueryParams.sandboxEscape}. Default `'refuse'`. */
+	sandboxEscape?: 'refuse' | 'review'
 
 	/**
 	 * Optional structured-compaction config. Omitted ⇒ byte-identical run path

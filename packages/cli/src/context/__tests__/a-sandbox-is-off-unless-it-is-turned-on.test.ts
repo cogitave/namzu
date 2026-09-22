@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { resolveSandbox, sandboxResolvedSeverity } from '../sandbox.js'
+import { resolveSandbox, sandboxRequested, sandboxResolvedSeverity } from '../sandbox.js'
 
 /**
- * `sandboxProvider` appeared zero times in this package, so
- * `context.sandbox` was always undefined and every command ran in the host
- * process with the host environment. The docs described isolation that
- * held on no path.
+ * The CLI runs tools on the host under the permission system by default, and
+ * the OS sandbox is the opt-in. It was on by default for a while; on a machine
+ * where it binds only the working directory and cuts the network, a coding
+ * agent could not read a file the user named, reach a registry or run a host
+ * tool, so the default moved back — see the note at the top of `sandbox.ts`.
  *
  * These tests are about which way the default falls and whether an
  * operator can find out what they actually got — not about what any one
@@ -26,30 +27,47 @@ function stubLogger(): never {
 }
 
 describe('the sandbox for a turn', () => {
-	it('is on when nothing is configured', () => {
-		// The whole point. Absent used to mean off, and not by decision.
+	it('is off when nothing is configured, and says how to turn it on', () => {
 		const resolved = resolveSandbox(stubLogger(), undefined)
+
+		expect(resolved.provider).toBeUndefined()
+		expect(resolved.unconfined).toBe(true)
+		expect(resolved.workspace).toBe('host')
+		expect(resolved.notice).toMatch(/the default/)
+		expect(resolved.notice).toContain('sandbox.enabled: true')
+		// Host execution is not unreviewed execution, and the notice says so.
+		expect(resolved.notice).toMatch(/permission prompts/)
+	})
+
+	it('is on when the operator turns it on', () => {
+		const resolved = resolveSandbox(stubLogger(), { enabled: true })
 
 		expect(resolved.provider).toBeDefined()
 		expect(resolved.workspace).toBe('working-directory')
 		expect(resolved.notice).toMatch(/persist across turns/i)
 	})
 
-	it('is on when the config names only an isolation requirement', () => {
-		const resolved = resolveSandbox(stubLogger(), { requireIsolation: [] })
-
-		expect(resolved.provider).toBeDefined()
-	})
-
-	it('is off only when the operator says so, and says why it is off', () => {
+	it('is off when turned off explicitly, and says it was the configuration', () => {
 		const resolved = resolveSandbox(stubLogger(), { enabled: false })
 
 		expect(resolved.provider).toBeUndefined()
 		expect(resolved.unconfined).toBe(true)
-		// A refusal a reader cannot act on is a dead end. The notice names
-		// the setting to change.
+		expect(resolved.notice).toMatch(/off by configuration/)
 		expect(resolved.notice).toContain('sandbox.enabled')
 		expect(resolved.workspace).toBe('host')
+	})
+
+	it('is requested by a named requirement or a disposable workspace, never dropped silently', () => {
+		// Pure, so it is asserted on every machine: resolving a requirement
+		// this machine cannot meet would throw, which is a different test.
+		expect(sandboxRequested(undefined)).toBe(false)
+		expect(sandboxRequested({ requireIsolation: [] })).toBe(false)
+		expect(sandboxRequested({ requireIsolation: ['network'] })).toBe(true)
+		expect(sandboxRequested({ workspace: 'ephemeral' })).toBe(true)
+		expect(sandboxRequested({ workspace: 'working-directory' })).toBe(false)
+		// An explicit switch wins over what the other keys imply.
+		expect(sandboxRequested({ enabled: false, requireIsolation: ['network'] })).toBe(false)
+		expect(sandboxRequested({ enabled: true })).toBe(true)
 	})
 
 	it('names an explicit disposable workspace honestly', () => {
@@ -62,8 +80,8 @@ describe('the sandbox for a turn', () => {
 	it('always produces a notice, including when it is on', () => {
 		// Silence on the happy path is how "isolated" becomes an assumption
 		// rather than something the operator was told.
-		const on = resolveSandbox(stubLogger(), undefined)
-		const off = resolveSandbox(stubLogger(), { enabled: false })
+		const on = resolveSandbox(stubLogger(), { enabled: true })
+		const off = resolveSandbox(stubLogger(), undefined)
 
 		expect(on.notice.length).toBeGreaterThan(0)
 		expect(off.notice.length).toBeGreaterThan(0)
@@ -74,7 +92,7 @@ describe('the sandbox for a turn', () => {
 		// is emphatically not protection. Whichever this machine is, the two
 		// fields have to agree — a notice saying "not confined" beside
 		// `unconfined: false` would be the surface lying about its own state.
-		const resolved = resolveSandbox(stubLogger(), undefined)
+		const resolved = resolveSandbox(stubLogger(), { enabled: true })
 
 		if (resolved.unconfined) {
 			expect(resolved.notice).toMatch(/not confined/i)
@@ -91,7 +109,7 @@ describe('the sandbox for a turn', () => {
 		// Skipped rather than asserted when this machine happens to enforce
 		// everything: a test that passes because the platform is generous
 		// proves nothing about the refusal.
-		const probe = resolveSandbox(stubLogger(), undefined)
+		const probe = resolveSandbox(stubLogger(), { enabled: true })
 		if (!probe.unconfined && !probe.notice.includes('NOT enforcing')) return
 
 		expect(() =>
@@ -133,7 +151,7 @@ describe('the sandbox-resolved boot record', () => {
 		// One assertion tying the pure mapping back to whatever THIS machine's
 		// resolveSandbox actually returns, so the two cannot silently diverge
 		// in meaning even though they are tested independently above.
-		const resolved = resolveSandbox(stubLogger(), undefined)
+		const resolved = resolveSandbox(stubLogger(), { enabled: true })
 		expect(sandboxResolvedSeverity(resolved)).toBe(resolved.unconfined ? 'warn' : 'info')
 	})
 })

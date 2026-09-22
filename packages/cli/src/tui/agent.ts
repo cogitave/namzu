@@ -88,6 +88,7 @@ import {
 	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
+	type ToolCallEscalation,
 	type ToolCallView,
 	type ToolDefinition,
 	type ToolPresenter,
@@ -154,13 +155,19 @@ import {
 	unmatchedPassthroughTools,
 } from '../config/tool-result-screens.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
+import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
 	NAMZU_ORCHESTRATE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
-import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
+import {
+	type ExecutionBoundary,
+	composeEnvironmentPrompt,
+	detectWsl,
+	readEnvironmentFacts,
+} from '../context/environment.js'
 import { ProjectInstructionTracker } from '../context/project-tracker.js'
 import {
 	type ResolvedSandbox,
@@ -496,6 +503,8 @@ export interface PermissionToolCall {
 	/** Exact detached input the kernel prepared and the approval covers. */
 	readonly input: unknown
 	readonly isDestructive: boolean
+	/** What the call reaches past the turn's boundary; see `ToolCallSummary.escalation`. */
+	readonly escalation?: ToolCallEscalation
 }
 
 /** The batch a person is asked about — the kernel's `ToolReviewRequest`. */
@@ -2013,6 +2022,36 @@ export async function createAgentSession(
 		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.SANDBOX_RESOLVED,
 		'namzu.sandbox.unconfined': sandbox.unconfined,
 	})
+	// The two boundaries a turn can be asked to cross, as questions rather
+	// than refusals. A path outside the working directory is reviewed on a
+	// host turn (the kernel looks only when there is no sandbox, since a
+	// sandboxed path is not mounted to be reached). A sandboxed command's
+	// escape is reviewed unless the operator turned escapes off; it is
+	// confirmed only by a person, or by `allowUnattendedEscape`.
+	const sandboxEscape: 'refuse' | 'review' =
+		options.sandbox?.allowEscape === false ? 'refuse' : 'review'
+	const escalation = { outsideRootAccess: 'review' as const, sandboxEscape }
+	const unattendedSandboxEscape: 'refuse' | 'allow' =
+		options.sandbox?.allowUnattendedEscape === true ? 'allow' : 'refuse'
+	// Read once: whether this is WSL does not change inside a session.
+	const wsl = detectWsl()
+	// Whether the last send had somebody to answer a prompt. A child's
+	// environment is composed outside any send, so it reads this.
+	let lastSendInteractive = false
+	const boundaryFor = (interactive: boolean): ExecutionBoundary => ({
+		...(sandbox.provider && sandbox.environment
+			? { sandbox: { environment: sandbox.environment, enforced: sandbox.enforced } }
+			: {}),
+		escape:
+			sandboxEscape === 'refuse'
+				? 'refused'
+				: interactive
+					? 'ask'
+					: unattendedSandboxEscape === 'allow'
+						? 'unattended'
+						: 'refused',
+		interactive,
+	})
 	// Always built: the executor hands it to the tools only where it is
 	// safe — on the host, or inside a sandbox that can start a detached
 	// process — so a session under a sandbox that cannot simply has none.
@@ -2031,24 +2070,7 @@ export async function createAgentSession(
 		const absolute = resolve(cwd, dir)
 		if (absolute !== resolve(cwd) && !directories.includes(absolute)) directories.push(absolute)
 	}
-	const sessionDirectories: SessionDirectories = {
-		list: () => [...directories],
-		add: async (path) => {
-			const absolute = resolve(cwd, path)
-			if (absolute === resolve(cwd))
-				return {
-					added: false,
-					path: absolute,
-					reason: 'That is the working directory.',
-				}
-			if (directories.includes(absolute))
-				return { added: false, path: absolute, reason: 'Already added.' }
-			const entry = await stat(absolute).catch(() => null)
-			if (!entry?.isDirectory()) return { added: false, path: absolute, reason: 'Not a directory.' }
-			directories.push(absolute)
-			return { added: true, path: absolute }
-		},
-	}
+	const sessionDirectories: SessionDirectories = createSessionDirectories(cwd, directories)
 	// `/restore` snapshots live with the conversation they belong to
 	// (`<session-id>/file-history/`), not in a tree of their own.
 	const checkpoints = new FileCheckpointStore(
@@ -2367,6 +2389,9 @@ export async function createAgentSession(
 			...(options.sandbox?.teardownTimeoutMs !== undefined
 				? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
 				: {}),
+			// A child is reviewed through its parent's channel, so the same two
+			// questions reach the same person — or the same refusal.
+			...escalation,
 			// A sub-agent works in the same repository and writes the same code,
 			// so it is bound by the same instructions. Without this the parent
 			// honours the project's rules and every task it delegates quietly
@@ -2376,7 +2401,12 @@ export async function createAgentSession(
 			// Same argument as the instructions, one step further: a sub-agent that
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
-			readEnvironment: async () => composeEnvironmentPrompt(await readEnvironmentFacts(cwd)),
+			readEnvironment: async () =>
+				composeEnvironmentPrompt({
+					...(await readEnvironmentFacts(cwd)),
+					boundary: boundaryFor(lastSendInteractive),
+					...(wsl ? { wsl } : {}),
+				}),
 			// Each child has its own provider instance, never the parent's fallback cursor.
 			resolveModel: async (request, signal) => {
 				const resolution = await resolveModelSwitch(request, {
@@ -2849,6 +2879,8 @@ export async function createAgentSession(
 			const environmentPrompt = composeEnvironmentPrompt({
 				...(await readEnvironmentFacts(cwd)),
 				additionalDirectories: [...directories],
+				boundary: boundaryFor(false),
+				...(wsl ? { wsl } : {}),
 			})
 			const systemPrompt =
 				[
@@ -2867,6 +2899,7 @@ export async function createAgentSession(
 				undefined,
 				options.permissionMode,
 				(name, input) => isPromptExempt(registry, name, input),
+				{ unattendedSandboxEscape },
 			)
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
@@ -2940,6 +2973,7 @@ export async function createAgentSession(
 					...(systemPrompt ? { systemPrompt } : {}),
 					workingDirectory: cwd,
 					...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+					...escalation,
 					// No `onPermission`: there is nobody at a drainer's terminal, so a
 					// prompt would block the pass forever on a turn nobody is watching.
 					// The gate's deny rules still apply.
@@ -3209,11 +3243,13 @@ export async function createAgentSession(
 					const turnLimits = resolveTurnGuards(options.limits, opts?.limits)
 					const turnOpts: SendOptions = { ...opts, signal }
 					let runTools = registry
+					lastSendInteractive = opts?.onPermission !== undefined
 					const resumeHandler = makeResumeHandler(
 						approval,
 						opts?.onPermission,
 						opts?.permissionMode ?? options.permissionMode,
 						(name, input) => isPromptExempt(runTools, name, input),
+						{ unattendedSandboxEscape },
 					)
 					const turnScope = { ...scope }
 					// The turn's id is reserved here, before the kernel begins it, because
@@ -3286,6 +3322,8 @@ export async function createAgentSession(
 						const environmentPrompt = composeEnvironmentPrompt({
 							...environmentFacts,
 							additionalDirectories: [...directories],
+							boundary: boundaryFor(opts?.onPermission !== undefined),
+							...(wsl ? { wsl } : {}),
 						})
 						// The repository as it stood when THIS turn began, through the
 						// SDK's `context` placement — request-only context after the
@@ -3454,6 +3492,7 @@ export async function createAgentSession(
 								claimTurn,
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+								escalation,
 								limits: turnLimits,
 								sandboxWorkspace,
 								rules: options.rules,
@@ -3981,14 +4020,7 @@ export interface SessionScope {
 }
 
 /** What `/add-dir` talks to. */
-export interface SessionDirectories {
-	list(): readonly string[]
-	add(path: string): Promise<{
-		readonly added: boolean
-		readonly path: string
-		readonly reason?: string
-	}>
-}
+export type { SessionDirectories } from '../context/directories.js'
 
 /** The newest user turn's text, for labels. */
 function lastUserText(messages: readonly Message[]): string {
@@ -4137,6 +4169,11 @@ interface TurnParams {
 	readonly workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */
 	readonly additionalDirectories?: readonly string[]
+	/** See `QueryParams.outsideRootAccess` and `QueryParams.sandboxEscape`. */
+	readonly escalation?: {
+		readonly outsideRootAccess: 'refuse' | 'review'
+		readonly sandboxEscape: 'refuse' | 'review'
+	}
 	/** See `NamzuCliConfig.limits`. */
 	readonly limits?: TurnLimitsConfig
 	/** The project tree a sandboxed turn is rooted at. */
@@ -4205,6 +4242,7 @@ async function* runTurn({
 	workingDirectory,
 	limits,
 	additionalDirectories,
+	escalation,
 	sandboxWorkspace,
 	rules,
 	structuredOutput,
@@ -4298,6 +4336,7 @@ async function* runTurn({
 			...(completionInbox ? { completionInbox } : {}),
 			workingDirectory,
 			...(additionalDirectories?.length ? { additionalDirectories } : {}),
+			...(escalation ?? {}),
 			// The exemption reads `tools` at decision time, so it sees the task
 			// tools `query()` registers deferred below and any tool server that
 			// connected after this session was built.
@@ -4395,12 +4434,17 @@ export function makeResumeHandler(
 	onPermission: PermissionFn | undefined,
 	mode: PermissionMode = onPermission ? 'prompt' : 'auto',
 	exempt: (name: string, input: unknown) => boolean = () => false,
+	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' } = {},
 ): ResumeHandler {
 	return createReviewHandler({
 		mode,
 		prompt: onPermission,
 		exempt,
 		remembered: approval,
+		// Refused unless the operator wrote `sandbox.allowUnattendedEscape`: a
+		// session with nobody to ask has nobody to consent to leaving the
+		// sandbox, and `auto` is not consent to a command it never showed.
+		unattendedSandboxEscape: escapePolicy.unattendedSandboxEscape ?? 'refuse',
 	})
 }
 

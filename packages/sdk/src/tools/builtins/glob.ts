@@ -61,6 +61,9 @@ export const GlobTool = defineTool({
 		'Finds regular files by glob pattern in a bounded search. "*" searches one directory; use "**" explicitly for recursive discovery. Returns at most 500 paths and identifies incomplete searches. Does not follow symlinks.',
 	inputSchema,
 	category: 'filesystem',
+	// Declared so a path outside the turn's roots can be reviewed before the
+	// call runs, rather than refused after. See `ToolDefinition.pathArgument`.
+	pathArgument: 'path',
 	permissions: ['file_read'],
 	readOnly: true,
 	destructive: false,

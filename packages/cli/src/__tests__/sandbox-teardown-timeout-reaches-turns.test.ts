@@ -98,7 +98,7 @@ it('passes sandbox.teardownTimeoutMs to live and resumed kernel runs', async () 
 	const { createAgentSession } = await import('../tui/agent.js')
 	const session = await createAgentSession(prefs, detected, {
 		cwd,
-		sandbox: { teardownTimeoutMs: 37 },
+		sandbox: { enabled: true, teardownTimeoutMs: 37 },
 	})
 
 	for await (const _event of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {

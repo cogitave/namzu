@@ -85,6 +85,7 @@ export async function* runToolReview(
 		return calls.map((tc) => {
 			const tool = ctx.tools.get(tc.name)
 			const isDestructive = tool?.isDestructive ? tool.isDestructive(tc.input) : false
+			const escalation = 'escalation' in tc ? tc.escalation : undefined
 
 			return {
 				id: tc.id,
@@ -92,10 +93,13 @@ export async function* runToolReview(
 				input: tc.input,
 				isDestructive,
 				authorization: { decision: 'review' },
+				...(escalation ? { escalation } : {}),
 			}
 		})
 	}
 	let toolCallSummaries = summariesFor(preparedBatch)
+	const escalated = (): ToolCallSummary[] =>
+		toolCallSummaries.filter((tc) => tc.escalation !== undefined)
 
 	/**
 	 * A call that has failed identically too many times in a row is answered
@@ -220,7 +224,20 @@ export async function* runToolReview(
 				toolDef: ctx.tools.get(tc.name),
 			}),
 		}))
-		for (const { toolCall, gateResult } of gateResults) {
+		for (const gr of gateResults) {
+			// An `allow` rule was written about a tool, not about a path outside
+			// the working directory or a command outside the sandbox, which
+			// were refused outright when it was written. So an escalated call
+			// is a question even where a rule would allow the tool; a `deny`
+			// still refuses it, because a deny is never widened.
+			if (gr.toolCall.escalation && gr.gateResult.decision === 'allow') {
+				gr.gateResult = {
+					decision: 'review',
+					matchedRule: gr.gateResult.matchedRule,
+					reason: `${gr.gateResult.reason}; but this call reaches past the turn's boundary, which a rule cannot approve on its own`,
+				}
+			}
+			const { toolCall, gateResult } = gr
 			toolCall.authorization = {
 				decision: gateResult.decision,
 				...(gateResult.reason ? { reason: gateResult.reason } : {}),
@@ -282,9 +299,14 @@ export async function* runToolReview(
 	// the widest option available: `bash: git status` re-prompted on every
 	// batch forever, and the only escape was a blanket session grant that
 	// also covered every destructive call.
+	//
+	// Except an escalated call: a grant is remembered at the scope of a tool
+	// or a command, and neither says anything about a path outside the
+	// working directory or a run outside the sandbox.
 	if (
 		ctx.toolGrants &&
 		gateDenied.size === 0 &&
+		escalated().length === 0 &&
 		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))
 	) {
 		ctx.log.debug('Every tool call is covered by an approval already granted', {
@@ -312,6 +334,50 @@ export async function* runToolReview(
 		checkpointId: reviewCheckpoint.id,
 		toolCalls: toolCallSummaries,
 	})
+
+	/**
+	 * The escalations this decision lets through, on the record, and the
+	 * escapes it did not confirm, refused.
+	 *
+	 * An approval that does not name an escape by id is not consent to it:
+	 * `approve_tools` is also what an auto mode, a remembered "approve all"
+	 * and a host's blanket handler answer, and none of those showed anybody
+	 * the escape. Refusing it here, beside the executor that would honour it,
+	 * makes that hold for every policy rather than for the shipped one only.
+	 */
+	const settleEscalations = async (
+		denials: Map<string, string>,
+		confirmed: readonly string[] | undefined,
+	): Promise<void> => {
+		for (const tc of escalated()) {
+			if (denials.has(tc.id)) continue
+			if (tc.escalation?.sandboxEscape && !confirmed?.includes(tc.id)) {
+				const reason =
+					'Refused: running this command outside the sandbox needs a person to confirm it for this call, and this approval did not. Run it inside the sandbox, or ask the user to approve the escape when they can be asked.'
+				denials.set(tc.id, reason)
+				await ctx.recorder.recordAudit({
+					what: { action: 'sandbox_escape', tool: tc.name },
+					outcome: 'refused',
+					reason,
+				})
+				continue
+			}
+			if (tc.escalation?.sandboxEscape) {
+				await ctx.recorder.recordAudit({
+					what: { action: 'sandbox_escape', tool: tc.name },
+					outcome: 'approved',
+					reason: 'the reviewer confirmed this call by id',
+				})
+			}
+			for (const path of tc.escalation?.outsidePaths ?? []) {
+				await ctx.recorder.recordAudit({
+					what: { action: 'outside_root_access', tool: tc.name, resource: path },
+					outcome: 'approved',
+					reason: "the turn's review approved this call",
+				})
+			}
+		}
+	}
 
 	switch (reviewDecision.action) {
 		case 'reject_tools': {
@@ -389,6 +455,7 @@ export async function* runToolReview(
 				}
 			}
 
+			await settleEscalations(denials, reviewDecision.confirmedEscalations)
 			const everythingDenied = denials.size === toolCalls.length
 			await settle(denials)
 			yield* ctx.drainPending()
@@ -444,9 +511,14 @@ export async function* runToolReview(
 			// `gateDenied` is non-empty only on the gate's mixed-decision
 			// path. Passing it here is what stops a human "approve" from
 			// executing calls the gate refused.
-			await settle(gateDenied)
+			const denials = new Map(gateDenied)
+			await settleEscalations(
+				denials,
+				reviewDecision.action === 'approve_tools' ? reviewDecision.confirmedEscalations : undefined,
+			)
+			await settle(denials)
 			yield* ctx.drainPending()
-			return finish('executed')
+			return finish(denials.size === toolCalls.length ? 'rejected' : 'executed')
 		}
 
 		case 'approve_plan':
@@ -458,7 +530,9 @@ export async function* runToolReview(
 			ctx.log.warn('Unexpected plan decision during tool review', {
 				'namzu.runtime.action': reviewDecision.action,
 			})
-			await settle(gateDenied)
+			const denials = new Map(gateDenied)
+			await settleEscalations(denials, undefined)
+			await settle(denials)
 			yield* ctx.drainPending()
 			return finish('executed')
 		}

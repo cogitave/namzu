@@ -23,6 +23,21 @@ export function permissionReviewPageRows(terminalRows: number | undefined): numb
 	return Math.min(24, Math.max(PERMISSION_REVIEW_PAGE_ROWS, rows - 18))
 }
 
+/**
+ * Whether an "allow all" answered on one prompt may also answer this queued
+ * one, which nobody has seen yet.
+ *
+ * Not for a call that leaves the sandbox. The kernel asks about each of
+ * those every time and releases one only for a person who confirmed it; a
+ * queued prompt settled by an answer given to a DIFFERENT prompt would hand
+ * it a confirmation for a command that was never on screen.
+ */
+export function releasedByApproveAll(
+	toolCalls: readonly { readonly escalation?: { readonly sandboxEscape?: true } }[],
+): boolean {
+	return !toolCalls.some((call) => call.escalation?.sandboxEscape === true)
+}
+
 export interface PermissionReviewCall {
 	readonly id: string
 	readonly name: string
@@ -331,13 +346,20 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 
 function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 	if (name === 'bash' && isRecord(input)) {
-		const allowed = new Set(['command', 'timeout', 'run_in_background'])
+		const allowed = new Set([
+			'command',
+			'timeout',
+			'run_in_background',
+			'dangerously_disable_sandbox',
+		])
 		const keys = Object.keys(input)
 		const shapeIsKnown =
 			keys.every((key) => allowed.has(key)) &&
 			typeof input.command === 'string' &&
 			(input.timeout === undefined || typeof input.timeout === 'number') &&
-			(input.run_in_background === undefined || typeof input.run_in_background === 'boolean')
+			(input.run_in_background === undefined || typeof input.run_in_background === 'boolean') &&
+			(input.dangerously_disable_sandbox === undefined ||
+				typeof input.dangerously_disable_sandbox === 'boolean')
 		if (shapeIsKnown) {
 			return {
 				lines: [
@@ -348,6 +370,9 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 					...(input.timeout !== undefined ? [`timeout: ${String(input.timeout)} ms`] : []),
 					...(input.run_in_background !== undefined
 						? [`background: ${input.run_in_background ? 'yes' : 'no'}`]
+						: []),
+					...(input.dangerously_disable_sandbox === true
+						? ['sandbox: OFF for this command (runs on the host)']
 						: []),
 				],
 				complete: true,

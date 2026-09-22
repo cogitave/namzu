@@ -875,7 +875,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					role: 'system',
 					content:
 						dirs.length === 0
-							? 'No added directories. The file tools reach the working directory only. /add-dir <path> adds one for this session; `additionalDirectories` in the config file adds one for every session.'
+							? 'No added directories. The file tools reach the working directory without asking; a path elsewhere is asked about call by call (refused inside the sandbox). /add-dir <path> adds one for this session, after asking when it is outside the working directory; `additionalDirectories` in the config file adds one for every session.'
 							: `Added directories (reachable by absolute path, bound into the sandbox):\n${dirs.map((d) => `  ${d}`).join('\n')}`,
 				}
 			}

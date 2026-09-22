@@ -144,7 +144,7 @@ describe('createAgentSession runs where it is told to', () => {
 	)
 
 	it.runIf(process.platform !== 'win32')(
-		'hands background jobs and the default sandbox to the same turn',
+		'hands background jobs and an opted-in sandbox to the same turn',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
 			const parentScope = await scope()
@@ -152,6 +152,7 @@ describe('createAgentSession runs where it is told to', () => {
 				cwd: workDir,
 				stateRoot,
 				scope: parentScope,
+				sandbox: { enabled: true },
 			})
 
 			try {
@@ -220,6 +221,7 @@ describe('createAgentSession runs where it is told to', () => {
 			cwd: workDir,
 			stateRoot,
 			scope: await scope(),
+			sandbox: { enabled: true },
 		})
 		expect(session.hasProvider).toBe(true)
 
