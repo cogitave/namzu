@@ -25,12 +25,33 @@
  *   - is `.github/workflows/ci.yml`,
  *   - completed with conclusion `success`,
  *   - was triggered by `pull_request` or `merge_group`, and
- *   - ran from this repository, never a fork.
+ *   - ran from this repository, never a fork, and
+ *   - ran the `ci.yml` that `main` now carries: the blob of
+ *     `.github/workflows/ci.yml` at the run's `head_sha` is the blob at the
+ *     pushed commit (`--ci-blob`), and for a `merge_group` run the tree of
+ *     `head_sha` is the tree asked about.
  *
- * The fork rule is the one that matters. A `pull_request` run takes its
- * workflow file from the merge ref, so a fork can rewrite `ci.yml` to upload
- * the record without running a gate. Its run's head repository is the fork, and
- * that is what rejects it.
+ * ## Why the provenance of the run is not enough
+ *
+ * The artifact's NAME is whatever the workflow that ran chose to write, and a
+ * `pull_request` run executes the PR's own copy of `ci.yml`. The fork rule
+ * stops a fork's rewritten copy: its run's head repository is the fork. It
+ * does not stop a write collaborator who pushes a branch whose `ci.yml` is one
+ * job uploading `validated-tree-<T>` for a tree `T` some other PR will land
+ * (a tree sha is computable offline), opens a PR and closes it. That run is
+ * `ci.yml`, `pull_request`, this repository and `success`. Nothing on `main`'s
+ * ruleset stops the later merge either: it requires a review, not a green
+ * status check, so this lookup is the only thing between that record and a
+ * publish with no gate run.
+ *
+ * So the run must also have executed the reviewed workflow. A `ci.yml` blob
+ * equal to the one on the pushed commit means the forged copy never ran: the
+ * only workflow that could have written the record is the one `main` carries,
+ * which names the artifact after `git rev-parse HEAD^{tree}` of the checkout
+ * its gates ran on. For `pull_request` the file that executes is the merge
+ * ref's, a merge of the PR head's (checked here) with the base branch's at the
+ * time, which is `main`'s own reviewed history. A `merge_group` run's
+ * `head_sha` is the queue commit itself, so its tree is checked directly.
  *
  * ## Every doubt answers no
  *
@@ -44,7 +65,8 @@
  * Usage (as release.yml runs it):
  *
  *   GITHUB_TOKEN=… node .github/scripts/find-validated-tree.mjs \
- *     --repo owner/name --tree "$(git rev-parse 'HEAD^{tree}')"
+ *     --repo owner/name --tree "$(git rev-parse 'HEAD^{tree}')" \
+ *     --ci-blob "$(git rev-parse 'HEAD:.github/workflows/ci.yml')"
  *
  * It prints the decision and its reason, and when `GITHUB_OUTPUT` is set
  * writes `skip=true|false`, `reason=…` and `run_url=…` there.
@@ -61,6 +83,7 @@ const PER_PAGE = 100
 const MAX_PAGES = 5
 
 const TREE_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+const OBJECT_SHA = TREE_SHA
 const REPO_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
 function no(reason) {
@@ -130,9 +153,39 @@ function artifactRejection(artifact, name, now) {
 }
 
 /**
+ * Why the run did not execute the reviewed `ci.yml` on the tree asked about,
+ * or `null` when it did. Asks the API for the file at the run's head commit
+ * and, for a merge group, for that commit's tree.
+ */
+async function executionRejection({ fetchImpl, base, repo, token, run, artifact, tree, ciBlob }) {
+	const headSha = run.head_sha
+	if (typeof headSha !== 'string' || !OBJECT_SHA.test(headSha)) {
+		return `run ${run.id} names no head commit (${JSON.stringify(headSha)})`
+	}
+	const recorded = artifact.workflow_run?.head_sha
+	if (recorded !== undefined && recorded !== headSha) {
+		return `artifact ${artifact.id} says run ${run.id} ran ${JSON.stringify(recorded)}, the run says ${headSha}`
+	}
+	const file = await getJson(fetchImpl, `${base}/repos/${repo}/contents/${CI_WORKFLOW_PATH}?ref=${headSha}`, token)
+	if (!file || file.type !== 'file' || typeof file.sha !== 'string') {
+		return `run ${run.id}: ${CI_WORKFLOW_PATH} at ${headSha} could not be read as a file`
+	}
+	if (file.sha !== ciBlob) {
+		return `run ${run.id} ran a ${CI_WORKFLOW_PATH} (blob ${file.sha} at ${headSha}) other than the pushed commit's (blob ${ciBlob})`
+	}
+	if (run.event === 'merge_group') {
+		const commit = await getJson(fetchImpl, `${base}/repos/${repo}/git/commits/${headSha}`, token)
+		const ranTree = commit?.tree?.sha
+		if (ranTree !== tree) return `merge_group run ${run.id} ran tree ${JSON.stringify(ranTree)}, not ${tree}`
+	}
+	return null
+}
+
+/**
  * @param {object} options
  * @param {string} options.repo `owner/name`
  * @param {string} options.tree the tree sha to look for
+ * @param {string} options.ciBlob the blob sha of `.github/workflows/ci.yml` in that tree
  * @param {string} options.token a token with `actions: read`
  * @param {typeof fetch} [options.fetch]
  * @param {string} [options.apiUrl]
@@ -142,6 +195,7 @@ function artifactRejection(artifact, name, now) {
 export async function findValidatedTree({
 	repo,
 	tree,
+	ciBlob,
 	token,
 	fetch: fetchImpl = globalThis.fetch,
 	apiUrl = 'https://api.github.com',
@@ -149,6 +203,9 @@ export async function findValidatedTree({
 }) {
 	if (typeof repo !== 'string' || !REPO_NAME.test(repo)) return no(`${JSON.stringify(repo)} is not owner/name`)
 	if (typeof tree !== 'string' || !TREE_SHA.test(tree)) return no(`${JSON.stringify(tree)} is not a tree sha`)
+	if (typeof ciBlob !== 'string' || !OBJECT_SHA.test(ciBlob)) {
+		return no(`${JSON.stringify(ciBlob)} is not the blob sha of ${CI_WORKFLOW_PATH}`)
+	}
 	if (typeof token !== 'string' || token === '') return no('no token to ask the API with')
 	if (typeof fetchImpl !== 'function') return no('no fetch available')
 
@@ -180,9 +237,14 @@ export async function findValidatedTree({
 					rejections.push(`run ${artifact.workflow_run.id} answered as run ${run.id}`)
 					continue
 				}
+				const unexecuted = await executionRejection({ fetchImpl, base, repo, token, run, artifact, tree, ciBlob })
+				if (unexecuted) {
+					rejections.push(unexecuted)
+					continue
+				}
 				return {
 					validated: true,
-					reason: `artifact ${name} from ${run.event} run ${run.id} of ${CI_WORKFLOW_PATH} (success, ${repo})`,
+					reason: `artifact ${name} from ${run.event} run ${run.id} of ${CI_WORKFLOW_PATH} (success, ${repo}, ran blob ${ciBlob} at ${run.head_sha})`,
 					runId: run.id,
 					runUrl: typeof run.html_url === 'string' ? run.html_url : `https://github.com/${repo}/actions/runs/${run.id}`,
 				}
@@ -205,7 +267,7 @@ function parseArgs(argv) {
 	const args = {}
 	for (let i = 0; i < argv.length; i += 1) {
 		const flag = argv[i]
-		if (flag === '--repo' || flag === '--tree') {
+		if (flag === '--repo' || flag === '--tree' || flag === '--ci-blob') {
 			args[flag.slice(2)] = argv[i + 1]
 			i += 1
 		}
@@ -225,6 +287,7 @@ async function main() {
 		result = await findValidatedTree({
 			repo: args.repo ?? process.env.GITHUB_REPOSITORY,
 			tree: args.tree,
+			ciBlob: args['ci-blob'],
 			token: process.env.GITHUB_TOKEN,
 			apiUrl: process.env.GITHUB_API_URL || undefined,
 		})

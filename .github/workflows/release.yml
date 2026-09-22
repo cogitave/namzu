@@ -19,7 +19,15 @@ name: Release
 # So the first step asks `.github/scripts/find-validated-tree.mjs` whether the
 # pushed commit's tree (`git rev-parse HEAD^{tree}`) carries a
 # `validated-tree-<tree>` artifact from a ci.yml run that concluded success, on
-# a pull_request or merge_group event, from this repository and not a fork.
+# a pull_request or merge_group event, from this repository and not a fork,
+# that executed the `ci.yml` this commit carries: the blob of
+# `.github/workflows/ci.yml` at the run's head commit must be
+# `git rev-parse HEAD:.github/workflows/ci.yml`, and a merge_group run's commit
+# must carry this tree. That last rule is what makes a record trustworthy. The
+# artifact's name is chosen by whichever ci.yml ran, a same-repository PR runs
+# its own copy, and `main`'s ruleset requires a review but no status check, so
+# a collaborator's throwaway PR whose ci.yml only uploads `validated-tree-<T>`
+# would otherwise switch off every gate here for a tree another PR lands.
 # Only a yes sets `skip=true`; an API error, an expired record, a failed run or
 # anything else it cannot establish answers no, and every gate runs. A direct
 # push with no pull request therefore keeps the full validation — unless its
@@ -78,8 +86,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           tree=$(git rev-parse 'HEAD^{tree}')
-          echo "commit $GITHUB_SHA, tree $tree"
-          node .github/scripts/find-validated-tree.mjs --repo "$GITHUB_REPOSITORY" --tree "$tree"
+          ci_blob=$(git rev-parse 'HEAD:.github/workflows/ci.yml' 2>/dev/null || true)
+          echo "commit $GITHUB_SHA, tree $tree, ci.yml blob ${ci_blob:-none}"
+          node .github/scripts/find-validated-tree.mjs --repo "$GITHUB_REPOSITORY" --tree "$tree" --ci-blob "$ci_blob"
 
       - name: Report the validation path
         env:

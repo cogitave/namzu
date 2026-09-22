@@ -429,8 +429,11 @@ jobs:
   #
   # The payload is informational; `.github/scripts/find-validated-tree.mjs`
   # trusts the artifact's NAME only together with the run that produced it:
-  # this workflow, concluded success, a pull_request or merge_group event, and
-  # this repository rather than a fork.
+  # this workflow, concluded success, a pull_request or merge_group event,
+  # this repository rather than a fork, and a run that executed the same
+  # ci.yml blob as the commit being released. A PR's run executes the PR's own
+  # copy of this file, so the name alone proves nothing: a branch whose ci.yml
+  # only uploads `validated-tree-<T>` would otherwise vouch for any tree.
   validated-tree:
     name: Record the validated tree
     needs: [check, docs]

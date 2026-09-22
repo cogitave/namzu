@@ -1,7 +1,8 @@
 /**
  * `.github/scripts/find-validated-tree.mjs` answers yes only for a successful,
  * same-repository `ci.yml` run on a pull request or merge group that uploaded
- * `validated-tree-<tree>`, and no to everything else, errors included.
+ * `validated-tree-<tree>` while executing the `ci.yml` the pushed commit
+ * carries, and no to everything else, errors included.
  *
  * `scripts/__tests__/` belongs to no package, so `pnpm -r test` cannot reach
  * this file; both workflows run it in the step named `The two paths onto main
@@ -22,6 +23,9 @@ import { findValidatedTree } from '../../.github/scripts/find-validated-tree.mjs
 const REPO = 'cogitave/namzu'
 const TREE = 'a'.repeat(40)
 const OTHER_TREE = 'b'.repeat(40)
+const HEAD_SHA = 'c'.repeat(40)
+const CI_BLOB = 'd'.repeat(40)
+const FORGED_BLOB = 'e'.repeat(40)
 const NOW = Date.parse('2026-09-22T12:00:00Z')
 const API = 'https://api.test'
 
@@ -31,7 +35,7 @@ function artifact(overrides = {}) {
 		name: `validated-tree-${TREE}`,
 		expired: false,
 		expires_at: '2026-09-29T12:00:00Z',
-		workflow_run: { id: 42, repository_id: 7, head_repository_id: 7, head_sha: 'c'.repeat(40) },
+		workflow_run: { id: 42, repository_id: 7, head_repository_id: 7, head_sha: HEAD_SHA },
 		...overrides,
 	}
 }
@@ -43,6 +47,7 @@ function run(overrides = {}) {
 		status: 'completed',
 		conclusion: 'success',
 		event: 'pull_request',
+		head_sha: HEAD_SHA,
 		html_url: `https://github.com/${REPO}/actions/runs/42`,
 		repository: { full_name: REPO },
 		head_repository: { full_name: REPO },
@@ -75,16 +80,29 @@ function listing(artifacts, total = artifacts.length) {
 	return { total_count: total, artifacts }
 }
 
-function routesFor({ artifacts = [artifact()], runBody = run(), tree = TREE } = {}) {
+function ciFile(sha = CI_BLOB) {
+	return { type: 'file', path: '.github/workflows/ci.yml', sha }
+}
+
+/** What the run executed: the ci.yml blob at its head commit, and that commit's tree. */
+function executed({ headSha = HEAD_SHA, blob = CI_BLOB, tree = TREE } = {}) {
+	return [
+		[`${API}/repos/${REPO}/contents/.github/workflows/ci.yml?ref=${headSha}`, typeof blob === 'string' ? ciFile(blob) : blob],
+		[`${API}/repos/${REPO}/git/commits/${headSha}`, typeof tree === 'string' ? { sha: headSha, tree: { sha: tree } } : tree],
+	]
+}
+
+function routesFor({ artifacts = [artifact()], runBody = run(), tree = TREE, ran = {} } = {}) {
 	return [
 		[`${API}/repos/${REPO}/actions/artifacts?name=validated-tree-${tree}`, listing(artifacts)],
 		[`${API}/repos/${REPO}/actions/runs/42`, runBody],
+		...executed(ran),
 	]
 }
 
 async function ask(routes, overrides = {}) {
 	const fetch = mockFetch(routes)
-	const result = await findValidatedTree({ repo: REPO, tree: TREE, token: 't0k', fetch, apiUrl: API, now: NOW, ...overrides })
+	const result = await findValidatedTree({ repo: REPO, tree: TREE, ciBlob: CI_BLOB, token: 't0k', fetch, apiUrl: API, now: NOW, ...overrides })
 	return { result, fetch }
 }
 
@@ -99,8 +117,65 @@ describe('find-validated-tree', () => {
 	})
 
 	it('answers yes for a merge_group run too', async () => {
-		const { result } = await ask(routesFor({ runBody: run({ event: 'merge_group' }) }))
+		const { result, fetch } = await ask(routesFor({ runBody: run({ event: 'merge_group' }) }))
 		assert.equal(result.validated, true, result.reason)
+		assert.ok(fetch.calls.some((c) => c.url === `${API}/repos/${REPO}/git/commits/${HEAD_SHA}`), 'the queue commit tree should be checked')
+	})
+
+	it('rejects a same-repository run that executed a ci.yml other than the pushed one', async () => {
+		// The forgery: a collaborator's branch whose ci.yml only uploads
+		// validated-tree-<T>. Its run is ci.yml, pull_request, this repository
+		// and success; only the executed file gives it away.
+		const { result } = await ask(routesFor({ ran: { blob: FORGED_BLOB } }))
+		assert.equal(result.validated, false)
+		assert.match(result.reason, /other than the pushed commit's/)
+		assert.match(result.reason, new RegExp(FORGED_BLOB))
+	})
+
+	it('does not check the tree of a pull_request head, which is not the merge ref', async () => {
+		const { result } = await ask(routesFor({ ran: { tree: OTHER_TREE } }))
+		assert.equal(result.validated, true, result.reason)
+	})
+
+	it('rejects a merge_group run whose queue commit carries another tree', async () => {
+		const { result } = await ask(routesFor({ runBody: run({ event: 'merge_group' }), ran: { tree: OTHER_TREE } }))
+		assert.equal(result.validated, false)
+		assert.match(result.reason, /ran tree/)
+	})
+
+	it('rejects a merge_group run whose queue commit carries a forged ci.yml', async () => {
+		const { result } = await ask(routesFor({ runBody: run({ event: 'merge_group' }), ran: { blob: FORGED_BLOB } }))
+		assert.equal(result.validated, false)
+	})
+
+	it('rejects a run with no head commit', async () => {
+		const { result } = await ask(routesFor({ runBody: run({ head_sha: undefined }) }))
+		assert.equal(result.validated, false)
+		assert.match(result.reason, /no head commit/)
+	})
+
+	it('rejects an artifact whose recorded head commit is not the run\'s', async () => {
+		const moved = artifact({ workflow_run: { id: 42, repository_id: 7, head_repository_id: 7, head_sha: 'f'.repeat(40) } })
+		const { result } = await ask(routesFor({ artifacts: [moved] }))
+		assert.equal(result.validated, false)
+	})
+
+	it('rejects a ci.yml path that is not a file at the head commit', async () => {
+		const { result } = await ask(routesFor({ ran: { blob: [ciFile()] } }))
+		assert.equal(result.validated, false)
+		assert.match(result.reason, /could not be read as a file/)
+	})
+
+	it('answers no when the executed ci.yml cannot be fetched', async () => {
+		const { result } = await ask(routesFor({ ran: { blob: 404 } }))
+		assert.equal(result.validated, false)
+		assert.match(result.reason, /404/)
+	})
+
+	it('answers no without the pushed ci.yml blob, without asking', async () => {
+		const { result, fetch } = await ask(routesFor(), { ciBlob: undefined })
+		assert.equal(result.validated, false)
+		assert.equal(fetch.calls.length, 0)
 	})
 
 	it('rejects a run from a fork', async () => {
@@ -216,6 +291,7 @@ describe('find-validated-tree', () => {
 			[`${API}/repos/${REPO}/actions/artifacts`, listing([failed, artifact()])],
 			[`${API}/repos/${REPO}/actions/runs/41`, run({ id: 41, conclusion: 'cancelled' })],
 			[`${API}/repos/${REPO}/actions/runs/42`, run()],
+			...executed(),
 		])
 		assert.equal(result.validated, true, result.reason)
 		assert.equal(result.runId, 42)
@@ -234,7 +310,7 @@ describe('find-validated-tree as release.yml runs it', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-validated-tree-'))
 		try {
 			const output = join(dir, 'out')
-			const result = spawnSync(process.execPath, ['.github/scripts/find-validated-tree.mjs', '--repo', REPO, '--tree', TREE], {
+			const result = spawnSync(process.execPath, ['.github/scripts/find-validated-tree.mjs', '--repo', REPO, '--tree', TREE, '--ci-blob', CI_BLOB], {
 				cwd: join(import.meta.dirname, '..', '..'),
 				env: { PATH: process.env.PATH, GITHUB_OUTPUT: output, GITHUB_TOKEN: '' },
 				encoding: 'utf8',
