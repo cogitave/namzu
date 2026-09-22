@@ -37,7 +37,7 @@ a working directory picks its project; this page says what is on disk.
             ├── feedback/             <message-id>.json and .revisions/
             ├── goals/                <goal-id>.json
             ├── file-history/         /restore snapshots
-            └── lease.json            which process may write the log
+            └── lease.json            which process may write the log (beside lease.<fence>.json)
 ```
 
 A temporary scratch directory per session lives outside the home, at
@@ -56,6 +56,7 @@ with mode 0700 and refused if it is a symlink or owned by another user.
 | `<session-id>/tasks/`, `goals/`, `feedback/` | Durable task list, goals and message feedback for the session. | Deleting loses them. |
 | `<session-id>/file-history/` | Copies of files taken before a tool changed them, for `/restore`. | Deleting disables `/restore` for that session. |
 | `<session-id>/lease.json` | The current writer's claim and fencing token. A stale lease is taken over, so a crashed process never locks a session for good. | Not while a process is using the session. |
+| `<session-id>/lease.<fence>.json` | One file per claim, named by its fencing token; the highest is the current holding, and `lease.json` is a readable copy of it. A release writes the next fence with an empty holder. Older holdings are pruned, so a few remain. A child session has its own under `subagents/<child-id>/`. | No: the highest fence is what decides who may write. |
 | `index.sqlite` | Sessions, turns, child sessions, pending decisions, external ids and full-text search, all derived from the logs. | Yes. It is rebuilt on the next launch. |
 | `project.json` | The project's id and canonical path. | Deleting it gives the directory a new project id on the next launch. |
 

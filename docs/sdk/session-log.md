@@ -51,7 +51,8 @@ $NAMZU_HOME/
         ├── budgets/<root-turn-id>.json   (root sessions only)
         ├── tasks/<task-id>.json   feedback/<message-id>.json   goals/<goal-id>.json
         ├── file-history/
-        └── lease.json                    {"v":1,"kind":"lease","holder":…,"fence":…,"expiresAt":…}
+        ├── lease.<fence>.json            one per claim; the highest fence is the holding
+        └── lease.json                    {"v":1,"kind":"lease","holder":…,"fence":…,"expiresAt":…} (a readable copy)
 $TMPDIR/namzu-<user>/<slug>/<session-id>/scratchpad/
 ```
 
