@@ -1,5 +1,62 @@
 # @namzu/cli
 
+## 28.0.0
+
+### Major Changes
+
+- a75f5c2: **`namzu run` and `namzu run-stream` are removed. Use `namzu exec`.**
+
+  | Before                        | After                                             |
+  | ----------------------------- | ------------------------------------------------- |
+  | `namzu run "<prompt>"`        | `namzu exec "<prompt>"` (or `namzu e "<prompt>"`) |
+  | `namzu run-stream "<prompt>"` | `namzu exec --json "<prompt>"`                    |
+
+  `exec` takes every option the two old commands took, with the same meanings:
+  `--cwd`, `--provider`, `--model`, `--effort`, `--skills`, `--continue`/`-c`,
+  `--resume`, `--session`, `--gate`, `--gate-retries`, `--max-iterations`,
+  `--token-budget`, `--wait-for-provider`, `--permission-mode`, `--trust`,
+  `--yolo` and `--`. The default mode prints the reply exactly as `run` did and
+  keeps its exit codes (0, 1, 2, 64, 75, 77, and death by SIGTERM/SIGHUP/SIGINT).
+  `--json` writes the same NDJSON events, with the same kinds and fields, and
+  the same exit codes (0, 1, 75, 77) that `run-stream` did. Typing `run` or
+  `run-stream` now fails with commander's `unknown command` error, exit 64, and
+  a line naming the replacement. Update scripts, CI jobs and host UIs that spawn
+  either command.
+
+  **New: `--output-schema <file>` on `exec`.** It binds the final answer to a
+  JSON Schema through the provider's native structured output, in either mode.
+  Before, `--output-schema` was accepted only before the command, for the TUI,
+  and refused everywhere else; given before `exec` it is still refused, now with
+  a message that says to pass it after `exec`. A schema file that cannot be read
+  or represented exits 64 (in `--json` mode: an `error` event and exit 0).
+
+  **Also changed:**
+
+  - `namzu exec --session <id>` without `--json` is refused with exit 64. `run`
+    accepted `--session` and ignored it, answering against no history; the
+    default mode resumes with `--continue` or `--resume <id>`.
+  - `namzu resident` refuses `--json` and `--output-schema`, which it would
+    otherwise have accepted and ignored.
+  - The `--log-format` help and the TUI's `--output-schema` help name `exec`.
+
+### Minor Changes
+
+- ab9108b: Refresh the Zen and Zen Go model catalogue in the background on every launch. The interactive TUI, `resume`, `run`, `run-stream`, `acp`, `drain`, `resident run` and the background resident runner start one refresh that never delays startup, gives up after 30 seconds and is cancelled when the command ends. When it lands, the model picker and routing use it immediately, including for providers already built, and it is saved as a last-good copy at `cli/zen-catalogue.json` under `NAMZU_HOME`. When it fails, the session keeps the last-good copy, or otherwise the bundled catalogue, and logs one warning. A damaged copy on disk is ignored rather than read in part. A model the service serves with no known wire format is not offered in the picker, since the CLI has no setting that names a protocol for it.
+
+  This is on by default, and each of those launches now reads OpenCode's documentation pages, models.dev and the two Zen `/models` endpoints over the network. To keep the previous behaviour (bundled catalogue only, no network read), set `modelCatalogueRefresh: false` in `~/.namzu/config.yaml`, or `NAMZU_MODEL_CATALOGUE_REFRESH=0`.
+
+### Patch Changes
+
+- 128913f: The TUI says "turn" where it still said "run" for the unit of work that no
+  longer exists: `/cost`, `/status` and the status panel label spend as
+  "current or latest turn", a message held after a paused turn says so, the
+  `/config` notice names turn limits, and the headless trust refusal says a
+  headless turn approves tools without asking, and `namzu doctor`'s
+  remediation for an unusable fallback says turns will still start. Wording only; nothing a script
+  parses changed.
+- Updated dependencies [ab9108b]
+  - @namzu/zen@2.5.0
+
 ## 27.0.0
 
 ### Major Changes
