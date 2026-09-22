@@ -11,6 +11,7 @@ export interface RegisterOptions {
 
 export function registerCommand(program: Command, def: CommandDef, opts: RegisterOptions): void {
 	const cmd = program.command(def.name).description(def.description)
+	if (def.aliases) cmd.aliases([...def.aliases])
 
 	if (def.passThrough) {
 		cmd

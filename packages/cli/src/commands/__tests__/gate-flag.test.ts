@@ -37,9 +37,9 @@ const sessionStub = fakeAgentSession({
 		})(),
 })
 
-const { buildGate, parseRunFlags } = await import('../run-flags.js')
-const { runCommand } = await import('../run.js')
-const { runStreamCommand } = await import('../run-stream.js')
+const { buildGate, parseExecFlags } = await import('../exec-flags.js')
+const { execCommand } = await import('../exec.js')
+const { execJsonCommand } = await import('./exec-json-command.js')
 
 function contextCapturing(): CommandContext {
 	return {
@@ -66,7 +66,7 @@ async function sessionOptionsFor(
 
 describe('parsing the flag', () => {
 	it('appends rather than replacing, so two gates are two gates', () => {
-		const flags = parseRunFlags(['--gate', 'pnpm typecheck', '--gate', 'pnpm test', 'fix it'])
+		const flags = parseExecFlags(['--gate', 'pnpm typecheck', '--gate', 'pnpm test', 'fix it'])
 		// Last-wins would run only the tests and report success on a project
 		// whose types do not compile.
 		expect(flags.gates).toEqual(['pnpm typecheck', 'pnpm test'])
@@ -76,12 +76,12 @@ describe('parsing the flag', () => {
 	})
 
 	it('reads the equals form and drops an empty one', () => {
-		expect(parseRunFlags(['--gate=pnpm test']).gates).toEqual(['pnpm test'])
-		expect(parseRunFlags(['--gate', '   ']).gates).toEqual([])
+		expect(parseExecFlags(['--gate=pnpm test']).gates).toEqual(['pnpm test'])
+		expect(parseExecFlags(['--gate', '   ']).gates).toEqual([])
 	})
 
 	it('reads the retry budget', () => {
-		expect(parseRunFlags(['--gate-retries', '5']).gateRetries).toBe(5)
+		expect(parseExecFlags(['--gate-retries', '5']).gateRetries).toBe(5)
 	})
 })
 
@@ -106,17 +106,17 @@ describe('building the reviewer', () => {
 })
 
 describe('the gate reaches the turn', () => {
-	it('is handed to the session by `run`', async () => {
-		const options = await sessionOptionsFor(runCommand, ['--gate', 'pnpm test', 'fix the tests'])
-		// Deleting the spread in `run.ts` leaves the flag parsed and ignored —
+	it('is handed to the session by `exec`', async () => {
+		const options = await sessionOptionsFor(execCommand, ['--gate', 'pnpm test', 'fix the tests'])
+		// Deleting the spread in `exec.ts` leaves the flag parsed and ignored —
 		// an operator gets a turn that accepted `--gate` and settled on a red
 		// build, with nothing to read that says why.
 		expect(typeof options.reviewAnswer).toBe('function')
 		expect(options.maxAnswerReviews).toBe(3)
 	})
 
-	it('is handed to the session by `run-stream` too', async () => {
-		const options = await sessionOptionsFor(runStreamCommand, [
+	it('is handed to the session by `exec --json` too', async () => {
+		const options = await sessionOptionsFor(execJsonCommand, [
 			'--session',
 			'40e7c721-43ca-4da8-a737-2e03c9347063',
 			'--gate',
@@ -133,7 +133,7 @@ describe('the gate reaches the turn', () => {
 	})
 
 	it('leaves a turn without gates byte-identical to one before gates existed', async () => {
-		const options = await sessionOptionsFor(runCommand, ['fix the tests'])
+		const options = await sessionOptionsFor(execCommand, ['fix the tests'])
 		// Absent, not `undefined`: the kernel branches on presence, and a key
 		// that is always there is a key a future reader has to reason about.
 		expect('reviewAnswer' in options).toBe(false)

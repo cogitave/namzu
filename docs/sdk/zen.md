@@ -382,7 +382,7 @@ credentials and successfully requested `muse-spark-1.3-contributor-free`.
 Namzu's real driver also completed a text-only request through that model
 using public access and its own attribution headers.
 
-A live Namzu `run-stream` call then used the same model with low effort,
+A live Namzu `run-stream` call (the command is now `namzu exec --json`) then used the same model with low effort,
 no account key, and the production tool set. Its `read` tool opened
 `verification.txt` containing a nonce absent from the prompt. The tool
 completed with `isError: false`; after two model requests, `done` returned

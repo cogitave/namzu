@@ -18,16 +18,11 @@ import { acpCommand } from './commands/acp.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
+import { execCommand } from './commands/exec.js'
+import { historyCommand, providersJSONCommand, skillsJSONCommand } from './commands/host-queries.js'
 import { loginCommand, logoutCommand } from './commands/login.js'
 import { registerAll } from './commands/registry.js'
 import { residentCommand } from './commands/resident.js'
-import {
-	historyCommand,
-	providersJSONCommand,
-	runStreamCommand,
-	skillsJSONCommand,
-} from './commands/run-stream.js'
-import { runCommand } from './commands/run.js'
 import { serveCommand } from './commands/serve.js'
 import { skillsCommand } from './commands/skills.js'
 import { stateCommand } from './commands/state.js'
@@ -67,6 +62,16 @@ import { CLI_VERSION } from './version.js'
 /** sysexits EX_USAGE — command-line argument error. */
 const EX_USAGE = 64
 
+/**
+ * Commands that were removed, and what replaced each. Typing one gets
+ * commander's unknown-command error and one line naming the replacement.
+ */
+const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
+	run: '`namzu run` was replaced by `namzu exec "<prompt>"`, which takes the same options.',
+	'run-stream':
+		'`namzu run-stream` was replaced by `namzu exec --json "<prompt>"`, which emits the same events.',
+}
+
 export interface RunCliOptions {
 	/** Argv with the leading `node` + script path, matching `process.argv` shape. */
 	readonly argv: readonly string[]
@@ -103,7 +108,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		)
 		.option(
 			'--output-schema <path>',
-			'Constrain TUI answers to a JSON Schema file using native structured output',
+			'Constrain TUI answers to a JSON Schema file using native structured output (for exec, pass it after the command)',
 		)
 		.option('-q, --quiet', 'Suppress non-essential output; also raises the log floor to warn')
 		.addOption(
@@ -112,7 +117,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.addOption(
 			new Option(
 				'--log-format <format>',
-				'Log record format for run/drain/TUI-flush output: pretty (default) or json. namzu run-stream always writes json, regardless of this flag.',
+				'Log record format for exec/drain/TUI-flush output: pretty (default) or json. namzu exec --json always writes json, regardless of this flag.',
 			).choices(['pretty', 'json']),
 		)
 		.option(
@@ -134,15 +139,35 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		// passThroughOptions for unparsed argument forwarding.
 		.hook('preAction', (command, action) => {
 			if (command.opts().outputSchema && !['namzu', 'resume'].includes(action.name())) {
-				command.error('--output-schema applies to the interactive TUI, not this subcommand.', {
-					exitCode: EX_USAGE,
-					code: 'commander.invalidArgument',
-				})
+				command.error(
+					action.name() === 'exec'
+						? '--output-schema before the command applies to the interactive TUI; for exec, pass it after: namzu exec --output-schema <file> "<prompt>".'
+						: '--output-schema applies to the interactive TUI and to exec, not this subcommand.',
+					{
+						exitCode: EX_USAGE,
+						code: 'commander.invalidArgument',
+					},
+				)
 			}
 		})
 		.enablePositionalOptions(true)
 		.exitOverride()
 		.showHelpAfterError(false)
+		.configureOutput({
+			// The root command launches the TUI and takes no operands, so a
+			// removed command name reaches commander as an excess argument and
+			// would be refused with "too many arguments". Name it for what it is
+			// and say what replaced it.
+			outputError: (message, write) => {
+				const first = program.args[0]
+				const hint = first !== undefined ? REMOVED_COMMANDS[first] : undefined
+				if (hint !== undefined && !message.startsWith('error: unknown command')) {
+					write(`error: unknown command '${first}'\n${hint}\n`)
+					return
+				}
+				write(message)
+			},
+		})
 
 	const buildContext = (
 		load: () => ReturnType<typeof loadConfigWithProvenance>,
@@ -276,13 +301,12 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	for (const def of [
 		acpCommand,
 		doctorCommand,
-		runCommand,
+		execCommand,
 		residentCommand,
 		loginCommand,
 		logoutCommand,
 		drainCommand,
 		evalCommand,
-		runStreamCommand,
 		historyCommand,
 		skillsCommand,
 		skillsJSONCommand,
@@ -298,8 +322,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					: def === stateCommand
 						? getRecoveryContext
 						: def === acpCommand ||
-								def === runCommand ||
-								def === runStreamCommand ||
+								def === execCommand ||
 								def === drainCommand ||
 								def === skillsCommand ||
 								def === upgradeCommand
@@ -321,7 +344,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				? loadOutputSchema(resolve(process.cwd(), launchOpts.outputSchema))
 				: undefined
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
-			// The same three lines `run` and `run-stream` use. The TUI compiled
+			// The same three lines `exec` uses. The TUI compiled
 			// nothing at all, so a `permissions` table in a config file did nothing
 			// in the mode most people actually use.
 			const commandCtx = getBootstrapContext()
@@ -489,7 +512,7 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 	// hand-masked by key name and not omitted — the record-boundary
 	// redaction scan every sink sits behind
 	// (`packages/sdk/src/utils/log/redact.ts`) already screens every
-	// attribute value for a secret shape, the SAME defence `namzu run`'s
+	// attribute value for a secret shape, the SAME defence `namzu exec`'s
 	// stderr gets. A second, bespoke "these key names are secret" table
 	// here would duplicate that control and go stale the day a
 	// secret-shaped value arrives under a key nobody added to it — exactly
@@ -522,7 +545,7 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 			// Always present, so "off" is a stated fact rather than the absence
 			// of a claim.
 			//
-			// The BOOLEAN only. The disclosure sentence is emitted by `run` at the
+			// The BOOLEAN only. The disclosure sentence is emitted by `exec` at the
 			// moment export is actually attached, under this same event name,
 			// because that sentence describes what was BUILT — the destination
 			// that resolved, the redactors that loaded — and this function is

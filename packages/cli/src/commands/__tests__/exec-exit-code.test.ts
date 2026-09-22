@@ -2,17 +2,17 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { AgentSession } from '../../tui/agent.js'
-import { runCommand } from '../run.js'
+import { execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
 
 /**
- * `namzu run` exited 0 for six ways of not finishing.
+ * `namzu exec` exited 0 for six ways of not finishing.
  *
  * `turn_failed` is emitted only from the kernel's throw path, so a turn stopped
  * by its token budget, its timeout, its iteration cap, a cancellation, or a
  * guardrail arrived as `turn_completed` — which this command mapped to "print
  * the text and return 0". The sharp case is the output guardrail: an answer
- * that was REFUSED exited 0 with empty text, so `namzu run … > out.txt &&
+ * that was REFUSED exited 0 with empty text, so `namzu exec … > out.txt &&
  * deploy` went ahead on the empty file.
  */
 
@@ -74,14 +74,14 @@ async function runWith(events: unknown[]): Promise<{
 }> {
 	streaming(events)
 	const { ctx, printed, errors } = contextCapturing()
-	const code = (await runCommand.handler({
+	const code = (await execCommand.handler({
 		rawArgs: ['hello'],
 		ctx,
 	} as never)) as number
 	return { code, printed, errors }
 }
 
-describe('namzu run exit code reflects whether the turn finished', () => {
+describe('namzu exec exit code reflects whether the turn finished', () => {
 	it('prints the settled answer without rejected answers or intermediate narration', async () => {
 		const { code, printed } = await runWith([
 			{ kind: 'delta', text: 'Inspecting files. ' },

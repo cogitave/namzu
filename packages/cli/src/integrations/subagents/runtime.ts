@@ -78,8 +78,8 @@ import {
 	requireOpenProject,
 } from '@namzu/sdk'
 
-import { resolveTurnGuards } from '../../config/run-limits.js'
 import type { TurnLimitsConfig } from '../../config/schema.js'
+import { resolveTurnGuards } from '../../config/turn-guards.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import {

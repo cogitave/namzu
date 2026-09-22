@@ -185,7 +185,7 @@ export type HeadlessExpansion =
 /**
  * Resolve a headless prompt that may name one of the operator's own commands.
  *
- * `namzu run "/ozet hedef.js"` used to send that string to the model verbatim.
+ * `namzu exec "/ozet hedef.js"` used to send that string to the model verbatim.
  * The model, reasonably, tried to make sense of it — offering to create a file
  * called `ozet hedef.js`. The turn exited 0 with confident output that had
  * nothing to do with the command. It did not fail; it quietly did something
@@ -193,7 +193,7 @@ export type HeadlessExpansion =
  *
  * ## Why a leading `/` is not enough to call it a command
  *
- * `namzu run "/usr/local/bin is missing"` and `namzu run "/clear the cache in
+ * `namzu exec "/usr/local/bin is missing"` and `namzu exec "/clear the cache in
  * redis"` are ordinary prompts. Treating every leading slash as a command would
  * break them, and breaking a working prompt to fix a broken one is not a trade
  * worth making. So the test is not the slash — it is whether the first token
@@ -204,7 +204,7 @@ export type HeadlessExpansion =
  * name is a common English word that nobody declared, so matching it is not.
  *
  * The one exception is a prompt that is EXACTLY a built-in and nothing else:
- * `namzu run "/help"` is not a sentence anybody means literally, and answering
+ * `namzu exec "/help"` is not a sentence anybody means literally, and answering
  * it with a model improvising on the string is the same silent misfire. With
  * arguments — `/clear the cache` — it stays prose, because there the words
  * carry a meaning the command name does not.
@@ -224,7 +224,7 @@ export function expandHeadlessCommand(
 	if (rest.length === 0 && builtins.has(name)) {
 		return {
 			kind: 'refused',
-			reason: `/${name} is an interactive command and does nothing in \`namzu run\`. Run \`namzu\` for the terminal agent, or pass a prompt instead.`,
+			reason: `/${name} is an interactive command and does nothing in \`namzu exec\`. Run \`namzu\` for the terminal agent, or pass a prompt instead.`,
 			fixable: true,
 		}
 	}

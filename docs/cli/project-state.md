@@ -90,9 +90,9 @@ refused rather than interleaved:
   starts a new turn. A turn left behind by a process that died — interrupted,
   neither running nor paused — is closed as interrupted when you send the next
   prompt.
-- `namzu run` and `namzu run-stream` against such a session exit 75 and name
-  the turn; see [Exit codes](run-exit-codes.md) and
-  [`run-stream`](run-stream.md).
+- `namzu exec`, in either mode, against such a session exits 75 and names
+  the turn; see [Exit codes](exec-exit-codes.md) and
+  [`exec --json`](exec-json.md).
 - Parallel work goes to delegated agents, which run in child sessions, or to
   separate sessions.
 

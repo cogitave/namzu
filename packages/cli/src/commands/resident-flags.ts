@@ -1,5 +1,5 @@
 import { isPermissionMode } from '../permissions/mode.js'
-import { type RunFlags, parseRunFlags } from './run-flags.js'
+import { type ExecFlags, parseExecFlags } from './exec-flags.js'
 
 const actions = [
 	'add',
@@ -33,7 +33,7 @@ export interface ResidentFlags {
 	readonly revision: number | null
 	readonly outcome: 'wait' | 'complete' | 'blocked' | null
 	readonly executorStopped: boolean
-	readonly run: RunFlags
+	readonly run: ExecFlags
 }
 
 function integer(value: string, flag: string, zero = false): number {
@@ -105,7 +105,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--cursor, --through-revision and --max-revisions apply to resident inspect.')
 	if (inspectionMaxRevisions !== undefined && inspectionMaxRevisions > 4096)
 		throw new Error('--max-revisions must not exceed 4096.')
-	const run = parseRunFlags(forwarded)
+	const run = parseExecFlags(forwarded)
 	if (run.unknown.length) throw new Error(`Unknown option(s): ${run.unknown.join(', ')}.`)
 	if (run.permissionMode && !isPermissionMode(run.permissionMode))
 		throw new Error('Invalid --permission-mode; use prompt, accept-edits, auto, strict or plan.')
@@ -157,6 +157,10 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--outcome must be wait, complete or blocked.')
 	if (run.session || run.resume || run.continueLast || run.waitForProviderMs !== null)
 		throw new Error('Resident work cannot use conversation resume or provider-retry flags.')
+	if (run.json || run.outputSchema !== null)
+		throw new Error(
+			'--json and --output-schema are exec options; resident work does not take them.',
+		)
 	if (!execution && (maxSteps !== null || own.has('--max-idle-ms')))
 		throw new Error('--max-steps and --max-idle-ms apply to resident run or start.')
 	if (action === 'start' && maxIdleMs === 0)

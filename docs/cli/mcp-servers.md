@@ -49,7 +49,7 @@ An entry names a command or a URL, never both. One that names both is refused ra
 
 The default of ten seconds exists for a wedged server: a process that spawns, opens its pipe and never speaks would otherwise hold the whole session open before the first turn, with no error and no failure, just a namzu that does not start. The client's own per-request timeout cannot cover that case.
 
-A server whose first spawn is genuinely slow is a different thing. A Python SDK server cold-boots in fifteen to twenty seconds on some machines, and under that default it is a working server the CLI refuses, so a headless run that depends on it stops before its first model call with `server "name" did not answer within 10000ms`. `connectTimeoutMs` raises the bound for that server alone; the others keep the deadline that protects the session. The value is named in the failure, so a deadline that is still too short says so.
+A server whose first spawn is genuinely slow is a different thing. A Python SDK server cold-boots in fifteen to twenty seconds on some machines, and under that default it is a working server the CLI refuses, so a headless `namzu exec` that depends on it stops before its first model call with `server "name" did not answer within 10000ms`. `connectTimeoutMs` raises the bound for that server alone; the others keep the deadline that protects the session. The value is named in the failure, so a deadline that is still too short says so.
 
 ### The era probe
 
@@ -57,6 +57,6 @@ Before it offers the legacy `initialize` handshake, `connect()` asks the server 
 
 ## When a server does not work
 
-Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number. What is done about it differs by surface. A person in the interactive session sees the line and fixes the config. A headless `run` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
+Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number. What is done about it differs by surface. A person in the interactive session sees the line and fixes the config. A headless `exec` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
 
 A stdio server is a child process. The session owns its shutdown: closing the session closes every connected server, bounded at two seconds each, so a one-shot run leaves nothing behind.

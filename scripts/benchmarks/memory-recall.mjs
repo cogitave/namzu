@@ -145,7 +145,8 @@ for (const scenario of scenarios)
 			const label = `${scenario.id}-${trial}-${recall ? "on" : "off"}`;
 			const args = [
 				join(repo, "packages/cli/dist/bin.js"),
-				"run-stream",
+				"exec",
+				"--json",
 				"--cwd",
 				cwd,
 				"--trust",

@@ -30,7 +30,7 @@
  *
  * **With no repository anywhere above it, the search is the working directory
  * ALONE.** Not the walk it would otherwise do: on Windows that walk reaches
- * the drive root, so `namzu run` in a temp directory would read
+ * the drive root, so `namzu exec` in a temp directory would read
  * `%TEMP%\AGENTS.md`, `C:\Users\<user>\AGENTS.md` and `C:\AGENTS.md` — and
  * `%TEMP%` is writable by anything on the machine. A boundary that only exists
  * when a `.git` happens to be there is not a boundary; it is the case it was

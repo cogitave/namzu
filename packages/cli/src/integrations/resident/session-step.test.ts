@@ -14,7 +14,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { parseRunFlags } from '../../commands/run-flags.js'
+import { parseExecFlags } from '../../commands/exec-flags.js'
 import type { CommandContext } from '../../commands/types.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
@@ -95,7 +95,7 @@ async function fixture(config: NamzuCliConfig = {}, args: readonly string[] = []
 		ctx,
 		cwd,
 		sessions,
-		flags: parseRunFlags(args),
+		flags: parseExecFlags(args),
 		artifactsRoot: join(root, 'receipts'),
 		projectSlug: '-workspace',
 	}

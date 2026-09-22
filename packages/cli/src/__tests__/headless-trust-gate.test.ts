@@ -6,7 +6,7 @@
  * it". `isTrusted` had one caller — the TUI — so the sentence was true of the
  * TUI and false of everything else, and
  *
- *     git clone <a stranger's repository> && cd <it> && namzu run "what is this?"
+ *     git clone <a stranger's repository> && cd <it> && namzu exec "what is this?"
  *
  * ran that repository's code, unattended, with tools auto-approved because
  * there is nobody to ask.
@@ -158,9 +158,9 @@ async function runIn(
 	extra: string[] = [],
 	prompt: string[] = ['what', 'does', 'this', 'do'],
 ) {
-	const { runCommand } = await import('../commands/run.js')
+	const { execCommand } = await import('../commands/exec.js')
 	const { ctx, errors } = context()
-	const code = (await runCommand.handler({
+	const code = (await execCommand.handler({
 		rawArgs: ['--cwd', dir, ...extra, ...prompt],
 		ctx,
 	} as never)) as number
@@ -171,7 +171,7 @@ function projectReads(): readonly string[] {
 	return ioProbe.reads.filter((path) => path.startsWith(stranger))
 }
 
-describe('namzu run in a folder nobody has trusted', () => {
+describe('namzu exec in a folder nobody has trusted', () => {
 	it('refuses, and does not open a session in it', async () => {
 		const { code } = await runIn(stranger)
 
@@ -227,7 +227,7 @@ describe('namzu run in a folder nobody has trusted', () => {
 			process.chdir(stranger)
 			const { runCli } = await import('../cli.js')
 			const code = await runCli({
-				argv: ['node', 'namzu', 'run', '/ambush', 'payload'],
+				argv: ['node', 'namzu', 'exec', '/ambush', 'payload'],
 			})
 
 			expect(code).toBe(EXIT_UNTRUSTED)
@@ -247,7 +247,7 @@ describe('namzu run in a folder nobody has trusted', () => {
 			process.chdir(stranger)
 			const { runCli } = await import('../cli.js')
 			const code = await runCli({
-				argv: ['node', 'namzu', 'run', '--trust', 'what', 'is', 'this'],
+				argv: ['node', 'namzu', 'exec', '--trust', 'what', 'is', 'this'],
 			})
 
 			expect(code).toBe(78)
@@ -272,7 +272,7 @@ describe('namzu run in a folder nobody has trusted', () => {
 			process.chdir(ambient)
 			const { runCli } = await import('../cli.js')
 			const code = await runCli({
-				argv: ['node', 'namzu', 'run', '--cwd', stranger, '--trust', 'what', 'is', 'this'],
+				argv: ['node', 'namzu', 'exec', '--cwd', stranger, '--trust', 'what', 'is', 'this'],
 			})
 
 			expect(code).toBe(0)
@@ -322,7 +322,7 @@ describe('namzu run in a folder nobody has trusted', () => {
 					argv: [
 						'node',
 						'namzu',
-						'run',
+						'exec',
 						'--cwd',
 						alias,
 						...(trustFlag ? ['--trust'] : []),
@@ -408,13 +408,13 @@ describe('--trust does not remember', () => {
 	})
 })
 
-describe('namzu run-stream in a folder nobody has trusted', () => {
+describe('namzu exec --json in a folder nobody has trusted', () => {
 	async function streamIn(
 		dir: string,
 		extra: string[] = [],
 		prompt: string[] = ['what', 'does', 'this', 'do'],
 	) {
-		const { runStreamCommand } = await import('../commands/run-stream.js')
+		const { execJsonCommand } = await import('../commands/__tests__/exec-json-command.js')
 		const written: string[] = []
 		const originalWrite = process.stdout.write.bind(process.stdout)
 		process.stdout.write = ((chunk: string) => {
@@ -423,7 +423,7 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 		}) as typeof process.stdout.write
 		try {
 			const { ctx } = context()
-			const code = (await runStreamCommand.handler({
+			const code = (await execJsonCommand.handler({
 				rawArgs: ['--cwd', dir, ...extra, ...prompt],
 				ctx,
 			} as never)) as number
@@ -480,7 +480,7 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 			process.chdir(stranger)
 			const { runCli } = await import('../cli.js')
 			const code = await runCli({
-				argv: ['node', 'namzu', 'run-stream', 'what', 'is', 'this'],
+				argv: ['node', 'namzu', 'exec', '--json', 'what', 'is', 'this'],
 			})
 
 			expect(code).toBe(EXIT_UNTRUSTED)
@@ -508,7 +508,8 @@ describe('namzu run-stream in a folder nobody has trusted', () => {
 				argv: [
 					'node',
 					'namzu',
-					'run-stream',
+					'exec',
+					'--json',
 					'--trust',
 					'--session',
 					'trusted-sandbox',

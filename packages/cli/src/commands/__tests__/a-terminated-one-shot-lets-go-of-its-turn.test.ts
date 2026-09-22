@@ -26,7 +26,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 /**
- * A `run` or `run-stream` stopped by a signal gives its conversation back.
+ * A `exec` or `exec --json` stopped by a signal gives its conversation back.
  *
  * A turn holds its conversation's writer lease for as long as it runs, and
  * the lease lives for five minutes between renewals. A process terminated
@@ -117,11 +117,11 @@ interface Launched {
 }
 
 function launch(
-	command: 'run' | 'run-stream',
+	command: 'exec' | 'exec --json',
 	providerUrl: string,
 	config?: (root: string) => unknown,
 ): Launched {
-	const root = mkdtempSync(join(realpathSync(tmpdir()), 'namzu-terminated-run-'))
+	const root = mkdtempSync(join(realpathSync(tmpdir()), 'namzu-terminated-exec-'))
 	roots.push(root)
 	const home = join(root, 'home')
 	const work = join(root, 'work')
@@ -132,7 +132,7 @@ function launch(
 		process.execPath,
 		[
 			CLI_BIN,
-			command,
+			'exec',
 			'--trust',
 			'--provider',
 			'openai',
@@ -140,8 +140,8 @@ function launch(
 			'gpt-4o',
 			'--cwd',
 			work,
-			// A keyed conversation, so run-stream records its turn durably.
-			...(command === 'run-stream' ? ['--session', 'signal-test'] : []),
+			// A keyed conversation, so exec --json records its turn durably.
+			...(command === 'exec --json' ? ['--json', '--session', 'signal-test'] : []),
 			'hi',
 		],
 		{
@@ -205,9 +205,9 @@ async function activeTurnId(log: DiskSessionLog): Promise<TurnId> {
 }
 
 describe.each([
-	['run', 'SIGTERM'],
-	['run', 'SIGHUP'],
-	['run-stream', 'SIGTERM'],
+	['exec', 'SIGTERM'],
+	['exec', 'SIGHUP'],
+	['exec --json', 'SIGTERM'],
 ] as const)('`namzu %s` stopped by %s', (command, signal) => {
 	it('exits by the signal and leaves the turn interrupted, so /abandon works at once', async () => {
 		const provider = await silentProvider()
@@ -232,7 +232,7 @@ describe.each([
 		await abandonTurn(sessionId, turnId, 'test: abandoned after the signal', { log })
 		expect((await log.activeTurn()) === null).toBe(true)
 
-		if (command === 'run-stream') {
+		if (command === 'exec --json') {
 			// The host reading the stream is told, in band, why it ended.
 			const events = run
 				.stdout()
@@ -249,10 +249,10 @@ describe.each([
  * A signal that lands after the turn has finished, while the session is still
  * closing (here a slow `session_end` hook), must not report the turn as left
  * interrupted: it is recorded `turn_completed`, and `/abandon` has nothing to
- * close. `run-stream` still ends with one `terminated` error and ONE `done`,
+ * close. `exec --json` still ends with one `terminated` error and ONE `done`,
  * the turn's own.
  */
-describe.each(['run', 'run-stream'] as const)(
+describe.each(['exec', 'exec --json'] as const)(
 	'`namzu %s` stopped after its turn finished',
 	(command) => {
 		it('says the turn finished, and writes nothing after its last done', async () => {
@@ -270,7 +270,7 @@ describe.each(['run', 'run-stream'] as const)(
 			expect(types.at(-1)).toBe('turn_completed')
 			expect(await log.activeTurn()).toBeNull()
 
-			if (command === 'run') {
+			if (command === 'exec') {
 				expect(run.stderr()).not.toContain('left interrupted')
 				expect(run.stderr()).toContain(
 					`stopped by SIGTERM after the turn ended; it is recorded in conversation ${sessionId}`,
@@ -300,7 +300,7 @@ describe.each(['run', 'run-stream'] as const)(
 describe('a new prompt after a terminated run', () => {
 	it('begins at once, closing the interrupted turn as turn_failed{interrupted}', async () => {
 		const provider = await silentProvider()
-		const run = launch('run', provider.url)
+		const run = launch('exec', provider.url)
 		await until(() => provider.completions() > 0, 'the completion request')
 		const { log } = conversation(run.home)
 		const interrupted = await activeTurnId(log)

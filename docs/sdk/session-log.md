@@ -285,9 +285,9 @@ on, every claim in the process is refused with `SessionLeasesReleasedError`, so
 a turn still unwinding cannot renew or retake the lease it just gave up, and a
 queued prompt cannot start a new one.
 
-The CLI calls it on SIGTERM, SIGHUP and SIGINT in the TUI, `namzu run` and
-`namzu run-stream` (see
-[Exit codes of a headless run](../cli/run-exit-codes.md#a-run-stopped-by-a-signal)).
+The CLI calls it on SIGTERM, SIGHUP and SIGINT in the TUI and in `namzu exec`,
+in either mode (see
+[Exit codes of `namzu exec`](../cli/exec-exit-codes.md#an-invocation-stopped-by-a-signal)).
 
 A process killed with SIGKILL, or one that crashes outright, runs no code, and
 its lease is freed only by expiry. A liveness check — "the holder's pid is

@@ -90,8 +90,8 @@ time as protocol. A refused line keeps its row, because nothing was shown and
 that is the only thing that says so.
 
 The tool is mounted only where somebody is watching — the interactive
-terminal, the same condition `ask_user_question` is mounted under. `namzu run`,
-`namzu run-stream`, `namzu drain` and the resident step have no rail for a
+terminal, the same condition `ask_user_question` is mounted under. `namzu exec`
+in either mode, `namzu drain` and the resident step have no rail for a
 line to appear above, and a tool whose whole answer is "the operator saw this"
 must not be offered where there is no operator to show it to.
 
@@ -198,7 +198,7 @@ rather than being shown in full and left to crowd the description out.
 
 ## Turn limits
 
-Built-in children use the configured [turn limits](run-limits.md), including
+Built-in children use the configured [turn limits](turn-limits.md), including
 explicit unlimited values. `limits.maxIterations` now reaches built-in children
 as well as the parent; absent or zero means unlimited. Built-in children also
 default to unlimited turn duration. `/config` → limits changes these values

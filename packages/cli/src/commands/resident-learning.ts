@@ -14,7 +14,7 @@ import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { residentLearningStore } from '../integrations/resident/learning-storage.js'
 import { lookupResident } from '../integrations/resident/storage.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
-import { resolveWorkingDirectory } from './run-flags.js'
+import { resolveWorkingDirectory } from './exec-flags.js'
 import type { CommandHandlerArgs } from './types.js'
 
 const line = (value: string) => stripVTControlCharacters(value).replace(/[\p{Cc}\p{Cf}]/gu, ' ')

@@ -1,4 +1,4 @@
-import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/run-limits.js'
+import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 
 export const TURN_LIMIT_FIELDS = [
 	{

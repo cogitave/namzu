@@ -1,7 +1,7 @@
 import { fork } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { RunFlags } from '../../commands/run-flags.js'
+import type { ExecFlags } from '../../commands/exec-flags.js'
 import type { CommandContext } from '../../commands/types.js'
 import { queryRunner } from './runner-control.js'
 import {
@@ -21,7 +21,7 @@ export interface ResidentWorkerLaunch {
 	readonly agentKey: string
 	readonly instanceId: string
 	readonly config: CommandContext['config']
-	readonly flags: RunFlags
+	readonly flags: ExecFlags
 	readonly toolLoading?: 'eager' | 'deferred'
 	readonly contextProfile?: 'resident' | 'interactive'
 	readonly learningDisclosure?: 'eager' | 'on-demand'
@@ -33,7 +33,7 @@ export interface ResidentWorkerLaunch {
 export async function startResidentRunner(options: {
 	readonly resident: CliResident
 	readonly ctx: CommandContext
-	readonly flags: RunFlags
+	readonly flags: ExecFlags
 	readonly toolLoading?: 'eager' | 'deferred'
 	readonly contextProfile?: 'resident' | 'interactive'
 	readonly learningDisclosure?: 'eager' | 'on-demand'

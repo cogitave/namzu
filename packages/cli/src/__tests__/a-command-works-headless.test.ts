@@ -1,8 +1,8 @@
 /**
- * A command the operator defined works in `namzu run`, not only in the TUI.
+ * A command the operator defined works in `namzu exec`, not only in the TUI.
  *
  * Reported from a real run of the published CLI: a project with
- * `.namzu/commands/ozet.md`, then `namzu run --trust "/ozet hedef.js"`. The
+ * `.namzu/commands/ozet.md`, then `namzu exec --trust "/ozet hedef.js"`. The
  * model received the literal string, could not make sense of it, and offered to
  * create a file called `ozet hedef.js`. Exit 0, confident output, nothing to do
  * with the command.
@@ -13,8 +13,8 @@
  *
  * ## What is asserted, and what is deliberately not
  *
- * The rule is NOT "a leading slash is a command". `namzu run "/usr/local/bin is
- * missing"` and `namzu run "/clear the cache in redis"` are ordinary prompts,
+ * The rule is NOT "a leading slash is a command". `namzu exec "/usr/local/bin is
+ * missing"` and `namzu exec "/clear the cache in redis"` are ordinary prompts,
  * and breaking a working prompt to fix a broken one is not a trade worth
  * making. The rule is "the first token names a command this project declares" —
  * a file the operator wrote is an explicit declaration; a built-in's name is a
@@ -30,7 +30,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import { runCommand } from '../commands/run.js'
+import { execCommand } from '../commands/exec.js'
 import type { CommandContext } from '../commands/types.js'
 
 // Trusted, because this file is about prompt expansion. The gate that refuses
@@ -98,7 +98,7 @@ function context(): { ctx: CommandContext; errors: string[] } {
 
 async function run(prompt: string): Promise<{ code: number; errors: string[] }> {
 	const { ctx, errors } = context()
-	const code = (await runCommand.handler({
+	const code = (await execCommand.handler({
 		rawArgs: ['--cwd', cwd, '--trust', prompt],
 		ctx,
 	} as never)) as number
@@ -152,7 +152,7 @@ describe('a leading slash that is not a command', () => {
 	})
 
 	it('refuses a bare built-in, which nobody means literally', async () => {
-		// `namzu run "/help"` is not a sentence. Answering it by letting the model
+		// `namzu exec "/help"` is not a sentence. Answering it by letting the model
 		// improvise on the string is the same silent misfire as the original bug.
 		const { code, errors } = await run('/help')
 		expect(code).not.toBe(0)

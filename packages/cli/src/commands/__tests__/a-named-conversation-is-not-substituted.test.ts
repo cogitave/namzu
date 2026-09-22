@@ -1,11 +1,11 @@
 /**
- * `run-stream --session <key>` never answers against a different history than
+ * `exec --json --session <key>` never answers against a different history than
  * the one it was given.
  *
  * Opening the conversation used to set `cli = null` on any error and fall
  * through to reading prior turns from STDIN — so a caller who named a
  * conversation got a confident answer composed against somebody else's
- * history, or none, reported as exit 0. `run.ts` already refuses the
+ * history, or none, reported as exit 0. `exec.ts` already refuses the
  * equivalent: someone who asked for a specific conversation and got a new one
  * that looks the same finds out several turns later, having already acted on
  * it.
@@ -26,8 +26,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { openSessions, resolveConversation } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
-import { runStreamCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
+import { execJsonCommand } from './exec-json-command.js'
 
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: vi.fn(async () => ({}) as never),
@@ -81,7 +81,7 @@ function capture(): { lines: string[]; restore: () => void } {
 async function run(rawArgs: string[]): Promise<string> {
 	const { lines, restore } = capture()
 	try {
-		await runStreamCommand.handler({ rawArgs, ctx } as never)
+		await execJsonCommand.handler({ rawArgs, ctx } as never)
 	} finally {
 		restore()
 	}

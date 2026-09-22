@@ -129,6 +129,14 @@ describe('resident command argument boundaries', () => {
 	])('refuses invalid or duplicate execution options before state admission: %j', (...options) => {
 		expect(() => parseResidentFlags(['run', '--max-steps', '2', ...options])).toThrow()
 	})
+	it.each([['--json'], ['--output-schema', 'schema.json']])(
+		'refuses the exec-only option %s instead of ignoring it',
+		(...options) => {
+			expect(() => parseResidentFlags(['run', '--max-steps', '2', ...options])).toThrow(
+				'exec options',
+			)
+		},
+	)
 	it('does not save one invocation’s authority on an add operation', () => {
 		expect(() => parseResidentFlags(['add', 'review', '--permission-mode', 'auto'])).toThrow(
 			'apply to resident run',

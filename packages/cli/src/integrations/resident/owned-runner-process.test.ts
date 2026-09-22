@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { ResidentConflictError, type ResidentState } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
-import { parseRunFlags } from '../../commands/run-flags.js'
+import { parseExecFlags } from '../../commands/exec-flags.js'
 import type { OwnedRunnerWorkerOptions } from './__fixtures__/owned-runner-worker.js'
 import { queryRunner } from './runner-control.js'
 import { startResidentRunner, stopResidentRunner } from './runner-launch.js'
@@ -399,7 +399,7 @@ it.each(['reserved', 'effect'] as const)(
 				startResidentRunner({
 					resident: f.resident,
 					ctx: { config: {}, formatter: { name: 'json', print() {}, info() {}, error() {} } },
-					flags: parseRunFlags([]),
+					flags: parseExecFlags([]),
 					maxSteps: 1,
 					maxIdleMs: 25,
 				}),

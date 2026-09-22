@@ -48,7 +48,7 @@ import { readSessionStart } from '../integrations/resident/session-log-reads.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { applyProviderFlags, resolveWorkingDirectory } from './run-flags.js'
+import { applyProviderFlags, resolveWorkingDirectory } from './exec-flags.js'
 import type { CommandDef } from './types.js'
 
 /** The drain flags name a scope the store does not hold: an argument error, exit 64. */
@@ -417,7 +417,7 @@ export const drainCommand: CommandDef = {
 		// The CLI owns stderr, not the kernel it drives (LOG-05) — a live sink
 		// at the level --verbose/--quiet/NAMZU_LOG_LEVEL named, instead of
 		// forcing the level to `silent` via `configureLogger`. `{ replace:
-		// true }`: see the identical comment in `run.ts` — a real invocation
+		// true }`: see the identical comment in `exec.ts` — a real invocation
 		// calls this once, this package's own tests call a handler's more
 		// than once per process.
 		const logging = contextLogging(ctx)

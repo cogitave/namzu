@@ -140,9 +140,9 @@ An SDK kernel test executes a registered tool and feeds its result into the
 next model request before completing the turn.
 On 2026-09-08, live text inference on `muse-spark-1.3-contributor-free`
 succeeded without an account key through installed OpenCode and Namzu's
-driver. A live Namzu `run-stream` call with low effort and production tools
+driver. A live Namzu `run-stream` call (the command is now `namzu exec --json`) with low effort and production tools
 also read `verification.txt`, then returned its exact nonce, absent from
-the prompt, after two model requests. The read succeeded and the run ended
+the prompt, after two model requests. The read succeeded and the turn ended
 with `end_turn`. This validates that model's public text and file-tool path;
 it does not establish every public or paid model, Go access, or billing.
 

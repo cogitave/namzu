@@ -18,7 +18,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { emptySessionLog } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { applyProviderFlags } from '../../commands/run-flags.js'
+import { applyProviderFlags } from '../../commands/exec-flags.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,

@@ -3,7 +3,7 @@ type: Reference
 title: "@namzu/cli"
 description: >-
   A terminal coding agent with interactive sessions, parallel agents, saved
-  conversations, headless runs that stream structured events,
+  conversations, headless one-shots that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
 status: stable
@@ -141,7 +141,7 @@ Desktop control is separate from attaching a clipboard image. Ctrl+V/Alt+V
 adds an image to the current prompt; the TUI's `computer_use` tool lets the
 model take a fresh screenshot and, after the normal permission decision, drive
 pointer or keyboard input. Namzu mounts that tool only when the host adapter
-initializes. Unattended `run`, `run-stream` and `drain` do not mount it because
+initializes. Unattended `exec` (in either mode) and `drain` do not mount it because
 they have no interactive permission owner. Inside WSL the TUI targets the
 paired Windows desktop through `powershell.exe`, so WSLg display variables do
 not incorrectly select a Linux compositor adapter.
@@ -194,14 +194,14 @@ Public Zen is listed after existing accounts and reachable local providers
 and carries the label `free models · no API key`.
 
 ```bash
-namzu run --provider zen "Explain this project"
-namzu run --provider zen --model muse-spark-1.3-contributor-free "Explain this project"
-namzu run --provider zen-go --model glm-5.3-flash "Explain this project"
+namzu exec --provider zen "Explain this project"
+namzu exec --provider zen --model muse-spark-1.3-contributor-free "Explain this project"
+namzu exec --provider zen-go --model glm-5.3-flash "Explain this project"
 ```
 
 The Zen commands use public access when no key is available; Go requires its
 own credential. All use the existing folder-trust rules. The same
-provider/model flags work with `run-stream`.
+provider/model flags work with `exec --json`.
 The picker lists each service's supported models from the provider catalogue;
 an explicit model selection is saved using the existing preferences flow.
 Go requests carry the actual Namzu conversation ID in `x-opencode-session`,
@@ -376,24 +376,30 @@ same plugin hooks and skills reach interactive turns, headless turns, durable
 resumes, and ACP sessions; session shutdown settles live work before unloading
 them.
 
-## Headless runs
+## Headless use: `namzu exec`
 
 ```bash
-namzu run "fix the failing test" --format json
-namzu run-stream "refactor the parser" | jq -c 'select(.kind == "tool-start")'
+namzu --format json exec "fix the failing test"
+namzu exec --json "refactor the parser" | jq -c 'select(.kind == "tool-start")'
+namzu exec --output-schema answer.schema.json "rate this diff from 1 to 5"
 ```
 
-`run` prints a result; `run-stream` emits one structured event per line as the
-turn happens, so a script can act on a tool call before the turn is over. Both
-take `--verbose`/`--quiet`, and both write logs to stderr so stdout stays a
-clean protocol stream. A session has one active turn at a time: either command
-aimed at a session whose turn is still running or paused exits 75 and names
-that turn. See [Exit codes](../../docs/cli/run-exit-codes.md) and
-[`run-stream`](../../docs/cli/run-stream.md).
+`namzu exec` (alias `namzu e`) prints a result; `namzu exec --json` emits one
+structured event per line as the turn happens, so a script can act on a tool
+call before the turn is over. `--output-schema <file>` binds the final answer
+to a JSON Schema through the provider's native structured output. Both modes
+take `--verbose`/`--quiet` (before `exec`), and both write logs to stderr so
+stdout stays a clean protocol stream. A session has one active turn at a time:
+either mode aimed at a session whose turn is still running or paused exits 75
+and names that turn. See [Exit codes](../../docs/cli/exec-exit-codes.md) and
+[`exec --json`](../../docs/cli/exec-json.md).
+
+`namzu run` and `namzu run-stream` were removed: use `namzu exec` and
+`namzu exec --json`, which take the same options.
 
 Recoverable provider stops are explicit `paused` events carrying their
 checkpoint and any structured retry guidance. The interactive transcript shows
-the same remedy and holds dependent queued input; `run` exits non-zero rather
+the same remedy and holds dependent queued input; `exec` exits non-zero rather
 than treating a paused or failed partial answer as complete.
 
 The interactive transcript also shows provider capability mismatches and

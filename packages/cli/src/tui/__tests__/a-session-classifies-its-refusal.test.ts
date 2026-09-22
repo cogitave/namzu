@@ -9,7 +9,7 @@
  * contradicts itself and a client that would not construct are all about the
  * machine, and no argument moves any of them.
  *
- * `run-stream` branches on that difference to choose its exit code. The
+ * `exec --json` branches on that difference to choose its exit code. The
  * exit-code suite stubs the session, so it can only prove that the COMMAND
  * reacts to the field — this file is the other half, and without it a session
  * that labelled everything `environment` would pass every test in the repo.

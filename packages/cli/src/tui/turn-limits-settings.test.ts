@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveTurnGuards } from '../config/run-limits.js'
+import { resolveTurnGuards } from '../config/turn-guards.js'
 import { formatTurnLimit, turnLimitsAction } from './turn-limits-settings.js'
 
 describe('run limits settings', () => {

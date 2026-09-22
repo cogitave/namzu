@@ -104,6 +104,34 @@ describe('runCli', () => {
 		expect(stderr).toMatch(/unknown command|too many arguments/)
 	})
 
+	it.each([
+		[['run', 'hello'], 'run', 'namzu exec "<prompt>"'],
+		[['run'], 'run', 'namzu exec "<prompt>"'],
+		[['-q', 'run', '--trust', 'hello'], 'run', 'namzu exec "<prompt>"'],
+		[['run-stream', '--session', 'k', 'hello'], 'run-stream', 'namzu exec --json "<prompt>"'],
+	])('a removed command %j is unknown, and the error names exec', async (args, name, hint) => {
+		const code = await invoke(args)
+		expect(code).toBe(64)
+		// Commander's own wording, not "too many arguments", which is what the
+		// root command's default action would otherwise make of the name.
+		expect(stderr).toContain(`error: unknown command '${name}'`)
+		expect(stderr).not.toContain('too many arguments')
+		expect(stderr).toContain(hint)
+		expect(stderr.trim().split('\n')).toHaveLength(2)
+	})
+
+	it('lists exec with its alias, and neither removed command', async () => {
+		expect(await invoke(['--help'])).toBe(0)
+		expect(stdout).toMatch(/^\s+exec\|e\b/m)
+		expect(stdout).not.toMatch(/^\s+run(-stream)?\b/m)
+	})
+
+	it('refuses --output-schema before exec and says where it goes', async () => {
+		const code = await invoke(['--output-schema', '/unused/schema.json', 'exec', 'hello'])
+		expect(code).toBe(64)
+		expect(stderr).toContain('namzu exec --output-schema <file>')
+	})
+
 	function skillProject(contents: string): string {
 		const root = mkdtempSync(join(tmpdir(), 'namzu-cli-skills-'))
 		tempRoots.push(root)

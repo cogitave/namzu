@@ -22,12 +22,12 @@ import {
 } from '@namzu/sdk'
 
 import {
-	type RunFlags,
+	type ExecFlags,
 	applyProviderFlags,
 	buildGate,
 	loadSkillsContext,
 	unknownOptionMessage,
-} from '../../commands/run-flags.js'
+} from '../../commands/exec-flags.js'
 import type { CommandContext } from '../../commands/types.js'
 import { cliLogger } from '../../logging.js'
 import { resolvePermissionMode } from '../../permissions/mode.js'
@@ -72,7 +72,7 @@ export interface ResidentSessionStepOptions {
 	readonly sessions: CliSessions
 	/** History authority remains bound to this resident's agenda and admitted revision. */
 	readonly agenda?: DiskResidentAgenda
-	readonly flags: RunFlags
+	readonly flags: ExecFlags
 	/** Defer optional tool schemas per step; authority and instructions remain unchanged. */
 	readonly toolLoading?: 'eager' | 'deferred'
 	/** Resident policy with layered snapshots by default; interactive preserves the earlier prompt. */

@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { TerminationHandling, TerminationSignal } from '../../termination.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { AgentEvent, AgentSession } from '../../tui/agent.js'
-import { runCommand } from '../run.js'
+import { execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
 
 /**
- * `namzu run --wait-for-provider` stopped by a signal while it waits out a
+ * `namzu exec --wait-for-provider` stopped by a signal while it waits out a
  * provider pause.
  *
  * Nothing is running then: the turn is recorded `turn_paused` with a
@@ -84,7 +84,7 @@ describe('a run stopped while it waits for the provider', () => {
 		const resumed = vi.fn()
 		sessionStub.resumePaused = resumed as unknown as AgentSession['resumePaused']
 
-		const done = runCommand.handler({
+		const done = execCommand.handler({
 			rawArgs: ['--wait-for-provider', '30s', 'hello'],
 			ctx,
 		} as never) as Promise<number>

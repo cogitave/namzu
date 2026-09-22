@@ -4,8 +4,9 @@ import { openSessions } from '../../integrations/sessions/store.js'
 import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession, probeAgentSession } from '../../tui/agent.js'
-import { providersJSONCommand, runStreamCommand } from '../run-stream.js'
+import { providersJSONCommand } from '../host-queries.js'
 import type { CommandContext } from '../types.js'
+import { execJsonCommand } from './exec-json-command.js'
 
 vi.mock('../../integrations/sessions/store.js', () => ({
 	closeSessions: vi.fn(),
@@ -68,7 +69,7 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-describe('namzu run-stream installs a live stderr sink instead of silencing the SDK logger', () => {
+describe('namzu exec --json installs a live stderr sink instead of silencing the SDK logger', () => {
 	it('the sink is always NDJSON on stderr, even when ctx.logging.format is pretty', async () => {
 		const lines: string[] = []
 		const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
@@ -76,7 +77,7 @@ describe('namzu run-stream installs a live stderr sink instead of silencing the 
 			return true
 		})
 		try {
-			await runStreamCommand.handler({ ctx: ctxAt('debug'), rawArgs: ['hi'] })
+			await execJsonCommand.handler({ ctx: ctxAt('debug'), rawArgs: ['hi'] })
 			cliLogger().debug('probe')
 			const out = lines.join('')
 			expect(out).toContain('"body":"probe"')
@@ -94,7 +95,7 @@ describe('namzu run-stream installs a live stderr sink instead of silencing the 
 				return true
 			})
 			try {
-				await runStreamCommand.handler({ ctx: ctxAt(level), rawArgs: ['hi'] })
+				await execJsonCommand.handler({ ctx: ctxAt(level), rawArgs: ['hi'] })
 				return lines.join('')
 			} finally {
 				spy.mockRestore()

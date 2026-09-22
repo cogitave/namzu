@@ -13,7 +13,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { parseRunFlags } from '../../commands/run-flags.js'
+import { parseExecFlags } from '../../commands/exec-flags.js'
 import type { CommandContext } from '../../commands/types.js'
 import { PROVIDER_REGISTRY } from '../providers/index.js'
 import { openSessions } from '../sessions/store.js'
@@ -122,7 +122,7 @@ it.each([
 			projectSlug: slug,
 			contextProfile,
 			toolLoading: 'deferred',
-			flags: parseRunFlags(['--permission-mode', 'plan', '--max-iterations', '10']),
+			flags: parseExecFlags(['--permission-mode', 'plan', '--max-iterations', '10']),
 		})
 		const invoke = async () => {
 			const claim = await execution.claim((await execution.read())!, Date.now())
@@ -307,7 +307,7 @@ it.each([false, true])(
 				agenda: currentAgenda,
 				artifactsRoot,
 				projectSlug: slug,
-				flags: parseRunFlags(['--max-iterations', '4']),
+				flags: parseExecFlags(['--max-iterations', '4']),
 				toolLoading: 'deferred',
 			})
 			const result = await step({ ...pursuit, state: claim }, new AbortController().signal, {

@@ -8,10 +8,10 @@
  * whose whole body was in the transcript it had just been given.
  *
  * All three ways travel one closure. The TUI's `/resume` sends the messages it
- * reloaded; `namzu run --resume`/`--continue` sends
- * `[...prior, userMessage]` (`commands/run.ts`), and so does
- * `namzu run-stream --session <id>` (`commands/run-stream.ts`) — which are the
- * two headless entry points, because a plain `namzu run` persists no turn at
+ * reloaded; `namzu exec --resume`/`--continue` sends
+ * `[...prior, userMessage]` (`commands/exec.ts`), and so does
+ * `namzu exec --json --session <id>` (`commands/exec-json.ts`) — which are the
+ * two headless entry points, because a plain `namzu exec` persists no turn at
  * all and therefore has nothing to resume from. That shape is what the first
  * case below sends: restored history with this turn's prompt on the end.
  *
@@ -156,7 +156,7 @@ describe('a conversation picked back up keeps the witnesses it earned', () => {
 		}
 		const session = await open(scope)
 		try {
-			// Exactly what `namzu run --resume` and `run-stream --session` send:
+			// Exactly what `namzu exec --resume` and `exec --json --session` send:
 			// the conversation as it was loaded back, with this turn's prompt on
 			// the end. The seeding has to read the history it was handed rather
 			// than the last message of it.

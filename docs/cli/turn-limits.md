@@ -2,7 +2,7 @@
 type: Reference
 title: Turn limits
 description: Limits for interactive and headless turns, headless override flags, explicit reasoning effort and budget enforcement.
-resource: packages/cli/src/commands/run-flags.ts
+resource: packages/cli/src/commands/exec-flags.ts
 tags: [cli, limits, config]
 status: stable
 generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
@@ -13,7 +13,7 @@ generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 CLI turns default to unlimited main-loop iterations, turn duration and cumulative tokens. This applies to interactive turns, headless turns and built-in delegated agents. Set a token budget explicitly to bound measured usage across the parent and its descendants. Token exhaustion remains distinct from successful completion.
 
 - **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000, "timeoutMs": 3600000 }`. Keys may be omitted. Nonnegative safe integers; `0` disables the corresponding turn guard. A positive `timeoutMs` must be at most 2,147,483,647 milliseconds to fit platform timers.
-- **`--max-iterations <n>`** and **`--token-budget <n>`** on `run` and `run-stream` override the file for one invocation.
+- **`--max-iterations <n>`** and **`--token-budget <n>`** on `namzu exec` (either mode) override the file for one invocation.
 
 To remove all three caps explicitly, put this in the workspace's
 `namzu.config.json` (or the equivalent `limits` mapping in the user YAML file):
@@ -29,7 +29,7 @@ To remove all three caps explicitly, put this in the workspace's
 ```
 
 Zero is an explicit setting, so it can remove a cap inherited from user
-configuration. `namzu run --token-budget 0 --max-iterations 0 "continue the work"`
+configuration. `namzu exec --token-budget 0 --max-iterations 0 "continue the work"`
 removes those two caps for that headless invocation; its configured turn deadline
 still applies. `timeoutMs` is configured in the file, not a headless flag.
 
@@ -92,7 +92,7 @@ to built-in children. The SDK's own embedding defaults are unchanged.
 
 ## Reasoning effort and budget enforcement
 
-`run` and `run-stream` accept `--effort <level>`. An explicit level reaches the
+`namzu exec` accepts `--effort <level>` in either mode. An explicit level reaches the
 provider unchanged; omitting it preserves the provider default. The parser
 accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` and `ultra`;
 the selected model must support the chosen level. Unsupported levels are
@@ -117,7 +117,7 @@ Usage events retain the turn's own `usage` and add a `budget` summary.
 descendants, and `budget.reservedTokens` is allowance still held by unfinished
 children. These are cumulative snapshots; do not sum successive events.
 
-`run-stream` emits one terminal `done` event, after session cleanup and the
+`namzu exec --json` emits one terminal `done` event, after session cleanup and the
 attempt to persist history. A persistence notice precedes that terminal event;
 its stop reason is preserved. When the kernel supplies a settled result,
 `done.text` contains that result, including an intentional empty string. Streamed
@@ -130,10 +130,10 @@ text when available.
 
 ## Waiting for the provider
 
-A third leash is time spent waiting. When the provider pauses a turn — a rate limit, an outage — the kernel keeps a checkpoint and the turn cannot go on until the provider allows it. Without a wait budget `namzu run` exits 75 at once and leaves the decision to whatever called it. With one, the turn waits and resumes from the checkpoint in the same process, keeping its own context rather than being re-prompted from notes.
+A third leash is time spent waiting. When the provider pauses a turn — a rate limit, an outage — the kernel keeps a checkpoint and the turn cannot go on until the provider allows it. Without a wait budget `namzu exec` exits 75 at once and leaves the decision to whatever called it. With one, the turn waits and resumes from the checkpoint in the same process, keeping its own context rather than being re-prompted from notes.
 
 ```
-namzu run --wait-for-provider 2h "migrate the fixtures"
+namzu exec --wait-for-provider 2h "migrate the fixtures"
 ```
 
 The flag takes a duration (`90s`, `30m`, `2h`, or a bare number of seconds). The config key `limits.waitForProviderMs` sets the same budget, in milliseconds, for every headless invocation in the folder; the flag overrides it. The default is no budget.

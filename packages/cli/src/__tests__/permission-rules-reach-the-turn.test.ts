@@ -12,8 +12,8 @@
  *
  * - **Break 1.** `sanitize()` in `config/load.ts` copies exactly `format` and
  *   `quiet` off a parsed config, so `permissions` is dropped from every file
- *   namzu reads. `compilePermissions(ctx.config.permissions)` in `run.ts` and
- *   `run-stream.ts` is therefore always compiling `undefined`.
+ *   namzu reads. `compilePermissions(ctx.config.permissions)` in `exec.ts` and
+ *   `exec-json.ts` is therefore always compiling `undefined`.
  * - **Break 2.** `runTurn` destructures `rules` and passes the module-level
  *   `VERIFICATION_GATE` — whose `rules` is a hardcoded `[]` — to `query()`.
  *   So even a caller that hands rules in explicitly has them dropped.
@@ -105,7 +105,7 @@ describe('a permissions rule written in a config file', () => {
 	it('reaches the gate of the turn that has to enforce it', async () => {
 		writeProjectConfig({ bash: 'deny' })
 
-		// Exactly what `run.ts` does, from the same starting point a user has.
+		// Exactly what `exec.ts` does, from the same starting point a user has.
 		const cfg = loadConfig({ cwd: workDir, home: workDir, env: {} })
 		const compiled = compilePermissions(cfg.permissions)
 

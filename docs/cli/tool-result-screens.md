@@ -68,7 +68,7 @@ set.** `mcp_weather-co_lookup` (a server connected directly) also answers to
 implemented once, as `passthroughToolNames` in the SDK.
 
 **A name that matches no tool is said out loud.** The session reports it on
-`configNotices`, which the TUI, `run`, `run-stream` and the resident step all
+`configNotices`, which the TUI, `exec` in either mode and the resident step all
 print:
 
 ```
@@ -82,7 +82,7 @@ they were trying to stop comes back with nothing to explain it.
 ## Where it takes effect
 
 Every registry this CLI builds for a session: the interactive session and its
-sub-agents, headless `run` and `run-stream`, ACP, and the resident step. It is
+sub-agents, headless `exec` in either mode, ACP, and the resident step. It is
 configured at registry construction rather than per turn, so all of them get it
 from one place — and the interactive session reaches it the same way the others
 do, through the `TuiContext` the App holds.

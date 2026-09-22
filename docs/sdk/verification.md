@@ -243,8 +243,8 @@ exhausted. A previously rejected candidate does not become accepted because the
 next response bypassed review. Cancellation still takes precedence. Validated
 native structured output retains its separate schema/review settlement path.
 
-The CLI's headless `run` and `run-stream` commands accept repeatable `--gate`
-commands and `--gate-retries`; the TUI does not automatically install this gate.
+The CLI's headless `namzu exec` accepts repeatable `--gate` commands and
+`--gate-retries` in either mode; the TUI does not automatically install this gate.
 Output guardrails can judge the final result across more settlement paths, but
 streamed text may already have reached the host. Neither mechanism infers a
 complete acceptance specification from arbitrary natural language.

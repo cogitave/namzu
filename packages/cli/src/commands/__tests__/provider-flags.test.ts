@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
-import { applyProviderFlags } from '../run-flags.js'
+import { applyProviderFlags } from '../exec-flags.js'
 
 const chain: Preferences = {
 	version: 3,

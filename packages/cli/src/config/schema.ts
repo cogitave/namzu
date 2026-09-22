@@ -65,7 +65,7 @@ export interface TurnLimitsConfig {
 	/** Total turn duration in milliseconds. Omitted or 0 means unlimited. */
 	readonly timeoutMs?: number
 	/**
-	 * Milliseconds a headless `namzu run` may spend waiting out provider
+	 * Milliseconds a headless `namzu exec` may spend waiting out provider
 	 * pauses — a rate limit, an outage — resuming from its checkpoint after
 	 * each, before it stops with exit code 75. Default 0: a pause ends it at once.
 	 */
@@ -191,8 +191,8 @@ export interface NamzuCliConfig {
 	/** Executable extension bundles. Absent keeps discovery and imports off. */
 	readonly plugins?: PluginConfig
 	/**
-	 * How far one turn may go before the kernel stops it. Headless `run` and
-	 * `run-stream` read these; `--max-iterations` and `--token-budget` override
+	 * How far one turn may go before the kernel stops it. Headless `exec` and
+	 * `exec --json` read these; `--max-iterations` and `--token-budget` override
 	 * them for one turn. Absent means unlimited tokens, iterations and run duration.
 	 * Explicit token budgets cover descendants.
 	 */

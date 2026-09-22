@@ -1,9 +1,9 @@
 /**
- * `namzu run` accepts what `namzu run-stream` accepts.
+ * `namzu exec` accepts what `namzu exec --json` accepts.
  *
  * The two are the same headless one-shot and differ only in how they print, so
  * an option one takes and the other reads aloud to the model is a defect, not a
- * design. `run` joined every argument into the prompt, which is the exact shape
+ * design. `exec` joined every argument into the prompt, which is the exact shape
  * already fixed once in the streaming sibling — `--cwd` was documented there,
  * unparsed, and silently ran in the process's own directory.
  */
@@ -19,7 +19,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { EXIT_USAGE } from '../../exit-codes.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { type AgentEvent, createAgentSession } from '../../tui/agent.js'
-import { composePrompt, runCommand } from '../run.js'
+import { composePrompt, execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
 
 const seen: {
@@ -140,7 +140,7 @@ async function run(
 	instructions.skipped = []
 	setup?.()
 	const { ctx, errors } = context()
-	const code = (await runCommand.handler({ rawArgs, ctx } as never)) as number
+	const code = (await execCommand.handler({ rawArgs, ctx } as never)) as number
 	return { code, errors }
 }
 
@@ -153,7 +153,7 @@ describe('headless reasoning effort', () => {
 	})
 })
 
-describe('namzu run reads its options instead of reciting them', () => {
+describe('namzu exec reads its options instead of reciting them', () => {
 	it('works in --cwd and keeps it out of the prompt', async () => {
 		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-run-cwd-'))
 		try {
@@ -219,7 +219,7 @@ describe('namzu run reads its options instead of reciting them', () => {
 })
 
 describe('a pipe and a question are both the prompt', () => {
-	// `cat notes.txt | namzu run "summarise this"` read the three words and
+	// `cat notes.txt | namzu exec "summarise this"` read the three words and
 	// silently dropped the file: piped input was consulted only when there was
 	// no argument prompt. The turn succeeded and answered about nothing.
 	it('keeps piped material alongside the question', () => {
@@ -314,7 +314,7 @@ describe('the pipe reaches the model, not just the composer', () => {
 })
 
 describe('an instruction file that was refused is named, not omitted', () => {
-	// The session reports a refusal and `run` has to print it. An empty loaded
+	// The session reports a refusal and `exec` has to print it. An empty loaded
 	// list cannot distinguish "this project declares none" from "yours is a
 	// symlink out of the tree and namzu would not read it", and those two want
 	// opposite responses from whoever is reading the output.
@@ -356,7 +356,7 @@ describe('a flag that was never read is refused, not swallowed', () => {
 
 it('forwards the automatic memory recall opt-out into the headless session', async () => {
 	const { ctx } = context()
-	const code = await runCommand.handler({
+	const code = await execCommand.handler({
 		rawArgs: ['hello'],
 		ctx: { ...ctx, config: { memory: { recall: false } } },
 	} as never)

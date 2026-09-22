@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { unknownOptionMessage } from '../run-flags.js'
+import { unknownOptionMessage } from '../exec-flags.js'
 
 /**
- * `namzu run "..." --verbose` is the order a person types, and the answer was
+ * `namzu exec "..." --verbose` is the order a person types, and the answer was
  * "pass `--` before a prompt that starts with a dash" — advice about a prompt
  * beginning with `-`, which sends the reader to the wrong half of their
  * command line. The flag is real and works; it is only positional.

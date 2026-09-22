@@ -3,7 +3,7 @@
  *
  * The obvious way to route the TUI into the picker is to null `preferences` and
  * reuse `needsRepickReason`, and it would have been a silent regression for
- * every scripted run. `run`, `run-stream` and `drain` all do
+ * every scripted run. `exec`, `exec --json` and `drain` all do
  * `probe.preferences ?? defaultPrefs(probe.detected)` — so a null there does not
  * refuse, it FALLS BACK, and a turn pinned to a provider whose key had lapsed
  * would quietly have moved onto whatever else the machine happened to have.

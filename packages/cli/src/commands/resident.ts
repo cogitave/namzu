@@ -26,9 +26,9 @@ import {
 import { loadResidentVerification } from '../integrations/resident/verification.js'
 import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
+import { resolveWorkingDirectory } from './exec-flags.js'
 import { parseResidentFlags } from './resident-flags.js'
 import { residentLearningCommand } from './resident-learning.js'
-import { resolveWorkingDirectory } from './run-flags.js'
 import type { CommandDef } from './types.js'
 
 const line = (value: string) => stripVTControlCharacters(value).replace(/[\p{Cc}\p{Cf}]/gu, ' ')

@@ -6,11 +6,11 @@
  * for `read` on a different ~4 KB file, the last one answers. The CLI under
  * test is the BUILT one (`packages/cli/dist/bin.js`), launched as a separate
  * process with `NAMZU_HOME` pointed at a scratch directory, so every byte it
- * writes is the byte a real `namzu run` would write.
+ * writes is the byte a real `namzu exec` would write.
  *
  *   node scripts/benchmarks/cli-state-growth.mjs [turns] [iterations] [--json]
  *
- * `turns` is how many `namzu run` invocations to make from the same working
+ * `turns` is how many `namzu exec` invocations to make from the same working
  * directory (each headless invocation is its own session); `iterations` is how
  * many tool calls each invocation makes before answering. It reports files and
  * bytes under the application home (`projects/<slug>/<session-id>.jsonl`, with
@@ -241,7 +241,7 @@ function namzu(args) {
 const started = Date.now();
 for (let t = 0; t < turns; t++) {
 	const result = await namzu([
-		"run",
+		"exec",
 		"--provider",
 		"anthropic",
 		"--model",
@@ -254,7 +254,7 @@ for (let t = 0; t < turns; t++) {
 		console.error(result.out.slice(-2000), result.err.slice(-2000));
 	if (result.code !== 0) {
 		console.error(result.out, result.err);
-		throw new Error(`namzu run exited ${result.code} on turn ${t + 1}`);
+		throw new Error(`namzu exec exited ${result.code} on turn ${t + 1}`);
 	}
 }
 const elapsedMs = Date.now() - started;

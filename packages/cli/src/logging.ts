@@ -1,8 +1,8 @@
 /**
  * Log level + format resolution for the CLI's five entry points that used
  * to force the SDK logger's level to `silent` via `configureLogger` and
- * never turn it back on: `tui/index.tsx`, `commands/run.ts`,
- * `commands/drain.ts` and `commands/run-stream.ts` (twice — `run-stream`
+ * never turn it back on: `tui/index.tsx`, `commands/exec.ts`,
+ * `commands/drain.ts` and `commands/exec-json.ts` (twice — `exec --json`
  * itself and `providers-json`). LOG-05.
  *
  * Kept out of `config/load.ts`'s cascade on purpose. That system merges
@@ -92,11 +92,11 @@ export function resolveLogFormat(
 }
 
 /**
- * The sink `run`/`drain` install, chosen by `--log-format`/
- * `NAMZU_LOG_FORMAT`. `run-stream` does NOT use this — its stderr is a
+ * The sink `exec`/`drain` install, chosen by `--log-format`/
+ * `NAMZU_LOG_FORMAT`. `exec --json` does NOT use this — its stderr is a
  * machine-read NDJSON channel regardless of the format flag, the same way
  * its stdout protocol is unaffected by anything the operator passes. See
- * `commands/run-stream.ts`.
+ * `commands/exec-json.ts`.
  */
 export function createStderrSink(format: LogFormat): LogSink {
 	return format === 'json' ? jsonLinesSink(process.stderr) : prettySink(process.stderr)
@@ -133,7 +133,7 @@ export function contextLogging(ctx: { readonly logging?: ResolvedLogging }): Res
  * Before installation it answers `NOOP_LOGGER` rather than writing to
  * stderr. A record produced before the destination is chosen has nowhere
  * correct to go, and silently defaulting to stderr is what made the old
- * global impossible to reason about — `run-stream` publishes NDJSON on
+ * global impossible to reason about — `exec --json` publishes NDJSON on
  * stdout and a stray line on the wrong stream corrupts a host's parse.
  */
 let _cliLogger: Logger = NOOP_LOGGER

@@ -57,7 +57,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	replaceConversation: vi.fn(),
 }))
 
-const { runStreamCommand } = await import('../run-stream.js')
+const { execJsonCommand } = await import('./exec-json-command.js')
 const ctx = { config: {} } as unknown as CommandContext
 
 let realStdin: PropertyDescriptor | undefined
@@ -83,7 +83,7 @@ async function run(raw: string | Readable): Promise<{ code: number; events: unkn
 		lines.push(String(chunk))
 		return true
 	})
-	const code = await runStreamCommand.handler({ rawArgs: ['next question'], ctx } as never)
+	const code = await execJsonCommand.handler({ rawArgs: ['next question'], ctx } as never)
 	return {
 		code,
 		events: lines.filter((line) => line.trim()).map((line) => JSON.parse(line) as unknown),

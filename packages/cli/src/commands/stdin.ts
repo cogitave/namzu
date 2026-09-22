@@ -1,14 +1,14 @@
 /**
  * Piped input, read without being held hostage by it.
  *
- * Both headless commands read stdin when it is not a terminal: `run` for
- * material the prompt is about, `run-stream` for an optional message
- * history. `run` learned the hard way that "not a terminal" does not mean
- * "will end": the reader lived here first and `run-stream` kept its own
+ * Both headless commands read stdin when it is not a terminal: `exec` for
+ * material the prompt is about, `exec --json` for an optional message
+ * history. `exec` learned the hard way that "not a terminal" does not mean
+ * "will end": the reader lived here first and `exec --json` kept its own
  * unconditional `for await` over stdin — so a host that spawned it with a
  * pipe it never closed (a background task, a CI step, a UI that forgot)
  * waited forever before the first log line after boot, with nothing on
- * either side to say why. One reader now, and `run-stream` always takes
+ * either side to say why. One reader now, and `exec --json` always takes
  * the deadline: its history is optional, so silence means none.
  */
 

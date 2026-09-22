@@ -7,7 +7,7 @@ import type { CommandContext, CommandDef } from '../types.js'
 /**
  * `passThrough` turns commander's `--help` off so a command can parse it
  * itself. A command that does not then receives `--help` as INPUT: for
- * `run` it became the prompt to send to a model, for `history` the session
+ * `exec` it became the prompt to send to a model, for `history` the session
  * to search. A user asking how to use something got a credential error or
  * an empty result list.
  *
@@ -70,7 +70,7 @@ describe('--help on a passThrough command', () => {
 		await h.program.parseAsync(['demo', '--help'], { from: 'user' })
 
 		expect(h.printed[0]).toContain('Usage: namzu demo')
-		// The handler must not run: for `run` this was a model call with
+		// The handler must not run: for `exec` this was a model call with
 		// `--help` as the prompt.
 		expect(ran).toEqual([])
 		expect(h.exit()).toBe(0)
@@ -85,7 +85,7 @@ describe('--help on a passThrough command', () => {
 	})
 
 	it('answers even when other arguments came first', async () => {
-		// `namzu run some prompt --help` still means "how do I use this".
+		// `namzu exec some prompt --help` still means "how do I use this".
 		ran.length = 0
 		const h = harness(withHelp)
 		await h.program.parseAsync(['demo', 'thing', '--help'], { from: 'user' })

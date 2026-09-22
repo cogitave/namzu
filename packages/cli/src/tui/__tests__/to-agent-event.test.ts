@@ -17,7 +17,7 @@ const presenter = createToolPresenter(new ToolRegistry())
 /**
  * The seam between the kernel and the command.
  *
- * The SDK test proves `turn_completed` carries a stop reason and the `run` test
+ * The SDK test proves `turn_completed` carries a stop reason and the `exec` test
  * proves the command acts on one, and both of those passed while this function
  * threw the field away in between — the mutation that reverted it to a bare
  * `{ kind: 'done' }` was caught by nothing. Two tested ends and an untested

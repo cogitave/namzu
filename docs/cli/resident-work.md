@@ -123,7 +123,7 @@ optional tool, so the result does not measure discovery's
 extra round trip or establish a general performance gain.
 
 Iteration, token and turn-time limits apply **per SDK step**, not cumulatively across a
-resident's lifetime. Explicit zeros in [turn limits](run-limits.md) remove those
+resident's lifetime. Explicit zeros in [turn limits](turn-limits.md) remove those
 per-step caps while retaining measured usage. `--max-steps` bounds the number of admitted steps. Provider
 failures and interrupted steps can consume tokens without settling a step.
 The read-only lifetime projection below does not enforce a separate lifetime credit limit.

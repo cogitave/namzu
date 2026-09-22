@@ -1,29 +1,35 @@
 ---
 type: Reference
-title: namzu run-stream
-description: The headless streaming one-shot for host UIs — one NDJSON event per line on stdout, the session and turn ids it reports, how --session binds history, the one-active-turn refusal, and what each exit code means.
-resource: packages/cli/src/commands/run-stream.ts
+title: namzu exec --json
+description: The headless one-shot as a stream for host UIs — one NDJSON event per line on stdout, the session and turn ids it reports, how --session binds history, the one-active-turn refusal, and what each exit code means.
+resource: packages/cli/src/commands/exec-json.ts
 tags: [cli, headless, streaming, ndjson, sessions]
 status: stable
 generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
 ---
 
-# `namzu run-stream`
+# `namzu exec --json`
 
-`namzu run-stream` runs one prompt as one turn, exactly as `namzu run` does,
+`namzu exec --json` runs one prompt as one turn, exactly as `namzu exec` does,
 but instead of printing the final text it writes one JSON object per line to
 stdout as the turn unfolds. A host process — a desktop app embedding namzu, an
-editor extension — line-scans stdout and renders the turn live.
+editor extension — line-scans stdout and renders the turn live. Earlier
+releases called this command `namzu run-stream`; the events and their fields
+are unchanged.
 
 ```bash
-namzu run-stream --session my-window-7 "refactor the parser" \
+namzu exec --json --session my-window-7 "refactor the parser" \
   | jq -c 'select(.kind == "tool-start" or .kind == "done")'
 ```
 
-It takes the same options as `namzu run` (`--provider`, `--model`, `--effort`,
-`--permission-mode`, `--cwd`, `--skills`, `--gate`, `--trust`, the limit flags
-and the `[permissions]` config table), except `--continue`, `--resume` and
-`--wait-for-provider`, which are refused by name rather than ignored.
+It takes the same options as the default mode (`--provider`, `--model`,
+`--effort`, `--permission-mode`, `--cwd`, `--skills`, `--gate`, `--trust`,
+`--output-schema`, the limit flags and the `[permissions]` config table),
+except `--continue`, `--resume` and `--wait-for-provider`, which are refused by
+name rather than ignored. With `--output-schema <file>` the settled answer in
+`done.text` is JSON bound to that schema; a schema that cannot be loaded is an
+`error` event and exit 0, because the caller can fix it. See
+[Exit codes of `namzu exec`](exec-exit-codes.md#a-structured-answer---output-schema).
 
 ## The stream
 
@@ -40,7 +46,7 @@ NDJSON, so stdout stays a clean protocol stream.
 | `provider-fallback`, `capability-warning`, `history-repair` | Notices about how the request was served. |
 | `notice` | Something the host should show but that is not a failure: a config notice, or a turn that ran but could not be saved. |
 | `paused` | The turn parked with a checkpoint (a provider wait or a decision): `turnId`, `checkpointId`, `reason`, and any retry guidance. |
-| `error` | A failure, in band. A refusal to start a turn in a busy session has `code: "turn_in_progress"` and names the active turn. A run stopped by SIGTERM, SIGHUP or SIGINT writes one with `code: "terminated"` just before its last `done` (see below). |
+| `error` | A failure, in band. A refusal to start a turn in a busy session has `code: "turn_in_progress"` and names the active turn. An invocation stopped by SIGTERM, SIGHUP or SIGINT writes one with `code: "terminated"` just before its last `done` (see below). |
 | `done` | Always last. `text` is the settled answer — use it, not the concatenated deltas. Carries `sessionId`, `turnId` and `stopReason`. |
 
 ## History: `--session`
@@ -76,5 +82,5 @@ caller can reach the turn it asked for by changing what it sends.
 | 77 | The folder has not been trusted; only a person can change that. |
 | killed by the signal | Stopped by SIGTERM, SIGHUP or SIGINT. The last two lines are `{"kind":"error","code":"terminated",…}` and the stream's only `done` (when stdout is still there to write to); no event after those two is written. The session's lease was given back first. Mid-turn, the `done` is `{"kind":"done","sessionId":…}` and the turn is left interrupted, so `/abandon`, `/resume` or `namzu drain` takes it at once. After the turn settled, while the session is still closing (a slow `session_end` hook, say), the error's message says the turn ended and is recorded, and the `done` is the turn's own, with its `turnId`, `text` and `stopReason`. |
 
-`namzu run` shares 1, 75 and 77 with the same meanings; see
-[Exit codes of a headless run](run-exit-codes.md).
+The default mode of `namzu exec` shares 1, 75 and 77 with the same meanings;
+see [Exit codes of `namzu exec`](exec-exit-codes.md).

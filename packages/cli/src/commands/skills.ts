@@ -4,7 +4,7 @@ import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { discoverSkills } from '../skills/store.js'
 import type { SkillInfo } from '../skills/store.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
-import { resolveWorkingDirectory } from './run-flags.js'
+import { resolveWorkingDirectory } from './exec-flags.js'
 import type { CommandDef } from './types.js'
 
 interface SkillsFlags {

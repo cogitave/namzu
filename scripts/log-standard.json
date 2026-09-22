@@ -81,13 +81,19 @@
 			"file": "packages/cli/src/commands/doctor.ts",
 			"symbol": "process.stdout.write",
 			"count": 3,
-			"reason": "the doctor command's own report renderer (help text, JSON report, human report) — like run-stream.ts, this command bypasses the shared output/Formatter."
+			"reason": "the doctor command's own report renderer (help text, JSON report, human report) — like exec-json.ts, this command bypasses the shared output/Formatter."
 		},
 		{
-			"file": "packages/cli/src/commands/run-stream.ts",
+			"file": "packages/cli/src/commands/exec-json.ts",
 			"symbol": "process.stdout.write",
-			"count": 10,
-			"reason": "the NDJSON stdout protocol documented at the top of this file — one JSON object per line for a host process to line-scan. The logger is silenced for the command's lifetime for exactly this reason: no stray log line may land on this channel."
+			"count": 1,
+			"reason": "the NDJSON stdout protocol of `namzu exec --json`, documented at the top of this file — one JSON object per line for a host process to line-scan. Stderr carries NDJSON log records for exactly this reason: no stray log line may land on this channel."
+		},
+		{
+			"file": "packages/cli/src/commands/host-queries.ts",
+			"symbol": "process.stdout.write",
+			"count": 9,
+			"reason": "the one JSON value each host query (history, skills-json, providers-json) prints for a host UI to parse, or `[]` on failure; stderr carries NDJSON log records, so no log line lands on this channel."
 		},
 		{
 			"file": "packages/cli/src/tui/index.tsx",

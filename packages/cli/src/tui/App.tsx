@@ -1,4 +1,4 @@
-import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/run-limits.js'
+import { type TurnGuardKey, type TurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { TURN_LIMIT_FIELDS, turnLimitCommands } from './turn-limits-settings.js'
 /**
  * TUI root. Composes the banner, transcript, composer, status bar, and
@@ -3935,7 +3935,7 @@ export function App({
 				// it runs when the abandoned turn finishes unwinding, which is after
 				// this line — and a surface that reports a result it has not read is
 				// the defect class this whole change is about. If that write fails,
-				// the turn says so itself, in the same words `run-stream` uses.
+				// the turn says so itself, in the same words `exec --json` uses.
 				pushMessage(
 					'system',
 					'The turn that was running was interrupted. Its reply so far is being saved to the conversation it started in, so it is not in the transcript above. A tool call already dispatched was not undone.',
@@ -6280,7 +6280,7 @@ export function App({
 					case 'list-skills': {
 						// The session's directory, not the process's — the same
 						// distinction the headless commands get from `--cwd`. They are
-						// the same value today, and were the same value in `run-stream`
+						// the same value today, and were the same value in `exec --json`
 						// too until they were not.
 						const skills = discoverSkills({ cwd: ctx.cwd })
 						if (skills.length === 0) {

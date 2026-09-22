@@ -93,7 +93,7 @@ Turn limits defaults to unlimited tokens, model turns and duration. Enter a valu
 for any row; `0` or `unlimited` removes its cap. `/config limits` opens it directly,
 and `/config limits unlimited` removes all three caps for future turns in this
 TUI session. Running work keeps its captured limits and measured usage. See
-[Turn limits](run-limits.md) for direct commands and persistent configuration.
+[Turn limits](turn-limits.md) for direct commands and persistent configuration.
 Setting sources opens provenance details; `/config sources` opens it directly.
 Web & session opens the bounded `/status` card with the current search backend,
 workspace, model and usage. The status snapshot is rendered as an Ink card with aligned label/value columns,

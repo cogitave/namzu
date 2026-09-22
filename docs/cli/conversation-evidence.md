@@ -10,8 +10,8 @@ generated: { by: human:bahadirarda, at: 2026-09-09T00:00:00Z }
 
 # Conversation evidence search
 
-The interactive host, `run --resume` / `run --continue`, persistent
-`run-stream --session`, and durable `drain` provide `search_conversation` for recovering exact
+The interactive host, `exec --resume` / `exec --continue`, persistent
+`exec --json --session`, and durable `drain` provide `search_conversation` for recovering exact
 identifiers or phrases from durable output of the current conversation. It
 searches the conversation's [session log](../sdk/session-log.md): recorded
 assistant messages, tool results, and textual messages preserved in
@@ -488,7 +488,7 @@ automatic model compactor chose that summary. Unit tests additionally cover
 Unicode page boundaries, scoped cursors, multipart compaction records,
 scan-budget continuation and retained-preview reporting.
 
-On 2026-09-12, a separate-process `run --resume` with Luna/low recovered two
+On 2026-09-12, a separate-process `run --resume` (now `exec --resume`) with Luna/low recovered two
 random UUID identifiers absent from a 40,000-character tool preview and the
 replacement conversation summary. The original workspace file had been
 manually replaced. It used one search and one exact read, no workspace replay,

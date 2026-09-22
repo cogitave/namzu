@@ -13,7 +13,7 @@ import {
 	resolveConversation,
 	startConversation,
 } from '../../integrations/sessions/store.js'
-import { historyCommand } from '../run-stream.js'
+import { historyCommand } from '../host-queries.js'
 import type { CommandContext } from '../types.js'
 
 const roots: string[] = []

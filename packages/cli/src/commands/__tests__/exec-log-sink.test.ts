@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
-import { runCommand } from '../run.js'
+import { execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
 
 vi.mock('../../integrations/trust/store.js', () => ({
@@ -33,7 +33,7 @@ async function runAndProbe(level: 'debug' | 'info' | 'warn'): Promise<string> {
 		return true
 	})
 	try {
-		await runCommand.handler({ ctx: ctxAt(level), rawArgs: ['hi'] })
+		await execCommand.handler({ ctx: ctxAt(level), rawArgs: ['hi'] })
 		cliLogger().debug('debug probe')
 		cliLogger().info('info probe')
 		cliLogger().warn('warn probe')
@@ -43,7 +43,7 @@ async function runAndProbe(level: 'debug' | 'info' | 'warn'): Promise<string> {
 	}
 }
 
-describe('namzu run installs a live stderr sink instead of silencing the SDK logger', () => {
+describe('namzu exec installs a live stderr sink instead of silencing the SDK logger', () => {
 	it('--verbose (level=debug): a debug record reaches stderr', async () => {
 		const out = await runAndProbe('debug')
 		expect(out).toContain('debug probe')

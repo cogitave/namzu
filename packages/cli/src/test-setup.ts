@@ -1,7 +1,7 @@
 /**
  * Vitest `setupFiles` entry for `@namzu/cli`.
  *
- * Before LOG-05, every one of `run`/`drain`/`run-stream`/the TUI forced the
+ * Before LOG-05, every one of `exec`/`drain`/`exec --json`/the TUI forced the
  * SDK logger's level to `silent` via `configureLogger` on its way into a
  * real session, so the CLI's own test suite got a quiet stderr for free —
  * a side effect of the exact bug LOG-05 exists to fix. Now that each entry

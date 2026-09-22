@@ -7,7 +7,7 @@ import {
 	generateTurnId,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
-import { readStoredTurnGuards, resolveTurnGuards } from './run-limits.js'
+import { readStoredTurnGuards, resolveTurnGuards } from './turn-guards.js'
 
 async function sessionWithTurn(config: Record<string, unknown>) {
 	const log = new InMemorySessionLog({ sessionId: generateSessionId() })

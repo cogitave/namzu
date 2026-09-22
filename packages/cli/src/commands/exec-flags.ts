@@ -1,22 +1,20 @@
 /**
- * The input surface shared by the two headless one-shots, `run` and
- * `run-stream`.
+ * The input surface of `namzu exec`, the headless one-shot.
  *
- * They are the same command with different OUTPUT — `run` prints the reply for
- * a shell, `run-stream` emits one JSON event per line for a host UI — so they
- * have no business accepting different INPUT. They did: `run-stream` learned to
- * parse `--cwd`, `--model`, `--provider`, `--session` and `--skills`, while
- * `run` parsed nothing at all and joined every argument into the prompt. So
- * `namzu run --cwd /elsewhere "fix the test"` sent the model a prompt beginning
- * `--cwd /elsewhere` and ran in this directory, which is the defect that was
- * already fixed once, in the sibling command.
+ * `exec` prints its reply for a shell by default and, with `--json`, emits one
+ * JSON event per line for a host UI. Those used to be two commands with two
+ * inputs that drifted: one learned to parse `--cwd`, `--model`, `--provider`,
+ * `--session` and `--skills` while the other joined every argument into the
+ * prompt, so `--cwd /elsewhere "fix the test"` sent the model a prompt
+ * beginning `--cwd /elsewhere` and worked in this directory anyway.
  *
- * One parser, so the two cannot drift again.
+ * One parser, so the two output modes cannot drift again. `namzu resident`
+ * reads the same flags for the turns it starts.
  *
- * What they still differ on is how a bad argument is REPORTED, and that is
- * deliberate: `run` answers a shell, so it exits non-zero; `run-stream` answers
- * a line-scanning host, so it emits an error event and exits 0. Each is the
- * only signal its caller is listening for.
+ * What the modes still differ on is how a bad argument is REPORTED, and that is
+ * deliberate: the default mode answers a shell, so it exits non-zero; `--json`
+ * answers a line-scanning host, so it emits an error event and exits 0. Each is
+ * the only signal its caller is listening for.
  */
 
 import { statSync } from 'node:fs'
@@ -28,15 +26,15 @@ import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 import { durationMs } from './provider-wait.js'
 
-/** A nonnegative safe integer; zero disables the corresponding run guard. */
-function runLimit(value: string, flag: string): number {
+/** A nonnegative safe integer; zero disables the corresponding turn limit. */
+function turnLimit(value: string, flag: string): number {
 	const n = Number(value.trim())
 	if (!value.trim() || !Number.isSafeInteger(n) || n < 0)
 		throw new Error(`${flag} takes a safe whole number at least 0 (unlimited), got ${value}`)
 	return n
 }
 
-export interface RunFlags {
+export interface ExecFlags {
 	session: string | null
 	model: string | null
 	provider: string | null
@@ -76,7 +74,7 @@ export interface RunFlags {
 	waitForProviderMs: number | null
 	/**
 	 * `--gate '<command>'`, repeatable — commands that must pass before the
-	 * run is allowed to settle.
+	 * turn is allowed to settle.
 	 *
 	 * An ARRAY rather than a single value, and repeat-to-append rather than
 	 * last-wins, because "typecheck AND test" is the ordinary case and a
@@ -90,6 +88,16 @@ export interface RunFlags {
 	 */
 	gateRetries: number | null
 	/**
+	 * `--json`: print the turn as one JSON event per line instead of the reply.
+	 */
+	json: boolean
+	/**
+	 * `--output-schema <file>`: a JSON Schema file the final answer is bound
+	 * to, through the provider's native structured output. The path as given;
+	 * the command resolves it against the process's directory.
+	 */
+	outputSchema: string | null
+	/**
 	 * `--flags` this parser does not know.
 	 *
 	 * Collected rather than folded into `rest`, because `rest` becomes the
@@ -101,8 +109,8 @@ export interface RunFlags {
 	rest: string[]
 }
 
-export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
-	const out: RunFlags = {
+export function parseExecFlags(rawArgs: readonly string[]): ExecFlags {
+	const out: ExecFlags = {
 		session: null,
 		model: null,
 		provider: null,
@@ -119,6 +127,8 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		waitForProviderMs: null,
 		gates: [],
 		gateRetries: null,
+		json: false,
+		outputSchema: null,
 		unknown: [],
 		rest: [],
 	}
@@ -194,7 +204,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				a,
 				'max-iterations',
 				(v) => {
-					out.maxIterations = runLimit(v, '--max-iterations')
+					out.maxIterations = turnLimit(v, '--max-iterations')
 				},
 				idx,
 			)
@@ -205,7 +215,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				a,
 				'token-budget',
 				(v) => {
-					out.tokenBudget = runLimit(v, '--token-budget')
+					out.tokenBudget = turnLimit(v, '--token-budget')
 				},
 				idx,
 			)
@@ -230,6 +240,21 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 			out.trust = true
 			continue
 		}
+		if (a === '--json') {
+			out.json = true
+			continue
+		}
+		if (
+			take(
+				a,
+				'output-schema',
+				trimmed((v) => {
+					out.outputSchema = v
+				}),
+				idx,
+			)
+		)
+			continue
 		if (
 			take(
 				a,
@@ -314,7 +339,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 			)
 		)
 			continue
-		// Was accepted and ignored, because a headless run never prompted and so
+		// Was accepted and ignored, because a headless turn never prompted and so
 		// had nothing to bypass. Now that an operator can write rules, it means
 		// something: `auto` for the calls no rule decided. It still cannot reopen
 		// a `deny` or the dangerous-pattern floor, so it promises more than it
@@ -399,7 +424,7 @@ export async function loadSkillsContext(
  * spends its remaining turns being told the same thing.
  */
 export function buildGate(
-	flags: Pick<RunFlags, 'gates' | 'gateRetries'>,
+	flags: Pick<ExecFlags, 'gates' | 'gateRetries'>,
 	cwd: string,
 ): { reviewAnswer: ReviewAnswer; maxAnswerReviews: number } | undefined {
 	if (flags.gates.length === 0) return undefined
@@ -435,7 +460,7 @@ export function unknownOptionMessage(unknown: readonly string[]): string {
 	// Two different mistakes reached the same sentence, and only one of them
 	// was ever about a dash.
 	//
-	// `namzu run "..." --verbose` is the order a person types, and the generic
+	// `namzu exec "..." --verbose` is the order a person types, and the generic
 	// message answered it with "pass `--` before a prompt that starts with a
 	// dash" — advice for a prompt beginning with `-`, which this is not. The
 	// reader is then looking at the wrong half of their command line. The flag
@@ -479,7 +504,7 @@ export function unknownOptionMessage(unknown: readonly string[]): string {
  */
 export function applyProviderFlags(
 	prefs: Preferences,
-	flags: Pick<RunFlags, 'provider' | 'model'>,
+	flags: Pick<ExecFlags, 'provider' | 'model'>,
 ): Preferences {
 	if (!flags.provider && !flags.model) return prefs
 

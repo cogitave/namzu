@@ -87,7 +87,7 @@ export async function describeProviderChain(
 		//
 		// Not `warn` either, which in this file means namzu is usable but
 		// degraded. A machine with no preferences file and a key in the
-		// environment is an ordinary working namzu: `run` builds a default chain
+		// environment is an ordinary working namzu: `exec` builds a default chain
 		// from what it detects, and whether a credential exists at all is
 		// `providers.credentials`' question, answered there and not restated
 		// here.

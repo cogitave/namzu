@@ -138,7 +138,6 @@ import { realpath, stat } from 'node:fs/promises'
 import { parse, resolve } from 'node:path'
 import { FileCheckpointStore } from '../checkpoints/store.js'
 import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
-import { readStoredTurnGuards, resolveTurnGuards } from '../config/run-limits.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
@@ -154,6 +153,7 @@ import {
 	resolveToolResultScreens,
 	unmatchedPassthroughTools,
 } from '../config/tool-result-screens.js'
+import { readStoredTurnGuards, resolveTurnGuards } from '../config/turn-guards.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
@@ -608,7 +608,7 @@ export interface SendOptions {
 	 * Receives the settled conversation projection exactly as the kernel will
 	 * replay it on a later turn.
 	 *
-	 * Kept out of `AgentEvent`: `run-stream` writes every event to NDJSON, while
+	 * Kept out of `AgentEvent`: `exec --json` writes every event to NDJSON, while
 	 * this history may contain opaque reasoning signatures/encrypted blocks that
 	 * belong in provider context and durable state, never a rendered stream.
 	 */
@@ -945,7 +945,7 @@ export interface AgentSessionContext {
 	 *
 	 *  - the TUI routes into the picker, where the operator can enter a
 	 *    credential or choose something else;
-	 *  - `run`, `run-stream` and `drain` do `probe.preferences ?? defaultPrefs(...)`,
+	 *  - `exec`, `exec --json` and `drain` do `probe.preferences ?? defaultPrefs(...)`,
 	 *    so nulling preferences here would silently move a scripted run onto
 	 *    whatever else happened to be detected — the opposite of a refusal;
 	 *  - `createAgentSession` refuses again on its own, which is what keeps those
@@ -1482,7 +1482,7 @@ export interface AgentSessionOptions {
 	readonly conversationSessions?: ConversationContext
 	/**
 	 * Keep every turn in memory: an in-memory session log per send, nothing
-	 * written under `NAMZU_HOME`. For a stateless host (`run-stream` without
+	 * written under `NAMZU_HOME`. For a stateless host (`exec --json` without
 	 * `--session`), whose history arrives with each call.
 	 */
 	readonly ephemeral?: boolean
@@ -1571,7 +1571,7 @@ export interface AgentSessionOptions {
 	readonly sessionGoals?: SessionGoalStore
 	/**
 	 * Mount host desktop control for a surface that owns an interactive
-	 * permission callback. False by default: `run`, `run-stream` and `drain`
+	 * permission callback. False by default: `exec`, `exec --json` and `drain`
 	 * have no human prompt to guard pointer/keyboard input and must not inherit
 	 * this capability merely because the package is installed.
 	 */
@@ -1701,7 +1701,7 @@ export async function createAgentSession(
 		// line any more: `probeAgentSession` reports the same gap as a
 		// `credentialGap` and the App routes into the picker, where a credential
 		// can actually be entered. What still arrives here is a headless caller —
-		// `run`, `run-stream`, `drain` — which has no picker and for which both
+		// `exec`, `exec --json`, `drain` — which has no picker and for which both
 		// pieces of advice below are real: an environment variable, or
 		// `--provider`. Keeping the refusal is what makes those turns fail rather
 		// than quietly start on something else.
@@ -2545,7 +2545,7 @@ export async function createAgentSession(
 		// mounts under further down. A child's roster is the registry
 		// `buildTools` builds above, which carries none of these: that is what
 		// keeps narration the turn's own voice rather than a child's. And a
-		// headless host — `run`, `run-stream`, `drain`, the resident step —
+		// headless host — `exec`, `exec --json`, `drain`, the resident step —
 		// has no rail for a line to appear above, so a tool whose entire
 		// result is "the operator saw this" would be answering with something
 		// that did not happen.

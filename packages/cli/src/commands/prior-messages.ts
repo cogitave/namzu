@@ -52,7 +52,7 @@ function validateAttachment(value: unknown, path: string): string | null {
 	if (!isObject(value)) return `${path} must be an attachment object`
 	const type = value.type
 	if (type === 'stored') {
-		return `${path} is a stored attachment reference, but stateless run-stream has no attachment store; send inline data instead`
+		return `${path} is a stored attachment reference, but stateless exec --json has no attachment store; send inline data instead`
 	}
 	if (type === 'document') {
 		return (

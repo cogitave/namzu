@@ -7,7 +7,7 @@
  * then refuses `/resume`, `/abandon` and a new prompt ("leased by a live
  * writer") until the lease expires, although no process is writing to it.
  * A supervisor stopping a service sends SIGTERM, a closed terminal sends
- * SIGHUP, and Ctrl+C at a shell running `namzu run` sends SIGINT.
+ * SIGHUP, and Ctrl+C at a shell running `namzu exec` sends SIGINT.
  *
  * So on the first of those signals the command:
  *

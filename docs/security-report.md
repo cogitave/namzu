@@ -708,7 +708,7 @@ The current report does not grant that production approval. It provides the sour
 - [Tool servers](cli/mcp-servers.md) - the `mcpServers` config key, and what a connected server may declare about the tools it offers.
 - [Provider credentials and private state](cli/credentials.md) - where CLI provider credentials live, and what protects them.
 - [Kubernetes sandboxes](sdk/kubernetes-sandbox.md) - the sandbox backend, its egress translation and the ingress check that refuses a sandbox nothing closes.
-- [Run limits](cli/run-limits.md) and [Exit codes of a headless run](cli/run-exit-codes.md) - what bounds an unattended run and what it reports when it stops.
+- [Turn limits](cli/turn-limits.md) and [Exit codes of `namzu exec`](cli/exec-exit-codes.md) - what bounds an unattended turn and what it reports when it stops.
 - [Tool execution ordering](sdk/tool-execution.md) - the boundary a tool result crosses before the model reads it.
 - [Plugins in the CLI](cli/plugins.md) - trusted extension loading, which is the surface NAMZU-SEC-013 describes.
 - Sibling dated audits: [Command experience audit](cli/command-experience-audit.md), [Framework and computer-use gap audit](sdk/framework-gap-audit.md) and [Harness efficiency review](cli/harness-efficiency-review.md).

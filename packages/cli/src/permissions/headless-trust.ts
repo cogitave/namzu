@@ -4,11 +4,11 @@
  * `integrations/trust/store.ts` states the contract in its own header: "before
  * namzu reads, runs commands in, or edits files in a directory, the user must
  * trust it." That was true of the TUI and false of everything else —
- * `isTrusted` had exactly one caller, `tui/App.tsx`. `run` and `run-stream`
+ * `isTrusted` had exactly one caller, `tui/App.tsx`. `exec` and `exec --json`
  * opened a session in whatever directory they were pointed at, with tools
  * auto-approved because there is nobody to ask, so
  *
- *     git clone <a stranger's repository> && cd <it> && namzu run "what is this?"
+ *     git clone <a stranger's repository> && cd <it> && namzu exec "what is this?"
  *
  * ran that repository's code on the machine, unattended, having asked nobody.
  *

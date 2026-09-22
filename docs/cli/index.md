@@ -20,7 +20,7 @@ The operator application.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
 * [Memory](memory.md) - The curated files injected into every turn, per project and per user, and typed stored memory — one Markdown file per memory, its index in every turn; where each lives and what writes to it.
-* [Turn limits](run-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
+* [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
@@ -28,8 +28,8 @@ The operator application.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.
 * [Managed resident runners](resident-runner.md) - Opt-in background hosting, zero-call idle waits, exact-owner status/stop and crash recovery.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
-* [Exit codes of a headless run](run-exit-codes.md) - What $? says after namzu run, including 75 for a turn the provider paused with a checkpoint kept or a session whose turn is still active, and what a wrapper should do with each code.
-* [namzu run-stream](run-stream.md) - The streaming one-shot for host UIs: NDJSON events, the session and turn ids they carry, --session history and exit codes.
+* [Exit codes of namzu exec](exec-exit-codes.md) - What $? says after namzu exec, including 75 for a turn the provider paused with a checkpoint kept or a session whose turn is still active, and what a wrapper should do with each code.
+* [namzu exec --json](exec-json.md) - The headless one-shot as a stream for host UIs: NDJSON events, the session and turn ids they carry, --session history and exit codes.
 * [namzu drain](drain.md) - One bounded pass that continues parked turns another process left behind, through the session index and each session's lease.
 * [Session task context](task-context.md) - Bounded reminders of a session's open tasks and those closed in the current turn, scope and research boundaries.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.

@@ -7,9 +7,10 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { openSessions, resolveConversation } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession } from '../../tui/agent.js'
-import { parseRunFlags } from '../run-flags.js'
-import { historyCommand, runStreamCommand, skillsJSONCommand } from '../run-stream.js'
+import { parseExecFlags } from '../exec-flags.js'
+import { historyCommand, skillsJSONCommand } from '../host-queries.js'
 import type { CommandContext } from '../types.js'
+import { execJsonCommand } from './exec-json-command.js'
 
 // Mocked so the directory the store is opened at is observable. Nothing here
 // touches a real `.namzu` store; `resolveConversation` returning null is the
@@ -68,7 +69,7 @@ vi.mock('../../tui/agent.js', () => ({
 }))
 
 /**
- * `run-stream` folded every argument it did not recognise into `rest`, and
+ * `exec --json` folded every argument it did not recognise into `rest`, and
  * `rest.join(' ')` is the PROMPT. `--cwd <path>` was in this command's own help
  * text and was never parsed, so the invocation our documentation teaches sent
  * the model a prompt beginning `--cwd /path …` while silently reading the
@@ -104,7 +105,7 @@ afterEach(() => {
 async function run(rawArgs: string[]): Promise<string[]> {
 	const { lines, restore } = capture()
 	try {
-		await runStreamCommand.handler({ rawArgs, ctx } as never)
+		await execJsonCommand.handler({ rawArgs, ctx } as never)
 	} finally {
 		restore()
 	}
@@ -164,7 +165,7 @@ describe('run-stream works in the directory it was pointed at', () => {
 		// `--session` keeps the turn off stdin: without a session key the command
 		// reads prior history from a pipe, and in a test runner that pipe never
 		// closes.
-		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-run-stream-'))
+		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-exec-json-'))
 		try {
 			await run(['--cwd', elsewhere, '--session', 'k', 'read', 'notes.txt'])
 		} finally {
@@ -192,14 +193,14 @@ describe('the flag parser itself', () => {
 	// case hung for five seconds and failed on a timeout rather than on the
 	// behaviour. A pure function deserves to be called.
 	it('lets `--` carry a prompt that begins with a dash', () => {
-		const flags = parseRunFlags(['--', '--this-is-the-prompt'])
+		const flags = parseExecFlags(['--', '--this-is-the-prompt'])
 
 		expect(flags.rest).toEqual(['--this-is-the-prompt'])
 		expect(flags.unknown).toEqual([])
 	})
 
 	it('stops interpreting options after `--`', () => {
-		const flags = parseRunFlags(['--session', 'abc', '--', '--model', 'not-a-flag'])
+		const flags = parseExecFlags(['--session', 'abc', '--', '--model', 'not-a-flag'])
 
 		expect(flags.session).toBe('abc')
 		expect(flags.model).toBeNull()
@@ -207,14 +208,14 @@ describe('the flag parser itself', () => {
 	})
 
 	it('reads --cwd in both spellings', () => {
-		expect(parseRunFlags(['--cwd', '/a', 'hi']).cwd).toBe('/a')
-		expect(parseRunFlags(['--cwd=/b', 'hi']).cwd).toBe('/b')
-		expect(parseRunFlags(['--cwd', '/a', 'hi']).rest).toEqual(['hi'])
+		expect(parseExecFlags(['--cwd', '/a', 'hi']).cwd).toBe('/a')
+		expect(parseExecFlags(['--cwd=/b', 'hi']).cwd).toBe('/b')
+		expect(parseExecFlags(['--cwd', '/a', 'hi']).rest).toEqual(['hi'])
 	})
 
 	it('leaves a lone dash alone, since that is not an option', () => {
-		expect(parseRunFlags(['-', 'hi']).unknown).toEqual([])
-		expect(parseRunFlags(['-', 'hi']).rest).toEqual(['-', 'hi'])
+		expect(parseExecFlags(['-', 'hi']).unknown).toEqual([])
+		expect(parseExecFlags(['-', 'hi']).rest).toEqual(['-', 'hi'])
 	})
 })
 
@@ -222,7 +223,7 @@ describe('skills-json lists the directory it was pointed at', () => {
 	// A host that lists skills for one checkout and then runs a turn in that
 	// same checkout has to be told about the same skills both times. It was
 	// not: this command read the process directory whatever `--cwd` said, so
-	// it could offer a skill that `run-stream --cwd <there>` then could not
+	// it could offer a skill that `exec --json --cwd <there>` then could not
 	// find, and hide one that was actually available.
 	function skillIn(root: string, name: string): void {
 		mkdirSync(join(root, 'skills', name), { recursive: true })
@@ -318,7 +319,7 @@ describe('run-stream honours the permission surface, not just parses it', () => 
 	async function runWith(rawArgs: string[], context = withConfig): Promise<string[]> {
 		const { lines, restore } = capture()
 		try {
-			await runStreamCommand.handler({ rawArgs, ctx: context } as never)
+			await execJsonCommand.handler({ rawArgs, ctx: context } as never)
 		} finally {
 			restore()
 		}
@@ -370,7 +371,7 @@ describe('run-stream honours the permission surface, not just parses it', () => 
 it('forwards the automatic memory recall opt-out into the streaming session', async () => {
 	const { restore } = capture()
 	try {
-		const code = await runStreamCommand.handler({
+		const code = await execJsonCommand.handler({
 			rawArgs: ['hello'],
 			ctx: { ...ctx, config: { memory: { recall: false } } },
 		} as never)

@@ -1,5 +1,5 @@
 /**
- * What `run-stream`'s exit code says, case by case.
+ * What `exec --json`'s exit code says, case by case.
  *
  * The command had a stated rule — *started and failed → 0; refused to start →
  * non-zero* — that did not sort the cases it was applied to. An unknown option,
@@ -30,8 +30,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openSessions } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession, probeAgentSession } from '../../tui/agent.js'
-import { runStreamCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
+import { execJsonCommand } from './exec-json-command.js'
 
 vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: vi.fn(async () => ({}) as never),
@@ -68,7 +68,7 @@ async function run(rawArgs: string[]): Promise<{ code: number; out: string }> {
 		return true
 	})
 	try {
-		const code = (await runStreamCommand.handler({ rawArgs, ctx } as never)) as number
+		const code = (await execJsonCommand.handler({ rawArgs, ctx } as never)) as number
 		return { code, out: lines.join('') }
 	} finally {
 		spy.mockRestore()
@@ -346,7 +346,7 @@ describe('exit 1 — nothing the caller sends changes it', () => {
 
 	it('a declared tool server that is not there', async () => {
 		// Declared in `namzu.config.json`, not in the invocation, so no argument
-		// brings it up. `namzu run` already exits 1 here.
+		// brings it up. `namzu exec` already exits 1 here.
 		vi.mocked(createAgentSession).mockImplementation(async () =>
 			fakeAgentSession({ mcpFailed: [{ name: 'tickets', reason: 'ENOENT' }] as never }),
 		)

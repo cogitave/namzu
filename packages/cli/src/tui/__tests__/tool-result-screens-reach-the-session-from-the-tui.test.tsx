@@ -2,7 +2,7 @@
  * `toolResultScreens` reaches the interactive session, from the config file.
  *
  * Every other CLI surface passes the key to `createAgentSession` — headless
- * `run`, `run-stream`, `drain`, ACP and the resident step — and each of those
+ * `exec`, `exec --json`, `drain`, ACP and the resident step — and each of those
  * was written by hand, in a command that already had the config in scope. The
  * TUI has to carry it the long way: `cli.ts` builds a `TuiContext`, the App
  * holds it, and `hydrateSession` is the only place in the TUI that constructs

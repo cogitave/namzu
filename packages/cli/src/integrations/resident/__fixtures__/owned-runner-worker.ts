@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { parseRunFlags } from '../../../commands/run-flags.js'
+import { parseExecFlags } from '../../../commands/exec-flags.js'
 import { ResidentCleanupUnconfirmedError } from '../lifecycle-errors.js'
 import { runOwnedResident } from '../owned-runner.js'
 import { startResidentRunner } from '../runner-launch.js'
@@ -55,7 +55,7 @@ try {
 		const owner = await startResidentRunner({
 			resident,
 			ctx: { config: {}, formatter: { name: 'json', print() {}, info() {}, error() {} } },
-			flags: parseRunFlags([]),
+			flags: parseExecFlags([]),
 			maxSteps: 2,
 			maxIdleMs: 25,
 		})

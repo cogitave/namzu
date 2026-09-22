@@ -267,7 +267,7 @@ describe('stateless Message[] parsing', () => {
 
 		expect(result).toMatchObject({
 			ok: false,
-			error: expect.stringContaining('stateless run-stream has no attachment store'),
+			error: expect.stringContaining('stateless exec --json has no attachment store'),
 		})
 	})
 

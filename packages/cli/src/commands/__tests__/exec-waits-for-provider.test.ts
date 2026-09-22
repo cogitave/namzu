@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { AgentEvent, AgentSession } from '../../tui/agent.js'
-import { runCommand } from '../run.js'
+import { execCommand } from '../exec.js'
 import type { CommandContext } from '../types.js'
 
 /**
- * `namzu run --wait-for-provider` waits out a provider pause and resumes the
+ * `namzu exec --wait-for-provider` waits out a provider pause and resumes the
  * run from its checkpoint in this process.
  *
  * Before this, a rate limit ended a headless run with the same code as a
@@ -81,7 +81,7 @@ const PAUSE = {
 async function run(rawArgs: string[], config: Record<string, unknown> = {}) {
 	const captured = contextCapturing()
 	;(captured.ctx as unknown as { config: unknown }).config = config
-	const code = (await runCommand.handler({ rawArgs, ctx: captured.ctx } as never)) as number
+	const code = (await execCommand.handler({ rawArgs, ctx: captured.ctx } as never)) as number
 	return { code, ...captured }
 }
 
