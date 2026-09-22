@@ -142,6 +142,31 @@ describe('a mode changed while a turn runs', () => {
 		expect(await control.handler(review(READ))).toEqual({ action: 'approve_tools' })
 	})
 
+	it('asks the kernel to send rule-allowed batches to review only while in plan mode', () => {
+		// A batch a permission rule allows never reaches the handler unless the
+		// kernel is told to send it (`reviewAllowedCalls`); without that, plan
+		// mode entered mid-turn let `permissions: { bash: 'allow' }` run a change.
+		const { control, set } = setup('prompt')
+		expect(control.reviewAllowedCalls()).toBe(false)
+		set('plan')
+		expect(control.reviewAllowedCalls()).toBe(true)
+		set('accept-edits')
+		expect(control.reviewAllowedCalls()).toBe(false)
+	})
+
+	it('refuses a change a rule allowed once the batch reaches it in plan mode', async () => {
+		const { control, set } = setup('auto')
+		set('plan')
+		const allowed = call('bash', {
+			input: { command: 'touch in-plan.txt' },
+			authorization: { decision: 'allow', reason: 'allowed by rule' },
+		})
+		expect(await control.handler(review(allowed))).toEqual({
+			action: 'reject_tools',
+			feedback: PLAN_MODE_REFUSAL,
+		})
+	})
+
 	it('approves nothing retroactively when plan mode is left', async () => {
 		const { control, set } = setup('plan')
 		const refused = await control.handler(review(WRITE))

@@ -3584,6 +3584,7 @@ export async function createAgentSession(
 								resumeHandler,
 								approvalPolicyName: modeControl.initialName,
 								onApprovalPolicy: (box) => modeControl.attach(box),
+								reviewAllowedCalls: modeControl.reviewAllowedCalls,
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
@@ -4264,6 +4265,8 @@ interface TurnParams {
 	readonly approvalPolicyName?: string
 	/** Receives the turn's approval-policy box, through which mode changes are recorded. */
 	readonly onApprovalPolicy?: (box: SessionApprovalPolicy) => void
+	/** Whether a batch the rules allow still goes to `resumeHandler` (plan mode). */
+	readonly reviewAllowedCalls?: () => boolean
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
@@ -4328,6 +4331,7 @@ async function* runTurn({
 	resumeHandler,
 	approvalPolicyName,
 	onApprovalPolicy,
+	reviewAllowedCalls,
 	taskStore,
 	systemPrompt,
 	messages,
@@ -4420,6 +4424,9 @@ async function* runTurn({
 			resumeHandler,
 			...(approvalPolicyName ? { approvalPolicyName } : {}),
 			...(onApprovalPolicy ? { onApprovalPolicy } : {}),
+			// Plan mode is stricter than the rules: a batch a rule allows still
+			// reaches the handler, which refuses the change.
+			...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			...(web ? { web } : {}),

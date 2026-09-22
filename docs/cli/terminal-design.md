@@ -72,8 +72,9 @@ approval decision from that moment: the running turn's later tool calls, the
 delegated turns that borrow its review, and the next message. An approval
 dialog already on screen is decided under the mode it was asked under (the
 composer, and so the key, is not live while one is open); entering plan mode
-mid-turn refuses the next call that would change something; leaving it approves
-nothing already refused. Each change is written to the session log as
+mid-turn refuses the next call that would change something, including one a
+permission rule such as `permissions: { bash: 'allow' }` allows; leaving it
+approves nothing already refused. Each change is written to the session log as
 `approval_policy_changed` before anything is decided under it, and the model is
 told once through the kernel's own notice. See [Slash commands](slash-commands.md#keys-that-are-not-commands).
 

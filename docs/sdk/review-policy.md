@@ -40,6 +40,8 @@ The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can us
 | `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. A batch of reads that is here only for a path outside the roots is asked about instead, as in `prompt`. The kernel's `permissionMode: 'plan'` is the floor under this. |
 | `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. |
 
+A stricter mode than the rules, `plan` above all, cannot refuse what never reaches it: a batch a rule allows, or one a grant from earlier in the turn covers, runs without asking the handler. A host that can be in such a mode passes `reviewAllowedCalls: () => boolean` on `QueryParams`; the kernel asks it once per batch, and `true` sends the batch to the handler anyway, each call carrying the gate's decision in `authorization`. A rule's `deny` still refuses whatever it returns. The CLI answers `true` only while its live mode is `plan`, so a mode entered mid-turn reaches the next batch.
+
 A plan-approval request is approved and every other checkpoint continues. An answer of `approve-all` is remembered in the `remembered` box for the rest of the turn; a host that shows that state passes its own box.
 
 # Which calls skip review

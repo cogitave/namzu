@@ -20,7 +20,9 @@ import { type PermissionMode, permissionModeLabel } from './mode.js'
  *   already asked: the operator is answering the question they were shown.
  * - **Plan mode entered mid-turn blocks every later change.** The next request
  *   that would change anything is refused with the plan-mode feedback, in this
- *   turn and in the delegated turns that borrow its handler.
+ *   turn and in the delegated turns that borrow its handler — including a call
+ *   a permission rule allows, which the kernel would otherwise run without
+ *   asking the handler at all (`reviewAllowedCalls`).
  * - **Leaving plan mode approves nothing retroactively.** A refused call stays
  *   refused; nothing is replayed. Later requests are simply decided under the
  *   new mode.
@@ -53,6 +55,14 @@ export interface LiveModeControl {
 	readonly initialName: PermissionMode
 	/** The mode decisions are made under right now. */
 	current(): PermissionMode
+	/**
+	 * Whether the kernel must send a batch to `handler` even when a rule allows
+	 * every call in it, or a grant from earlier in the turn covers it
+	 * (`reviewAllowedCalls`). True only in plan mode, the one mode stricter than
+	 * the rules: it refuses a change a rule would let through. Read per batch,
+	 * so entering plan mode mid-turn reaches the next batch.
+	 */
+	reviewAllowedCalls(): boolean
 	/** Receive the turn's approval-policy box (`onApprovalPolicy`). */
 	attach(box: SessionApprovalPolicy): void
 	/**
@@ -118,6 +128,7 @@ export function createLiveModeControl(options: LiveModeOptions): LiveModeControl
 		handler,
 		initialName,
 		current,
+		reviewAllowedCalls: () => current() === 'plan',
 		attach(next) {
 			box = next
 			const now = current()

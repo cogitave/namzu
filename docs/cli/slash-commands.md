@@ -193,7 +193,8 @@ the main interactive agent, not headless turns or delegated agents.
 Shift+Tab take effect at once, including while a turn runs: the running turn's
 next approval decision is made under the new mode, and so is every later turn.
 A decision already on screen keeps the mode it was asked under, entering `plan`
-refuses the next change the turn attempts, and leaving `plan` approves nothing
+refuses the next change the turn attempts (a permission rule that allows it
+included), and leaving `plan` approves nothing
 it already refused. Each change is recorded as `approval_policy_changed` in the
 session log before it takes effect.
 The effort choices depend on the selected model and usable fallback models.
