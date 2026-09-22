@@ -2072,9 +2072,10 @@ export async function createAgentSession(
 	}
 	const sessionDirectories: SessionDirectories = createSessionDirectories(cwd, directories)
 	// `/restore` snapshots live with the conversation they belong to
-	// (`<session-id>/file-history/`), not in a tree of their own.
+	// (`<session-id>/file-history/`), not in a tree of their own. Read per
+	// turn: `scope.sessionId` moves when the operator switches conversation.
 	const checkpoints = new FileCheckpointStore(
-		paths.fileHistory({ sessionId: scope.sessionId }),
+		() => paths.fileHistory({ sessionId: scope.sessionId }),
 		cwd,
 	)
 	const { registry, memoryStore, memoryDirectory } = buildToolRegistry(

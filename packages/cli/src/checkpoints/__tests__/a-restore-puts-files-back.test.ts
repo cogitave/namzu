@@ -94,3 +94,35 @@ describe('a restore', () => {
 		).toBe(false)
 	})
 })
+
+describe('a store that outlives a conversation switch', () => {
+	it('writes each turn under the conversation it belongs to, and drops them all on close', async () => {
+		const home = join(cwd, 'home')
+		let conversation = 'boot'
+		const switching = new FileCheckpointStore(() => join(home, conversation, 'file-history'), cwd)
+		const a = join(cwd, 'a.txt')
+		await writeFile(a, 'v0')
+
+		// The operator resumes another conversation before the first write.
+		conversation = 'resumed'
+		switching.beginTurn('edit after resume')
+		await switching.snapshot(a)
+		await writeFile(a, 'v1')
+
+		expect(await exists(join(home, 'resumed', 'file-history', '1'))).toBe(true)
+		expect(await exists(join(home, 'boot'))).toBe(false)
+
+		// A later switch neither loses the earlier turn nor moves it.
+		conversation = 'another'
+		await switching.restore(1)
+		expect(await readFile(a, 'utf8')).toBe('v0')
+		expect(await exists(join(home, 'resumed', 'file-history', '1'))).toBe(false)
+
+		switching.beginTurn('edit in another')
+		await switching.snapshot(a)
+		await switching.close()
+		expect(await exists(join(home, 'resumed', 'file-history'))).toBe(false)
+		expect(await exists(join(home, 'another', 'file-history'))).toBe(false)
+		expect(await exists(join(home, 'boot'))).toBe(false)
+	})
+})

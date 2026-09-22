@@ -10,7 +10,7 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # File checkpoints
 
-Before the `edit` or `write` tool changes a file, the session records the file as it is — or that it does not exist. One record per file per turn, the first change's; a second edit to the same file in the same turn does not overwrite what the turn started from. The records live in the session's `<session-id>/file-history/` directory under `NAMZU_HOME` (see [Session storage](session-storage.md)), and are dropped when the session closes.
+Before the `edit` or `write` tool changes a file, the session records the file as it is — or that it does not exist. One record per file per turn, the first change's; a second edit to the same file in the same turn does not overwrite what the turn started from. The records live in the `<session-id>/file-history/` directory of the conversation the turn belongs to, under `NAMZU_HOME` (see [Session storage](session-storage.md)); after `/resume` or `/new`, the next turn's records go to that conversation, and the list keeps the turns from before the switch. They are dropped when the interactive session closes.
 
 ## `/restore`
 

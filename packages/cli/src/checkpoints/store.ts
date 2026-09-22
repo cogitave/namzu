@@ -35,6 +35,8 @@ interface Turn {
 	readonly label: string
 	readonly startedAt: number
 	readonly entries: Entry[]
+	/** Where this turn's blobs went, fixed by its first snapshot. */
+	dir?: string
 }
 
 export interface RestoreReport {
@@ -54,12 +56,24 @@ export class FileCheckpointStore {
 	private current: Turn | undefined
 	private readonly skipped = new Set<string>()
 
+	/** Every `file-history/` a blob was written under, so closing drops them all. */
+	private readonly roots = new Set<string>()
+
 	constructor(
-		/** Where blobs go: the session's `file-history/` (`SessionPaths.fileHistory`). */
-		private readonly root: string,
+		/**
+		 * Where blobs go: the session's `file-history/` (`SessionPaths.fileHistory`).
+		 * A function is read at each turn's first snapshot, so a store that
+		 * outlives a conversation switch (`/resume`, `/new`) writes into the
+		 * conversation the turn belongs to, not the one the process started in.
+		 */
+		private readonly root: string | (() => string),
 		/** Only files under here are checkpointed. */
 		private readonly cwd: string,
 	) {}
+
+	private currentRoot(): string {
+		return typeof this.root === 'function' ? this.root() : this.root
+	}
 
 	/** The next tool write belongs to this turn. Returns its index. */
 	beginTurn(label: string): number {
@@ -103,7 +117,9 @@ export class FileCheckpointStore {
 		}
 		let blob: string | null = null
 		if (content !== null) {
-			const dir = join(this.root, String(turn.index))
+			const dir = turn.dir ?? join(this.currentRoot(), String(turn.index))
+			turn.dir = dir
+			this.roots.add(dirname(dir))
 			await mkdir(dir, { recursive: true })
 			blob = join(dir, `${turn.entries.length}.blob`)
 			await writeFile(blob, content)
@@ -161,7 +177,7 @@ export class FileCheckpointStore {
 		// tree no longer builds on.
 		const dropped = this.turns.splice(this.turns.findIndex((t) => t.index === index))
 		for (const turn of dropped) {
-			await rm(join(this.root, String(turn.index)), { recursive: true, force: true })
+			if (turn.dir) await rm(turn.dir, { recursive: true, force: true })
 		}
 		this.current = undefined
 		return { turn: index, restored: [...restored], removed: [...removed] }
@@ -169,7 +185,9 @@ export class FileCheckpointStore {
 
 	/** Drop every blob. The session is over. */
 	async close(): Promise<void> {
-		await rm(this.root, { recursive: true, force: true })
+		for (const root of new Set([...this.roots, this.currentRoot()])) {
+			await rm(root, { recursive: true, force: true })
+		}
 	}
 
 	/** A write outside any turn — a host command, say — gets a turn of its own. */
