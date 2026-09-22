@@ -328,6 +328,14 @@ export type AgentEvent =
 			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
+			/**
+			 * The tool's own one-line account of its result, when it gave one (a
+			 * `generic` result view). `summary` is the first line of the MODEL's
+			 * receipt; this is what the tool chose to say to a person, which is
+			 * the one to show when the receipt carries handles only the model
+			 * needs.
+			 */
+			readonly resultLabel?: string
 	  }
 	/**
 	 * The model thinking, for the live region only. `text` is a delta;
@@ -442,9 +450,8 @@ export type AgentEvent =
 	  }
 	/**
 	 * One task of the model's plan, on every change. `taskId` is what lets the
-	 * live list update a row in place rather than append; `status` is the
-	 * store's own vocabulary. The transcript still records only the opening
-	 * and the close — the churn in between is for the list, not the record.
+	 * checklist update a row in place rather than append; `status` is the
+	 * store's own vocabulary. The id is a key only: no surface shows it.
 	 */
 	| {
 			readonly kind: 'task'
@@ -4645,6 +4652,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				summary,
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
+				...(view.kind === 'generic' && view.label.length > 0 ? { resultLabel: view.label } : {}),
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
@@ -4711,9 +4719,8 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 		}
 		case 'task_created':
 		case 'task_updated':
-			// Every change, not only completions: the live task list needs the
-			// in-progress flips to show which step is current. The transcript
-			// decides for itself which of these it records.
+			// Every change, not only completions: the checklist needs the
+			// in-progress flips to show which step is current.
 			return {
 				kind: 'task',
 				taskId: String(event.taskId),

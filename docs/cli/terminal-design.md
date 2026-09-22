@@ -125,6 +125,29 @@ are distinct. Ctrl+O expands the original retained JSON; malformed receipts and
 tool failures keep the ordinary output view. This is a TUI projection only and
 does not change the model-facing tool result.
 
+## The model's plan
+
+`task_create`, `task_update` and `task_list` leave one block in the transcript
+per run of consecutive task calls: a header in words and the checklist as it
+stood afterwards. A single operation is named with its subject (`Added task ·
+…`, `Started · …`, `Completed · …`, `Failed · …`, `Reopened · …`), repeats of
+one operation are counted (`Added 2 tasks`), and a mix or a listing shows where
+the plan stands (`Tasks · 1/2 done`). The block keeps growing while nothing else
+is written after it in the same turn; the model's text or another tool closes
+it, and the next task call opens a new one. No task id, owner or JSON appears
+on any surface: the model still receives the ids in its tool results, which the
+screen does not show.
+
+One renderer draws every checklist, the transcript block and `/tasks` alike:
+`□` pending, `■` in progress (bold), `✓` completed (dimmed and struck
+through), `✗` failed, each followed by exactly one space, with a wrapped subject
+hanging under its first letter. This follows the reference terminal that shows
+its plan inline in the conversation, once, rather than a second copy above the
+input. Above the composer, a single row names the current step and the count
+(`■ Write the parser · 1/3 done`) only while that block is out of view — pushed
+up by later output, or taller than the space left on a short screen. It leaves
+when no step is open.
+
 ## Reading the conversation
 
 The `›` mark identifies an operator message and `∴` identifies a Namzu reply.
@@ -169,8 +192,9 @@ panels use the same quiet rules and highlight the current selection with the
 accent color.
 
 When the full previews would crowd the input area, activity shows the current
-tool and total tool count; the plan shows the current step and completion
-counts. The full lists return when space allows. These panels also reserve
+tool and total tool count, and the full list returns when space allows. The
+plan's live row is always one line: the current step and the completion count,
+and on a narrow screen the step alone. These panels also reserve
 space before the transcript keeps any older messages in its redrawable tail.
 
 ## Commands and settings
@@ -337,7 +361,10 @@ Saved public item boundaries are also restored when resuming or forking earlier
 history, provided the parts still agree with its current selected content.
 Empty assistant text produces no transcript row. Equal nonempty public items
 remain distinct; this projection does not deduplicate what the model said or
-alter the durable messages sent on continuation.
+alter the durable messages sent on continuation. The one row that is
+deduplicated is a system notice identical to the row directly before it (same
+text and mark, no body): the second copy is dropped where notices are written,
+since the same sentence twice reads as two events.
 
 
 The agent browser owns its viewport rather than sharing it with an inactive

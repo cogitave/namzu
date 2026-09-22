@@ -157,7 +157,17 @@ import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { StatusBar } from './StatusBar.js'
-import { TaskList, type TaskListItem } from './TaskList.js'
+import { isRepeatedNotice } from './notices.js'
+import { checklistBlockRows, checklistProgress } from './Checklist.js'
+import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
+import {
+	type TaskOperation,
+	applyTaskOperation,
+	isTaskTool,
+	taskOperationFor,
+	taskReportChecklist,
+	upsertTask,
+} from './task-activity.js'
 import { TextPrompt } from './TextPrompt.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
@@ -521,6 +531,8 @@ type StreamState = {
 	queuePauseOutcome?: QueuePauseOutcome
 	/** Terminal notice earned by this turn, or null when it was interrupted. */
 	notification: TerminalNotification | null
+	/** Names this stream's task blocks, so one turn never extends another's. */
+	taskBlockKey?: string
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -1002,8 +1014,12 @@ export function App({
 	 * it would read as work still pending on a turn that already ended.
 	 */
 	const [tasks, setTasks] = useState<readonly TaskListItem[]>([])
-	/** Ids already seen this request, so an opening row is written once. */
-	const knownTaskIdsRef = useRef(new Set<string>())
+	/**
+	 * The same list, current NOW. React runs state updaters lazily, and each
+	 * task event needs the task's previous state to say what changed and the
+	 * whole list to draw the block it leaves in the transcript.
+	 */
+	const tasksRef = useRef<readonly TaskListItem[]>([])
 	// Bumped to reset the <Static> transcript log (on /clear, /clear-screen and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	/**
@@ -1675,7 +1691,13 @@ export function App({
 			activity?: TranscriptMessage['activity'],
 		) => {
 			const id = nextId()
-			setMessages((prev) => [
+			const candidate = { role, content, pending, glyph, detail, activity }
+			setMessages((prev) =>
+				// The notice layer, not each caller, keeps a notice from printing
+				// twice in a row: the same sentence twice reads as two events.
+				isRepeatedNotice(prev.at(-1), candidate)
+					? prev
+					: [
 				...prev,
 				{
 					id,
@@ -3473,10 +3495,21 @@ export function App({
 	const finalized = messages.filter((m) => !m.pending)
 	// Activity and the plan share the terminal with the draft. Collapse the two
 	// lists together only when their full previews would crowd the input area.
-	const fullTaskFurniture = tasks.length === 0 ? 0 : Math.min(tasks.length, 8) + 3
 	const fullToolFurniture = activeTools.length === 0 ? 0 : Math.min(activeTools.length, 3) * 2 + 2
+	// The current-step row stands in for a checklist that is out of view. While
+	// the newest transcript row IS the checklist and the screen has room for
+	// all of it, it is on screen directly above, and the row would only say one
+	// of its lines again. On a short screen the block's head is cut off, and the
+	// row is what keeps the current step visible.
+	const lastRow = messages.at(-1)
+	const checklistInView =
+		lastRow?.taskBlock !== undefined &&
+		LIVE_FURNITURE_ROWS + fullToolFurniture + checklistBlockRows(lastRow, terminal.columns) <
+			terminal.rows
+	const liveTasks = checklistInView ? [] : tasks
+	const fullTaskFurniture = taskListRows(liveTasks)
 	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture >= terminal.rows
-	const taskFurniture = compactWork && fullTaskFurniture > 0 ? 2 : fullTaskFurniture
+	const taskFurniture = fullTaskFurniture
 	const toolFurniture = compactWork && fullToolFurniture > 0 ? 2 : fullToolFurniture
 	// How much of the transcript is still redrawable. The rest belongs to native
 	// terminal scrollback; the live tail stays deliberately small so an activity
@@ -4505,6 +4538,30 @@ export function App({
 		[sendTerminalNotification, setChoicePicker, setSelectedChoice],
 	)
 
+	/**
+	 * Grow this turn's open task block, or open one. The whole plan rides along
+	 * so the block shows the checklist as it stood after the operation; a
+	 * `null` operation (a `task_list`) refreshes it without naming a change.
+	 */
+	const writeTaskBlock = useCallback(
+		(st: StreamState, operation: TaskOperation | null, checklist: readonly TaskListItem[]) => {
+			st.taskBlockKey ??= nextId()
+			const key = st.taskBlockKey
+			const id = nextId()
+			setMessages((prev) =>
+				applyTaskOperation(prev, {
+					key,
+					id,
+					operation,
+					checklist,
+					settled: settledRef.current,
+					glyphColor: theme.status.ok,
+				}) as TranscriptMessage[],
+			)
+		},
+		[nextId],
+	)
+
 	// Render one agent event onto the transcript. Shared by the local turn loop
 	// and the daemon-attach poller, so both paths produce identical output.
 	// `st` carries the streaming-assistant bubble id + accumulated text across
@@ -4705,6 +4762,35 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					if (isTaskTool(event.toolName)) {
+						// The task event already wrote the block. A listing refreshes it
+						// while there is a plan to show; with none it keeps its own row.
+						if (!event.isError && event.toolName !== 'task_list') {
+							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+							break
+						}
+						if (!event.isError && tasksRef.current.length > 0) {
+							writeTaskBlock(st, null, tasksRef.current)
+							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+							break
+						}
+						// Its own row, in words: the call's label, and the result's
+						// label rather than the model's receipt, which names ids.
+						pushMessage(
+							'tool',
+							done?.label ?? formatToolCall(event.toolName, event.summary, true),
+							false,
+							event.isError ? '✗' : '✓',
+							undefined,
+							event.isError ? theme.status.error : theme.status.ok,
+						)
+						const said = event.resultLabel ?? (event.isError ? 'the task tool refused the call' : '')
+						if (said.length > 0) {
+							pushMessage('tool', event.isError ? `failed: ${said}` : said, false, '⎿')
+						}
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					const catalogue = !event.isError && event.toolName === 'agent_models' && event.output !== undefined
 						? modelCatalogueView(event.output) : undefined
 					if (catalogue !== undefined) {
@@ -4781,29 +4867,23 @@ export function App({
 					break
 				}
 				case 'task': {
-					// The live list gets every change; the transcript records the
-					// opening and the close, as it did before the list existed.
-					// Decided from a ref, not inside the state updater: React runs
-					// updaters lazily, so a flag set there is still unset when the
-					// transcript row below is chosen.
-					const isNew = !knownTaskIdsRef.current.has(event.taskId)
-					knownTaskIdsRef.current.add(event.taskId)
+					// The transcript owns the checklist: consecutive operations fold
+					// into one block there (task-activity.ts). The live row above the
+					// composer only names the current step.
 					const item: TaskListItem = {
 						id: event.taskId,
 						subject: event.subject,
 						status: event.status,
 					}
-					setTasks((prev) => {
-						const index = prev.findIndex((task) => task.id === item.id)
-						return index < 0 ? [...prev, item] : prev.map((task, i) => (i === index ? item : task))
-					})
-					if (event.status === 'completed') {
-						pushMessage('tool', event.subject, false, '☑')
-					} else if (event.status === 'failed') {
-						pushMessage('tool', event.subject, false, '☒')
-					} else if (isNew) {
-						pushMessage('tool', event.subject, false, '☐')
-					}
+					// A reply in progress ends here, as it does at a tool call, so
+					// the block lands after the text that led to it.
+					closeAssistant()
+					const previous = tasksRef.current.find((task) => task.id === item.id)
+					const operation = taskOperationFor(previous, item)
+					tasksRef.current = upsertTask(tasksRef.current, item)
+					const checklist = tasksRef.current
+					setTasks(checklist)
+					if (operation) writeTaskBlock(st, operation, checklist)
 					break
 				}
 				case 'job':
@@ -4888,7 +4968,7 @@ export function App({
 					break
 			}
 		},
-		[appendToMessage, finalizeMessage, flushStream, pushMessage],
+		[appendToMessage, finalizeMessage, flushStream, pushMessage, writeTaskBlock],
 	)
 	applyEventRef.current = applyEvent
 
@@ -5024,7 +5104,7 @@ export function App({
 			// ended: a finished list stays on screen until the operator moves on,
 			// which is the moment it has told them everything it can.
 			setTasks([])
-			knownTaskIdsRef.current = new Set()
+			tasksRef.current = []
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
 			const st: StreamState = {
@@ -6498,6 +6578,26 @@ export function App({
 								// A late readout from the conversation just left must not be
 								// painted as state of the one now on screen.
 								if (conversationGenRef.current !== generation) return
+								const checklist =
+									slash.name === 'tasks' && outcome?.kind === 'report'
+										? taskReportChecklist(outcome.rows)
+										: undefined
+								if (checklist) {
+									// Drawn by the same checklist as the transcript's task
+									// blocks: the same marks, and no id or owner column.
+									const id = nextId()
+									setMessages((prev) => [
+										...prev,
+										{
+											id,
+											role: 'system',
+											content:
+												checklist.length === 0 ? 'No tasks yet.' : checklistProgress(checklist),
+											...(checklist.length > 0 ? { checklist } : {}),
+										},
+									])
+									return
+								}
 								pushMessage(
 									'system',
 									outcome
@@ -7934,11 +8034,11 @@ export function App({
 								thinking={thinking}
 							/>
 						) : null}
-						{/* The plan for this request, kept current as the model works.
+						{/* The step the plan is on, while its checklist is out of view.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
 						{agentSurface === null && outputViewer === null && permission === null ? (
-							<TaskList tasks={tasks} compact={compactWork} />
+							<TaskList tasks={liveTasks} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
 						    composer, which unmounted it and destroyed whatever the

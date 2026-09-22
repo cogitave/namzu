@@ -41,6 +41,7 @@
  * row that has settled never comes back.
  */
 
+import { checklistLine } from './Checklist.js'
 import { renderedDetailLines } from './Transcript.js'
 import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -98,6 +99,7 @@ function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean
 		return [
 			...(hasPrev ? [''] : []),
 			`${content}${meta ? ` · ${meta}` : ''}`,
+			...(message.checklist ?? []).map(checklistLine),
 			...(message.detail && message.detail.length > 0
 				? ['', ...message.detail.map(terminalDisplayText)]
 				: []),

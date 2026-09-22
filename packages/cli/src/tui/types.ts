@@ -20,6 +20,8 @@ import type {
 import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
+import type { ChecklistItem } from './Checklist.js'
+import type { TaskOperation } from './task-activity.js'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -54,6 +56,17 @@ export interface TranscriptMessage {
 	 * Ctrl+O toggles this on live rows; a settled body is reprinted in a new row.
 	 */
 	readonly detailExpanded?: boolean
+	/** The model's plan as it stood when this row was written, drawn by `Checklist`. */
+	readonly checklist?: readonly ChecklistItem[]
+	/**
+	 * Marks a row as a block of consecutive task operations (see
+	 * `task-activity.ts`): which turn it belongs to, and the operations folded
+	 * into it so far. Never rendered itself.
+	 */
+	readonly taskBlock?: {
+		readonly key: string
+		readonly operations: readonly TaskOperation[]
+	}
 }
 
 export interface TuiContext {

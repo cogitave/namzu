@@ -1,123 +1,64 @@
 /**
- * The model's plan for the current request, live.
+ * Where the plan stands, in one line above the composer.
  *
- * `task_create` / `task_update` used to reach the operator as two transcript
- * rows — "☐ subject" when a task was opened and "☑ subject" when it closed —
- * and nothing in between. A plan with five steps was therefore five rows
- * scattered through the tool output, with no way to see which step was
- * current or how many were left. That is a record, not a plan; the operator
- * following along needs the whole list with its state, in one place, kept
- * current as the model works.
- *
- * So this sits in the live region above the composer, like the delegated
- * work panel does below it: present while the request has tasks, redrawn on
- * every status change, cleared when the next request begins. The transcript
- * rows stay — they are the durable record once this leaves the screen.
+ * The transcript owns the checklist: each group of task operations leaves one
+ * block there with the list as it stood afterwards (see `task-activity.ts`),
+ * which is where Codex keeps its plan too: printed inline, once, as a plain
+ * block in the conversation. This used to draw the same
+ * list a second time in the live region, so an operator read every task twice
+ * at once. What the live region adds is only what scrolls away: which step is
+ * current and how far along the plan is. So it is one row, it names one task,
+ * and it leaves when nothing is left to do — and the App does not draw it at
+ * all while the newest transcript row is the checklist itself, which is then
+ * on screen directly above.
  */
 
-import { Box, Text } from 'ink'
+import { Box, Text, useWindowSize } from 'ink'
+import stringWidth from 'string-width'
 
-import { terminalDisplayText } from './terminal-display.js'
+import { type ChecklistItem, ChecklistRow, checklistLine } from './Checklist.js'
 import { theme } from './theme.js'
 
-export type TaskListStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
-
-export interface TaskListItem {
-	readonly id: string
-	readonly subject: string
-	readonly status: TaskListStatus
-}
+export type TaskListItem = ChecklistItem
 
 export interface TaskListProps {
-	/** Keep the current step and overall counts visible when vertical space is scarce. */
-	readonly compact?: boolean
 	readonly tasks: readonly TaskListItem[]
-	/** Rows before the remainder is summarised as a count. */
-	readonly maxRows?: number
 }
 
-const DEFAULT_MAX_ROWS = 8
-
-const MARK: Record<TaskListStatus, string> = {
-	pending: '☐',
-	in_progress: '◐',
-	completed: '☑',
-	failed: '☒',
-}
-
-export function isTerminalTaskStatus(status: TaskListStatus): boolean {
-	return status === 'completed' || status === 'failed'
-}
-
-export function TaskList({ tasks, maxRows = DEFAULT_MAX_ROWS, compact = false }: TaskListProps) {
-	if (tasks.length === 0) return null
-	const done = tasks.filter((task) => task.status === 'completed').length
-	const failed = tasks.filter((task) => task.status === 'failed').length
-	// The current step is the one the operator is waiting on; when the list
-	// is longer than the window, show the window that contains it rather than
-	// the first eight steps of a plan already past them.
-	const current = tasks.findIndex((task) => task.status === 'in_progress')
-	if (compact) {
-		const next = current >= 0 ? current : tasks.findIndex((task) => task.status === 'pending')
-		const selected = tasks[next >= 0 ? next : tasks.length - 1]
-		return (
-			<Box flexDirection="column" paddingLeft={2}>
-				<Text color={theme.text.muted} wrap="truncate-end">
-					Tasks · {done}/{tasks.length} done{failed > 0 ? ` · ${failed} failed` : ''}
-				</Text>
-				{selected ? (
-					<Text wrap="truncate-end">
-						<Text color={markColor(selected.status)}>{MARK[selected.status]} </Text>
-						<Text color={theme.text.secondary}>{terminalDisplayText(selected.subject)}</Text>
-					</Text>
-				) : null}
-			</Box>
-		)
-	}
-	const start = tasks.length <= maxRows ? 0 : Math.max(0, Math.min(current, tasks.length - maxRows))
-	const visible = tasks.slice(start, start + maxRows)
-	const before = start
-	const after = tasks.length - start - visible.length
-
+/** The step the operator is waiting on: the one in progress, else the next pending. */
+export function currentTask(tasks: readonly TaskListItem[]): TaskListItem | undefined {
 	return (
-		<Box flexDirection="column" paddingLeft={2}>
-			<Text color={theme.text.muted}>
-				Tasks · {done}/{tasks.length} done{failed > 0 ? ` · ${failed} failed` : ''}
-			</Text>
-			{before > 0 ? <Text color={theme.text.muted}> ↑ {before} more</Text> : null}
-			{visible.map((task) => (
-				<Box key={task.id} flexDirection="row">
-					<Text color={markColor(task.status)}>{MARK[task.status]} </Text>
-					<Text
-						color={
-							task.status === 'completed'
-								? theme.text.muted
-								: task.status === 'pending'
-									? theme.text.secondary
-									: theme.text.primary
-						}
-						bold={task.status === 'in_progress'}
-						strikethrough={task.status === 'completed'}
-						wrap="truncate-end"
-					>
-						{terminalDisplayText(task.subject)}
-					</Text>
-				</Box>
-			))}
-			{after > 0 ? <Text color={theme.text.muted}> ↓ {after} more</Text> : null}
-		</Box>
+		tasks.find((task) => task.status === 'in_progress') ??
+		tasks.find((task) => task.status === 'pending')
 	)
 }
 
-function markColor(status: TaskListStatus): string {
-	switch (status) {
-		case 'in_progress':
-			return theme.accent.assistant
-		case 'completed':
-			return theme.text.muted
-		case 'failed':
-			return theme.status.error
-		default:
-			return theme.text.secondary
-	}
+/** Rows this component occupies, for the live-region budget. */
+export function taskListRows(tasks: readonly TaskListItem[]): number {
+	return currentTask(tasks) ? 1 : 0
+}
+
+export function TaskList({ tasks }: TaskListProps) {
+	const { columns } = useWindowSize()
+	const current = currentTask(tasks)
+	if (!current) return null
+	const done = tasks.filter((task) => task.status === 'completed').length
+	const count = ` · ${done}/${tasks.length} done`
+	// The step leads and the count follows. When both do not fit, the count is
+	// what goes: the step is the one thing this row is for. The four columns
+	// are this row's indent and the App's own horizontal padding.
+	const room = Math.max(0, columns - 4)
+	const showCount = stringWidth(checklistLine(current)) + stringWidth(count) <= room
+	return (
+		<Box flexDirection="row" paddingLeft={2}>
+			<Box flexShrink={1}>
+				<ChecklistRow item={current} wrap="truncate-end" />
+			</Box>
+			{showCount ? (
+				<Box flexShrink={0}>
+					<Text color={theme.text.muted}>{count}</Text>
+				</Box>
+			) : null}
+		</Box>
+	)
 }

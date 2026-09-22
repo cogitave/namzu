@@ -209,6 +209,8 @@ describe('toAgentEvent', () => {
 			isError: false,
 			summary: 'ok',
 			hidden: true,
+			// The tool's own words for its result travel beside the receipt.
+			resultLabel: 'ok',
 		})
 	})
 

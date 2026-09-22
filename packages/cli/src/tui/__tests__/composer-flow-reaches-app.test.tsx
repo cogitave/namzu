@@ -407,7 +407,9 @@ describe('the two composer destinations', () => {
 				() => screen.scrollback().join('\n').includes(task.subject),
 				'Filtered command did not read the task store',
 			)
-			expect(screen.scrollback().join('\n')).toContain(task.id)
+			// Drawn as the transcript's checklist: the subject, never the id.
+			expect(screen.scrollback().join('\n')).toContain(`□ ${task.subject}`)
+			expect(screen.scrollback().join('\n')).not.toContain(task.id)
 			expect(sent).toHaveLength(0)
 		} finally {
 			await screen.unmount()

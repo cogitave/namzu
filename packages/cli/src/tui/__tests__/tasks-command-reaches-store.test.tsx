@@ -104,7 +104,7 @@ it('reads the actual current task store without a model call and clears it on a 
 
 	state.store = new InMemoryTaskStore()
 	await submit('/tasks')
-	await waitFor('Tasks: none.')
+	await waitFor('No tasks yet.')
 
 	const task = await state.store.create({
 		sessionId: generateSessionId(),
@@ -118,9 +118,12 @@ it('reads the actual current task store without a model call and clears it on a 
 	await tick()
 	await state.store.update(task.id, { status: 'in_progress' })
 	mounted.stdin.write('\r')
-	await waitFor('Check the real task store')
-	expect(mounted.frames.join('\n')).toContain('in_progress')
-	expect(mounted.frames.join('\n')).toContain('reviewer')
+	await waitFor('■ Check the real task store')
+	// The store's state, drawn as the checklist draws it: the in-progress
+	// mark and the count, never the id or the internal owner.
+	expect(mounted.frames.join('\n')).toContain('Tasks · 0/1 done')
+	expect(mounted.frames.join('\n')).not.toContain('reviewer')
+	expect(mounted.frames.join('\n')).not.toContain(task.id)
 	expect(state.sends).toBe(0)
 
 	await submit('/new')
