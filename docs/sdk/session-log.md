@@ -287,9 +287,12 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
   `DiskSessionLog.at` was given, or, for a log built from a file path such as
   the index's `logPath`, the one the path spells out
   (`…/<parent-id>/subagents/<child-id>.jsonl`). A log whose file is not named
-  `<session-id>.jsonl` has no `locator`; `resolveSessionStorage` then places
-  it like a child named only by `parentSessionId`, with no log: under
-  wherever its parent's log is found.
+  `<session-id>.jsonl` has no `locator`. The path does not say which project
+  the file is in, so `resolveSessionStorage` uses a log's `locator` only when
+  its `paths` put that locator's log at this very file. Any other log (no
+  `locator`, or a `<session-id>.jsonl` kept outside the layout) it places like
+  a child named only by `parentSessionId`, with no log: under wherever its
+  parent's log is found.
 - **Child-session meta** (`kind: 'child-session'`): identity, parent, root,
   depth, the spawning tool call, agent type, description and status. A
   convenience; the child's log wins on any disagreement.

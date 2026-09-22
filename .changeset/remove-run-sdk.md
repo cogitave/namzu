@@ -133,7 +133,8 @@ cannot list them: implement it to keep them listable.
   `<parent-session-dir>/subagents/<child-id>/checkpoints/`; a
   `DiskSessionCheckpointStore` you build for a child takes that place as its
   `session` option (`DiskSessionLog.locator`, which a log opened from its
-  file path reads from that path).
+  file path reads from that path, and which names the right place only for
+  a file in that project's layout).
   `IterationCheckpoint` and the kind `run-checkpoint` are replaced by the
   `Checkpoint` document (`kind: 'checkpoint'`); an old one is refused by name.
 - `TokenBudget`, `TokenBudgetStore`, `DiskTokenBudgetStore`,

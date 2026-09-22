@@ -1,5 +1,5 @@
 import { readdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { resolveNamzuHome } from '../../session/home.js'
 import { type SessionLocator, SessionPaths, ensureProject } from '../../session/paths.js'
 import {
@@ -79,12 +79,14 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 	const inMemory = input.sessionLog instanceof InMemorySessionLog && input.paths === undefined
 	const paths =
 		input.paths ?? (inMemory ? undefined : await defaultSessionPaths(input.workingDirectory))
-	// A disk log knows its place from its path; any other log (or one kept
-	// outside the layout) is placed like a session named without a log, under
-	// its parent wherever that is, so its checkpoints never land at the top.
-	const locator =
-		(input.sessionLog instanceof DiskSessionLog ? input.sessionLog.locator : undefined) ??
-		(paths ? await locateSession(paths, input.sessionId, input.parentSessionId) : undefined)
+	// A disk log in this layout knows its place from its path. Any other log
+	// is placed like a session named without a log, under its parent wherever
+	// that is, so its checkpoints never land at the top: that includes a log
+	// kept outside the layout whose file name alone reads as a place in one.
+	const locator = paths
+		? (placeInLayout(paths, input.sessionLog) ??
+			(await locateSession(paths, input.sessionId, input.parentSessionId)))
+		: undefined
 	const log =
 		input.sessionLog ?? DiskSessionLog.at(paths as SessionPaths, locator as SessionLocator)
 	const state = inMemory ? heldState(log as InMemorySessionLog) : undefined
@@ -110,6 +112,21 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 			: undefined
 	const sessionDir = log instanceof DiskSessionLog ? log.sessionDir : undefined
 	return { log, paths, sessionDir, checkpoints, tokenBudget, children }
+}
+
+/**
+ * Where `log` sits in `paths`'s layout, read from its path: its locator, only
+ * when that locator's log in this layout is the very file it writes.
+ * `sessionLocatorFromLogFile` reads any `<id>.jsonl` as a place, because a log
+ * does not know which project it belongs to; a file outside this project (or
+ * one named for a place it is not at) is `undefined` here.
+ */
+function placeInLayout(
+	paths: SessionPaths,
+	log: SessionLog | undefined,
+): SessionLocator | undefined {
+	if (!(log instanceof DiskSessionLog) || !log.locator) return undefined
+	return resolve(paths.sessionLog(log.locator)) === resolve(log.file) ? log.locator : undefined
 }
 
 /**

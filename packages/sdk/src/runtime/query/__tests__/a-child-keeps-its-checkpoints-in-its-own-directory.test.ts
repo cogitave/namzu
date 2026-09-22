@@ -165,6 +165,37 @@ describe('a child session keeps its checkpoints in its own directory', () => {
 		expect((await readdir(paths.projectDir())).sort()).toEqual([root, `${root}.jsonl`].sort())
 	})
 
+	it('places a log outside the layout under its named parent even when its file name spells a place', async () => {
+		const root = generateSessionId()
+		await mkdir(paths.sessionDir({ sessionId: root }), { recursive: true })
+		await writeFile(paths.sessionLog({ sessionId: root }), '')
+		// Two shapes whose path alone reads as a place in some layout: a root
+		// log (`<child-id>.jsonl`), and a child of a session this project
+		// never had (`<other-id>/subagents/<child-id>.jsonl`). Neither file is
+		// in this project, so neither place is the child's.
+		const other = generateSessionId()
+		for (const shape of ['root', 'nested'] as const) {
+			const child = generateSessionId()
+			const directory =
+				shape === 'root' ? join(home, 'elsewhere') : join(home, 'elsewhere', other, 'subagents')
+			const file = join(directory, `${child}.jsonl`)
+			const log = new DiskSessionLog({
+				sessionId: child,
+				file,
+				sessionDir: file.replace(/\.jsonl$/, ''),
+			})
+			expect(log.locator?.sessionId).toBe(child)
+
+			const checkpoint = await writeOneCheckpoint(log, child, root)
+			expect(
+				await readdir(
+					join(paths.sessionDir({ sessionId: child, ancestors: [root] }), 'checkpoints'),
+				),
+			).toEqual([`${checkpoint.checkpointId}.json`])
+			expect((await readdir(paths.projectDir())).sort()).toEqual([root, `${root}.jsonl`].sort())
+		}
+	})
+
 	it('takes a parent with no log anywhere to be a root session', async () => {
 		const parent = generateSessionId()
 		const child = generateSessionId()

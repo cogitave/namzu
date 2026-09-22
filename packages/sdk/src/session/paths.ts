@@ -47,8 +47,12 @@ export interface SessionLocator {
  * The locator a session log's own path spells out: `<session-id>.jsonl` at the
  * top of a project is a root session, and each `<ancestor-id>/subagents/`
  * above it names an ancestor, nearest last. `undefined` when the file is not
- * named `<sessionId>.jsonl`, so a log kept outside the layout claims no place
- * in it.
+ * named `<sessionId>.jsonl`.
+ *
+ * The path alone does not say which project the file is in: a
+ * `<sessionId>.jsonl` kept outside any layout still reads as a root session
+ * here. `resolveSessionStorage` trusts this locator only when the layout it
+ * was given puts that locator's log at this very file.
  *
  * A log opened from the index's `logPath` knows only its file; this is how it
  * finds the same `checkpoints/` (and the rest of its session directory) that
