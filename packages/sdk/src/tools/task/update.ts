@@ -3,6 +3,7 @@ import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
+import { presentTaskUpdateCall, presentTaskUpdateResult } from './present.js'
 
 export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 	return defineTool({
@@ -34,6 +35,8 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		presentCall: presentTaskUpdateCall,
+		presentResult: presentTaskUpdateResult,
 		async execute({
 			id,
 			subject,
@@ -85,7 +88,12 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 			return {
 				success: true,
 				output: `Task ${id} updated — status: ${updated.status}`,
-				data: { id: updated.id, status: updated.status, owner: updated.owner },
+				data: {
+					id: updated.id,
+					subject: updated.subject,
+					status: updated.status,
+					owner: updated.owner,
+				},
 			}
 		},
 	})

@@ -4,6 +4,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 import type { TaskToolScope } from './index.js'
+import { presentTaskCreateCall, presentTaskCreateResult } from './present.js'
 
 export function buildTaskCreateTool(
 	taskStore: TaskStore,
@@ -35,6 +36,8 @@ export function buildTaskCreateTool(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		presentCall: presentTaskCreateCall,
+		presentResult: presentTaskCreateResult,
 		async execute({ subject, description, activeForm, owner, blockedBy, metadata }) {
 			const task = await taskStore.create({
 				sessionId: scope.sessionId,
@@ -50,7 +53,7 @@ export function buildTaskCreateTool(
 			return {
 				success: true,
 				output: `Task created: ${task.id} — "${subject}"${owner ? ` [owner: ${owner}]` : ''}`,
-				data: { id: task.id, status: task.status, owner: task.owner },
+				data: { id: task.id, subject: task.subject, status: task.status, owner: task.owner },
 			}
 		},
 	})

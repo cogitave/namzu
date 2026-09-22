@@ -60,6 +60,16 @@ metadata does not turn `Promise.all` into a sequential program.
 
 A generic `ToolCallView` may set `activity: 'exploration'` alongside `presentation: 'activity'`. This is an optional host presentation hint for observations, not an authorization or execution policy. Namzu CLI groups successful annotated calls and keeps their output expandable; errors use the normal failure view. The built-in read, grep and glob tools publish this hint. Custom tools without it retain their existing presentation.
 
+The planning tools `task_create`, `task_update` and `task_list` present
+themselves in words (`packages/sdk/src/tools/task/present.ts`): an activity
+label such as `Add task · <subject>`, `Start task`, `Complete task` or `Check
+tasks`, a hidden result view on success, and for `task_list` a `Tasks · N/M
+done` label. No view carries a task id, an owner or the JSON arguments; the
+model-facing `output` still names the id it needs for `task_update`, and a
+failure reads `No task has that id` rather than echoing it. The `data` of
+`task_create` and `task_update` now also carries the task's `subject`. The
+list output uses a correct plural (`1 task: …`).
+
 Built-in grep accepts a single regular-file path as a one-entry search. The local and guest file walkers match the root file's basename against the include pattern and never enumerate its siblings. The same cancellation, symlink and size checks remain in effect.
 
 ## File write receipts

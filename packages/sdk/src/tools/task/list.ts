@@ -4,6 +4,7 @@ import { type TaskStore, isTerminalTaskStatus } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import type { TaskToolScope } from './index.js'
+import { countTasks, presentTaskListCall, presentTaskListResult } from './present.js'
 
 export function buildTaskListTool(
 	taskStore: TaskStore,
@@ -19,6 +20,8 @@ export function buildTaskListTool(
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
+		presentCall: presentTaskListCall,
+		presentResult: presentTaskListResult,
 		async execute() {
 			const all = await taskStore.list({ sessionId: scope.sessionId })
 			// Blockers resolve against every task of the session, shown or not: a
@@ -53,7 +56,7 @@ export function buildTaskListTool(
 				output:
 					tasks.length === 0
 						? 'No planning tasks yet. This list does not report delegated agent status; use agent_task_list when available.'
-						: `${stats.total} tasks: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending.`,
+						: `${countTasks(stats.total)}: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending.`,
 				data: { tasks: summary, stats },
 			}
 		},
