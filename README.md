@@ -313,7 +313,7 @@ it retries into `~/.namzu` and tells you the one line to add to your profile —
 it never re-runs itself with elevated privileges.
 
 Bare `namzu` opens an interactive terminal agent. The same binary is
-scriptable: `namzu run` for a single headless prompt, `namzu run-stream` for
+scriptable: `namzu exec` for a single headless prompt, `namzu exec --json` for
 newline-delimited events a host UI can consume, `namzu history`,
 `namzu doctor`, `namzu upgrade`, `namzu skills`, and `namzu eval`, plus `namzu providers-json`
 and `namzu skills-json` for a host UI that wants the rosters as JSON. Run

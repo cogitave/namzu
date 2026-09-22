@@ -32,7 +32,7 @@ export function createAGUIHandler(createQuery: AGUIQueryFactory) {
 Mount the returned handler at your application's agent endpoint. `handle`
 accepts JSON `RunAgentInput` over POST and returns `text/event-stream`. The
 factory receives `{ input, signal, ui, request? }`; `request` is present for
-HTTP handling and absent for direct iterator runs. An existing host query
+HTTP handling and absent when the host iterates `adapter.run()` directly. An existing host query
 configuration supplies providers, model, tools, stores, permissions, and native
 tenant/project/topic/session identity.
 

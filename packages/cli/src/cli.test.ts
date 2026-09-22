@@ -109,6 +109,8 @@ describe('runCli', () => {
 		[['run'], 'run', 'namzu exec "<prompt>"'],
 		[['-q', 'run', '--trust', 'hello'], 'run', 'namzu exec "<prompt>"'],
 		[['run-stream', '--session', 'k', 'hello'], 'run-stream', 'namzu exec --json "<prompt>"'],
+		[['run', '--help'], 'run', 'namzu exec "<prompt>"'],
+		[['--profile', 'p', 'run-stream', '-h'], 'run-stream', 'namzu exec --json "<prompt>"'],
 	])('a removed command %j is unknown, and the error names exec', async (args, name, hint) => {
 		const code = await invoke(args)
 		expect(code).toBe(64)

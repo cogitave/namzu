@@ -223,7 +223,7 @@ export async function describeProviderChain(
 					: `provider chain usable, with limitations:\n${message}`,
 			remediation:
 				unusable > 0
-					? 'The primary still works, so runs will start. But a fallback with no credential is not a fallback — set its key, or take it out of the chain.'
+					? 'The primary still works, so turns will start. But a fallback with no credential is not a fallback — set its key, or take it out of the chain.'
 					: 'The primary still works. A fallback that declares less than your primary will serve shorter or less capable turns if the chain ever falls over to it.',
 		}
 	}

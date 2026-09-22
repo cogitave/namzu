@@ -153,21 +153,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.enablePositionalOptions(true)
 		.exitOverride()
 		.showHelpAfterError(false)
-		.configureOutput({
-			// The root command launches the TUI and takes no operands, so a
-			// removed command name reaches commander as an excess argument and
-			// would be refused with "too many arguments". Name it for what it is
-			// and say what replaced it.
-			outputError: (message, write) => {
-				const first = program.args[0]
-				const hint = first !== undefined ? REMOVED_COMMANDS[first] : undefined
-				if (hint !== undefined && !message.startsWith('error: unknown command')) {
-					write(`error: unknown command '${first}'\n${hint}\n`)
-					return
-				}
-				write(message)
-			},
-		})
 
 	const buildContext = (
 		load: () => ReturnType<typeof loadConfigWithProvenance>,
@@ -434,6 +419,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	})
 
 	try {
+		// Checked before commander parses, because commander answers `--help`
+		// before it looks at the operands: `namzu run --help` would otherwise
+		// print the root help and exit 0 without naming what replaced `run`.
+		const removed = firstRootOperand(program, opts.argv.slice(2))
+		const hint = removed !== undefined ? REMOVED_COMMANDS[removed] : undefined
+		if (removed !== undefined && hint !== undefined) {
+			program.error(`error: unknown command '${removed}'\n${hint}`, {
+				exitCode: EX_USAGE,
+				code: 'commander.unknownCommand',
+			})
+		}
 		await program.parseAsync(opts.argv as string[], { from: 'node' })
 		return exitCode
 	} catch (err) {
@@ -554,6 +550,40 @@ export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCli
 			'namzu.telemetry.session_export': config.telemetry?.sessionExport !== undefined,
 		},
 	)
+}
+
+/**
+ * The first operand the root command would see in `args`, read the way
+ * commander reads it: root options and their values are skipped, `-h` and
+ * `--help` are flags, and an unknown option or `--` ends the search, because
+ * after either commander stops treating what follows as a command name.
+ */
+function firstRootOperand(program: Command, args: readonly string[]): string | undefined {
+	const takesValue = (flag: string): boolean | undefined => {
+		if (flag === '-h' || flag === '--help') return false
+		const option = program.options.find((o) => o.long === flag || o.short === flag)
+		if (option === undefined) return undefined
+		return option.required || option.optional
+	}
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i] as string
+		if (arg === '--') return undefined
+		if (arg.startsWith('--')) {
+			const eq = arg.indexOf('=')
+			const value = takesValue(eq === -1 ? arg : arg.slice(0, eq))
+			if (value === undefined) return undefined
+			if (value && eq === -1) i++
+			continue
+		}
+		if (arg.length > 1 && arg.startsWith('-')) {
+			const value = takesValue(arg.slice(0, 2))
+			if (value === undefined) return undefined
+			if (value && arg.length === 2) i++
+			continue
+		}
+		return arg
+	}
+	return undefined
 }
 
 function mapCommanderError(err: CommanderError): number {
