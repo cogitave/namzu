@@ -450,10 +450,13 @@ export const tools = [{
 				}
 				return events
 			})()
+			// The hook's own deadline is 5 ms; this window only separates "the deadline
+			// fired" from "the turn hangs forever", so it must cover a whole turn's
+			// setup on a loaded CI runner, where 500 ms was not enough.
 			const safety = Symbol('configured hook deadline was not applied')
 			const outcome = await Promise.race([
 				eventsPromise,
-				new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 500)),
+				new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 3_000)),
 			])
 			if (outcome === safety) {
 				await session.close()
