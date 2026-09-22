@@ -28,7 +28,7 @@ export function statusPanelLayout(source: readonly (readonly [string, string])[]
 	const rows = source.map(([name, content], index) => {
 		const label = name.startsWith('Spend (') ? 'Spend' : name
 		const value = name.startsWith('Spend (')
-			? `${content} · current/latest run, own calls`
+			? `${content} · current/latest turn, own calls`
 			: content
 		return {
 			label,

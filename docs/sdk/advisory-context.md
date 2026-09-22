@@ -80,13 +80,13 @@ later appended observations or establish current workspace state.
 
 The snapshot is transient: it is released at every iteration exit, including
 cancellation, retry and early settlement. It is not checkpointed; a resumed
-run captures its newly dispatched request. The projection itself does not
+turn captures its newly dispatched request. The projection itself does not
 recover compacted originals or replay tools. Scoped evidence retrieval must
 supply those originals before dispatch, as it does for
 [answer review](verification.md).
 
 Advice is not an execution permission. The advisor has no executable tools in
-this request. Existing run cancellation, response ceilings and shared usage
+this request. Existing turn cancellation, response ceilings and shared usage
 accounting still apply. Automatic consultation remains awaited; this change
 does not add concurrent judges or background evaluations.
 

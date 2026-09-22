@@ -11,7 +11,7 @@ tags: [sdk, cli, memory, evals]
 On 2026-09-09, the built production CLI at `086ade90` ran 24 live provider
 rollouts: six synthetic scenarios, two distinct data variants each, with
 `memory.recall` off and on. Both arms used Codex `gpt-5.6-luna`, effort `low`,
-six maximum model iterations and a 30,000-token run budget. Explicit memory
+six maximum model iterations and a 30,000-token turn budget. Explicit memory
 tools remained available in both arms. No mock provider or LLM judge was used.
 
 This compares an existing feature on/off on the same revision. It does not
@@ -79,7 +79,7 @@ Full local stream transcripts and stderr are in
 This is six hand-authored task families with two variants, not twelve independent
 benchmark families. The suite is small and easy enough to reach a factual
 ceiling. It does not exercise long-context compaction, checkpoint recovery,
-mid-run steering, large memory corpora or concurrent access. There is no held-out
+mid-turn steering, large memory corpora or concurrent access. There is no held-out
 confirmation batch or independent attribution review, so this is not grounds for
 automatic candidate promotion through the harness verification gate.
 

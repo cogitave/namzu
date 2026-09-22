@@ -37,14 +37,14 @@ controls; the host remains responsible for that coverage.
 | `usageComplete` | Host checked that all owned requests and usage receipts settled. Unknown usage is false. |
 | `evidence`, `trace` | Provenance and a retained trace up to 32,000 characters. Never model confidence alone. |
 
-The host must derive these fields from retained runs and an independent evaluator.
+The host must derive these fields from retained turns and an independent evaluator.
 The store validates shape and consistency; it cannot authenticate arbitrary
 caller-supplied scores. A timeout, refusal, provider failure or missing execution
 receipt is not evidence that a reasoning strategy needs replacement. Successful
 tasks may also be recorded: a newer pass suppresses older failures of that same
 task under identical evaluator and baseline conditions.
 
-Identity is scoped to tenant, project, resident, run, evaluator and skill.
+Identity is scoped to tenant, project, resident, session and turn, evaluator and skill.
 Reinserting identical content is idempotent; conflicting content is refused.
 Regrading a turn uses a new evaluator revision and preserves the earlier judgement.
 Original execution transcripts and usage accounting remain in their existing stores.

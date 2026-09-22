@@ -30,7 +30,7 @@ exemption from the package's versioning policy.
   separates silent outcomes from notifications and defers busy agents. At this
   revision recurring proactive work is configured explicitly, not inferred from
   old chats by default.
-- Namzu already has session goals, revision stores, provider-independent runs,
+- Namzu already has session goals, revision stores, provider-independent turns,
   persona assembly and memory. `SessionGoalActivation` deliberately grants only
   process-local automatic continuation. The experiment is separate from that
   contract and reuses the existing immutable revision store.
@@ -269,7 +269,7 @@ node research/resident/run.mjs --live
 
 The default uses the real SDK loop with a scripted mock provider. `--live` uses
 the free public model from the bundled Zen driver with low effort, no tools and
-a finite run budget. The script creates only its own temporary directory and
+a finite token budget. The script creates only its own temporary directory and
 prints its location, actual run outcomes and idle-call count. One initial
 objective is provided; there is no second user message between steps. It reopens
 the store between the first step and automatic continuation. This is a small

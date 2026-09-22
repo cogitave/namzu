@@ -112,7 +112,7 @@ incomplete, including when its host needs to report a zero-cost local execution.
 
 `remainingUnits` helps the host plan each stage. Observed exhaustion stops the
 next stage; observed excess also prevents activation. This is **not an atomic
-reservation or an in-flight spending ceiling**. The host must impose run limits
+reservation or an in-flight spending ceiling**. The host must impose turn limits
 and propagate the signal to every model, tool and evaluator it owns. The workflow
 waits for callbacks and does not detach an uncooperative executor on cancellation.
 

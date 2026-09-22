@@ -306,7 +306,7 @@ export interface SlashContext {
 		readonly levels: readonly ReasoningEffort[] | undefined
 	}
 	/**
-	 * Current or latest run spend, or `null` before the first usage report.
+	 * Current or latest turn spend, or `null` before the first usage report.
 	 *
 	 * The same numbers the status bar abbreviates. Kept as the kernel's own
 	 * quantity rather than a formatted string so `/cost` can print exact
@@ -1073,7 +1073,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'cost',
 		help: { usage: ['/cost [details]'] },
-		description: 'Show usage and cost for the current or latest run.',
+		description: 'Show usage and cost for the current or latest turn.',
 		action: (ctx, args) =>
 			reportCommand('cost', args, (details) => renderCost(ctx.usage, ctx.compaction, details)),
 	},
@@ -1522,7 +1522,7 @@ export function renderCost(
 ): string {
 	if (usage === null) return 'No usage reported yet. Send a message to begin.'
 	const lines = [
-		'Current or latest run',
+		'Current or latest turn',
 		`Tokens: ${usage.totalTokens.toLocaleString('en-US')} (own model calls)`,
 		`Cost: ${costAmount(usage.cost)}`,
 	]
@@ -1710,8 +1710,8 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 		])
 	if (ctx.sessionId) rows.push(['Session', ctx.sessionId])
 	if (ctx.usage) {
-		rows.push(['Tokens', `${ctx.usage.totalTokens.toLocaleString('en-US')} · current/latest run`])
-		rows.push(['Spend (current or latest run, own calls)', costAmount(ctx.usage.cost)])
+		rows.push(['Tokens', `${ctx.usage.totalTokens.toLocaleString('en-US')} · current/latest turn`])
+		rows.push(['Spend (current or latest turn, own calls)', costAmount(ctx.usage.cost)])
 		if (ctx.usage.context) {
 			const context = ctx.usage.context
 			rows.push([
@@ -1759,7 +1759,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 		lines.push('/status config for setting sources; /status tools for available tools.')
 	}
 	if (ctx.usage)
-		lines.push(`Spend (current or latest run, own calls): ${costAmount(ctx.usage.cost)}`)
+		lines.push(`Spend (current or latest turn, own calls): ${costAmount(ctx.usage.cost)}`)
 	if (!details) lines.push('/status details for rules and workspace details.')
 	return lines.join('\n')
 }

@@ -34,7 +34,7 @@ the same signal through its closure. Cancellation does not roll back already
 written archive records. It prevents publication of the replacement.
 
 The hook is optional: without it, these helpers still only return a projection;
-they do not promise an archive. Automatic in-run compaction separately retains
+they do not promise an archive. Automatic in-turn compaction separately retains
 removed messages through `compaction_shed` when `recordShedHistory` is enabled.
 
 `SessionEvent`'s `compaction_shed.reason` and the `SessionQuery` `ShedPass.reason` now
@@ -43,7 +43,7 @@ case. It identifies a host-requested pass, not a provider rejection or threshold
 Its timestamp dates the archive copy, not the original user's submission.
 
 The [CLI implementation](../cli/context-and-compaction.md) binds the hook to
-the current conversation and reuses the SDK's scoped run evidence index. Other
+the current conversation and reuses the SDK's scoped session evidence index. Other
 hosts choose their own storage; the SDK does not depend on CLI paths or stores.
 
 The disk store's [large-message encoding](retained-tool-evidence.md) also applies

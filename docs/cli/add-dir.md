@@ -19,7 +19,7 @@ The file tools reach the working directory without asking. A path elsewhere is a
 ## What changes
 
 - **The tools.** `read`, `edit`, `write`, `glob`, `grep`, `ls` and the language-server tool accept an absolute path inside an added directory. Relative paths still resolve against the working directory. A path outside every root is an approval request on the host and a refusal inside the sandbox.
-- **The sandbox.** A sandboxed run binds each added directory read-write at its own path, so a path the model was given on the host means the same thing inside. Under bwrap that is a bind mount; under seatbelt a pair of read and write rules. The sandbox's own file API is contained to the same set.
+- **The sandbox.** A sandboxed session binds each added directory read-write at its own path, so a path the model was given on the host means the same thing inside. Under bwrap that is a bind mount; under seatbelt a pair of read and write rules. The sandbox's own file API is contained to the same set.
 - **The model.** The environment prompt names the added directories, so the model uses them by absolute path instead of guessing at `..`, and it suggests `/add-dir` when it needs a directory repeatedly.
 - **`/status`** lists them under where the session may write.
 

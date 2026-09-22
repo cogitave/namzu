@@ -392,7 +392,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
 	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
 	await frameShows(harness, 'Checkpoint preserved: 7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
-	await frameShows(harness, 'held after a resumable run paused')
+	await frameShows(harness, 'held after a resumable turn paused')
 	await tick(100)
 
 	expect(sendCalls, 'the dependent prompt ran after a resumable stop').toBe(1)

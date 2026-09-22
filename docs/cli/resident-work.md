@@ -213,7 +213,7 @@ Projects, worktrees and agent names have separate agendas.
 a resident or construct a provider. Omitting the action means status, including
 `namzu resident --cwd <path>`. Status/control/help remain usable with malformed
 global or project configuration. `run` resolves configuration only after trusting
-the saved execution directory; malformed configuration then refuses the run.
+the saved execution directory; malformed configuration then refuses to start.
 
 Text output shows objectives, summaries, phases and exact pursuit/claim IDs.
 `namzu --format json resident status` exposes the structured agenda as well.

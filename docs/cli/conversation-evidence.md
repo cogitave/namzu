@@ -474,9 +474,9 @@ claiming a performance gain.
 On 2026-09-09, a real TUI session with `gpt-5.6-luna` at low effort read a
 19,057-character synthetic archive containing three unknown UUIDs. It used
 one search and four exact-read calls, returned all three UUIDs correctly, and
-honored a mid-run request to include the event sequence. Its reported inventory
+honored a mid-turn request to include the event sequence. Its reported inventory
 count (20,564 tool-output characters, including JSON metadata) matched the
-recorded tool outputs. There were no tool errors; the run used 55,715 model
+recorded tool outputs. There were no tool errors; the turn used 55,715 model
 tokens across six requests. This is integration evidence, not a measured
 improvement over an inventory-disabled baseline.
 
@@ -493,11 +493,11 @@ random UUID identifiers absent from a 40,000-character tool preview and the
 replacement conversation summary. The original workspace file had been
 manually replaced. It used one search and one exact read, no workspace replay,
 and 21,922 unpriced subscription tokens (50,000-token/10-iteration ceiling).
-A second run against the final source repeated that result with 21,761 tokens.
+A second attempt against the final source repeated that result with 21,761 tokens.
 The initial read used a scripted provider through the real CLI Session;
 recovery used the live provider. This is one integration experiment, not a
 benchmark gain. [Reproduction and measurements](../../research/conversation-evidence/results.md)
-distinguish that run from deterministic command and compaction checks.
+distinguish that experiment from deterministic command and compaction checks.
 
 The 2026-09-12 [passage-search follow-up](../../research/conversation-evidence/passage-results.md)
 records two Luna/low CLI trials and deterministic active/closed-source checks.

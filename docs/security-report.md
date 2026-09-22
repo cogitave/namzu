@@ -38,7 +38,7 @@ Each line was re-checked by confirming on `main` that the named file exists and 
 | NAMZU-SEC-004 | Partly | Inward-address screening landed: `blockedLiteralReason` and the screening resolver in `packages/sandbox/src/egress/address.ts` are wired into `packages/sandbox/src/egress/proxy.ts`, and `assertNetworkCarriesThePolicy` (`packages/sandbox/src/backends/docker/index.ts`) refuses a `deny-all` policy on a network the daemon does not report as internal. The first half is open: an allowlist policy still reaches the workload as proxy environment variables on a routable network, and arbitrary code can ignore those — issue #398, open since 2026-08-11. |
 | NAMZU-SEC-005 | Partly | The ACI half is closed: `assertNotPubliclyAddressed` (`packages/sandbox/src/backends/aci-standby-pool/index.ts`) refuses to claim a container group with no `subnetId` unless `allowPublicAddress: true` is set, so receiving a public address by omission is no longer possible. Authentication is not: the worker's docblock still reads `Authn: none, and nothing here checks a caller`, it still binds every interface (`packages/sandbox/worker/server.js:40`), and the design work is on issue #402, open since 2026-08-11. |
 | NAMZU-SEC-006 | Landed | A configuration that cannot be read is no longer a configuration with nothing in it: `readIfPresent` treats only `ENOENT` and `ENOTDIR` as absent and throws otherwise, and `asConfigObject` refuses a document that is not a mapping (`packages/cli/src/config/load.ts`); invalid values are refused by name rather than dropped. This row named two artifacts on 2026-08-13; the `sandbox` reader it named in the CLI config loader is in that same file, while `packages/cli/src/context/sandbox.ts` is where the CLI attaches its sandbox, which is SEC-007. |
-| NAMZU-SEC-007 | Partly | The CLI can register a sandbox: `resolveSandbox` builds a provider when `sandbox.enabled` is true, or unset with a `requireIsolation` control or an `ephemeral` workspace (`sandboxRequested`), reports which controls this platform actually enforces, and refuses when a required control is missing (`packages/cli/src/context/sandbox.ts`), and the run hands that provider to the query (`packages/cli/src/tui/agent.ts`). Since 2026-09-22 the default is host execution by owner decision, so finding 7's first half holds again by design: shell commands go through the permission rules and mode, a file tool's path outside the working directory is reviewed before it runs (`QueryParams.outsideRootAccess`), and a sandboxed command leaves the sandbox only with a per-call confirmation that no mode grants (`confirmedEscalations`). Two halves remain. `sandbox.requireIsolation` still defaults to empty (`packages/cli/src/config/schema.ts`), so where the platform enforces no isolation control the commands still run unconfined — the SEC-010 default, unchanged. And an unattended run given no flag still resolves the calls no rule covered to `auto` (`packages/cli/src/permissions/mode.ts`). No issue tracks either. |
+| NAMZU-SEC-007 | Partly | The CLI can register a sandbox: `resolveSandbox` builds a provider when `sandbox.enabled` is true, or unset with a `requireIsolation` control or an `ephemeral` workspace (`sandboxRequested`), reports which controls this platform actually enforces, and refuses when a required control is missing (`packages/cli/src/context/sandbox.ts`), and the turn hands that provider to the query (`packages/cli/src/tui/agent.ts`). Since 2026-09-22 the default is host execution by owner decision, so finding 7's first half holds again by design: shell commands go through the permission rules and mode, a file tool's path outside the working directory is reviewed before it runs (`QueryParams.outsideRootAccess`), and a sandboxed command leaves the sandbox only with a per-call confirmation that no mode grants (`confirmedEscalations`). Two halves remain. `sandbox.requireIsolation` still defaults to empty (`packages/cli/src/config/schema.ts`), so where the platform enforces no isolation control the commands still run unconfined — the SEC-010 default, unchanged. And an unattended turn given no flag still resolves the calls no rule covered to `auto` (`packages/cli/src/permissions/mode.ts`). No issue tracks either. |
 | NAMZU-SEC-008 | Partly | A connector's result now says whose words it is: `frameServerResult` names the server and the tool in the envelope (`packages/sdk/src/connector/mcp/adapter.ts`). The tool boundary has a screen — `screenToolResult` (`packages/sdk/src/registry/tool/screen.ts`), applied in `packages/sdk/src/registry/tool/execute.ts` — and a tool-result counterpart to the prompt-injection guardrail (`packages/sdk/src/runtime/query/guardrail-presets.ts`). Both are narrower than the finding asks for, and the adapter's own docblock says so: nothing downstream reads the frame yet, and the screen runs only over the guardrails a host registers, of which none ship registered in the SDK or the CLI. Issue #427 is the open work on a shipped default screen. |
 | NAMZU-SEC-014 | Landed | Mention expansion resolves the real path of the root and of the target before reading, and refuses anything outside the root (`safeReadInCwd` in `packages/cli/src/tui/mentions.ts`), so a workspace symlink pointing outside the workspace no longer reaches the model. |
 
@@ -52,7 +52,7 @@ Namzu is a TypeScript AI-agent platform delivered as a core SDK, an operator CLI
 
 The architecture demonstrates deliberate security engineering in several important areas:
 
-- tool execution passes through a configurable permission gate with deny-first dangerous patterns, operator rules, human-review outcomes, and run-scoped grants;
+- tool execution passes through a configurable permission gate with deny-first dangerous patterns, operator rules, human-review outcomes, and turn-scoped grants;
 - sandbox backends report the isolation controls they can actually provide and can refuse a workload when required controls are unavailable;
 - paths are checked for lexical traversal and symlink escape, while documented residual time-of-check/time-of-use limitations are not hidden;
 - model, tool, token, time, delegation, and output budgets limit several forms of runaway execution;
@@ -154,7 +154,7 @@ flowchart LR
     R --> S[Sandbox provider]
     S --> W[Worker running untrusted tasks]
     W --> E[Egress proxy or external network]
-    R --> D[Run and session stores]
+    R --> D[Session stores]
     R --> O[Telemetry pipeline]
 ```
 
@@ -191,7 +191,7 @@ The assessment assumes potentially malicious end users, compromised tenant crede
 
 **Status: Implemented with one connector-vault exception.**
 
-Runtime IDs distinguish tenants, projects, sessions, runs, tasks, agents, and requests rather than collapsing them into a single string namespace. Disk-backed session stores verify tenant ownership before principal read and mutation operations, and the test suite contains cross-tenant isolation cases. Durable checkpoints, claims, fencing, atomic replacement, and idempotent recovery reduce duplicate execution and stale-worker corruption after restarts.
+Runtime IDs distinguish tenants, projects, sessions, turns, tasks, agents, and requests rather than collapsing them into a single string namespace. Disk-backed session stores verify tenant ownership before principal read and mutation operations, and the test suite contains cross-tenant isolation cases. Durable checkpoints, claims, fencing, atomic replacement, and idempotent recovery reduce duplicate execution and stale-worker corruption after restarts.
 
 The important exception is the generic connector credential vault described in `NAMZU-SEC-002`: its retrieval and revocation contracts are keyed only by credential reference, not by tenant, and the connector manager does not add an ownership check.
 
@@ -199,19 +199,19 @@ The important exception is the generic connector credential vault described in `
 
 **Status: Implemented; policy quality and metadata trust remain deployment-dependent.**
 
-The permission gate applies hard dangerous-operation patterns before operator rules. A disabled gate yields review rather than allow, invalid custom regular expressions are rejected or skipped with a warning, and unmatched operations require review. Grants are scoped to a run and can apply to one normalized call or one tool rather than becoming durable global permissions.
+The permission gate applies hard dangerous-operation patterns before operator rules. A disabled gate yields review rather than allow, invalid custom regular expressions are rejected or skipped with a warning, and unmatched operations require review. Grants are scoped to a turn and can apply to one normalized call or one tool rather than becoming durable global permissions.
 
 The default sandbox gate allows declared read-only, filesystem, analysis, and custom operations while routing network and shell operations to review. This is a practical usability baseline but should not be treated as a production authorization policy: category and read-only metadata can be supplied by tool authors or remote MCP servers, and regular-expression classification cannot understand every operation's semantics.
 
-Production hosts should define local rules from an asset and action inventory, keep high-impact network, credential, code-execution, destructive, and computer-use operations reviewable, and bind approvals to authenticated users and auditable run context.
+Production hosts should define local rules from an asset and action inventory, keep high-impact network, credential, code-execution, destructive, and computer-use operations reviewable, and bind approvals to authenticated users and auditable session context.
 
 ### 5.3 Guardrails and untrusted-content handling
 
 **Status: Partial.**
 
-Input guardrails run before the model and output guardrails run before the final response is returned. A guardrail exception fails the run rather than being silently ignored, and multiple rewrites compose in order. Presets include common secret patterns and a heuristic prompt-injection detector.
+Input guardrails run before the model and output guardrails run before the final response is returned. A guardrail exception fails the turn rather than being silently ignored, and multiple rewrites compose in order. Presets include common secret patterns and a heuristic prompt-injection detector.
 
-Agent results and MCP prompt content can be wrapped in an explicit untrusted-data envelope, including delimiter neutralization. This is useful defense in depth against instruction/data confusion. It is not a security boundary, and it is not systemic: remote MCP tool results and connector results are not covered by the same envelope. The input prompt-injection guardrail also cannot inspect tool results that arrive later in the run.
+Agent results and MCP prompt content can be wrapped in an explicit untrusted-data envelope, including delimiter neutralization. This is useful defense in depth against instruction/data confusion. It is not a security boundary, and it is not systemic: remote MCP tool results and connector results are not covered by the same envelope. The input prompt-injection guardrail also cannot inspect tool results that arrive later in the turn.
 
 Output secret scanning applies to the final result after live deltas may already have been emitted. Sensitive deployments must therefore buffer output or implement incremental scanning before delivery. Guardrails are optional and their pattern coverage is intentionally incomplete; secrets should be brokered and scoped so that model-visible text does not contain reusable credentials.
 
@@ -288,15 +288,15 @@ This mapping uses the OWASP Top 10 for Agentic Applications as an assessment len
 | Agentic risk | Current controls | Residual exposure and required action |
 | --- | --- | --- |
 | ASI01 Goal Hijack | Input guardrails, untrusted envelopes for some content, tool approvals, budgets | Tool and connector results are not systematically framed or rescanned; headless host execution increases impact; enforce local policies, provenance labels, content isolation, and high-impact approval |
-| ASI02 Tool Misuse and Exploitation | Permission gate, dangerous patterns, run-scoped grants, sandboxing | Connector destination override, uniform non-destructive labels, and self-declared metadata can undermine policy; remediate `NAMZU-SEC-001` and `NAMZU-SEC-003` |
-| ASI03 Identity and Privilege Abuse | Typed tenant and run identities, session-store tenant checks, credential-file ACLs | Credential references are not tenant-bound at the vault boundary; require tenant-aware retrieval and revocation |
+| ASI02 Tool Misuse and Exploitation | Permission gate, dangerous patterns, turn-scoped grants, sandboxing | Connector destination override, uniform non-destructive labels, and self-declared metadata can undermine policy; remediate `NAMZU-SEC-001` and `NAMZU-SEC-003` |
+| ASI03 Identity and Privilege Abuse | Typed tenant, session and turn identities, session-store tenant checks, credential-file ACLs | Credential references are not tenant-bound at the vault boundary; require tenant-aware retrieval and revocation |
 | ASI04 Agentic Supply Chain Vulnerabilities | Frozen lockfile, CI matrix, package checks, npm provenance | Reference image dependency advisory, mutable workflow references, and absent SBOM/signature gates remain; remediate `NAMZU-SEC-009` and `NAMZU-SEC-011` |
 | ASI05 Unexpected Code Execution | Sandboxes, resource limits, permission review, local path checks | The CLI executes allowed shell tools on the host, plugins and modules are trusted host code, and local and Docker defaults are insufficient for adversarial multi-tenancy |
 | ASI06 Memory and Context Poisoning | Session identity, durable records, partial untrusted framing | Later tool content can enter context without systemic provenance or injection screening; separate trusted instructions from external data and add post-tool inspection |
-| ASI07 Insecure Inter-Agent Communication | Typed agent/run identity, budgets, structured runtime records | Content authenticity and authorization remain host concerns; bind delegations and messages to authenticated run context and audit them |
+| ASI07 Insecure Inter-Agent Communication | Typed agent/turn identity, budgets, structured runtime records | Content authenticity and authorization remain host concerns; bind delegations and messages to authenticated session context and audit them |
 | ASI08 Cascading Failures | Token, time, tool, output, and delegation budgets; checkpointing and recovery | Add per-tenant quotas, queue isolation, provider circuit breakers, and anomaly monitoring |
 | ASI09 Human-Agent Trust Exploitation | Human-review outcome and explicit approval flows | UI and host must present destination, identity, data exposure, side effects, and provenance clearly; do not describe state-changing connector calls as non-destructive |
-| ASI10 Rogue Agents | Deny-first patterns, sandbox selection, run-scoped grants, budgets | A compromised agent can still exploit admitted connectors, remote metadata, and network gaps; require local capability policy and enforced containment |
+| ASI10 Rogue Agents | Deny-first patterns, sandbox selection, turn-scoped grants, budgets | A compromised agent can still exploit admitted connectors, remote metadata, and network gaps; require local capability policy and enforced containment |
 
 ## 7. Risk Register
 
@@ -483,9 +483,9 @@ The release process has strong validation and provenance features, but third-par
 
 - **Severity:** Medium
 - **Affected components:** output streaming, disk stores, backups, telemetry spans, collector pipeline
-- **Condition:** the host streams output before final guardrails, persists sensitive runs, or exports raw tool errors without storage and telemetry controls
+- **Condition:** the host streams output before final guardrails, persists sensitive sessions, or exports raw tool errors without storage and telemetry controls
 - **Impact:** disclosure of streamed secrets, prompts, files, tool arguments and results, identifiers, credentials embedded in errors, or tenant activity
-- **Evidence:** `packages/sdk/src/runtime/query/index.ts`, `packages/sdk/src/store/run/disk.ts`, `packages/sdk/src/store/session/disk.ts`, `packages/sdk/src/registry/tool/execute.ts`, `packages/telemetry/src/provider.ts`
+- **Evidence:** `packages/sdk/src/runtime/query/index.ts`, `packages/sdk/src/store/session-log/`, `packages/sdk/src/store/session/disk.ts`, `packages/sdk/src/registry/tool/execute.ts`, `packages/telemetry/src/provider.ts`
 
 Output guardrails protect the final result, not deltas that have already been delivered. Atomic persistence protects write integrity but does not encrypt content or define retention. Telemetry avoids deliberately recording full prompt content in principal paths, yet tool errors and exceptions may contain sensitive strings.
 
@@ -559,7 +559,7 @@ The available security policy is package-local and lists support for a historica
 4. Replace proxy-variable egress with packet-enforced policy and verify raw-socket bypass resistance.
 5. Isolate and authenticate every sandbox worker control plane.
 6. Merge, review, and comprehensively test inward-address and DNS-rebinding defenses in the egress proxy.
-7. Require strict, isolated execution for every unattended CLI run and fail closed on configuration errors.
+7. Require strict, isolated execution for every unattended CLI turn and fail closed on configuration errors.
 8. Centralize untrusted-result provenance and inspection before consequential automatic actions.
 9. Split release validation from publication authority and pin every executable workflow dependency.
 10. Select the microVM backend for hostile code or demonstrate an equivalent tested boundary. Require the necessary isolation controls rather than relying on defaults.
@@ -569,7 +569,7 @@ The available security policy is package-local and lists support for a historica
 1. Remove or replace the affected spreadsheet component and add built-image SBOM and vulnerability gates.
 2. Fix CLI mention and blob-store containment on every operation.
 3. Buffer or incrementally scan sensitive output before releasing stream deltas.
-4. Protect run storage, backups, and telemetry with encryption, access control, minimization, retention, and redaction.
+4. Protect session storage, backups, and telemetry with encryption, access control, minimization, retention, and redaction.
 5. Restrict plugin and module scope; pin and review all production extensions.
 6. Publish a current repository security policy and deployment threat model.
 
@@ -586,7 +586,7 @@ The available security policy is package-local and lists support for a historica
 | Control area | Namzu provides | Host or IT must provide |
 | --- | --- | --- |
 | Caller identity | Typed runtime identity and tenant-aware APIs | Authentication, session security, MFA where applicable, user lifecycle, role mapping |
-| Authorization | Tool gate, review outcome, run-scoped grants | Asset-based rules, local trust metadata, approval UI, separation of duties |
+| Authorization | Tool gate, review outcome, turn-scoped grants | Asset-based rules, local trust metadata, approval UI, separation of duties |
 | Network security | Sandbox network modes and egress components | Enforced firewall or network policy, DNS controls, TLS termination, WAF or API gateway when exposed |
 | Sandbox | Capability reporting, multiple backends, resource limits | Backend selection, required isolation profile, worker identity, host hardening, capacity isolation |
 | Secrets | Credential interfaces and protected CLI file | Managed vault, tenant binding, rotation, short-lived credentials, least privilege, breach response |
@@ -595,7 +595,7 @@ The available security policy is package-local and lists support for a historica
 | Observability | Telemetry package and execution metadata | Collector identity, redaction, transport encryption, access control, retention, alerting |
 | Availability | Budgets, timeouts, checkpoints, recovery | Rate limits, quotas, queues, circuit breakers, redundancy, disaster recovery |
 | Supply chain | CI gates, frozen lockfile, Changesets, npm provenance | Branch protection, reviewer policy, pinned actions, SBOM and image scanning, release environment protection |
-| Incident response | Auditable run and tool context | Detection, triage, credential revocation, tenant notification, evidence retention, recovery runbooks |
+| Incident response | Auditable session, turn and tool context | Detection, triage, credential revocation, tenant notification, evidence retention, recovery runbooks |
 
 ## 10. Production Security Baseline
 
@@ -603,12 +603,12 @@ The following baseline should be converted into environment policy and release e
 
 ### 10.1 Identity and authorization
 
-- Authenticate every caller before constructing tenant, project, session, or run context.
+- Authenticate every caller before constructing tenant, project, session, or turn context.
 - Derive tenant identity from the authenticated principal; never accept it as an unverified request field.
 - Use separate service identities and credentials for each environment, tenant boundary, provider, and connector where feasible.
 - Deny unmatched tools in production. Require human approval for network writes, destructive actions, credential use, code execution, computer use, external communication, and material data disclosure.
 - Display the final destination, data to be sent, credential identity, side effects, and provenance in the approval interface.
-- Persist approval and denial events with actor, tenant, run, normalized arguments, policy version, timestamp, and result.
+- Persist approval and denial events with actor, tenant, session, turn, normalized arguments, policy version, timestamp, and result.
 - Run every unattended CLI session in strict mode on an ephemeral least-privilege worker; do not expose ambient cloud credentials, a Docker socket, an SSH agent, or broad repository tokens.
 
 ### 10.2 Model and content security
@@ -675,7 +675,7 @@ The following repository paths contain the principal evidence used in this asses
 | Path and discovery controls | `packages/sdk/src/tools/paths.ts`, directory loading and plugin paths under `packages/sdk/src` |
 | MCP policy and metadata | `packages/sdk/src/connector/mcp/adapter.ts`, MCP policy and drift paths under `packages/sdk/src/connector/mcp/` |
 | Connector destinations and credentials | `packages/sdk/src/connector/builtins/http.ts`, `packages/sdk/src/connector/builtins/webhook.ts`, `packages/sdk/src/manager/connector/tenant.ts`, `packages/sdk/src/types/connector/tenant.ts`, `packages/sdk/src/vault/InMemoryCredentialVault.ts` |
-| Session and run persistence | disk-backed stores and tests under `packages/sdk/src` |
+| Session persistence | disk-backed stores and tests under `packages/sdk/src` |
 | CLI trust and credentials | configuration, permission-mode, trust, and credential paths under `packages/cli/src` |
 | Local and Docker isolation | sandbox provider paths under `packages/sdk/src/sandbox/`, `packages/sandbox/src/backends/docker/index.ts` |
 | CLI host execution and mentions | CLI agent query, permission-mode, configuration, and mention paths under `packages/cli/src`, `packages/sdk/src/tools/builtins/bash.ts` |

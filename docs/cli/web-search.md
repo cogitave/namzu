@@ -87,7 +87,7 @@ Once hosted activity begins, provider fallback cannot restart that request on a
 second provider. Cancellation still aborts the enclosing model request. Ordinary
 model token usage is accounted from the same response; the token ledger does not
 claim to measure separate hosted-search fees. Forced closing summaries do not
-start further searches. Run resumes use the current host's configuration.
+start further searches. Resumed turns use the current host's configuration.
 
 Protocol reference: [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search).
 

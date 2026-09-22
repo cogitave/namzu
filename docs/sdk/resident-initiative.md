@@ -63,7 +63,7 @@ across candidates and policy configuration. A source label is provenance, not
 proof that different measurements are comparable. Changed criteria or resource
 units require a new pursuit and compatible selector configuration.
 
-For a normal SDK run, retain `run.tokenUsage` and `run.costInfo` as receipts.
+For a normal SDK turn, retain `turn.tokenUsage` and `turn.costInfo` as receipts.
 `tokenUsage.totalTokens` can be the resource unit. If dollars are chosen,
 `costInfo.unpricedTokens > 0` means the total is incomplete; do not report that
 step as free. Include tool or validation costs when they matter. Selection

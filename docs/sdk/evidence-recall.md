@@ -518,7 +518,7 @@ reporting does not certify the model's recovery decision.
 Every request revalidates its source; recalled bytes are not cached for a
 later step. The immutable bound scope prevents changing an options object
 from changing the conversation. A host should reuse a stable callback per
-conversation and reject stale run ownership before and after asynchronous I/O.
+conversation and reject stale turn ownership before and after asynchronous I/O.
 
 ## Historical and current facts
 
@@ -549,7 +549,7 @@ automatic recall does not claim an exhaustive search of long-running history.
 The SDK does not install this step automatically: other hosts still choose
 whether to attach it and whether to enable model-assisted query resolution.
 Within one automatic candidate page, the CLI can cross completely searched
-matching runs as well as empty runs, while respecting the shared byte and output
+matching turns as well as empty turns, while respecting the shared byte and output
 limits. Partially traversed SDK pages keep their continuation boundary. This
 allows distinct evidence from several small invocations to enter the bounded
 candidate pool instead of spending one automatic page on each turn. It does not

@@ -200,7 +200,7 @@ that reference does not skip mutation-time disk checks.
 The CLI shares a tracker between ordinary turns for each conversation within a
 live agent session, and seeds it from that conversation's own messages the
 first time a turn asks for it. A resumed conversation, a `--resume` or
-`--continue` run, and a fork all arrive as a conversation the process has not
+`--continue` turn, and a fork all arrive as a conversation the process has not
 served before, so each is seeded from the history it was given and never from
 another conversation's. The ledger itself is still not persisted: nothing is
 written to a session store, and a restarted CLI rebuilds what it can by
@@ -337,7 +337,7 @@ the requested ID and tool name before reusing a record.
 
 Disk recovery scans only the JSONL metadata, without loading retained outputs
 or compaction attachments: 64 KiB reads, at most 256 MiB per log, 4 MiB per
-record and 4,096 selected IDs. It validates run ownership, sequence, UTF-8 and
+record and 4,096 selected IDs. It validates turn ownership, sequence, UTF-8 and
 source stability. An incomplete final fragment makes the snapshot incomplete;
 other malformed records, exceeded bounds and unavailable sources are refused.
 Retrieval does not repair the log. Normal execution-store initialization retains

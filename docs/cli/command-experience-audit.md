@@ -70,7 +70,7 @@ Evidence: [TUI dispatch](https://github.com/cogitave/namzu/blob/8a8de4ae/package
 [task handler](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/sdk/src/registry/command/kernel-commands.ts#L255),
 [runtime store](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/agent.ts#L1935).
 
-Connect the command to the same run-owned task state. State which run is being
+Connect the command to the same turn-owned task state. State which turn is being
 shown, and distinguish an empty task list from unavailable storage.
 
 ### Help and autocomplete have different command catalogues
@@ -90,18 +90,18 @@ should use the same state facts, with execution revalidating before mutation.
 ### Usage reports confuse scope and units
 
 `/cost` says usage spans every turn and only grows. Normal sends allocate new
-run IDs, and each usage event replaces the displayed totals. A smaller second
-run can therefore reduce the displayed value. `/status` additionally prefixes
+turn IDs, and each usage event replaces the displayed totals. A smaller second
+turn can therefore reduce the displayed value. `/status` additionally prefixes
 the first line of `renderCost` with `Spend`, producing `Spend: Tokens: 12,000`
 in a controlled fixture.
 
 Evidence: [usage update](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/App.tsx#L3762),
-[run allocation](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/App.tsx#L3978),
+[turn allocation](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/App.tsx#L3978),
 [scope claim](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/slashCommands.ts#L1184),
 [status composition](https://github.com/cogitave/namzu/blob/8a8de4ae/packages/cli/src/tui/slashCommands.ts#L1379).
 
-Label current/last-run usage honestly. Conversation totals require aggregation
-across durable runs. Render token counts and monetary amounts from typed
+Label current/last-turn usage honestly. Conversation totals require aggregation
+across durable turns. Render token counts and monetary amounts from typed
 fields, never by extracting a line from another formatted report. Retain the
 distinction between unknown pricing and a measured zero.
 
@@ -159,7 +159,7 @@ The same summary/detail and searchable-settings patterns also appear in the
 
 1. Repair preference preservation, permission reporting, task-store reachability,
    catalogue consistency and usage scope. Verify real state transitions, including
-   failed model activation and a second run with lower usage.
+   failed model activation and a second turn with lower usage.
 2. Introduce a small shared selection-row contract and command availability
    metadata. Keep SDK data and enforcement authoritative; let the CLI own human
    labels, grouping and interaction. Exercise the same commands through both
@@ -182,10 +182,10 @@ validated.
 | --- | --- |
 | Model changes | `/model` starts at the current provider’s models and offers a separate provider action. Selection preserves unrelated preferences and fallback models. Replacement construction precedes atomic preference persistence and activation; failures retain the old session. Temporary credentials keep selection local to the session. |
 | Permissions | The first menu offers Ask before changes, Auto-approve edits and Plan (read-only). More options holds Auto-approve tools, Preapproved tools only and View rules. Menus and settings show effective approval state, including an earlier all-tools approval. Selecting a preset resets that approval. The prompt explicitly labels its all-tools/session scope; typed modes and `/permissions details` remain available. |
-| Tasks | `/tasks` reads the actual store supplied to the current/latest run, including resumed runs. Starting another run or switching conversations clears the selected readout. Empty, not-yet-available and unsupported lists are distinct; stored tasks are not deleted. |
+| Tasks | `/tasks` reads the actual store supplied to the current/latest turn, including resumed turns. Starting another turn or switching conversations clears the selected readout. Empty, not-yet-available and unsupported lists are distinct; stored tasks are not deleted. |
 | Discovery | Composer completion, `/help` and dispatch use the same merged command catalogue. Shared availability metadata can explain an unavailable action, and execution rechecks it. |
 | Command help | Bare `/help` retains the command picker. `/help <command>` reads usage, description and availability without invoking the target; user-command help also identifies the full source path, scope and any refusal problem. |
-| Reports | `/status`, `/cost` and `/context` show summaries with explicit `details` variants. `/mcp tools` expands the server summary. Spend is rendered from monetary data; own-run cost, delegated tokens, estimated context and unknown prices remain distinct. |
+| Reports | `/status`, `/cost` and `/context` show summaries with explicit `details` variants. `/mcp tools` expands the server summary. Spend is rendered from monetary data; own-turn cost, delegated tokens, estimated context and unknown prices remain distinct. |
 | Settings | `/settings` shows effective values for Model, Reasoning effort and Permissions, and opens their controls. Configuration opens a separate values-free source report. |
 | Memory | Bare `/memory` and standalone `show`/`list` inspect curated memory without writing. `add <text>` explicitly saves a note; empty `add` displays usage. Ordinary free-text notes remain supported. |
 | Goals | Bare `/goal` opens a menu; `status` is read-only and `set` explicitly creates an objective, either directly or through the editor. The menu exposes continuation controls and the automatic-turn allowance. Reports use enabled/paused continuation language. |
@@ -222,12 +222,12 @@ does not change sandbox access or add another product's automatic review.
   general configuration editor, a credential manager or a UI for editing
   fallback chains. Permission and effort changes remain session-scoped;
   normal model choices are saved for future launches.
-* Usage reports cover the current or latest run. Conversation-wide cost would
-  require aggregation across durable runs, and descendant costs are not
+* Usage reports cover the current or latest turn. Conversation-wide cost would
+  require aggregation across durable turns, and descendant costs are not
   included in the displayed own-call cost.
-* `/tasks` does not browse tasks from arbitrary historical runs. Changing the
+* `/tasks` does not browse tasks from arbitrary historical turns. Changing the
   conversation or provider session can leave no current task selection until
-  another run is admitted.
+  another turn is admitted.
 * Search is available in the shared command, skill, branch and commit menus;
   it is not yet a universal interaction across provider/model, conversation
   history and every specialized picker.

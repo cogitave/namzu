@@ -131,7 +131,7 @@ cycle. The CLI preserves an acknowledged `activated` result with
 model calls or activation automatically.
 
 For a simple consistent backup, stop writers and copy the database, artifacts,
-resident agenda and referenced run evidence together. Do not copy only a live
+resident agenda and referenced session evidence together. Do not copy only a live
 SQLite main file or restore an artifact directory as though it were the complete
 journal. A missing or corrupted blob produces an explicit read failure.
 

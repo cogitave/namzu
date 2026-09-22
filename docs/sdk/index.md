@@ -53,7 +53,6 @@ The kernel.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.
 
 * [Session log](session-log.md) - The one append-only, hash-chained JSONL file per session: record schema, turn rules, the fold, and the layout under NAMZU_HOME.
-* [Durable run storage (removed)](run-storage.md) - Deprecated: the per-run layout of @namzu/sdk 43 and earlier, and where each of its files went in the session log layout.
 
 * [Harness invariants](harness-invariants.md) - Ownership, budget conservation, result recovery and bounded live execution evidence.
 

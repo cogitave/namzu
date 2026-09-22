@@ -15,7 +15,7 @@ it.each([40, 80, 120])('renders a complete bounded status panel at %i columns', 
 		['Directory', '/home/arda/workspaces/長い名前/namzu/packages/cli'],
 		['Permissions', 'Ask before changes'],
 		['Session', '12345678-1234-1234-1234-123456789012'],
-		['Spend (current or latest run, own calls)', 'at least $0.1200'],
+		['Spend (current or latest turn, own calls)', 'at least $0.1200'],
 	]
 	screen = await renderToScreen(<StatusPanel rows={rows} />, { cols: columns, rows: 45 })
 	const lines = screen.viewport().filter((line) => line.trim())

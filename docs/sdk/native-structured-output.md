@@ -60,7 +60,7 @@ unvalidated prose summary.
 Async Zod validation and transformations run once per candidate. A transformed
 result must still be losslessly representable as plain JSON: functions, Date
 instances, undefined values, nonfinite numbers, accessors and cycles fail the
-run. Validation exceptions fail the turn; cancellation stops waiting even for
+turn. Validation exceptions fail the turn; cancellation stops waiting even for
 an uncooperative async validator. Host callbacks must still cancel their own
 external work.
 
@@ -69,7 +69,7 @@ as tool-mode results. Host rejection allowance is separate from schema
 corrections. Pending operator corrections and delegated work are considered
 before native acceptance, within the turn's existing finalization limits.
 Cancellation before settlement does not publish the candidate. The accepted
-value lands in `Run.structuredOutput`; native output does not traverse the tool
+value lands in `Turn.structuredOutput`; native output does not traverse the tool
 preview cap, so a large JSON response is not truncated by `maxToolOutputChars`.
 Provider output and context limits still apply.
 

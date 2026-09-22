@@ -20,7 +20,7 @@ generated: { by: human:bahadirarda, at: 2026-09-01T00:00:00Z }
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
 
-[Install](#install) · [Usage](#usage) · [Headless](#headless-runs) · [Documentation](#documentation)
+[Install](#install) · [Usage](#usage) · [Headless](#headless-use-namzu-exec) · [Documentation](#documentation)
 
 </div>
 

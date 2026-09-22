@@ -236,7 +236,7 @@ runtime observations through the same request-only context channel:
   sixteen owned tasks without claiming or draining them. Tasks still running fill
   these slots first, most recently launched first, so a long-running task stays
   named for as long as it keeps running regardless of how many other tasks this
-  run has since launched; the most recently settled tasks fill whatever slots
+  turn has since launched; the most recently settled tasks fill whatever slots
   running tasks leave over. It reports scheduler state, child session status, any
   stop reason and whether the result was delivered to history. Unknown
   scheduler state stays unknown. Other turns' tasks and worker result bodies are
@@ -305,7 +305,7 @@ The model is the one selected by preceding stages, with the turn's effort settin
 `timeoutMs` and `signal`. No conversation, tool definitions, private reasoning or
 other request state is implicitly attached. The two input strings together may
 contain at most 12,000 UTF-16 units. The output limit defaults to 256 tokens and
-cannot exceed 1,024. A caller signal can shorten the stage/run lifetime. These
+cannot exceed 1,024. A caller signal can shorten the stage/turn lifetime. These
 limits do not guarantee a provider billing ceiling.
 
 `timeoutMs` is accepted and validated and no longer bounds the request. It cannot:

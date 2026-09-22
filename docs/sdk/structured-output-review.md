@@ -9,7 +9,7 @@ tags: [sdk, harness, verification]
 # Structured output review
 
 `QueryParams.structuredOutput.review` checks the parsed result after the output
-tool has validated its schema and before `Run.structuredOutput` is published.
+tool has validated its schema and before `Turn.structuredOutput` is published.
 The callback receives a cloned JSON-decoded value (`unknown`) and an `AnswerReviewContext` containing
 turn identity, iteration, messages and the turn's cancellation signal. Its optional
 `generateText` capability provides [one metered, bounded review inference](verification.md#turn-owned-review-inference)
@@ -57,7 +57,7 @@ Before publishing an accepted tool-mode candidate, the loop checks for inbound
 messages and steering, including steering already attached to that tool's
 result. A new input gets another model turn with a fresh candidate and review.
 The old candidate's review remains bound to its dispatch input. This also works
-without a host reviewer. Forced finalization and existing run limits still apply;
+without a host reviewer. Forced finalization and existing turn limits still apply;
 an interrupted turn does not publish a pending candidate as completed output.
 
 A rejection saves feedback and `IterationCheckpoint.structuredReviewAttempts`

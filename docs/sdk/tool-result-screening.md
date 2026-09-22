@@ -177,14 +177,14 @@ reached after normalising whitespace.
 
 **A turn installs the default.** `DEFAULT_TOOL_RESULT_GUARDRAILS` is one
 correspondence screen, and the executor puts it on the tool context of every
-run. A default here rather than on the registry because a turn usually does not
+turn. A default here rather than on the registry because a turn usually does not
 build its registry: a host assembles one and hands it to `runAgent`, so a
 registry-construction option alone is the host's to write and the kernel's
 default would reach nobody.
 
 **A registry that was built with `resultGuardrails` wins.** Including an empty
 array, which means none — a registry that stated its policy has stated it, and a
-run must not overrule it.
+turn must not overrule it.
 
 **A turn config option overrides the default** for a registry that declared
 nothing:

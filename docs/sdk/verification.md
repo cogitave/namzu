@@ -18,7 +18,7 @@ should be independently derived from the task's requirements and current state.
 `{ accept: false, feedback }` to request another iteration. The feedback is runtime
 context, not a new operator instruction. `maxAnswerReviews` bounds the permitted
 rejections; exhaustion stops with `answer_rejected`. `AnswerReviewContext.signal`
-carries run cancellation and should be forwarded to verification operations.
+carries turn cancellation and should be forwarded to verification operations.
 
 `AnswerReviewContext.requestMessages` optionally supplies an isolated copy of the
 SDK messages dispatched for the candidate being reviewed. The built-in loop
@@ -87,7 +87,7 @@ answer parsing and decides which dispositions require these checks. Reuse the
 runtime's review budget; the helper does not start a model or manage retries.
 
 Each verification calls the trusted `observe(source, request)` adapter once per
-distinct source. The request carries the bound scope/run, review iteration, fresh
+distinct source. The request carries the bound scope/turn, review iteration, fresh
 request ID, start time, remaining byte allowance and an abort signal. The adapter
 must perform an authorized **read**, bound capture, honor cancellation, and return
 complete bytes observed during that request. A receipt marked historical,
@@ -201,7 +201,7 @@ The command gate runs operator-supplied shell commands in order and stops at the
 first failure. Default command timeout is ten minutes; default execution attempts
 are three. The model does not supply these commands. Custom executors own their
 containment and must honor the timeout and cancellation options they accept.
-The default executor owns its local process group and receives run cancellation.
+The default executor owns its local process group and receives turn cancellation.
 
 Every command must finish with exit zero and no termination receipt. A process
 that handles a timeout or cancellation by exiting zero has not completed the

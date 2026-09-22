@@ -265,7 +265,7 @@ snapshot is released on iteration exit and rebuilt after resume.
 
 The advisory-input audit identified two concrete distinctions to preserve:
 context fullness measures the pending request against its context window,
-whereas cumulative token spend measures run cost; an error-triggered review
+whereas cumulative token spend measures turn cost; an error-triggered review
 needs the current failing tool cycle, rather than an older error surviving in
 history. Their regression checks are evidence about input plumbing, not about
 the effectiveness of the proposed controller.

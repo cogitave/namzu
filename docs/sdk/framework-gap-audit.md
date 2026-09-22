@@ -40,7 +40,7 @@ are separate responsibilities.
   patches. It does not embed the Python Pydantic runtime. All 117 package tests
   passed, including official `HttpAgent` interoperability. Backend tools, text,
   shared state, cancellation and successful final persistence are covered.
-* Existing SDK run checkpoints, event replay cursors and authorization are
+* Existing SDK turn checkpoints, event replay cursors and authorization are
   useful primitives for the missing UI round trips. Their presence does not
   mean the AG-UI adapter already exposes those round trips.
 
@@ -110,7 +110,7 @@ Query request assembly now populates provider-level `responseFormat` for
 explicit native mode in `StructuredOutputConfig`; Pydantic exposes explicit
 [native, tool and prompted modes](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/output.py#L43).
 Acceptance: a schema-valid answer rejected by a host check is corrected within
-one bounded review loop; a native-schema run sends the expected wire format.
+one bounded review loop; a native-schema turn sends the expected wire format.
 
 **Cumulative tool-call admission is distinct from concurrency.**
 `packages/sdk/src/turn/LimitChecker.ts` checks tokens, cost, time and iterations;
@@ -163,7 +163,7 @@ keeps unknown requests distinct; the two defects in step 1 are addressed.
 4. Add browser semantic observation and explicit control ownership as optional
    capability/environment layers. Do not make a web coworker platform a kernel
    dependency.
-5. Measure long-run evidence recovery and resume behavior before claiming a
+5. Measure long-session evidence recovery and resume behavior before claiming a
    complete memory or cognitive system. Existing bounded conversation search
    now pages through large transcripts with bounded reads and 4 MiB record admission; retained previews cannot restore discarded
    bytes. Indexed/spilled evidence recovery is now available for explicitly authorized

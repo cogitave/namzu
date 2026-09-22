@@ -162,7 +162,7 @@ non-cooperative cleanup, crashes, stale release and parent exit.
 The [2026-09-11 CLI smoke evidence](../../research/resident/results/2026-09-11-managed-cli-live.json)
 records actual terminal invocations with Muse Spark low effort. One prescribed
 objective settled a wait and then a completion without another user message;
-its previous summary appeared in the second run's context. The same idle worker
+its previous summary appeared in the second step's context. The same idle worker
 later accepted a second objective and stopped at its original three-step limit.
 A final-build empty-work runner stayed at zero callbacks, refused another start,
 and acknowledged stop after drainage. All fixture processes were stopped.

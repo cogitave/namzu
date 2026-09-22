@@ -62,7 +62,7 @@ describe('command summaries and details', () => {
 	)
 
 	it('shows money under Spend and keeps own-run scope distinct from conversation usage', () => {
-		expect(renderStatus(context())).toContain('Spend (current or latest run, own calls): $0.1250')
+		expect(renderStatus(context())).toContain('Spend (current or latest turn, own calls): $0.1250')
 		expect(renderStatus(context())).not.toContain('Spend: Tokens:')
 		const details = report('/cost details')
 		expect(details).toContain('excluding delegated calls and earlier turns')

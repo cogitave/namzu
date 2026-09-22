@@ -21,7 +21,7 @@ Observed acceptance checks:
   A comment had been inserted into the file outside Namzu. The resumed agent
   read the file and added a farewell function, preserving that comment.
 - A subsequent request launched two read-only explore agents. The terminal
-  presented a grouped approval. After approval, both child run records settled
+  presented a grouped approval. After approval, both child sessions settled
   as `completed` and their findings appeared in the parent response.
 - `/status` displayed the CLI installation identity alongside session state.
 

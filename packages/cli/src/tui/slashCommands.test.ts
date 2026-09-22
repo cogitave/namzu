@@ -584,7 +584,7 @@ describe('/cost', () => {
 		// without naming which it is invites the same misreading back.
 		const r = runSlash('/cost', context({ usage: { totalTokens: 10, cost: cost(1) } }))
 		if (r?.kind === 'message') {
-			expect(r.content).toContain('Current or latest run')
+			expect(r.content).toContain('Current or latest turn')
 			expect(r.content).toContain('own model calls')
 			expect(r.content).not.toContain('across every turn')
 		}

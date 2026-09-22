@@ -116,13 +116,13 @@ export function recallTools(
   agenda: DiskResidentAgenda,
   state: ResidentState,
   admissionRevision: number,
-  ownsRun: (context: ToolContext) => boolean,
+  ownsTurn: (context: ToolContext) => boolean,
 ) {
   const source = agenda.history(state, admissionRevision)
   return {
     source,
     tools: buildResidentHistoryTools((context) => {
-      if (!ownsRun(context)) throw new Error('Run does not own this pursuit.')
+      if (!ownsTurn(context)) throw new Error('This turn does not own this pursuit.')
       return source
     }),
   }

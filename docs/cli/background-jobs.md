@@ -55,7 +55,7 @@ None of them knows a `wait_for_job` call is already blocked on the same job: unl
 
 # Waiting at the end of a turn
 
-A turn that ends without calling a tool leaves the `[Background job update]` line with nothing to ride on, so a turn that stopped while a job was still going used to settle straight over it. That is precisely the moment the model has nothing left to do but wait — and a recorded run did exactly that, by hand, with a `sleep 30` between polls.
+A turn that ends without calling a tool leaves the `[Background job update]` line with nothing to ride on, so a turn that stopped while a job was still going used to settle straight over it. That is precisely the moment the model has nothing left to do but wait — and a recorded session did exactly that, by hand, with a `sleep 30` between polls.
 
 So the kernel suspends instead. When the model stops calling tools and a job it awaited is still running, the turn waits — a real timer, no provider request, no tokens — for whichever comes first:
 

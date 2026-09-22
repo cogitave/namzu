@@ -20,7 +20,7 @@ baseline, skill name, cancellation signal and usage recorder. The host mounts
 the available environment operations; the model chooses their inputs through
 ordinary tool calls. Host callbacks must retain actual outputs separately from
 the model's interpretations. Tool authority and environment integrity remain
-host responsibilities, just as in a normal SDK run.
+host responsibilities, just as in a normal SDK turn.
 
 The callback returns `{ observations: { evidence, trace }, usageComplete }`.
 Evidence uses `ResidentLearningEvidence`; trace is nonempty and bounded to

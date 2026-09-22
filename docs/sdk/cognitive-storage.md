@@ -42,7 +42,7 @@ Namzu result.
 
 | Component | Responsibility and boundary |
 | --- | --- |
-| `Memory` | Cross-run Markdown notebook with read/write/search tools. PostgreSQL is an actual notebook backend. |
+| `Memory` | Cross-session Markdown notebook with read/write/search tools. PostgreSQL is an actual notebook backend. |
 | `ConversationSearch` | Lexical retrieval over persisted conversations, including retained pre-compaction originals. |
 | `StepPersistence` | Events, continuable message snapshots and a tool-effect ledger; not complete execution-state restoration. |
 | DBOS | Workflow/step checkpointing and recovery, independently backed by PostgreSQL or SQLite. |

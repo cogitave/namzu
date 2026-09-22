@@ -92,7 +92,7 @@ recovery path.
 If eligible edits cannot relieve pressure, the existing structured-summary path
 can run. LLM verification is optional for salience and off by default. Planning
 does not promise lossless memory: retained facts, summaries and durable learning
-have different lifetimes. Cross-run consolidation remains an explicit host option.
+have different lifetimes. Cross-session consolidation remains an explicit host option.
 
 The structured candidate must reduce the same estimated prompt cost before it
 replaces history or reports success. Equal or larger candidates report
@@ -148,7 +148,7 @@ With compaction enabled, `deduplicateObservations` is enabled unless explicitly
 `false`. It runs after history compaction and before rich-content projection,
 request inventory and the model-call hook, including empty-completion finalization.
 It changes provider-bound messages, not canonical history or tool execution.
-An SDK run without compaction configuration, or with strategy `disabled`, does
+An SDK turn without compaction configuration, or with strategy `disabled`, does
 not apply this policy. Set `deduplicateObservations: false` in the SDK compaction
 configuration to keep the previous request representation.
 

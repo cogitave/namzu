@@ -10,7 +10,7 @@ status: draft
 # Resident step context
 
 For on-demand learned guidance, use `createResidentStepContext(options)`. Mount
-**both** its `tools` and `contributions` on the admitted run. It accepts
+**both** its `tools` and `contributions` on the admitted step's turn. It accepts
 `ResidentStepContextOptions`: the options below plus a required synchronous
 `authorizeLearningRead(context): boolean` callback. Only `true` authorizes a read;
 the host checks the turn identity and that admission is still active. The bundle

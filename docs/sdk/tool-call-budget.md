@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Cumulative tool-call admission budget
-description: Per-run attempt reservations before batch, nested and retry execution, with durable recovery accounting.
+description: Per-turn attempt reservations before batch, nested and retry execution, with durable recovery accounting.
 resource: packages/sdk/src/runtime/query/tool-call-budget.ts
 tags: [sdk, tools, limits, recovery]
 status: stable
@@ -10,7 +10,7 @@ status: stable
 # Cumulative tool-call admission budget
 
 `query({ maxToolCalls, ... })` limits cumulative tool execution admissions for one
-run. The value is a nonnegative safe integer. Zero refuses all new calls;
+turn. The value is a nonnegative safe integer. Zero refuses all new calls;
 omitting the option preserves unlimited behavior. This is independent of model
 iterations, concurrent-call limits, token budgets and tool deadlines.
 
@@ -39,7 +39,7 @@ agent-tree allowance.
 
 ## Durable accounting and recovery
 
-With the option configured, `query` restores usage from its strict run event log
+With the option configured, `query` restores usage from its strict session event log
 and persists a `tool_calls_admitted` reservation before releasing execution.
 The event carries `kind` (`initialize`, `batch`, `nested`, or `retry`), `count`,
 cumulative `used`, and the configured `limit`. Initialization has count zero.
@@ -51,7 +51,7 @@ an in-flight append cannot look like a torn transcript. This ordering does not
 relax integrity checks: an incomplete record left by a settled write still
 prevents admission.
 
-Compacting message history does not erase the ledger. Resume the same native run
+Compacting message history does not erase the ledger. Resume the same native turn
 with `maxToolCalls` supplied again: the host owns the policy, and this option is
 not inherited from a checkpoint when omitted. Changing the configured limit
 changes the allowed total but does not reset recorded usage.

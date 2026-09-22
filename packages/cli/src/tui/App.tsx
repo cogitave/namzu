@@ -5888,7 +5888,7 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Configuration',
-							notice: 'Model, reasoning, permission and run-limit changes apply to this session.',
+							notice: 'Model, reasoning, permission and turn-limit changes apply to this session.',
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -8024,7 +8024,7 @@ export function App({
 										{queued.length > 1 ? 's' : ''} queued —{' '}
 										{queuePause
 											? queuePause.outcome === 'paused'
-												? 'held after a resumable run paused; wait for recovery, change model, or send a message to release it'
+												? 'held after a resumable turn paused; wait for recovery, change model, or send a message to release it'
 												: `paused after a ${queuePause.outcome} turn; send a message or change model to continue`
 											: 'sending when ready'}
 									</Text>

@@ -40,7 +40,7 @@ Successful repeated calls received advice rather than a runtime stop.
 short pending receipt. `packages/cli/src/tui/App.tsx` reuses an already accepted
 request; `packages/cli/src/tui/model-switch.ts` ranks relevant choices before
 the eight-choice limit. Host confirmation still follows successful application.
-Only a sole successful terminal call ends the run; rejected requests and mixed
+Only a sole successful terminal call ends the turn; rejected requests and mixed
 batches retain the normal loop. This preserves other requested tool results.
 
 Discovery also needs to reflect the actual roster. At baseline,
@@ -102,7 +102,7 @@ On 2026-09-08, a real PTY session against the built CLI accepted
 `modeli opus-5 yapar mısın`, selected Anthropic Opus, then accepted
 `/model gpt-6-astra` and `/effort ultra` through Codex. Model and effort previews
 appeared before submission, saved defaults stayed unchanged, and no inference
-run was created. This verifies host controls, not an inference benchmark for
+turn was started. This verifies host controls, not an inference benchmark for
 either model. Deterministic kernel tests separately verify compacted evidence
 recovery after reopening, conversation ownership, ordered writes, background
 parent progress, single correction delivery and parent cancellation.
@@ -116,11 +116,11 @@ allowlists in both branches. This SDK correction is outside the current patch.
 | --- | --- | --- |
 | 1 | **Recover original evidence.** Pydantic Harness [ConversationSearch](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/conversation_search/_capability.py#L35) searches history retained by StepPersistence; it persists nothing itself. Namzu's `packages/sdk/src/compaction/tool-result-editing.ts` preserves available spill pointers, while `packages/sdk/src/tools/memory/search.ts` searches authored records. Connect bounded, authorized conversation/artifact retrieval. | Put an exact identifier only in subsequently compacted output. Measure answer accuracy, rereads, repeated external work and tokens; also verify isolation and recovery after restart. |
 | 2 | **Offer explicit execution barriers.** Pydantic's [`sequential=True`](https://github.com/pydantic/pydantic-ai/blob/716f2ae4a1cb2650ce4ee58f702d1f60c3c93f8c/pydantic_ai_slim/pydantic_ai/_tool_execution.py#L285) separates parallel segments. Namzu's `packages/sdk/src/runtime/query/executor.ts` starts concurrency-safe calls independently of the unsafe-call chain. A controlled `[write, read]` probe observed `write started`, `read saw before`, `write finished`. This is permitted by Namzu's current contract. Add a distinct barrier without silently changing that contract. | A barrier write followed by verification must expose the new value. Independent reads must still overlap. Count stale reads, corrective calls, model requests and elapsed time. |
-| 3 | **Allow the parent to continue and steer delegates.** Codex separates [message delivery and follow-up turns](https://github.com/openai/codex/blob/d6489472f3c15e87d2d7763a5fde033545c530f8/codex-rs/core/src/tools/handlers/multi_agents_spec.rs#L181). OpenCode supports task reuse and [background launch behind an experimental flag](https://github.com/anomalyco/opencode/blob/d6855b6b47a8433462ac6aeeba882ccf734cb7f1/packages/opencode/src/tool/task.ts#L97). Namzu's `packages/cli/src/integrations/subagents/runtime.ts` releases a blocking wait on operator input and delivers completion later, but exposes neither proactive background launch nor a follow-up tool. | Hold a child response; parent finishes independent work without operator input. Deliver one correction and one completion; reject another run's task ID. Preserve cancellation and tree budgets. |
+| 3 | **Allow the parent to continue and steer delegates.** Codex separates [message delivery and follow-up turns](https://github.com/openai/codex/blob/d6489472f3c15e87d2d7763a5fde033545c530f8/codex-rs/core/src/tools/handlers/multi_agents_spec.rs#L181). OpenCode supports task reuse and [background launch behind an experimental flag](https://github.com/anomalyco/opencode/blob/d6855b6b47a8433462ac6aeeba882ccf734cb7f1/packages/opencode/src/tool/task.ts#L97). Namzu's `packages/cli/src/integrations/subagents/runtime.ts` releases a blocking wait on operator input and delivers completion later, but exposes neither proactive background launch nor a follow-up tool. | Hold a child response; parent finishes independent work without operator input. Deliver one correction and one completion; reject another session's task ID. Preserve cancellation and tree budgets. |
 | 4 | **Search large model catalogues.** OpenCode's [model picker](https://github.com/anomalyco/opencode/blob/d6855b6b47a8433462ac6aeeba882ccf734cb7f1/packages/tui/src/component/dialog-model.tsx#L26) has filtering, favorites and recents. Namzu's `packages/cli/src/tui/Picker.tsx` lacks model search; searchable common menus cover other actions. | Select a model by substring from 500 entries. Keep the current marker visible at 40 columns, preserve drafts on cancellation and preserve preferences on activation failure. |
 
 Lower-priority experiments are an ephemeral current-plan reminder, using
-`packages/sdk/src/prompt/contributions.ts` as the seam, and a run-wide tool-call
+`packages/sdk/src/prompt/contributions.ts` as the seam, and a turn-wide tool-call
 allowance for workloads with expensive tools. Pydantic supplies a
 [plan reminder hook](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/planning/_capability.py#L170)
 and [projected batch admission](https://github.com/pydantic/pydantic-ai/blob/716f2ae4a1cb2650ce4ee58f702d1f60c3c93f8c/pydantic_ai_slim/pydantic_ai/_tool_execution.py#L495).

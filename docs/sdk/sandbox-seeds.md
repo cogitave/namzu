@@ -180,5 +180,5 @@ calls, forty concurrent calls each in its own PID namespace (skipped where
 `unshare -rpf` is not allowed), nested and reserved directories refused, a missing root, a missing `git`, a guest that cannot run `sh`, a failed
 clone, and each URL refusal. The contract suite
 (`src/testing/sandbox-conformance.ts`) has a `seed` case that runs when a
-caller passes `seed: { url, root }`; no run in this repository passes one yet,
+caller passes `seed: { url, root }`; no caller in this repository passes one yet,
 so it has not been run against a live backend.

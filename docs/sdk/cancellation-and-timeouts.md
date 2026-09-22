@@ -262,7 +262,7 @@ private operationSignal(callerSignal: AbortSignal | undefined): AbortSignal {
 
 That fused signal reaches `query()` through `operations.stream(opts?.signal,
 ...)` (`agent.ts:2968`), which captures it into `turnOpts.signal`
-(`agent.ts:2973`); the run function destructures it as `const signal =
+(`agent.ts:2973`); `runTurn` destructures it as `const signal =
 opts?.signal` (`agent.ts:3896`) and passes it into the `query({ ...,
 signal })` call (`agent.ts:3903`, `signal` field at `agent.ts:3970`). A full
 CLI turn therefore composes at least three `AbortSignal` layers before any

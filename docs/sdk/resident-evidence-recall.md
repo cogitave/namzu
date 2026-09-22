@@ -42,7 +42,7 @@ custom callback I/O.
 The existing source checks settlement before resolving a historical invocation.
 The CLI additionally validates start/finish receipts, cleanup and invocation
 ownership. A finish receipt alone does not authorize an unresolved claim.
-Earlier Session/run IDs, within-run event sequence, pursuit/revision/claim, opaque archive address and byte
+Earlier session/turn IDs, within-turn event sequence, pursuit/revision/claim, opaque archive address and byte
 offset remain attached to each selected record. The adapter does not invent a
 text-part number for tool-only sources. Use `read_resident_tool` with the returned
 `revision`, `address` and `byteOffset` for a longer exact read. This revalidates
@@ -65,7 +65,7 @@ Words which cannot fit are omitted, not shortened or translated.
 `querySelection` labels each selected word as `objective`, `accepted_wake` or
 `derived_summary`. These are search inputs, not retrieved observations. A prior
 summary can identify a subject without establishing that the summarized claim
-was true. Current run chat text does not replace this admission snapshot;
+was true. Current turn chat text does not replace this admission snapshot;
 resident wake inputs are admitted between steps, not mid-step steering.
 
 This policy is local lexical selection. It makes no query-planning model

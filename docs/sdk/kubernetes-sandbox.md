@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, quiescing a guest before a capture, flushing its writes to the disk before its pod stops, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long session's pod alive, persistent block-disk workspaces with suspend and resume, quiescing a guest before a capture, flushing its writes to the disk before its pod stops, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -1343,7 +1343,7 @@ putting them on the shared contract would make every other backend answer for
 a lifecycle it does not have.
 
 It is a separate verb from `createSandboxProvider` on purpose: a
-`SandboxProvider` promises an ephemeral sandbox per run
+`SandboxProvider` promises an ephemeral sandbox per turn
 (`workspaceModes: ['ephemeral']`), and a workspace is the opposite promise.
 `warmPoolName` is ignored here.
 
