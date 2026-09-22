@@ -1,5 +1,90 @@
 # @namzu/sandbox
 
+## 19.0.0
+
+### Major Changes
+
+- 3e7a97b: No API change. The peer dependency on `@namzu/sdk` moves to the 44 major,
+  because the SDK itself had a major release (its run became a turn inside a
+  session). `@namzu/sandbox` reads no renamed field, but its peer range is
+  published as a caret on the SDK version it was built with, so the SDK major
+  takes it out of range and forces this bump.
+
+  What to do: upgrade `@namzu/sdk` and `@namzu/sandbox` together. Nothing in your
+  code changes.
+
+### Minor Changes
+
+- 0a89444: New: egress profiles. `defineEgressProfile({ name, hosts: [{ host, ports? }] })`
+  validates one named host allowlist, and `createSandboxProvider` takes it as
+  `egressProfile` instead of `defaultEgress`. On docker, runsc and firecracker a
+  profile becomes `deny-all` (no hosts) or a `static` allowlist. Whatever a
+  backend cannot honour is refused at construction with
+  `SandboxEgressProfileError`: ports on firecracker, any profile on the ACI
+  standby pool or beside `defaultEgress`, and a
+  `brokeredCredentials` host the profile does not allow. On docker and runsc a
+  live `setNetworkPolicy` under a profile may only name hosts the profile covers.
+  On kubernetes, `createSandboxProvider` refuses `egressProfile`; put
+  `kubernetesEgressFromProfile(profile, { engine: 'cilium' })` in
+  `backend.egress` instead, which also bounds workspaces and writes the profile
+  label only with `profileLabel: true`.
+
+  Nothing changes for a config without `egressProfile`.
+
+- aee81a6: The docker and runsc egress proxy now enforces the `ports` of an egress
+  profile, on the port it actually dials: an upgraded `http://host/` and a
+  `CONNECT` with no port are checked on 443. A host may use the union of the
+  ports of every rule that matches it. The same check is available on
+  `EgressProxy` as `allowedPorts`, and `egressPortsForRules(profile.hosts)`
+  builds that option from a profile's rules with the same union rule.
+
+  **Rebuild `egressProxyImage` from `packages/sandbox/egress-proxy/Dockerfile`
+  before using `ports`.** A profile with ports sends the proxy a new
+  configuration variable, `NAMZU_EGRESS_PROXY_CONFIG_V2`, and the backend first
+  reads the image's `ai.namzu.egress-proxy.config` label with
+  `docker image inspect`, refusing an image that does not declare version 2 (or
+  that is not on the daemon: `docker image inspect` does not pull). Profiles
+  without ports, and every policy without a profile, need nothing: the proxy
+  gets the same configuration and argv as before.
+
+- c366ca7: New: sandbox seeds. `ensureSandboxSeed(sandbox, seed, { root })` makes the git
+  repositories of a `defineSandboxSeed({ name, repositories })` present under
+  `root` inside any sandbox, through `exec` only. Every call checks each
+  repository (origin URL, and that its pinned or recorded commit is an ancestor
+  of HEAD; a `ref` changed since the clone, or a pin dropped, is drift unless
+  the ref's commit is exactly HEAD) and clones only what is missing, so running it after each create or
+  workspace resume costs one check when nothing changed. Drift is refused before
+  anything is cloned (`onDrift: 'report'` records it instead), and nothing is
+  ever deleted or re-cloned. `root` is required; on docker, use
+  `layout.scratch`, not the outputs root. A repository directory may not sit
+  inside another's, nor under `.namzu/`. URLs with a user name or password,
+  `ssh://` and `git@host:path` are refused, so no credential enters the guest.
+  The guest needs `sh`, `git`, `find`, `mkdir`, `mktemp`, `rm` and GNU `mv`.
+
+  Nothing changes for code that does not call it.
+
+### Patch Changes
+
+- 251d815: On the docker backend, two overlapping `setNetworkPolicy()` calls on one
+  sandbox could leave no egress proxy running while a caller was told its policy
+  was in force, or resolve one call while the other call's policy was the one
+  applied. Calls on one sandbox now run one at a time, in the order they were
+  made, and each resolves only once its own policy is running. A call that asks
+  for the allowlist already in force no longer restarts the proxy. No action is
+  needed.
+- Updated dependencies [8805360]
+- Updated dependencies [9355755]
+- Updated dependencies [755a81a]
+- Updated dependencies [cb1f00c]
+- Updated dependencies [933ba6d]
+- Updated dependencies [3e7a97b]
+- Updated dependencies [a84dc1c]
+- Updated dependencies [b064cea]
+- Updated dependencies [9238347]
+- Updated dependencies [a14b013]
+- Updated dependencies [3641102]
+  - @namzu/sdk@44.0.0
+
 ## 18.1.1
 
 ### Patch Changes

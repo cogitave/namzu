@@ -1,5 +1,25 @@
 # @namzu/zen
 
+## 2.4.0
+
+### Minor Changes
+
+- 3e43fc2: The Go catalogue carries `grok-4.7` on the Responses protocol, as the Go page
+  routes it. Four ids that both pages route but models.dev does not describe yet —
+  `zen/grok-4.7`, `zen/mimo-v2.6-flash-free`, `go/mimo-v2.6-flash` and
+  `go/mimo-v2.6-pro` — are not carried, because their limits cannot be derived. A
+  caller that needs one names the protocol and limits itself.
+
+### Patch Changes
+
+- 3641102: On the Messages protocol, a cache request now places block-level breakpoints —
+  after the static system text, and on the last message before request-only
+  context — instead of the request-level `cacheControl` option, which the native
+  adapter sends as a top-level `cache_control`. That is Anthropic's automatic
+  caching, which puts its breakpoint on the last block: the request-only context
+  at the tail, which the next request replaces, so no later request read the
+  cached history. Other protocols are unchanged.
+
 ## 2.3.0
 
 ### Minor Changes
