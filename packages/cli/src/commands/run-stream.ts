@@ -65,6 +65,7 @@
 import {
 	type Message,
 	type SessionId,
+	TurnCancelled,
 	asSessionId,
 	generateSessionId,
 	isEntityId,
@@ -89,6 +90,7 @@ import { contextLogging, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { withTerminationHandling } from '../termination.js'
 import type { AgentEvent } from '../tui/agent.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
@@ -153,7 +155,7 @@ export const runStreamCommand: CommandDef = {
 		'`namzu drain`), and the error event carries code "turn_in_progress"; 77',
 		'when the folder has not been trusted, which only a person can change.',
 	].join('\n'),
-	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
+	handler: withTerminationHandling(async ({ ctx: bootstrapCtx, rawArgs }, termination) => {
 		let ctx = bootstrapCtx
 		const write = (o: unknown): void => {
 			process.stdout.write(`${JSON.stringify(o)}\n`)
@@ -431,11 +433,36 @@ export const runStreamCommand: CommandDef = {
 		let terminalEvent: Extract<AgentEvent, { kind: 'done' }> | undefined
 		let budget: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		let busy: Extract<AgentEvent, { kind: 'error' }>['turnInProgress']
+		// Stopped from outside (SIGTERM, SIGHUP, SIGINT): the conversation's
+		// lease is already given back when this runs (`termination.ts`), so the
+		// turn is left interrupted. The host is told in band and last, then the
+		// turn is stopped (its tools' processes go with it) and the session
+		// closed. Nothing after these two lines is written.
+		const turnAbort = new AbortController()
+		let stopped = false
+		termination.onTerminate(async (signal) => {
+			stopped = true
+			try {
+				write({
+					kind: 'error',
+					code: 'terminated',
+					message: `stopped by ${signal}; the turn was left interrupted${conversationId ? ` in conversation ${conversationId}` : ''}. Close it with /abandon in the TUI, or continue it with /resume or \`namzu drain\`.`,
+				})
+				write({ kind: 'done', ...(conversationId ? { sessionId: conversationId } : {}) })
+			} catch {
+				// The reader is gone (SIGHUP, a closed pipe); there is nobody to tell.
+			}
+			turnAbort.abort(new TurnCancelled('user'))
+			await session.close()
+			closeSessions(cli)
+		})
 		try {
 			for await (const event of session.send(messages, {
+				signal: turnAbort.signal,
 				...(extraSystem ? { extraSystem } : {}),
 				...(flags.effort !== null ? { effort: flags.effort } : {}),
 			})) {
+				if (stopped) continue
 				if ('budget' in event && event.budget) budget = event.budget
 				if (event.kind === 'error' && event.turnInProgress) {
 					busy = event.turnInProgress
@@ -444,10 +471,13 @@ export const runStreamCommand: CommandDef = {
 				else write(event)
 			}
 		} catch (err) {
+			// The signal handler closes the session and ends the process.
+			if (stopped) return EXIT_OK
 			await session.close()
 			closeSessions(cli)
 			return fail(err instanceof Error ? err.message : String(err))
 		}
+		if (stopped) return EXIT_OK
 		// A stdio tool server is a child process; a command that returns without
 		// closing leaves it running.
 		await session.close()
@@ -469,7 +499,7 @@ export const runStreamCommand: CommandDef = {
 			...(budget ? { budget } : {}),
 		})
 		return 0
-	},
+	}),
 }
 
 export const historyCommand: CommandDef = {

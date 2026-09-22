@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Exit codes of a headless run
-description: What $? says after namzu run — a reply, a failed or unfinished turn, a paused turn that kept a checkpoint or a session whose turn is still active, a missing prompt, a wrong argument, an untrusted folder — and what a wrapper should do with each.
+description: What $? says after namzu run — a reply, a failed or unfinished turn, a paused turn that kept a checkpoint or a session whose turn is still active, a missing prompt, a wrong argument, an untrusted folder, a run stopped by a signal — and what a wrapper should do with each.
 resource: packages/cli/src/commands/run.ts
 tags: [cli, headless, exit-codes]
 status: stable
@@ -32,6 +32,7 @@ been independently checked, and budget/cancellation can stop verification.
 | 64 | An argument was wrong. | Fix the invocation. |
 | 75 | Try again later. Either the provider paused the turn — a rate limit or an outage — and the kernel kept a checkpoint, named on stderr, with any text on stdout partial; with `--wait-for-provider` the turn waits and attempts resume first, and 75 means its provider wait could not complete. Or the session already has an active turn — running, paused, or left interrupted by a process that died — and nothing ran; stderr names that turn and says `turn_in_progress`. | For a pause, use the provider's retry delay or a wait budget; resume still requires a resolved token ledger, and waiting cannot resolve unknown request usage. For an active turn, wait for it, or resume or abandon it (`/resume`, `/abandon` in the TUI), or use another session. |
 | 77 | The folder has not been trusted and nothing ran. | Trust the folder once interactively, or pass `--trust` for this invocation. |
+| killed by SIGTERM, SIGHUP or SIGINT (a shell shows 143, 129, 130) | The run was stopped from outside. It gave the session's writer lease back before it died, so the turn it was running is left **interrupted**, not closed, and stderr names the session. | Close the turn with `/abandon`, or continue it with `/resume` or `namzu drain`. Any of them works at once; nothing waits for the lease to expire. |
 
 ## Why a pause is not a failure
 
@@ -46,6 +47,28 @@ A lost response can leave its usage unknown. Its checkpoint remains available,
 but the shared [token budget](../sdk/token-budgets.md) retains the outstanding
 request and blocks further model calls. Waiting for the provider does not reset
 that accounting state; a resumed turn can stop with code 1 and `token_budget`.
+
+## A run stopped by a signal
+
+A turn holds its session's writer lease for as long as it runs, renewed five
+minutes at a time. A process that died holding it used to block the session
+for up to those five minutes: `/resume`, `/abandon` and the next prompt were
+refused as "leased by a live writer" although nothing was writing.
+
+On SIGTERM (a supervisor stopping it), SIGHUP (its terminal closed) or SIGINT
+(Ctrl+C at the shell), `namzu run`, `namzu run-stream` and the TUI now give
+every lease the process holds back first, then stop the turn and close the
+session, bounded to a few seconds, and then die of the signal they were sent,
+so the caller sees the usual status. A second signal exits at once. Nothing is
+appended for the turn on the way out, because the dying process cannot know
+how far it got: the turn reads as interrupted (no live lease, not paused), and
+the next writer closes it explicitly. The TUI's next prompt does that on its
+own, recording `turn_failed` with `failure.code: 'interrupted'`.
+
+SIGKILL runs no code, so a process killed that way, or one that crashes
+outright, still holds its lease until it expires. See
+[Session log](../sdk/session-log.md#a-writer-that-stops) for why an expired
+lease, and not a check that the holder's process is gone, is what frees it.
 
 ## What `namzu run` prints when a turn stops early
 

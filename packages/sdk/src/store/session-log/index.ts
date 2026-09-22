@@ -54,6 +54,12 @@ export {
 } from './fold.js'
 export { type TornTailRepair, repairRecordDraft } from './heal.js'
 export {
+	type ReleaseHeldSessionLeasesOptions,
+	type ReleaseHeldSessionLeasesResult,
+	SessionLeasesReleasedError,
+	releaseHeldSessionLeases,
+} from './held-leases.js'
+export {
 	type ClaimSessionOptions,
 	DiskSessionLeaseStore,
 	InMemorySessionLeaseStore,

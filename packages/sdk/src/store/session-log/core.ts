@@ -34,6 +34,13 @@ import {
 } from './fold.js'
 import { repairRecordDraft } from './heal.js'
 import {
+	type HeldSessionLease,
+	SessionLeasesReleasedError,
+	sessionLeasesReleasedForExit,
+	trackHeldSessionLease,
+	untrackHeldSessionLease,
+} from './held-leases.js'
+import {
 	type ClaimSessionOptions,
 	type SessionLease,
 	type SessionLeaseStore,
@@ -279,6 +286,8 @@ export class SessionLogCore implements SessionLog {
 	#turns = new SessionTurnState()
 	/** The holding this instance took, which it presents to renew. */
 	#held: SessionLease | undefined
+	/** This instance's entry in the process's held leases (`releaseHeldSessionLeases`). */
+	readonly #holding: HeldSessionLease = { release: () => this.#releaseHeld() }
 	/** Bytes of the log this instance has verified and applied. */
 	#synced = 0
 	#torn = 0
@@ -354,6 +363,7 @@ export class SessionLogCore implements SessionLog {
 	// ── lease ──
 
 	async claim(options: ClaimSessionOptions): Promise<SessionLease | null> {
+		if (sessionLeasesReleasedForExit()) throw new SessionLeasesReleasedError()
 		// The log's own highest gen is the floor for a new fence, so lease files
 		// that were lost or cleared cannot mint a fence below records already
 		// written. A log that cannot be read is refused below, after the claim,
@@ -366,7 +376,11 @@ export class SessionLogCore implements SessionLog {
 		const lease = await this.#leases.claim(options, { renew: this.#held, above })
 		if (lease === null) return null
 		this.#held = lease
+		trackHeldSessionLease(this.#holding)
 		try {
+			// A claim that was in flight when the process gave its leases back
+			// must not leave a live lease behind it.
+			if (sessionLeasesReleasedForExit()) throw new SessionLeasesReleasedError()
 			await this.#mutex.run(async () => {
 				await this.#catchUp()
 				await this.#heal(lease)
@@ -375,15 +389,36 @@ export class SessionLogCore implements SessionLog {
 			// A log this writer cannot append to (a broken chain, a conflict) is
 			// not held: the next taker gets the same refusal instead of a wait.
 			this.#held = undefined
+			untrackHeldSessionLease(this.#holding)
 			await this.#leases.release(lease).catch(() => undefined)
 			throw error
 		}
 		return lease
 	}
 
+	/**
+	 * In write order: a release waits for the append in flight, so it never
+	 * lands between a record's fence check and its bytes.
+	 */
 	release(lease: SessionLease): Promise<void> {
-		if (this.#held?.fence === lease.fence) this.#held = undefined
-		return this.#leases.release(lease)
+		return this.#mutex.run(async () => {
+			if (this.#held?.fence === lease.fence) {
+				this.#held = undefined
+				untrackHeldSessionLease(this.#holding)
+			}
+			await this.#leases.release(lease)
+		})
+	}
+
+	/** Give up this instance's holding, if it has one (`releaseHeldSessionLeases`). */
+	#releaseHeld(): Promise<void> {
+		return this.#mutex.run(async () => {
+			const lease = this.#held
+			untrackHeldSessionLease(this.#holding)
+			if (lease === undefined) return
+			this.#held = undefined
+			await this.#leases.release(lease)
+		})
 	}
 
 	lease(): Promise<SessionLease | null> {

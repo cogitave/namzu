@@ -20,7 +20,7 @@
 
 import { relative } from 'node:path'
 
-import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId } from '@namzu/sdk'
+import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, TurnCancelled, asSessionId } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
@@ -36,6 +36,7 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { withTerminationHandling } from '../termination.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
@@ -175,7 +176,7 @@ export const runCommand: CommandDef = {
 		'TUI with /abandon), and 77 when the folder has not been trusted and',
 		'nothing ran.',
 	].join('\n'),
-	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
+	handler: withTerminationHandling(async ({ ctx: bootstrapCtx, rawArgs }, termination) => {
 		let ctx = bootstrapCtx
 		const flags = parseRunFlags(rawArgs)
 		// The turn's leash: the config file's limits, with a flag overriding each.
@@ -438,6 +439,23 @@ export const runCommand: CommandDef = {
 
 		const extraSystem = await loadSkillsContext(cwd, flags.skills)
 
+		// Stopped from outside (SIGTERM, SIGHUP, Ctrl+C): the conversation's
+		// lease is already given back when this runs (`termination.ts`), so the
+		// turn is left interrupted. Stop it, so its tools' processes go with
+		// it, and release what the session holds.
+		const turnAbort = new AbortController()
+		let stopped = false
+		termination.onTerminate(async (signal) => {
+			stopped = true
+			ctx.formatter.error({
+				message: `stopped by ${signal}: the turn in conversation ${sessionId} was left interrupted — close it with /abandon in the TUI, or continue it with /resume or \`namzu drain\``,
+			})
+			turnAbort.abort(new TurnCancelled('user'))
+			await session.close()
+			closeSessions(sessions)
+			await sessionExport?.shutdown()
+		})
+
 		if (resume.kind === 'resumed') {
 			ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages`)
 		}
@@ -505,15 +523,11 @@ export const runCommand: CommandDef = {
 			}
 		}
 		await consume(
-			session.send(
-				[...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }],
-				extraSystem || flags.effort !== null
-					? {
-							...(extraSystem ? { extraSystem } : {}),
-							...(flags.effort !== null ? { effort: flags.effort } : {}),
-						}
-					: undefined,
-			),
+			session.send([...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }], {
+				signal: turnAbort.signal,
+				...(extraSystem ? { extraSystem } : {}),
+				...(flags.effort !== null ? { effort: flags.effort } : {}),
+			}),
 		)
 
 		// A provider pause is answered by waiting, when the caller gave time to
@@ -524,7 +538,12 @@ export const runCommand: CommandDef = {
 		const waitBudgetMs = flags.waitForProviderMs ?? ctx.config.limits?.waitForProviderMs ?? 0
 		let waits = 0
 		let waitedMs = 0
-		while (stop.paused && waitBudgetMs > 0 && (stop.paused.providerError || stop.paused.failure)) {
+		while (
+			!stopped &&
+			stop.paused &&
+			waitBudgetMs > 0 &&
+			(stop.paused.providerError || stop.paused.failure)
+		) {
 			const paused = stop.paused
 			const asked = retryAfterMs(paused)
 			const decision = pauseWait({
@@ -547,9 +566,12 @@ export const runCommand: CommandDef = {
 				session.resumePaused({
 					turnId: paused.turnId,
 					checkpointId: paused.checkpointId,
+					signal: turnAbort.signal,
 				}),
 			)
 		}
+		// The signal handler closes the session and ends the process.
+		if (stopped) return 1
 		const failed = stop.failed
 		// 75 (EX_TEMPFAIL) for both: a provider pause kept a checkpoint, and a
 		// conversation busy with another turn refused to start one. Either way
@@ -608,5 +630,5 @@ export const runCommand: CommandDef = {
 			return 1
 		}
 		return 0
-	},
+	}),
 }

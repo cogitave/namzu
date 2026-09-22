@@ -81,3 +81,15 @@ memory and resident state written by 26.x are **not read** by this version.
   everything an interrupted turn needs, so no `emergency/` dumps are written.
   An interactive session that was interrupted closes that turn as interrupted
   when you send the next prompt.
+- **A stopped process gives its conversation back.** On SIGTERM, SIGHUP (a
+  closed terminal) or SIGINT, the TUI, `namzu run` and `namzu run-stream`
+  release the conversation's writer lease first, then stop the turn, close
+  the session (tool servers, background jobs, the `session_end` hook) and give
+  the terminal back, and then die of the signal they were sent: a wrapper
+  sees 143, 129 or 130 as before. The turn is left interrupted, so `/abandon`,
+  `/resume`, `namzu drain` or the TUI's next prompt take it at once; before,
+  they were refused as "leased by a live writer" for up to five minutes. A
+  second signal exits immediately. `run-stream` writes
+  `{"kind":"error","code":"terminated",…}` and a final `done` before it exits,
+  and `run` names the session on stderr. SIGKILL still leaves the lease to
+  expire.

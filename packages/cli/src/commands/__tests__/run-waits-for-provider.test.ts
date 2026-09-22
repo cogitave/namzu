@@ -103,6 +103,8 @@ describe('a paused turn, given time to wait', () => {
 		expect(resumed).toHaveBeenCalledWith({
 			turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 			checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
+			// Aborted when the run is stopped by a signal (`termination.ts`).
+			signal: expect.any(AbortSignal),
 		})
 		expect(printed.join('')).toBe(
 			'first half, second half from 227436b6-3082-4bdc-a441-7e828e479876',

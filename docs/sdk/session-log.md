@@ -247,6 +247,39 @@ removed in the log for audit and undo.
   them; a resumed turn reuses its key; a new turn opens a new ledger, so a
   limit that changed between turns is not a conflict.
 
+## A writer that stops
+
+A turn holds its session's lease while it runs, renewed at half-life (the
+`TurnRecorder` default time-to-live is five minutes). A process that exits
+without releasing it leaves the session refusing every other writer until the
+lease expires, although nothing is writing.
+
+`releaseHeldSessionLeases({ timeoutMs? })` is for a process on its way out. It
+releases every lease any log in the process holds, each in that log's write
+order (after the append in flight, never under a half-written record), and
+resolves `{ released, unfinished }` without throwing. A running turn is left
+**interrupted**: nothing is appended for it, because the process cannot know
+how far it got, and the next writer closes it explicitly (`abandonTurn`,
+`resumeSession`, or `beginTurn` with `abandonInterrupted`). From the first call
+on, every claim in the process is refused with `SessionLeasesReleasedError`, so
+a turn still unwinding cannot renew or retake the lease it just gave up, and a
+queued prompt cannot start a new one.
+
+The CLI calls it on SIGTERM, SIGHUP and SIGINT in the TUI, `namzu run` and
+`namzu run-stream` (see
+[Exit codes of a headless run](../cli/run-exit-codes.md#a-run-stopped-by-a-signal)).
+
+A process killed with SIGKILL, or one that crashes outright, runs no code, and
+its lease is freed only by expiry. A liveness check — "the holder's pid is
+gone, so take the lease now" — is deliberately not made. It would be sound
+only if the checker provably shared the holder's process table, and the
+identity that could show that (the kernel's boot id, the pid namespace, the
+pid and its start time) is also shared by a cloned VM or a restored container
+checkpoint running beside the original, so a live writer on another machine
+could be judged dead. The fence would still refuse that writer's appends, but
+its turn would be broken while it was running. Expiry cannot make that
+mistake.
+
 ## The answer, and the fold
 
 `turn_completed.result` is the authoritative answer, after guardrail, review,

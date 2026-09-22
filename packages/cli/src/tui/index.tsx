@@ -14,6 +14,7 @@ import {
 	type TuiResumeInvocation,
 	formatTuiExitSummary,
 } from './exit-summary.js'
+import { type TerminationSignal, handleTerminationSignals } from '../termination.js'
 import { installTuiLogSink } from './log-pane.js'
 import type { TuiContext } from './types.js'
 
@@ -39,12 +40,20 @@ export async function launchTui(
 	if (process.stdout.isTTY) {
 		process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
 	}
+	// SIGTERM, SIGHUP and SIGINT give the conversation back and leave cleanly
+	// (`termination.ts`): the turn's lease is released first, so the next
+	// process can /resume or /abandon at once, then the App leaves as `/exit`
+	// does, which is what hands the terminal back.
+	const termination = handleTerminationSignals()
+	const terminationExit: { current: (() => void) | null } = { current: null }
+	let terminatedBy: TerminationSignal | null = null
 	const instance = render(
 		React.createElement(App, {
 			ctx,
 			onExitSummary: (summary: TuiExitSummary) => {
 				exitSummary = summary
 			},
+			terminationExit,
 		}),
 		{
 			stdout: process.stdout,
@@ -57,11 +66,26 @@ export async function launchTui(
 			},
 		},
 	)
+	termination.onTerminate(async (signal) => {
+		terminatedBy = signal
+		if (signal === 'SIGHUP') {
+			// The terminal is gone, so Ink's last frame and the terminal reset fail
+			// to write. That must not end the process ahead of the cleanup.
+			process.stdout.on('error', () => undefined)
+			process.stderr.on('error', () => undefined)
+		}
+		if (terminationExit.current) terminationExit.current()
+		else instance.unmount()
+		await instance.waitUntilExit()
+	})
 	try {
 		await instance.waitUntilExit()
 	} finally {
+		termination.dispose()
 		logs.close()
-		const summary = formatTuiExitSummary(exitSummary, invocation)
+		// A hangup means the terminal is gone: nobody is there to read the
+		// handoff, and writing to it fails.
+		const summary = terminatedBy === 'SIGHUP' ? '' : formatTuiExitSummary(exitSummary, invocation)
 		if (summary.length > 0) process.stdout.write(summary)
 	}
 }

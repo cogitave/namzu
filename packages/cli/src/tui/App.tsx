@@ -258,6 +258,12 @@ export interface AppProps {
 	readonly onExitSummary?: (summary: TuiExitSummary) => void
 	/** Test/embedding seam; the normal TUI uses VISUAL/EDITOR on the host. */
 	readonly externalEditor?: ExternalEditorAdapter
+	/**
+	 * Where the launcher finds how to leave on a termination signal
+	 * (`termination.ts`): the App puts there "stop the running turn, then leave
+	 * as `/exit` does". The conversation's lease is already given back by then.
+	 */
+	readonly terminationExit?: { current: (() => void) | null }
 }
 
 type PendingPermission = PermissionRequest & {
@@ -733,6 +739,7 @@ export function App({
 	ctx: initialCtx,
 	onExitSummary,
 	externalEditor = defaultExternalEditor,
+	terminationExit,
 }: AppProps) {
 	// Bind approval and every operation it admits to one real directory. A
 	// lexical cwd may be a writable symlink; resolving it again after the gate
@@ -3802,6 +3809,20 @@ export function App({
 		resolvePermission,
 		wakeGoalDriver,
 	])
+
+	// A termination signal leaves like `/exit`, after stopping the turn: the
+	// session still owns tool servers, jobs and the `session_end` hook, and
+	// Ink's unmount is what gives the terminal back.
+	useEffect(() => {
+		if (!terminationExit) return
+		terminationExit.current = () => {
+			interruptTurn()
+			exitWithSummary()
+		}
+		return () => {
+			terminationExit.current = null
+		}
+	}, [terminationExit, interruptTurn, exitWithSummary])
 
 	/**
 	 * Load the chosen conversation into the transcript and continue in it.

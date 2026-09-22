@@ -274,6 +274,15 @@ the session promoter stamps is `'session-memory'` (was `'run-memory'`), and
   behaviour), `SessionPaths`, `ensureProject`, `slugForCwd`,
   `hashedSlugForCwd` and `tempRoot`.
 - `fixtureId.turn` and `fixtureId.record` in `@namzu/sdk/testing`.
+- `releaseHeldSessionLeases({ timeoutMs? })` (with
+  `ReleaseHeldSessionLeasesOptions` and `ReleaseHeldSessionLeasesResult`), for
+  a process about to exit: it releases every session lease the process holds,
+  leaving a running turn `interrupted` so the next writer can abandon or
+  resume it at once instead of waiting out the lease. After the first call
+  every claim in the process is refused with `SessionLeasesReleasedError`. A
+  host that stops on SIGTERM calls it from its signal handler; the CLI does.
+  `SessionLog.release` now waits for the log's append in flight, so a release
+  never lands under a half-written record.
 
 ## What to do
 

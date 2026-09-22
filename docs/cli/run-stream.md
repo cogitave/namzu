@@ -40,7 +40,7 @@ NDJSON, so stdout stays a clean protocol stream.
 | `provider-fallback`, `capability-warning`, `history-repair` | Notices about how the request was served. |
 | `notice` | Something the host should show but that is not a failure: a config notice, or a turn that ran but could not be saved. |
 | `paused` | The turn parked with a checkpoint (a provider wait or a decision): `turnId`, `checkpointId`, `reason`, and any retry guidance. |
-| `error` | A failure, in band. A refusal to start a turn in a busy session has `code: "turn_in_progress"` and names the active turn. |
+| `error` | A failure, in band. A refusal to start a turn in a busy session has `code: "turn_in_progress"` and names the active turn. A run stopped by SIGTERM, SIGHUP or SIGINT writes one with `code: "terminated"` just before its last `done` (see below). |
 | `done` | Always last. `text` is the settled answer — use it, not the concatenated deltas. Carries `sessionId`, `turnId` and `stopReason`. |
 
 ## History: `--session`
@@ -74,6 +74,7 @@ caller can reach the turn it asked for by changing what it sends.
 | 1 | Nothing the caller sends changes it: no provider available, a missing credential or driver, a declared tool server that is not there, a conversation that cannot be opened, a command file that will not parse. |
 | 75 | The session already has an active turn. Try again later, or resume or abandon that turn first. |
 | 77 | The folder has not been trusted; only a person can change that. |
+| killed by the signal | Stopped by SIGTERM, SIGHUP or SIGINT. The last two lines are `{"kind":"error","code":"terminated",…}` and `{"kind":"done","sessionId":…}` (when stdout is still there to write to). The session's lease was given back first, so its turn is left interrupted and `/abandon`, `/resume` or `namzu drain` takes it at once; no event after those two is written. |
 
 `namzu run` shares 1, 75 and 77 with the same meanings; see
 [Exit codes of a headless run](run-exit-codes.md).
