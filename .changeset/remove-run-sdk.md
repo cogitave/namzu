@@ -95,12 +95,14 @@ goes to child sessions or separate sessions. Manual compaction between turns is
 **A rate limit on a turn's first request pauses it.** A retryable provider
 fault (a 429, an outage, a stalled stream) that survives the retries used to
 fail the turn when it hit before the turn's first checkpoint, which in
-practice meant its first request; the same fault one request later paused
+practice meant its first request; the same fault after a checkpoint paused
 it. It now pauses there too, on a checkpoint of the turn where its loop began
 (`iteration: 0` for a fresh turn, the restored count for a resumed one), and
-`resumeSession` restarts the turn from where that loop began: whatever the
-failed iteration produced before the fault (a partial `max_tokens` answer, a
-continuation prompt) is not in the resumed request. So after such a
+`resumeSession` restarts the turn from where that loop began. Everything the
+turn did since then is discarded: every iteration it ran before the fault,
+completed ones included (a partial `max_tokens` answer and the continuation
+prompt after it, a structured-output re-prompt), is not in the resumed
+request, and none of those iterations' guards is counted. So after such a
 fault the session holds a paused turn, and the next `query()` or `runAgent`
 in it throws `TurnInProgressError` until the turn is resumed or closed with
 `abandonTurn`: a caller that retried by starting a fresh turn resumes instead.

@@ -239,15 +239,18 @@ removed in the log for audit and undo.
   turn's retries and fallbacks appends `turn_paused` naming the turn's newest
   checkpoint, and `Turn.lastProviderError` carries the classification. A turn
   that fails this way before writing a checkpoint of its own (a 429 on its
-  first request, or on a later request its first iteration made without
-  checkpointing: a `max_tokens` continuation, steering delivered with prose,
-  the outstanding-work hold) first commits one of the turn as it stood where
-  its iteration loop began. That checkpoint carries the iteration the loop
-  began at (`0` for a fresh turn, the restored count for a resumed one),
-  covers the log only through that point and counts none of the failed
-  iteration's guards, so the resume restarts the turn from where its loop
-  began: whatever that iteration produced before the fault (a partial
-  answer, a continuation prompt) is not carried into the resumed request.
+  first request, or on a later request made before any checkpoint: after a
+  `max_tokens` continuation, a structured-output re-prompt, steering
+  delivered with prose, the outstanding-work hold) first commits one of the
+  turn as it stood where its iteration loop began. That checkpoint carries
+  the iteration the loop began at (`0` for a fresh turn, the restored count
+  for a resumed one), covers the log only through that point and counts
+  none of the guards used since, so the resume restarts the turn from where
+  its loop began. Everything the turn did after that point is discarded:
+  every iteration it ran before the fault, completed ones included (each
+  continuation request opens a new iteration, so a chain of `max_tokens`
+  continuations is several), with the partial answers and prompts they
+  added, is not carried into the resumed request.
   A failure before the loop begins (in a
   `turn_start` hook, for one) has no such point and fails the turn. A
   permanent fault (a bad key, a malformed request) fails it at any point.

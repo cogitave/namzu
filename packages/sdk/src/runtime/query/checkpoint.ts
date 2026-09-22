@@ -356,11 +356,12 @@ export class CheckpointManager {
 
 	/**
 	 * A checkpoint of the turn as {@link markLoopStart} found it, so a turn
-	 * whose first provider request fails recoverably has something to pause
-	 * on and resume from. It covers the log only through the loop's start,
-	 * and counts none of the failed iteration's guards, the way a later
-	 * iteration's checkpoint covers nothing of the iteration that failed
-	 * after it. Its iteration is the one the loop began at: 0 for a fresh
+	 * that fails recoverably before any checkpoint of its own has something
+	 * to pause on and resume from. It covers the log only through the loop's
+	 * start and counts none of the guards used since, so resuming from it
+	 * discards every iteration the turn ran before the fault, completed ones
+	 * included (a `max_tokens` continuation request opens a new iteration).
+	 * Its iteration is the one the loop began at: 0 for a fresh
 	 * turn, the restored count for a resumed one. `undefined` when no loop
 	 * start was marked.
 	 */
