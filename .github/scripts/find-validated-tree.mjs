@@ -26,10 +26,13 @@
  *   - completed with conclusion `success`,
  *   - was triggered by `pull_request` or `merge_group`, and
  *   - ran from this repository, never a fork, and
- *   - ran the `ci.yml` that `main` now carries: the blob of
- *     `.github/workflows/ci.yml` at the run's `head_sha` is the blob at the
- *     pushed commit (`--ci-blob`), and for a `merge_group` run the tree of
- *     `head_sha` is the tree asked about.
+ *   - carries, inside the artifact, a workflow OIDC token for audience
+ *     `namzu-validated-tree`, signed by GitHub's issuer, whose claims name
+ *     this repository, this run, this event, `ci.yml` as the workflow and, for
+ *     `pull_request`, `main` as the base; and the commit the token names as
+ *     the workflow's source (`workflow_sha`) carries the pushed commit's
+ *     `.github/workflows/ci.yml` blob (`--ci-blob`), and the commit it names
+ *     as checked out (`sha`) carries the tree asked about.
  *
  * ## Why the provenance of the run is not enough
  *
@@ -44,14 +47,31 @@
  * status check, so this lookup is the only thing between that record and a
  * publish with no gate run.
  *
- * So the run must also have executed the reviewed workflow. A `ci.yml` blob
- * equal to the one on the pushed commit means the forged copy never ran: the
- * only workflow that could have written the record is the one `main` carries,
- * which names the artifact after `git rev-parse HEAD^{tree}` of the checkout
- * its gates ran on. For `pull_request` the file that executes is the merge
- * ref's, a merge of the PR head's (checked here) with the base branch's at the
- * time, which is `main`'s own reviewed history. A `merge_group` run's
- * `head_sha` is the queue commit itself, so its tree is checked directly.
+ * So the run must be shown to have executed the reviewed workflow, and the
+ * workflow run object cannot show it. A `pull_request` run executes the file
+ * in `refs/pull/N/merge`, a merge of the PR head with its BASE branch, and the
+ * base need not be `main`: a PR from an unchanged branch into a branch whose
+ * only change is a forged `ci.yml` runs the forged file (the reviewed file's
+ * `branches: [main]` filter is not the one that is read), while its head
+ * commit still carries the reviewed blob. The run object's `head_sha` is that
+ * head, not the merge. Its `pull_requests` list would name the base, but it
+ * lists only pull requests open NOW, and by the time release.yml asks, the PR
+ * that landed the tree has merged: every `pull_request` run of this
+ * repository's ci.yml read on 2026-09-22 (100 of 100) had an empty list. The
+ * pull-request API is no better: a PR's base can be retargeted after the run.
+ *
+ * The OIDC token is the one account of the run GitHub signs and the workflow
+ * cannot write: `sha` is the commit checked out (for `pull_request`, the merge
+ * commit itself), `workflow_sha` the commit the executing workflow file came
+ * from, `base_ref` the base branch at the time. A forged run can ask for a
+ * token too, and it says `base_ref: evil-base` and names a merge commit whose
+ * `ci.yml` is the forged one. It cannot reuse another run's token either:
+ * `run_id` must be the run that owns the artifact, which GitHub sets. With the
+ * executed file proven to be the reviewed one, the artifact's name is the one
+ * that file writes: `git rev-parse HEAD^{tree}` of the checkout its gates ran
+ * on, checked here against `sha` anyway. The token is expired by the time a
+ * merge lands; its signature and claims still attest what they attested, and
+ * a token signed by a key GitHub has since rotated out answers no.
  *
  * ## Every doubt answers no
  *
@@ -72,12 +92,21 @@
  * writes `skip=true|false`, `reason=…` and `run_url=…` there.
  */
 
+import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import { inflateRawSync } from 'node:zlib'
 
 export const ARTIFACT_PREFIX = 'validated-tree-'
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml'
+/** The file inside the artifact that holds the run's OIDC token. */
+export const TOKEN_FILE = 'validated-tree.jwt'
+/** The audience ci.yml asks for; nothing else accepts a token minted for it. */
+export const OIDC_AUDIENCE = 'namzu-validated-tree'
+export const OIDC_ISSUER = 'https://token.actions.githubusercontent.com'
 const ALLOWED_EVENTS = new Set(['pull_request', 'merge_group'])
+/** The artifact is a JSON line and a JWT; anything much bigger is not ours. */
+const MAX_ARTIFACT_BYTES = 64 * 1024
 const PER_PAGE = 100
 /** Beyond this many pages of same-named artifacts, stop looking and answer no. */
 const MAX_PAGES = 5
@@ -99,19 +128,110 @@ function isCiWorkflowPath(path) {
 	return path === CI_WORKFLOW_PATH || (typeof path === 'string' && path.startsWith(`${CI_WORKFLOW_PATH}@`))
 }
 
-async function getJson(fetchImpl, url, token) {
-	const response = await fetchImpl(url, {
-		headers: {
-			accept: 'application/vnd.github+json',
-			authorization: `Bearer ${token}`,
-			'x-github-api-version': '2022-11-28',
-			'user-agent': 'namzu-release-find-validated-tree',
-		},
-	})
+async function request(fetchImpl, url, token) {
+	const headers = { accept: 'application/vnd.github+json', 'user-agent': 'namzu-release-find-validated-tree' }
+	if (token !== undefined) {
+		headers.authorization = `Bearer ${token}`
+		headers['x-github-api-version'] = '2022-11-28'
+	}
+	const response = await fetchImpl(url, { headers })
 	if (!response || !response.ok) {
 		throw new Error(`GET ${url} answered ${response ? response.status : 'nothing'}`)
 	}
-	return response.json()
+	return response
+}
+
+async function getJson(fetchImpl, url, token) {
+	return (await request(fetchImpl, url, token)).json()
+}
+
+/**
+ * The bytes of the one entry named `wanted` in a zip archive, or an Error
+ * saying why not. Stored and deflated entries only; an encrypted entry, a
+ * second entry of the same name, an entry larger than `maxBytes`, or any
+ * offset outside the buffer is an error.
+ */
+export function readZipEntry(buffer, wanted, maxBytes = MAX_ARTIFACT_BYTES) {
+	const buf = Buffer.from(buffer)
+	const need = (offset, length) => {
+		if (!Number.isInteger(offset) || offset < 0 || offset + length > buf.length) throw new Error('the zip is truncated')
+	}
+	let eocd = -1
+	for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i -= 1) {
+		if (buf.readUInt32LE(i) === 0x06054b50) {
+			eocd = i
+			break
+		}
+	}
+	if (eocd < 0) throw new Error('not a zip archive')
+	const count = buf.readUInt16LE(eocd + 10)
+	let offset = buf.readUInt32LE(eocd + 16)
+	let found = null
+	for (let n = 0; n < count; n += 1) {
+		need(offset, 46)
+		if (buf.readUInt32LE(offset) !== 0x02014b50) throw new Error('the zip central directory is malformed')
+		const flags = buf.readUInt16LE(offset + 8)
+		const method = buf.readUInt16LE(offset + 10)
+		const compressed = buf.readUInt32LE(offset + 20)
+		const size = buf.readUInt32LE(offset + 24)
+		const nameLength = buf.readUInt16LE(offset + 28)
+		const extraLength = buf.readUInt16LE(offset + 30)
+		const commentLength = buf.readUInt16LE(offset + 32)
+		const local = buf.readUInt32LE(offset + 42)
+		need(offset + 46, nameLength)
+		const name = buf.toString('utf8', offset + 46, offset + 46 + nameLength)
+		if (name === wanted) {
+			if (found) throw new Error(`the zip holds ${wanted} twice`)
+			found = { flags, method, compressed, size, local }
+		}
+		offset += 46 + nameLength + extraLength + commentLength
+	}
+	if (!found) throw new Error(`the zip holds no ${wanted}`)
+	if (found.flags & 1) throw new Error(`${wanted} is encrypted`)
+	if (found.size > maxBytes || found.compressed > maxBytes) throw new Error(`${wanted} is larger than ${maxBytes} bytes`)
+	need(found.local, 30)
+	if (buf.readUInt32LE(found.local) !== 0x04034b50) throw new Error('the zip local header is malformed')
+	const start = found.local + 30 + buf.readUInt16LE(found.local + 26) + buf.readUInt16LE(found.local + 28)
+	need(start, found.compressed)
+	const data = buf.subarray(start, start + found.compressed)
+	let bytes
+	if (found.method === 0) bytes = data
+	else if (found.method === 8) bytes = inflateRawSync(data, { maxOutputLength: maxBytes })
+	else throw new Error(`${wanted} uses compression method ${found.method}`)
+	if (bytes.length !== found.size) throw new Error(`${wanted} is ${bytes.length} bytes, the zip says ${found.size}`)
+	return bytes
+}
+
+function base64url(text) {
+	if (typeof text !== 'string' || !/^[A-Za-z0-9_-]*$/.test(text)) throw new Error('the token is not base64url')
+	return Buffer.from(text, 'base64url')
+}
+
+/**
+ * The claims of a compact RS256 JWT whose signature verifies against the
+ * issuer's published keys, or an Error. Expiry is deliberately not checked:
+ * the token is read as a signed record of a run that has finished, not as a
+ * credential.
+ */
+async function verifiedClaims(fetchImpl, jwt, issuer, jwksCache) {
+	const parts = jwt.split('.')
+	if (parts.length !== 3) throw new Error('the token is not a compact JWT')
+	const header = JSON.parse(base64url(parts[0]).toString('utf8'))
+	if (header?.alg !== 'RS256' || typeof header.kid !== 'string') throw new Error(`the token is signed ${JSON.stringify(header?.alg)}, not RS256 with a key id`)
+	if (!jwksCache.keys) {
+		const jwks = await getJson(fetchImpl, `${issuer}/.well-known/jwks`)
+		if (!jwks || !Array.isArray(jwks.keys)) throw new Error("the issuer's key set was not the expected shape")
+		jwksCache.keys = jwks.keys
+	}
+	const jwk = jwksCache.keys.find((key) => key && key.kid === header.kid && key.kty === 'RSA')
+	if (!jwk) throw new Error(`the issuer publishes no RSA key ${JSON.stringify(header.kid)}`)
+	const key = createPublicKey({ key: { kty: jwk.kty, n: jwk.n, e: jwk.e }, format: 'jwk' })
+	if (!verifySignature('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), key, base64url(parts[2]))) {
+		throw new Error('the token signature does not verify')
+	}
+	const claims = JSON.parse(base64url(parts[1]).toString('utf8'))
+	if (!claims || typeof claims !== 'object') throw new Error('the token carries no claims')
+	return claims
 }
 
 /**
@@ -153,11 +273,40 @@ function artifactRejection(artifact, name, now) {
 }
 
 /**
- * Why the run did not execute the reviewed `ci.yml` on the tree asked about,
- * or `null` when it did. Asks the API for the file at the run's head commit
- * and, for a merge group, for that commit's tree.
+ * Why the claims do not say this run executed `ci.yml` in this repository for
+ * this event (and, for a pull request, into `baseBranch`), or `null`.
  */
-async function executionRejection({ fetchImpl, base, repo, token, run, artifact, tree, ciBlob }) {
+function claimsRejection(claims, { run, repo, issuer, baseBranch }) {
+	const lower = repo.toLowerCase()
+	const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
+	if (claims.iss !== issuer) return `its token was issued by ${JSON.stringify(claims.iss)}, not ${issuer}`
+	if (!audience.includes(OIDC_AUDIENCE)) return `its token is for ${JSON.stringify(claims.aud)}, not ${OIDC_AUDIENCE}`
+	if (typeof claims.repository !== 'string' || claims.repository.toLowerCase() !== lower) {
+		return `its token names repository ${JSON.stringify(claims.repository)}`
+	}
+	if (claims.run_id !== String(run.id)) return `its token was minted for run ${JSON.stringify(claims.run_id)}`
+	if (claims.event_name !== run.event) return `its token names event ${JSON.stringify(claims.event_name)}, the run says ${run.event}`
+	const workflow = `${lower}/${CI_WORKFLOW_PATH}@`
+	if (typeof claims.workflow_ref !== 'string' || !claims.workflow_ref.toLowerCase().startsWith(workflow)) {
+		return `its token names workflow ${JSON.stringify(claims.workflow_ref)}`
+	}
+	if (run.event === 'pull_request') {
+		if (claims.base_ref !== baseBranch) return `its token says the pull request merged into ${JSON.stringify(claims.base_ref)}, not ${baseBranch}`
+		if (typeof claims.ref !== 'string' || !/^refs\/pull\/\d+\/merge$/.test(claims.ref)) return `its token names ref ${JSON.stringify(claims.ref)}`
+	}
+	if (typeof claims.sha !== 'string' || !OBJECT_SHA.test(claims.sha)) return `its token names no checked-out commit`
+	if (typeof claims.workflow_sha !== 'string' || !OBJECT_SHA.test(claims.workflow_sha)) return `its token names no workflow commit`
+	return null
+}
+
+/**
+ * Why the run cannot be shown to have executed the reviewed `ci.yml` on the
+ * tree asked about, or `null` when it can. Reads the OIDC token from the
+ * artifact, verifies it, then asks the API for the `ci.yml` blob at the
+ * token's `workflow_sha` and the tree of its `sha`.
+ */
+async function executionRejection(context) {
+	const { fetchImpl, base, repo, token, run, artifact, tree, ciBlob, issuer, baseBranch, jwksCache } = context
 	const headSha = run.head_sha
 	if (typeof headSha !== 'string' || !OBJECT_SHA.test(headSha)) {
 		return `run ${run.id} names no head commit (${JSON.stringify(headSha)})`
@@ -166,18 +315,37 @@ async function executionRejection({ fetchImpl, base, repo, token, run, artifact,
 	if (recorded !== undefined && recorded !== headSha) {
 		return `artifact ${artifact.id} says run ${run.id} ran ${JSON.stringify(recorded)}, the run says ${headSha}`
 	}
-	const file = await getJson(fetchImpl, `${base}/repos/${repo}/contents/${CI_WORKFLOW_PATH}?ref=${headSha}`, token)
+	if (typeof artifact.size_in_bytes === 'number' && artifact.size_in_bytes > MAX_ARTIFACT_BYTES) {
+		return `artifact ${artifact.id} is ${artifact.size_in_bytes} bytes, more than a validated-tree record`
+	}
+
+	let claims
+	try {
+		const response = await request(fetchImpl, `${base}/repos/${repo}/actions/artifacts/${artifact.id}/zip`, token)
+		const zip = Buffer.from(await response.arrayBuffer())
+		if (zip.length > MAX_ARTIFACT_BYTES) throw new Error(`the archive is ${zip.length} bytes`)
+		if (typeof artifact.digest === 'string' && artifact.digest.startsWith('sha256:')) {
+			const digest = `sha256:${createHash('sha256').update(zip).digest('hex')}`
+			if (digest !== artifact.digest) throw new Error(`the archive digest is ${digest}, the artifact says ${artifact.digest}`)
+		}
+		const jwt = readZipEntry(zip, TOKEN_FILE).toString('utf8').trim()
+		claims = await verifiedClaims(fetchImpl, jwt, issuer, jwksCache)
+	} catch (error) {
+		return `run ${run.id}: artifact ${artifact.id} holds no verifiable OIDC token (${error instanceof Error ? error.message : String(error)})`
+	}
+	const refused = claimsRejection(claims, { run, repo, issuer, baseBranch })
+	if (refused) return `run ${run.id}: ${refused}`
+
+	const file = await getJson(fetchImpl, `${base}/repos/${repo}/contents/${CI_WORKFLOW_PATH}?ref=${claims.workflow_sha}`, token)
 	if (!file || file.type !== 'file' || typeof file.sha !== 'string') {
-		return `run ${run.id}: ${CI_WORKFLOW_PATH} at ${headSha} could not be read as a file`
+		return `run ${run.id}: ${CI_WORKFLOW_PATH} at ${claims.workflow_sha} could not be read as a file`
 	}
 	if (file.sha !== ciBlob) {
-		return `run ${run.id} ran a ${CI_WORKFLOW_PATH} (blob ${file.sha} at ${headSha}) other than the pushed commit's (blob ${ciBlob})`
+		return `run ${run.id} ran a ${CI_WORKFLOW_PATH} (blob ${file.sha} at ${claims.workflow_sha}) other than the pushed commit's (blob ${ciBlob})`
 	}
-	if (run.event === 'merge_group') {
-		const commit = await getJson(fetchImpl, `${base}/repos/${repo}/git/commits/${headSha}`, token)
-		const ranTree = commit?.tree?.sha
-		if (ranTree !== tree) return `merge_group run ${run.id} ran tree ${JSON.stringify(ranTree)}, not ${tree}`
-	}
+	const commit = await getJson(fetchImpl, `${base}/repos/${repo}/git/commits/${claims.sha}`, token)
+	const ranTree = commit?.tree?.sha
+	if (ranTree !== tree) return `${run.event} run ${run.id} checked out ${claims.sha}, tree ${JSON.stringify(ranTree)}, not ${tree}`
 	return null
 }
 
@@ -190,6 +358,8 @@ async function executionRejection({ fetchImpl, base, repo, token, run, artifact,
  * @param {typeof fetch} [options.fetch]
  * @param {string} [options.apiUrl]
  * @param {number} [options.now] epoch milliseconds
+ * @param {string} [options.oidcIssuer] the issuer whose signed token the artifact must carry
+ * @param {string} [options.baseBranch] the only base a pull_request run may have merged into
  * @returns {Promise<{validated: boolean, reason: string, runUrl?: string, runId?: number}>}
  */
 export async function findValidatedTree({
@@ -200,6 +370,8 @@ export async function findValidatedTree({
 	fetch: fetchImpl = globalThis.fetch,
 	apiUrl = 'https://api.github.com',
 	now = Date.now(),
+	oidcIssuer = OIDC_ISSUER,
+	baseBranch = 'main',
 }) {
 	if (typeof repo !== 'string' || !REPO_NAME.test(repo)) return no(`${JSON.stringify(repo)} is not owner/name`)
 	if (typeof tree !== 'string' || !TREE_SHA.test(tree)) return no(`${JSON.stringify(tree)} is not a tree sha`)
@@ -212,6 +384,8 @@ export async function findValidatedTree({
 	const name = `${ARTIFACT_PREFIX}${tree}`
 	const base = apiUrl.replace(/\/+$/, '')
 	const rejections = []
+	const issuer = oidcIssuer.replace(/\/+$/, '')
+	const jwksCache = {}
 
 	try {
 		for (let page = 1; page <= MAX_PAGES; page += 1) {
@@ -237,14 +411,26 @@ export async function findValidatedTree({
 					rejections.push(`run ${artifact.workflow_run.id} answered as run ${run.id}`)
 					continue
 				}
-				const unexecuted = await executionRejection({ fetchImpl, base, repo, token, run, artifact, tree, ciBlob })
+				const unexecuted = await executionRejection({
+					fetchImpl,
+					base,
+					repo,
+					token,
+					run,
+					artifact,
+					tree,
+					ciBlob,
+					issuer,
+					baseBranch,
+					jwksCache,
+				})
 				if (unexecuted) {
 					rejections.push(unexecuted)
 					continue
 				}
 				return {
 					validated: true,
-					reason: `artifact ${name} from ${run.event} run ${run.id} of ${CI_WORKFLOW_PATH} (success, ${repo}, ran blob ${ciBlob} at ${run.head_sha})`,
+					reason: `artifact ${name} from ${run.event} run ${run.id} of ${CI_WORKFLOW_PATH} (success, ${repo}, OIDC-attested: ran blob ${ciBlob}, checked out tree ${tree})`,
 					runId: run.id,
 					runUrl: typeof run.html_url === 'string' ? run.html_url : `https://github.com/${repo}/actions/runs/${run.id}`,
 				}

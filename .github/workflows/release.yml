@@ -20,14 +20,20 @@ name: Release
 # pushed commit's tree (`git rev-parse HEAD^{tree}`) carries a
 # `validated-tree-<tree>` artifact from a ci.yml run that concluded success, on
 # a pull_request or merge_group event, from this repository and not a fork,
-# that executed the `ci.yml` this commit carries: the blob of
-# `.github/workflows/ci.yml` at the run's head commit must be
-# `git rev-parse HEAD:.github/workflows/ci.yml`, and a merge_group run's commit
-# must carry this tree. That last rule is what makes a record trustworthy. The
-# artifact's name is chosen by whichever ci.yml ran, a same-repository PR runs
-# its own copy, and `main`'s ruleset requires a review but no status check, so
-# a collaborator's throwaway PR whose ci.yml only uploads `validated-tree-<T>`
-# would otherwise switch off every gate here for a tree another PR lands.
+# that provably executed the `ci.yml` this commit carries. The artifact's name
+# is chosen by whichever ci.yml ran, and a pull_request run executes the file
+# in `refs/pull/N/merge`, which the PR's BASE branch can supply: a PR from an
+# unchanged branch into a branch whose only change is a forged ci.yml runs the
+# forged file while its head still carries the reviewed one. `main`'s ruleset
+# requires a review but no status check, so such a throwaway PR would
+# otherwise switch off every gate here for a tree another PR lands. The run
+# object cannot tell the two apart (its `pull_requests` lists only PRs open
+# now, and empty once the PR merged), so the record carries the run's workflow
+# OIDC token. The helper verifies its signature against GitHub's keys
+# and requires its claims to name this repository, this run, this event,
+# ci.yml, and for a pull request `main` as the base; the commit it names as
+# the workflow's source must carry `git rev-parse HEAD:.github/workflows/ci.yml`
+# and the commit it names as checked out must carry this tree.
 # Only a yes sets `skip=true`; an API error, an expired record, a failed run or
 # anything else it cannot establish answers no, and every gate runs. A direct
 # push with no pull request therefore keeps the full validation — unless its

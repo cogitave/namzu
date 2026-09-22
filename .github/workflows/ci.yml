@@ -427,18 +427,29 @@ jobs:
   # tree differs, nothing matches, and every gate runs again — which is exactly
   # when it should.
   #
-  # The payload is informational; `.github/scripts/find-validated-tree.mjs`
+  # The JSON payload is informational; `.github/scripts/find-validated-tree.mjs`
   # trusts the artifact's NAME only together with the run that produced it:
   # this workflow, concluded success, a pull_request or merge_group event,
-  # this repository rather than a fork, and a run that executed the same
-  # ci.yml blob as the commit being released. A PR's run executes the PR's own
-  # copy of this file, so the name alone proves nothing: a branch whose ci.yml
-  # only uploads `validated-tree-<T>` would otherwise vouch for any tree.
+  # this repository rather than a fork, and the OIDC token stored next to the
+  # payload. A PR's run executes the file in `refs/pull/N/merge`, which the
+  # PR's base branch can supply, so the name alone proves nothing: a PR into a
+  # branch whose ci.yml only uploads `validated-tree-<T>` would otherwise vouch
+  # for any tree. The token is GitHub's signed account of this run — its id,
+  # event, base branch, the commit checked out (`sha`) and the commit this file
+  # came from (`workflow_sha`) — and the helper checks that `workflow_sha`
+  # carries the ci.yml being released and `sha` the tree asked about.
+  #
+  # Its audience, `namzu-validated-tree`, is one nothing else accepts, which is
+  # why it can sit in an artifact anyone who can read the repository can
+  # download; it also expires within minutes. It is never printed.
   validated-tree:
     name: Record the validated tree
     needs: [check, docs]
     if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       # The same default ref as the gate jobs' checkouts: `github.sha`.
       - uses: actions/checkout@v5
@@ -459,10 +470,22 @@ jobs:
           cat "$RUNNER_TEMP/validated-tree.json"
           echo "tree=$tree" >> "$GITHUB_OUTPUT"
 
+      - name: Record GitHub's signed account of this run
+        run: |
+          mkdir -p "$RUNNER_TEMP/validated-tree"
+          mv "$RUNNER_TEMP/validated-tree.json" "$RUNNER_TEMP/validated-tree/"
+          curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=namzu-validated-tree" \
+            | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const v=JSON.parse(s).value;if(typeof v!=="string"||v.split(".").length!==3)process.exit(1);process.stdout.write(v)})' \
+            > "$RUNNER_TEMP/validated-tree/validated-tree.jwt"
+          echo "OIDC token recorded ($(wc -c < "$RUNNER_TEMP/validated-tree/validated-tree.jwt") bytes)"
+
       - name: Upload the validated-tree record
         uses: actions/upload-artifact@v4
         with:
           name: validated-tree-${{ steps.tree.outputs.tree }}
-          path: ${{ runner.temp }}/validated-tree.json
+          path: |
+            ${{ runner.temp }}/validated-tree/validated-tree.json
+            ${{ runner.temp }}/validated-tree/validated-tree.jwt
           if-no-files-found: error
           retention-days: 30
