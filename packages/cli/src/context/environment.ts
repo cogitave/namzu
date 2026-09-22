@@ -210,13 +210,13 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
 
 /** The boundary, and the way past it, in the words the model acts on. */
 function boundaryLines(boundary: ExecutionBoundary): string[] {
-	const decides = boundary.interactive
-		? 'the user is asked to approve it first'
-		: "it goes to this session's permission mode first (nobody is at the terminal to ask)"
 	if (!boundary.sandbox) {
+		const outside = boundary.interactive
+			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time, whatever the permission mode. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
+			: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
 			'Tools run on this machine, not in a sandbox: shell commands and file changes go through the permission settings, which may ask the user before they run.',
-			`The file tools reach the working directory and any added directories directly. A path anywhere else is not refused: ${decides}. When you need a directory repeatedly, suggest the user add it with \`/add-dir <path>\`. A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
+			`The file tools reach the working directory and any added directories directly. ${outside} A refusal that remains is a decision, not a missing file; say so rather than retrying another spelling.`,
 		]
 	}
 	const { environment, enforced } = boundary.sandbox
@@ -229,22 +229,37 @@ function boundaryLines(boundary: ExecutionBoundary): string[] {
 			: boundary.escape === 'unattended'
 				? 'When one command genuinely cannot work inside it, `dangerously_disable_sandbox: true` on that `bash` call runs it on the host: this session is configured to allow that without asking, and every use is recorded. Use it only when the sandbox is the obstacle.'
 				: 'Commands cannot leave the sandbox in this session. When one needs something the sandbox withholds, say what and why, and let the user decide.'
+	// Said per what the platform enforces, never more. A tier that does not
+	// confine the file system (`linux-namespace`, `basic`) leaves the whole
+	// host visible to a command; one that does still shows it the system
+	// directories programs need, read-only, and a private /tmp.
+	const files = enforced.includes('filesystem')
+		? ' Inside it, commands can read and write the working directory and the added directories; the system directories programs need are readable, /tmp is private to the command, and the rest of this machine (the home directory, other projects, other mounts) cannot be reached from it, so no spelling of such a path will be found.'
+		: ' It does not confine the file system here, so commands can still see files outside the working directory.'
 	return [
-		`Shell commands run in a sandbox (${environment}${enforced.length > 0 ? `, enforcing ${enforced.join(', ')}` : ', enforcing nothing on this platform'}). It mounts only the working directory and the added directories; nothing else exists inside it, so no spelling of another path will be found.${network}`,
+		`Shell commands run in a sandbox (${environment}${enforced.length > 0 ? `, enforcing ${enforced.join(', ')}` : ', enforcing nothing on this platform'}).${files}${network} The file tools reach only the working directory and the added directories.`,
 		`To reach another directory, ask the user to add it with \`/add-dir <path>\` (the next turn binds it). ${escapeRoute}`,
 	]
 }
 
 /** WSL: where the Windows side is, and how to reach it from here. */
 function wslLines(wsl: WslFacts, boundary: ExecutionBoundary | undefined): string[] {
-	const sandboxed = boundary?.sandbox !== undefined
+	// Only a sandbox that confines the file system hides the drives; one that
+	// does not leaves them visible to commands, like the host.
+	const sandboxed = boundary?.sandbox?.enforced.includes('filesystem') === true
+	const fileTools =
+		boundary?.sandbox !== undefined
+			? 'the file tools reach them only once added with `/add-dir`'
+			: boundary?.interactive === false
+				? 'a file tool reaching them is refused in this session, since nobody is here to approve it'
+				: 'a file tool reaching them asks for approval first, like any other outside path'
 	const drives =
 		wsl.drives.length > 0
 			? `Windows drives are mounted under ${wsl.drives.map((d) => `\`${d}\``).join(', ')} (\`C:\\Users\` is \`/mnt/c/Users\`; \`wslpath -w\` and \`wslpath -u\` convert).`
 			: 'No Windows drive is mounted under `/mnt` right now.'
 	const reach = sandboxed
 		? 'They are outside the sandbox, so a command there needs `/add-dir` or the sandbox escape.'
-		: 'They are outside the working directory, so a file tool reaching them asks for approval first, like any other outside path.'
+		: `They are outside the working directory, so ${fileTools}.`
 	const interop = wsl.interop
 		? `Windows programs start from the shell through WSL interop, by their \`.exe\` name: \`powershell.exe -NoProfile -Command ...\`, \`cmd.exe /c ...\`, \`explorer.exe .\`. \`cmd.exe\` started from a Linux directory warns that UNC paths are unsupported and falls back to C:\\Windows, so \`cd\` under \`/mnt/c\` first or use \`powershell.exe\`. If a name is not found, the Windows side of \`PATH\` was not appended; \`cmd.exe\` is under \`/mnt/c/Windows/System32\` and \`powershell.exe\` under its \`WindowsPowerShell/v1.0\`.${sandboxed ? ' The sandbox does not mount the Windows drives those programs live on, so running one needs the sandbox escape.' : ''}`
 		: 'WSL interop is off here, so Windows `.exe` programs cannot be started from the shell.'

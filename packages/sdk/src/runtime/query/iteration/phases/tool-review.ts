@@ -345,12 +345,37 @@ export async function* runToolReview(
 	 * the escape. Refusing it here, beside the executor that would honour it,
 	 * makes that hold for every policy rather than for the shipped one only.
 	 */
+	const recordRefusedEscalation = async (tc: ToolCallSummary, reason: string): Promise<void> => {
+		if (tc.escalation?.sandboxEscape) {
+			await ctx.recorder.recordAudit({
+				what: { action: 'sandbox_escape', tool: tc.name },
+				outcome: 'refused',
+				reason,
+			})
+		}
+		for (const path of tc.escalation?.outsidePaths ?? []) {
+			await ctx.recorder.recordAudit({
+				what: { action: 'outside_root_access', tool: tc.name, resource: path },
+				outcome: 'refused',
+				reason,
+			})
+		}
+	}
+
 	const settleEscalations = async (
 		denials: Map<string, string>,
 		confirmed: readonly string[] | undefined,
 	): Promise<void> => {
 		for (const tc of escalated()) {
-			if (denials.has(tc.id)) continue
+			const denied = denials.get(tc.id)
+			if (denied !== undefined) {
+				// A crossing that was asked about and refused is on the record
+				// as a refusal, whoever refused it — a person answering No, a
+				// policy with nobody to ask, a rule. An absent record would read
+				// the same as a crossing nobody asked for.
+				await recordRefusedEscalation(tc, denied)
+				continue
+			}
 			if (tc.escalation?.sandboxEscape && !confirmed?.includes(tc.id)) {
 				const reason =
 					'Refused: running this command outside the sandbox needs a person to confirm it for this call, and this approval did not. Run it inside the sandbox, or ask the user to approve the escape when they can be asked.'
@@ -389,7 +414,9 @@ export async function* runToolReview(
 			yield* ctx.drainPending()
 
 			const feedback = reviewDecision.feedback || 'The user rejected this tool call.'
-			await settle(denyAll(feedback))
+			const denials = new Map(denyAll(feedback))
+			await settleEscalations(denials, undefined)
+			await settle(denials)
 			yield* ctx.drainPending()
 			return finish('rejected')
 		}

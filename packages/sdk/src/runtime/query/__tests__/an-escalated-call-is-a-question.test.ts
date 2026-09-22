@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,6 +10,7 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { BashTool, SANDBOX_ESCAPE_NOT_APPROVED } from '../../../tools/builtins/bash.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
+import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import type { AuthorizationRule } from '../../../types/authorization/index.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
@@ -20,6 +21,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { generateSessionId } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
 import {
+	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	type ToolReviewPrompt,
 	createReviewHandler,
@@ -58,7 +60,7 @@ async function layout() {
 	await mkdir(outside)
 	const file = join(outside, 'notes.txt')
 	await writeFile(file, 'OUTSIDE_CONTENT')
-	return { cwd, file }
+	return { cwd, file, outside }
 }
 
 const ids = {
@@ -182,6 +184,93 @@ describe('a path outside the working directory, on a host turn', () => {
 		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
 	})
 
+	it('is written, as a new file, once approved', async () => {
+		// The approved path becomes a root of its own for that call; for a file
+		// that does not exist yet, that root does not exist either, and the
+		// containment check has to canonicalize it rather than refuse it.
+		const { cwd, outside } = await layout()
+		const target = join(outside, 'created.txt')
+		const tools = new ToolRegistry()
+		tools.register(WriteFileTool)
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const sessionId = generateSessionId()
+		const sessionLog = new InMemorySessionLog({ sessionId })
+		const result = await drainQuery({
+			provider: new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [{ id: 'w1', name: 'write', args: { path: target, content: 'NEW_FILE' } }],
+						finishReason: 'tool_calls',
+					},
+					{ text: 'done' },
+				],
+			}),
+			tools,
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
+			agentId: 'a',
+			agentName: 'A',
+			messages: [createUserMessage('write it')],
+			workingDirectory: cwd,
+			outsideRootAccess: 'review',
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt, registry: tools }),
+			sessionId,
+			sessionLog,
+			...ids,
+		} as QueryParams)
+
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({ outsidePaths: [target] })
+		expect(toolTexts(result.messages).join('\n')).not.toMatch(/escapes the working directory/)
+		expect(await readFile(target, 'utf8')).toBe('NEW_FILE')
+	})
+
+	it('is refused, and recorded as refused, when the person declines', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'reject', feedback: 'no' }))
+		const { file, audit } = await readOutside({
+			outsideRootAccess: 'review',
+			resumeHandler: (registry) => createReviewHandler({ mode: 'prompt', prompt, registry }),
+		})
+
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'outside_root_access',
+				tool: 'read',
+				resource: file,
+				outcome: 'refused',
+			}),
+		)
+		expect(audit.some((r) => r.outcome === 'approved')).toBe(false)
+	})
+
+	it('is refused, not approved, by auto mode with nobody to ask', async () => {
+		const { texts, file, audit } = await readOutside({
+			outsideRootAccess: 'review',
+			resumeHandler: (registry) => createReviewHandler({ mode: 'auto', registry }),
+		})
+
+		expect(texts.join('\n')).toContain(OUTSIDE_ROOTS_UNATTENDED_REFUSAL)
+		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'outside_root_access',
+				resource: file,
+				outcome: 'refused',
+			}),
+		)
+	})
+
+	it('is asked about under auto mode and a remembered approve-all when a person is there', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'reject', feedback: 'no' }))
+		const { texts } = await readOutside({
+			outsideRootAccess: 'review',
+			resumeHandler: (registry) =>
+				createReviewHandler({ mode: 'auto', prompt, registry, remembered: { all: true } }),
+		})
+
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+	})
+
 	it('stays a refusal, naming the way to widen it, when the turn did not ask for review', async () => {
 		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
 		const { texts } = await readOutside({
@@ -274,6 +363,34 @@ describe('a command outside the sandbox', () => {
 		expect(text).not.toContain('HOST_RAN')
 		expect(sandbox.exec).not.toHaveBeenCalled()
 		expect(audit.some((r) => r.outcome === 'approved')).toBe(false)
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'sandbox_escape',
+				tool: 'bash',
+				outcome: 'refused',
+				reason: SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
+			}),
+		)
+	})
+
+	it('is recorded as refused when the person answers no', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'reject', feedback: 'not now' }))
+		const { text, sandbox, audit } = await escapeThroughQuery({
+			sandboxEscape: 'review',
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt }),
+		})
+
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(text).not.toContain('HOST_RAN')
+		expect(sandbox.exec).not.toHaveBeenCalled()
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'sandbox_escape',
+				tool: 'bash',
+				outcome: 'refused',
+				reason: 'not now',
+			}),
+		)
 	})
 
 	it('is asked about under auto mode and a remembered approve-all when a person is there', async () => {
@@ -327,5 +444,42 @@ describe('a command outside the sandbox', () => {
 		expect(text).toContain(SANDBOX_ESCAPE_NOT_APPROVED)
 		expect(text).not.toContain('HOST_RAN')
 		expect(sandbox.exec).not.toHaveBeenCalled()
+	})
+})
+
+describe('an "approve all" given for ordinary calls', () => {
+	it('never covers a later path outside the working directory', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve-all' }))
+		const handler = createReviewHandler({ mode: 'prompt', prompt, exempt: (n) => n === 'read' })
+		const request = { type: 'tool_review', checkpointId: 'c' } as const
+
+		expect(
+			await handler({
+				...request,
+				toolCalls: [{ id: '1', name: 'bash', input: { command: 'ls' }, isDestructive: false }],
+			} as never),
+		).toEqual({ action: 'approve_tools' })
+		// Ordinary calls after it go through unasked...
+		await handler({
+			...request,
+			toolCalls: [{ id: '2', name: 'bash', input: { command: 'pwd' }, isDestructive: false }],
+		} as never)
+		expect(prompt).toHaveBeenCalledTimes(1)
+		// ...a path outside does not.
+		prompt.mockResolvedValueOnce({ kind: 'reject', feedback: 'no' })
+		const outside = await handler({
+			...request,
+			toolCalls: [
+				{
+					id: '3',
+					name: 'read',
+					input: { path: '/home/someone/.ssh/id_rsa' },
+					isDestructive: false,
+					escalation: { outsidePaths: ['/home/someone/.ssh/id_rsa'] },
+				},
+			],
+		} as never)
+		expect(prompt).toHaveBeenCalledTimes(2)
+		expect(outside).toMatchObject({ action: 'reject_tools' })
 	})
 })

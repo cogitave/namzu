@@ -200,37 +200,51 @@ export async function resolveWithinReal(
 	// Cheap, and the only step that can name the caller's input in its error.
 	const lexical = resolveWithin(root, candidate)
 
-	const realRoot = await realpath(root).catch(() => resolve(root))
+	// The root is canonicalized the same way as the candidate. A root that
+	// does not exist yet is not hypothetical: a reviewer approves the path a
+	// `write` is about to create (`ToolContext.approvedPaths`), and that path
+	// is then a root of its own. `realpath` on it throws, and the old fallback
+	// — the lexical root against a canonical candidate — refused the very file
+	// the user had just said yes to.
+	const realRoot = await canonicalize(resolve(root))
+	const canonical = await canonicalize(lexical)
 
+	// The whole canonical path, not only its deepest existing ancestor: for a
+	// root that exists the two agree (walking up stops at the root at the
+	// latest), and for one that does not, only the whole path can equal it.
+	// The part past the existing ancestor is lexical and cannot hide a link,
+	// because nothing is there to be one.
+	const rel = relative(realRoot, canonical)
+	if (rel.startsWith('..') || isAbsolute(rel)) {
+		throw new Error(
+			`Path escapes the working directory: ${candidate}. It resolves through a link to ${canonical}, outside ${realRoot}. ${OUTSIDE_ROOTS_GUIDANCE(`inside ${realRoot}`)}`,
+		)
+	}
+
+	return canonical
+}
+
+/**
+ * The canonical form of an absolute path that may not exist: the deepest
+ * existing ancestor with its links resolved, and the rest appended as
+ * written. A path of which nothing exists is returned as it stands.
+ */
+async function canonicalize(absolute: string): Promise<string> {
 	// Walk up to the deepest existing ancestor. Terminates at the filesystem
 	// root, where `dirname` becomes a fixed point.
-	let existing = lexical
+	let existing = absolute
 	let remainder = ''
 	for (;;) {
 		const found = await realpath(existing).then(
 			(value) => value,
 			() => undefined,
 		)
-		if (found !== undefined) {
-			existing = found
-			break
-		}
+		if (found !== undefined) return remainder ? join(found, remainder) : found
 		const parent = dirname(existing)
-		if (parent === existing) {
-			// Nothing on this branch exists at all, so there is no link to
-			// follow and the lexical answer is already the canonical one.
-			return lexical
-		}
+		// Nothing on this branch exists at all, so there is no link to follow
+		// and the lexical answer is already the canonical one.
+		if (parent === existing) return absolute
 		remainder = remainder ? join(basename(existing), remainder) : basename(existing)
 		existing = parent
 	}
-
-	const rel = relative(realRoot, existing)
-	if (rel.startsWith('..') || isAbsolute(rel)) {
-		throw new Error(
-			`Path escapes the working directory: ${candidate}. It resolves through a link to ${existing}, outside ${realRoot}. ${OUTSIDE_ROOTS_GUIDANCE(`inside ${realRoot}`)}`,
-		)
-	}
-
-	return remainder ? join(existing, remainder) : existing
 }

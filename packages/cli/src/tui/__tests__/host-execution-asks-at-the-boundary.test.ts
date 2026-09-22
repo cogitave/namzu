@@ -19,6 +19,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import {
 	type HITLDecisionRequest,
+	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	type ResumeHandler,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	type ToolCallSummary,
@@ -144,9 +145,46 @@ describe('by default the CLI runs tools on the host', () => {
 
 		expect(params.sandboxProvider).toBeUndefined()
 		expect(params).toMatchObject({ outsideRootAccess: 'review', sandboxEscape: 'review' })
-		// The model is told where it runs and how past the edge, up front.
+		// The model is told where it runs and how past the edge, up front —
+		// here with nobody to ask, so the edge is a refusal and `--add-dir`.
 		expect(String(params.systemPrompt)).toMatch(/not in a sandbox/)
-		expect(String(params.systemPrompt)).toMatch(/A path anywhere else is not refused/)
+		expect(String(params.systemPrompt)).toMatch(/A path anywhere else is refused in this session/)
+	})
+
+	it('refuses a path outside in a headless turn rather than approving it silently', async () => {
+		// A headless turn with no flags resolves to `auto`; that approves
+		// ordinary calls, never a path outside the roots.
+		const { handler } = await turn({ permissionMode: 'auto' })
+
+		expect(await handler(review(outsideRead))).toEqual({
+			action: 'reject_tools',
+			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+		})
+	})
+
+	it('asks about a path outside under --yolo (auto) when a person is there', async () => {
+		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'reject' }))
+		const { handler } = await turn({ permissionMode: 'auto', onPermission })
+
+		expect(await handler(review(outsideRead))).toMatchObject({ action: 'reject_tools' })
+		expect(onPermission).toHaveBeenCalledTimes(1)
+	})
+
+	it('asks about a path outside after "allow all tools for this session"', async () => {
+		const onPermission = vi.fn<PermissionFn>(async () => ({ kind: 'approve-all' }))
+		const { handler } = await turn({ onPermission })
+		const ordinary: ToolCallSummary = {
+			id: 'b0',
+			name: 'bash',
+			input: { command: 'ls' },
+			isDestructive: false,
+			authorization: { decision: 'review' },
+		}
+
+		expect(await handler(review(ordinary))).toEqual({ action: 'approve_tools' })
+		expect(onPermission).toHaveBeenCalledTimes(1)
+		expect(await handler(review(outsideRead))).toEqual({ action: 'approve_tools' })
+		expect(onPermission).toHaveBeenCalledTimes(2)
 	})
 
 	it('asks the person about a read outside the working directory instead of refusing it', async () => {

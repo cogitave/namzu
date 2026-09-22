@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -9,7 +9,7 @@ import { GlobTool } from '../builtins/glob.js'
 import { GrepTool } from '../builtins/grep.js'
 import { LsTool } from '../builtins/ls.js'
 import { matchesGlob } from '../glob-match.js'
-import { resolveWithin } from '../paths.js'
+import { resolveWithin, resolveWithinAnyReal, resolveWithinReal } from '../paths.js'
 
 /**
  * The containment rule existed — in one private function inside the local
@@ -73,6 +73,31 @@ describe('resolveWithin', () => {
 
 	it('allows a climb that lands back inside', () => {
 		expect(resolveWithin('/work', 'src/../lib/a.ts')).toBe(resolve('/work/lib/a.ts'))
+	})
+})
+
+describe('resolveWithinReal with a root that does not exist yet', () => {
+	// An approved path is a root of its own for the call it was approved for
+	// (`ToolContext.approvedPaths`), and the path a `write` creates does not
+	// exist when it is approved.
+	it('accepts the file it names', async () => {
+		const target = join(outside, 'new.txt')
+		expect(await resolveWithinReal(target, target)).toBe(join(realpathSync(outside), 'new.txt'))
+		expect(await resolveWithinAnyReal([root, target], target)).toBe(
+			join(realpathSync(outside), 'new.txt'),
+		)
+	})
+
+	it('still refuses its sibling', async () => {
+		const target = join(outside, 'new.txt')
+		await expect(resolveWithinAnyReal([root, target], join(outside, 'other.txt'))).rejects.toThrow(
+			/escapes the working directory/,
+		)
+	})
+
+	it('still refuses a link inside the root that leads out', async () => {
+		symlinkSync(outside, join(root, 'link'))
+		await expect(resolveWithinReal(root, 'link/new.txt')).rejects.toThrow(/resolves through a link/)
 	})
 })
 

@@ -165,6 +165,18 @@ export function batchNeedsReview(
 export const SANDBOX_ESCAPE_UNATTENDED_REFUSAL =
 	'Refused: a call in this batch asks to run outside the sandbox, which needs a person to confirm it each time, and nobody can be asked in this session. Nothing in this batch ran. Run the command inside the sandbox, or resend the other calls without the escape.'
 
+/**
+ * What the model is told when a batch reaches a path outside the turn's roots
+ * and nobody can be asked.
+ *
+ * Refused rather than approved by `auto`: the path is outside what the turn
+ * was given, and an approval of it is a person's, per call. A host with
+ * nobody to ask widens the roots up front instead (`additionalDirectories`,
+ * the CLI's `--add-dir`), where an operator wrote the directory down.
+ */
+export const OUTSIDE_ROOTS_UNATTENDED_REFUSAL =
+	"Refused: a call in this batch reaches a path outside the working directory and the added directories, which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Stay inside the working directory, or tell the user which directory you need so they can add it to the session (the CLI's --add-dir)."
+
 /** The batch a person is asked about. */
 export interface ToolReviewRequest {
 	/** Originating session, preserved by createReviewHandler for host attribution. */
@@ -275,6 +287,27 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			// reaches the next escape, which is asked about above regardless.
 			if (answer.kind === 'approve-all') remembered.all = true
 			return { action: 'approve_tools', confirmedEscalations: escapes }
+		}
+		// A path outside the roots is a question for a person, every time,
+		// like an escape: `auto` and a remembered "approve all" were answers
+		// given about tools, before this path was named, and neither saw it.
+		// With nobody to ask it is refused, not approved.
+		if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
+			if (!prompt) return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
+			const answer = await prompt({
+				sessionId: request.sessionId,
+				turnId: request.turnId,
+				toolCalls: request.toolCalls,
+			})
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? 'User declined to run the proposed tool(s).',
+				}
+			}
+			// Latches for the ordinary calls that follow, never for the next path.
+			if (answer.kind === 'approve-all') remembered.all = true
+			return { action: 'approve_tools' }
 		}
 		if (mode === 'auto' || !prompt || remembered.all) {
 			return { action: 'approve_tools' }

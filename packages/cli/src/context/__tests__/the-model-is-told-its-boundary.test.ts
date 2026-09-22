@@ -26,15 +26,18 @@ describe('on the host', () => {
 	it('says a path outside the working directory is asked about, not refused', () => {
 		const text = promptFor({ escape: 'ask', interactive: true })
 		expect(text).toMatch(/not in a sandbox/)
-		expect(text).toMatch(/A path anywhere else is not refused: the user is asked to approve it/)
+		expect(text).toMatch(
+			/A path anywhere else is not refused outright: the user is asked to approve that call first, every time/,
+		)
 		expect(text).toContain('/add-dir <path>')
 		// Nothing to escape on the host, so the escape is not offered.
 		expect(text).not.toContain('dangerously_disable_sandbox')
 	})
 
-	it('does not promise a person when nobody is at the terminal', () => {
+	it('says a path outside is refused when nobody is at the terminal, and how to get it added', () => {
 		const text = promptFor({ escape: 'refused', interactive: false })
-		expect(text).toMatch(/permission mode first \(nobody is at the terminal to ask\)/)
+		expect(text).toMatch(/A path anywhere else is refused in this session/)
+		expect(text).toContain('--add-dir <path>')
 		expect(text).not.toMatch(/the user is asked/)
 	})
 })
@@ -48,6 +51,30 @@ describe('in the sandbox', () => {
 		expect(text).toMatch(/The network is cut inside it/)
 		expect(text).toContain('`dangerously_disable_sandbox: true`')
 		expect(text).toMatch(/asked to approve it every time, in every permission mode/)
+	})
+
+	it('says what a file-system-confining sandbox still shows, without claiming nothing else exists', () => {
+		const text = promptFor({ sandbox, escape: 'ask', interactive: true })
+		expect(text).toMatch(/system directories programs need are readable, \/tmp is private/)
+		expect(text).not.toMatch(/nothing else exists inside it/)
+	})
+
+	it('does not claim to hide the file system where the sandbox does not confine it', () => {
+		for (const unconfined of [
+			{ environment: 'linux-namespace', enforced: ['network', 'process'] },
+			{ environment: 'basic', enforced: [] },
+		]) {
+			const text = promptFor({ sandbox: unconfined, escape: 'ask', interactive: true })
+			expect(text).toMatch(/does not confine the file system here/)
+			expect(text).not.toMatch(/cannot be reached from it/)
+		}
+		expect(
+			promptFor({
+				sandbox: { environment: 'basic', enforced: [] },
+				escape: 'ask',
+				interactive: true,
+			}),
+		).toContain('enforcing nothing on this platform')
 	})
 
 	it('offers no escape when escapes are refused', () => {
@@ -119,6 +146,28 @@ describe('WSL', () => {
 			/outside the sandbox, so a command there needs `\/add-dir` or the sandbox escape/,
 		)
 		expect(text).toMatch(/running one needs the sandbox escape/)
+	})
+
+	it('does not say the drives are hidden by a sandbox that leaves the file system visible', () => {
+		const text = promptFor(
+			{
+				sandbox: { environment: 'linux-namespace', enforced: ['network', 'process'] },
+				escape: 'ask',
+				interactive: true,
+			},
+			{ distro: 'archlinux', interop: true, drives: ['/mnt/c'] },
+		)
+		expect(text).not.toMatch(/outside the sandbox, so a command there/)
+		expect(text).not.toMatch(/does not mount the Windows drives/)
+		expect(text).toMatch(/the file tools reach them only once added with `\/add-dir`/)
+	})
+
+	it('tells a headless host session a file tool reaching the drives is refused', () => {
+		const text = promptFor(
+			{ escape: 'refused', interactive: false },
+			{ distro: 'archlinux', interop: true, drives: ['/mnt/c'] },
+		)
+		expect(text).toMatch(/a file tool reaching them is refused in this session/)
 	})
 
 	it('says interop is off rather than suggesting programs that will not start', () => {

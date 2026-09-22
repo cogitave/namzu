@@ -27,15 +27,24 @@ export function permissionReviewPageRows(terminalRows: number | undefined): numb
  * Whether an "allow all" answered on one prompt may also answer this queued
  * one, which nobody has seen yet.
  *
- * Not for a call that leaves the sandbox. The kernel asks about each of
- * those every time and releases one only for a person who confirmed it; a
+ * Not for a call that crosses the turn's boundary: one that leaves the
+ * sandbox, or one that reaches a path outside the working directory and the
+ * added directories. The kernel asks about each of those every time; a
  * queued prompt settled by an answer given to a DIFFERENT prompt would hand
- * it a confirmation for a command that was never on screen.
+ * it an approval for a command or a path that was never on screen.
  */
 export function releasedByApproveAll(
-	toolCalls: readonly { readonly escalation?: { readonly sandboxEscape?: true } }[],
+	toolCalls: readonly {
+		readonly escalation?: {
+			readonly sandboxEscape?: true
+			readonly outsidePaths?: readonly string[]
+		}
+	}[],
 ): boolean {
-	return !toolCalls.some((call) => call.escalation?.sandboxEscape === true)
+	return !toolCalls.some(
+		(call) =>
+			call.escalation?.sandboxEscape === true || (call.escalation?.outsidePaths?.length ?? 0) > 0,
+	)
 }
 
 export interface PermissionReviewCall {

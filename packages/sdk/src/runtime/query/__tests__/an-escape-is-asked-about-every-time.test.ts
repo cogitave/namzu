@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { HITLDecisionRequest, ToolCallSummary } from '../../../types/hitl/index.js'
 import type { CheckpointId, SessionId, TurnId } from '../../../types/ids/index.js'
 import {
+	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	PLAN_MODE_REFUSAL,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	type ToolReviewPrompt,
@@ -115,8 +116,18 @@ describe('a path outside the working directory', () => {
 		expect(prompt).toHaveBeenCalledTimes(1)
 	})
 
-	it('follows the mode where the mode approves, since it needs no confirmation by id', async () => {
+	it('is refused, not approved, by auto mode with nobody to ask', async () => {
 		const handler = createReviewHandler({ mode: 'auto', exempt: exemptReads })
+		expect(await handler(review(outsideRead))).toEqual({
+			action: 'reject_tools',
+			feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+		})
+	})
+
+	it('is asked about under auto mode when a person is there', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const handler = createReviewHandler({ mode: 'auto', prompt, exempt: exemptReads })
 		expect(await handler(review(outsideRead))).toEqual({ action: 'approve_tools' })
+		expect(prompt).toHaveBeenCalledTimes(1)
 	})
 })

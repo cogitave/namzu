@@ -20,11 +20,16 @@ decline to approve it alone. A sandbox escape runs only when the decision lists
 its id in the new `confirmedEscalations` (on `approve_tools` and
 `modify_tools`); `createReviewHandler` asks for it in every mode, and refuses it
 without a `prompt` (`SANDBOX_ESCAPE_UNATTENDED_REFUSAL`) unless
-`unattendedSandboxEscape: 'allow'`. Tools declare `pathArgument` and
+`unattendedSandboxEscape: 'allow'`. A path outside the roots is likewise asked
+about in every mode (`auto` and a remembered `approve-all` included) and
+refused without a `prompt` (`OUTSIDE_ROOTS_UNATTENDED_REFUSAL`). A refused
+crossing is an audit record with outcome `refused`. Tools declare `pathArgument` and
 `sandboxEscapeArgument`; the executor hands an approved call
 `ToolContext.approvedPaths` or `sandboxEscapeApproved`. The shipped file tools
 declare `pathArgument: 'path'`; `bash` gains an optional
 `dangerously_disable_sandbox` input, refused with `SANDBOX_ESCAPE_NOT_APPROVED`
 unless approved. `pathOutsideRoots`, `toolRoots` and `OUTSIDE_ROOTS_GUIDANCE`
-are exported. A file tool's refusal of a path outside its roots now says how
+are exported. `resolveWithinReal` now canonicalizes a root that does not
+exist yet (an approved path a `write` is about to create) instead of refusing
+every path under it. A file tool's refusal of a path outside its roots now says how
 the boundary is widened instead of ending at "Tools may only reach".

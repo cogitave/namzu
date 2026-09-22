@@ -38,7 +38,7 @@ An escalated call is always routed to the turn's `resumeHandler`:
 - a remembered tool grant does not cover it;
 - `batchNeedsReview` is true for it even when the tool is read-only, and `accept-edits` does not approve it on its own.
 
-For `outsidePaths` the policy's own mode decides: `prompt` asks, `plan` and `strict` refuse, `auto` approves.
+For `outsidePaths`, `createReviewHandler` asks its `prompt` in every mode that got that far — `auto` and a remembered "approve all" included, since both were answers about tools given before the path was named — and `plan` and `strict` refuse. With no `prompt` it refuses the batch with `OUTSIDE_ROOTS_UNATTENDED_REFUSAL`; a host with nobody to ask widens the roots up front with `additionalDirectories` instead. An `approve-all` answer to such a prompt latches for ordinary calls, never for the next path.
 
 For `sandboxEscape` an approval is not enough. The decision must list the call's id in `confirmedEscalations` (on `approve_tools` or `modify_tools`); a call it does not list is refused and the rest of the batch runs. `createReviewHandler` fills it only after its `prompt` said yes — it asks in every mode that got that far, `auto` and a remembered "approve all" included — or, with no `prompt`, when `unattendedSandboxEscape: 'allow'`. Otherwise it refuses the batch with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`. A host's own handler that answers `approve_tools` to everything therefore cannot release an escape by accident.
 
@@ -46,7 +46,7 @@ For `sandboxEscape` an approval is not enough. The decision must list the call's
 
 For each call that was not denied, the executor sets, on that call's context only:
 
-- `ToolContext.approvedPaths` — the approved `outsidePaths`. `toolRoots(context)` includes them, so every file tool accepts exactly those paths for that call.
+- `ToolContext.approvedPaths` — the approved `outsidePaths`. `toolRoots(context)` includes them, so every file tool accepts exactly those paths for that call, including a file `write` is about to create: `resolveWithinReal` canonicalizes a root that does not exist yet the way it canonicalizes the candidate.
 - `ToolContext.sandboxEscapeApproved: true` — `bash` runs the command on the host instead of in the sandbox, and refuses `dangerously_disable_sandbox` with `SANDBOX_ESCAPE_NOT_APPROVED` when this is absent.
 
 A nested call a tool dispatches inherits neither.
@@ -62,8 +62,9 @@ Each crossing is an audit record in the session log:
 | `action` | `outcome` | When |
 | --- | --- | --- |
 | `outside_root_access` | `approved` | A reviewed call reached a path outside the roots; `resource` is the path. |
+| `outside_root_access` | `refused` | The decision refused the call (`reject_tools`, or a denial in `modify_tools`); `resource` is the path. |
 | `sandbox_escape` | `approved` | A reviewer confirmed the escape for the call. |
-| `sandbox_escape` | `refused` | The decision did not confirm it, or a resume could not apply it. |
+| `sandbox_escape` | `refused` | The decision refused the call, did not confirm the escape, or a resume could not apply it. |
 
 `AuditOutcome` gained `'approved'` for these; `replayAudit` skips it, since it is one action inside a turn, not the turn's verdict.
 

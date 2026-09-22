@@ -121,7 +121,9 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
 	}
 	const outside = toolCalls.flatMap((call) => call.escalation?.outsidePaths ?? [])
 	if (outside.length > 0) {
-		notes.push(`Outside the working directory: ${outside.join(', ')}`)
+		notes.push(
+			`Outside the working directory: ${outside.join(', ')}. Asked every time; "allow all" never covers it.`,
+		)
 	}
 	return notes
 }
@@ -139,7 +141,9 @@ export function permissionChoices(toolCalls: readonly PermissionToolCall[]): rea
 		'Yes',
 		toolCalls.some((call) => call.escalation?.sandboxEscape === true)
 			? 'Yes, and allow other tools for this session (not sandbox escapes)'
-			: 'Yes, allow all tools for this session',
+			: toolCalls.some((call) => (call.escalation?.outsidePaths?.length ?? 0) > 0)
+				? 'Yes, and allow other tools for this session (not paths outside it)'
+				: 'Yes, allow all tools for this session',
 		'No, and tell namzu what to do differently (esc)',
 	]
 }

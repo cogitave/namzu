@@ -10,9 +10,9 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # Adding a directory
 
-The file tools reach the working directory without asking. A path elsewhere is asked about call by call on the host and refused inside the sandbox (see [Where tools run](tool-boundary.md)). A monorepo sibling, a shared library checkout, a notes folder: when a task needs one repeatedly, add it.
+The file tools reach the working directory without asking. A path elsewhere is asked about call by call on the host (refused when nobody can be asked) and refused inside the sandbox (see [Where tools run](tool-boundary.md)). A monorepo sibling, a shared library checkout, a notes folder: when a task needs one repeatedly, add it.
 
-- **`/add-dir <path>`** adds it for the rest of the session; relative to the working directory or absolute. A directory outside the working directory is added only after you answer yes to the question it asks, since adding it lets every file tool reach it without asking again. `/add-dir` alone lists what is added.
+- **`/add-dir <path>`** adds it for the rest of the session; relative to the working directory or absolute. A directory outside the working directory is added only after you answer yes to the question it asks, since adding it lets every file tool reach it without asking again. Inside or outside is decided after links are followed, as the file tools decide it: a link in the working directory that points elsewhere is asked about, and the question names where it leads. `/add-dir` alone lists what is added.
 - **`--add-dir <path>`**, repeatable, adds it for one launch.
 - **`additionalDirectories`** in `namzu.config.json` or `~/.namzu/config.yaml`, a list of paths, adds it for every session in the project.
 

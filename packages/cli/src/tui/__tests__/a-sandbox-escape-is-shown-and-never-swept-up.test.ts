@@ -1,7 +1,8 @@
 /**
  * The prompt a person answers for a boundary crossing: it says what the call
  * crosses, and an "allow all" answered on one prompt never settles a queued
- * sandbox escape that was not on screen.
+ * sandbox escape, or a queued path outside the working directory, that was
+ * not on screen.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -43,7 +44,7 @@ describe('the prompt for a boundary crossing', () => {
 			'Runs OUTSIDE the sandbox, on this machine. Asked every time; "allow all" never covers it.',
 		])
 		expect(permissionEscalationNotes([outsideRead])).toEqual([
-			'Outside the working directory: /mnt/c/Users/me/notes.txt',
+			'Outside the working directory: /mnt/c/Users/me/notes.txt. Asked every time; "allow all" never covers it.',
 		])
 		expect(permissionEscalationNotes([ordinary])).toEqual([])
 	})
@@ -51,6 +52,9 @@ describe('the prompt for a boundary crossing', () => {
 	it('does not offer "allow all tools" as if it covered the escape', () => {
 		expect(permissionChoices([escapeCall])[1]).toBe(
 			'Yes, and allow other tools for this session (not sandbox escapes)',
+		)
+		expect(permissionChoices([outsideRead])[1]).toBe(
+			'Yes, and allow other tools for this session (not paths outside it)',
 		)
 		expect(permissionChoices([ordinary])[1]).toBe('Yes, allow all tools for this session')
 	})
@@ -65,9 +69,10 @@ describe('the prompt for a boundary crossing', () => {
 })
 
 describe('an "allow all" answered on another prompt', () => {
-	it('settles queued ordinary calls but never a queued sandbox escape', () => {
+	it('settles queued ordinary calls but never a queued escape or outside path', () => {
 		expect(releasedByApproveAll([ordinary])).toBe(true)
-		expect(releasedByApproveAll([outsideRead])).toBe(true)
+		expect(releasedByApproveAll([outsideRead])).toBe(false)
+		expect(releasedByApproveAll([ordinary, outsideRead])).toBe(false)
 		expect(releasedByApproveAll([ordinary, escapeCall])).toBe(false)
 	})
 })

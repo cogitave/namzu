@@ -7,7 +7,7 @@
  * refused.
  */
 
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -37,7 +37,7 @@ describe('adding a directory to the session', () => {
 		const approve = vi.fn(async () => true)
 		const result = await createSessionDirectories(cwd, list).add(outside, { approve })
 
-		expect(approve).toHaveBeenCalledWith(outside)
+		expect(approve).toHaveBeenCalledWith(realpathSync(outside))
 		expect(result).toEqual({ added: true, path: outside })
 		expect(list).toEqual([outside])
 	})
@@ -80,5 +80,34 @@ describe('adding a directory to the session', () => {
 		})
 		expect(await dirs.add(cwd, { approve })).toMatchObject({ added: false })
 		expect(approve).not.toHaveBeenCalled()
+	})
+
+	it('asks about a link inside the working directory that leads outside it, naming where it leads', async () => {
+		// The file tools follow an added directory's links, so a lexical
+		// "inside" would let `./link -> elsewhere` in unasked.
+		symlinkSync(outside, join(cwd, 'link'))
+		const list: string[] = []
+		const approve = vi.fn(async () => false)
+		const dirs = createSessionDirectories(cwd, list)
+
+		expect(await dirs.add('link', { approve })).toMatchObject({
+			added: false,
+			reason: 'Not approved.',
+		})
+		expect(approve).toHaveBeenCalledWith(realpathSync(outside))
+		expect(await dirs.add('link')).toMatchObject({
+			added: false,
+			reason: expect.stringMatching(/needs your approval/),
+		})
+		expect(list).toEqual([])
+	})
+
+	it('does not ask about a link that stays inside the working directory', async () => {
+		symlinkSync(join(cwd, 'sub'), join(cwd, 'alias'))
+		const approve = vi.fn(async () => false)
+		const result = await createSessionDirectories(cwd, []).add('alias', { approve })
+
+		expect(approve).not.toHaveBeenCalled()
+		expect(result.added).toBe(true)
 	})
 })

@@ -3714,8 +3714,9 @@ export function App({
 				resolve(decision)
 			}
 			if (decision.kind === 'approve-all') {
-				// A queued sandbox escape stays queued: "allow all" was answered
-				// on another prompt, and an escape is confirmed only on its own.
+				// A queued sandbox escape or outside path stays queued: "allow
+				// all" was answered on another prompt, and a crossing is approved
+				// only on its own.
 				const kept: typeof permissionQueueRef.current = []
 				for (const pending of permissionQueueRef.current.splice(0)) {
 					if (releasedByApproveAll(pending.permission.toolCalls)) pending.resolve(decision)

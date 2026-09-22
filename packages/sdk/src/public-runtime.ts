@@ -1262,6 +1262,7 @@ export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'
 // `runtime/query/review-policy.ts`.
 export {
 	ACCEPT_EDITS_TOOLS,
+	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
 	PLAN_MODE_REFUSAL,
 	REVIEW_EXEMPT_WRITES,
 	REVIEW_MODES,
