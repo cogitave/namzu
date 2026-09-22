@@ -1,3 +1,5 @@
+import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { resolveNamzuHome } from '../../session/home.js'
 import { type SessionLocator, SessionPaths, ensureProject } from '../../session/paths.js'
 import {
@@ -20,6 +22,7 @@ import {
 } from '../../store/session-log/index.js'
 import type { ChildSessionStorage } from '../../types/agent/task.js'
 import type { CheckpointId, SessionId } from '../../types/ids/index.js'
+import { asSessionId, isEntityId } from '../../utils/id.js'
 
 /** What an in-memory session keeps beside its log. */
 interface HeldState {
@@ -76,14 +79,22 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 	const inMemory = input.sessionLog instanceof InMemorySessionLog && input.paths === undefined
 	const paths =
 		input.paths ?? (inMemory ? undefined : await defaultSessionPaths(input.workingDirectory))
+	const locator = input.sessionLog
+		? input.sessionLog instanceof DiskSessionLog
+			? input.sessionLog.locator
+			: undefined
+		: await locateSession(paths as SessionPaths, input.sessionId, input.parentSessionId)
 	const log =
-		input.sessionLog ??
-		DiskSessionLog.at(paths as SessionPaths, sessionLocator(input.sessionId, input.parentSessionId))
+		input.sessionLog ?? DiskSessionLog.at(paths as SessionPaths, locator as SessionLocator)
 	const state = inMemory ? heldState(log as InMemorySessionLog) : undefined
 	const checkpoints =
 		input.checkpointStore ??
 		state?.checkpoints ??
-		new DiskSessionCheckpointStore({ paths: paths as SessionPaths, log: checkpointLogView(log) })
+		new DiskSessionCheckpointStore({
+			paths: paths as SessionPaths,
+			log: checkpointLogView(log),
+			...(locator ? { session: locator } : {}),
+		})
 	const tokenBudget =
 		input.tokenBudgetStore ??
 		state?.tokenBudgets ??
@@ -100,9 +111,76 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 	return { log, paths, sessionDir, checkpoints, tokenBudget, children }
 }
 
-/** The locator of a session: a child names its parent, whose directory holds its log. */
-export function sessionLocator(sessionId: SessionId, parentSessionId?: SessionId): SessionLocator {
-	return parentSessionId ? { sessionId, ancestors: [parentSessionId] } : { sessionId }
+/**
+ * The locator of a session named without its log: a root session sits at the
+ * top of the project; a child session sits under its parent, wherever the
+ * parent is. The parent's own place is found on disk, so a grandchild nests
+ * under every ancestor and not beside its parent at the top level. A parent
+ * with no log in the layout yet is taken to be a root session.
+ */
+export async function locateSession(
+	paths: SessionPaths,
+	sessionId: SessionId,
+	parentSessionId?: SessionId,
+): Promise<SessionLocator> {
+	if (!parentSessionId) return { sessionId }
+	const parent = (await findSessionLocator(paths, parentSessionId)) ?? {
+		sessionId: parentSessionId,
+	}
+	return { sessionId, ancestors: [...(parent.ancestors ?? []), parent.sessionId] }
+}
+
+/** Deeper than any delegation tree a project allows; a guard against a cyclic tree on disk. */
+const MAX_SEARCH_DEPTH = 64
+
+/**
+ * Where `sessionId`'s log is in the project's layout: at the top level, or in
+ * some session's `subagents/`, searched breadth first. `undefined` when no log
+ * of that session exists.
+ */
+async function findSessionLocator(
+	paths: SessionPaths,
+	sessionId: SessionId,
+): Promise<SessionLocator | undefined> {
+	const target = `${sessionId}.jsonl`
+	let frontier: SessionLocator[] = []
+	const top = await listDirectory(paths.projectDir())
+	if (top.files.has(target)) return { sessionId }
+	for (const name of top.directories) {
+		if (isEntityId(name, 'session')) frontier.push({ sessionId: asSessionId(name) })
+	}
+	for (let depth = 0; depth < MAX_SEARCH_DEPTH && frontier.length > 0; depth++) {
+		const next: SessionLocator[] = []
+		for (const parent of frontier) {
+			const children = await listDirectory(join(paths.sessionDir(parent), 'subagents'))
+			const ancestors = [...(parent.ancestors ?? []), parent.sessionId]
+			if (children.files.has(target)) return { sessionId, ancestors }
+			for (const name of children.directories) {
+				if (isEntityId(name, 'session')) next.push({ sessionId: asSessionId(name), ancestors })
+			}
+		}
+		frontier = next
+	}
+	return undefined
+}
+
+async function listDirectory(
+	directory: string,
+): Promise<{ files: Set<string>; directories: string[] }> {
+	try {
+		const entries = await readdir(directory, { withFileTypes: true })
+		return {
+			files: new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name)),
+			directories: entries
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => entry.name)
+				.sort(),
+		}
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code
+		if (code === 'ENOENT' || code === 'ENOTDIR') return { files: new Set(), directories: [] }
+		throw error
+	}
 }
 
 /** `SessionPaths` for the working directory's project under `resolveNamzuHome()`. */

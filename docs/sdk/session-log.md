@@ -279,7 +279,13 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
   messages. A restore refuses it when its hash differs from its
   `checkpoint_written` record's `docSha256`, or when the record at
   `throughSeq` does not hash to `throughSha256`. A checkpoint from the older
-  layout is refused by name.
+  layout is refused by name. A child session's checkpoints are in its own
+  directory, `<parent-session-dir>/subagents/<child-id>/checkpoints/`. A
+  checkpoint scope names only the session, so `DiskSessionCheckpointStore`
+  takes the session's place in the tree as its `session` option, and a
+  `DiskSessionLog` opened with `DiskSessionLog.at` reports that place as
+  `locator`. A child named only by `parentSessionId`, with no log, is placed
+  under wherever its parent's log is found.
 - **Child-session meta** (`kind: 'child-session'`): identity, parent, root,
   depth, the spawning tool call, agent type, description and status. A
   convenience; the child's log wins on any disagreement.

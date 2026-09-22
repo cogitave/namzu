@@ -135,12 +135,21 @@ export interface DiskSessionLogOptions
 	readonly file: string
 	/** `<session-id>/`: the lease files and `tool-results/`. */
 	readonly sessionDir: string
+	/**
+	 * Where the session sits in its project's layout, when that is known:
+	 * {@link DiskSessionLog.at} sets it. The stores that keep a session's other
+	 * documents (`checkpoints/`, …) read it, so a child session's documents land
+	 * in its own directory under its ancestors rather than at the top level.
+	 */
+	readonly locator?: SessionLocator
 }
 
 /** A session log on disk. One instance per writer process; readers may open their own. */
 export class DiskSessionLog extends SessionLogCore {
 	readonly file: string
 	readonly sessionDir: string
+	/** See {@link DiskSessionLogOptions.locator}. */
+	readonly locator: SessionLocator | undefined
 
 	constructor(options: DiskSessionLogOptions) {
 		super({
@@ -154,6 +163,12 @@ export class DiskSessionLog extends SessionLogCore {
 		})
 		this.file = options.file
 		this.sessionDir = options.sessionDir
+		if (options.locator !== undefined && options.locator.sessionId !== options.sessionId) {
+			throw new Error(
+				`A session log's locator names session ${options.locator.sessionId}, not ${options.sessionId}.`,
+			)
+		}
+		this.locator = options.locator
 	}
 
 	/** The log of `locator` in a project's layout. */
@@ -167,6 +182,7 @@ export class DiskSessionLog extends SessionLogCore {
 			sessionId: locator.sessionId,
 			file: paths.sessionLog(locator),
 			sessionDir: paths.sessionDir(locator),
+			locator,
 		})
 	}
 }
