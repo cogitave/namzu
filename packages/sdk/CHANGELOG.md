@@ -1,5 +1,19 @@
 # Changelog
 
+## 44.1.0
+
+### Minor Changes
+
+- 51af1b3: Plan mode now refuses a change that a permission rule allows. Before, a batch whose every call a rule allowed (for example `permissions: { bash: 'allow' }`) ran without reaching the review handler, so a turn in plan mode, whether it started there or the operator entered it with Shift+Tab mid-turn, still ran `touch` or any other allowed command, while the model had been told that every change is refused. The CLI now asks the kernel to send such batches to review while it is in plan mode; nothing changes in any other mode.
+
+  For SDK hosts: `QueryParams.reviewAllowedCalls?: () => boolean` is new and optional. Read once per batch; `true` sends a batch a rule allows, or a grant from earlier in the turn covers, to `resumeHandler` instead of running it, each call carrying the gate's decision in `authorization`. A rule's `deny` still refuses. Absent, behaviour is unchanged.
+
+- 406e7a2: A task removed with `task_update` status `deleted` is now distinguishable on the stream: its `task_updated` event carries `deleted: true` (the SSE `task.updated` event too), with the subject and status the task had when it went. Before, a removal arrived as an update that changed nothing, so the interactive terminal kept drawing the removed task as an open step in the checklist. It now drops the task and writes `Removed task · <subject>`. The field is optional and absent on every other update; a consumer that ignores it sees the same events as before.
+
+### Patch Changes
+
+- 0d23de8: The planning tools `task_create`, `task_update` and `task_list` now present themselves in words to a host: `Add task · <subject>`, `Start task`, `Complete task`, `Check tasks`, a hidden result view when a call succeeds, and `Tasks · N/M done` for a listing. No presented view carries a task id, an owner or the JSON arguments any more; a host that renders the generic presenter used to show `Task update({"id":"01a0…","status":"completed"})` above `Task 01a0… updated — status: completed`. The model-facing output still names the id it needs. `task_create` and `task_update` add `subject` to their result `data`, and `task_list` says `1 task:` rather than `1 tasks:`. Nothing to change on upgrade unless a host matched the old presented strings.
+
 ## 44.0.0
 
 ### Major Changes

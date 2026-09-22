@@ -1,5 +1,24 @@
 # @namzu/cli
 
+## 28.1.0
+
+### Minor Changes
+
+- fad53e3: Shift+Tab now changes the permission mode while a turn runs, and its only reply is the footer. It used to be refused mid-turn with "Permissions were not changed. Finish or stop the current work first." (once per press), and every accepted press appended "Permissions: <mode> for this session. …" to the transcript. Now the running turn's next approval decision, the delegated turns that borrow its review, and every later turn are decided under the new mode; an approval dialog already on screen keeps the mode it was asked under, entering plan mode refuses the next call that would change something, and leaving it approves nothing already refused. Each change is recorded as `approval_policy_changed` in the session log before it takes effect, and the model is told once. `/permissions` still answers in the transcript. The footer's hold mark is `‖` instead of `⏸`, an emoji code point that Windows Terminal draws as a blue two-cell tile; the same mark replaces it on the interrupted-turn notice and the paused-queue line.
+- f2ec6e7: The model's plan is drawn once, as a checklist in the transcript. Consecutive task calls fold into one block with a header in words (`Added 2 tasks`, `Started · <subject>`, `Completed · <subject>`, `Tasks · 1/2 done`) and the checklist as it stood afterwards; `/tasks` draws the same checklist. No task id, owner, JSON argument or model receipt (`Task created: <uuid> — "…" [owner: namzu]`, `1 tasks: 0 completed, …`) is shown any more. The marks are one-cell text characters with exactly one space before the subject — `□` pending, `■` in progress (bold), `✓` completed (dimmed, struck through), `✗` failed — instead of `☐`/`☑`/`☒`/`◐`, which emoji-capable fonts drew as two-cell colour pictures. The eight-row task list above the composer is gone; a single row naming the current step appears there only while the checklist is out of view. A system notice identical to the row directly before it is no longer printed a second time.
+
+### Patch Changes
+
+- 51af1b3: Plan mode now refuses a change that a permission rule allows. Before, a batch whose every call a rule allowed (for example `permissions: { bash: 'allow' }`) ran without reaching the review handler, so a turn in plan mode, whether it started there or the operator entered it with Shift+Tab mid-turn, still ran `touch` or any other allowed command, while the model had been told that every change is refused. The CLI now asks the kernel to send such batches to review while it is in plan mode; nothing changes in any other mode.
+
+  For SDK hosts: `QueryParams.reviewAllowedCalls?: () => boolean` is new and optional. Read once per batch; `true` sends a batch a rule allows, or a grant from earlier in the turn covers, to `resumeHandler` instead of running it, each call carrying the gate's decision in `authorization`. A rule's `deny` still refuses. Absent, behaviour is unchanged.
+
+- 406e7a2: A task removed with `task_update` status `deleted` is now distinguishable on the stream: its `task_updated` event carries `deleted: true` (the SSE `task.updated` event too), with the subject and status the task had when it went. Before, a removal arrived as an update that changed nothing, so the interactive terminal kept drawing the removed task as an open step in the checklist. It now drops the task and writes `Removed task · <subject>`. The field is optional and absent on every other update; a consumer that ignores it sees the same events as before.
+- Updated dependencies [51af1b3]
+- Updated dependencies [406e7a2]
+- Updated dependencies [0d23de8]
+  - @namzu/sdk@44.1.0
+
 ## 28.0.0
 
 ### Major Changes
