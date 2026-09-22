@@ -466,6 +466,7 @@ const MAPPING: {
 			subject: e.subject,
 			status: e.status,
 			owner: e.owner ?? null,
+			...(e.deleted ? { deleted: true } : {}),
 		}),
 	},
 

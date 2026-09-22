@@ -944,6 +944,14 @@ type CoreSessionEvent =
 			owner?: string
 			/** See `task_created`. Carried on updates because an edge can be added later. */
 			blockedBy?: readonly TaskId[]
+			/**
+			 * The task was removed from the list (`task_update` with status
+			 * `deleted`). `status` and `subject` are what it had when it went.
+			 * Absent on every other update: without it a removal reached a
+			 * reader as an update that changed nothing, so a checklist kept
+			 * drawing the task as open.
+			 */
+			deleted?: true
 	  }
 	| {
 			type: 'plugin_hook_executing'

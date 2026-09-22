@@ -164,6 +164,7 @@ import {
 	type TaskOperation,
 	applyTaskOperation,
 	isTaskTool,
+	removeTask,
 	taskOperationFor,
 	taskReportChecklist,
 	upsertTask,
@@ -4880,9 +4881,18 @@ export function App({
 					// A reply in progress ends here, as it does at a tool call, so
 					// the block lands after the text that led to it.
 					closeAssistant()
-					const previous = tasksRef.current.find((task) => task.id === item.id)
-					const operation = taskOperationFor(previous, item)
-					tasksRef.current = upsertTask(tasksRef.current, item)
+					let operation: TaskOperation | null
+					if (event.removed) {
+						// Removed from the plan: it leaves the checklist, and the block
+						// says so, rather than drawing it as still open.
+						const next = removeTask(tasksRef.current, item.id, item.subject)
+						operation = next.operation
+						tasksRef.current = next.tasks
+					} else {
+						const previous = tasksRef.current.find((task) => task.id === item.id)
+						operation = taskOperationFor(previous, item)
+						tasksRef.current = upsertTask(tasksRef.current, item)
+					}
 					const checklist = tasksRef.current
 					setTasks(checklist)
 					if (operation) writeTaskBlock(st, operation, checklist)

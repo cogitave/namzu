@@ -70,6 +70,12 @@ failure reads `No task has that id` rather than echoing it. The `data` of
 `task_create` and `task_update` now also carries the task's `subject`. The
 list output uses a correct plural (`1 task: …`).
 
+A task removed with `task_update` status `deleted` reaches the stream as
+`task_updated` with `deleted: true` (and the SSE `task.updated` event as
+`deleted: true`), carrying the subject and status it had when it went. Every
+other update omits the field, so a host can drop the task from its list rather
+than read the removal as an update that changed nothing.
+
 Built-in grep accepts a single regular-file path as a one-entry search. The local and guest file walkers match the root file's basename against the include pattern and never enumerate its siblings. The same cancellation, symlink and size checks remain in effect.
 
 ## File write receipts

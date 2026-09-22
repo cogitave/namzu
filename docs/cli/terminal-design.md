@@ -131,7 +131,8 @@ does not change the model-facing tool result.
 `task_create`, `task_update` and `task_list` leave one block in the transcript
 per run of consecutive task calls: a header in words and the checklist as it
 stood afterwards. A single operation is named with its subject (`Added task ·
-…`, `Started · …`, `Completed · …`, `Failed · …`, `Reopened · …`), repeats of
+…`, `Started · …`, `Completed · …`, `Failed · …`, `Reopened · …`, `Removed
+task · …`, after which the checklist no longer draws the task), repeats of
 one operation are counted (`Added 2 tasks`), and a mix or a listing shows where
 the plan stands (`Tasks · 1/2 done`). The block keeps growing while nothing else
 is written after it in the same turn; the model's text or another tool closes

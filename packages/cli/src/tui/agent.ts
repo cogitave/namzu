@@ -458,6 +458,8 @@ export type AgentEvent =
 			readonly taskId: string
 			readonly subject: string
 			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
+			/** The task left the plan; the checklist drops it. */
+			readonly removed?: true
 	  }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
@@ -4733,6 +4735,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				taskId: String(event.taskId),
 				subject: event.subject,
 				status: event.status,
+				...(event.type === 'task_updated' && event.deleted ? { removed: true as const } : {}),
 			}
 		case 'turn_paused':
 			// A pause is not an error and not an invisible end. The checkpoint and

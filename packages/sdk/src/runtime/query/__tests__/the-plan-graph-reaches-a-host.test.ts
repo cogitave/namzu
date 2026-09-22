@@ -111,3 +111,23 @@ describe('a host can see what a unit waits on', () => {
 		expect(created && 'blockedBy' in created).toBe(false)
 	})
 })
+
+describe('a host can tell a removal from an update', () => {
+	it('marks the update a deletion sends, and no other', async () => {
+		// A removal used to arrive as an update that changed nothing, so a
+		// checklist kept drawing the removed task as open.
+		const events = await capture(async (store) => {
+			const kept = await store.create({ sessionId: SESSION, turnId: TURN, subject: 'kept' })
+			const dropped = await store.create({ sessionId: SESSION, turnId: TURN, subject: 'dropped' })
+			await store.update(kept.id, { status: 'in_progress' })
+			await store.delete(dropped.id)
+		})
+
+		const updates = events.filter((e): e is Updated => e.type === 'task_updated')
+		const removal = updates.find((e) => e.subject === 'dropped')
+		expect(removal?.deleted).toBe(true)
+		expect(removal?.status).toBe('pending')
+		const started = updates.find((e) => e.subject === 'kept')
+		expect(started && 'deleted' in started).toBe(false)
+	})
+})

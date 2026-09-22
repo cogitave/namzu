@@ -388,7 +388,8 @@ function renderRecordedActivity(record: SessionRecord, produced: readonly Messag
 			activity(`Task ${record.status}: ${record.subject}`)
 			break
 		case 'task_updated':
-			if (record.status === 'completed') activity(`Task completed: ${record.subject}`)
+			if (record.deleted) activity(`Task removed: ${record.subject}`)
+			else if (record.status === 'completed') activity(`Task completed: ${record.subject}`)
 			break
 	}
 	return lines

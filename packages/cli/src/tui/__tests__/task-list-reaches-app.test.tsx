@@ -22,6 +22,8 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 
 /** Emitted by the mocked session on the first turn; the second turn is text only. */
 let turn = 0
+/** When set, the first turn adds two tasks and removes one instead. */
+let removal = false
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -74,7 +76,22 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
 				turn += 1
-				if (turn === 1) {
+				if (removal) {
+					yield { kind: 'task', taskId: 't1', subject: 'Çalışma alanını incele', status: 'pending' }
+					yield { kind: 'task', taskId: 't2', subject: 'Eski adımı sil', status: 'pending' }
+					await pause()
+					yield { kind: 'delta', text: 'That second step is not needed.\n\n' }
+					await pause()
+					yield {
+						kind: 'task',
+						taskId: 't2',
+						subject: 'Eski adımı sil',
+						status: 'pending',
+						removed: true,
+					}
+					await pause()
+					yield { kind: 'delta', text: 'Removal done.' }
+				} else if (turn === 1) {
 					yield { kind: 'task', taskId: 't1', subject: 'Çalışma alanını incele', status: 'pending' }
 					yield { kind: 'task', taskId: 't2', subject: 'Cover it with tests', status: 'pending' }
 					await pause()
@@ -113,6 +130,7 @@ const mounted: Array<{ unmount: () => void }> = []
 afterEach(() => {
 	for (const m of mounted.splice(0)) m.unmount()
 	turn = 0
+	removal = false
 	vi.clearAllMocks()
 	vi.unstubAllEnvs()
 })
@@ -230,5 +248,21 @@ describe('the task checklist', () => {
 		await submit(harness, 'again')
 		await frameShows(harness.lastFrame, 'Second turn reply.')
 		expect(count(harness.lastFrame() ?? '', 'Completed · Cover it with tests')).toBe(1)
+	})
+
+	it('drops a removed task from the checklist and says so in words', async () => {
+		vi.stubEnv('COLUMNS', '100')
+		vi.stubEnv('LINES', '60')
+		removal = true
+		const harness = await open()
+		await submit(harness, 'go')
+		await frameShows(harness.lastFrame, 'Removal done.')
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('Removed task · Eski adımı sil')
+		// The first block, drawn before the removal, still lists it; the block
+		// the removal wrote does not draw it as a step.
+		const after = frame.slice(frame.indexOf('Removed task · Eski adımı sil'))
+		expect(after).toContain('□ Çalışma alanını incele')
+		expect(after).not.toContain('□ Eski adımı sil')
 	})
 })

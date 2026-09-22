@@ -12,6 +12,7 @@ import {
 	type TaskBlockInput,
 	applyTaskOperation,
 	isTaskTool,
+	removeTask,
 	taskBlockHeader,
 	taskOperationFor,
 	upsertTask,
@@ -59,6 +60,15 @@ describe('what one task event did', () => {
 			'completed',
 			'pending',
 		])
+	})
+
+	it('drops a removed task and names the removal, and ignores one it never drew', () => {
+		const list = upsertTask(upsertTask([], parser), item('b', 'Test yaz', 'pending'))
+		const after = removeTask(list, 'b', 'Test yaz')
+		expect(after.tasks.map((t) => t.id)).toEqual(['a'])
+		expect(after.operation).toEqual({ kind: 'removed', subject: 'Test yaz' })
+		expect(taskBlockHeader([after.operation!], after.tasks)).toBe('Removed task · Test yaz')
+		expect(removeTask(list, 'zz', 'unknown')).toEqual({ tasks: list, operation: null })
 	})
 
 	it('owns exactly the three planning tools', () => {

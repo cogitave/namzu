@@ -35,6 +35,7 @@ export type TaskOperationKind =
 	| 'failed'
 	| 'reopened'
 	| 'renamed'
+	| 'removed'
 
 export interface TaskOperation {
 	readonly kind: TaskOperationKind
@@ -64,6 +65,23 @@ export function taskOperationFor(
 	return null
 }
 
+/**
+ * The plan after a task left it, and what the block says about it; `null`
+ * operation when the task was never on this checklist (nothing visible changed).
+ */
+export function removeTask(
+	tasks: readonly ChecklistItem[],
+	id: string,
+	subject: string,
+): { readonly tasks: readonly ChecklistItem[]; readonly operation: TaskOperation | null } {
+	const known = tasks.find((task) => task.id === id)
+	if (!known) return { tasks, operation: null }
+	return {
+		tasks: tasks.filter((task) => task.id !== id),
+		operation: { kind: 'removed', subject: subject || known.subject },
+	}
+}
+
 /** Replace the task with the same id, or append it. */
 export function upsertTask(
 	tasks: readonly ChecklistItem[],
@@ -80,6 +98,7 @@ const SINGLE: Readonly<Record<TaskOperationKind, string>> = {
 	failed: 'Failed',
 	reopened: 'Reopened',
 	renamed: 'Renamed task',
+	removed: 'Removed task',
 }
 
 const MANY: Readonly<Record<TaskOperationKind, string>> = {
@@ -89,6 +108,7 @@ const MANY: Readonly<Record<TaskOperationKind, string>> = {
 	failed: 'Failed',
 	reopened: 'Reopened',
 	renamed: 'Renamed',
+	removed: 'Removed',
 }
 
 function countTasks(count: number): string {
