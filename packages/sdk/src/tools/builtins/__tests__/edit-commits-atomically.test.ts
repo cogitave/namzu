@@ -1,8 +1,9 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 
@@ -20,6 +21,17 @@ import type { ToolContext } from '../../../types/tool/index.js'
 const atomicWriteFile = vi.fn(async () => {})
 vi.mock('../atomic-write-file.js', () => ({ atomicWriteFile }))
 
+const dirs: string[] = []
+afterEach(async () => {
+	await removeTempDirs(dirs.splice(0))
+})
+
+function tempDir(): string {
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-atomic-tool-'))
+	dirs.push(dir)
+	return dir
+}
+
 function makeContext(workingDirectory: string): ToolContext {
 	return {
 		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as ToolContext['sessionId'],
@@ -36,7 +48,7 @@ describe('the file-mutating tools commit through the atomic writer', () => {
 		const { EditTool } = await import('../edit.js')
 		atomicWriteFile.mockClear()
 
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-atomic-tool-'))
+		const dir = tempDir()
 		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
 
 		const result = await EditTool.execute(
@@ -56,7 +68,7 @@ describe('the file-mutating tools commit through the atomic writer', () => {
 		const { WriteFileTool } = await import('../write-file.js')
 		atomicWriteFile.mockClear()
 
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-atomic-tool-'))
+		const dir = tempDir()
 
 		const result = await WriteFileTool.execute(
 			{ path: 'out.md', content: 'a complete body' },
