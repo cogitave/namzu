@@ -175,6 +175,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// same person. It does not grant the root-only question tool.
 				// Without the handler, workers silently auto-approved themselves.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				// And the switch that sends batches the handler would otherwise
+				// never see to it (plan mode), so a worker's rule-allowed or
+				// grant-covered call is refused where the supervisor's would be.
+				...(config.reviewAllowedCalls ? { reviewAllowedCalls: config.reviewAllowedCalls } : {}),
 				// Handed down for the same reason: a worker is a fresh turn whose
 				// executor installs the shipped screens unless the spawn says
 				// otherwise, so the supervisor's own choice — including an
@@ -402,6 +406,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// auto-approve. drainQuery falls back to autoApproveHandler
 					// when resumeHandler is omitted (= same behaviour as before).
 					...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+					...(config.reviewAllowedCalls ? { reviewAllowedCalls: config.reviewAllowedCalls } : {}),
 					// Forwarded for the same reason the handler is. A capability the
 					// kernel honours in `drainQuery` but that never reaches the
 					// surface a host actually constructs is a capability nobody can

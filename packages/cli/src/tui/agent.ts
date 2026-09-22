@@ -2197,6 +2197,10 @@ export async function createAgentSession(
 	// Agent tool. Keying the review channel by the executing turn keeps two
 	// concurrent sends from borrowing each other's prompt or approval latch.
 	const delegatedResumeHandlers = new Map<TurnId, ResumeHandler>()
+	// Beside each borrowed handler, the switch that sends it the batches it
+	// would otherwise never see (`reviewAllowedCalls`): without it a child's
+	// rule-allowed or already-approved call ran past a handler in plan mode.
+	const delegatedReviewAllowedCalls = new Map<TurnId, () => boolean>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
 		registry.register(
@@ -2418,6 +2422,7 @@ export async function createAgentSession(
 			},
 			sandboxWorkspace,
 			resolveResumeHandler: (turnId) => delegatedResumeHandlers.get(turnId),
+			resolveReviewAllowedCalls: (turnId) => delegatedReviewAllowedCalls.get(turnId),
 			resolveWaitForInbound: (turnId) => delegatedInputWaiters.get(turnId),
 			...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 			...(options.sandbox?.teardownTimeoutMs !== undefined
@@ -2943,8 +2948,14 @@ export async function createAgentSession(
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
 			}
+			// The resumed turn is decided under the session's fixed mode. Plan
+			// is stricter than the rules, so a batch a rule allows, or an
+			// approval earlier in the turn covers, has to reach the handler
+			// that refuses it — in this turn and in every turn it delegates.
+			const reviewAllowedCalls = options.permissionMode === 'plan' ? () => true : undefined
 			const turnScope = { ...entry, topicId: scope.topicId }
 			delegatedResumeHandlers.set(entry.turnId, resumeHandler)
+			if (reviewAllowedCalls) delegatedReviewAllowedCalls.set(entry.turnId, reviewAllowedCalls)
 			delegationScopes.set(entry.turnId, turnScope)
 			delegationLimits.set(entry.turnId, resumedLimits)
 			const turnTaskStore = selectTaskStore(turnScope)
@@ -3017,6 +3028,7 @@ export async function createAgentSession(
 					// prompt would block the pass forever on a turn nobody is watching.
 					// The gate's deny rules still apply.
 					resumeHandler,
+					...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
 					signal: ownedSignal,
 					// Attribution comes from the ENTRY, not from this session: the turn
 					// belongs to whoever started it, and stamping the drainer's ids onto
@@ -3054,6 +3066,7 @@ export async function createAgentSession(
 			} finally {
 				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
 					delegatedResumeHandlers.delete(entry.turnId)
+					delegatedReviewAllowedCalls.delete(entry.turnId)
 					delegationScopes.delete(entry.turnId)
 					delegationLimits.delete(entry.turnId)
 					await subagentRuntime?.releaseTurn(entry.turnId)
@@ -3329,6 +3342,7 @@ export async function createAgentSession(
 						}
 						claimed.add(turnId)
 						delegatedResumeHandlers.set(turnId, resumeHandler)
+						delegatedReviewAllowedCalls.set(turnId, modeControl.reviewAllowedCalls)
 						if (opts?.onModelSwitch) modelSwitchHandlers.set(turnId, opts.onModelSwitch)
 						if (opts?.waitForInbound) delegatedInputWaiters.set(turnId, opts.waitForInbound)
 						delegationScopes.set(turnId, turnScope)
@@ -3620,6 +3634,7 @@ export async function createAgentSession(
 						for (const turnId of claimed) {
 							if (delegatedResumeHandlers.get(turnId) !== resumeHandler) continue
 							delegatedResumeHandlers.delete(turnId)
+							delegatedReviewAllowedCalls.delete(turnId)
 							modelSwitchHandlers.delete(turnId)
 							delegatedInputWaiters.delete(turnId)
 							delegationScopes.delete(turnId)

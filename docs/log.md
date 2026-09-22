@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-23
+
+- **Update** [The review policy](sdk/review-policy.md#the-modes): `reviewAllowedCalls` reaches delegated turns. `AgentTaskContext.reviewAllowedCalls` and `BaseAgentConfig.reviewAllowedCalls` carry the parent's function to every child and grandchild; `AgentManager` stamps it after the `configBuilder` runs, `SupervisorAgent` hands it to its workers, `ReactiveAgent` and `SupervisorAgent` pass it to `query()`. A child's own value is OR-ed with the inherited one, never replaces it (`packages/sdk/src/manager/agent/lifecycle.ts`, `packages/sdk/src/types/agent/`). [Delegated work](cli/delegated-work.md): plan mode entered while a sub-agent runs now refuses that sub-agent's next change a permission rule allows; it used to run it (`packages/cli/src/integrations/subagents/runtime.ts`, `resolveReviewAllowedCalls`). A paused turn resumed in a session started in plan mode, and its children, get the same switch (`packages/cli/src/tui/agent.ts`). `.changeset/subagent-plan-mode.md`, **minor** for `@namzu/sdk`, **patch** for `@namzu/cli`.
+
 ## 2026-09-22
 
 - **Update** [Tool execution ordering](sdk/tool-execution.md#presenting-observations): a task removed with `task_update` status `deleted` reaches the stream as `task_updated` with `deleted: true`, and the SSE `task.updated` event carries it (`packages/sdk/src/runtime/query/events.ts`, `packages/sdk/src/bridge/sse/mapper.ts`). [Terminal design](cli/terminal-design.md#the-models-plan): the TUI drops a removed task from the checklist and names it `Removed task · …`; it used to keep drawing it as open (`packages/cli/src/tui/task-activity.ts`, `App.tsx`). `.changeset/task-removal-reaches-checklist.md`, **minor** for `@namzu/sdk`, **patch** for `@namzu/cli`.

@@ -78,7 +78,7 @@ afterEach(() => {
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
-async function openSession() {
+async function openSession(extra: { permissionMode?: 'plan' | 'auto' } = {}) {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-resume-paused-cwd-'))
 	const stateRoot = mkdtempSync(join(tmpdir(), 'namzu-resume-paused-state-'))
 	roots.push(cwd, stateRoot)
@@ -96,6 +96,7 @@ async function openSession() {
 			stateRoot,
 			scope,
 			conversationSessions: conversations,
+			...extra,
 		}),
 		scope,
 		stateRoot,
@@ -235,4 +236,34 @@ describe('resuming this session’s own paused turn', () => {
 
 		expect(message).toMatch(/parked on a decision/)
 	})
+
+	// Plan is stricter than the rules. A resumed turn is decided under the
+	// session's fixed mode, and without this a batch a rule allows ran
+	// without reaching the handler that refuses a change in plan mode.
+	it.each([
+		['plan', true],
+		['auto', undefined],
+	] as const)(
+		'under a %s session, hands the resumed turn reviewAllowedCalls → %s',
+		async (mode, expected) => {
+			const { session, scope, conversations } = await openSession({ permissionMode: mode })
+			await recordTurnStart(conversations, scope.sessionId, {
+				tokenBudget: 0,
+				maxIterations: 0,
+				timeoutMs: 0,
+			})
+			try {
+				for await (const event of session.resumePaused({
+					turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+					checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+				})) {
+					if (event.kind === 'error') throw new Error(event.message)
+				}
+			} finally {
+				await session.close()
+			}
+			const call = resumeCalls[0] as { reviewAllowedCalls?: () => boolean }
+			expect(call.reviewAllowedCalls?.()).toBe(expected)
+		},
+	)
 })

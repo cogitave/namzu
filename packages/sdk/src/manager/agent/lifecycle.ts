@@ -180,6 +180,26 @@ function mergeEnv(
 	return { ...base, ...override }
 }
 
+/**
+ * One `reviewAllowedCalls` that answers `true` when any of `sources` does.
+ *
+ * Review is only ever added along a delegation: a child's own answer joins
+ * its parent's, it never replaces it. Each source is read at every call, so
+ * a parent whose answer changes mid-turn (a mode the operator entered) is
+ * seen by a child already running. The same function twice (a builder that
+ * forwarded the override it was handed) is consulted once. Returns
+ * `undefined` when no source is set, and the one source unwrapped when there
+ * is exactly one.
+ */
+function anyReviewAllowedCalls(
+	...sources: ReadonlyArray<(() => boolean) | undefined>
+): (() => boolean) | undefined {
+	const present = [...new Set(sources.filter((s): s is () => boolean => s !== undefined))]
+	if (present.length === 0) return undefined
+	if (present.length === 1) return present[0]
+	return () => present.some((source) => source() === true)
+}
+
 export class AgentManager {
 	private registry: AgentRegistry
 	private instances: Map<TaskId, AgentTask> = new Map()
@@ -542,6 +562,16 @@ export class AgentManager {
 			const ownDenies = options.toolScope?.deny ?? []
 			const resolvedDenies = [...new Set([...inheritedDenies, ...ownDenies])]
 
+			// The parent's "review even what the rules allow" (plan mode), and
+			// this spawn's own if it names one. OR-ed rather than replaced, for
+			// the same reason the denies above are a union: a descendant may ask
+			// for more review and never for less. The builder's value joins
+			// below, once the builder has run.
+			const inheritedReview = anyReviewAllowedCalls(
+				context.reviewAllowedCalls,
+				options.configOverrides?.reviewAllowedCalls,
+			)
+
 			const childContext: AgentTaskContext = {
 				parentSessionId: context.parentSessionId,
 				parentTurnId: context.parentTurnId,
@@ -557,6 +587,7 @@ export class AgentManager {
 				parentActor: childParentActor,
 				...(resolvedDenies.length > 0 ? { toolDenies: resolvedDenies } : {}),
 				...(context.childStorage ? { childStorage: context.childStorage } : {}),
+				...(inheritedReview ? { reviewAllowedCalls: inheritedReview } : {}),
 			}
 
 			agentTask = Object.assign(queuedTask ?? {}, {
@@ -758,6 +789,21 @@ export class AgentManager {
 			if (inheritedScreens !== undefined) {
 				childConfig.toolResultGuardrails = inheritedScreens
 			}
+
+			// Stamped after both branches, beside the screens and for the same
+			// reason: a `configBuilder` cannot forward a field it was never told
+			// about, and the bare-config branch builds its config by hand.
+			//
+			// Without it a child borrowed its parent's review handler and not
+			// the switch that sends rule-allowed and grant-covered batches to
+			// it, so plan mode refused the parent's next change and let the
+			// child's run: a call an approval earlier in the CHILD's turn
+			// covered never reached the handler that knew about plan mode. The
+			// function is carried, not sampled, so a mode entered while the
+			// child runs reaches its next batch. The builder's own value is
+			// kept and OR-ed in: it may add review, never remove the parent's.
+			const effectiveReview = anyReviewAllowedCalls(inheritedReview, childConfig.reviewAllowedCalls)
+			if (effectiveReview) childConfig.reviewAllowedCalls = effectiveReview
 
 			// Lineage is assigned by the spawning manager, not proposed by the
 			// child definition. A fixed configBuilder can ignore its inputs and

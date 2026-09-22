@@ -94,6 +94,10 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				// applications call. A feature a consumer cannot reach is a
 				// feature that does not exist for them.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				// The switch that sends rule-allowed and grant-covered batches to
+				// that handler (plan mode). A delegated child inherits it from the
+				// manager; dropped here, the child would run them past the handler.
+				...(config.reviewAllowedCalls ? { reviewAllowedCalls: config.reviewAllowedCalls } : {}),
 				...(config.retry !== undefined ? { retry: config.retry } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
 				...(config.toolRetryBackoff !== undefined

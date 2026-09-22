@@ -228,6 +228,15 @@ export interface SubagentRuntimeOptions {
 	 * the Agent tool. Absent means the child has no human review channel.
 	 */
 	readonly resolveResumeHandler?: (turnId: ToolContext['turnId']) => ResumeHandler | undefined
+	/**
+	 * Resolve the invoking turn's `reviewAllowedCalls`: whether a batch a rule
+	 * allows, or an earlier approval covers, still goes to the borrowed
+	 * handler (true while the live mode is plan). Handed to every child that
+	 * turn delegates to, as the function itself, so a mode the operator enters
+	 * while a child runs reaches that child's next batch. Absent: children
+	 * run such batches without asking, as the parent would.
+	 */
+	readonly resolveReviewAllowedCalls?: (turnId: TurnId) => (() => boolean) | undefined
 	/** Wake a delegation wait when this parent has undelivered operator input. */
 	readonly resolveWaitForInbound?: (
 		turnId: TurnId,
@@ -558,7 +567,13 @@ export async function createSubagentRuntime(
 						throw new Error(`Parent turn ${turnId} was released`)
 					}
 				}
+				// The parent turn's "review even what the rules allow" (plan
+				// mode). The child borrows the parent's handler, which refuses
+				// a change in plan mode, and without this a batch a rule allows
+				// would run in the child without ever reaching it.
+				const reviewAllowedCalls = opts.resolveReviewAllowedCalls?.(turnId)
 				const taskContext: AgentTaskContext = {
+					...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
 					parentSessionId: parent.sessionId,
 					parentTurnId: turnId,
 					parentAgentId: 'namzu',

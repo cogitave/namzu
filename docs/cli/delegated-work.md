@@ -45,6 +45,17 @@ session-wide approval also approves requests already waiting in this queue.
 Escape declines the current request; Ctrl+C rejects all pending requests and
 stops the turn. Closing the application rejects unresolved reviews.
 
+A child is reviewed under the parent turn's live permission mode, read at each
+request. Plan mode entered with Shift+Tab while a child runs refuses that
+child's next change with the plan-mode feedback, including one a `permissions`
+rule allows and one of a kind the operator approved earlier in the child's
+turn: the parent turn's "review even what the rules allow" switch reaches every
+delegated turn (`resolveReviewAllowedCalls`, the SDK's
+`AgentTaskContext.reviewAllowedCalls`). Leaving plan mode approves nothing
+retroactively; a refused call stays refused. A paused turn resumed under a
+session started in plan mode, and the children it delegates, are held the same
+way.
+
 `send_message` takes `task_id` and `message` and queues a correction for a running
 or queued child owned by the current parent session. The child reads it at its next
 request boundary. Acceptance confirms queuing, not delivery or execution.

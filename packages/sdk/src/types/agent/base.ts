@@ -293,6 +293,32 @@ export interface BaseAgentConfig {
 	 * host that never wired one is unaffected.
 	 */
 	resumeHandler?: ResumeHandler
+
+	/**
+	 * Whether a batch that needs no review still goes to `resumeHandler`, in
+	 * this agent's turn and in every turn it delegates to. See
+	 * {@link import('../../runtime/query/index.js').QueryParams.reviewAllowedCalls}.
+	 *
+	 * A delegated child borrows its parent's handler, and a handler that
+	 * refuses a change in a read-only mode (`plan`) cannot refuse a batch that
+	 * never reaches it: one a rule allows, or one an approval given earlier in
+	 * the CHILD's turn covers. So `AgentManager` stamps the spawning context's
+	 * function (`AgentTaskContext.reviewAllowedCalls`) onto the child config
+	 * after the builder returns, the same way it stamps the handler.
+	 *
+	 * Passed as a function and read once per batch, so a mode the operator
+	 * enters while a child is already running reaches that child's next batch.
+	 *
+	 * **It only ever adds review.** A value the child config sets itself (from
+	 * its `configBuilder` or `configOverrides`) is kept, and consulted together
+	 * with the inherited one: the child's batch goes to review when EITHER
+	 * says so. A child can ask for more review than its parent; it cannot
+	 * answer `false` over a parent that answers `true`.
+	 *
+	 * Absent, and nothing inherited: rule-allowed and grant-covered batches run
+	 * without asking, as they always have.
+	 */
+	reviewAllowedCalls?: () => boolean
 }
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>

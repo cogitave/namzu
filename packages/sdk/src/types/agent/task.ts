@@ -142,6 +142,21 @@ export interface AgentTaskContext {
 	 */
 	readonly childStorage?: ChildSessionStorage
 
+	/**
+	 * The parent's `reviewAllowedCalls`, handed to every child it delegates
+	 * to and on to theirs. See `BaseAgentConfig.reviewAllowedCalls`.
+	 *
+	 * The function itself, not a sampled value, so a stricter mode entered
+	 * while a child runs reaches that child's next batch. `AgentManager`
+	 * stamps it onto the child config after the builder runs and carries it
+	 * on the child's own context; a child config that sets its own keeps it,
+	 * and the two are OR-ed, so a descendant can add review and never shed
+	 * it. `SupervisorAgent` sets it from its config; a host that builds its
+	 * own context for a `TaskScheduler` sets it from the same function it
+	 * passes its own `query()`. Absent: children decide from their own config.
+	 */
+	readonly reviewAllowedCalls?: () => boolean
+
 	/** Isolation boundary. Required per session-hierarchy.md §12.1. */
 	tenantId: TenantId
 
