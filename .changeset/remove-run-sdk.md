@@ -97,7 +97,10 @@ fault (a 429, an outage, a stalled stream) that survives the retries used to
 fail the turn when it hit before the turn's first checkpoint, which in
 practice meant its first request; the same fault one request later paused
 it. It now pauses there too, on a checkpoint of the turn where its loop began
-(`iteration: 0`), and `resumeSession` sends the request again. So after such a
+(`iteration: 0` for a fresh turn, the restored count for a resumed one), and
+`resumeSession` restarts the turn from where that loop began: whatever the
+failed iteration produced before the fault (a partial `max_tokens` answer, a
+continuation prompt) is not in the resumed request. So after such a
 fault the session holds a paused turn, and the next `query()` or `runAgent`
 in it throws `TurnInProgressError` until the turn is resumed or closed with
 `abandonTurn`: a caller that retried by starting a fresh turn resumes instead.

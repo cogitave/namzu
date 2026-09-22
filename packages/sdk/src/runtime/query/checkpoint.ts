@@ -360,7 +360,9 @@ export class CheckpointManager {
 	 * on and resume from. It covers the log only through the loop's start,
 	 * and counts none of the failed iteration's guards, the way a later
 	 * iteration's checkpoint covers nothing of the iteration that failed
-	 * after it. `undefined` when no loop start was marked.
+	 * after it. Its iteration is the one the loop began at: 0 for a fresh
+	 * turn, the restored count for a resumed one. `undefined` when no loop
+	 * start was marked.
 	 */
 	async createAtLoopStart(recorder: TurnRecorder): Promise<CreatedCheckpoint | undefined> {
 		const state = this.loopStart
@@ -368,7 +370,7 @@ export class CheckpointManager {
 		// The ledger is the account, not the turn's view of it: whatever the
 		// failed request spent stays spent.
 		await recorder.budget?.flush()
-		return this.write(recorder, 0, state)
+		return this.write(recorder, state.guards.iteration, state)
 	}
 
 	/** The part of a checkpoint document that describes the turn at one instant. */

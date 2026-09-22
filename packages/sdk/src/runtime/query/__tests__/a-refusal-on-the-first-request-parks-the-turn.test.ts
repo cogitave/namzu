@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -142,6 +143,93 @@ describe('a retryable refusal on the turn’s first request', () => {
 		// unanswered.
 		expect(JSON.stringify(provider.requests.at(-1)?.messages)).toContain('go')
 		expect(await terminalRecords(session.sessionLog)).toHaveLength(1)
+	})
+
+	it('labels a resumed turn’s loop-start checkpoint with the iteration it resumed at', async () => {
+		// Iteration 1 calls a tool and checkpoints; request 2 is refused and
+		// the turn pauses. The resume's first request is refused too, before
+		// the resumed loop has written a checkpoint of its own, so the pause
+		// commits the resumed loop's start, which is iteration 1, not 0.
+		const session = memorySession()
+		const scope: TurnStateScope = {
+			turnId: generateTurnId(),
+			tenantId: session.tenantId,
+			projectId: session.projectId,
+			sessionId: session.sessionId,
+			topicId: session.topicId,
+		}
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'fetch_page',
+			description: 'Fetch a page',
+			inputSchema: z.object({ url: z.string() }),
+			execute: async () => ({ success: true, output: 'ok' }),
+		} as unknown as Parameters<ToolRegistry['register']>[0])
+		const answers = new MockLLMProvider({
+			turns: [{ toolCalls: [{ name: 'fetch_page', args: { url: 'x' } }] }, { text: 'done' }],
+		})
+		let request = 0
+		const provider: LLMProvider = {
+			id: 'mock',
+			name: 'Mock',
+			capabilities: answers.capabilities,
+			async *chatStream(params: ChatCompletionParams) {
+				request += 1
+				if (request === 2 || request === 3) {
+					throw new ProviderError({
+						code: 'rate_limit',
+						message: 'the provider said 429',
+						providerId: 'mock',
+						status: 429,
+					})
+				}
+				yield* answers.chatStream(params)
+			},
+		} as LLMProvider
+		const common = {
+			provider,
+			tools,
+			agentId: 'agent_first_refusal',
+			agentName: 'First refusal agent',
+			workingDirectory: process.cwd(),
+			retry: false,
+			permissionMode: 'auto',
+			turnConfig,
+		}
+		const run = await drainQuery(
+			{
+				...common,
+				...session,
+				messages: [{ role: 'user', content: 'go' }],
+				turnId: scope.turnId,
+			} as unknown as QueryParams,
+			() => {},
+		)
+		expect(run.stopReason).toBe('paused')
+		const before = await turnCheckpoints({ ...session, turnId: scope.turnId })
+		expect(before.map((checkpoint) => checkpoint.iteration)).toContain(1)
+
+		const resumed = await resumeSession({
+			...common,
+			scope,
+			sessionLog: session.sessionLog,
+			checkpointStore: await heldCheckpointStore(session.sessionLog),
+			sessionId: scope.sessionId,
+			topicId: scope.topicId,
+			projectId: scope.projectId,
+			tenantId: scope.tenantId,
+		} as unknown as ResumeSessionParams)
+		expect(resumed.resumed).toBe(true)
+
+		if (!resumed.resumed) return
+		expect(resumed.turn.stopReason).toBe('paused')
+		const known = new Set(before.map((checkpoint) => checkpoint.checkpointId))
+		const added = (await turnCheckpoints({ ...session, turnId: scope.turnId })).filter(
+			(checkpoint) => !known.has(checkpoint.checkpointId),
+		)
+		expect(added).toHaveLength(1)
+		expect(added[0]?.guards.iteration).toBe(1)
+		expect(added[0]?.iteration).toBe(1)
 	})
 
 	it('still fails a permanent refusal on the first request', async () => {
