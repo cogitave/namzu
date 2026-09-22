@@ -92,6 +92,21 @@ closed with the new `abandonTurn(sessionId, turnId, reason)`. Parallel work
 goes to child sessions or separate sessions. Manual compaction between turns is
 `compactSession`.
 
+**A rate limit on a turn's first request pauses it.** A retryable provider
+fault (a 429, an outage, a stalled stream) that survives the retries used to
+fail the turn when it hit before the turn's first checkpoint, which in
+practice meant its first request; the same fault one request later paused
+it. It now pauses there too, on a checkpoint of the turn where its loop began
+(`iteration: 0`), and `resumeSession` sends the request again. So after such a
+fault the session holds a paused turn, and the next `query()` or `runAgent`
+in it throws `TurnInProgressError` until the turn is resumed or closed with
+`abandonTurn`: a caller that retried by starting a fresh turn resumes instead.
+The returned `Turn` has `stopReason: 'paused'` rather than `status:
+'failed'`, the event is `turn_paused` rather than `turn_failed`, and a paused
+turn's `lastProviderError` now carries the classification (retry delay
+included) that only a failed turn carried before. A permanent fault still
+fails the turn.
+
 **Event literals.** `run_started`, `run_completed`, `run_failed`, `run_paused`
 and `run_resuming` are `turn_started`, `turn_completed`, `turn_failed`,
 `turn_paused` and `turn_resuming`. `subsession_spawned`, `subsession_messaged`

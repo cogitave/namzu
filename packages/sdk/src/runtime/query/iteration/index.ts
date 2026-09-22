@@ -306,6 +306,13 @@ export class IterationOrchestrator {
 		// retained user turn encountered while scanning restored history.
 		for (const message of this.ctx.resumedInput ?? []) this.rememberUserMessage(message)
 
+		// What a recoverable failure pauses on when it lands before this
+		// loop wrote a checkpoint of its own: without it a 429 on the first
+		// request failed the turn, while the same 429 one request later
+		// paused it. Taken after the intent above is known, so the
+		// checkpoint names the message the turn is answering.
+		await this.ctx.checkpointMgr.markLoopStart?.(recorder)
+
 		// One context-overflow relief per *stuck point*, not per turn.
 		//
 		// The latch exists so that a second overflow immediately after a

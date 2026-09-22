@@ -71,6 +71,19 @@ export interface CreatedCheckpoint {
 	readonly document: Checkpoint
 }
 
+/** What a checkpoint document records about the turn at the instant it describes. */
+type CheckpointState = Pick<
+	Checkpoint,
+	| 'throughSeq'
+	| 'throughSha256'
+	| 'tokenUsage'
+	| 'costInfo'
+	| 'guards'
+	| 'review'
+	| 'latestUserMessageId'
+	| 'workingState'
+>
+
 /**
  * A checkpoint read back for a resume: the document, the context it
  * restores (the fold of the session log through `throughSeq`), and the
@@ -264,6 +277,8 @@ export class CheckpointManager {
 	 * from the turn's own start.
 	 */
 	private turnCreatedAt?: string
+	/** The turn where its iteration loop began; see {@link markLoopStart}. */
+	private loopStart?: CheckpointState
 
 	constructor(recorder: CheckpointRecords, store: SessionCheckpointStore, scope: CheckpointScope) {
 		this.recorder = recorder
@@ -323,31 +338,54 @@ export class CheckpointManager {
 	 * `checkpoint_written` record commits it.
 	 */
 	async create(recorder: TurnRecorder, iteration: number): Promise<CreatedCheckpoint> {
+		await recorder.budget?.flush()
+		const state = await this.captureState(recorder)
+		if (!state) throw new Error('A checkpoint needs a session log with records in it.')
+		return this.write(recorder, iteration, state)
+	}
+
+	/**
+	 * Remember the turn as it stands where its iteration loop begins, before
+	 * the loop's first provider request. Nothing is written: the state is
+	 * only committed, by {@link createAtLoopStart}, when the turn has to
+	 * pause before it wrote a checkpoint of its own.
+	 */
+	async markLoopStart(recorder: TurnRecorder): Promise<void> {
+		this.loopStart = await this.captureState(recorder)
+	}
+
+	/**
+	 * A checkpoint of the turn as {@link markLoopStart} found it, so a turn
+	 * whose first provider request fails recoverably has something to pause
+	 * on and resume from. It covers the log only through the loop's start,
+	 * and counts none of the failed iteration's guards, the way a later
+	 * iteration's checkpoint covers nothing of the iteration that failed
+	 * after it. `undefined` when no loop start was marked.
+	 */
+	async createAtLoopStart(recorder: TurnRecorder): Promise<CreatedCheckpoint | undefined> {
+		const state = this.loopStart
+		if (!state) return undefined
+		// The ledger is the account, not the turn's view of it: whatever the
+		// failed request spent stays spent.
+		await recorder.budget?.flush()
+		return this.write(recorder, 0, state)
+	}
+
+	/** The part of a checkpoint document that describes the turn at one instant. */
+	private async captureState(recorder: TurnRecorder): Promise<CheckpointState | undefined> {
 		const startedAt = recorder.getTurn().startedAt
 		this.turnCreatedAt ??= new Date(startedAt).toISOString()
 		const latestUserMessage = this.latestUserMessageSource?.() ?? this.restoredUserMessage
-		await recorder.budget?.flush()
 		const head = await recorder.head()
-		if (!head) throw new Error('A checkpoint needs a session log with records in it.')
+		if (!head) return undefined
 		const latestUserMessageId = latestUserMessage
 			? this.messageIdOf(recorder, latestUserMessage)
 			: undefined
-		const binding = recorder.budget?.binding
-		const accountId = recorder.budget?.accountId
-		const document: Checkpoint = {
-			v: CHECKPOINT_DOCUMENT_VERSION,
-			kind: 'checkpoint',
-			checkpointId: generateCheckpointId(),
-			sessionId: this.scope.sessionId,
-			turnId: this.scope.turnId,
-			iteration,
+		return {
 			throughSeq: head.pointer.seq,
 			throughSha256: head.pointer.sha256,
 			tokenUsage: { ...recorder.tokenUsage },
 			costInfo: { ...recorder.costInfo },
-			...(accountId !== undefined
-				? { budget: { ...(binding ? { binding } : {}), accountId } }
-				: {}),
 			guards: {
 				iteration: recorder.currentIteration,
 				elapsedMs: Math.max(0, Date.now() - startedAt),
@@ -360,8 +398,36 @@ export class CheckpointManager {
 			},
 			...(latestUserMessageId ? { latestUserMessageId } : {}),
 			...withDefined('workingState', this.workingStateSource?.()),
+		}
+	}
+
+	private async write(
+		recorder: TurnRecorder,
+		iteration: number,
+		state: CheckpointState,
+	): Promise<CreatedCheckpoint> {
+		const binding = recorder.budget?.binding
+		const accountId = recorder.budget?.accountId
+		const document: Checkpoint = {
+			v: CHECKPOINT_DOCUMENT_VERSION,
+			kind: 'checkpoint',
+			checkpointId: generateCheckpointId(),
+			sessionId: this.scope.sessionId,
+			turnId: this.scope.turnId,
+			iteration,
+			throughSeq: state.throughSeq,
+			throughSha256: state.throughSha256,
+			tokenUsage: state.tokenUsage,
+			costInfo: state.costInfo,
+			...(accountId !== undefined
+				? { budget: { ...(binding ? { binding } : {}), accountId } }
+				: {}),
+			guards: state.guards,
+			review: state.review,
+			...(state.latestUserMessageId ? { latestUserMessageId: state.latestUserMessageId } : {}),
+			...withDefined('workingState', state.workingState),
 			...withDefined('trace', this.traceSource?.()),
-			turnCreatedAt: this.turnCreatedAt,
+			turnCreatedAt: this.turnCreatedAt ?? new Date(recorder.getTurn().startedAt).toISOString(),
 			createdAt: new Date().toISOString(),
 		}
 		const receipt = await this.store.write(this.scope, document)

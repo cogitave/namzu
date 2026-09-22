@@ -109,14 +109,16 @@ describe('the provider idle bound reaches a real query', () => {
 				},
 			)
 
-			expect(run.status).toBe('failed')
+			// A network fault is recoverable, so the turn pauses on the state
+			// its loop began from rather than failing, even on its first request.
+			expect(run.stopReason).toBe('paused')
 			expect(run.lastProviderError).toMatchObject({
 				kind: 'network',
 				providerId: 'idle-primary',
 				detail: expect.stringContaining('10ms'),
 			})
-			expect(events.find((event) => event.type === 'turn_failed')).toMatchObject({
-				type: 'turn_failed',
+			expect(events.find((event) => event.type === 'turn_paused')).toMatchObject({
+				type: 'turn_paused',
 				providerError: run.lastProviderError,
 			})
 			expect(provider.transportSignals).toHaveLength(1)
@@ -153,7 +155,7 @@ describe('the provider idle bound reaches a real query', () => {
 				},
 			)
 
-			expect(run.status).toBe('failed')
+			expect(run.stopReason).toBe('paused')
 			expect(run.result).toBeUndefined()
 			expect(run.lastProviderError).toMatchObject({ kind: 'network', providerId: 'idle-primary' })
 			expect(run.budget).toMatchObject({ poisoned: true, inFlightRequests: 1 })

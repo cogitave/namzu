@@ -47,6 +47,12 @@ memory and resident state written by 26.x are **not read** by this version.
   retries later on 75 needs no change. In the TUI the refusal offers
   `/resume` or the new **`/abandon`**, which closes the paused turn so the next
   prompt can start.
+- **A rate limit on the first request pauses the turn.** A provider rate
+  limit or outage on a turn's first request used to fail it (`namzu run`
+  exit 1) with nothing to continue; it now pauses it at a checkpoint like the
+  same fault later in the turn: `namzu run` exits 75 naming the checkpoint,
+  `--wait-for-provider` waits and resumes it, and `/resume` or `namzu drain`
+  continues it.
 - **`/agents runs` is now `/agents batches`**, with no alias. `/agents runs`
   prints the unknown-subcommand usage.
 - **NDJSON gains ids.** `run-stream`'s `done` and `usage` events carry

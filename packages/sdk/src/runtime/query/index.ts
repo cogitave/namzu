@@ -1347,8 +1347,12 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			emitEvent: eventTranslator.emitEvent,
 			drainPending: () => eventTranslator.drainPending(),
 			// Read at settle time, not now: checkpoints are written per
-			// iteration, so the answer changes as the turn proceeds.
-			resumeCheckpointId: () => checkpointMgr.lastCheckpointId,
+			// iteration, so the answer changes as the turn proceeds. A turn
+			// that fails before writing one (a 429 on its first request)
+			// commits the state its loop began from, so it pauses like any
+			// later failure rather than failing with nothing to resume.
+			resumeCheckpointId: async () =>
+				checkpointMgr.lastCheckpointId ?? (await checkpointMgr.createAtLoopStart(ctx.recorder))?.id,
 			// Read only to recover WHY a cancellation happened. The turn loop
 			// already knows THAT it was cancelled; the origin lives on the abort
 			// reason and nothing else carries it this far.

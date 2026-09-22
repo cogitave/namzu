@@ -23,9 +23,10 @@ export interface ResultAssemblerConfig {
 	drainPending: () => Generator<SessionEvent>
 	/**
 	 * The state a host should resume from if the turn settles recoverably.
-	 * A function rather than a value: checkpoints are written per iteration.
+	 * A function rather than a value: checkpoints are written per iteration,
+	 * and a turn that fails before its first one may write one on demand.
 	 */
-	resumeCheckpointId?: () => CheckpointId | undefined
+	resumeCheckpointId?: () => CheckpointId | undefined | Promise<CheckpointId | undefined>
 	/**
 	 * The turn's abort signal, read only to recover WHY a cancellation
 	 * happened. Absent means the cause is unknown.
@@ -143,11 +144,14 @@ export class ResultAssembler {
 
 		// A transient failure that survived every in-turn recovery pauses the
 		// turn on its newest checkpoint instead of failing it: the host resumes
-		// the same turn with `resumeSession`.
+		// the same turn with `resumeSession`. A turn that fails before its
+		// first checkpoint pauses on one of the turn where its loop began.
 		const resumeFrom =
-			failure.retryable && recorder.isActive ? this.config.resumeCheckpointId?.() : undefined
+			failure.retryable && recorder.isActive ? await this.resumePoint(errorMessage) : undefined
 		if (resumeFrom !== undefined) {
-			recorder.setLastError(errorMessage)
+			// The classification a failed turn would carry: a host deciding
+			// when to resume reads the retry delay from it.
+			recorder.setLastError(errorMessage, providerError)
 			recorder.setStopReason('paused')
 
 			await emitEvent({
@@ -215,6 +219,25 @@ export class ResultAssembler {
 			[NAMZU.TURN_ID]: recorder.turnId,
 			'exception.message': errorMessage,
 		})
+	}
+
+	/**
+	 * Where a recoverable failure pauses. A checkpoint that cannot be written
+	 * leaves the turn to fail with the error it actually had: a pause with
+	 * nothing to resume from is a dead end, and the write failure is not what
+	 * the caller needs to hear about.
+	 */
+	private async resumePoint(errorMessage: string): Promise<CheckpointId | undefined> {
+		try {
+			return await this.config.resumeCheckpointId?.()
+		} catch (err) {
+			this.config.log.warn('No checkpoint to pause on; the turn fails instead', {
+				[NAMZU.TURN_ID]: this.config.recorder.turnId,
+				'exception.message': toErrorMessage(err),
+				'namzu.runtime.error': errorMessage,
+			})
+			return undefined
+		}
 	}
 
 	/** The durable half of settling: every queued record lands, the ledger is flushed. */

@@ -54,9 +54,10 @@ function failingProvider(code: 'rate_limit' | 'auth', status: number) {
 type Failure = { retryable?: boolean; details?: unknown; code?: string }
 
 async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
-	// The classification rides the `turn_failed` EVENT, which is where a
-	// host reads it; the settled turn carries only the message.
+	// The classification rides the `turn_failed` or `turn_paused` EVENT,
+	// which is where a host reads it.
 	let failure: Failure | undefined
+	let paused = false
 	await drainQuery(
 		{
 			provider: failingProvider(code, status),
@@ -73,11 +74,13 @@ async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
 			retry: false,
 		},
 		(event) => {
-			if (event.type === 'turn_failed') failure = (event as { failure?: Failure }).failure
+			if (event.type === 'turn_paused') paused = true
+			if (event.type === 'turn_failed' || event.type === 'turn_paused')
+				failure = (event as { failure?: Failure }).failure
 		},
 	).catch(() => undefined)
 
-	return { failure }
+	return { failure, paused }
 }
 
 describe('a provider fault that survives the retries', () => {
@@ -88,12 +91,16 @@ describe('a provider fault that survives the retries', () => {
 		// documented pause-and-resume never fires.
 		expect(settled.failure?.retryable).toBe(true)
 		expect(JSON.stringify(settled.failure?.details)).toContain('429')
+		// And it pauses, even though it is the turn's first request.
+		expect(settled.paused).toBe(true)
 	})
 
 	it('does not report a permanent fault as retryable', async () => {
 		// Pausing on a permanent error would invite a resume that cannot
 		// work, which is worse than reporting the failure.
-		expect((await runAgainst('auth', 401)).failure?.retryable).toBe(false)
+		const settled = await runAgainst('auth', 401)
+		expect(settled.failure?.retryable).toBe(false)
+		expect(settled.paused).toBe(false)
 	})
 
 	it('tells the two apart at the turn boundary', async () => {

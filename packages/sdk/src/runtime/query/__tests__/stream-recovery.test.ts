@@ -213,7 +213,9 @@ describe('query stream recovery', () => {
 			},
 		)
 
-		expect(run.status).toBe('failed')
+		// A throttle is recoverable, so the turn pauses; the metadata rides
+		// the pause exactly as it would ride a failure.
+		expect(run.stopReason).toBe('paused')
 		// `detail` rides along with the classification. Without it a host
 		// rendering this metadata knows a request was rejected but not why, and
 		// has to go re-parse the message string — which is the re-parsing this
@@ -225,8 +227,8 @@ describe('query stream recovery', () => {
 			retryAfterMs: 2000,
 			detail: 'rate limit reached for this organization',
 		})
-		expect(events.find((event) => event.type === 'turn_failed')).toMatchObject({
-			type: 'turn_failed',
+		expect(events.find((event) => event.type === 'turn_paused')).toMatchObject({
+			type: 'turn_paused',
 			providerError: run.lastProviderError,
 		})
 	})

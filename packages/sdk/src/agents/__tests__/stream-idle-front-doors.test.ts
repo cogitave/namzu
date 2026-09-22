@@ -84,7 +84,8 @@ describe('agent front doors preserve the provider idle override', () => {
 			}),
 		)
 
-		expect(result.turn.status).toBe('failed')
+		// A stalled stream is a recoverable fault: the turn pauses to be resumed.
+		expect(result.turn.stopReason).toBe('paused')
 		expect(result.turn.lastProviderError?.kind).toBe('network')
 		expect(provider.calls).toBe(1)
 		expect(caller.signal.aborted).toBe(false)
@@ -122,7 +123,7 @@ describe('agent front doors preserve the provider idle override', () => {
 			),
 		)
 
-		expect(result.status).toBe('failed')
+		expect(result.stopReason).toBe('paused')
 		expect(provider.calls).toBe(1)
 		expect(caller.signal.aborted).toBe(false)
 	})

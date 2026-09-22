@@ -407,8 +407,9 @@ export class TurnRecorder {
 		this.#turn.stopReason = reason
 	}
 
-	setLastError(error: string): void {
+	setLastError(error: string, providerError?: ProviderErrorInfo): void {
 		this.#turn.lastError = error
+		if (providerError) this.#turn.lastProviderError = providerError
 	}
 
 	incrementIteration(): number {

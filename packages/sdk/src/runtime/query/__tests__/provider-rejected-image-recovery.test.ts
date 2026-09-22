@@ -341,7 +341,9 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 
 		const { run } = await runFixture(provider, messages)
 
-		expect(run.status).toBe('failed')
+		// A 503 is recoverable: the turn pauses to be resumed, and the
+		// history it would resume from is the one it was given.
+		expect(run.stopReason).toBe('paused')
 		expect(provider.requests).toHaveLength(2)
 		expect(JSON.stringify(run.messages)).not.toContain('provider-rejected')
 	})

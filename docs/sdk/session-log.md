@@ -234,6 +234,17 @@ removed in the log for audit and undo.
 - **An interrupted turn** is closed only when the caller opts in: beginning
   the next turn with `abandonInterrupted` first appends
   `turn_failed` with `failure.code: 'interrupted'`.
+- **A recoverable failure pauses the turn.** A provider fault classified
+  retryable (a rate limit, an outage, a stalled stream) that survives the
+  turn's retries and fallbacks appends `turn_paused` naming the turn's newest
+  checkpoint, and `Turn.lastProviderError` carries the classification. A turn
+  that fails this way before writing a checkpoint of its own (a 429 on its
+  first request) first commits one of the turn as it stood where its
+  iteration loop began: `iteration: 0`, covering the log only through that
+  point and counting none of the failed iteration's guards, so the resume
+  sends the same request again. A failure before the loop begins (in a
+  `turn_start` hook, for one) has no such point and fails the turn. A
+  permanent fault (a bad key, a malformed request) fails it at any point.
 - **A paused turn is never closed implicitly.** It continues under the same
   `turnId` through `resumeSession`, or is closed by `abandonTurn`, which
   appends `turn_failed` with `failure.code: 'abandoned'`.
