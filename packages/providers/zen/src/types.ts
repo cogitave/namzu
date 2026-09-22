@@ -1,3 +1,4 @@
+import type { ZenCatalogue } from './catalogue/catalogue.js'
 import type { ZenProtocol } from './models.js'
 
 export interface ZenConfig {
@@ -11,8 +12,17 @@ export interface ZenConfig {
 	baseURL?: string
 	/** Whole request timeout in milliseconds. Defaults to 120000. */
 	timeout?: number
-	/** Explicit wire format for a model absent from the bundled catalogue. */
+	/** Explicit wire format for a model absent from the catalogue. */
 	protocol?: ZenProtocol
+	/**
+	 * A runtime catalogue, from `@namzu/zen/catalogue`, consulted before the
+	 * bundled snapshot for every lookup: routing, anonymous admission, listing,
+	 * context windows and effort levels. A function is called at each lookup, so
+	 * a host can swap in a fresher catalogue for providers it already built;
+	 * returning `undefined` means the bundled snapshot alone. Omitted, the
+	 * provider uses the bundled snapshot and nothing is ever fetched for it.
+	 */
+	catalogue?: ZenCatalogue | (() => ZenCatalogue | undefined)
 }
 
 /** Go subscriptions require a real API key; anonymous Zen access does not apply. */

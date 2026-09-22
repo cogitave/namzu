@@ -101,7 +101,7 @@ afterEach(() => {
 	if (realStdin) Object.defineProperty(process, 'stdin', realStdin)
 })
 
-describe('run-stream stateless history admission', () => {
+describe('exec --json stateless history admission', () => {
 	it('hands the exact opaque tool history to AgentSession.send', async () => {
 		const prior = [
 			{
@@ -205,7 +205,7 @@ describe('run-stream stateless history admission', () => {
 	})
 })
 
-describe('run-stream and a pipe that never closes', () => {
+describe('exec --json and a pipe that never closes', () => {
 	it('starts the turn after the first-byte deadline instead of waiting for end-of-input', async () => {
 		const silent = new PassThrough()
 		try {

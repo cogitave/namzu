@@ -1,6 +1,9 @@
 import { realpath } from 'node:fs/promises'
 import type { CommandContext } from '../../commands/types.js'
+import { cliLogger } from '../../logging.js'
+import { type ZenCatalogueRefresh, startZenCatalogueRefresh } from '../providers/zen-catalogue.js'
 import { openSessions } from '../sessions/store.js'
+import { resolveNamzuHome } from '../state/home.js'
 import { runOwnedResident } from './owned-runner.js'
 import type { ResidentWorkerLaunch } from './runner-launch.js'
 import { finishRunner, readRunner } from './runner-store.js'
@@ -25,6 +28,7 @@ async function main(): Promise<number> {
 	let resident: Awaited<ReturnType<typeof lookupResident>> = null
 	let owner: ReturnType<typeof readRunner> = null
 	let lifecycleStarted = false
+	let catalogueRefresh: ZenCatalogueRefresh | undefined
 	try {
 		const launch = await new Promise<ResidentWorkerLaunch>((resolve, reject) => {
 			const timer = setTimeout(
@@ -45,6 +49,22 @@ async function main(): Promise<number> {
 			})
 		})
 		controller.signal.throwIfAborted()
+		// This worker is a launch of its own, forked rather than started through
+		// `runCli`, and it opens the runner's sessions. It refreshes the model
+		// catalogue the way every session-opening launch does — started, never
+		// awaited, cancelled in the `finally` — so a pursuit on a model only the
+		// live or last-good catalogue carries still has a wire here.
+		if (launch.config.modelCatalogueRefresh !== false) {
+			try {
+				catalogueRefresh = startZenCatalogueRefresh({
+					// The parent sets NAMZU_HOME to the resident's installation root.
+					home: resolveNamzuHome(),
+					log: cliLogger,
+				})
+			} catch {
+				/* An unusable home leaves the runner on the bundled catalogue. */
+			}
+		}
 		resident = await lookupResident(launch.cwd, launch.agentKey)
 		if (!resident || resident.cwd !== launch.cwd || (await realpath(launch.cwd)) !== launch.cwd)
 			throw new Error('Resident execution directory changed before worker startup.')
@@ -148,6 +168,7 @@ async function main(): Promise<number> {
 			})
 		return 1
 	} finally {
+		catalogueRefresh?.cancel()
 		process.removeListener('disconnect', disconnected)
 		process.removeListener('SIGINT', stop)
 		process.removeListener('SIGTERM', stop)

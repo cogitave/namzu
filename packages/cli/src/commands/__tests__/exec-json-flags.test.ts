@@ -119,7 +119,7 @@ describe('streaming reasoning effort', () => {
 	})
 })
 
-describe('run-stream does not turn options into prompt text', () => {
+describe('exec --json does not turn options into prompt text', () => {
 	it('consumes --cwd instead of speaking it to the model', async () => {
 		// With `--cwd` unparsed these two tokens WERE the prompt, so the turn
 		// proceeded. Reaching "no prompt" is what proves they were consumed.
@@ -151,7 +151,7 @@ describe('run-stream does not turn options into prompt text', () => {
 	})
 })
 
-describe('run-stream works in the directory it was pointed at', () => {
+describe('exec --json works in the directory it was pointed at', () => {
 	it('binds evidence only to a resolved persistent conversation', async () => {
 		const { generateSessionId } = await import('@namzu/sdk')
 		vi.mocked(resolveConversation).mockResolvedValueOnce(generateSessionId())
@@ -305,7 +305,7 @@ describe('history reads the directory it was pointed at', () => {
 	})
 })
 
-describe('run-stream honours the permission surface, not just parses it', () => {
+describe('exec --json honours the permission surface, not just parses it', () => {
 	// It accepted `--permission-mode` and never used it, and it never compiled
 	// the `[permissions]` table at all — so an operator who wrote rules, or who
 	// typed `--permission-mode strict` precisely because they did not trust the

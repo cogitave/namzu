@@ -37,6 +37,15 @@ if (process.env.NAMZU_LOG_LEVEL === undefined) {
 	process.env.NAMZU_LOG_LEVEL = 'silent'
 }
 
+// Every session-opening command refreshes the Zen catalogue over the network
+// in the background. A test that drives one must not reach the public network
+// by accident, so the suite starts with the refresh off; the tests about the
+// refresh inject their own fetch. Children spawned with this environment
+// inherit the setting.
+if (process.env.NAMZU_MODEL_CATALOGUE_REFRESH === undefined) {
+	process.env.NAMZU_MODEL_CATALOGUE_REFRESH = '0'
+}
+
 // Production now routes generated state through NAMZU_HOME. Give every test
 // suite an owned application home so a command-level test can never inspect
 // or mutate the developer's real sessions merely because it exercises the

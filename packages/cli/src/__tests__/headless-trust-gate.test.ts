@@ -469,7 +469,7 @@ describe('namzu exec --json in a folder nobody has trusted', () => {
 
 		expect(code).toBe(EXIT_UNTRUSTED)
 		expect(String(events[0]?.message)).toContain('--trust')
-		expect(projectReads(), 'run-stream read project command bytes before trust').toEqual([])
+		expect(projectReads(), 'exec --json read project command bytes before trust').toEqual([])
 	})
 
 	it('the real CLI refuses before malformed project config is read', async () => {

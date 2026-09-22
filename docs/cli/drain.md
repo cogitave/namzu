@@ -50,6 +50,12 @@ answer belongs to a person; a drainer that continued without it would discard
 the question the turn stopped to ask. A turn with no checkpoint to continue
 from is reported separately, because the two mean opposite things.
 
+A drain is a launch like any other session-opening command. It refreshes the
+Zen model catalogue in the background and reads the last-good copy (see
+[The model catalogue refresh](model-catalogue.md)), so a turn parked on a model
+the bundled catalogue does not carry is continued on the wire the newer
+catalogue states.
+
 A resumed turn keeps its root turn's token ledger: draining grants no fresh
 allowance, and a configured `limits.tokenBudget` that differs from the one the
 ledger was opened with is refused. Checkpoint recovery preserves unknown tool

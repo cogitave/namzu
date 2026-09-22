@@ -25,6 +25,7 @@ import {
 	type Preferences,
 	discoverProviders,
 } from '../../integrations/providers/index.js'
+import { activeZenCatalogue } from '../../integrations/providers/zen-catalogue.js'
 
 const queryCalls: QueryParams[] = []
 const resumeCalls: ResumeSessionParams[] = []
@@ -124,6 +125,8 @@ it.each(['zen', 'zen-go'] as const)(
 				apiKey: `${id}-test-credential`,
 				baseURL: PROVIDER_REGISTRY[id].defaultBaseUrl,
 				model: 'kimi-k2.6',
+				// The session's live catalogue, read at every lookup.
+				catalogue: activeZenCatalogue,
 				sessionId: currentScope.sessionId,
 			})
 		} finally {
@@ -166,6 +169,7 @@ it('admits headless --provider zen with only public discovery and no account key
 			type: 'zen',
 			model: 'muse-spark-1.3-contributor-free',
 			baseURL: 'https://opencode.ai/zen/v1',
+			catalogue: activeZenCatalogue,
 			sessionId: currentScope.sessionId,
 		})
 	} finally {

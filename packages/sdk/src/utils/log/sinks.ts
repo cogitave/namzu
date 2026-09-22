@@ -19,7 +19,7 @@ export const NOOP_SINK: LogSink = {
 
 /**
  * One JSON object per line — the canonical wire format for the machine-read
- * path (`namzu run-stream`'s stderr). JSON string-escaping neutralises
+ * path (`namzu exec --json`'s stderr). JSON string-escaping neutralises
  * `\n`/`\r` by construction, closing the log-forging surface without a
  * single character-stripping call site, which is bypassable anyway.
  *
@@ -67,7 +67,7 @@ const SEVERITY_LABEL: Record<LogRecord['severityText'], string> = {
 // guarantee yet that either is a constant (that lands with the CI gate in
 // later work) — a remote MCP server that names itself an escape sequence
 // erasing the previous line and printing a fake refusal is a real forging
-// attempt against the terminal `namzu run` writes to today, not a
+// attempt against the terminal `namzu exec` writes to today, not a
 // hypothetical one.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: this pattern IS the control-character filter — the escapes below are ASCII text (`\x00`-`\x1F`, `\x7F`), not raw bytes pasted into the source.
 const CONTROL_BYTE = /[\x00-\x1F\x7F]/g

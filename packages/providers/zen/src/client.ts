@@ -26,7 +26,12 @@ import {
 	providerHttpError,
 	providerVendorError,
 } from '@namzu/sdk'
-import { type ZenService, findZenModel } from './models.js'
+import {
+	type ZenCatalogue,
+	findZenCatalogueModel,
+	isUnroutedZenModel,
+} from './catalogue/catalogue.js'
+import type { ZenModel, ZenService } from './models.js'
 import { createCallOptions } from './options.js'
 import { createReplayState, toReasoningBlocks } from './prompt.js'
 import type { ZenConfig, ZenGoConfig } from './types.js'
@@ -64,6 +69,12 @@ export class ZenProvider implements LLMProvider {
 		if (service !== 'zen' && service !== 'go') throw new Error('Unknown service.')
 		if (config.protocol && !['chat', 'responses', 'messages', 'google'].includes(config.protocol))
 			throw new Error('Unknown model protocol.')
+		if (
+			config.catalogue !== undefined &&
+			typeof config.catalogue !== 'function' &&
+			(typeof config.catalogue !== 'object' || config.catalogue === null)
+		)
+			throw new Error('catalogue must be a Zen catalogue or a function returning one.')
 		this.id = service === 'go' ? 'zen-go' : 'zen'
 		this.name = service === 'go' ? 'Zen Go' : 'Zen'
 		if (config.apiKey !== undefined && typeof config.apiKey !== 'string')
@@ -111,7 +122,8 @@ export class ZenProvider implements LLMProvider {
 			params.model ||
 			this.config.model ||
 			(this.anonymous ? 'muse-spark-1.3-contributor-free' : 'glm-5.3-flash')
-		const info = findZenModel(this.service, model)
+		const catalogue = this.runtimeCatalogue()
+		const info = findZenCatalogueModel(catalogue, this.service, model)
 		if (this.anonymous && info?.supportsAnonymousAccess !== true)
 			throw new ProviderRequestError({
 				providerId: this.id,
@@ -124,8 +136,9 @@ export class ZenProvider implements LLMProvider {
 			throw new ProviderRequestError({
 				providerId: this.id,
 				kind: 'bad_request',
-				detail:
-					'This model has no known wire format. Update the provider or configure protocol explicitly.',
+				detail: isUnroutedZenModel(catalogue, this.service, model)
+					? 'The service serves this model, but no source states its wire format. Configure protocol explicitly.'
+					: 'This model has no known wire format. Update the provider or configure protocol explicitly.',
 			})
 		const route = params.providerRoute ?? { providerId: this.id, model, chainIndex: 0 }
 		const controller = new AbortController()
@@ -452,13 +465,27 @@ export class ZenProvider implements LLMProvider {
 				throw new Error('The model catalogue returned an invalid response.')
 			const result: ModelInfo[] = []
 			const seen = new Set<string>()
+			const catalogue = this.runtimeCatalogue()
 			for (const item of body.data) {
 				if (!item || typeof item !== 'object' || typeof item.id !== 'string' || seen.has(item.id))
 					continue
 				seen.add(item.id)
-				const model = findZenModel(this.service, item.id)
-				if (model && (!this.anonymous || model.supportsAnonymousAccess === true))
-					result.push({ ...model })
+				const model = findZenCatalogueModel(catalogue, this.service, item.id)
+				if (model) {
+					if (!this.anonymous || model.supportsAnonymousAccess === true) result.push({ ...model })
+					continue
+				}
+				// Served, and named by the runtime catalogue as having no known wire:
+				// listed as exactly that, so an operator can see it exists, and
+				// callable only with an explicit protocol. Never anonymous, and
+				// nothing about it — price, limits, tools — is invented.
+				if (!this.anonymous && isUnroutedZenModel(catalogue, this.service, item.id))
+					result.push({
+						id: item.id,
+						name: `${item.id} (no known wire format)`,
+						supportsToolUse: false,
+						supportsStreaming: true,
+					})
 			}
 			return result
 		} catch (error) {
@@ -472,12 +499,23 @@ export class ZenProvider implements LLMProvider {
 		model: string,
 		_thinking?: ThinkingConfig,
 	): readonly ReasoningEffort[] | undefined {
-		return findZenModel(this.service, model)?.effortLevels
+		return this.model(model)?.effortLevels
 	}
 
 	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
 		signal?.throwIfAborted()
-		return findZenModel(this.service, model)?.contextWindow
+		return this.model(model)?.contextWindow
+	}
+
+	/** The injected runtime catalogue as it stands now, or undefined for the bundled one alone. */
+	private runtimeCatalogue(): ZenCatalogue | undefined {
+		const source = this.config.catalogue
+		return typeof source === 'function' ? source() : source
+	}
+
+	/** Exact lookup: the runtime catalogue first, then the bundled snapshot. */
+	private model(id: string): ZenModel | undefined {
+		return findZenCatalogueModel(this.runtimeCatalogue(), this.service, id)
 	}
 
 	/**

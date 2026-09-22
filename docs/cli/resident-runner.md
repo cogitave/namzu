@@ -56,6 +56,11 @@ Select `interactive` to retain the previous coding and plan-mode prompt;
 neither profile changes permission enforcement or settlement. See
 [resident step context](resident-work.md#context-for-a-resident-step).
 
+The worker refreshes the Zen model catalogue in the background when it starts,
+as every session-opening launch does, and reads the last-good copy under
+`NAMZU_HOME` (see [The model catalogue refresh](model-catalogue.md)).
+`modelCatalogueRefresh: false` in the transferred configuration turns it off.
+
 An idle runner makes **zero model calls**. SDK `keepAlive` waits for scheduled
 work or fresh agenda state; the CLI observes local controls every 250 ms.
 `--max-idle-ms` defaults to 60,000 and must be positive for `start`: it bounds an

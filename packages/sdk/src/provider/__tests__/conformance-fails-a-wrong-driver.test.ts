@@ -214,10 +214,12 @@ describe('no driver writes a zero it does not mean', () => {
 		// therefore distinct from unknown".
 		//
 		// The generated Zen catalogue is exempt by name. Its zeros come from a
-		// reviewed source through a generator that refuses any model the page
-		// neither prices nor names free, and `generate-zen-models.mjs --check`
-		// with its own tests hold that line — a stronger guarantee than a text
-		// scan could give, and one this scan would only misreport as a defect.
+		// reviewed source through rules that refuse any model the page neither
+		// prices nor names free — `@namzu/zen`'s `src/catalogue/derive.ts`,
+		// which renders the bundled snapshot and refreshes it at run time, with
+		// its own tests and the generator's holding that line — a stronger
+		// guarantee than a text scan could give, and one this scan would only
+		// misreport as a defect.
 		//
 		// What this does NOT reach: a driver that hardcodes a literal zero it
 		// should have derived. That is syntactically indistinguishable from

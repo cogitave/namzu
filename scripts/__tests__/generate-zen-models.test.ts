@@ -26,7 +26,15 @@
 
 import assert from 'node:assert/strict'
 import { spawn, spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+	copyFileSync,
+	cpSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -48,6 +56,7 @@ import {
 	render,
 	renderEntry,
 } from '../generate-zen-models.mjs'
+import { buildZenCatalogue } from '../../packages/providers/zen/dist/catalogue/catalogue.js'
 
 /** The shape `renderEntry` takes; the script itself is untyped JavaScript. */
 interface RenderedModel {
@@ -262,7 +271,9 @@ function baselineFor(zen: string, modelsDev: typeof MODELS_DEV, omissions: Recor
 		).models
 		// Through the same formatter the check runs, or the comparison would be
 		// against a spelling the gate never produces.
-		return formatted(render({ zen: z, go: g }, '2026-01-01'))
+		// The omission keys are rendered into the module too, as the runtime
+		// refresh's default decisions, so the baseline carries the fixture's.
+		return formatted(render({ zen: z, go: g }, '2026-01-01', Object.keys(omissions)))
 	} catch {
 		return '// these sources do not derive; the module is not the thing under test\n'
 	}
@@ -1227,6 +1238,75 @@ describe('the gate, end to end', () => {
 })
 
 /**
+ * The runtime refresh and the snapshot generator are one derivation, and these
+ * pin it from the outside: the CLI calls `buildZenCatalogue` on the texts it
+ * fetched, and whatever it builds must be the module the generator would write
+ * for the same texts — byte for byte, through the same formatter — or a
+ * refreshed session and a fresh install would disagree about the same page.
+ */
+describe('the runtime catalogue and the generated snapshot', () => {
+	function sourcesFor(zen: string, served: { zen: string[]; go: string[] }) {
+		return {
+			docs: { zen, go: GO_PAGE },
+			modelsDev: JSON.stringify(MODELS_DEV),
+			served: {
+				zen: JSON.stringify(catalogue(served.zen)),
+				go: JSON.stringify(catalogue(served.go)),
+			},
+		}
+	}
+
+	test('renders to the module the generator agrees with for the same fixture sources', () => {
+		const served = { zen: DECIDED_SERVED, go: [...GO_SERVED] }
+		const { catalogue: runtime } = buildZenCatalogue(sourcesFor(ZEN_PAGE_DECIDED, served), {
+			omissions: {},
+			baseline: { zen: [], go: [] },
+		})
+		const module = formatted(render(runtime, '2026-01-01', []))
+		// The same module the rules render when called directly…
+		assert.equal(module, baselineFor(ZEN_PAGE_DECIDED, MODELS_DEV, {}))
+		// …and the one the generator's own end-to-end check accepts.
+		const result = run(['--check', '--from', fixtureDir(ZEN_PAGE_DECIDED, MODELS_DEV, {}, module)])
+		assert.equal(result.status, 0, result.stderr)
+		assert.match(result.stdout, /matches its source/)
+		// And reading that module back gives the runtime catalogue's values.
+		const readBack = parseRendered(module).zen
+		assert.deepEqual(
+			readBack.map((model: RenderedModel) => model.id),
+			runtime.zen.map((model: { id: string }) => model.id),
+		)
+		for (const [index, model] of runtime.zen.entries()) {
+			// The read-back shape states anonymity as a boolean and does not read
+			// `supportsStreaming`, which every rendered entry writes as `true`.
+			const { supportsStreaming, ...rest } = model
+			assert.equal(supportsStreaming, true)
+			assert.deepEqual(readBack[index], {
+				...rest,
+				supportsAnonymousAccess: model.supportsAnonymousAccess === true,
+			})
+		}
+	})
+
+	/**
+	 * A served id no page documents is not carried at run time either — but the
+	 * runtime catalogue NAMES it, as unrouted, so a driver can list it as having
+	 * no known wire format instead of dropping it. A documented model the
+	 * derivation could not carry (no models.dev entry) is unrouted too.
+	 */
+	test('names served ids it cannot route rather than guessing a wire for them', () => {
+		const served = { zen: [...ZEN_SERVED, 'gpt-6-unlisted'], go: [...GO_SERVED] }
+		const { catalogue: runtime, report } = buildZenCatalogue(sourcesFor(ZEN_PAGE, served), {
+			omissions: {},
+			baseline: { zen: [], go: [] },
+		})
+		assert.equal(runtime.zen.some((m: { id: string }) => m.id === 'gpt-6-unlisted'), false)
+		assert.deepEqual(runtime.unrouted.zen, ['delta-undocumented', 'gpt-6-unlisted'])
+		assert.deepEqual(report.servedUndocumented, ['zen/gpt-6-unlisted'])
+		assert.deepEqual(report.undecided, [['zen/delta-undocumented', 'models.dev has no `opencode` entry']])
+	})
+})
+
+/**
  * The formatter is part of the run, and it is a tool the tree has to carry.
  *
  * `biomeEntryPoint()` throws an `UnusableSourceError` like any other missing
@@ -1244,6 +1324,12 @@ describe('a tree without its formatter', () => {
 		const dir = tempDir()
 		mkdirSync(join(dir, 'scripts'), { recursive: true })
 		copyFileSync(SCRIPT, join(dir, 'scripts', 'generate-zen-models.mjs'))
+		// The rules live in the built driver package, which the script imports by
+		// path. Its compiled catalogue modules import nothing at run time beyond
+		// each other, so the copy carries them and still has no `node_modules`.
+		cpSync(join(ROOT, 'packages', 'providers', 'zen', 'dist'), join(dir, 'packages', 'providers', 'zen', 'dist'), {
+			recursive: true,
+		})
 		const copy = join(dir, 'scripts', 'generate-zen-models.mjs')
 		const result = spawnSync(process.execPath, [copy, '--check', '--from', fixtureDir(ZEN_PAGE_DECIDED)], {
 			cwd: dir,

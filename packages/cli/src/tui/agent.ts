@@ -217,6 +217,7 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
+import { activeZenCatalogue, isOfferableModel } from '../integrations/providers/zen-catalogue.js'
 import { sessionLogCheckpointView } from '../integrations/sessions/checkpoint-view.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
@@ -2460,6 +2461,7 @@ export async function createAgentSession(
 									.filter(
 										(m) =>
 											canSelectModel(item.entry, item.apiKey, m.id) &&
+											isOfferableModel(item.entry.id, m.id) &&
 											terms.every((term) =>
 												`${item.entry.id} ${m.id} ${m.name}`.toLowerCase().includes(term),
 											),
@@ -3759,6 +3761,9 @@ export function constructProvider(
 						}),
 				baseURL: det?.baseUrl,
 				model,
+				// Read at every lookup, so the launch's background catalogue refresh
+				// reaches this provider whenever it lands, including after now.
+				catalogue: activeZenCatalogue,
 				...(context.sessionId ? { sessionId: context.sessionId } : {}),
 			})
 			return provider
@@ -3898,17 +3903,21 @@ export async function describeProviderModels(
 
 		return {
 			kind: 'ok',
-			models: models.map((m) => ({
-				id: m.id,
-				name: m.name || m.id,
-				...(m.inputModalities !== undefined ? { inputModalities: [...m.inputModalities] } : {}),
-				// Carried, and omitted when the driver did not know — the same
-				// distinction the driver made. `undefined` here says no rate was
-				// published; `0` says the model is free, and the model step is
-				// entitled to print that as a fact. Collapsing the two at this
-				// projection would put the lie back one layer up.
-				...publishedPrices(m),
-			})),
+			// A Zen id served with no known wire is listed by the driver for hosts
+			// that can name a protocol. This one cannot, so it is not offered.
+			models: models
+				.filter((m) => isOfferableModel(id, m.id))
+				.map((m) => ({
+					id: m.id,
+					name: m.name || m.id,
+					...(m.inputModalities !== undefined ? { inputModalities: [...m.inputModalities] } : {}),
+					// Carried, and omitted when the driver did not know — the same
+					// distinction the driver made. `undefined` here says no rate was
+					// published; `0` says the model is free, and the model step is
+					// entitled to print that as a fact. Collapsing the two at this
+					// projection would put the lie back one layer up.
+					...publishedPrices(m),
+				})),
 		}
 	} catch (err) {
 		if (signal?.aborted) throw signal.reason

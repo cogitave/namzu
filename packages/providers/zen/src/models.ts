@@ -29,13 +29,18 @@ export interface ZenModel {
 /*
  * GENERATED FILE — do not edit. Regenerate with:
  *
- *   node scripts/generate-zen-models.mjs
+ *   pnpm --filter @namzu/zen build && node scripts/generate-zen-models.mjs
  *
  * A curation decision is an edit to src/models.review.json, and how a field is
- * derived is an edit to the script. Both survive regeneration; a hand edit here
- * does not, and the CI gate "Zen catalogue matches its source" fails on one.
+ * derived is an edit to src/catalogue/derive.ts. Both survive regeneration; a
+ * hand edit here does not.
  *
  * Refreshed: 2026-09-21
+ *
+ * This is the BUNDLED snapshot: what the driver knows with no network. A host
+ * can derive a fresher roster at run time from the same sources, by the same
+ * rules, through `@namzu/zen/catalogue` and hand it to the provider as
+ * `ZenConfig.catalogue`; the CLI does that in the background on every launch.
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
@@ -53,12 +58,11 @@ export interface ZenModel {
  *
  * Not every model either service serves is carried here. A model that is
  * documented and not carried is omitted by name, with a reason, in
- * src/models.review.json — and the CI gate fails on any documented model that
- * is neither carried nor omitted, so a new upstream model is a decision someone
- * makes rather than a row that arrives by itself. The gate also reads what the
- * two services' own `/models` answers say they serve: an id served and
- * documented nowhere has no derivable wire, so it is reported as a decision
- * too, rather than dropped by the driver in silence.
+ * src/models.review.json, and the generator refuses to write while a
+ * documented model is neither carried nor omitted. It also reads what the two
+ * services' own `/models` answers say they serve: an id served and documented
+ * nowhere has no derivable wire, so it is reported as a decision too, rather
+ * than dropped by the driver in silence.
  *
  * Prices are estimates, not invoices: context tiers, cache, Go peak/off-peak
  * rates, subscription allowances and promotions can change the effective cost.
@@ -1251,6 +1255,43 @@ const GO_MODELS = freezeModels([
 		supportsStreaming: true,
 		effortLevels: ['none', 'low', 'high'],
 	},
+])
+
+/**
+ * Reviewed omissions, as `service/id`: models a source names that this
+ * snapshot deliberately does not carry. A runtime refresh through
+ * `@namzu/zen/catalogue` honours the same decisions by default.
+ */
+export const ZEN_OMITTED_MODELS: readonly string[] = Object.freeze([
+	'go/deepseek-flash',
+	'go/glm-5',
+	'go/grok-4.5',
+	'go/hy3-preview',
+	'go/kimi-k2.5',
+	'go/mimo-v2-omni',
+	'go/mimo-v2-pro',
+	'go/mimo-v2.6-flash',
+	'go/mimo-v2.6-pro',
+	'go/minimax-m2.5',
+	'go/omen-alpha',
+	'go/qwen3.5-plus',
+	'zen/claude-sonnet-4',
+	'zen/deepseek-v4-flash-free',
+	'zen/glm-5',
+	'zen/gpt-5-codex',
+	'zen/gpt-5.1-codex',
+	'zen/gpt-5.1-codex-max',
+	'zen/gpt-5.1-codex-mini',
+	'zen/gpt-5.2-codex',
+	'zen/grok-4.7',
+	'zen/jev-1.13',
+	'zen/jev-1.13-free',
+	'zen/kimi-k2.5',
+	'zen/mimo-v2.6-flash-free',
+	'zen/minimax-m2.5',
+	'zen/muse-spark-1.2-contributor-free',
+	'zen/qwen3.7-max',
+	'zen/qwen3.7-plus',
 ])
 
 /** Supported metadata; actual account availability is established by live discovery. */

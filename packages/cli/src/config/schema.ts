@@ -279,6 +279,20 @@ export interface NamzuCliConfig {
 	readonly telemetry?: TelemetryConfig
 	/** Interactive-terminal-only behaviour. Absent leaves notifications off. */
 	readonly tui?: TuiConfig
+	/**
+	 * Refresh provider model catalogues in the background on every launch.
+	 *
+	 * Today this is the Zen and Zen Go catalogue. Absent or `true` means on: the
+	 * interactive TUI, `resume`, `exec` and `acp` start one refresh
+	 * that never delays startup, gives up after 30 seconds, and is cancelled when
+	 * the command ends. A refresh that lands becomes the catalogue the session
+	 * lists and routes with and is kept under the application home as the
+	 * last-good copy; one that fails keeps the last-good copy, or the bundled
+	 * snapshot, and logs one line. `false` turns it off entirely — no network
+	 * read, and no last-good copy either: the bundled snapshot alone. Read
+	 * before a project is trusted, so a project file does not affect it.
+	 */
+	readonly modelCatalogueRefresh?: boolean
 }
 
 export interface TelemetryConfig {

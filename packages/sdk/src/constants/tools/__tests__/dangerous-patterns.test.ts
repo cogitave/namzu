@@ -4,7 +4,7 @@ import { DANGEROUS_PATTERNS } from '../index.js'
 
 /**
  * `DANGEROUS_PATTERNS` is what `deny_dangerous_patterns` consults, and
- * `namzu run`'s own docstring promises that in a non-interactive run "the
+ * `namzu exec`'s own docstring promises that in a non-interactive run "the
  * safety gate still hard-denies catastrophic commands".
  *
  * The fork-bomb entry could not deny one. It was written `/:(){ :\|:& };:/`,

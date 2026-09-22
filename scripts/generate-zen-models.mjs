@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Derive the pinned Zen catalogue from the documents that define it.
+ * Refresh the BUNDLED Zen catalogue snapshot by hand.
  *
  *   node scripts/generate-zen-models.mjs            # fetch upstream, rewrite models.ts
  *   node scripts/generate-zen-models.mjs --check    # fetch upstream, diff, exit 1 on drift
@@ -10,108 +10,82 @@
  *                                                   # answers, DIR/models.review.json and
  *                                                   # DIR/models.ts, each when it is there
  *
+ * Run `pnpm --filter @namzu/zen build` first: the parsing rules are not in this
+ * file. They live in `@namzu/zen` (`src/catalogue/`), where the CLI runs them
+ * on every launch to refresh its catalogue in the background, and this script
+ * imports the built module so the snapshot and the runtime refresh can never
+ * read one page two different ways. What stays here is what only a maintainer
+ * needs: the review file, rendering `models.ts` through the formatter, and the
+ * report of what a refresh would change.
+ *
+ * The snapshot is the floor a consumer stands on when nothing fresher is
+ * available — an embedder that never opts into a refresh, a CLI launch with no
+ * network and no last-good cache. Nothing gates it in CI any more: upstream
+ * moving is what the runtime refresh absorbs, and a gate that turned `main` red
+ * whenever it did measured upstream rather than this repository.
+ *
  * Exit codes: 0 in agreement, 1 a decision somebody has to make — the module
  * disagrees with its sources, or a source names a model the catalogue neither
  * carries nor omits — and 2 a source could not be read, no longer has the shape
- * this script parses, or the formatter it renders through is not installed. The
- * distinction is the one a reader needs at 2am: 1 is a decision somebody has to
- * make, 2 is a source that moved and no edit to models.ts will fix.
+ * the rules parse, or the formatter is not installed. An unbuilt `@namzu/zen`
+ * fails before any of that, as a module-not-found naming the missing
+ * `dist/catalogue/` file.
  *
- * ## Why this one fetches where the price catalogue does not
+ * ## What is curated
  *
- * scripts/generate-model-prices.mjs reads a reviewed table out of the tree,
- * because a rate is a commercial fact and two builds of one commit must agree
- * about it. A model ROSTER is the opposite kind of thing: its defect is going
- * stale, and a gate that cannot see upstream can only ever report that a file
- * equals itself. So the sources are the live documents and the gate is a
- * network gate. It fails rather than skipping when they are unreachable,
- * because "I could not look" reported as "this is fine" is the failure the
- * optional-dependency rule exists to prevent.
- *
- * What is NOT fetched is anything a consumer depends on at run time. models.ts
- * is ordinary committed code; the network is reached by this script and never
- * by the driver, the SDK or the CLI.
- *
- * ## The third source: what the service actually serves
- *
- * The pages can only be as current as whoever edits them, and the service
- * serves ids they do not document — measured 2026-09-18: the Zen `/models`
- * answer carried 71 ids and its page documented 70, and three of the Zen ids
- * and nine of the Go ids were on neither page nor in the review file. A roster
- * gate that reads only the pages cannot see them, and `listModels()` drops what
- * it does not know, so the model the owner was told about never arrives. So
- * `--check` also reads the two `/models` answers and reports every id served
- * but neither carried nor omitted. That answer carries `id`, `object`,
- * `created` and `owned_by` and nothing else, so it says a model EXISTS and
- * nothing about how to call it: such an id cannot be carried, only curated,
- * which is why it is exit 1 and why the remedy is a review-file entry.
- *
- * An unreachable or unreadable `/models` is exit 2 like any other source, and
- * never a silent pass: "I could not look" reported as "this is fine" is the
- * failure the whole optional-dependency rule exists to prevent. The two
- * endpoints answer anonymously, from CI as from a laptop, which is why a
- * scheduled run can read them at all.
- *
- * ## Where each field comes from
- *
- * Routes come from the service's own documentation page, as the pair
- * (endpoint, AI SDK package) that page states per model. Both halves are read
- * and required to agree, because a page that changed shape must stop the run
- * rather than have one half guessed: the wire a model is served on is a
- * routing fact, and the wrong one is a request to the wrong endpoint rather
- * than a clean failure. A row may state its endpoint and no package, with the
- * `-` the page's own tables use for a cell that has no value: that is a row
- * the page publishes rather than one it lost, so it is read and recorded with
- * no wire, and `derive` reports it as the decision it is. Losing a column, or
- * carrying a marker that is not `-`, is still the page moving and still stops
- * the run.
- *
- * Prices come from the same page's per-1M-token table, at the base tier: the
- * unqualified row when a model has one, the "(Off-Peak)" row for the Go
- * DeepSeek entries that publish both, and the "(≤ n tokens)" row when a model
- * is only published as a tier pair. A model with no price row at all must
- * appear in that page's free-model list and is then zero — "no row" is never
- * quietly read as free.
- *
- * Limits, modalities, tool support and effort levels come from the matching
- * provider entry in models.dev, which is where the upstream project keeps
- * them. Its `npm` is deliberately NOT used as a route, in either of the two
- * places models.dev states one: the provider-level field names a single
- * Chat-Completions package for both services, which would send the Go Qwen
- * rows — documented on `/messages` — to `/chat/completions`, and the per-model
- * `provider.npm` is stated for fewer than half the documented models, so it
- * cannot route the rest. A runtime that trusted either would route some models
- * to the wrong endpoint.
- *
- * ## What is curated, and what happens when upstream adds a model
- *
- * Everything above is derived, so a new upstream model reaches the catalogue
- * only once a maintainer runs the command at the top. That is deliberate — the
- * wire is a routing fact and a wrong route is a wrong request — but it means
- * the failure mode is silence, so a model a source names must be either CARRIED
- * or OMITTED with a reason in models.review.json, and the gate fails on any
- * documented model that is neither, naming every one of them. Nothing is
- * skipped quietly, and nothing is defaulted.
- *
- * An id the service serves and the pages do not document is in the same
- * position for a different reason: there is no route to derive, so it cannot be
- * carried, and it is exit 1 in both modes until somebody records the decision.
- * A refresh still WRITES while one of those stands — the roster it derives is
- * unaffected — so that the diff a reviewer is looking at and the list of ids
- * that need curating arrive together. The scheduled workflow
- * (.github/workflows/zen-catalogue-refresh.yml) is built on exactly that: it
- * opens a pull request when the module moved, with this script's own report in
- * the body, and fails loudly when the service moved and the module did not.
- *
- * Omissions expire in the same direction: an entry naming a model upstream
- * neither documents nor serves fails the gate too, so the review file cannot
- * accumulate decisions about models nobody serves.
+ * A model a page documents must be either CARRIED or OMITTED with a reason in
+ * `packages/providers/zen/src/models.review.json`; a refresh refuses to write
+ * while one is neither. An id the service serves and no page documents has no
+ * route to derive, so it cannot be carried, and it is exit 1 in both modes
+ * until somebody records the decision — though a refresh still WRITES while one
+ * of those stands, because the roster it derives is unaffected. An omission for
+ * a model upstream neither documents nor serves any more is stale and fails
+ * too. The omission keys are rendered into `models.ts` as `ZEN_OMITTED_MODELS`,
+ * which is how the runtime refresh honours the same decisions.
  */
 
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { buildZenCatalogue } from '../packages/providers/zen/dist/catalogue/catalogue.js'
+import {
+	MODALITIES,
+	ROUTES,
+	ZEN_SERVICES,
+	checkRosterFloor,
+	derive,
+	isRouteRowShaped,
+	nameKey,
+	parsePage,
+	parseServed,
+	priceCell,
+	priceRowFor,
+	protocolFor,
+} from '../packages/providers/zen/dist/catalogue/derive.js'
+import {
+	ZEN_DOCS_REF,
+	ZEN_SERVICE_BASE,
+	fetchZenCatalogueSources,
+	fetchZenServedRosters,
+} from '../packages/providers/zen/dist/catalogue/fetch.js'
+
+// The rules, re-exported so this script's own tests exercise the code the
+// snapshot is actually rendered through.
+export {
+	MODALITIES,
+	ROUTES,
+	checkRosterFloor,
+	derive,
+	isRouteRowShaped,
+	nameKey,
+	parsePage,
+	parseServed,
+	priceCell,
+	priceRowFor,
+	protocolFor,
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ZEN_DIR = join(HERE, '..', 'packages', 'providers', 'zen')
@@ -121,11 +95,8 @@ const REVIEW_REF = 'packages/providers/zen/src/models.review.json'
 
 /**
  * `--from DIR` replaces every source this script reads, including the review
- * file. That is what makes the offline mode a COMPLETE reproduction rather
- * than a partial one: a run that took its pages from a directory but its
- * curation decisions from the working tree would answer a question nobody
- * asked, and the test suite would have to write to the real review file to
- * exercise anything.
+ * file and the module under test, so the offline mode is a COMPLETE
+ * reproduction rather than a partial one.
  */
 const FROM_DIR = (() => {
 	const index = process.argv.indexOf('--from')
@@ -135,45 +106,18 @@ const FROM_DIR = (() => {
 })()
 
 /** The branch to read the service's documentation from. `dev` is its default. */
-const DOCS_REF = process.env.NAMZU_ZEN_DOCS_REF ?? 'dev'
-const DOCS_BASE = `https://raw.githubusercontent.com/anomalyco/opencode/${DOCS_REF}/packages/web/src/content/docs`
-const MODELS_DEV_URL = 'https://models.dev/api.json'
+const DOCS_REF = process.env.NAMZU_ZEN_DOCS_REF ?? ZEN_DOCS_REF
 /**
- * The host the two services' own `/models` endpoints hang off.
- *
- * Overridable for the same reason `NAMZU_ZEN_DOCS_REF` is: the served roster is
- * a source like any other, and a test that wants to drive the fetch without the
- * network — or an operator pointing the run at a mirror — needs a seam that is
- * not a code change. Pointing it at a host that does not answer is a source
- * failure (exit 2), never a run that checked nothing.
+ * The host the two services' own `/models` endpoints hang off. Overridable so a
+ * test can drive the fetch without the network, or an operator can point the
+ * run at a mirror. A host that does not answer is exit 2, never a pass.
  */
-const SERVICE_BASE = (process.env.NAMZU_ZEN_MODELS_BASE ?? 'https://opencode.ai').replace(/\/+$/, '')
-const FETCH_TIMEOUT_MS = 30_000
-const FETCH_ATTEMPTS = 3
+const SERVICE_BASE = process.env.NAMZU_ZEN_MODELS_BASE ?? ZEN_SERVICE_BASE
+/** A maintainer's run is patient where a CLI launch is not. */
+const FETCH_OPTIONS = { docsRef: DOCS_REF, serviceBase: SERVICE_BASE, timeoutMs: 30_000, attempts: 3 }
 
-/** A service, its documentation page, and the models.dev provider holding its limits. */
-const SERVICES = [
-	{ service: 'zen', page: 'zen.mdx', provider: 'opencode' },
-	{ service: 'go', page: 'go.mdx', provider: 'opencode-go' },
-]
-
-/**
- * Every (AI SDK package, endpoint) pair a page may state, and the protocol
- * each is. `kind` says how the endpoint names the model: the first three put
- * it in the body of a fixed path, Google puts it in the path itself.
- */
-export const ROUTES = [
-	{ npm: '@ai-sdk/openai-compatible', path: '/chat/completions', protocol: 'chat', kind: 'path' },
-	{ npm: '@ai-sdk/openai', path: '/responses', protocol: 'responses', kind: 'path' },
-	{ npm: '@ai-sdk/anthropic', path: '/messages', protocol: 'messages', kind: 'path' },
-	{ npm: '@ai-sdk/google', path: '/models/', protocol: 'google', kind: 'model' },
-]
-
-/** The Google route's tail: `models/<id>`, and nothing else. */
-const MODEL_PATH = /^models\/[a-z0-9][a-z0-9.-]*$/
-
-/** The SDK's input modalities, and the models.dev names that map onto them. */
-export const MODALITIES = { text: 'text', image: 'image', pdf: 'document' }
+/** The file each service's `/models` answer is cached as under `--from`. */
+const SERVED_FILE = { zen: 'served.zen.json', go: 'served.go.json' }
 
 class UnusableSourceError extends Error {}
 
@@ -184,46 +128,17 @@ function unusable(error) {
 	console.error(
 		'\n  This is not drift in packages/providers/zen/src/models.ts, and editing that\n' +
 			'  file will not clear this. One of three things happened: the network to an\n' +
-			'  upstream source is down, a source changed shape and this script no longer\n' +
-			'  reads it correctly, or the formatter the script renders through is not\n' +
+			'  upstream source is down, a source changed shape and the rules no longer\n' +
+			'  read it correctly, or the formatter the script renders through is not\n' +
 			'  installed. Run `pnpm install` if you have not.',
 	)
 	process.exit(2)
 }
 
-async function fetchText(url) {
-	let lastError
-	for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt++) {
-		try {
-			const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-			if (response.ok) return await response.text()
-			// A 404 is a branch or a path that moved. Retrying cannot fix it, and
-			// reporting it as a flaky network would hide the actual cause.
-			if (response.status === 404) {
-				throw new UnusableSourceError(`${url} answered 404 — the branch or the path moved.`)
-			}
-			throw new Error(`${url} answered ${response.status}.`)
-		} catch (error) {
-			if (error instanceof UnusableSourceError) throw error
-			lastError = error
-			if (attempt < FETCH_ATTEMPTS) {
-				await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
-			}
-		}
-	}
-	throw new UnusableSourceError(
-		`${url} could not be read after ${FETCH_ATTEMPTS} attempts: ${
-			lastError instanceof Error ? lastError.message : String(lastError)
-		}`,
-	)
-}
-
 /**
- * A directory as a source, with every file it names required to be there.
- *
- * An empty `--from` fails rather than quietly fetching, and a missing file is
- * named: a run that took some of its sources from a directory and quietly got
- * the rest from the network would answer a question nobody asked.
+ * A directory as a source, with every file it names required to be there: a
+ * run that took some of its sources from a directory and quietly got the rest
+ * from the network would answer a question nobody asked.
  */
 function requiredReader(dir) {
 	if (!dir) throw new UnusableSourceError('--from needs a directory.')
@@ -236,330 +151,30 @@ function requiredReader(dir) {
 	}
 }
 
-/** The three upstream documents, from the network or from a cached directory. */
+/**
+ * The five sources as texts: from the network, or from `--from DIR`.
+ *
+ * Under `--from`, the two `/models` answers follow the "when they are there"
+ * rule the module and the review file already follow: a directory that holds
+ * them is read, and one that does not asks the service — which is how the test
+ * that drives the fetch points `NAMZU_ZEN_MODELS_BASE` at a server it owns.
+ */
 async function loadSources() {
-	if (FROM_DIR !== undefined) {
-		const read = requiredReader(FROM_DIR)
-		return {
-			docs: { zen: read('zen.mdx'), go: read('go.mdx') },
-			modelsDev: JSON.parse(read('models.dev.json')),
+	if (FROM_DIR === undefined) return fetchZenCatalogueSources(FETCH_OPTIONS)
+	const read = requiredReader(FROM_DIR)
+	const docs = { zen: read('zen.mdx'), go: read('go.mdx') }
+	const modelsDev = read('models.dev.json')
+	const optional = (name) => {
+		try {
+			return readFileSync(join(FROM_DIR, name), 'utf8')
+		} catch {
+			return undefined
 		}
 	}
-	const [zen, go, modelsDev] = await Promise.all([
-		fetchText(`${DOCS_BASE}/zen.mdx`),
-		fetchText(`${DOCS_BASE}/go.mdx`),
-		fetchText(MODELS_DEV_URL),
-	])
-	return { docs: { zen, go }, modelsDev: JSON.parse(modelsDev) }
-}
-
-/**
- * The two `/models` answers: what each service says it serves right now.
- *
- * From a directory when `--from` names one that holds them, and from the
- * service otherwise — the same "when they are there" rule the module and the
- * review file already follow under `--from`, so a test can pin the served
- * roster beside the pages it belongs with and a run without them still asks the
- * service. A fixture directory that omits them is therefore NOT offline for
- * this dimension; the test that drives the fetch points NAMZU_ZEN_MODELS_BASE at
- * a server it owns instead.
- */
-async function loadServed() {
-	if (FROM_DIR !== undefined) {
-		const read = (name) => {
-			try {
-				return readFileSync(join(FROM_DIR, name), 'utf8')
-			} catch {
-				return undefined
-			}
-		}
-		const [zen, go] = [read(SERVED_FILE.zen), read(SERVED_FILE.go)]
-		if (zen !== undefined && go !== undefined) {
-			return { zen: parseServed('zen', zen), go: parseServed('go', go) }
-		}
-	}
-	const [zen, go] = await Promise.all([
-		fetchText(servedUrl('zen')),
-		fetchText(servedUrl('go')),
-	])
-	return { zen: parseServed('zen', zen), go: parseServed('go', go) }
-}
-
-/** The models-list endpoint of one service, on the base this run is reading. */
-function servedUrl(service) {
-	return `${SERVICE_BASE}${SERVICE_PREFIX[service]}models`
-}
-
-/**
- * One `/models` answer, as the set of ids it says the service serves.
- *
- * The shape is asserted rather than assumed, and an answer with no ids in it is
- * refused: a service that returns nothing is a source that moved, and reading
- * it as "nothing is served" would turn an outage into a green run over a gate
- * that just stopped checking anything.
- */
-export function parseServed(service, text) {
-	let body
-	try {
-		body = JSON.parse(text)
-	} catch (error) {
-		throw new UnusableSourceError(
-			`The ${service} /models answer is not JSON: ${error instanceof Error ? error.message : error}`,
-		)
-	}
-	if (!Array.isArray(body?.data)) {
-		throw new UnusableSourceError(
-			`The ${service} /models answer has no \`data\` array. It is the field this script\n` +
-				'  reads the served roster from, so a service that changed shape stops here.',
-		)
-	}
-	const ids = new Set()
-	for (const item of body.data) {
-		if (!item || typeof item !== 'object' || typeof item.id !== 'string' || item.id.length === 0) {
-			throw new UnusableSourceError(
-				`The ${service} /models answer has an entry with no string \`id\`. Every id it\n` +
-					'  serves is checked against the catalogue, so an entry that cannot be read is\n' +
-					'  an id nobody checked.',
-			)
-		}
-		ids.add(item.id)
-	}
-	if (ids.size === 0) {
-		throw new UnusableSourceError(
-			`The ${service} /models answer lists no models at all. That is a source that moved,\n` +
-				'  not a service that serves nothing, and accepting it would make this check\n' +
-				'  decorative for as long as the outage lasted.',
-		)
-	}
-	return ids
-}
-
-/**
- * Whether a line looks like a row of the route table.
- *
- * The account has to CLOSE, not merely to be attempted: a line shaped like a
- * route row that the route pattern did not capture is a page this script no
- * longer reads correctly, and dropping it silently is the defect the whole
- * arrangement exists to remove. Two shapes count, and both were measured
- * against the live pages rather than guessed — today they flag nothing there:
- *
- *  - two or more backticked cells, which is a row carrying both its endpoint
- *    and its package;
- *  - three or more cells with at least one backticked cell, which is a row that
- *    kept a value and lost a column: an empty package cell leaves four cells,
- *    and a row whose package COLUMN is gone leaves three, with the endpoint's
- *    backticks and nothing else. Three rather than four because that second
- *    shape used to pass here in silence — measured, a three-cell row carrying
- *    one code span is read by this script as nothing at all, so the gate
- *    reported agreement while the page documented a model that was neither
- *    carried nor omitted.
- *
- * The backtick guard is what keeps the wider rule off the table separators:
- * `| --- | --- | --- | --- |` is four cells and carries no code span, and the
- * live pages have two of them per table. Measured on 2026-09-18 with the wider
- * rule, both pages flag zero lines.
- *
- * A prose row that happens to quote a code span is not either: measured, the
- * Go page has exactly one such row and it has two cells.
- */
-export function isRouteRowShaped(line) {
-	const ticked = [...line.matchAll(/`[^`]*`/g)].length
-	const cells = line.split('|').length - 2
-	return ticked >= 2 || (cells >= 3 && ticked >= 1)
-}
-
-/** A documentation page, split into the three tables this script reads. */
-export function parsePage(text, { page, service }) {
-	const routes = []
-	const prices = []
-	const freeNames = []
-	const unroutable = []
-	// The free-model list is the only place a model is stated to be served at no
-	// charge, and it is a bullet list under its own heading. It is read as a
-	// block rather than by scanning for prose that looks like it, because the
-	// same page ends with per-model data-handling notes that are also bullets
-	// and also name models — reading those as free models would be a silent
-	// widening of anonymous access.
-	let inFreeSection = false
-	for (const line of text.split('\n')) {
-		if (/^The free models:/.test(line)) {
-			inFreeSection = true
-			continue
-		}
-		if (inFreeSection) {
-			const bullet = line.match(/^-\s+(.+?)\s+is\s/)
-			if (bullet) {
-				freeNames.push(bullet[1].trim())
-				continue
-			}
-			if (line.trim().length > 0 && !line.startsWith('-')) inFreeSection = false
-		}
-		const route = line.match(
-			/^\|\s*(.+?)\s*\|\s*([a-z0-9][a-z0-9.\-]*)\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|$/,
-		)
-		if (route) {
-			routes.push({ name: route[1].trim(), id: route[2], endpoint: route[3], npm: route[4] })
-			continue
-		}
-		// A route row may state NO wire. The page names the model, its id and
-		// its endpoint, and marks the package column with the `-` its own tables
-		// use for a cell that has no value. That is a row this page publishes
-		// rather than one it lost, so it is read — carrying no package, which is
-		// what `derive` reports as a decision.
-		//
-		// Narrow on purpose: the marker is the page's own and the fourth cell
-		// has to be exactly it, because what separates a page that STATES there
-		// is no wire from a row this script no longer reads is the statement and
-		// not the shape. An empty cell and a column that is gone carry no
-		// statement, and both are still the source failures below.
-		//
-		// The name cell is `[^|]+?` rather than the route pattern's `.+?`, and
-		// that difference is the point: `.+?` can swallow a `|`, so a five-cell
-		// line whose extra cell sits in the middle would be read here as a
-		// wireless route with a name made of two cells. Refusing the `|` keeps
-		// that line where it belongs — the source failure below — without
-		// touching the route pattern beside it, where the looser cell is
-		// established and pinned.
-		const wireless = line.match(
-			/^\|\s*([^|]+?)\s*\|\s*([a-z0-9][a-z0-9.\-]*)\s*\|\s*`([^`]+)`\s*\|\s*-\s*\|$/,
-		)
-		if (wireless) {
-			routes.push({
-				name: wireless[1].trim(),
-				id: wireless[2],
-				endpoint: wireless[3],
-				npm: undefined,
-			})
-			continue
-		}
-		const price = line.match(/^\|\s*(.+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/)
-		if (price) {
-			// A price cell is a dollar figure or the word "Free". Nothing else is
-			// read, so a table whose columns mean something else cannot be picked
-			// up by being three cells wide.
-			const input = priceCell(price[2])
-			const output = priceCell(price[3])
-			if (input !== undefined && output !== undefined) {
-				prices.push({ name: price[1].trim(), input, output })
-				continue
-			}
-		}
-		if (line.startsWith('|') && isRouteRowShaped(line)) unroutable.push(line.trim())
-	}
-	if (unroutable.length > 0) {
-		throw new UnusableSourceError(
-			`${page} has ${unroutable.length} line(s) shaped like a route row that this script\n` +
-				'  did not read as one. A model the page routes but this script does not capture is\n' +
-				'  a model that silently disappears from the catalogue, so the run stops instead:\n' +
-				unroutable
-					.slice(0, 5)
-					.map((line) => `    ${line}`)
-					.join('\n') +
-				(unroutable.length > 5 ? `\n    … and ${unroutable.length - 5} more` : ''),
-		)
-	}
-	if (routes.length === 0) throw new UnusableSourceError(`${page} has no route table.`)
-	if (service === 'zen' && freeNames.length === 0) {
-		throw new UnusableSourceError(
-			`${page} has no free-model list. Anonymous admission is stated there and is never\n` +
-				'  inferred from a zero price, so an empty list is a page that moved, not a\n' +
-				'  catalogue that serves nothing for free.',
-		)
-	}
-	return { routes, prices, freeNames }
-}
-
-/**
- * A price cell, or undefined when the cell is not a price.
- *
- * Go states its free models' rate as the word "Free" rather than as `$0.00`,
- * which is a statement about the price and not a missing one, so it is read as
- * zero. A cell that is neither a dollar figure nor "Free" is not a price at
- * all, which is what keeps an unrelated three-column table from being read as
- * one.
- */
-export function priceCell(cell) {
-	const dollars = /^\$([0-9.]+)$/.exec(cell.trim())
-	if (dollars) return Number(dollars[1])
-	return /^free$/i.test(cell.trim()) ? 0 : undefined
-}
-
-/** Model names are matched across tables by their letters, digits and dots. */
-export function nameKey(name) {
-	return name
-		.toLowerCase()
-		.replace(/\([^)]*\)/g, '')
-		.replace(/[^a-z0-9.]/g, '')
-}
-
-/**
- * The base-tier price row for a model.
- *
- * Three shapes appear upstream: a single row, a tier pair separated by a
- * parenthesised context threshold, and the Go DeepSeek entries' peak/off-peak
- * pair. The base tier is the cheap one in each case: the unqualified row, the
- * "(≤ …)" row, or the "(Off-Peak)" row.
- */
-export function priceRowFor(rows, name) {
-	const candidates = rows.filter((row) => nameKey(row.name) === nameKey(name))
-	if (candidates.length === 0) return undefined
-	return (
-		candidates.find((row) => /off-peak/i.test(row.name)) ??
-		candidates.find((row) => !row.name.includes('(')) ??
-		candidates.find((row) => row.name.includes('≤'))
-	)
-}
-
-/** The service each base host serves, by the path prefix its endpoints carry. */
-const SERVICE_PREFIX = { zen: '/zen/v1/', go: '/zen/go/v1/' }
-
-/** The file each service's `/models` answer is cached as under `--from`. */
-const SERVED_FILE = { zen: 'served.zen.json', go: 'served.go.json' }
-
-/**
- * The protocol a (package, endpoint) pair is, refusing anything unrecognised.
- *
- * The pair is checked against the URL's own parts rather than by substring: a
- * cell reading `https://evil.example/messages` contains the path a Messages
- * route has, and a routing decision that accepts it is a routing decision made
- * on the wrong string. Host, service prefix, path and package must all agree.
- */
-export function protocolFor({ id, endpoint, npm }, service) {
-	const refuse = (why) => {
-		throw new UnusableSourceError(
-			`"${id}" is documented as ${npm} on ${endpoint}, ${why}. A model whose wire is not\n` +
-				'  known cannot be routed, so the run stops rather than picking one.',
-		)
-	}
-	// A row the page states no wire for never reaches here — `derive` reports it
-	// as a decision instead — and this is what says so out loud: the refusal
-	// below would otherwise print the package as `undefined`, which reads as a
-	// broken script rather than as a page that never stated one.
-	if (npm === undefined) {
-		throw new UnusableSourceError(
-			`"${id}" is documented on ${endpoint} with no AI SDK package stated, so no wire is\n` +
-				'  known. A model whose wire is not known cannot be routed, so the run stops\n' +
-				'  rather than picking one.',
-		)
-	}
-	let url
-	try {
-		url = new URL(endpoint)
-	} catch {
-		refuse('which is not a URL')
-	}
-	if (url.host !== 'opencode.ai') refuse("whose host is not the service's")
-	const prefix = SERVICE_PREFIX[service]
-	if (prefix === undefined) refuse(`on a service this script does not know`)
-	if (!url.pathname.startsWith(prefix)) refuse(`which is not on the ${service} service's own path`)
-	const route = ROUTES.find((candidate) => candidate.npm === npm)
-	if (!route) {
-		refuse(`with a package that is not one of the ${ROUTES.length} routes this driver implements`)
-	}
-	const tail = url.pathname.slice(prefix.length)
-	const matches = route.kind === 'path' ? tail === route.path.slice(1) : MODEL_PATH.test(tail)
-	if (!matches) refuse(`which does not address ${route.path} on the ${service} service`)
-	return route.protocol
+	const [zen, go] = [optional(SERVED_FILE.zen), optional(SERVED_FILE.go)]
+	const served =
+		zen !== undefined && go !== undefined ? { zen, go } : await fetchZenServedRosters(FETCH_OPTIONS)
+	return { docs, modelsDev, served }
 }
 
 /** Prices are written with a decimal point; a plain integer reads as a token count. */
@@ -591,22 +206,25 @@ export function renderEntry(model) {
  *
  * The `Refreshed` line is the one piece of provenance here and the one line the
  * check ignores: it names the day this ROSTER last moved, which is not the
- * question "does this still match upstream". Folding them together would make
- * the gate red on a tree nobody had touched since yesterday, and it would make
- * every scheduled run restamp the file and open a pull request about a date.
- * So a refresh that finds nothing new writes nothing at all.
+ * question "does this still match upstream". So a refresh that finds nothing
+ * new writes nothing at all.
  */
 function header(refreshed) {
 	return `/*
  * GENERATED FILE — do not edit. Regenerate with:
  *
- *   node scripts/generate-zen-models.mjs
+ *   pnpm --filter @namzu/zen build && node scripts/generate-zen-models.mjs
  *
  * A curation decision is an edit to src/models.review.json, and how a field is
- * derived is an edit to the script. Both survive regeneration; a hand edit here
- * does not, and the CI gate "Zen catalogue matches its source" fails on one.
+ * derived is an edit to src/catalogue/derive.ts. Both survive regeneration; a
+ * hand edit here does not.
  *
  * Refreshed: ${refreshed}
+ *
+ * This is the BUNDLED snapshot: what the driver knows with no network. A host
+ * can derive a fresher roster at run time from the same sources, by the same
+ * rules, through \`@namzu/zen/catalogue\` and hand it to the provider as
+ * \`ZenConfig.catalogue\`; the CLI does that in the background on every launch.
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
@@ -624,12 +242,11 @@ function header(refreshed) {
  *
  * Not every model either service serves is carried here. A model that is
  * documented and not carried is omitted by name, with a reason, in
- * src/models.review.json — and the CI gate fails on any documented model that
- * is neither carried nor omitted, so a new upstream model is a decision someone
- * makes rather than a row that arrives by itself. The gate also reads what the
- * two services' own \`/models\` answers say they serve: an id served and
- * documented nowhere has no derivable wire, so it is reported as a decision
- * too, rather than dropped by the driver in silence.
+ * src/models.review.json, and the generator refuses to write while a
+ * documented model is neither carried nor omitted. It also reads what the two
+ * services' own \`/models\` answers say they serve: an id served and documented
+ * nowhere has no derivable wire, so it is reported as a decision too, rather
+ * than dropped by the driver in silence.
  *
  * Prices are estimates, not invoices: context tiers, cache, Go peak/off-peak
  * rates, subscription allowances and promotions can change the effective cost.
@@ -648,7 +265,8 @@ function header(refreshed) {
  */`
 }
 
-export function render(models, refreshed) {
+export function render(models, refreshed, omissions = []) {
+	const omitted = [...omissions].sort()
 	return `import type { ModelInputModality, ReasoningEffort } from '@namzu/sdk'
 
 /** Zen's independently routed, billed services. */
@@ -693,6 +311,15 @@ ${models.zen.map(renderEntry).join('\n')}
 
 const GO_MODELS = freezeModels([
 ${models.go.map(renderEntry).join('\n')}
+])
+
+/**
+ * Reviewed omissions, as \`service/id\`: models a source names that this
+ * snapshot deliberately does not carry. A runtime refresh through
+ * \`@namzu/zen/catalogue\` honours the same decisions by default.
+ */
+export const ZEN_OMITTED_MODELS: readonly string[] = Object.freeze([
+${omitted.map((key) => `\t${JSON.stringify(key)},`).join('\n')}
 ])
 
 /** Supported metadata; actual account availability is established by live discovery. */
@@ -787,169 +414,6 @@ export function readReview(path = REVIEW_PATH) {
 	return omissions
 }
 
-/**
- * One service's carried models, plus everything either source names and the
- * catalogue does not carry: the models the page documents and this run did not
- * carry (`undecided`), the omissions the page no longer justifies (`stale`),
- * the price rows no route row names (`orphanPrices`), and the ids the service
- * itself serves that are neither carried nor omitted (`servedUncurried`).
- *
- * `served` is the set of ids the service's own `/models` answer carries, and it
- * is required rather than defaulted: a caller that forgot it would turn the
- * served dimension off silently, which is the class of defect the whole review
- * file exists to remove.
- */
-export function derive(service, parsed, providerKey, provider, omissions, served) {
-	const freeIds = new Set()
-	for (const name of parsed.freeNames) {
-		const row = parsed.routes.find((candidate) => nameKey(candidate.name) === nameKey(name))
-		if (!row) {
-			throw new UnusableSourceError(
-				`The free-model list names "${name}", which the route table does not. Anonymous\n` +
-					'  admission is derived from that pairing, so the page has moved.',
-			)
-		}
-		freeIds.add(row.id)
-	}
-	const documented = new Set(parsed.routes.map((row) => row.id))
-	// A price row the route table does not name is a model priced and not
-	// routed. Nothing carries it, so it is reported rather than dropped.
-	const routeNames = new Set(parsed.routes.map((row) => nameKey(row.name)))
-	const orphanPrices = parsed.prices
-		.filter((row) => !routeNames.has(nameKey(row.name)))
-		.map((row) => row.name)
-	const models = []
-	const undecided = []
-	const incomplete = []
-	// How many rows were actually put to models.dev. An omitted row is never
-	// asked about, and neither is one that states no wire — no answer there
-	// could make it carryable. So this is the count of rows an answer could
-	// still change, and the message below says exactly that rather than
-	// "every documented": a wireless row would otherwise make that phrase
-	// false while the count still matched.
-	let considered = 0
-	// Of those, the ones whose models.dev entry exists but does not say whether
-	// the model takes tools. Read as a count rather than a boolean because the
-	// tell is "every one of them", and one model of many is a real answer.
-	let silentOnTools = 0
-	// The entries models.dev actually has, which is the denominator the
-	// tool-support tell below has to use.
-	let modelsDevEntries = 0
-	for (const row of parsed.routes) {
-		if (omissions[`${service}/${row.id}`] !== undefined) continue
-		// A row that states no wire cannot be carried however complete the rest
-		// of its metadata is, so it is not put to models.dev at all: `considered`
-		// counts the rows that were, and the reason this one is reported with is
-		// the page's own absence, because a wire taken from anywhere else would
-		// be one this script invented.
-		if (row.npm === undefined) {
-			undecided.push([
-				`${service}/${row.id}`,
-				'the page states no AI SDK package for it, so no wire is known',
-			])
-			continue
-		}
-		considered += 1
-		const metadata = provider.models[row.id]
-		if (!metadata) {
-			undecided.push([`${service}/${row.id}`, `models.dev has no \`${providerKey}\` entry`])
-			continue
-		}
-		if (metadata.tool_call === undefined) silentOnTools += 1
-		modelsDevEntries += 1
-		const priceRow = priceRowFor(parsed.prices, row.name)
-		if (!priceRow && !freeIds.has(row.id)) {
-			undecided.push([`${service}/${row.id}`, 'the page neither prices it nor names it as free'])
-			continue
-		}
-		const effort = (metadata.reasoning_options ?? []).find((option) => option.type === 'effort')
-		const inputModalities = (metadata.modalities?.input ?? [])
-			.map((modality) => MODALITIES[modality])
-			.filter((modality) => modality !== undefined)
-		const contextWindow = metadata.limit?.context
-		const maxOutputTokens = metadata.limit?.output
-		if (contextWindow === undefined || maxOutputTokens === undefined || inputModalities.length === 0) {
-			incomplete.push(
-				`${service}/${row.id} (context ${contextWindow}, output ${maxOutputTokens}, ` +
-					`${inputModalities.length} input modalities)`,
-			)
-			continue
-		}
-		// The page either prices the model or names it free; the guard above
-		// refused every model that is neither. So the zero written when there is
-		// no price row is a rate this script KNOWS — it came from the free list —
-		// and not a placeholder for one it could not find. Kept as a branch
-		// rather than `priceRow?.input ?? 0` because that shape reads as
-		// "default to zero", which is the defect the drivers carried: a price of
-		// zero is a claim that a model is free, and a default that produces one
-		// makes that claim on the reader's behalf.
-		const inputPrice = priceRow ? priceRow.input : 0
-		const outputPrice = priceRow ? priceRow.output : 0
-		models.push({
-			id: row.id,
-			name: row.name,
-			protocol: protocolFor(row, service),
-			contextWindow,
-			maxOutputTokens,
-			inputModalities,
-			inputPrice,
-			outputPrice,
-			supportsToolUse: metadata.tool_call === true,
-			effortLevels: effort ? [...effort.values] : [],
-			// Anonymous admission is a Zen concept: the Go constructor refuses an
-			// absent key outright, so the flag would mean nothing on that service.
-			supportsAnonymousAccess: service === 'zen' && freeIds.has(row.id),
-		})
-	}
-	// Incomplete metadata is a source that moved, not a decision anybody makes.
-	// A missing entry is a decision — omit the model — but an entry that is
-	// there and has lost the fields is models.dev having changed shape, and
-	// every model reporting it at once is exactly what a rename looks like.
-	if (incomplete.length > 0) {
-		const all = incomplete.length === considered
-		throw new UnusableSourceError(
-			`${incomplete.length}${all ? ' — every one put to models.dev —' : ` of ${considered}`} model(s) on the\n` +
-				`  ${service} page have an entry in models.dev that is missing the fields the catalogue\n` +
-				'  needs. An entry that exists and has lost its limits is models.dev having changed\n' +
-				'  shape, not a curation decision, so this is reported as drift in the SOURCE:\n' +
-				incomplete
-					.slice(0, 8)
-					.map((line) => `    ${line}`)
-					.join('\n') +
-				(incomplete.length > 8 ? `\n    … and ${incomplete.length - 8} more` : ''),
-		)
-	}
-	// `tool_call` is the third field whose loss has to be read as a source that
-	// moved. It is the one that fails QUIETLY: the other fields being missing
-	// leaves a model `incomplete` and is reported, where a missing `tool_call`
-	// reads as "this model takes no tools", so a renamed field would rewrite the
-	// whole roster to `supportsToolUse: false`, print a drift report with "run
-	// the generator" as its remedy, and go green when somebody did. Every entry
-	// at once is a rename; one entry is a real answer, and is carried as false.
-	if (modelsDevEntries > 0 && silentOnTools === modelsDevEntries) {
-		throw new UnusableSourceError(
-			`All ${modelsDevEntries} models.dev entr${modelsDevEntries === 1 ? 'y' : 'ies'} for the ${service}\n` +
-				'  provider omit `tool_call`. A field that vanished from every entry at once is models.dev\n' +
-				'  having changed shape, not every model losing its tools, so this is reported as a\n' +
-				'  SOURCE failure rather than written into the catalogue as `supportsToolUse: false`.',
-		)
-	}
-	// The ids the service serves that this service's page does not document and
-	// the review file does not omit. They cannot be carried — an id whose wire
-	// is not stated cannot be routed — so they are a curation decision.
-	const servedUncurried = [...served]
-		.filter((id) => !documented.has(id) && omissions[`${service}/${id}`] === undefined)
-		.sort()
-	// An omission expires when upstream stops naming the model at all, which now
-	// means neither its page nor the service that serves it: the page is not the
-	// only source that says a model exists.
-	const stale = Object.keys(omissions)
-		.filter((key) => key.startsWith(`${service}/`))
-		.map((key) => key.slice(service.length + 1))
-		.filter((id) => !documented.has(id) && !served.has(id))
-	return { models, undecided, stale, orphanPrices, servedUncurried }
-}
-
 /** The fields compared when reporting what moved on a model that stayed. */
 const COMPARED_FIELDS = [
 	'name',
@@ -965,13 +429,29 @@ const COMPARED_FIELDS = [
 ]
 
 /**
+ * A catalogue model in the shape `parseRendered` reads back, so a comparison
+ * between the two is about values and not about which keys are spelled out.
+ */
+function comparable(model) {
+	return {
+		id: model.id,
+		name: model.name,
+		protocol: model.protocol,
+		contextWindow: model.contextWindow,
+		maxOutputTokens: model.maxOutputTokens,
+		inputModalities: [...model.inputModalities],
+		inputPrice: model.inputPrice,
+		outputPrice: model.outputPrice,
+		supportsToolUse: model.supportsToolUse,
+		effortLevels: [...model.effortLevels],
+		supportsAnonymousAccess: model.supportsAnonymousAccess === true,
+	}
+}
+
+/**
  * Read back a generated module, so a run can say what changed rather than
- * only that something did.
- *
- * It parses the shape `renderEntry` writes, which is legitimate precisely
- * because that shape is generated: a file that has been hand-edited into
- * another shape is caught by the byte comparison that runs after this, and
- * this only has to be good enough to name the models.
+ * only that something did. It parses the shape `renderEntry` writes; a file
+ * hand-edited into another shape is caught by the byte comparison after this.
  */
 export function parseRendered(text) {
 	const read = (constant) => {
@@ -988,10 +468,8 @@ export function parseRendered(text) {
 				return raw === undefined ? undefined : [...raw.matchAll(/'([^']*)'/g)].map((m) => m[1])
 			}
 			// Ids and names go out through JSON.stringify — double-quoted — and
-			// come back single-quoted from disk, because the formatter the render
-			// runs through rewrites the quotes. Reading the value, not the
-			// spelling, so that a module read back before formatting and one read
-			// after both parse.
+			// come back single-quoted from disk, because the formatter rewrites
+			// the quotes. Reading the value, not the spelling.
 			const scalar = (key) => {
 				const raw = field(key)
 				if (raw === undefined) return undefined
@@ -1021,7 +499,7 @@ export function parseRendered(text) {
 /** What this run would do to the roster, named. A removal is never silent. */
 export function describeChanges(committed, built) {
 	const lines = []
-	for (const { service } of SERVICES) {
+	for (const { service } of ZEN_SERVICES) {
 		const before = new Map(committed[service].map((model) => [model.id, model]))
 		const after = new Map(built[service].map((model) => [model.id, model]))
 		const added = [...after.keys()].filter((id) => !before.has(id))
@@ -1051,53 +529,8 @@ export function describeChanges(committed, built) {
 }
 
 /**
- * Refuse a roster that collapsed.
- *
- * Exit 1 says "a person has to decide", and a decision is something a person
- * can make. A roster that came out empty, or that lost a fifth of what it
- * carried, is not that: it is a source that moved, or a review file that has
- * been used to delete the catalogue, and both of them look identical to a
- * successful run from the inside. The floor is stated rather than implied, and
- * it is a speed bump on purpose — if upstream really did withdraw that many
- * models, this number is the thing to change, and changing it is a decision
- * somebody makes rather than one they discover afterwards.
- */
-const ROSTER_FLOOR = 0.8
-
-export function checkRosterFloor(built, committed) {
-	for (const { service } of SERVICES) {
-		const derived = built[service].length
-		const carried = committed[service].length
-		if (derived === 0) {
-			throw new UnusableSourceError(
-				`The ${service} roster came out empty. Every documented model was rejected — a\n` +
-					'  catalogue with nothing in it is not a result, and a review file that omits\n' +
-					'  every model produces exactly this. Refusing rather than writing it.',
-			)
-		}
-		if (carried > 0 && derived < carried * ROSTER_FLOOR) {
-			throw new UnusableSourceError(
-				`The ${service} roster fell from ${carried} models to ${derived}, past the floor of\n` +
-					`  ${ROSTER_FLOOR * 100}% of what is committed. A fall that size is far more likely to be a source\n` +
-					'  that changed shape than a decision somebody made, so it is reported as one.\n' +
-					'  If upstream really did withdraw that many models, change ROSTER_FLOOR in this\n' +
-					'  script and say so in the commit.',
-			)
-		}
-	}
-}
-
-/**
- * Everything this run needs somebody to decide, printed as one report.
- *
- * Four sections, one line per thing. The fourth is the one the pages cannot
- * speak for: an id the service answers on `/models` that no page documents and
- * no omission covers. It is exit 1 like the rest — it is a decision, and the
- * script cannot make it, because the wire a model is served on is stated on a
- * page and nowhere else.
- *
- * Prints nothing when there is nothing to decide, so a caller can hand it the
- * whole derivation and let it decide whether it has anything to say.
+ * Everything this run needs somebody to decide, printed as one report. Prints
+ * nothing when there is nothing to decide.
  */
 export function printDecisions(built) {
 	const { undecided, stale, orphanPrices, servedUncurried } = built
@@ -1144,9 +577,8 @@ export function printDecisions(built) {
 				'  an id the pages do not document has no derivable wire and cannot be carried by\n' +
 				'  guessing. Curate it: record the decision under `omissions` in\n' +
 				`  ${REVIEW_REF} with the reason it is not carried, or have upstream\n` +
-				'  document it so its route is stated. A model the service serves and the\n' +
-				'  catalogue neither carries nor omits is one the driver will never offer,\n' +
-				'  however new it is.',
+				'  document it so its route is stated. Until then a runtime catalogue lists it\n' +
+				'  as having no known wire format, callable only with an explicit protocol.',
 		)
 	}
 }
@@ -1156,17 +588,7 @@ export function printChanges(committed, built) {
 	for (const line of describeChanges(committed, built)) console.error(`  ${line}`)
 }
 
-/**
- * The module a check compares against, and a refresh reports its changes
- * against.
- *
- * `--from` replaces this too when the directory holds one, for the reason it
- * replaces the review file: a run that took its pages from a directory but its
- * baseline from the working tree would answer a question nobody asked, and the
- * offline mode would be unable to exercise the two things this gate is for —
- * agreeing, and disagreeing with a stated reason. A refresh still WRITES to
- * the real module; only what it reads moves.
- */
+/** The module a check compares against: the fixture's when `--from` holds one. */
 function comparePath() {
 	if (FROM_DIR !== undefined) {
 		const candidate = join(FROM_DIR, 'models.ts')
@@ -1180,16 +602,7 @@ function comparePath() {
 	return OUTPUT_PATH
 }
 
-/**
- * Render through the formatter, with a formatter that is not there reported as
- * the source failure it is.
- *
- * `biomeEntryPoint()` throws an `UnusableSourceError` like any other missing
- * source, and it used to do it OUTSIDE every catch — so a tree without
- * `node_modules` printed a raw stack from `main().catch` and exited 1, which is
- * the code that means "a person has to decide". Nobody can decide their way out
- * of a missing binary, and the file's own contract says so.
- */
+/** Render through the formatter, with a missing formatter reported as exit 2. */
 function formatOrUnusable(source) {
 	try {
 		return formatted(source)
@@ -1215,34 +628,29 @@ async function main() {
 	const committed = onDisk === undefined ? { zen: [], go: [] } : parseRendered(onDisk)
 
 	let built
+	let omissions
 	try {
 		const sources = await loadSources()
-		const served = await loadServed()
-		const omissions = readReview(reviewPath())
-		built = { zen: [], go: [], undecided: [], stale: [], orphanPrices: [], servedUncurried: [] }
-		for (const { service, page, provider } of SERVICES) {
-			const parsed = parsePage(sources.docs[service], { page, service })
-			const entry = sources.modelsDev[provider]
-			if (!entry?.models) {
-				throw new UnusableSourceError(`models.dev has no \`${provider}\` provider entry.`)
-			}
-			const derived = derive(service, parsed, provider, entry, omissions, served[service])
-			built[service] = derived.models
-			built.undecided.push(...derived.undecided)
-			built.stale.push(...derived.stale)
-			built.orphanPrices.push(...derived.orphanPrices.map((name) => `${service}: ${name}`))
-			built.servedUncurried.push(...derived.servedUncurried.map((id) => `${service}/${id}`))
+		omissions = readReview(reviewPath())
+		// The same entry point the runtime refresh uses, measured against the
+		// module on disk rather than the bundled snapshot it would default to.
+		const { catalogue, report } = buildZenCatalogue(sources, { omissions, baseline: committed })
+		built = {
+			zen: catalogue.zen.map(comparable),
+			go: catalogue.go.map(comparable),
+			undecided: [...report.undecided],
+			stale: [...report.stale],
+			orphanPrices: [...report.orphanPrices],
+			servedUncurried: [...report.servedUndocumented],
 		}
-		checkRosterFloor(built, committed)
 	} catch (error) {
 		unusable(error)
 	}
+	const omitted = Object.keys(omissions)
 
 	// A decision about a model the derivation would have carried stops the write:
 	// writing the roster without it would encode the decision as a silent
-	// omission. The roster changes are printed WITH it, whatever the exit code —
-	// a run that stopped at the decision used to report nothing about what
-	// upstream had done, which reads as "no news" when it is the opposite.
+	// omission. The roster changes are printed WITH it, whatever the exit code.
 	const blocking = built.undecided.length + built.stale.length + built.orphanPrices.length > 0
 	if (blocking) {
 		printDecisions(built)
@@ -1252,17 +660,14 @@ async function main() {
 
 	// The refresh date is provenance, not a claim about upstream, so the check
 	// compares everything except that one line. Rendering under the date the
-	// module ALREADY carries is what makes the comparison "is this file what the
-	// generator produces?" — and it is why a refresh that found nothing new
-	// writes nothing and leaves the date where it was.
+	// module ALREADY carries is what makes a refresh that found nothing new
+	// write nothing and leave the date where it was.
 	const carriedDate = onDisk?.match(/^ \* Refreshed: (.+)$/m)?.[1] ?? '(unrecorded)'
-	const expected = formatOrUnusable(render(built, carriedDate))
+	const expected = formatOrUnusable(render(built, carriedDate, omitted))
 
 	if (onDisk !== undefined && onDisk === expected) {
 		// The served roster is the one thing that can be wrong while every byte of
-		// the module is right, so it is reported on the agreement path too — and
-		// instead of the all-clear, which would otherwise be the last thing a
-		// reader saw before an exit 1.
+		// the module is right, so it is reported on the agreement path too.
 		if (built.servedUncurried.length > 0) {
 			printDecisions(built)
 			process.exit(1)
@@ -1273,19 +678,14 @@ async function main() {
 
 	if (!checking) {
 		// A refresh stamps the day the ROSTER moved, not the day somebody asked.
-		// The date line is why: stamping today on a run that changed nothing would
-		// put a diff under review on every scheduled run.
-		const rendered = formatOrUnusable(render(built, localDate(new Date())))
+		const rendered = formatOrUnusable(render(built, localDate(new Date()), omitted))
 		writeFileSync(OUTPUT_PATH, rendered)
 		const total = built.zen.length + built.go.length
 		console.log(`models.ts written: ${built.zen.length} zen, ${built.go.length} go (${total} models)`)
-		// A refresh states what it did to the roster, removals included. A model
-		// that disappears quietly is the defect this whole arrangement is for.
 		for (const line of describeChanges(committed, built)) console.log(`  ${line}`)
 		// An id served and documented nowhere is written to nothing — the derived
 		// roster is unaffected by it — so the module is still written and the run
-		// still exits 1: whoever reads the diff has a decision to make, and the
-		// scheduled workflow that consumes this prints the list into its PR.
+		// still exits 1: whoever reads the diff has a decision to make.
 		if (built.servedUncurried.length > 0) {
 			console.log('')
 			printDecisions(built)
@@ -1305,16 +705,12 @@ async function main() {
 	console.error(`    on disk:  ${JSON.stringify(actual[firstDifference] ?? '<end of file>')}`)
 	console.error(`    expected: ${JSON.stringify(expectedLines[firstDifference] ?? '<end of file>')}`)
 	console.error(
-		'\n  Upstream has moved — most often because it added or repriced a model, which is\n' +
-			'  the defect this gate exists to make loud. To refresh:\n' +
+		'\n  Upstream has moved — most often because it added or repriced a model. To refresh\n' +
+			'  the bundled snapshot:\n' +
 			'    node scripts/generate-zen-models.mjs\n' +
 			'  then review the diff and commit it. Never edit models.ts by hand: the next\n' +
 			'  regeneration discards it.',
 	)
-	// Both, always: the drift above is what the gate is named for, and the
-	// decision below is why the refresh that remedy names would refuse to write.
-	// Reporting only the second was the defect; reporting only the first is the
-	// opposite one.
 	if (built.servedUncurried.length > 0) {
 		console.error('')
 		printDecisions(built)
@@ -1322,14 +718,12 @@ async function main() {
 	process.exit(1)
 }
 
-// Runs the CLI only when this file is invoked directly
-// (`node scripts/generate-zen-models.mjs`), not when it is imported. The test
-// suite imports the pure helpers above against synthetic pages; a bare import
-// must not fetch, render, write or call `process.exit`.
+// Runs only when this file is invoked directly, not when it is imported: the
+// test suite imports the helpers above, and a bare import must not fetch,
+// render, write or call `process.exit`.
 const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]
 // Not `await main()`: the test runner loads this file through tsx, which
-// transpiles to CommonJS, where top-level await does not parse. A rejection
-// that reached the top would otherwise be an unhandled one and exit zero.
+// transpiles to CommonJS, where top-level await does not parse.
 if (isMain) {
 	main().catch((error) => {
 		console.error(error)

@@ -21,6 +21,7 @@ a working directory picks its project; this page says what is on disk.
 ├── config.yaml, credentials.json, preferences.json, trust.json, cli.json, plugin-settings/
 ├── attachments/, skills/, agents/, commands/, plugins/, MEMORY.md
 ├── index.sqlite                      rebuildable index over every session log
+├── cli/zen-catalogue.json            last-good Zen model catalogue (background refresh)
 └── projects/
     └── <slug>/                       one per working directory
         ├── project.json              {"v":1,"kind":"project","projectId","cwd","slug","createdAt"}
@@ -58,6 +59,7 @@ with mode 0700 and refused if it is a symlink or owned by another user.
 | `<session-id>/lease.json` | The current writer's claim and fencing token. A process stopped by SIGTERM, SIGHUP or SIGINT releases it before it exits; one killed outright (SIGKILL, a crash) holds it until it expires, at most five minutes, and then it is taken over, so a session is never locked for good. | Not while a process is using the session. |
 | `<session-id>/lease.<fence>.json` | One file per claim, named by its fencing token; the highest is the current holding, and `lease.json` is a readable copy of it. A release writes the next fence with an empty holder. Older holdings are pruned, so a few remain. A child session has its own under `subagents/<child-id>/`. | No: the highest fence is what decides who may write. |
 | `index.sqlite` | Sessions, turns, child sessions, pending decisions, external ids and full-text search, all derived from the logs. | Yes. It is rebuilt on the next launch. |
+| `cli/zen-catalogue.json` | The last Zen and Zen Go model catalogue a launch's background refresh derived and validated; see [The model catalogue refresh](model-catalogue.md). | Yes. The next launch uses the bundled catalogue until its refresh lands and writes a new one. |
 | `project.json` | The project's id and canonical path. | Deleting it gives the directory a new project id on the next launch. |
 
 ## Why one log per session

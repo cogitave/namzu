@@ -48,6 +48,11 @@ import {
 } from './config/trusted-project-context.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import {
+	type ZenCatalogueRefresh,
+	startZenCatalogueRefresh,
+} from './integrations/providers/zen-catalogue.js'
+import { resolveNamzuHome } from './integrations/state/home.js'
+import {
 	cliLogger,
 	createStderrSink,
 	installCliLogging,
@@ -72,6 +77,27 @@ const REMOVED_COMMANDS: Readonly<Record<string, string>> = {
 		'`namzu run-stream` was replaced by `namzu exec --json "<prompt>"`, which emits the same events.',
 }
 
+/**
+ * The commands that open a session, and so refresh the model catalogue in the
+ * background when they start. The interactive TUI (`namzu`, `namzu resume`)
+ * starts it from `launchInteractiveTui`, once it knows it has a terminal.
+ *
+ * `drain` belongs here because it continues turns another launch parked, and
+ * the model such a turn was on may be one only the live or last-good catalogue
+ * carries: continued on the bundled snapshot alone, it would have no wire.
+ * `namzu resident run` is matched by its action (`opensSessions`); a
+ * background runner (`resident start`) is a forked worker that never passes
+ * through here and starts its own refresh.
+ */
+const CATALOGUE_REFRESH_COMMANDS: ReadonlySet<string> = new Set(['exec', 'acp', 'drain'])
+
+/** Whether the command commander is about to run opens agent sessions. */
+export function opensSessions(name: string, args: readonly unknown[]): boolean {
+	if (CATALOGUE_REFRESH_COMMANDS.has(name)) return true
+	// `resident`'s action is its first operand, exactly as `parseResidentFlags` reads it.
+	return name === 'resident' && args[0] === 'run'
+}
+
 export interface RunCliOptions {
 	/** Argv with the leading `node` + script path, matching `process.argv` shape. */
 	readonly argv: readonly string[]
@@ -93,6 +119,27 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	let exitCode = 0
 	const setExitCode = (code: number): void => {
 		exitCode = code
+	}
+
+	// One background catalogue refresh per launch. Started, never awaited: the
+	// handle is all the startup path holds, and the `finally` below cancels it
+	// when the command returns, so a launch never waits on it at either end.
+	let catalogueRefresh: ZenCatalogueRefresh | undefined
+	const beginCatalogueRefresh = (config: NamzuCliConfig): void => {
+		if (catalogueRefresh !== undefined || config.modelCatalogueRefresh === false) return
+		try {
+			catalogueRefresh = startZenCatalogueRefresh({
+				home: resolveNamzuHome(),
+				// The function, not its current value: see the option's comment.
+				log: cliLogger,
+			})
+		} catch (error) {
+			// An unusable NAMZU_HOME is the command's problem to report, not this
+			// refresh's: the session runs on the bundled catalogue.
+			cliLogger().warn('Zen model catalogue refresh not started', {
+				'namzu.zen_catalogue.reason': error instanceof Error ? error.message : String(error),
+			})
+		}
 	}
 
 	const program = new Command()
@@ -148,6 +195,9 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 						code: 'commander.invalidArgument',
 					},
 				)
+			}
+			if (opensSessions(action.name(), action.args)) {
+				beginCatalogueRefresh(getBootstrapContext().config)
 			}
 		})
 		.enablePositionalOptions(true)
@@ -333,6 +383,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			// nothing at all, so a `permissions` table in a config file did nothing
 			// in the mode most people actually use.
 			const commandCtx = getBootstrapContext()
+			beginCatalogueRefresh(commandCtx.config)
 			const buildTuiContext = (resolvedCtx: ResolvedCommandContext, cwd: string) => {
 				const permissions = compilePermissions(
 					resolvedCtx.config.permissions,
@@ -459,6 +510,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			`Fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
 		)
 		return EXIT_INTERNAL_ERROR
+	} finally {
+		catalogueRefresh?.cancel()
 	}
 }
 

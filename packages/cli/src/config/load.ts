@@ -482,6 +482,10 @@ const CONFIG_READERS: ConfigReaders = {
 		if (typeof v === 'boolean') return v
 		return invalidConfigValue(context, [], 'must be a boolean')
 	},
+	modelCatalogueRefresh: (v, context) => {
+		if (typeof v === 'boolean') return v
+		return invalidConfigValue(context, [], 'must be a boolean')
+	},
 	// Shape only. Per-entry validation belongs to `compilePermissions`, which
 	// reports a bad effect or an unusable pattern as a diagnostic the user
 	// sees; dropping those entries here would silence it.
@@ -1119,6 +1123,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Terminal notifications are an interactive UI choice. An environment
 	// variable in a shell profile must not start producing them invisibly.
 	tui: undefined,
+	// A scalar switch, and the one a CI job or a test harness needs to keep a
+	// launch off the network without writing a config file.
+	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
 }
 
 /** Which `NAMZU_*` variable actually set each field `readEnv` found. */
@@ -1160,6 +1167,22 @@ function readEnv(env: NodeJS.ProcessEnv): {
 			}
 			config.quiet = quiet === '1' || quiet === 'true'
 			variables.quiet = quietVar
+		}
+	}
+
+	const refreshVar = ENV_VARIABLE_NAMES.modelCatalogueRefresh
+	if (refreshVar) {
+		const refresh = env[refreshVar]
+		if (refresh !== undefined) {
+			if (refresh !== '1' && refresh !== 'true' && refresh !== '0' && refresh !== 'false') {
+				throw new ConfigValueError(
+					{ kind: 'environment', variable: refreshVar },
+					'modelCatalogueRefresh',
+					'must be one of "1", "true", "0", or "false"',
+				)
+			}
+			config.modelCatalogueRefresh = refresh === '1' || refresh === 'true'
+			variables.modelCatalogueRefresh = refreshVar
 		}
 	}
 

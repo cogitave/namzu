@@ -66,7 +66,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Log standard gate | `node --import tsx --test scripts/__tests__/check-log-standard.test.ts && node scripts/check-log-standard.mjs` |
 | Local entry-point check | `node --import tsx --test scripts/__tests__/check-local-entry.test.ts` |
 | Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
-| Zen catalogue matches its source | `node --import tsx --test scripts/__tests__/generate-zen-models.test.ts && node scripts/generate-zen-models.mjs --check` |
+| Zen snapshot generator tests | `node --import tsx --test scripts/__tests__/generate-zen-models.test.ts` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
 | Evals | `node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json` |
 | SDK coverage (produce summary) | `pnpm --filter @namzu/sdk test:coverage` |

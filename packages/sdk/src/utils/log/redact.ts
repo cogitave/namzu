@@ -2,7 +2,7 @@
 //
 // Runs once, in the pipeline, ahead of sink dispatch — not inside
 // jsonLinesSink, and not inside any other individual sink. A scan that only
-// jsonLinesSink ran would leave prettySink (the one `namzu run` actually
+// jsonLinesSink ran would leave prettySink (the one `namzu exec` actually
 // uses) and every host-supplied sink with no second layer at all, which is
 // the gap a scoped-to-one-sink design would reintroduce: the machine-read
 // path would be the only protected one.
