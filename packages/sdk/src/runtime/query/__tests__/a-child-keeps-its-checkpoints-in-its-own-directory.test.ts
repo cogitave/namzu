@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -193,6 +193,64 @@ describe('a child session keeps its checkpoints in its own directory', () => {
 				),
 			).toEqual([`${checkpoint.checkpointId}.json`])
 			expect((await readdir(paths.projectDir())).sort()).toEqual([root, `${root}.jsonl`].sort())
+		}
+	})
+
+	it('places a child log opened through a symlinked home in its own directory', async () => {
+		// The home the layout is built on and the path the log is opened by
+		// name one file with two spellings: `resolve()` called them different
+		// and filed the child's checkpoints under its parent a second time.
+		const root = generateSessionId()
+		const child = generateSessionId()
+		const grandchild = generateSessionId()
+		const locator = { sessionId: grandchild, ancestors: [root, child] }
+		const link = `${home}-link`
+		await symlink(home, link, 'dir')
+		try {
+			const linked = new SessionPaths({ home: link, slug: '-work' })
+			// The log does not exist yet, and neither does its directory: only
+			// the linked home does, so the canonical form is built from it.
+			const logPath = paths.sessionLog(locator)
+			const log = new DiskSessionLog({
+				sessionId: grandchild,
+				file: logPath,
+				sessionDir: logPath.replace(/\.jsonl$/, ''),
+			})
+			const storage = await resolveSessionStorage({
+				sessionId: grandchild,
+				parentSessionId: child,
+				sessionLog: log,
+				paths: linked,
+			})
+			const scope = {
+				tenantId: generateTenantId(),
+				projectId: generateProjectId(),
+				sessionId: grandchild,
+				turnId: generateTurnId(),
+			}
+			const checkpoint = {
+				v: 1,
+				kind: 'checkpoint',
+				checkpointId: generateCheckpointId(),
+				sessionId: grandchild,
+				turnId: scope.turnId,
+				iteration: 1,
+				throughSeq: 1,
+				throughSha256: 'a'.repeat(64),
+				tokenUsage: { ...EMPTY_TOKEN_USAGE },
+				costInfo: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 0 },
+				guards: { iteration: 1, elapsedMs: 1 },
+				review: { structuredAttempts: 0, answerAttempts: 0, nativeStructuredAttempts: 0 },
+				turnCreatedAt: '2026-09-22T00:00:00.000Z',
+				createdAt: '2026-09-22T00:00:01.000Z',
+			} as Checkpoint
+			await storage.checkpoints.write(scope, checkpoint)
+			expect(await readdir(join(paths.sessionDir(locator), 'checkpoints'))).toEqual([
+				`${checkpoint.checkpointId}.json`,
+			])
+			expect(await readdir(paths.projectDir())).toEqual([root])
+		} finally {
+			await removeTempDirAsync(link)
 		}
 	})
 

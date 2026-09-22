@@ -1,5 +1,5 @@
-import { readdir } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { readdir, realpath } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import { resolveNamzuHome } from '../../session/home.js'
 import { type SessionLocator, SessionPaths, ensureProject } from '../../session/paths.js'
 import {
@@ -84,7 +84,7 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 	// that is, so its checkpoints never land at the top: that includes a log
 	// kept outside the layout whose file name alone reads as a place in one.
 	const locator = paths
-		? (placeInLayout(paths, input.sessionLog) ??
+		? ((await placeInLayout(paths, input.sessionLog)) ??
 			(await locateSession(paths, input.sessionId, input.parentSessionId)))
 		: undefined
 	const log =
@@ -121,12 +121,42 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
  * does not know which project it belongs to; a file outside this project (or
  * one named for a place it is not at) is `undefined` here.
  */
-function placeInLayout(
+async function placeInLayout(
 	paths: SessionPaths,
 	log: SessionLog | undefined,
-): SessionLocator | undefined {
+): Promise<SessionLocator | undefined> {
 	if (!(log instanceof DiskSessionLog) || !log.locator) return undefined
-	return resolve(paths.sessionLog(log.locator)) === resolve(log.file) ? log.locator : undefined
+	// Canonical, not lexical. `NAMZU_HOME` reached through a symlinked home
+	// (`/home/me -> /data/me`) and a log opened by its real path name the same
+	// file with two spellings; comparing them with `resolve()` read that as a
+	// log outside the layout and placed a child's checkpoints under its parent
+	// a second time, beside the ones its own log already points at.
+	const [expected, actual] = await Promise.all([
+		canonicalPath(paths.sessionLog(log.locator)),
+		canonicalPath(log.file),
+	])
+	return expected === actual ? log.locator : undefined
+}
+
+/**
+ * `path` with every symlink in its existing prefix resolved. A log is often
+ * placed before its first append, so the file (and even its session
+ * directory) may not exist yet: the deepest ancestor that does is
+ * canonicalized and the rest appended lexically, which cannot hide a link
+ * because nothing is there to be one. Falls back to `resolve()` when nothing
+ * on the path exists at all.
+ */
+async function canonicalPath(path: string): Promise<string> {
+	let existing = resolve(path)
+	let remainder = ''
+	for (;;) {
+		const found = await realpath(existing).catch(() => undefined)
+		if (found !== undefined) return remainder ? join(found, remainder) : found
+		const parent = dirname(existing)
+		if (parent === existing) return resolve(path)
+		remainder = remainder ? join(basename(existing), remainder) : basename(existing)
+		existing = parent
+	}
 }
 
 /**
