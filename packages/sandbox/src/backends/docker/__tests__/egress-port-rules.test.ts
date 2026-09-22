@@ -169,9 +169,9 @@ describe('the proxy image label, checked before anything starts', () => {
 				'namzu-egress-proxy:latest',
 			])
 			expect(imageIndex).toBeLessThan(runIndex)
-			const proxyRunEnv = readFileSync(envLog, 'utf8').split('\n')[runIndex] as string
-			expect(proxyRunEnv.startsWith('V1=|V2={')).toBe(true)
-			const v2 = JSON.parse(proxyRunEnv.slice('V1=|V2='.length)) as { hostPorts: unknown }
+			const proxyLaunchEnv = readFileSync(envLog, 'utf8').split('\n')[runIndex] as string
+			expect(proxyLaunchEnv.startsWith('V1=|V2={')).toBe(true)
+			const v2 = JSON.parse(proxyLaunchEnv.slice('V1=|V2='.length)) as { hostPorts: unknown }
 			expect(v2.hostPorts).toEqual([
 				{ host: 'api.example.com', ports: [443] },
 				{ host: '.example.org' },
