@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync } from 'node:fs'
 import { link, mkdir, open, readFile, realpath, unlink } from 'node:fs/promises'
 import { tmpdir, userInfo } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type {
 	CheckpointId,
 	GoalId,
@@ -13,7 +13,7 @@ import type {
 	TurnId,
 } from '../types/ids/index.js'
 import { type ProjectDocument, ProjectDocumentSchema } from '../types/session/records.js'
-import { type EntityIdKind, generateProjectId, isEntityId } from '../utils/id.js'
+import { type EntityIdKind, asSessionId, generateProjectId, isEntityId } from '../utils/id.js'
 import { uuidv7 } from '../utils/uuidv7.js'
 
 /**
@@ -41,6 +41,33 @@ import { uuidv7 } from '../utils/uuidv7.js'
 export interface SessionLocator {
 	readonly sessionId: SessionId
 	readonly ancestors?: readonly SessionId[]
+}
+
+/**
+ * The locator a session log's own path spells out: `<session-id>.jsonl` at the
+ * top of a project is a root session, and each `<ancestor-id>/subagents/`
+ * above it names an ancestor, nearest last. `undefined` when the file is not
+ * named `<sessionId>.jsonl`, so a log kept outside the layout claims no place
+ * in it.
+ *
+ * A log opened from the index's `logPath` knows only its file; this is how it
+ * finds the same `checkpoints/` (and the rest of its session directory) that
+ * {@link SessionPaths} placed for it.
+ */
+export function sessionLocatorFromLogFile(
+	file: string,
+	sessionId: SessionId,
+): SessionLocator | undefined {
+	if (basename(file) !== `${sessionId}.jsonl`) return undefined
+	const ancestors: SessionId[] = []
+	let directory = dirname(file)
+	while (basename(directory) === 'subagents') {
+		const owner = basename(dirname(directory))
+		if (!isEntityId(owner, 'session')) break
+		ancestors.unshift(asSessionId(owner))
+		directory = dirname(dirname(directory))
+	}
+	return ancestors.length === 0 ? { sessionId } : { sessionId, ancestors }
 }
 
 export interface SessionPathsOptions {

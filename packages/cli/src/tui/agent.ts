@@ -2958,7 +2958,15 @@ export async function createAgentSession(
 					sessionLog,
 					checkpointStore:
 						checkpointStore ??
-						new DiskSessionCheckpointStore({ paths, log: sessionLogCheckpointView(sessionLog) }),
+						new DiskSessionCheckpointStore({
+							paths,
+							log: sessionLogCheckpointView(sessionLog),
+							// A drained child's log sits under its parent's `subagents/`;
+							// its checkpoints are in its own directory there, not at the top.
+							...(sessionLog instanceof DiskSessionLog && sessionLog.locator
+								? { session: sessionLog.locator }
+								: {}),
+						}),
 					...(lease ? { lease } : {}),
 					...(checkpointId !== undefined ? { checkpointId } : {}),
 					...(listener || options.onSessionEvent

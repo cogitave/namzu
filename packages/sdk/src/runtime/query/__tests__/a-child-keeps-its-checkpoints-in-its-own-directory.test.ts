@@ -105,6 +105,66 @@ describe('a child session keeps its checkpoints in its own directory', () => {
 		expect(await readdir(paths.projectDir())).toEqual([root])
 	})
 
+	it('finds the same checkpoints through a child log reopened by its path', async () => {
+		const root = generateSessionId()
+		const child = generateSessionId()
+		const grandchild = generateSessionId()
+		const locator = { sessionId: grandchild, ancestors: [root, child] }
+		const written = await writeOneCheckpoint(DiskSessionLog.at(paths, locator), grandchild)
+
+		// How the drain, abandonTurn and the CLI open a log: from the index's logPath.
+		const logPath = paths.sessionLog(locator)
+		const reopen = () =>
+			new DiskSessionLog({
+				sessionId: grandchild,
+				file: logPath,
+				sessionDir: logPath.replace(/\.jsonl$/, ''),
+			})
+		expect(reopen().locator).toEqual(locator)
+		for (const parent of [undefined, child]) {
+			const storage = await resolveSessionStorage({
+				sessionId: grandchild,
+				...(parent ? { parentSessionId: parent } : {}),
+				sessionLog: reopen(),
+				paths,
+			})
+			const scope = {
+				tenantId: generateTenantId(),
+				projectId: generateProjectId(),
+				sessionId: grandchild,
+				turnId: written.turnId,
+			}
+			expect((await storage.checkpoints.list(scope)).map((c) => c.checkpointId)).toEqual([
+				written.checkpointId,
+			])
+		}
+
+		// A new checkpoint written through the reopened log lands beside the first.
+		await writeOneCheckpoint(reopen(), grandchild, child)
+		expect(await readdir(join(paths.sessionDir(locator), 'checkpoints'))).toHaveLength(2)
+		expect(await readdir(paths.projectDir())).toEqual([root])
+	})
+
+	it('places a log outside the layout under its named parent', async () => {
+		const root = generateSessionId()
+		const child = generateSessionId()
+		await mkdir(paths.sessionDir({ sessionId: root }), { recursive: true })
+		await writeFile(paths.sessionLog({ sessionId: root }), '')
+		const elsewhere = join(home, 'elsewhere', 'log.jsonl')
+		const log = new DiskSessionLog({
+			sessionId: child,
+			file: elsewhere,
+			sessionDir: join(home, 'elsewhere', 'log'),
+		})
+		expect(log.locator).toBeUndefined()
+
+		const checkpoint = await writeOneCheckpoint(log, child, root)
+		expect(
+			await readdir(join(paths.sessionDir({ sessionId: child, ancestors: [root] }), 'checkpoints')),
+		).toEqual([`${checkpoint.checkpointId}.json`])
+		expect((await readdir(paths.projectDir())).sort()).toEqual([root, `${root}.jsonl`].sort())
+	})
+
 	it('takes a parent with no log anywhere to be a root session', async () => {
 		const parent = generateSessionId()
 		const child = generateSessionId()

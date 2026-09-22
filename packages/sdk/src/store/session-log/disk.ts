@@ -1,7 +1,11 @@
 import { createReadStream } from 'node:fs'
 import { type FileHandle, mkdir, open, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { SessionLocator, SessionPaths } from '../../session/paths.js'
+import {
+	type SessionLocator,
+	type SessionPaths,
+	sessionLocatorFromLogFile,
+} from '../../session/paths.js'
 import type { SessionId } from '../../types/ids/index.js'
 import type { SessionLogEntry } from './chain.js'
 import {
@@ -136,10 +140,12 @@ export interface DiskSessionLogOptions
 	/** `<session-id>/`: the lease files and `tool-results/`. */
 	readonly sessionDir: string
 	/**
-	 * Where the session sits in its project's layout, when that is known:
-	 * {@link DiskSessionLog.at} sets it. The stores that keep a session's other
-	 * documents (`checkpoints/`, …) read it, so a child session's documents land
-	 * in its own directory under its ancestors rather than at the top level.
+	 * Where the session sits in its project's layout. {@link DiskSessionLog.at}
+	 * sets it; otherwise it is read from `file` (`…/<parent-id>/subagents/<id>.jsonl`
+	 * names its ancestors), so a log opened from the index's `logPath` sits
+	 * where `at` put it. The stores that keep a session's other documents
+	 * (`checkpoints/`, …) read it, so a child session's documents land in its
+	 * own directory under its ancestors rather than at the top level.
 	 */
 	readonly locator?: SessionLocator
 }
@@ -148,7 +154,10 @@ export interface DiskSessionLogOptions
 export class DiskSessionLog extends SessionLogCore {
 	readonly file: string
 	readonly sessionDir: string
-	/** See {@link DiskSessionLogOptions.locator}. */
+	/**
+	 * See {@link DiskSessionLogOptions.locator}. `undefined` only for a log
+	 * whose file is not named `<session-id>.jsonl`.
+	 */
 	readonly locator: SessionLocator | undefined
 
 	constructor(options: DiskSessionLogOptions) {
@@ -168,7 +177,7 @@ export class DiskSessionLog extends SessionLogCore {
 				`A session log's locator names session ${options.locator.sessionId}, not ${options.sessionId}.`,
 			)
 		}
-		this.locator = options.locator
+		this.locator = options.locator ?? sessionLocatorFromLogFile(options.file, options.sessionId)
 	}
 
 	/** The log of `locator` in a project's layout. */

@@ -2,6 +2,7 @@
 
 ## 2026-09-22
 
+- **Update** [Session log](sdk/session-log.md): a `DiskSessionLog` built from a file path (the index's `logPath`, as the drain and `abandonTurn` open it) reads its `locator` from that path, so a child session reopened that way finds the checkpoints `DiskSessionLog.at` wrote, under its parent's `subagents/`.
 - **Update** [Session log](sdk/session-log.md): a child session's checkpoints are written in its own directory under its ancestors, through `DiskSessionCheckpointStore`'s new `session` option and `DiskSessionLog.locator`, not in a stray `<child-id>/` at the top of the project.
 - **Update** [Resident agents](sdk/resident-agents.md) names `receiptStatus: 'duplicate-turn'`; [Slash commands](cli/slash-commands.md) calls the `/config` section Turn limits, as the TUI does; [Resident work](cli/resident-work.md) says `start.json` links a claim to its session and turn ids; [Memory research](sdk/memory-research.md) points at `packages/sdk/src/turn/memory-recall.ts`; [the SDK index](sdk/index.md), [Tool-call budget](sdk/tool-call-budget.md), [Evidence recall](sdk/evidence-recall.md), [Framework gap audit](sdk/framework-gap-audit.md) and the Zen README say turn or child session where they still said run.
 - **Update** [Delegation events](sdk/delegation-events.md): a parent on disk hands its layout to its children (`ChildSessionStorage` of kind `disk`), so child logs, meta files and `child_session_ended` land under the parent with no `paths` named anywhere.

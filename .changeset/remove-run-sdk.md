@@ -132,7 +132,8 @@ cannot list them: implement it to keep them listable.
   session's checkpoints are in its own directory,
   `<parent-session-dir>/subagents/<child-id>/checkpoints/`; a
   `DiskSessionCheckpointStore` you build for a child takes that place as its
-  `session` option (`DiskSessionLog.at(...).locator`).
+  `session` option (`DiskSessionLog.locator`, which a log opened from its
+  file path reads from that path).
   `IterationCheckpoint` and the kind `run-checkpoint` are replaced by the
   `Checkpoint` document (`kind: 'checkpoint'`); an old one is refused by name.
 - `TokenBudget`, `TokenBudgetStore`, `DiskTokenBudgetStore`,

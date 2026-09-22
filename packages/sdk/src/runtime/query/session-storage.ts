@@ -79,11 +79,12 @@ export async function resolveSessionStorage(input: SessionStorageInput): Promise
 	const inMemory = input.sessionLog instanceof InMemorySessionLog && input.paths === undefined
 	const paths =
 		input.paths ?? (inMemory ? undefined : await defaultSessionPaths(input.workingDirectory))
-	const locator = input.sessionLog
-		? input.sessionLog instanceof DiskSessionLog
-			? input.sessionLog.locator
-			: undefined
-		: await locateSession(paths as SessionPaths, input.sessionId, input.parentSessionId)
+	// A disk log knows its place from its path; any other log (or one kept
+	// outside the layout) is placed like a session named without a log, under
+	// its parent wherever that is, so its checkpoints never land at the top.
+	const locator =
+		(input.sessionLog instanceof DiskSessionLog ? input.sessionLog.locator : undefined) ??
+		(paths ? await locateSession(paths, input.sessionId, input.parentSessionId) : undefined)
 	const log =
 		input.sessionLog ?? DiskSessionLog.at(paths as SessionPaths, locator as SessionLocator)
 	const state = inMemory ? heldState(log as InMemorySessionLog) : undefined

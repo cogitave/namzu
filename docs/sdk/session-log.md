@@ -283,9 +283,13 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
   directory, `<parent-session-dir>/subagents/<child-id>/checkpoints/`. A
   checkpoint scope names only the session, so `DiskSessionCheckpointStore`
   takes the session's place in the tree as its `session` option, and a
-  `DiskSessionLog` opened with `DiskSessionLog.at` reports that place as
-  `locator`. A child named only by `parentSessionId`, with no log, is placed
-  under wherever its parent's log is found.
+  `DiskSessionLog` reports that place as `locator`: the one
+  `DiskSessionLog.at` was given, or, for a log built from a file path such as
+  the index's `logPath`, the one the path spells out
+  (`…/<parent-id>/subagents/<child-id>.jsonl`). A log whose file is not named
+  `<session-id>.jsonl` has no `locator`; `resolveSessionStorage` then places
+  it like a child named only by `parentSessionId`, with no log: under
+  wherever its parent's log is found.
 - **Child-session meta** (`kind: 'child-session'`): identity, parent, root,
   depth, the spawning tool call, agent type, description and status. A
   convenience; the child's log wins on any disagreement.
