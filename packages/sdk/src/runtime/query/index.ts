@@ -1092,7 +1092,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					// arrives in.
 					[...(allowedBeforeDenial ?? params.tools.listNames())].filter((name) => !denied.has(name))
 
-		// The two halves of a durable pause, owned by the RUN when the host
+		// The two halves of a durable pause, owned by the TURN when the host
 		// does not own them.
 		//
 		// `SupervisorAgent` builds both before the turn exists, because the
@@ -1715,7 +1715,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					await eventTranslator.resumeTurn(checkpoint.id)
 					yield* eventTranslator.drainPending()
 
-					// Budgets are properties of the RUN, not of the process hosting
+					// Budgets are properties of the TURN, not of the process hosting
 					// it. The checkpoint already carried all three; they were
 					// written and then discarded on the way back in, so a turn
 					// recalled at $4.80 of a $5 cap came back with a fresh $5 and

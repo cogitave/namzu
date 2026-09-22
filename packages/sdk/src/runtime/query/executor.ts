@@ -1144,7 +1144,7 @@ export class ToolExecutor {
 					: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult.reason}`
 			const output = deniedToolOutput(name, reason)
 			// Same fail-closed durability rule as a direct gate denial: if the
-			// configured run store cannot record the refusal, do not quietly carry
+			// configured session log cannot record the refusal, do not quietly carry
 			// on with an unaudited execution.
 			if (!this.config.recordAudit) {
 				throw new Error(

@@ -77,8 +77,8 @@ export async function* releaseTurnResources(
 
 	// A background job outlives the tool call that started it — that
 	// is what it is for — so nothing but this stops it outliving the
-	// RUN. Scoped to this turn's id: a shared registry serving several
-	// runs must not have one of them tear down another's work.
+	// TURN. Scoped to this turn's id: a shared registry serving several
+	// turns must not have one of them tear down another's work.
 	//
 	// Awaited, and its failure swallowed. A job that would not die is
 	// worth a log line, and is not worth retracting a turn's answer.

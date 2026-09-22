@@ -111,7 +111,7 @@ export class PromptCache {
 	}
 
 	private computeStaticHash(staticSegment: string): string {
-		// Static means stable within a turn, but a cache can outlive that run.
+		// Static means stable within a turn, but a cache can outlive that turn.
 		// A fresh registry or a replacement can keep the same ids while its
 		// instructions change. Hash the text already built for this request,
 		// including persona, skills and context-level choices, without

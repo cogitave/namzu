@@ -383,7 +383,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	/**
 	 * Drop the oldest tasks once the ledger passes {@link GATEWAY_TASK_LEDGER_CAP}.
 	 *
-	 * A gateway constructed per turn is bounded by that run and this never
+	 * A gateway constructed per turn is bounded by that turn and this never
 	 * fires. But `SupervisorAgentConfig.gateway` lets a host supply its own,
 	 * and a long-lived host reusing one accumulates an id and a settled handle
 	 * per task it ever launched, for the life of the process — the doc above

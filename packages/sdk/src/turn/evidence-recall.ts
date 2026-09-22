@@ -63,7 +63,7 @@ export interface EvidenceRecallContinuation {
 	readonly input: Readonly<Record<string, string | number | boolean | null>>
 }
 
-/** @experimental Local retrieval with optional run-metered query resolution. */
+/** @experimental Local retrieval with optional turn-metered query resolution. */
 export interface EvidenceRecallOptions {
 	readonly scope: Omit<SessionEvidenceScope, 'turnId'>
 	readonly retrieve: (request: EvidenceRecallRequest) => Promise<EvidenceRecallBatch>

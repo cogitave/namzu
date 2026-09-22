@@ -474,7 +474,7 @@ export interface ToolContext {
 	maxToolOutputChars?: number
 
 	/**
-	 * Screens the RUN asked for, applied to results this call produces.
+	 * Screens the TURN asked for, applied to results this call produces.
 	 *
 	 * Worth having because a turn usually does not build its registry: a host
 	 * assembles one and hands it to `runAgent`, so a registry-construction

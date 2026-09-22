@@ -22,7 +22,7 @@ import type { MCPClient } from './client.js'
  *   server changes its wording. Worse, system position READS as
  *   instruction, which is the last thing text from a remote party should
  *   read as.
- * - A slash command routes through the host's UI, so a headless run — the
+ * - A slash command routes through the host's UI, so a headless turn — the
  *   case this kernel is built for — could never use one.
  *
  * A tool call is explicit, auditable, passes the same admission policy and

@@ -329,8 +329,8 @@ export function deliverArrivedCompletions(ctx: IterationContext): void {
 	// `markCompleted` — which is AFTER this. So a notification appended
 	// after the final assistant turn makes the turn's own answer
 	// unreachable. Measured, on a turn whose model had just said "THIS IS
-	// THE RUN ANSWER.": `run.result` came back `undefined`. That trades a
-	// lost worker result for a lost RUN result, which is strictly worse
+	// THE TURN ANSWER.": the turn's `result` came back `undefined`. That trades a
+	// lost worker result for a lost TURN result, which is strictly worse
 	// than the defect this delivery exists to fix.
 	//
 	// Materialising resolves it while the tail is still the assistant's;

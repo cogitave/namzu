@@ -563,9 +563,9 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		} catch (error) {
 			// Attachment materialization precedes TurnContext construction so stored
 			// bytes never enter a live turn's checkpoints. Cancellation still belongs
-			// to that run: preserve the exact input refs, build the context below, and
+			// to that turn: preserve the exact input refs, build the context below, and
 			// let its normal terminal path classify/persist a cancelled turn. Every
-			// other store failure remains a pre-run refusal.
+			// other store failure remains a pre-turn refusal.
 			if (!params.signal?.aborted || error !== params.signal.reason) throw error
 			resolvedInitialMessages = [...seeded]
 			attachmentResolutionCancelled = true
