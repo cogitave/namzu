@@ -128,7 +128,11 @@ cannot list them: implement it to keep them listable.
   `InMemorySessionCheckpointStore`, keyed by `CheckpointScope { tenantId,
   projectId, sessionId, turnId }`. `prune(scope, keepLast)` is **required**; it
   was the optional `pruneCheckpoints`. A checkpoint document holds no messages
-  and is refused on restore when it no longer matches its log.
+  and is refused on restore when it no longer matches its log. A child
+  session's checkpoints are in its own directory,
+  `<parent-session-dir>/subagents/<child-id>/checkpoints/`; a
+  `DiskSessionCheckpointStore` you build for a child takes that place as its
+  `session` option (`DiskSessionLog.at(...).locator`).
   `IterationCheckpoint` and the kind `run-checkpoint` are replaced by the
   `Checkpoint` document (`kind: 'checkpoint'`); an old one is refused by name.
 - `TokenBudget`, `TokenBudgetStore`, `DiskTokenBudgetStore`,
@@ -233,9 +237,11 @@ the session promoter stamps is `'session-memory'` (was `'run-memory'`), and
   Any string is accepted and mapped to one session. A client that sent its
   project UUID as `contextId` gets one session for it, and its tasks queue
   there one at a time. `Task.id` is the turn id. `runToA2ATask`,
-  `mapRunToA2AEvent`, `runStatusToA2AState`, `CreateRunFromA2A` and
-  `a2aMessageToCreateRun` are `mapTurnToA2ATask`, `mapTurnToA2AEvent`,
-  `turnStatusToA2AState`, `CreateTurnFromA2A` and `a2aMessageToCreateTurn`.
+  `mapRunToA2AEvent`, `runStatusToA2AState`, `RUN_STATUS_TO_A2A`,
+  `CreateRunFromA2A` and `a2aMessageToCreateRun` are `mapTurnToA2ATask`,
+  `mapTurnToA2AEvent`, `turnStatusToA2AState`, `TURN_STATUS_TO_A2A`,
+  `CreateTurnFromA2A` and `a2aMessageToCreateTurn`. `TURN_STATUS_TO_A2A` is
+  keyed by `WireTurnStatus`, so it has the new `awaiting_input` key.
 - ACP: the default session id is a UUIDv7 instead of `acp_<n>`, and a prompt
   while a turn is active is refused with `INVALID_REQUEST`.
 - Telemetry: `NAMZU.RUN_ID`, `NAMZU.RUN_STATUS` and `NAMZU.RUN_PARENT_ID` are
