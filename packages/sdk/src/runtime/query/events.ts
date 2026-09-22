@@ -94,7 +94,8 @@ export class EventTranslator {
 
 	/**
 	 * A text evidence source over the turn's session log, captured while the
-	 * turn is running. `undefined` for a log that is not on disk.
+	 * turn is running: every earlier turn of the session and this turn's
+	 * records so far. `undefined` for a log that is not on disk.
 	 */
 	captureSessionEvidence(
 		maxReadBytes?: number,
@@ -110,13 +111,15 @@ export class EventTranslator {
 			if (typeof logPath !== 'string' || !head) return undefined
 			// Anchored at the head this writer just appended: records appended
 			// later neither invalidate the capture nor become visible to it.
+			// The scope is the session, not this turn: one log holds every turn,
+			// and a read of what the conversation recorded earlier (the reason a
+			// running turn captures at all) is a read of the turns before it.
 			const source = createAnchoredSessionTextEvidenceSource(
 				{
 					scope: {
 						tenantId: this.recorder.tenantId,
 						projectId: this.recorder.projectId,
 						sessionId: this.recorder.sessionId,
-						turnId: this.recorder.turnId,
 					},
 					logPath,
 					consistency: 'snapshot',

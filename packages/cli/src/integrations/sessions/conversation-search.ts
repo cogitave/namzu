@@ -9,11 +9,11 @@ import {
 	type ToolContext,
 	type ToolDefinition,
 	classifyEvidenceSource,
+	createSessionTextEvidenceSource,
 	defineTool,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { assertEvidenceReadPage, assertEvidenceSearchPage } from './evidence-page-validation.js'
-import { createSessionTextEvidenceSource } from './sdk-pending.js'
 import { type ConversationContext, conversationLogPath } from './store.js'
 
 /** Successful archive retrievals quote earlier records; they are not new observations. */
@@ -244,9 +244,14 @@ export async function releaseConversationEvidence(
 }
 
 /**
- * Open the reader for one conversation: the live turn's own snapshot when the
+ * Open the reader for one conversation: the live turn's capture when the
  * caller is that turn and asked for no other backend, otherwise the session
  * log read as a snapshot. The conversation must be this project's.
+ *
+ * The capture covers the whole session up to the running turn's latest
+ * record, anchored so the turn's own later appends do not invalidate it. It
+ * cannot be narrowed to one turn, so a search narrowed by `turnId` reads the
+ * log instead.
  */
 async function openSource(
 	sessions: ConversationContext,
@@ -269,7 +274,7 @@ async function openSource(
 	const liveAvailable =
 		active?.sessionId === sessionId &&
 		typeof active.captureSessionEvidence === 'function' &&
-		(options.turnId === undefined || options.turnId === active.turnId)
+		options.turnId === undefined
 	if (options.backend === 'live' && !liveAvailable)
 		throw new Error('The live evidence owner is no longer available.')
 	if (options.backend !== 'log' && liveAvailable && active?.captureSessionEvidence) {

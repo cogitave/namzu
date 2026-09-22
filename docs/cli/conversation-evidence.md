@@ -219,7 +219,7 @@ retain exact case matching. This is Unicode case-insensitive literal matching,
 without locale-specific casing, accent normalization, regex operators or fuzzy
 ranking. For example, it does not equate `İ` with `i` or `ß` with `ss`. Optional `turnId`
 narrows the search to one turn of the current conversation; optional `limit`
-selects 1–20 matches (default 5). Each match includes the turn ID, the record's
+selects 1–20 matches (default 5). Each match includes the record's
 `seq`, source record type, zero-based textual `part`, and a bounded excerpt. Indexed
 sources return separate matching passages within the same window and continue
 within it at the match limit; nearby hits already covered by an excerpt are
@@ -257,70 +257,47 @@ establish only the visited records, not validity of the entire log.
 Each call reads at most 8 MiB, in 64 KiB chunks. Individual records are capped
 at 4 MiB; a larger body is spilled to `tool-results/` with an integrity
 manifest. Match payloads total at most 12,000 bytes.
-`nextCursor`, when present, continues at an unconsumed record or message inside
-a compaction record. Pass it as `cursor`; optionally repeated `query` and
-`caseSensitive` settings must match the original search. Omit `turnId` or repeat
-the original one. A recall cursor may represent a multi-term host query, so use
-cursor alone for those continuations. Settled turns use the session index's
-full-text search (`SessionIndex.searchEvidence`): at most three indexed matches
-are requested from each internal page.
-An internal page boundary alone does not end the public response. The host can
-follow up to seven additional internal continuations per call while the public
-match, serialized-output and read allowances have room. Scope and source checks
-are applied again for each page. An unchanged internal cursor yields immediately rather
-than consuming the continuation allowance on repeated work. When an indexed
-turn is completely searched, literal search and automatic multi-term discovery
-both advance to the next turn within the shared read limit. This includes
-matching turns: a small matching record does not require another model round
-trip merely to visit the next turn. The requested `limit`
-still caps matches across the public page. Before each SDK call, the host
-reserves 4,000 serialized bytes per requested match for its 512-character
-excerpt, JSON escaping and bounded metadata. It requests at most three matches
-and reduces that count when less room remains in the 12,000-byte allowance.
-Actual returned sizes are charged, and no consumed matches are discarded to
-make a page fit. Cursor-only continuations keep their original search mode.
-An internal page may therefore be empty without requiring another model turn.
-The host yields with a public continuation when its work or space allowance is
-exhausted; that public page can still be empty. Known omissions
-stay incomplete even when scanning advances, and failed operations with unknown
-read cost still charge the remaining ceiling and yield. The index also pages within large
-compaction records. Literal case-insensitive search bypasses case-sensitive index
-filters and verifies the original text; it can need more I/O or pages while
-keeping the same ceilings. The [indexed-page experiment](../../research/conversation-evidence/index-pages-results.md)
-records fewer public calls with increased accounted reads in its fixture;
-packing pages is not a guarantee of lower total I/O or model cost.
+`nextCursor`, when present, continues the scan where the reader stopped. Pass it
+as `cursor`; optionally repeated `query` and `caseSensitive` settings must match
+the original search. Omit `turnId` or repeat the original one. A recall cursor
+may represent a multi-term host query, so use cursor alone for those
+continuations.
 
-The 48-character handle binds the host scope, query, case sensitivity and the
-log position it was taken at. It expires after ten minutes, process restart or
-eviction from a 128-entry cache. Restart the search if the cursor expires. A log
-that no longer matches the position (truncated or rewritten below it) is
-reported as unavailable; restart to search the new state. Append-only growth is
-allowed: a record's `seq` and hash never change once written. The short CLI
-cursor is process-local. The full-text index lives in `index.sqlite`, is derived
-from the logs and rebuilt after restart when needed; the session log and
-retained outputs remain primary.
+One reader serves the whole conversation. Inside a running turn it is that
+turn's capture (`ToolContext.captureSessionEvidence`), which covers every earlier
+turn and the running one up to its latest record, anchored so that the turn's
+own later appends do not invalidate it. Outside a turn, and for any search
+narrowed by `turnId`, it is the session log read as a snapshot. A cursor stays
+with the reader that issued it: a live cursor is refused once its turn is gone.
 
-Results include `scannedTurns`, `scannedBytes`, `unavailableTurns` and
-`incomplete`. Turn counts describe distinct turns visited or found unavailable
-in the current call, even when several internal pages visit one turn. Read bytes
-include all internal operations. If a later internal page fails validation, the
-current response discards matches already collected from that turn; other turns'
-matches remain. A continuation also preserves omissions seen earlier in that
-same scan, including when an automatic live scan hands off to this tool.
-Finishing its remaining pages does not erase a prior preview or unavailable
-original. A final page may therefore have `unavailableTurns: 0`, no
-`nextCursor`, and `incomplete: true`: it found no new unavailable turn, but the
-whole continued scan still cannot establish absence. Omissions from a separate
-closed-history scan do not mark an otherwise healthy live scan as incomplete.
+An internal page boundary alone does not end the public response. The host
+follows up to seven additional internal continuations per call while the public
+match, serialized-output and read allowances have room, and stops at once when a
+page hands back the cursor it was given. Before each SDK call, the host reserves
+4,000 serialized bytes per requested match for its 512-character excerpt, JSON
+escaping and bounded metadata. It requests at most three matches and fewer when
+less room remains in the 12,000-byte allowance, and it stops before the remaining
+read allowance falls under 1 MiB. The requested `limit` still caps matches
+across the public page, and cursor-only continuations keep their original search
+mode. An internal page may be empty without requiring another model turn, and a
+public page the host yields with a continuation can be empty too.
 
-If an SDK operation fails before returning
-its byte count, `scannedBytes` conservatively charges the remaining 8 MiB
-ceiling and yields instead of attempting another turn in that call. `incomplete` remains true while another page
-exists or if any turn or partial evidence was omitted. An authenticated full spill
-does not become incomplete merely because its model-visible preview was truncated. Follow continuation even
-when the current page has zero matches. Incomplete absence is not proof that
-missing evidence does not exist. Turns are visited newest first; an exact
-`turnId` restricts the search to that turn.
+The 48-character handle binds the host scope, query, case sensitivity, match
+mode and reader. It expires after ten minutes, process restart or eviction from
+a 128-entry cache, and it is dropped when the host releases the conversation.
+Restart the search if the cursor expires.
+
+Results include `scannedBytes`, `unavailable` (records the reader could not
+verify or read back in this call), optional `excludedToolResults` and
+`excludedSummaries`, and `incomplete`. Read bytes include all internal
+operations. If a later internal page fails, the response discards every match
+the call had collected, reports `incomplete: true` and offers no cursor. A
+continuation keeps the omissions seen earlier in the same scan, including when
+an automatic live scan hands off to this tool, so a final page may have
+`unavailable: 0`, no `nextCursor` and `incomplete: true`. A search over a turn
+that has not settled stays incomplete even at the end of the log. Follow a
+continuation even when the current page has zero matches. Incomplete absence is
+not proof that missing evidence does not exist.
 
 This surface searches only the selected conversation's own log. It does not
 traverse fork ancestry, child sessions, arbitrary artifact paths, binary
@@ -328,9 +305,10 @@ attachments or memory records. The SDK validates each record's session and
 turn against the authorized scope and authenticates original tool text
 retained outside the record. Changed or missing authenticated
 artifacts are unavailable; search never silently substitutes their previews.
-For the requesting live invocation, the CLI uses the SDK writer's captured
-boundary and searches newest records first. Later appends preserve existing
-search/read continuations, including when compaction happens between calls.
+For a search inside a running turn, the CLI uses the SDK writer's captured
+boundary, which reaches the conversation's earlier turns as well as the running
+one. Later appends preserve existing search/read continuations, including when
+compaction happens between calls.
 Only that invocation's host-provided capability is accepted, and its scope must
 match the authorized conversation. For a turn that has no terminal record — a
 paused turn, or one interrupted when its process exited — the CLI uses the SDK's
@@ -346,8 +324,8 @@ search and automatic recall share owner, remaining read-budget and match-shape
 checks. The entire match batch is checked before any address is cached. A page
 with a different tenant, project, session or turn, invalid counters, oversized
 text or contradictory completeness is unavailable; its text is not returned to
-the model. Search reports incomplete coverage and charges the remaining read
-allowance when an invalid response leaves the operation's cost uncertain.
+the model. A first page that fails these checks fails the call; a later one
+discards the matches the call had collected and reports the search incomplete.
 These checks enforce the captured-source contract. Matching owner fields alone
 does not authenticate arbitrary text supplied by a custom host source; the
 built-in SDK readers still provide stored-byte integrity verification.

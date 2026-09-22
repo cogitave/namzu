@@ -84,7 +84,8 @@ same writer-owned boundary used by evidence tools. It is available to both
 capture. The optional signal can shorten the turn's lifetime for this read;
 it cannot keep a cancelled or settled turn active. Capture is serialized with
 complete durable appends and checks cancellation before and after acquiring
-the boundary. It does not accept a path or another turn ID.
+the boundary. The source covers the session log up to that boundary, earlier
+turns included. It does not accept a path, a turn ID or another session.
 
 The [automatic recall step](evidence-recall.md) passes a wrapper of this
 capability to its host retriever. Each pass obtains a fresh boundary. A bounded

@@ -37,10 +37,11 @@ cursor lifetime and source integrity again on execution. A hint grants no new
 authority, performs no tool call and keeps no source bytes alive.
 
 When the kernel exposes a live writer, `EvidenceRecallRequest.captureSessionEvidence`
-captures completed events from that invoking turn. The wrapper binds capture to
+captures the invoking turn's session log up to its latest completed record:
+every earlier turn of the session and the invoking turn so far. The wrapper binds capture to
 the recall deadline and parent cancellation, and rejects new captures after the
 recall pass ends. Stores without the capability return `undefined`. This does
-not authorize discovery of another turn or extend an expired invocation.
+not authorize discovery of another session or extend an expired invocation.
 
 Each `EvidenceRecallCandidate` carries `scope`, event `seq`, textual `part`,
 `source`, `retained`, `excerpt`, optional `toolName`, `isError`, stored-event `recordedAt` and UTF-8

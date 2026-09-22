@@ -358,7 +358,9 @@ a search hit deep in a large file to be read without replaying earlier pages.
 ## Reading a running turn
 
 `ToolContext.captureSessionEvidence(maxReadBytes?, signal?)` optionally captures the
-calling turn's completed record boundary. The kernel serializes capture with
+calling turn's completed record boundary. The source's scope is the session, not
+the turn: it reads every earlier turn in the session log and the calling turn's
+records up to that boundary, and it cannot be narrowed to one turn. The kernel serializes capture with
 durable appends and rejects capture after the tool call settles, times out or is
 cancelled, even when the parent turn continues. An optional local signal can
 cancel one capture without cancelling its owning tool, parent or sibling calls.
