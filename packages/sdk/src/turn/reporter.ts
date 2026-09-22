@@ -170,7 +170,7 @@ export function createTurnReporter(parentLogger?: Logger): TurnReporter {
 				break
 
 			case 'task_updated':
-				log.info('Task updated', {
+				log.info(event.deleted ? 'Task removed' : 'Task updated', {
 					'namzu.task.subject': event.subject,
 					[NAMZU.TURN_ID]: event.turnId,
 					'namzu.task.id': event.taskId,

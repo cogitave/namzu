@@ -740,6 +740,22 @@ export interface QueryParams {
 	}
 
 	/**
+	 * Whether a batch that needs no review still goes to `resumeHandler`.
+	 *
+	 * A batch every call of which an authorization rule allows, or which a
+	 * grant from earlier in the turn covers, runs without asking the handler.
+	 * That is right while the handler would approve it anyway, and wrong under
+	 * a policy stricter than the rules: a read-only mode such as `plan`, which
+	 * refuses a change a rule would let through. Consulted once per batch,
+	 * just before either shortcut; `true` sends the batch to the handler, each
+	 * call carrying the gate's decision in `authorization`. A rule's `deny`
+	 * still refuses a call whatever this returns.
+	 *
+	 * Absent, both shortcuts apply as they always have.
+	 */
+	reviewAllowedCalls?: () => boolean
+
+	/**
 	 * A name for the policy `resumeHandler` implements.
 	 *
 	 * Only ever written to the durable log and shown to an operator, so it
@@ -1480,6 +1496,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// Turn-scoped. An approval is a statement about this turn's work;
 			// carrying one into a later turn would be reuse nobody agreed to.
 			toolGrants: new ToolGrantSet(),
+			...(params.reviewAllowedCalls ? { reviewAllowedCalls: params.reviewAllowedCalls } : {}),
 			// Turn-scoped for the same reason. A repeat count carried into a later
 			// run is a claim about work nobody repeated, and a module-level map
 			// would leak exactly that way.

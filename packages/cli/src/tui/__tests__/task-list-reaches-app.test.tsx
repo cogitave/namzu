@@ -1,13 +1,14 @@
 /**
- * The model's plan reaches the screen as a live list, and leaves with the
- * request it belonged to.
+ * The model's plan reaches the screen as a checklist in the transcript, once.
  *
- * Before this, `task_create` / `task_update` were two transcript rows and
- * nothing between: a five-step plan was five rows scattered through tool
- * output, with no way to see which step was current. These drive a rendered
- * `<App>` through a turn that opens two tasks, works one, finishes both, and
- * then through a second turn — and read the frames, which is the only thing
- * that can establish what an operator sees.
+ * Task calls used to reach the operator as their protocol: `☐subject` rows,
+ * `Task created: <uuid> — "…" [owner: namzu]`, `1 tasks: 0 completed…`, and
+ * a live list above the composer repeating the same tasks a second time.
+ * Now consecutive task operations fold into one transcript block — a header
+ * in words and the checklist as it stood afterwards — and the row above the
+ * composer names the current step only while that block is out of view.
+ * These drive a rendered `<App>` and read the frames, which is the only
+ * thing that can establish what an operator sees.
  */
 
 import { render } from 'ink-testing-library'
@@ -21,6 +22,8 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 
 /** Emitted by the mocked session on the first turn; the second turn is text only. */
 let turn = 0
+/** When set, the first turn adds two tasks and removes one instead. */
+let removal = false
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -73,14 +76,35 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
 				turn += 1
-				if (turn === 1) {
-					yield { kind: 'task', taskId: 't1', subject: 'Write the parser', status: 'pending' }
+				if (removal) {
+					yield { kind: 'task', taskId: 't1', subject: 'Çalışma alanını incele', status: 'pending' }
+					yield { kind: 'task', taskId: 't2', subject: 'Eski adımı sil', status: 'pending' }
+					await pause()
+					yield { kind: 'delta', text: 'That second step is not needed.\n\n' }
+					await pause()
+					yield {
+						kind: 'task',
+						taskId: 't2',
+						subject: 'Eski adımı sil',
+						status: 'pending',
+						removed: true,
+					}
+					await pause()
+					yield { kind: 'delta', text: 'Removal done.' }
+				} else if (turn === 1) {
+					yield { kind: 'task', taskId: 't1', subject: 'Çalışma alanını incele', status: 'pending' }
 					yield { kind: 'task', taskId: 't2', subject: 'Cover it with tests', status: 'pending' }
 					await pause()
-					yield { kind: 'task', taskId: 't1', subject: 'Write the parser', status: 'in_progress' }
+					yield { kind: 'delta', text: 'Starting on the first one.\n\n' }
 					await pause()
-					yield { kind: 'task', taskId: 't1', subject: 'Write the parser', status: 'completed' }
+					yield { kind: 'task', taskId: 't1', subject: 'Çalışma alanını incele', status: 'in_progress' }
+					await pause()
+					yield { kind: 'delta', text: 'Looked around.\n\n' }
+					await pause()
+					yield { kind: 'task', taskId: 't1', subject: 'Çalışma alanını incele', status: 'completed' }
 					yield { kind: 'task', taskId: 't2', subject: 'Cover it with tests', status: 'in_progress' }
+					await pause()
+					yield { kind: 'delta', text: 'Writing the tests now.\n\n' }
 					await pause()
 					yield { kind: 'task', taskId: 't2', subject: 'Cover it with tests', status: 'completed' }
 					yield { kind: 'delta', text: 'All done, first turn.' }
@@ -106,7 +130,9 @@ const mounted: Array<{ unmount: () => void }> = []
 afterEach(() => {
 	for (const m of mounted.splice(0)) m.unmount()
 	turn = 0
+	removal = false
 	vi.clearAllMocks()
+	vi.unstubAllEnvs()
 })
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -134,55 +160,109 @@ async function submit(harness: ReturnType<typeof render>, text: string) {
 	harness.stdin.write('\r')
 }
 
-describe('the live task list', () => {
-	it('shows every task with its current mark, and counts what is done', async () => {
+const count = (frame: string, needle: string) => frame.split(needle).length - 1
+
+describe('the task checklist', () => {
+	it('folds consecutive additions into one block, with one space after each mark', async () => {
 		const harness = await open()
 		await submit(harness, 'go')
 
-		await frameShows(harness.lastFrame, 'Tasks · 0/2 done')
-		let frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('☐ Write the parser')
-		expect(frame).toContain('☐ Cover it with tests')
-
-		await frameShows(harness.lastFrame, '◐ Write the parser')
-
-		await frameShows(harness.lastFrame, 'Tasks · 1/2 done')
-		frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('☑ Write the parser')
-		expect(frame).toContain('◐ Cover it with tests')
-
-		await frameShows(harness.lastFrame, 'Tasks · 2/2 done')
+		await frameShows(harness.lastFrame, 'Added 2 tasks')
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('□ Çalışma alanını incele')
+		expect(frame).toContain('□ Cover it with tests')
+		expect(frame, 'no mark runs into its text').not.toMatch(/[□■✓✗][^ \n]/)
+		expect(frame, 'no emoji-presentation marks').not.toMatch(/[☐☑☒◐⏸]/)
 	})
 
-	it('keeps the finished list up after the turn, and clears it when the next request begins', async () => {
+	it('names each later operation in words and redraws the checklist under it', async () => {
+		const harness = await open()
+		await submit(harness, 'go')
+
+		await frameShows(harness.lastFrame, 'Started · Çalışma alanını incele')
+		expect(harness.lastFrame() ?? '').toContain('■ Çalışma alanını incele')
+
+		// A completion and the next start in one step are one block.
+		await frameShows(harness.lastFrame, 'Tasks · 1/2 done')
+		let frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('✓ Çalışma alanını incele')
+		expect(frame).toContain('■ Cover it with tests')
+
+		await frameShows(harness.lastFrame, 'Completed · Cover it with tests')
+		frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('✓ Cover it with tests')
+	})
+
+	it('never shows an id, an owner or a tool receipt', async () => {
+		const harness = await open()
+		await submit(harness, 'go')
+		await frameShows(harness.lastFrame, 'All done, first turn.')
+		const everything = harness.frames.join('\n')
+		expect(everything).not.toContain('t1')
+		expect(everything).not.toContain('owner')
+		expect(everything).not.toContain('Task created')
+		expect(everything).not.toMatch(/\d+ tasks:/)
+	})
+
+	it('shows the plan once: a reply under the checklist leaves it in view, and no row repeats it', async () => {
+		vi.stubEnv('COLUMNS', '100')
+		vi.stubEnv('LINES', '60')
+		const harness = await open()
+		await submit(harness, 'go')
+
+		// Right after the additions, the block is the newest row: one copy.
+		await frameShows(harness.lastFrame, 'Added 2 tasks')
+		expect(count(harness.lastFrame() ?? '', 'Cover it with tests')).toBe(1)
+
+		// Text after the block on a tall screen: the block is still on screen,
+		// so nothing above the composer says one of its lines again.
+		await frameShows(harness.lastFrame, 'Looked around.')
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).toContain('■ Çalışma alanını incele')
+		expect(frame, 'no current-step row while the block is visible').not.toContain('· 0/2 done')
+		expect(count(frame, '■ Çalışma alanını incele'), 'the current step is drawn once').toBe(1)
+	})
+
+	it('names the current step above the composer once the checklist is out of view', async () => {
+		vi.stubEnv('COLUMNS', '100')
+		vi.stubEnv('LINES', '18')
+		const harness = await open()
+		await submit(harness, 'go')
+
+		// On a short screen the reply pushes the block's head off; the row
+		// names the step it is on, and is not a second checklist.
+		await frameShows(harness.lastFrame, 'Looked around.')
+		await frameShows(harness.lastFrame, '■ Çalışma alanını incele · 0/2 done')
+		expect(harness.lastFrame() ?? '', 'not a second checklist').not.toContain('Tasks · 0/2 done')
+	})
+
+	it('leaves the finished plan in the transcript and clears the row when the plan is done', async () => {
 		const harness = await open()
 		await submit(harness, 'go')
 		await frameShows(harness.lastFrame, 'All done, first turn.')
 		await tick(80)
-		expect(harness.lastFrame() ?? '', 'the finished plan should stay until the operator moves on').toContain(
-			'Tasks · 2/2 done',
-		)
+		const frame = harness.lastFrame() ?? ''
+		expect(frame).not.toContain('· 2/2 done')
+		expect(frame).toContain('Completed · Cover it with tests')
 
 		await submit(harness, 'again')
 		await frameShows(harness.lastFrame, 'Second turn reply.')
-		expect(harness.lastFrame() ?? '').not.toContain('Tasks ·')
+		expect(count(harness.lastFrame() ?? '', 'Completed · Cover it with tests')).toBe(1)
 	})
 
-	it('records the opening and the close in the transcript, not the churn', async () => {
+	it('drops a removed task from the checklist and says so in words', async () => {
+		vi.stubEnv('COLUMNS', '100')
+		vi.stubEnv('LINES', '60')
+		removal = true
 		const harness = await open()
 		await submit(harness, 'go')
-		await frameShows(harness.lastFrame, 'All done, first turn.')
-		// Read after the next request has cleared the list, so the frame holds
-		// the transcript alone and the live rows cannot be counted twice.
-		await submit(harness, 'again')
-		await frameShows(harness.lastFrame, 'Second turn reply.')
-
+		await frameShows(harness.lastFrame, 'Removal done.')
 		const frame = harness.lastFrame() ?? ''
-		// One opening row and one closing row per task; the in-progress flip
-		// changed the list and wrote nothing — the transcript is the record,
-		// and a record of every flip is noise.
-		expect(frame.split('☐ Write the parser').length - 1).toBe(1)
-		expect(frame.split('☑ Write the parser').length - 1).toBe(1)
-		expect(frame).not.toContain('◐ Write the parser')
+		expect(frame).toContain('Removed task · Eski adımı sil')
+		// The first block, drawn before the removal, still lists it; the block
+		// the removal wrote does not draw it as a step.
+		const after = frame.slice(frame.indexOf('Removed task · Eski adımı sil'))
+		expect(after).toContain('□ Çalışma alanını incele')
+		expect(after).not.toContain('□ Eski adımı sil')
 	})
 })

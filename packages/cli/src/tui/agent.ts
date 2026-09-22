@@ -72,6 +72,7 @@ import {
 	type ReviewAnswer,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
+	type SessionApprovalPolicy,
 	type SessionCheckpointStore,
 	type SessionEvent,
 	type SessionGoalStore,
@@ -259,6 +260,11 @@ import {
 	migrateMemoryOnce,
 	saveTypedNote,
 } from '../memory/typed.js'
+import {
+	type LiveModeControl,
+	createLiveModeControl,
+	permissionChangeReason,
+} from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -322,6 +328,14 @@ export type AgentEvent =
 			readonly hidden?: boolean
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
+			/**
+			 * The tool's own one-line account of its result, when it gave one (a
+			 * `generic` result view). `summary` is the first line of the MODEL's
+			 * receipt; this is what the tool chose to say to a person, which is
+			 * the one to show when the receipt carries handles only the model
+			 * needs.
+			 */
+			readonly resultLabel?: string
 	  }
 	/**
 	 * The model thinking, for the live region only. `text` is a delta;
@@ -436,15 +450,16 @@ export type AgentEvent =
 	  }
 	/**
 	 * One task of the model's plan, on every change. `taskId` is what lets the
-	 * live list update a row in place rather than append; `status` is the
-	 * store's own vocabulary. The transcript still records only the opening
-	 * and the close — the churn in between is for the list, not the record.
+	 * checklist update a row in place rather than append; `status` is the
+	 * store's own vocabulary. The id is a key only: no surface shows it.
 	 */
 	| {
 			readonly kind: 'task'
 			readonly taskId: string
 			readonly subject: string
 			readonly status: 'pending' | 'in_progress' | 'completed' | 'failed'
+			/** The task left the plan; the checklist drops it. */
+			readonly removed?: true
 	  }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
@@ -575,6 +590,15 @@ export interface SendOptions {
 	 * Overrides the session default for this turn only.
 	 */
 	readonly permissionMode?: PermissionMode
+	/**
+	 * The host's current mode, read at every review decision of this turn —
+	 * the turn's own calls and the delegated turns that borrow its handler.
+	 * Present, it lets the operator change the mode while the turn runs:
+	 * each decision takes the mode current when it is asked and keeps it,
+	 * dialog included. Pair a change with `AgentSession.setPermissionMode`
+	 * so it is recorded. Absent, `permissionMode` holds for the whole turn.
+	 */
+	readonly currentPermissionMode?: () => PermissionMode
 	/**
 	 * Caller-reserved identity for this new turn, for a host that has to name
 	 * the turn before it starts (a resident step's verifier). Absent: the
@@ -879,6 +903,14 @@ export interface AgentSession {
 	 * change when this capability is absent rather than pretending it revoked.
 	 */
 	readonly resetApprovalLatch?: () => void
+	/**
+	 * Record a permission-mode change on every turn running now: written to
+	 * the session log as `approval_policy_changed` before it takes effect,
+	 * and told to the model once, by the kernel's own notice. The change
+	 * itself is read through `SendOptions.currentPermissionMode`; this only
+	 * makes it durable. Optional for older embedded sessions.
+	 */
+	readonly setPermissionMode?: (mode: PermissionMode, reason?: string) => Promise<void>
 	/**
 	 * Tools this session will run without asking, by name.
 	 *
@@ -2686,6 +2718,10 @@ export async function createAgentSession(
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
+	// The turns running now, each deciding under a mode the operator may change
+	// mid-turn, and the mode each conversation's log last recorded.
+	const liveModeControls = new Set<LiveModeControl>()
+	const recordedModes = new Map<string, PermissionMode>()
 	// Share the project store with tools and recall. Each turn selects either
 	// this extracted-claim promoter or explicit consolidation, never both.
 	// Candidates without useful claims write nothing.
@@ -3237,6 +3273,13 @@ export async function createAgentSession(
 		resetApprovalLatch: () => {
 			approval.all = false
 		},
+		setPermissionMode: async (mode, reason) => {
+			await Promise.all(
+				[...liveModeControls].map((control) =>
+					control.record(mode, reason ?? permissionChangeReason(mode, 'now')),
+				),
+			)
+		},
 		promptExemptTools: () =>
 			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
 		send: (messages, opts) =>
@@ -3247,14 +3290,30 @@ export async function createAgentSession(
 					const turnOpts: SendOptions = { ...opts, signal }
 					let runTools = registry
 					lastSendInteractive = opts?.onPermission !== undefined
-					const resumeHandler = makeResumeHandler(
-						approval,
-						opts?.onPermission,
-						opts?.permissionMode ?? options.permissionMode,
-						(name, input) => isPromptExempt(runTools, name, input),
-						{ unattendedSandboxEscape },
-					)
 					const turnScope = { ...scope }
+					const initialMode: PermissionMode =
+						opts?.permissionMode ??
+						options.permissionMode ??
+						(opts?.onPermission ? 'prompt' : 'auto')
+					// The mode is read at every decision, so the operator can change it
+					// while this turn runs (see permissions/live-mode.ts).
+					const modeControl = createLiveModeControl({
+						initial: initialMode,
+						...(opts?.currentPermissionMode ? { read: opts.currentPermissionMode } : {}),
+						...(recordedModes.has(String(turnScope.sessionId))
+							? { recorded: recordedModes.get(String(turnScope.sessionId)) }
+							: {}),
+						handlerFor: (mode) =>
+							makeResumeHandler(
+								approval,
+								opts?.onPermission,
+								mode,
+								(name, input) => isPromptExempt(runTools, name, input),
+								{ unattendedSandboxEscape },
+							),
+					})
+					const resumeHandler = modeControl.handler
+					liveModeControls.add(modeControl)
 					// The turn's id is reserved here, before the kernel begins it, because
 					// everything that authorizes the turn is keyed by it: the review
 					// channel its children borrow, the delegation gateway, the goal-round
@@ -3525,6 +3584,9 @@ export async function createAgentSession(
 								projectInstructionContext: projectInstructions.createTurnContext(),
 								opts: turnOpts,
 								resumeHandler,
+								approvalPolicyName: modeControl.initialName,
+								onApprovalPolicy: (box) => modeControl.attach(box),
+								reviewAllowedCalls: modeControl.reviewAllowedCalls,
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
@@ -3553,6 +3615,8 @@ export async function createAgentSession(
 							}
 						}
 					} finally {
+						liveModeControls.delete(modeControl)
+						recordedModes.set(String(turnScope.sessionId), modeControl.current())
 						for (const turnId of claimed) {
 							if (delegatedResumeHandlers.get(turnId) !== resumeHandler) continue
 							delegatedResumeHandlers.delete(turnId)
@@ -4199,6 +4263,12 @@ interface TurnParams {
 	readonly prepareStep?: PrepareStepChain
 	/** Exact interactive authority shared with children launched by this turn. */
 	readonly resumeHandler: ResumeHandler
+	/** The mode the turn starts under, as the durable log names its policy. */
+	readonly approvalPolicyName?: string
+	/** Receives the turn's approval-policy box, through which mode changes are recorded. */
+	readonly onApprovalPolicy?: (box: SessionApprovalPolicy) => void
+	/** Whether a batch the rules allow still goes to `resumeHandler` (plan mode). */
+	readonly reviewAllowedCalls?: () => boolean
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
@@ -4261,6 +4331,9 @@ async function* runTurn({
 	promoteMemory,
 	prepareStep,
 	resumeHandler,
+	approvalPolicyName,
+	onApprovalPolicy,
+	reviewAllowedCalls,
 	taskStore,
 	systemPrompt,
 	messages,
@@ -4351,6 +4424,11 @@ async function* runTurn({
 			// tools `query()` registers deferred below and any tool server that
 			// connected after this session was built.
 			resumeHandler,
+			...(approvalPolicyName ? { approvalPolicyName } : {}),
+			...(onApprovalPolicy ? { onApprovalPolicy } : {}),
+			// Plan mode is stricter than the rules: a batch a rule allows still
+			// reaches the handler, which refuses the change.
+			...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			...(web ? { web } : {}),
@@ -4583,6 +4661,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				summary,
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
+				...(view.kind === 'generic' && view.label.length > 0 ? { resultLabel: view.label } : {}),
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
@@ -4649,14 +4728,14 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 		}
 		case 'task_created':
 		case 'task_updated':
-			// Every change, not only completions: the live task list needs the
-			// in-progress flips to show which step is current. The transcript
-			// decides for itself which of these it records.
+			// Every change, not only completions: the checklist needs the
+			// in-progress flips to show which step is current.
 			return {
 				kind: 'task',
 				taskId: String(event.taskId),
 				subject: event.subject,
 				status: event.status,
+				...(event.type === 'task_updated' && event.deleted ? { removed: true as const } : {}),
 			}
 		case 'turn_paused':
 			// A pause is not an error and not an invisible end. The checkpoint and

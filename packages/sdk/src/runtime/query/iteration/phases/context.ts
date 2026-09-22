@@ -166,6 +166,8 @@ export interface IterationContext {
 	 * asked about again. Absent on paths that do not review tools.
 	 */
 	readonly toolGrants?: ToolGrantSet
+	/** See `QueryParams.reviewAllowedCalls`. Absent: allowed and granted batches skip review. */
+	readonly reviewAllowedCalls?: () => boolean
 	/**
 	 * Absent when the host opted out with `repeatCallAdvisory: false`. The
 	 * opt-out is the ABSENCE, not a flag read at every call site, so a code

@@ -164,7 +164,7 @@ describe('the composer footer at 80 columns', () => {
 			expect(row).toContain(CWD)
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 			expect(row).not.toContain('⏵⏵')
-			expect(row).not.toContain('⏸')
+			expect(row).not.toContain('‖')
 			expect(row).not.toContain('effort')
 		} finally {
 			await screen.unmount()
@@ -187,7 +187,7 @@ describe('the composer footer at 80 columns', () => {
 		const screen = await renderToScreen(belowMessageFrame(planWithEffort), { cols: 80, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('⏸ Plan (read-only) (shift+tab to cycle) · effort high')
+			expect(row).toContain('‖ Plan (read-only) (shift+tab to cycle) · effort high')
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
 		} finally {
 			await screen.unmount()
@@ -254,7 +254,7 @@ describe('the composer footer at 40 columns', () => {
 		const screen = await renderToScreen(belowMessageFrame(planWithEffort), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('⏸ Plan (read-only)')
+			expect(row).toContain('‖ Plan (read-only)')
 		} finally {
 			await screen.unmount()
 		}
@@ -280,7 +280,7 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), { cols: 60, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row).toContain('⏸ Plan (read-only) · orchestrate')
+			expect(row).toContain('‖ Plan (read-only) · orchestrate')
 			expect(row).not.toContain('effort')
 			expect(row).toContain('gpt-5.6-terra')
 		} finally {
@@ -292,7 +292,7 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('⏸ Plan (read-only) · orchestrate')
+			expect(row.trimEnd()).toBe('‖ Plan (read-only) · orchestrate')
 			expect(row).not.toContain('effort')
 			expect(row).not.toContain(CWD)
 			expect(row).not.toContain('gpt-5.6-terra')
@@ -326,7 +326,7 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 		try {
 			const row = footerRow(screen)
 			expect(row).not.toContain('orchestrate')
-			expect(row).toContain('⏸ Plan (read-only)')
+			expect(row).toContain('‖ Plan (read-only)')
 		} finally {
 			await screen.unmount()
 		}
@@ -336,7 +336,7 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 		const screen = await renderToScreen(belowMessageFrame(orchestrateWithLongCwd), { cols: 40, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('⏸ Plan (read-only) · orchestrate')
+			expect(row.trimEnd()).toBe('‖ Plan (read-only) · orchestrate')
 			expect(row).not.toContain('nested')
 		} finally {
 			await screen.unmount()
@@ -356,14 +356,14 @@ describe('orchestrate holds the mode badge own priority under width pressure', (
 
 	it('below the width where "orchestrate" fits whole beside an already-fitted badge, the badge wins', async () => {
 		// 24 columns: `fitStatusLine` sees 22 after StatusBar's own 2-cell
-		// padding — room for "⏸ Plan (read-only)" (18) whole, but not for
+		// padding — room for "‖ Plan (read-only)" (18) whole, but not for
 		// " · orchestrate" (14 more) beside it. Orchestrate is dropped
 		// entirely rather than truncated to a fragment of the word, and the
 		// badge is not shortened to make room for it either.
 		const screen = await renderToScreen(belowMessageFrame(orchestrateWithNoEffortMenu), { cols: 24, rows: ROWS })
 		try {
 			const row = footerRow(screen)
-			expect(row.trimEnd()).toBe('⏸ Plan (read-only)')
+			expect(row.trimEnd()).toBe('‖ Plan (read-only)')
 			expect(row).not.toContain('orchestrate')
 			expect(row).not.toContain('orchestra')
 		} finally {

@@ -402,6 +402,18 @@ describe('mapSessionEventToStreamEvent — mapped variants', () => {
 		})
 		expect(b?.wire).toBe('task.updated')
 		expect(b?.data.owner).toBe(null) // undefined owner → null
+		expect(b?.data).not.toHaveProperty('deleted')
+
+		const c = mapSessionEventToStreamEvent({
+			type: 'task_updated',
+			sessionId: SID,
+			turnId: TID,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+			subject: 's',
+			status: 'pending',
+			deleted: true,
+		})
+		expect(c?.data.deleted).toBe(true)
 	})
 
 	it('plugin_hook_* + sandbox_* + activity_* events map cleanly', () => {

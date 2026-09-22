@@ -1,0 +1,5 @@
+---
+'@namzu/cli': minor
+---
+
+Shift+Tab now changes the permission mode while a turn runs, and its only reply is the footer. It used to be refused mid-turn with "Permissions were not changed. Finish or stop the current work first." (once per press), and every accepted press appended "Permissions: <mode> for this session. …" to the transcript. Now the running turn's next approval decision, the delegated turns that borrow its review, and every later turn are decided under the new mode; an approval dialog already on screen keeps the mode it was asked under, entering plan mode refuses the next call that would change something, and leaving it approves nothing already refused. Each change is recorded as `approval_policy_changed` in the session log before it takes effect, and the model is told once. `/permissions` still answers in the transcript. The footer's hold mark is `‖` instead of `⏸`, an emoji code point that Windows Terminal draws as a blue two-cell tile; the same mark replaces it on the interrupted-turn notice and the paused-queue line.

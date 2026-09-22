@@ -283,6 +283,7 @@ export class EventTranslator {
 						status: task.status,
 						owner: task.owner,
 						...(task.blockedBy.length > 0 ? { blockedBy: task.blockedBy } : {}),
+						...(event.type === 'task.deleted' ? { deleted: true as const } : {}),
 					})
 					break
 				default: {

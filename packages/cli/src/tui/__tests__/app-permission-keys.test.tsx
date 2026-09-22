@@ -596,7 +596,12 @@ describe('/permissions after approve-all', () => {
 })
 
 describe('/permissions session mode', () => {
-	it('does not change the mode while a turn owns the permission boundary', async () => {
+	// It used to be refused ("Permissions were not changed. Finish or stop the
+	// current work first."). The reference terminal applies a mode change at
+	// once, mid-turn; the running turn reads the mode at each decision, so the
+	// change governs its next call, and the turn itself was still sent under
+	// the mode current when it began.
+	it('changes the mode while a turn runs, without resending the turn under it', async () => {
 		permissionDelayMs = 250
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
@@ -612,8 +617,10 @@ describe('/permissions session mode', () => {
 		stdin.write('\r')
 		await tick(120)
 
-		expect(lastFrame()).toContain('Permissions were not changed')
-		expect(lastFrame()).not.toContain('Permissions: Preapproved tools only for this session.')
+		expect(lastFrame()).not.toContain('Permissions were not changed')
+		expect(lastFrame(), 'a change asked for by name gets a reply').toContain(
+			'Permissions: Preapproved tools only for this session.',
+		)
 		expect(permissionModes).toEqual(['prompt'])
 	})
 

@@ -226,6 +226,16 @@ export async function* runToolReview(
 	// must not be able to release them.
 	const gateDenied = new Map<string, string>()
 
+	// Sampled once, the first time a shortcut asks, so both shortcuts below
+	// read the same answer for this batch. A policy stricter than the rules
+	// (a read-only mode) sees the batch rather than letting an allowance or a
+	// grant run it past the handler.
+	let reviewAllowedSample: boolean | undefined
+	const reviewAllowed = (): boolean => {
+		reviewAllowedSample ??= ctx.reviewAllowedCalls?.() === true
+		return reviewAllowedSample
+	}
+
 	// The operator's policy runs FIRST, and a grant cannot overrule it.
 	//
 	// The grant short-circuit used to sit above this block and return, so a
@@ -289,7 +299,7 @@ export async function* runToolReview(
 		const allAllowed = gateResults.every((gr) => gr.gateResult.decision === 'allow')
 		const allDenied = gateResults.every((gr) => gr.gateResult.decision === 'deny')
 
-		if (allAllowed) {
+		if (allAllowed && !reviewAllowed()) {
 			ctx.log.debug('Authorization gate: all tool calls pre-approved', {
 				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
@@ -334,6 +344,7 @@ export async function* runToolReview(
 	// working directory or a run outside the sandbox.
 	if (
 		ctx.toolGrants &&
+		!reviewAllowed() &&
 		gateDenied.size === 0 &&
 		escalated().length === 0 &&
 		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))

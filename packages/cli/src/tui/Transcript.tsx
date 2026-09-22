@@ -10,6 +10,7 @@ import { Box, Static, Text } from 'ink'
 import type { ReactNode } from 'react'
 import { memo } from 'react'
 
+import { Checklist, checklistLine } from './Checklist.js'
 import { Markdown } from './Markdown.js'
 import { StatusPanel } from './StatusPanel.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -188,6 +189,7 @@ function RawMessageRow({
 		message.content.length > 0 ? terminalDisplayText(message.content) : message.pending ? '…' : ''
 	const text = [
 		`${content}${message.meta ? ` · ${terminalDisplayText(message.meta)}` : ''}`,
+		...(message.checklist ?? []).map(checklistLine),
 		...(message.detail && message.detail.length > 0
 			? ['', ...message.detail.map(terminalDisplayText)]
 			: []),
@@ -258,6 +260,11 @@ function MessageRow({
 					)}
 				</Box>
 			</Box>
+			{message.checklist && message.checklist.length > 0 ? (
+				<Box paddingLeft={2}>
+					<Checklist items={message.checklist} />
+				</Box>
+			) : null}
 			{message.detail && message.detail.length > 0 && (!message.activity || message.detailExpanded) ? (
 				<DetailBlock
 					lines={message.detail}
@@ -355,6 +362,12 @@ function splitDetail(
  * this number changed.
  */
 export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
+	// Drawn under the two-column content gutter, one row per task before wrapping.
+	const checklist = (message.checklist ?? []).map((item) => `  ${checklistLine(item)}`)
+	return [...checklist, ...renderedBodyLines(message)]
+}
+
+function renderedBodyLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
 	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded)) return []
 	const shown = splitDetail(
