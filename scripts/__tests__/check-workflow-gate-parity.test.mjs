@@ -23,7 +23,7 @@ const GUARD = "steps.revalidation.outputs.skip != 'true'"
 
 const EXEMPT = ['Evals', 'SDK coverage (produce summary)', 'SDK coverage floor gate', 'Process-level regression tests']
 
-function workflow(stepList, { preamble = '', jobKeys = '' } = {}) {
+function workflow(stepList, { preamble = '', jobKeys = '', trailer = '' } = {}) {
 	const body = stepList
 		.map((step) => {
 			const lines = [`      - name: ${step.name}`]
@@ -34,7 +34,7 @@ function workflow(stepList, { preamble = '', jobKeys = '' } = {}) {
 			return lines.join('\n')
 		})
 		.join('\n\n')
-	return `name: fixture\njobs:\n  check:\n    strategy:\n      matrix:\n        include:\n          - node-version: 24\n${preamble}${jobKeys}    steps:\n${body}\n`
+	return `name: fixture\njobs:\n  check:\n    strategy:\n      matrix:\n        include:\n          - node-version: 24\n${preamble}${jobKeys}    steps:\n${body}\n${trailer}`
 }
 
 function ciSteps(overrides = {}) {
@@ -68,11 +68,13 @@ function releaseSteps(overrides = {}) {
 	]
 }
 
-function check({ ci = ciSteps(), release = releaseSteps(), gatesLeg = true, ciJobKeys = '', releaseJobKeys = '' } = {}) {
+const RECORD_JOB = '  validated-tree:\n    name: Record the validated tree\n    needs: [check]\n    runs-on: ubuntu-latest\n'
+
+function check({ ci = ciSteps(), release = releaseSteps(), gatesLeg = true, ciJobKeys = '', releaseJobKeys = '', recordJob = RECORD_JOB } = {}) {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-parity-'))
 	try {
 		mkdirSync(join(root, '.github', 'workflows'), { recursive: true })
-		writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), workflow(ci, { preamble: gatesLeg ? '            gates: true\n' : '', jobKeys: ciJobKeys }))
+		writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), workflow(ci, { preamble: gatesLeg ? '            gates: true\n' : '', jobKeys: ciJobKeys, trailer: recordJob }))
 		writeFileSync(join(root, '.github', 'workflows', 'release.yml'), workflow(release, { jobKeys: releaseJobKeys }))
 		const result = spawnSync(process.execPath, [SCRIPT, root], { encoding: 'utf8' })
 		return { status: result.status, out: result.stdout + result.stderr }
@@ -241,6 +243,29 @@ describe('check-workflow-gate-parity', () => {
 		const { status, out } = check({ releaseJobKeys: '    continue-on-error: ${{ true }}\n' })
 		assert.equal(status, 1)
 		assert.match(out, /The release\.yml job `check` carries `continue-on-error: true`, and it runs gates/)
+	})
+
+	it('accepts needs written as a bare job id', () => {
+		const { status, out } = check({ recordJob: RECORD_JOB.replace('needs: [check]', 'needs: check') })
+		assert.equal(status, 0, out)
+	})
+
+	it('fails when validated-tree does not wait on a job that runs gates', () => {
+		const { status, out } = check({ recordJob: RECORD_JOB.replace('needs: [check]', 'needs: [docs]') })
+		assert.equal(status, 1)
+		assert.match(out, /The ci\.yml job `check` runs gates, and `validated-tree` does not list it in `needs`/)
+	})
+
+	it('fails when validated-tree has no needs at all', () => {
+		const { status, out } = check({ recordJob: RECORD_JOB.replace('    needs: [check]\n', '') })
+		assert.equal(status, 1)
+		assert.match(out, /does not list it in `needs`/)
+	})
+
+	it('fails when ci.yml has no validated-tree job', () => {
+		const { status, out } = check({ recordJob: '' })
+		assert.equal(status, 1)
+		assert.match(out, /ci\.yml has no `validated-tree` job/)
 	})
 
 	it('still fails on an exemption for a step that is gone', () => {

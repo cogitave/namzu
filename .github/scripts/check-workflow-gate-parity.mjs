@@ -49,7 +49,9 @@
  *   - no gate, on either path, and no job running one carries
  *     `continue-on-error` (other than a literal `false`): on ci.yml it lets a
  *     gate fail under a successful run, which the validated-tree record then
- *     vouches for; on release.yml it lets a failing gate step aside for publish.
+ *     vouches for; on release.yml it lets a failing gate step aside for publish;
+ *   - `ci.yml`'s `validated-tree` job lists every job that runs a gate in its
+ *     `needs` (inline form), so the record waits on all of them.
  */
 
 import { readFileSync } from 'node:fs'
@@ -248,6 +250,34 @@ for (const job of new Set(ciSteps.map((step) => step.job))) {
 		'    A failing job under it leaves the run green, so the validated-tree record and',
 		'    the skip in release.yml would both trust gates that failed.',
 	)
+}
+// The record is written by one job that waits on the gate jobs through
+// `needs`. A gate in a job it does not wait on can fail, or still be running,
+// when the record is written.
+const RECORD_JOB = 'validated-tree'
+const recordNeeds = ciText.match(new RegExp(`^ {2}${RECORD_JOB}:\\s*\\n(?:(?: {4,}.*| *#.*|\\s*)\\n)*? {4}needs: (.+)$`, 'm'))
+if (!new RegExp(`^ {2}${RECORD_JOB}:\\s*$`, 'm').test(ciText)) {
+	problems.push(
+		`ci.yml has no \`${RECORD_JOB}\` job.`,
+		'    release.yml skips its gates on the record that job writes; without it the skip',
+		'    can never be taken, and this check cannot say what the record vouches for.',
+	)
+} else {
+	const needed = new Set(
+		(recordNeeds?.[1] ?? '')
+			.replace(/^\[|\]\s*$/g, '')
+			.split(',')
+			.map((name) => name.trim())
+			.filter(Boolean),
+	)
+	for (const job of new Set(ciSteps.map((step) => step.job))) {
+		if (needed.has(job)) continue
+		problems.push(
+			`The ci.yml job \`${job}\` runs gates, and \`${RECORD_JOB}\` does not list it in \`needs\`.`,
+			'    The record could be written while that job failed or had not finished, and',
+			'    release.yml would skip its gates on the strength of it.',
+		)
+	}
 }
 const releaseChecked = releaseSteps.filter((step) => {
 	const ciName = REVERSE_ALIASES.get(step.name) ?? step.name
