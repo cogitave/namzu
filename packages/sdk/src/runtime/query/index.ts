@@ -320,7 +320,7 @@ export interface QueryParams {
 
 	/** Max concurrently-executing concurrency-safe tools in one batch. */
 	maxToolConcurrency?: number
-	/** Per-run cumulative tool attempt limit, including nested calls and retries. Unset is unlimited. Re-supply on resume; durable reservations are never refunded. */
+	/** Per-turn cumulative tool attempt limit, including nested calls and retries. Unset is unlimited. Re-supply on resume; durable reservations are never refunded. */
 	maxToolCalls?: number
 
 	/**

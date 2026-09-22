@@ -321,7 +321,7 @@ export interface ToolExecutorConfig {
 	 * Where background jobs this turn starts are held.
 	 *
 	 * The registry is host-owned and shared; the executor binds it to THIS
-	 * run's id before a tool ever sees it, so a tool cannot start a job
+	 * turn's id before a tool ever sees it, so a tool cannot start a job
 	 * billed to another turn, nor read or kill one. Absent means the host
 	 * offers no background mode, and `bash run_in_background` refuses rather
 	 * than falling back to `cmd &` — see `runtime/jobs/registry.ts` for why
@@ -371,7 +371,7 @@ export interface ToolExecutorConfig {
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	/** Max concurrently-executing concurrency-safe tools. */
 	maxToolConcurrency?: number
-	/** Per-run cumulative attempt admission limit; unset is unlimited. */
+	/** Per-turn cumulative attempt admission limit; unset is unlimited. */
 	maxToolCalls?: number
 	/** Complete strict session-log read for restoring a configured call budget. */
 	readToolCallBudgetRecords?: () => Promise<readonly SessionRecord[]>
@@ -625,7 +625,7 @@ export class ToolExecutor {
 	 * is: `prepareStep` can hand a different list to every step, and the turn's
 	 * own `allowedTools` is only the default when a step names none.
 	 *
-	 * Without this the executor could only ever see the RUN-level list, so a
+	 * Without this the executor could only ever see the TURN-level list, so a
 	 * per-step narrowing reached the request that was sent and nothing else —
 	 * the model was shown fewer tools and could still call all of them.
 	 */

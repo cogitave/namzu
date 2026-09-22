@@ -43,7 +43,7 @@ export type WorkspaceBackendMeta = GitWorktreeBackendMeta
  * running turn persists a {@link WorkspaceRef} so recovery after process
  * restart is possible (session-hierarchy.md §7.1).
  *
- * NOT `Project.rootPath`. This is per-RUN provisioning — a git worktree cut
+ * NOT `Project.rootPath`. This is per-TURN provisioning — a git worktree cut
  * for one turn and discarded after it, which may be a different directory
  * entirely. `Project.rootPath` is the durable binding a host uses to answer
  * "which project is this directory" across sessions and process restarts.

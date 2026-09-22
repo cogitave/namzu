@@ -4,7 +4,7 @@
  * An authorization rule says what a tool may do. A review policy says what
  * happens to calls the rules did not cover or explicitly routed to REVIEW.
  * The two axes are separate on purpose — a rule is a durable
- * statement an operator reviewed, and a mode is a property of ONE run, the
+ * statement an operator reviewed, and a mode is a property of ONE turn, the
  * difference between "we never force-push" and "this turn is unattended".
  *
  * Only calls the gate routed to review arrive here. A rule that denied one
@@ -31,7 +31,7 @@ import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
 export type ReviewMode =
 	/** Ask a person. The default when a `prompt` is supplied. */
 	| 'prompt'
-	/** Approve it. The default without a `prompt`, and what every headless run has always done. */
+	/** Approve it. The default without a `prompt`, and what every headless turn has always done. */
 	| 'auto'
 	/**
 	 * Approve a file edit, ask about everything else.

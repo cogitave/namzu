@@ -3,7 +3,7 @@
  *
  * Compaction asks "how full is the window?". That question needs a WINDOW,
  * and the runtime previously answered it with `turnConfig.tokenBudget` — the
- * run's cumulative spend cap. The two are different quantities, and using
+ * turn's cumulative spend cap. The two are different quantities, and using
  * the second as the divisor for the first is self-defeating: cumulative
  * spend always exceeds the live window, and the guard force-finalizes at
  * 0.9 x tokenBudget while compaction needs 0.7 x the same number, so the

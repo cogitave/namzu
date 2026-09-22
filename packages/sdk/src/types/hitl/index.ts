@@ -228,7 +228,7 @@ export function autoApproveHandler(request: HITLDecisionRequest): Promise<HITLRe
 		case 'iteration_checkpoint':
 			return Promise.resolve({ action: 'continue' })
 		case 'user_question':
-			// Headless runs must never deadlock on a question and must
+			// Headless turns must never deadlock on a question and must
 			// never fabricate a user choice: answer with an explicit
 			// no-selection sentinel so the asking tool renders "the user
 			// did not answer" rather than consent.

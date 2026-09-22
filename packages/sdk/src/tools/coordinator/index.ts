@@ -1179,7 +1179,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// call anyone, which a non-empty roster cannot settle — a host that runs a
 	// specialist by putting its persona into the supervisor shell and its id
 	// into the roster has a list of one and must still delegate to nobody.
-	// From inside this function that run is indistinguishable from a
+	// From inside this function that turn is indistinguishable from a
 	// supervisor whose roster happens to hold a single specialist, so the
 	// caller states the fact rather than the SDK guessing it.
 	//

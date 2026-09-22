@@ -30,7 +30,7 @@ export type NamzuErrorCode =
 	| 'plugin_error'
 	/** The provider or environment cannot do what the turn requires. */
 	| 'capability_unavailable'
-	/** Persistence (checkpoint store, run store, workspace) failed. */
+	/** Persistence (checkpoint store, session log, workspace) failed. */
 	| 'storage_error'
 	/** Unclassified. Treated as non-retryable. */
 	| 'unknown'

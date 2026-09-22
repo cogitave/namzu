@@ -540,12 +540,12 @@ function neutralizeNotificationDelimiter(content: string): string {
 export function formatCompletionNotification(handles: readonly TaskHandle[]): string {
 	const blocks = handles.map((handle) => {
 		const durationMs = handle.completedAt ? handle.completedAt - handle.createdAt : undefined
-		const run = handle.result
-		let output = run?.result || run?.lastError || ''
+		const turn = handle.result
+		let output = turn?.result || turn?.lastError || ''
 		// A hard guard can stop immediately after a tool round, before the result
 		// assembler has a final answer. Preserve visible partial prose, never reasoning.
-		if (!output && run?.stopReason && run.stopReason !== 'end_turn') {
-			const partial = [...(run.messages ?? [])]
+		if (!output && turn?.stopReason && turn.stopReason !== 'end_turn') {
+			const partial = [...(turn.messages ?? [])]
 				.reverse()
 				.find(
 					(message) =>
@@ -553,7 +553,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 						typeof message.content === 'string' &&
 						message.content.length > 0,
 				)
-			if (partial) output = `Partial output before ${run.stopReason}:\n${partial.content}`
+			if (partial) output = `Partial output before ${turn.stopReason}:\n${partial.content}`
 		}
 		const overLimit = output.length > NOTIFICATION_OUTPUT_LIMIT
 		const shown = overLimit ? output.slice(0, NOTIFICATION_OUTPUT_LIMIT) : output
@@ -586,7 +586,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 			`task_id: ${handle.taskId}`,
 			`agent: ${handle.agentId}`,
 			`state: ${handle.state}`,
-			...(handle.state === 'completed' && run?.stopReason && run.stopReason !== 'end_turn'
+			...(handle.state === 'completed' && turn?.stopReason && turn.stopReason !== 'end_turn'
 				? ['outcome: incomplete — execution stopped; this does not establish task completion.']
 				: []),
 			...(handle.result?.stopReason ? [`stop_reason: ${handle.result.stopReason}`] : []),

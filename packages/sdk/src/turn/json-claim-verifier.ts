@@ -137,7 +137,7 @@ export function createJsonClaimVerifier(options: JsonClaimVerifierOptions): Json
 		!turnId ||
 		typeof observe !== 'function'
 	)
-		throw new Error('JSON claim verification requires a scope, run ID and observer.')
+		throw new Error('JSON claim verification requires a scope, turn ID and observer.')
 	if (
 		!Number.isSafeInteger(maxBytes) ||
 		maxBytes < 1 ||

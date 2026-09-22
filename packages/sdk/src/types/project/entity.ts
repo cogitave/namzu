@@ -66,9 +66,9 @@ export interface Project {
 	 * slash and the real path are one project rather than three records for
 	 * one directory.
 	 *
-	 * NOT `WorkspaceRef.meta.worktreePath`. That is per-RUN provisioning and
+	 * NOT `WorkspaceRef.meta.worktreePath`. That is per-TURN provisioning and
 	 * may be a different directory entirely — a git worktree cut for one
-	 * run and discarded after it. This is the durable binding a host uses to
+	 * turn and discarded after it. This is the durable binding a host uses to
 	 * answer "which project is this directory", across sessions and across
 	 * process restarts.
 	 *

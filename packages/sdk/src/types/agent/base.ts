@@ -352,7 +352,7 @@ export interface BaseAgentResult {
 	 * model re-parse what it had just caused to be serialized.
 	 *
 	 * `unknown` rather than a generic, deliberately. The schema lives on the
-	 * run's config and a result type parameter would have to be threaded
+	 * turn's config and a result type parameter would have to be threaded
 	 * through every archetype, both delegation tools and the task record to
 	 * reach here — and at the delegation boundary the parent does not hold the
 	 * child's schema anyway, so the parameter would be `unknown` again at the

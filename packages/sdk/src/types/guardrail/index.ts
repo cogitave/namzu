@@ -64,7 +64,7 @@ export interface NamedGuardrail<T> {
 /**
  * What a guardrail sees when a tool has produced a result.
  *
- * The two above bracket the RUN. This one sits at the tool boundary, which
+ * The two above bracket the TURN. This one sits at the tool boundary, which
  * is the only place a result can be examined before the model reads it:
  * the registry returns to the executor, the executor applies the output
  * budget and spills what is over it, and compaction summarises later still.

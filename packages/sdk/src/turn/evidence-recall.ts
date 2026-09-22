@@ -75,7 +75,7 @@ export interface EvidenceRecallOptions {
 	readonly timeoutMs?: number
 	/** Host fallback only when latestUserMessage is absent. */
 	readonly query?: string
-	/** Resolve references through one run-metered preparation call per operator input. Default false. */
+	/** Resolve references through one turn-metered preparation call per operator input. Default false. */
 	readonly resolveQuery?: boolean
 }
 
