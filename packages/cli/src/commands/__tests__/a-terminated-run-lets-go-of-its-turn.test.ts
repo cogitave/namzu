@@ -1,5 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	realpathSync,
+	writeFileSync,
+} from 'node:fs'
 import { type Server, createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -66,21 +73,61 @@ async function silentProvider(): Promise<{ url: string; completions: () => numbe
 	return { url: `http://127.0.0.1:${address.port}/v1`, completions: () => completions }
 }
 
+/** A chat-completions endpoint that answers every completion at once with "Done.". */
+async function answeringProvider(): Promise<string> {
+	const server = createServer((req, res) => {
+		req.resume()
+		req.on('end', () => {
+			if (req.method === 'GET') {
+				res.setHeader('content-type', 'application/json')
+				res.end(
+					JSON.stringify({
+						object: 'list',
+						data: [{ id: 'gpt-4o', object: 'model', created: 0, owned_by: 'test' }],
+					}),
+				)
+				return
+			}
+			const chunk = {
+				id: 'c1',
+				object: 'chat.completion.chunk',
+				created: 1,
+				model: 'gpt-4o',
+				choices: [{ index: 0, delta: { content: 'Done.' }, finish_reason: 'stop' }],
+				usage: { prompt_tokens: 12, completion_tokens: 1, total_tokens: 13 },
+			}
+			res.setHeader('content-type', 'text/event-stream')
+			res.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`)
+		})
+	})
+	servers.push(server)
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+	const address = server.address()
+	if (address === null || typeof address === 'string') throw new Error('no port')
+	return `http://127.0.0.1:${address.port}/v1`
+}
+
 interface Launched {
 	readonly child: ChildProcess
+	readonly root: string
 	readonly home: string
 	readonly exit: Promise<{ code: number | null; signal: NodeJS.Signals | null }>
 	readonly stdout: () => string
 	readonly stderr: () => string
 }
 
-function launch(command: 'run' | 'run-stream', providerUrl: string): Launched {
+function launch(
+	command: 'run' | 'run-stream',
+	providerUrl: string,
+	config?: (root: string) => unknown,
+): Launched {
 	const root = mkdtempSync(join(realpathSync(tmpdir()), 'namzu-terminated-run-'))
 	roots.push(root)
 	const home = join(root, 'home')
 	const work = join(root, 'work')
 	mkdirSync(join(home, '.namzu'), { recursive: true })
 	mkdirSync(work)
+	if (config) writeFileSync(join(work, 'namzu.config.json'), JSON.stringify(config(root)))
 	const child = spawn(
 		process.execPath,
 		[
@@ -121,7 +168,7 @@ function launch(command: 'run' | 'run-stream', providerUrl: string): Launched {
 	const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
 		child.on('exit', (code, signal) => resolve({ code, signal }))
 	})
-	return { child, home, exit, stdout: () => out, stderr: () => err }
+	return { child, root, home, exit, stdout: () => out, stderr: () => err }
 }
 
 async function until(condition: () => boolean, what: string, ms = 30_000): Promise<void> {
@@ -197,6 +244,58 @@ describe.each([
 		}
 	}, 60_000)
 })
+
+/**
+ * A signal that lands after the turn has finished, while the session is still
+ * closing (here a slow `session_end` hook), must not report the turn as left
+ * interrupted: it is recorded `turn_completed`, and `/abandon` has nothing to
+ * close. `run-stream` still ends with one `terminated` error and ONE `done`,
+ * the turn's own.
+ */
+describe.each(['run', 'run-stream'] as const)(
+	'`namzu %s` stopped after its turn finished',
+	(command) => {
+		it('says the turn finished, and writes nothing after its last done', async () => {
+			const provider = await answeringProvider()
+			const run = launch(command, provider, (root) => ({
+				hooks: { session_end: [{ command: `touch ${join(root, 'closing')}; sleep 5` }] },
+			}))
+			await until(() => existsSync(join(run.root, 'closing')), 'the session_end hook')
+			run.child.kill('SIGTERM')
+			const exit = await run.exit
+			expect(exit.signal ?? exit.code).toBe('SIGTERM')
+
+			const { sessionId, log } = conversation(run.home)
+			const types = (await log.readAll()).entries.map((entry) => entry.record.type)
+			expect(types.at(-1)).toBe('turn_completed')
+			expect(await log.activeTurn()).toBeNull()
+
+			if (command === 'run') {
+				expect(run.stderr()).not.toContain('left interrupted')
+				expect(run.stderr()).toContain(
+					`stopped by SIGTERM after the turn ended; it is recorded in conversation ${sessionId}`,
+				)
+				return
+			}
+			const events = run
+				.stdout()
+				.split('\n')
+				.filter((line) => line.trim() !== '')
+				.map((line) => JSON.parse(line) as { kind: string; code?: string; message?: string })
+			expect(events.filter((event) => event.kind === 'done')).toHaveLength(1)
+			expect(events.at(-2)).toMatchObject({ kind: 'error', code: 'terminated' })
+			expect(events.at(-2)?.message).not.toContain('left interrupted')
+			expect(events.at(-2)?.message).toContain('after the turn ended')
+			// The last line is the turn's own verdict, not a bare stand-in.
+			expect(events.at(-1)).toMatchObject({
+				kind: 'done',
+				sessionId,
+				text: 'Done.',
+				stopReason: 'end_turn',
+			})
+		}, 60_000)
+	},
+)
 
 describe('a new prompt after a terminated run', () => {
 	it('begins at once, closing the interrupted turn as turn_failed{interrupted}', async () => {

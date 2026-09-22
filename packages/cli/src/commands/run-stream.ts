@@ -434,28 +434,48 @@ export const runStreamCommand: CommandDef = {
 		let budget: Extract<AgentEvent, { kind: 'usage' }>['budget']
 		let busy: Extract<AgentEvent, { kind: 'error' }>['turnInProgress']
 		// Stopped from outside (SIGTERM, SIGHUP, SIGINT): the conversation's
-		// lease is already given back when this runs (`termination.ts`), so the
-		// turn is left interrupted. The host is told in band and last, then the
-		// turn is stopped (its tools' processes go with it) and the session
-		// closed. Nothing after these two lines is written.
+		// lease is already given back when this runs (`termination.ts`). The host
+		// is told in band and last — one `error` of code "terminated", then the
+		// stream's one `done` — then the turn is stopped (its tools' processes go
+		// with it) and the session closed. Nothing after those two lines is
+		// written. What the error says depends on where the signal found the
+		// turn: mid-flight it is left interrupted; once the turn has settled (the
+		// session still closing, a slow `session_end` hook) it is recorded, and
+		// the `done` is the turn's own.
 		const turnAbort = new AbortController()
 		let stopped = false
+		/** Once the turn has settled: the stream's last line, and what a signal then says. */
+		let settled: { readonly last: object; readonly state: string } | undefined
+		/** The last line has been written; a signal after this writes nothing. */
+		let ended = false
+		const inConversation = conversationId ? ` in conversation ${conversationId}` : ''
 		termination.onTerminate(async (signal) => {
 			stopped = true
-			try {
-				write({
-					kind: 'error',
-					code: 'terminated',
-					message: `stopped by ${signal}; the turn was left interrupted${conversationId ? ` in conversation ${conversationId}` : ''}. Close it with /abandon in the TUI, or continue it with /resume or \`namzu drain\`.`,
-				})
-				write({ kind: 'done', ...(conversationId ? { sessionId: conversationId } : {}) })
-			} catch {
-				// The reader is gone (SIGHUP, a closed pipe); there is nobody to tell.
+			if (!ended) {
+				ended = true
+				try {
+					write({
+						kind: 'error',
+						code: 'terminated',
+						message: settled
+							? `stopped by ${signal} ${settled.state}`
+							: `stopped by ${signal}; the turn was left interrupted${inConversation}. Close it with /abandon in the TUI, or continue it with /resume or \`namzu drain\`.`,
+					})
+					write(
+						settled?.last ?? {
+							kind: 'done',
+							...(conversationId ? { sessionId: conversationId } : {}),
+						},
+					)
+				} catch {
+					// The reader is gone (SIGHUP, a closed pipe); there is nobody to tell.
+				}
 			}
 			turnAbort.abort(new TurnCancelled('user'))
 			await session.close()
 			closeSessions(cli)
 		})
+		let paused: Extract<AgentEvent, { kind: 'paused' }> | undefined
 		try {
 			for await (const event of session.send(messages, {
 				signal: turnAbort.signal,
@@ -464,6 +484,7 @@ export const runStreamCommand: CommandDef = {
 			})) {
 				if (stopped) continue
 				if ('budget' in event && event.budget) budget = event.budget
+				if (event.kind === 'paused') paused = event
 				if (event.kind === 'error' && event.turnInProgress) {
 					busy = event.turnInProgress
 					write({ ...event, code: 'turn_in_progress' })
@@ -473,32 +494,49 @@ export const runStreamCommand: CommandDef = {
 		} catch (err) {
 			// The signal handler closes the session and ends the process.
 			if (stopped) return EXIT_OK
+			const message = err instanceof Error ? err.message : String(err)
+			settled = {
+				last: { kind: 'done' },
+				state: `after the turn failed (${message})${inConversation}.`,
+			}
 			await session.close()
 			closeSessions(cli)
-			return fail(err instanceof Error ? err.message : String(err))
+			if (stopped) return EXIT_OK
+			ended = true
+			return fail(message)
 		}
 		if (stopped) return EXIT_OK
+		settled = busy
+			? {
+					// Nothing was begun, so nothing was recorded: the conversation's
+					// active turn is still the one it was. Not now, rather than not ever.
+					last: { kind: 'done', sessionId: busy.sessionId },
+					state: `; no turn was started in conversation ${busy.sessionId}.`,
+				}
+			: {
+					// The kernel appended this turn to the conversation's log as it ran,
+					// so a later `history --session <key>` and the next turn's context
+					// see it.
+					last: {
+						...(terminalEvent ?? {
+							kind: 'done' as const,
+							...(conversationId ? { sessionId: conversationId } : {}),
+						}),
+						...(budget ? { budget } : {}),
+					},
+					state: paused
+						? `while the turn was paused: it keeps checkpoint ${paused.checkpointId}${inConversation}. Continue it with /resume or \`namzu drain\`, or close it with /abandon in the TUI.`
+						: `after the turn ended; it is recorded${inConversation}, and nothing is left to close.`,
+				}
 		// A stdio tool server is a child process; a command that returns without
 		// closing leaves it running.
 		await session.close()
 		closeSessions(cli)
-		if (busy) {
-			// Nothing was begun, so nothing was recorded: the conversation's active
-			// turn is still the one it was. Not now, rather than not ever.
-			write({ kind: 'done', sessionId: busy.sessionId })
-			return EXIT_TURN_IN_PROGRESS
-		}
-
-		// The kernel appended this turn to the conversation's log as it ran, so a
-		// later `history --session <key>` and the next turn's context see it.
-		write({
-			...(terminalEvent ?? {
-				kind: 'done' as const,
-				...(conversationId ? { sessionId: conversationId } : {}),
-			}),
-			...(budget ? { budget } : {}),
-		})
-		return 0
+		// A signal during the close has written the last line already.
+		if (stopped) return EXIT_OK
+		ended = true
+		write(settled.last)
+		return busy ? EXIT_TURN_IN_PROGRESS : 0
 	}),
 }
 

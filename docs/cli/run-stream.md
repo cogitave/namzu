@@ -74,7 +74,7 @@ caller can reach the turn it asked for by changing what it sends.
 | 1 | Nothing the caller sends changes it: no provider available, a missing credential or driver, a declared tool server that is not there, a conversation that cannot be opened, a command file that will not parse. |
 | 75 | The session already has an active turn. Try again later, or resume or abandon that turn first. |
 | 77 | The folder has not been trusted; only a person can change that. |
-| killed by the signal | Stopped by SIGTERM, SIGHUP or SIGINT. The last two lines are `{"kind":"error","code":"terminated",…}` and `{"kind":"done","sessionId":…}` (when stdout is still there to write to). The session's lease was given back first, so its turn is left interrupted and `/abandon`, `/resume` or `namzu drain` takes it at once; no event after those two is written. |
+| killed by the signal | Stopped by SIGTERM, SIGHUP or SIGINT. The last two lines are `{"kind":"error","code":"terminated",…}` and the stream's only `done` (when stdout is still there to write to); no event after those two is written. The session's lease was given back first. Mid-turn, the `done` is `{"kind":"done","sessionId":…}` and the turn is left interrupted, so `/abandon`, `/resume` or `namzu drain` takes it at once. After the turn settled, while the session is still closing (a slow `session_end` hook, say), the error's message says the turn ended and is recorded, and the `done` is the turn's own, with its `turnId`, `text` and `stopReason`. |
 
 `namzu run` shares 1, 75 and 77 with the same meanings; see
 [Exit codes of a headless run](run-exit-codes.md).

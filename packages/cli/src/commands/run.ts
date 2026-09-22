@@ -36,7 +36,7 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { withTerminationHandling } from '../termination.js'
+import { type TerminationSignal, withTerminationHandling } from '../termination.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
 import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
@@ -88,6 +88,29 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 				subagents: { active: [] },
 			}
 		: null
+}
+
+/**
+ * What `run` prints on stderr when a termination signal stops it, worded from
+ * where the signal found the turn (`termination.ts` has already given the
+ * conversation's lease back).
+ */
+function stoppedBy(
+	signal: TerminationSignal,
+	sessionId: string,
+	phase: 'running' | 'paused' | 'ended' | 'not-started',
+	paused: Extract<AgentEvent, { kind: 'paused' }> | null,
+): string {
+	switch (phase) {
+		case 'running':
+			return `stopped by ${signal}: the turn in conversation ${sessionId} was left interrupted — close it with /abandon in the TUI, or continue it with /resume or \`namzu drain\``
+		case 'paused':
+			return `stopped by ${signal} while the turn was paused: it keeps checkpoint ${paused?.checkpointId ?? '(unknown)'} in conversation ${sessionId} — continue it with /resume or \`namzu drain\`, or close it with /abandon in the TUI`
+		case 'ended':
+			return `stopped by ${signal} after the turn ended; it is recorded in conversation ${sessionId}, and nothing is left to close`
+		case 'not-started':
+			return `stopped by ${signal}; no turn was started in conversation ${sessionId}`
+	}
 }
 
 export const runCommand: CommandDef = {
@@ -439,23 +462,6 @@ export const runCommand: CommandDef = {
 
 		const extraSystem = await loadSkillsContext(cwd, flags.skills)
 
-		// Stopped from outside (SIGTERM, SIGHUP, Ctrl+C): the conversation's
-		// lease is already given back when this runs (`termination.ts`), so the
-		// turn is left interrupted. Stop it, so its tools' processes go with
-		// it, and release what the session holds.
-		const turnAbort = new AbortController()
-		let stopped = false
-		termination.onTerminate(async (signal) => {
-			stopped = true
-			ctx.formatter.error({
-				message: `stopped by ${signal}: the turn in conversation ${sessionId} was left interrupted — close it with /abandon in the TUI, or continue it with /resume or \`namzu drain\``,
-			})
-			turnAbort.abort(new TurnCancelled('user'))
-			await session.close()
-			closeSessions(sessions)
-			await sessionExport?.shutdown()
-		})
-
 		if (resume.kind === 'resumed') {
 			ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages`)
 		}
@@ -491,6 +497,27 @@ export const runCommand: CommandDef = {
 			paused: null,
 			busy: false,
 		}
+		// Stopped from outside (SIGTERM, SIGHUP, Ctrl+C): the conversation's
+		// lease is already given back when this runs (`termination.ts`). Stop the
+		// turn, so its tools' processes go with it, and release what the session
+		// holds. What the operator is told depends on where the signal found the
+		// turn: mid-flight it is left interrupted; waiting out a provider pause it
+		// keeps its checkpoint; after it settled (the session still closing, a
+		// slow `session_end` hook) it is recorded, and there is nothing to close.
+		const turnAbort = new AbortController()
+		let stopped = false
+		let phase: 'running' | 'paused' | 'ended' | 'not-started' = 'running'
+		const afterPhase = (): void => {
+			phase = stop.busy ? 'not-started' : stop.paused ? 'paused' : 'ended'
+		}
+		termination.onTerminate(async (signal) => {
+			stopped = true
+			ctx.formatter.error({ message: stoppedBy(signal, sessionId, phase, stop.paused) })
+			turnAbort.abort(new TurnCancelled('user'))
+			await session.close()
+			closeSessions(sessions)
+			await sessionExport?.shutdown()
+		})
 		const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
 			stop.failed = null
 			stop.paused = null
@@ -529,6 +556,7 @@ export const runCommand: CommandDef = {
 				...(flags.effort !== null ? { effort: flags.effort } : {}),
 			}),
 		)
+		afterPhase()
 
 		// A provider pause is answered by waiting, when the caller gave time to
 		// wait with. The kernel kept a checkpoint; the turn resumes from it in
@@ -561,7 +589,11 @@ export const runCommand: CommandDef = {
 				`provider paused the turn: waiting ${duration(decision.delayMs)}, then resuming from ${paused.checkpointId} (wait ${waits}, ${duration(waitedMs)} of ${duration(waitBudgetMs)} spent)`,
 			)
 			await new Promise<void>((resolve) => setTimeout(resolve, decision.delayMs))
+			// A signal during the wait: the process is on its way out, and the
+			// turn keeps its checkpoint for whoever resumes it next.
+			if (stopped) break
 			waitedMs += decision.delayMs
+			phase = 'running'
 			await consume(
 				session.resumePaused({
 					turnId: paused.turnId,
@@ -569,6 +601,7 @@ export const runCommand: CommandDef = {
 					signal: turnAbort.signal,
 				}),
 			)
+			afterPhase()
 		}
 		// The signal handler closes the session and ends the process.
 		if (stopped) return 1

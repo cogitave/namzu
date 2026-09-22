@@ -32,7 +32,7 @@ been independently checked, and budget/cancellation can stop verification.
 | 64 | An argument was wrong. | Fix the invocation. |
 | 75 | Try again later. Either the provider paused the turn — a rate limit or an outage — and the kernel kept a checkpoint, named on stderr, with any text on stdout partial; with `--wait-for-provider` the turn waits and attempts resume first, and 75 means its provider wait could not complete. Or the session already has an active turn — running, paused, or left interrupted by a process that died — and nothing ran; stderr names that turn and says `turn_in_progress`. | For a pause, use the provider's retry delay or a wait budget; resume still requires a resolved token ledger, and waiting cannot resolve unknown request usage. For an active turn, wait for it, or resume or abandon it (`/resume`, `/abandon` in the TUI), or use another session. |
 | 77 | The folder has not been trusted and nothing ran. | Trust the folder once interactively, or pass `--trust` for this invocation. |
-| killed by SIGTERM, SIGHUP or SIGINT (a shell shows 143, 129, 130) | The run was stopped from outside. It gave the session's writer lease back before it died, so the turn it was running is left **interrupted**, not closed, and stderr names the session. | Close the turn with `/abandon`, or continue it with `/resume` or `namzu drain`. Any of them works at once; nothing waits for the lease to expire. |
+| killed by SIGTERM, SIGHUP or SIGINT (a shell shows 143, 129, 130) | The run was stopped from outside. It gave the session's writer lease back before it died, and stderr names the session and says where the signal found the turn: mid-flight, the turn is left **interrupted**, not closed; waiting out a provider pause (`--wait-for-provider`), it stays **paused** at the checkpoint stderr names and is not resumed; after it ended (the session still closing, for example a slow `session_end` hook), it is recorded and the reply may already be on stdout. | For an interrupted turn, close it with `/abandon`, or continue it with `/resume` or `namzu drain`; for a paused one, `/resume` or `namzu drain` continues it from its checkpoint. Any of them works at once; nothing waits for the lease to expire. A turn that ended needs nothing. |
 
 ## Why a pause is not a failure
 
@@ -64,6 +64,14 @@ appended for the turn on the way out, because the dying process cannot know
 how far it got: the turn reads as interrupted (no live lease, not paused), and
 the next writer closes it explicitly. The TUI's next prompt does that on its
 own, recording `turn_failed` with `failure.code: 'interrupted'`.
+
+That is what a signal mid-turn leaves. `run` words its stderr line from where
+the signal actually found the turn, because the handler stays installed until
+the command returns: a signal while `--wait-for-provider` is waiting finds the
+turn recorded `turn_paused` with its checkpoint (the wait ends and the turn is
+not resumed), and a signal after the turn settled, while the session is still
+closing, finds it recorded `turn_completed` or `turn_failed`, with nothing for
+`/abandon` to close.
 
 SIGKILL runs no code, so a process killed that way, or one that crashes
 outright, still holds its lease until it expires. See

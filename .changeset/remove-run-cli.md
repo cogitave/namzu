@@ -92,4 +92,8 @@ memory and resident state written by 26.x are **not read** by this version.
   second signal exits immediately. `run-stream` writes
   `{"kind":"error","code":"terminated",…}` and a final `done` before it exits,
   and `run` names the session on stderr. SIGKILL still leaves the lease to
-  expire.
+  expire. The message follows where the signal found the turn: a turn that
+  had already ended (the session still closing) is reported as recorded, not
+  interrupted, and `run-stream`'s one `done` is then the turn's own; a
+  `run --wait-for-provider` stopped during its wait says the turn is paused
+  at its checkpoint, and does not resume it.
