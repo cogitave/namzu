@@ -41,7 +41,7 @@
  * row that has settled never comes back.
  */
 
-import { checklistLine } from './Checklist.js'
+import { checklistBlockRows, checklistLine } from './Checklist.js'
 import { renderedDetailLines } from './Transcript.js'
 import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -239,4 +239,46 @@ export function liveWindow(input: LiveWindowInput): LiveWindow {
 		held += 1
 	}
 	return { settled: messages.length - held, rows: height }
+}
+
+export interface ChecklistViewInput {
+	/** Every transcript row, oldest first, the pending one included: it is on screen too. */
+	readonly messages: readonly TranscriptMessage[]
+	/** Terminal height. `undefined` when not a TTY. */
+	readonly rows: number | undefined
+	/** Terminal width. `undefined` falls back to 80. */
+	readonly columns: number | undefined
+	/** Rows the live region occupies apart from the transcript: activity, composer, status bar. */
+	readonly furnitureRows: number
+	readonly raw?: boolean
+}
+
+/**
+ * Whether the newest checklist block is still wholly on screen.
+ *
+ * The current-step row above the composer stands in for a checklist that has
+ * scrolled away. The block is in view when it, every row printed after it,
+ * and the live furniture together fit the terminal's height; a reply that
+ * follows the block does not by itself push it out. Rows below are measured
+ * with the same over-count the live window uses, so the answer errs towards
+ * "out of view": at worst the step is named once more, never lost.
+ */
+export function checklistInView(input: ChecklistViewInput): boolean {
+	const { messages, rows, columns, furnitureRows, raw = false } = input
+	if (rows === undefined || !Number.isFinite(rows)) return false
+	let index = -1
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i]?.taskBlock !== undefined) {
+			index = i
+			break
+		}
+	}
+	const block = messages[index]
+	if (block === undefined) return false
+	let below = 0
+	for (let i = index + 1; i < messages.length; i++) {
+		const message = messages[i]
+		if (message) below += messageHeight(message, true, columns, raw)
+	}
+	return furnitureRows + checklistBlockRows(block, columns ?? 80) + below < rows
 }

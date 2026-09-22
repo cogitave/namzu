@@ -114,6 +114,7 @@ afterEach(() => {
 	for (const m of mounted.splice(0)) m.unmount()
 	turn = 0
 	vi.clearAllMocks()
+	vi.unstubAllEnvs()
 })
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -185,7 +186,9 @@ describe('the task checklist', () => {
 		expect(everything).not.toMatch(/\d+ tasks:/)
 	})
 
-	it('shows the plan once: the current-step row appears only when the checklist is not the newest row', async () => {
+	it('shows the plan once: a reply under the checklist leaves it in view, and no row repeats it', async () => {
+		vi.stubEnv('COLUMNS', '100')
+		vi.stubEnv('LINES', '60')
 		const harness = await open()
 		await submit(harness, 'go')
 
@@ -193,11 +196,26 @@ describe('the task checklist', () => {
 		await frameShows(harness.lastFrame, 'Added 2 tasks')
 		expect(count(harness.lastFrame() ?? '', 'Cover it with tests')).toBe(1)
 
-		// Text after a block pushes it up; the row names the step it is on.
+		// Text after the block on a tall screen: the block is still on screen,
+		// so nothing above the composer says one of its lines again.
 		await frameShows(harness.lastFrame, 'Looked around.')
 		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('■ Çalışma alanını incele · 0/2 done')
-		expect(frame, 'not a second checklist').not.toContain('Tasks · 0/2 done')
+		expect(frame).toContain('■ Çalışma alanını incele')
+		expect(frame, 'no current-step row while the block is visible').not.toContain('· 0/2 done')
+		expect(count(frame, '■ Çalışma alanını incele'), 'the current step is drawn once').toBe(1)
+	})
+
+	it('names the current step above the composer once the checklist is out of view', async () => {
+		vi.stubEnv('COLUMNS', '100')
+		vi.stubEnv('LINES', '18')
+		const harness = await open()
+		await submit(harness, 'go')
+
+		// On a short screen the reply pushes the block's head off; the row
+		// names the step it is on, and is not a second checklist.
+		await frameShows(harness.lastFrame, 'Looked around.')
+		await frameShows(harness.lastFrame, '■ Çalışma alanını incele · 0/2 done')
+		expect(harness.lastFrame() ?? '', 'not a second checklist').not.toContain('Tasks · 0/2 done')
 	})
 
 	it('leaves the finished plan in the transcript and clears the row when the plan is done', async () => {

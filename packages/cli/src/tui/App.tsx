@@ -158,7 +158,7 @@ import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
-import { checklistBlockRows, checklistProgress } from './Checklist.js'
+import { checklistProgress } from './Checklist.js'
 import { TaskList, type TaskListItem, taskListRows } from './TaskList.js'
 import {
 	type TaskOperation,
@@ -198,7 +198,7 @@ import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
-import { liveWindow } from './live-window.js'
+import { checklistInView, liveWindow } from './live-window.js'
 import {
 	type ModelSwitchOutcome,
 	type ModelSwitchRequest,
@@ -3497,16 +3497,18 @@ export function App({
 	// lists together only when their full previews would crowd the input area.
 	const fullToolFurniture = activeTools.length === 0 ? 0 : Math.min(activeTools.length, 3) * 2 + 2
 	// The current-step row stands in for a checklist that is out of view. While
-	// the newest transcript row IS the checklist and the screen has room for
-	// all of it, it is on screen directly above, and the row would only say one
-	// of its lines again. On a short screen the block's head is cut off, and the
-	// row is what keeps the current step visible.
-	const lastRow = messages.at(-1)
-	const checklistInView =
-		lastRow?.taskBlock !== undefined &&
-		LIVE_FURNITURE_ROWS + fullToolFurniture + checklistBlockRows(lastRow, terminal.columns) <
-			terminal.rows
-	const liveTasks = checklistInView ? [] : tasks
+	// the newest checklist block, everything printed after it and the live
+	// furniture fit the screen, the block is on screen, and the row would only
+	// say one of its lines again. Once later rows push the block's head off a
+	// short screen, the row is what keeps the current step visible.
+	const checklistShown = checklistInView({
+		messages,
+		rows: terminal.rows,
+		columns: terminal.columns,
+		furnitureRows: LIVE_FURNITURE_ROWS + fullToolFurniture,
+		raw: rawOutput,
+	})
+	const liveTasks = checklistShown ? [] : tasks
 	const fullTaskFurniture = taskListRows(liveTasks)
 	const compactWork = LIVE_FURNITURE_ROWS + fullTaskFurniture + fullToolFurniture >= terminal.rows
 	const taskFurniture = fullTaskFurniture

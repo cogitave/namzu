@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	LIVE_WINDOW_SAFETY_ROWS,
 	MAX_LIVE_ROWS,
+	checklistInView,
 	estimateRenderedLines,
 	liveWindow,
 	transcriptLines,
@@ -192,5 +193,50 @@ describe('transcriptLines', () => {
 
 		expect(rich.settled).toBe(0)
 		expect(raw.settled).toBe(1)
+	})
+})
+
+describe('checklistInView', () => {
+	const block = (id = 'b'): TranscriptMessage =>
+		row({
+			id,
+			role: 'system',
+			content: 'Tasks · 1/2 done',
+			checklist: [
+				{ id: 't1', subject: 'Çalışma alanını incele', status: 'completed' },
+				{ id: 't2', subject: 'Özet raporunu yaz ve dosyaya kaydet', status: 'in_progress' },
+			],
+			taskBlock: { key: 'k', operations: [] },
+		})
+	const view = (messages: TranscriptMessage[], height: number | undefined, columns = 110) =>
+		checklistInView({ messages, rows: height, columns, furnitureRows: FURNITURE })
+
+	it('is out of view when there is no checklist, or no terminal', () => {
+		expect(view(rows(2), 36)).toBe(false)
+		expect(view([block()], undefined)).toBe(false)
+	})
+
+	it('stays in view when a short reply follows the block', () => {
+		// The owner's 110x36 frame: the block, then the closing reply under it.
+		expect(
+			view([row({ content: 'go' }), block(), row({ content: 'Özet dosyaya yazıldı.' })], 36),
+		).toBe(true)
+		expect(view([block(), row({ content: 'Done.' })], 36, 40)).toBe(true)
+	})
+
+	it('is out of view once the rows after it no longer fit', () => {
+		expect(view([block(), ...rows(8)], 36)).toBe(false)
+		// A screen too short for the block itself cannot show its head.
+		expect(view([block()], 14)).toBe(false)
+	})
+
+	it('reads the newest block, and counts a pending row as on screen', () => {
+		const older = block('old')
+		expect(view([older, ...rows(8), block('new')], 36)).toBe(true)
+		const pending = row({
+			content: Array.from({ length: 30 }, (_, i) => `l${i}`).join('\n'),
+			pending: true,
+		})
+		expect(view([block(), pending], 36)).toBe(false)
 	})
 })
