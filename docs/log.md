@@ -2,6 +2,7 @@
 
 ## 2026-09-22
 
+- **Update** [Terminal design](cli/terminal-design.md#the-composer-footer) and [Slash commands](cli/slash-commands.md#keys-that-are-not-commands): Shift+Tab changes the permission mode mid-turn and writes nothing to the transcript; the running turn's later decisions follow the new mode, a dialog on screen keeps the mode it was asked under, each change is recorded as `approval_policy_changed` (`packages/cli/src/permissions/live-mode.ts`, `AgentSession.setPermissionMode`, `SendOptions.currentPermissionMode`); the footer's hold mark is `‖`, not the emoji `⏸`. `.changeset/tui-permission-mode-mid-turn.md`, **minor** for `@namzu/cli`.
 - **Update** [Tool execution ordering](sdk/tool-execution.md#presenting-observations): `task_create`, `task_update` and `task_list` present in words, with no task id, owner or JSON in any view (`packages/sdk/src/tools/task/present.ts`); their `data` carries the task's `subject` and the list output uses a correct plural. `.changeset/task-tools-read-as-words.md`, **patch** for `@namzu/sdk`.
 - **Update** [Model catalogue](cli/model-catalogue.md): the commands that start the background refresh are `namzu exec` (with or without `--json`), `acp`, `drain` and `resident run`, since `run` and `run-stream` became `exec`.
 - **Update** [Native structured output](sdk/native-structured-output.md): the CLI section names `namzu exec --output-schema` for headless turns beside the TUI launch flag.

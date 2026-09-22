@@ -189,7 +189,13 @@ Conversational switches affect only this session; they do not change saved
 defaults for later launches. The `switch_model` tool is available only to
 the main interactive agent, not headless turns or delegated agents.
 
-`/effort` and `/permissions` affect future turns in the current TUI session.
+`/effort` affects future turns in the current TUI session. `/permissions` and
+Shift+Tab take effect at once, including while a turn runs: the running turn's
+next approval decision is made under the new mode, and so is every later turn.
+A decision already on screen keeps the mode it was asked under, entering `plan`
+refuses the next change the turn attempts, and leaving `plan` approves nothing
+it already refused. Each change is recorded as `approval_policy_changed` in the
+session log before it takes effect.
 The effort choices depend on the selected model and usable fallback models.
 Changing any permission mode clears a previous “approve all” choice. Explicit
 deny rules and built-in safety checks still apply; `plan` additionally blocks
@@ -278,7 +284,7 @@ terminals place descriptions below labels.
 
 - **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
 - **Esc** while a turn runs interrupts it. **Ctrl+C** is reserved for exit.
-- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`.
+- **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
 - **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).

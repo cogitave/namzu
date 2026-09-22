@@ -6,6 +6,12 @@
  * `App` is a key that does nothing while the hint says otherwise. So this
  * drives a rendered `<App>`: the mode line is absent under `prompt`, appears
  * after Shift+Tab, names the key, and leaves after a second press.
+ *
+ * The footer is the key's only reply. Every press used to append
+ * "Permissions: <mode> for this session. …" to the transcript, so five presses
+ * left five lines; the reference terminal rewrites its footer and writes
+ * nothing. And the key works while a turn runs: it used to be refused there
+ * with "Permissions were not changed. Finish or stop the current work first."
  */
 
 import { render } from 'ink-testing-library'
@@ -30,6 +36,13 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	loadConversation: async () => [],
 }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
+
+/** Holds the turn open until the test releases it. */
+let releaseTurn: (() => void) | null = null
+let holdTurn = false
+/** What the running turn would read at its next decision. */
+let readMode: (() => string) | undefined
+const recorded: string[] = []
 
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
@@ -64,8 +77,17 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			approvalLatched: () => false,
 			resetApprovalLatch: () => {},
+			setPermissionMode: async (mode: string) => {
+				recorded.push(mode)
+			},
 			promptExemptTools: () => [],
-			send: async function* (): AsyncIterable<AgentEvent> {
+			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+				readMode = opts?.currentPermissionMode as (() => string) | undefined
+				if (holdTurn) {
+										await new Promise<void>((resolve) => {
+						releaseTurn = resolve
+					})
+				}
 				yield { kind: 'done' } as AgentEvent
 			},
 		}),
@@ -83,6 +105,11 @@ const ctx: TuiContext = {
 
 const mounted: Array<{ unmount: () => void }> = []
 afterEach(() => {
+	releaseTurn?.()
+	releaseTurn = null
+	holdTurn = false
+	readMode = undefined
+	recorded.length = 0
 	for (const m of mounted.splice(0)) m.unmount()
 	vi.clearAllMocks()
 })
@@ -121,20 +148,63 @@ describe('Shift+Tab in the composer', () => {
 
 		harness.stdin.write(SHIFT_TAB)
 		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
-		const frame = harness.lastFrame() ?? ''
-		expect(frame).toContain('shift+tab to cycle')
-		expect(frame, 'the change is also a transcript fact').toContain(
-			'Permissions: Auto-approve edits for this session.',
-		)
+		expect(harness.lastFrame() ?? '').toContain('shift+tab to cycle')
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameShows(harness.lastFrame, '⏸ Plan (read-only)')
-		expect(harness.lastFrame() ?? '').toContain('Permissions: Plan (read-only) for this session.')
+		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
 
 		harness.stdin.write(SHIFT_TAB)
-		await frameStopsShowing(harness.lastFrame, '⏸ Plan (read-only)')
+		await frameStopsShowing(harness.lastFrame, '‖ Plan (read-only)')
 		expect(harness.lastFrame() ?? '').not.toContain('⏵⏵ Auto-approve edits')
-		expect(harness.lastFrame() ?? '').toContain('Permissions: Ask before changes for this session.')
+	})
+
+	it('writes nothing to the transcript, however many times it is pressed', async () => {
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(60)
+		const before = harness.frames.length
+		for (let i = 0; i < 5; i++) {
+			harness.stdin.write(SHIFT_TAB)
+			await tick(40)
+		}
+		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
+		const seen = harness.frames.slice(before).join('\n')
+		expect(seen).not.toContain('Permissions:')
+		expect(seen).not.toContain('for this session')
+		expect(seen).not.toContain('⏸')
+		// Five presses from `prompt`, each one recorded and none of them printed.
+		expect(recorded).toEqual(['accept-edits', 'plan', 'prompt', 'accept-edits', 'plan'])
+	})
+
+	it('changes the mode while a turn runs, and the running turn reads the new one', async () => {
+		holdTurn = true
+		const harness = render(<App ctx={ctx} />)
+		mounted.push(harness)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(60)
+		harness.stdin.write('go')
+		await tick(20)
+		harness.stdin.write('\r')
+		for (let waited = 0; releaseTurn === null && waited < 4000; waited += 20) await tick(20)
+		expect(releaseTurn, 'the turn is running').not.toBeNull()
+		expect(readMode?.(), 'the turn starts under the mode it was sent with').toBe('prompt')
+
+		harness.stdin.write(SHIFT_TAB)
+		await frameShows(harness.lastFrame, '⏵⏵ Auto-approve edits')
+		expect(readMode?.(), 'the next decision of this same turn sees the change').toBe('accept-edits')
+		harness.stdin.write(SHIFT_TAB)
+		await frameShows(harness.lastFrame, '‖ Plan (read-only)')
+		expect(readMode?.()).toBe('plan')
+		expect(recorded, 'each change is recorded for the running turn').toEqual(['accept-edits', 'plan'])
+		expect(harness.lastFrame() ?? '').not.toContain('Permissions were not changed')
+		expect(harness.lastFrame() ?? '').not.toContain('Permissions:')
+
+		releaseTurn?.()
+		await tick(200)
+		expect(harness.lastFrame() ?? '', 'the mode outlives the turn it was changed in').toContain(
+			'‖ Plan (read-only)',
+		)
 	})
 
 	it('does not queue or submit the draft the way plain Tab would', async () => {

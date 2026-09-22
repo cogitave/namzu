@@ -1876,24 +1876,26 @@ export function App({
 		}
 	}, [subagents, pushMessage, session])
 
+	/**
+	 * Change the permission mode, now — including while a turn runs.
+	 *
+	 * It used to be refused until the current work settled. The reference
+	 * terminal applies the key at once, mid-turn, and so does this: the running
+	 * turn reads the mode at every decision (`SendOptions.currentPermissionMode`),
+	 * so the change governs its next tool call and every turn after. A dialog
+	 * already on screen is decided under the mode it was asked under; entering
+	 * plan refuses the next change the turn attempts; leaving plan re-runs
+	 * nothing it refused. The change is recorded on the running turn's log as
+	 * `approval_policy_changed`, which also tells the model once.
+	 *
+	 * `announce` is for a change asked for by name (`/permissions`), which gets
+	 * a reply. Shift+Tab is a reflex key: the footer is its reply, as it is in
+	 * the reference, and five presses no longer leave five transcript lines.
+	 */
 	const applyPermissionMode = useCallback(
-		(mode: PermissionMode): void => {
+		(mode: PermissionMode, announce = true): void => {
 			if (!session?.hasProvider) {
 				pushMessage('system', 'Choose a model before changing permissions.')
-				return
-			}
-			if (
-				state !== 'idle' ||
-				abortRef.current !== null ||
-				hasUnsettledTurn() ||
-				queuedRef.current.length > 0 ||
-				permissionResolveRef.current !== null ||
-				compactingRef.current
-			) {
-				pushMessage(
-					'system',
-					'Permissions were not changed. Finish or stop the current work first.',
-				)
 				return
 			}
 			if (!session.resetApprovalLatch) {
@@ -1904,15 +1906,20 @@ export function App({
 				return
 			}
 			session.resetApprovalLatch()
+			// The ref first: a running turn reads it at its next decision, and the
+			// record below makes the change durable before that decision is made.
 			permissionModeRef.current = mode
 			permissionModeSourceRef.current = 'session'
 			setPermissionModeState(mode)
-			pushMessage(
-				'system',
-				`Permissions: ${permissionModeLabel(mode)} for this session. ${permissionModeDescription(mode)}`,
-			)
+			void session.setPermissionMode?.(mode)
+			if (announce) {
+				pushMessage(
+					'system',
+					`Permissions: ${permissionModeLabel(mode)} for this session. ${permissionModeDescription(mode)}`,
+				)
+			}
 		},
-		[hasUnsettledTurn, pushMessage, session, state],
+		[pushMessage, session],
 	)
 
 	const applyReasoningEffort = useCallback(
@@ -2265,15 +2272,15 @@ export function App({
 	 * only — `auto` and `strict` are deliberate choices made by name in
 	 * `/permissions`, not stops on a key an operator presses on reflex. From
 	 * either of those the key returns to `prompt`, which is the direction a
-	 * reflex should fall. The change goes through the same gate `/permissions`
-	 * uses, so it is refused while a turn is active, and the refusal is
-	 * explained on screen.
+	 * reflex should fall. The change goes through the same path `/permissions`
+	 * uses and takes effect at once, mid-turn included; the footer is its only
+	 * on-screen reply (see `applyPermissionMode`).
 	 */
 	const cyclePermissionMode = useCallback((): void => {
 		const current = permissionModeRef.current
 		const next: PermissionMode =
 			current === 'prompt' ? 'accept-edits' : current === 'accept-edits' ? 'plan' : 'prompt'
-		applyPermissionMode(next)
+		applyPermissionMode(next, false)
 	}, [applyPermissionMode])
 
 	const runConversationExport = useCallback(
@@ -4869,7 +4876,7 @@ export function App({
 					st.outcome = 'stopped'
 					st.queuePauseOutcome = 'paused'
 					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
-					pushMessage('system', describeTurnInterruption(event), false, '⏸')
+					pushMessage('system', describeTurnInterruption(event), false, '‖')
 					break
 				case 'error':
 					closeAssistant()
@@ -5270,6 +5277,9 @@ export function App({
 						// prompt closes it. A paused turn is never closed this way.
 						abandonInterrupted: true,
 						permissionMode: turnPermissionMode,
+						// Read at every decision: the operator may change the mode
+						// while this turn runs, and the change governs what follows.
+						currentPermissionMode: () => permissionModeRef.current,
 						limits: turnLimits,
 						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
 						...(turnOrchestrateMode ? { orchestrate: true } : {}),
@@ -8020,7 +8030,7 @@ export function App({
 							agentSurface === null && outputViewer === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
-										{queuePause ? '⏸' : '⏎'} {queued.length} message
+										{queuePause ? '‖' : '⏎'} {queued.length} message
 										{queued.length > 1 ? 's' : ''} queued —{' '}
 										{queuePause
 											? queuePause.outcome === 'paused'

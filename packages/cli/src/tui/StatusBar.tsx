@@ -33,12 +33,20 @@ export interface StatusBarProps {
 	readonly canCycleMode?: boolean
 }
 
+/**
+ * The mode marks. `⏵⏵` is the reference terminal's own and is outside the
+ * emoji set; the pause mark it pairs with, `⏸` (U+23F8), is an emoji code
+ * point that Windows Terminal draws as a blue two-cell tile. `‖` (U+2016,
+ * DOUBLE VERTICAL LINE) says "held" in one text cell with no emoji form.
+ */
+export const MODE_MARK = { moving: '⏵⏵', held: '‖' } as const
+
 /** Icon, color and label for an active (non-default) permission mode. */
 function modeGlyph(
 	mode: PermissionMode,
 ): { readonly icon: string; readonly color: string; readonly label: string } {
 	return {
-		icon: mode === 'accept-edits' || mode === 'auto' ? '⏵⏵' : '⏸',
+		icon: mode === 'accept-edits' || mode === 'auto' ? MODE_MARK.moving : MODE_MARK.held,
 		color: mode === 'strict' ? theme.status.warn : theme.accent.user,
 		label: permissionModeLabel(mode),
 	}

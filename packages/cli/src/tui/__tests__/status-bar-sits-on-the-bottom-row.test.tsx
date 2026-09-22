@@ -95,7 +95,7 @@ describe('the status bar directly under the message frame', () => {
 		try {
 			const viewport = screen.viewport()
 			const row = viewport[frameBottomBorder(screen) + 1] ?? ''
-			expect(row).toContain('⏸ Plan (read-only) (shift+tab to cycle) · effort xhigh · ')
+			expect(row).toContain('‖ Plan (read-only) (shift+tab to cycle) · effort xhigh · ')
 			expect(row).toContain('work/namzu')
 			expect(row.trimEnd()).toMatch(/Goal stalled \(\/goal resume\)$/)
 			expect(row).not.toContain('Codex subscription')

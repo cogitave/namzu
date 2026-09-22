@@ -29,7 +29,7 @@ retain the same text, symbols and boundaries.
 One dim line sits directly below the message frame, with no blank row between
 them. On the left: the active permission mode, colored by mode (`accept-edits`
 and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
-with its `⏵⏵`/`⏸` glyph and, when Shift+Tab actually cycles it here, the
+with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
 `(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
 has set one, beside it as `· effort <level>`; [orchestrate mode](slash-commands.md#orchestrate-mode),
 when it is on, beside that as `· orchestrate`; then the working directory. When
@@ -57,6 +57,25 @@ directory left, goal or hint right — that used to sit one blank row below the
 frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
+
+Every mark on this line and in the plan is a text-presentation character one
+cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on
+their own, `‖` (U+2016) for modes that hold. `⏸` (U+23F8), which the reference
+terminal uses for the second, is an emoji code point; Windows Terminal draws it
+as a blue two-cell tile, so this line does not use it.
+
+Shift+Tab changes the mode and the footer is its whole reply, as it is in the
+reference terminal: no transcript line is written, however many times it is
+pressed. `/permissions`, a change asked for by name, still answers in the
+transcript. The key works while a turn runs, and the change governs every
+approval decision from that moment: the running turn's later tool calls, the
+delegated turns that borrow its review, and the next message. An approval
+dialog already on screen is decided under the mode it was asked under (the
+composer, and so the key, is not live while one is open); entering plan mode
+mid-turn refuses the next call that would change something; leaving it approves
+nothing already refused. Each change is written to the session log as
+`approval_policy_changed` before anything is decided under it, and the model is
+told once through the kernel's own notice. See [Slash commands](slash-commands.md#keys-that-are-not-commands).
 
 Below the footer — not between it and the frame — comes whatever panel owns
 the rest of the screen while agents are live: the automatic delegated-work

@@ -72,6 +72,7 @@ import {
 	type ReviewAnswer,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
+	type SessionApprovalPolicy,
 	type SessionCheckpointStore,
 	type SessionEvent,
 	type SessionGoalStore,
@@ -259,6 +260,11 @@ import {
 	migrateMemoryOnce,
 	saveTypedNote,
 } from '../memory/typed.js'
+import {
+	type LiveModeControl,
+	createLiveModeControl,
+	permissionChangeReason,
+} from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -576,6 +582,15 @@ export interface SendOptions {
 	 */
 	readonly permissionMode?: PermissionMode
 	/**
+	 * The host's current mode, read at every review decision of this turn —
+	 * the turn's own calls and the delegated turns that borrow its handler.
+	 * Present, it lets the operator change the mode while the turn runs:
+	 * each decision takes the mode current when it is asked and keeps it,
+	 * dialog included. Pair a change with `AgentSession.setPermissionMode`
+	 * so it is recorded. Absent, `permissionMode` holds for the whole turn.
+	 */
+	readonly currentPermissionMode?: () => PermissionMode
+	/**
 	 * Caller-reserved identity for this new turn, for a host that has to name
 	 * the turn before it starts (a resident step's verifier). Absent: the
 	 * kernel mints one, and the session learns it from the turn's first event.
@@ -879,6 +894,14 @@ export interface AgentSession {
 	 * change when this capability is absent rather than pretending it revoked.
 	 */
 	readonly resetApprovalLatch?: () => void
+	/**
+	 * Record a permission-mode change on every turn running now: written to
+	 * the session log as `approval_policy_changed` before it takes effect,
+	 * and told to the model once, by the kernel's own notice. The change
+	 * itself is read through `SendOptions.currentPermissionMode`; this only
+	 * makes it durable. Optional for older embedded sessions.
+	 */
+	readonly setPermissionMode?: (mode: PermissionMode, reason?: string) => Promise<void>
 	/**
 	 * Tools this session will run without asking, by name.
 	 *
@@ -2686,6 +2709,10 @@ export async function createAgentSession(
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
+	// The turns running now, each deciding under a mode the operator may change
+	// mid-turn, and the mode each conversation's log last recorded.
+	const liveModeControls = new Set<LiveModeControl>()
+	const recordedModes = new Map<string, PermissionMode>()
 	// Share the project store with tools and recall. Each turn selects either
 	// this extracted-claim promoter or explicit consolidation, never both.
 	// Candidates without useful claims write nothing.
@@ -3237,6 +3264,13 @@ export async function createAgentSession(
 		resetApprovalLatch: () => {
 			approval.all = false
 		},
+		setPermissionMode: async (mode, reason) => {
+			await Promise.all(
+				[...liveModeControls].map((control) =>
+					control.record(mode, reason ?? permissionChangeReason(mode, 'now')),
+				),
+			)
+		},
 		promptExemptTools: () =>
 			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
 		send: (messages, opts) =>
@@ -3247,14 +3281,30 @@ export async function createAgentSession(
 					const turnOpts: SendOptions = { ...opts, signal }
 					let runTools = registry
 					lastSendInteractive = opts?.onPermission !== undefined
-					const resumeHandler = makeResumeHandler(
-						approval,
-						opts?.onPermission,
-						opts?.permissionMode ?? options.permissionMode,
-						(name, input) => isPromptExempt(runTools, name, input),
-						{ unattendedSandboxEscape },
-					)
 					const turnScope = { ...scope }
+					const initialMode: PermissionMode =
+						opts?.permissionMode ??
+						options.permissionMode ??
+						(opts?.onPermission ? 'prompt' : 'auto')
+					// The mode is read at every decision, so the operator can change it
+					// while this turn runs (see permissions/live-mode.ts).
+					const modeControl = createLiveModeControl({
+						initial: initialMode,
+						...(opts?.currentPermissionMode ? { read: opts.currentPermissionMode } : {}),
+						...(recordedModes.has(String(turnScope.sessionId))
+							? { recorded: recordedModes.get(String(turnScope.sessionId)) }
+							: {}),
+						handlerFor: (mode) =>
+							makeResumeHandler(
+								approval,
+								opts?.onPermission,
+								mode,
+								(name, input) => isPromptExempt(runTools, name, input),
+								{ unattendedSandboxEscape },
+							),
+					})
+					const resumeHandler = modeControl.handler
+					liveModeControls.add(modeControl)
 					// The turn's id is reserved here, before the kernel begins it, because
 					// everything that authorizes the turn is keyed by it: the review
 					// channel its children borrow, the delegation gateway, the goal-round
@@ -3525,6 +3575,8 @@ export async function createAgentSession(
 								projectInstructionContext: projectInstructions.createTurnContext(),
 								opts: turnOpts,
 								resumeHandler,
+								approvalPolicyName: modeControl.initialName,
+								onApprovalPolicy: (box) => modeControl.attach(box),
 								taskGateway: await subagentRuntime?.gatewayForTurn(turnId),
 								completionInbox: await subagentRuntime?.completionInboxForTurn(turnId),
 								promptContributions,
@@ -3553,6 +3605,8 @@ export async function createAgentSession(
 							}
 						}
 					} finally {
+						liveModeControls.delete(modeControl)
+						recordedModes.set(String(turnScope.sessionId), modeControl.current())
 						for (const turnId of claimed) {
 							if (delegatedResumeHandlers.get(turnId) !== resumeHandler) continue
 							delegatedResumeHandlers.delete(turnId)
@@ -4199,6 +4253,10 @@ interface TurnParams {
 	readonly prepareStep?: PrepareStepChain
 	/** Exact interactive authority shared with children launched by this turn. */
 	readonly resumeHandler: ResumeHandler
+	/** The mode the turn starts under, as the durable log names its policy. */
+	readonly approvalPolicyName?: string
+	/** Receives the turn's approval-policy box, through which mode changes are recorded. */
+	readonly onApprovalPolicy?: (box: SessionApprovalPolicy) => void
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
 	readonly fileReadTracker?: ReturnType<typeof createFileReadTracker>
@@ -4261,6 +4319,8 @@ async function* runTurn({
 	promoteMemory,
 	prepareStep,
 	resumeHandler,
+	approvalPolicyName,
+	onApprovalPolicy,
 	taskStore,
 	systemPrompt,
 	messages,
@@ -4351,6 +4411,8 @@ async function* runTurn({
 			// tools `query()` registers deferred below and any tool server that
 			// connected after this session was built.
 			resumeHandler,
+			...(approvalPolicyName ? { approvalPolicyName } : {}),
+			...(onApprovalPolicy ? { onApprovalPolicy } : {}),
 			...(promptContributions ? { promptContributions } : {}),
 			...(runtimeToolOverrides ? { runtimeToolOverrides } : {}),
 			...(web ? { web } : {}),
