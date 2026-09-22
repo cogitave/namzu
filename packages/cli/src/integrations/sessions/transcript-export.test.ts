@@ -2,7 +2,14 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type Message, createUserMessage, generateMessageId } from '@namzu/sdk'
+import {
+	type GoalId,
+	type Message,
+	createProjectInstructionMessage,
+	createRuntimeContextMessage,
+	createUserMessage,
+	generateMessageId,
+} from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { recordTurn } from '../../__fixtures__/session-log.js'
@@ -119,6 +126,43 @@ describe('exporting a conversation from its session log', () => {
 		expect(exported.markdown).toContain('a follow-up in the fork')
 		// The copied prompt is a turn of the fork, and so is its own.
 		expect(exported.turns).toBe(2)
+	})
+
+	it('labels input no operator typed by where it came from', async () => {
+		const s = await project()
+		const id = await startConversation(s)
+		await recordTurn(
+			s,
+			id,
+			[
+				createUserMessage('Keep going until the suite passes.', undefined, {
+					type: 'goal-round',
+					goalId: '019a0000-0000-7000-8000-0000000000aa' as GoalId,
+					objective: 'make the suite pass',
+					goalRevision: 1,
+					round: 2,
+					maxGoalRounds: 5,
+				}),
+				createProjectInstructionMessage('Run the linter before you finish.', ['AGENTS.md']),
+				createRuntimeContextMessage('Output limit reached; continue.', 'auto-continuation'),
+				assistant('Continuing.'),
+			],
+			{ originKind: 'goal-round' },
+		)
+
+		const { markdown } = await conversationMarkdown(s, id)
+
+		expect(markdown).toContain(
+			'## Goal round 2 / 5\n\nObjective: make the suite pass\n\nModel-visible continuation prompt:\n\nKeep going until the suite passes.',
+		)
+		expect(markdown).toContain(
+			'## Project instructions\n\n- AGENTS.md\n\nRun the linter before you finish.',
+		)
+		expect(markdown).toContain(
+			'## Runtime context — Automatic continuation\n\nOutput limit reached; continue.',
+		)
+		// None of the three is presented as something the operator typed.
+		expect(markdown).not.toContain('## User')
 	})
 
 	it('refuses a log whose hash chain is broken', async () => {
