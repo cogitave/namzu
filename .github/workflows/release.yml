@@ -1,14 +1,41 @@
 name: Release
 
 # Runs on every push to main — both direct pushes and merge commits from
-# PRs. This workflow is self-contained: it runs the full validation
-# matrix before touching the Changesets action, so it can stand alone
-# without the pre-merge ci.yml run.
+# PRs. This workflow is self-contained: it can run the full validation
+# before touching the Changesets action, so it can stand alone without the
+# pre-merge ci.yml run.
 #
 # Per PR merge cycle:
 #   - PR opened:   ci.yml runs (pre-merge gate)
 #   - PR merged:   release.yml runs (post-merge validation + publish)
-# Total: 2 matrix runs per cycle, not 3 (was: CI-on-PR + CI-on-main + Release).
+#
+# ## When the validation is skipped
+#
+# A merge usually lands a tree ci.yml has already validated: the PR's run built
+# `refs/pull/N/merge`, and when `main` did not move before the merge, the tree
+# on `main` is byte-identical to it. Running every gate again measures nothing
+# new and holds the publish back by twenty to thirty minutes.
+#
+# So the first step asks `.github/scripts/find-validated-tree.mjs` whether the
+# pushed commit's tree (`git rev-parse HEAD^{tree}`) carries a
+# `validated-tree-<tree>` artifact from a ci.yml run that concluded success, on
+# a pull_request or merge_group event, from this repository and not a fork.
+# Only a yes sets `skip=true`; an API error, an expired record, a failed run or
+# anything else it cannot establish answers no, and every gate runs. A direct
+# push with no pull request therefore keeps the full validation — unless its
+# tree is byte-identical to one CI already passed, which is the same content.
+#
+# Every validation step carries `if: steps.revalidation.outputs.skip != 'true'`
+# and nothing else. Install and Build always run, because publishing needs
+# `dist`; the pre-publish consumer install check keeps its version-commit
+# condition and runs whatever the skip says, because it measures the packages
+# that actually ship, which no earlier run has seen. The step log says which
+# path was taken, why, and which CI run it relied on.
+#
+# `check-workflow-gate-parity.mjs` holds all of that: a gate on one path and
+# not the other still fails it, and so does a gate carrying any condition but
+# that guard, a guarded step ci.yml does not run, or a guard on Install, Build
+# or the pre-publish check.
 on:
   push:
     branches:
@@ -22,6 +49,8 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  # Read workflow runs and artifacts, to find ci.yml's validated-tree record.
+  actions: read
 
 jobs:
   release:
@@ -40,19 +69,46 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org/
 
+      # Decides whether the validation below has already been done on these
+      # exact bytes. See the header. Never fails the job: a lookup it cannot
+      # make answers "not validated", and every gate runs.
+      - name: Was this tree already validated by CI
+        id: revalidation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "commit $GITHUB_SHA, tree $tree"
+          node .github/scripts/find-validated-tree.mjs --repo "$GITHUB_REPOSITORY" --tree "$tree"
+
+      - name: Report the validation path
+        env:
+          SKIP: ${{ steps.revalidation.outputs.skip }}
+          REASON: ${{ steps.revalidation.outputs.reason }}
+          RUN_URL: ${{ steps.revalidation.outputs.run_url }}
+        run: |
+          if [ "$SKIP" = "true" ]; then
+            echo "::notice title=Validation skipped::this tree already passed ci.yml ($REASON) — $RUN_URL"
+          else
+            echo "::notice title=Full validation::${REASON:-the lookup produced no answer}"
+          fi
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
       - name: Lint
+        if: steps.revalidation.outputs.skip != 'true'
         run: pnpm lint
 
       - name: Typecheck
+        if: steps.revalidation.outputs.skip != 'true'
         run: pnpm typecheck
 
       - name: Build
         run: pnpm -r build
 
       - name: Test
+        if: steps.revalidation.outputs.skip != 'true'
         run: pnpm -r test
 
       # The gates a direct-to-main push would otherwise skip.
@@ -68,48 +124,64 @@ jobs:
       # on every push. That exemption is written down where a check reads it,
       # not left as a difference nobody is comparing.
       - name: The two paths onto main run the same gates
-        run: node .github/scripts/check-workflow-gate-parity.mjs
+        if: steps.revalidation.outputs.skip != 'true'
+        run: |
+          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs
+          node .github/scripts/check-workflow-gate-parity.mjs
 
       - name: Project references match workspace dependencies
+        if: steps.revalidation.outputs.skip != 'true'
         run: node .github/scripts/check-project-references.mjs
 
       - name: External-name audit
+        if: steps.revalidation.outputs.skip != 'true'
         run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs
 
       - name: Log standard gate
+        if: steps.revalidation.outputs.skip != 'true'
         run: node scripts/check-log-standard.mjs
 
       - name: Local entry-point check
+        if: steps.revalidation.outputs.skip != 'true'
         run: node --import tsx --test scripts/__tests__/check-local-entry.test.ts
 
       - name: Model price catalogue matches its source
+        if: steps.revalidation.outputs.skip != 'true'
         run: node scripts/generate-model-prices.mjs --check
 
       # Hermetic tests for the hand-run generator of the bundled Zen snapshot.
       # The roster itself is refreshed at run time by the CLI, so no gate reads
       # upstream here.
       - name: Zen snapshot generator tests
+        if: steps.revalidation.outputs.skip != 'true'
         run: node --import tsx --test scripts/__tests__/generate-zen-models.test.ts
 
       - name: Installer parses as POSIX sh
+        if: steps.revalidation.outputs.skip != 'true'
         run: sh -n install.sh && dash -n install.sh
 
       - name: SDK test-presence gate
+        if: steps.revalidation.outputs.skip != 'true'
         run: node .github/scripts/check-sdk-test-presence.mjs
 
       - name: Publish-metadata gate
+        if: steps.revalidation.outputs.skip != 'true'
         run: node .github/scripts/check-publish-metadata.mjs
 
       - name: Signature types are exported
+        if: steps.revalidation.outputs.skip != 'true'
         run: node .github/scripts/check-signature-types-exported.mjs
 
       - name: Docs OKF gate
+        if: steps.revalidation.outputs.skip != 'true'
         run: pnpm docs:check
 
       - name: Docs fence gate
+        if: steps.revalidation.outputs.skip != 'true'
         run: node tools/check-doc-fences.mjs
 
       - name: publint (package.json shape)
+        if: steps.revalidation.outputs.skip != 'true'
         run: |
           pnpm list -r --depth -1 --json \
             | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const r of JSON.parse(s))if(r.name&&r.path&&r.private!==true&&r.name!=='namzu')console.log(require('path').relative(process.cwd(),r.path))})" \
@@ -127,6 +199,11 @@ jobs:
       # versions + CHANGELOG). For every other main-push the Changesets
       # action only refreshes the Version Packages PR and this gate is
       # skipped — no need to pack every publishable package on unrelated commits.
+      #
+      # It carries no skip guard and never will: when the validation above is
+      # skipped because CI already passed this tree, this still runs, because
+      # it measures the packed packages that are about to publish, which no CI
+      # run has seen. `check-workflow-gate-parity.mjs` refuses a guard here.
       #
       # Its guard test runs in the same step, ahead of it, exactly as in
       # ci.yml: `scripts/__tests__/` belongs to no package, so `pnpm -r test`

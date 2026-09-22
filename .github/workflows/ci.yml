@@ -4,6 +4,11 @@ name: CI
 # don't run the same matrix twice per merge cycle. Direct-to-main pushes are
 # validated by release.yml's own inline validation before publish.
 #
+# When every gate job here succeeds, the last job (`validated-tree`) uploads an
+# artifact named `validated-tree-<tree sha>` for the tree the gates ran on.
+# release.yml skips its inline gates for a push whose tree carries such a
+# record, because this run already measured those exact bytes; see its header.
+#
 # `merge_group` is what makes this gate mean "validated against what will
 # actually be on main", rather than "validated against whatever the branch was
 # based on". A merge queue builds each PR on top of the current target head
@@ -133,8 +138,13 @@ jobs:
       # a stale `node_modules` from an earlier install.
       # Cheap, and it guards the thing that made the rest of this list a
       # branch-only standard for as long as anyone had been pushing to `main`.
+      # Its tests, and the tests of the helper release.yml's skip relies on,
+      # run in the same step: `scripts/__tests__/` belongs to no package, so
+      # `pnpm -r test` never reaches them.
       - name: The two paths onto main run the same gates
-        run: node .github/scripts/check-workflow-gate-parity.mjs
+        run: |
+          node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs
+          node .github/scripts/check-workflow-gate-parity.mjs
 
       - name: Project references match workspace dependencies
         run: node .github/scripts/check-project-references.mjs
@@ -401,3 +411,55 @@ jobs:
 
       - name: Docs fence gate
         run: node tools/check-doc-fences.mjs
+
+  # The record release.yml reads to skip re-validating a merge. Runs only when
+  # every gate job succeeded — both matrix legs of `check`, which between them
+  # carry every gate (`matrix.gates` partitions them, it does not duplicate
+  # them), and `docs`. `needs` on a matrix job waits for every leg, and the
+  # default `success()` fails closed on any leg that failed, was cancelled or
+  # was skipped.
+  #
+  # What it records is the git TREE of the commit the gates checked out, not the
+  # commit. A PR run builds `refs/pull/N/merge`; when `main` has not moved by the
+  # time the PR merges, the tree that lands on `main` is byte-identical to that
+  # one whatever the merge method, and `release.yml` finds this artifact by its
+  # name and skips the gates this run already passed. When `main` did move, the
+  # tree differs, nothing matches, and every gate runs again — which is exactly
+  # when it should.
+  #
+  # The payload is informational; `.github/scripts/find-validated-tree.mjs`
+  # trusts the artifact's NAME only together with the run that produced it:
+  # this workflow, concluded success, a pull_request or merge_group event, and
+  # this repository rather than a fork.
+  validated-tree:
+    name: Record the validated tree
+    needs: [check, docs]
+    if: ${{ success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+    runs-on: ubuntu-latest
+    steps:
+      # The same default ref as the gate jobs' checkouts: `github.sha`.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Record the tree the gates ran on
+        id: tree
+        run: |
+          head=$(git rev-parse HEAD)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "checked out $head, but the gates ran on $GITHUB_SHA; recording nothing"
+            exit 1
+          fi
+          tree=$(git rev-parse 'HEAD^{tree}')
+          printf '{"tree":"%s","run_id":"%s","event":"%s","head_sha":"%s"}\n' \
+            "$tree" "$GITHUB_RUN_ID" "$GITHUB_EVENT_NAME" "$head" > "$RUNNER_TEMP/validated-tree.json"
+          cat "$RUNNER_TEMP/validated-tree.json"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the validated-tree record
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-tree-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/validated-tree.json
+          if-no-files-found: error
+          retention-days: 30

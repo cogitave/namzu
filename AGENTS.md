@@ -56,7 +56,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | CI step | Run it locally |
 |---|---|
 | Lint | `pnpm lint` |
-| The two paths onto main run the same gates | `node .github/scripts/check-workflow-gate-parity.mjs` |
+| The two paths onto main run the same gates | `node --test scripts/__tests__/check-workflow-gate-parity.test.mjs scripts/__tests__/find-validated-tree.test.mjs && node .github/scripts/check-workflow-gate-parity.mjs` |
 | Project references match workspace dependencies | `node .github/scripts/check-project-references.mjs` |
 | Type check | `pnpm typecheck` |
 | Build | `pnpm -r build` |
@@ -80,6 +80,8 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 Some carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run them all.
 
 A **direct push to `main` runs a different job**: `release.yml` validates inline before it publishes. `check-workflow-gate-parity.mjs` fails on any gate present in one path and not the other unless it is exempted by name with a reason.
+
+**A merge whose tree CI already passed skips that inline validation.** `ci.yml`'s last job, `Record the validated tree`, runs only when both matrix legs and `Docs` succeeded, and uploads an artifact named `validated-tree-<tree sha>` for the tree the gates checked out. `release.yml` first asks `.github/scripts/find-validated-tree.mjs` about `git rev-parse HEAD^{tree}`; it answers yes only for such an artifact, unexpired, from a `ci.yml` run that concluded `success` on `pull_request` or `merge_group` in this repository, never a fork, and every other outcome, API errors included, is no. On a yes each validation step is skipped through `if: steps.revalidation.outputs.skip != 'true'`. Install and Build always run, and the pre-publish consumer install check keeps its version-commit condition either way. A PR merged after `main` moved lands a different tree and gets the full validation, and so does a direct push, unless its tree is byte-identical to one CI passed. The step log and a notice name the path taken and the CI run relied on. The parity check also compares conditions: a `release.yml` gate carries no `if:` or exactly that guard, a guarded step must be a gate `ci.yml` runs, Install, Build and the pre-publish check never carry the guard, and a `ci.yml` gate carries no `if:` or exactly `matrix.gates`.
 
 A **second job**, `Docs`, runs two gates:
 
