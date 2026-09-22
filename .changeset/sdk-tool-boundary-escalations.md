@@ -22,8 +22,10 @@ its id in the new `confirmedEscalations` (on `approve_tools` and
 without a `prompt` (`SANDBOX_ESCAPE_UNATTENDED_REFUSAL`) unless
 `unattendedSandboxEscape: 'allow'`. A path outside the roots is likewise asked
 about in every mode (`auto` and a remembered `approve-all` included) and
-refused without a `prompt` (`OUTSIDE_ROOTS_UNATTENDED_REFUSAL`). A refused
-crossing is an audit record with outcome `refused`. Tools declare `pathArgument` and
+refused without a `prompt` (`OUTSIDE_ROOTS_UNATTENDED_REFUSAL`); `strict`
+refuses it, and `plan` asks about it when every call in the batch only reads.
+A refused crossing is an audit record with outcome `refused`, a `deny` rule's
+refusal included. Tools declare `pathArgument` and
 `sandboxEscapeArgument`; the executor hands an approved call
 `ToolContext.approvedPaths` or `sandboxEscapeApproved`. The shipped file tools
 declare `pathArgument: 'path'`; `bash` gains an optional

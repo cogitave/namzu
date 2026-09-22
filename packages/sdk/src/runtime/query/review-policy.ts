@@ -46,8 +46,9 @@ export type ReviewMode =
 	 */
 	| 'accept-edits'
 	/**
-	 * Read and think, do not act. A call that only reads is approved; a call
-	 * that would change anything is refused with feedback telling the model
+	 * Read and think, do not act. A call that only reads is approved (one that
+	 * reads outside the roots is asked about, as in every mode but `strict`); a
+	 * call that would change anything is refused with feedback telling the model
 	 * to present its plan instead. The operator reads the plan and switches
 	 * mode to have it carried out — the switch IS the approval. The kernel's
 	 * `permissionMode: 'plan'` is the floor under this: it blocks a mutating
@@ -155,6 +156,24 @@ export function batchNeedsReview(
 }
 
 /**
+ * Whether every call in a batch only reads, so that what brought it to review
+ * can only be a path outside the roots: no explicit review from a rule,
+ * nothing destructive, no sandbox escape, and a tool exempt from review.
+ */
+function onlyReadsOutsideRoots(
+	toolCalls: readonly ToolCallSummary[],
+	exempt: ReviewExemption,
+): boolean {
+	return toolCalls.every(
+		(tc) =>
+			!tc.authorization?.explicitReview &&
+			!tc.isDestructive &&
+			tc.escalation?.sandboxEscape !== true &&
+			exempt(tc.name, tc.input),
+	)
+}
+
+/**
  * What the model is told when a batch asks to leave the sandbox and nobody
  * can be asked.
  *
@@ -255,7 +274,14 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		}
 		// Ordinary reads were approved above. Remaining calls either change
 		// state or carry explicit review; plan mode does not grant that authority.
-		if (mode === 'plan') return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
+		// Except a batch of reads whose only reason to be here is a path outside
+		// the roots: plan mode is for reading, a read is what it tells the model
+		// to do, and the question such a path gets is the same in every mode that
+		// lets reads run. It goes on to that question below; `strict` still
+		// refuses it, since no rule can approve a path outside the roots.
+		if (mode === 'plan' && !onlyReadsOutsideRoots(request.toolCalls, exempt)) {
+			return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
+		}
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
 		// A sandbox escape is asked about every time, in every mode that got
 		// this far — `auto` and a remembered "approve all" included, because

@@ -330,10 +330,10 @@ reported by `namzu doctor`.
 Tools run on the host under the permission system by default: each shell
 command goes through the permission rules and mode, and a file tool's path
 outside the working directory is an approval request rather than a refusal —
-asked every time, in every permission mode, and refused when nobody can be
-asked (add the directory with `--add-dir` instead). The OS sandbox is opt-in with `sandbox.enabled: true`; a sandboxed `bash` call
+asked every time (`strict` refuses it, `plan` asks only for a read), and
+refused when nobody can be asked (add the directory with `--add-dir` instead). The OS sandbox is opt-in with `sandbox.enabled: true`; a sandboxed `bash` call
 may ask to run one command outside it, and that request is put to you every
-time, in every permission mode, and refused when nobody can be asked. See
+time (`plan` and `strict` refuse it), and refused when nobody can be asked. See
 `docs/cli/tool-boundary.md`.
 
 With the sandbox on, the provider defaults to the canonical working directory.

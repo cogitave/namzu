@@ -349,8 +349,8 @@ export interface SandboxConfig {
 	/**
 	 * Whether a sandboxed `bash` call may ask to run one command outside the
 	 * sandbox (`dangerously_disable_sandbox`). Default `true`: the request is
-	 * put to the user every time — in every permission mode, `auto` and
-	 * `--yolo` included — and written to the session's audit trail. `false`
+	 * put to the user every time — `auto` and `--yolo` included; `plan` and
+	 * `strict` refuse it — and written to the session's audit trail. `false`
 	 * refuses every such request.
 	 */
 	readonly allowEscape?: boolean

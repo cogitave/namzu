@@ -7,7 +7,7 @@
  * refused.
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -38,8 +38,8 @@ describe('adding a directory to the session', () => {
 		const result = await createSessionDirectories(cwd, list).add(outside, { approve })
 
 		expect(approve).toHaveBeenCalledWith(realpathSync(outside))
-		expect(result).toEqual({ added: true, path: outside })
-		expect(list).toEqual([outside])
+		expect(result).toEqual({ added: true, path: realpathSync(outside) })
+		expect(list).toEqual([realpathSync(outside)])
 	})
 
 	it('leaves it out on no', async () => {
@@ -61,13 +61,14 @@ describe('adding a directory to the session', () => {
 		expect(list).toEqual([])
 	})
 
-	it('does not ask about a directory inside the working directory', async () => {
+	it('does not add a directory inside the working directory, which the tools already reach', async () => {
 		const list: string[] = []
-		const approve = vi.fn(async () => false)
+		const approve = vi.fn(async () => true)
 		const result = await createSessionDirectories(cwd, list).add('sub', { approve })
 
 		expect(approve).not.toHaveBeenCalled()
-		expect(result).toEqual({ added: true, path: join(cwd, 'sub') })
+		expect(result).toMatchObject({ added: false, reason: expect.stringMatching(/already reach/) })
+		expect(list).toEqual([])
 	})
 
 	it('does not ask about something it would refuse anyway', async () => {
@@ -102,12 +103,37 @@ describe('adding a directory to the session', () => {
 		expect(list).toEqual([])
 	})
 
-	it('does not ask about a link that stays inside the working directory', async () => {
+	it('does not add a link that stays inside the working directory', async () => {
 		symlinkSync(join(cwd, 'sub'), join(cwd, 'alias'))
-		const approve = vi.fn(async () => false)
-		const result = await createSessionDirectories(cwd, []).add('alias', { approve })
+		const list: string[] = []
+		const approve = vi.fn(async () => true)
+		const result = await createSessionDirectories(cwd, list).add('alias', { approve })
 
 		expect(approve).not.toHaveBeenCalled()
-		expect(result.added).toBe(true)
+		expect(result.added).toBe(false)
+		expect(list).toEqual([])
+	})
+
+	it('stores where an approved link led, so retargeting the link later reaches nothing new', async () => {
+		// The file tools canonicalize an added root at every call. A stored
+		// `./link` would follow the link wherever it points next — one `ln -sfn`
+		// away from a directory nobody approved.
+		const other = join(base, 'other')
+		mkdirSync(other)
+		symlinkSync(outside, join(cwd, 'link'))
+		const list: string[] = []
+		const result = await createSessionDirectories(cwd, list).add('link', {
+			approve: async () => true,
+		})
+
+		expect(result).toEqual({ added: true, path: realpathSync(outside) })
+		expect(list).toEqual([realpathSync(outside)])
+
+		rmSync(join(cwd, 'link'))
+		symlinkSync(other, join(cwd, 'link'))
+		// What a tool canonicalizes at its next call is still the approved
+		// directory, not the link's new target.
+		expect(list.map((dir) => realpathSync(dir))).toEqual([realpathSync(outside)])
+		expect(list.some((dir) => dir.startsWith(cwd))).toBe(false)
 	})
 })

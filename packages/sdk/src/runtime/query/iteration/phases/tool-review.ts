@@ -199,6 +199,29 @@ export async function* runToolReview(
 	const denyAll = (reason: string): ToolCallDenials =>
 		new Map(toolCalls.map((tc) => [tc.id, reason]))
 
+	/**
+	 * A crossing that was asked about and refused, on the record as a
+	 * refusal whoever refused it — a person answering No, a policy with
+	 * nobody to ask, a rule. An absent record would read the same as a
+	 * crossing nobody asked for.
+	 */
+	const recordRefusedEscalation = async (tc: ToolCallSummary, reason: string): Promise<void> => {
+		if (tc.escalation?.sandboxEscape) {
+			await ctx.recorder.recordAudit({
+				what: { action: 'sandbox_escape', tool: tc.name },
+				outcome: 'refused',
+				reason,
+			})
+		}
+		for (const path of tc.escalation?.outsidePaths ?? []) {
+			await ctx.recorder.recordAudit({
+				what: { action: 'outside_root_access', tool: tc.name, resource: path },
+				outcome: 'refused',
+				reason,
+			})
+		}
+	}
+
 	// Gate-denied ids survive the whole function: a later human approval
 	// must not be able to release them.
 	const gateDenied = new Map<string, string>()
@@ -279,6 +302,12 @@ export async function* runToolReview(
 			ctx.log.debug('Authorization gate: all tool calls denied', {
 				'namzu.tool.names': gateResults.map((gr) => gr.toolCall.name),
 			})
+			// Every escalated call here was refused by a rule, and a crossing
+			// refused by a rule is recorded like one a person refused.
+			for (const tc of escalated()) {
+				const reason = gateDenied.get(tc.id)
+				if (reason !== undefined) await recordRefusedEscalation(tc, reason)
+			}
 			await settle(gateDenied)
 			yield* ctx.drainPending()
 			return finish('rejected')
@@ -345,23 +374,6 @@ export async function* runToolReview(
 	 * the escape. Refusing it here, beside the executor that would honour it,
 	 * makes that hold for every policy rather than for the shipped one only.
 	 */
-	const recordRefusedEscalation = async (tc: ToolCallSummary, reason: string): Promise<void> => {
-		if (tc.escalation?.sandboxEscape) {
-			await ctx.recorder.recordAudit({
-				what: { action: 'sandbox_escape', tool: tc.name },
-				outcome: 'refused',
-				reason,
-			})
-		}
-		for (const path of tc.escalation?.outsidePaths ?? []) {
-			await ctx.recorder.recordAudit({
-				what: { action: 'outside_root_access', tool: tc.name, resource: path },
-				outcome: 'refused',
-				reason,
-			})
-		}
-	}
-
 	const settleEscalations = async (
 		denials: Map<string, string>,
 		confirmed: readonly string[] | undefined,

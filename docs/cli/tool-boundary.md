@@ -17,10 +17,10 @@ By default the CLI runs the model's tools **on this machine**, the way other cod
 - **Shell commands** run in the host shell, with the shell's environment minus credential-shaped variables. Each one goes through the permission rules and the permission mode: in `prompt` mode it is shown to you first.
 - **File tools** (`read`, `write`, `edit`, `glob`, `grep`, `ls`, `lsp`) reach the working directory and the [added directories](add-dir.md) directly. A path **anywhere else is an approval request, not a refusal**: the call is shown to you with the line `Outside the working directory: <path>`, and runs only if you approve it. An approval covers that call and that path, nothing after it.
   - The question is asked even for a tool that only reads, and even where an `allow` rule, a remembered "allow", an earlier "allow all tools for this session" or the `auto` mode (`--yolo`, `--dangerously-skip-permissions`) covers the tool: those were answers about tools, given before this path was named. A prompt that holds such a path offers "allow other tools for this session (not paths outside it)", and an "allow all" answered on another prompt never settles a queued one.
-  - A `deny` rule still refuses the call without asking; `strict` and `plan` refuse it like any other change.
+  - A `deny` rule still refuses the call without asking, and is recorded as a refused `outside_root_access`. `strict` refuses it, since no rule can approve such a path. `plan` asks about a batch of reads the same way, since reading is what plan mode is for, and refuses a write, edit or command like any other change.
   - **With nobody to ask** (a headless `namzu run`, a drained turn) it is refused, not approved: the model is told to name the directory it needs, and the operator adds it with `--add-dir` or `additionalDirectories`.
   - Each answer is written to the session's audit trail as an `outside_root_access` record with the path and outcome `approved` or `refused`.
-- `/add-dir <path>` adds a directory for the rest of the session so the tools reach it without asking. For a directory outside the working directory it **asks you first**, decided after links are followed: `./link` pointing outside is asked about under the path it leads to.
+- `/add-dir <path>` adds a directory for the rest of the session so the tools reach it without asking. For a directory outside the working directory it **asks you first**, decided after links are followed: `./link` pointing outside is asked about under the path it leads to, and that canonical path is what is added, so retargeting the link later reaches nothing new. A directory inside the working directory is not added: the tools already reach it.
 
 The startup notice says `Sandbox off (the default)` and names the key that turns it on.
 
@@ -41,7 +41,7 @@ A sandboxed `bash` call can set `dangerously_disable_sandbox: true` to run that 
 - **asked about every time**, in every permission mode that does not refuse it — `auto`, `--yolo` and an earlier "allow all" included. The prompt says `Runs OUTSIDE the sandbox, on this machine`, and its second choice reads "allow other tools for this session (not sandbox escapes)". An "allow all" answered on one prompt never settles a queued escape that was not on screen.
 - **refused in a turn with nobody to ask** (a headless `namzu run`, a drained turn) unless `sandbox.allowUnattendedEscape: true`.
 - **refused in `plan` and `strict` mode**, like any other change.
-- **recorded** in the audit trail as a `sandbox_escape` record, `approved` or `refused` — a refusal by the person, by the headless default, or by a policy that did not confirm it.
+- **recorded** in the audit trail as a `sandbox_escape` record, `approved` or `refused` — a refusal by the person, by a `deny` rule, by the headless default, or by a policy that did not confirm it.
 - **never combined with `run_in_background`**: a host job would outlive the approval given for one call.
 
 | Key | Default | Meaning |

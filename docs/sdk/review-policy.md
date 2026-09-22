@@ -37,7 +37,7 @@ The prompt receives the originating `turnId` alongside `toolCalls`. Hosts can us
 | `prompt` | Ask the person. The default when a `prompt` is supplied. |
 | `auto` | Approve. The default without one. |
 | `accept-edits` | Approve a batch of non-destructive `edit` and `write` calls; ask when anything else rides along, because the batch is reviewed as a unit. |
-| `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. The kernel's `permissionMode: 'plan'` is the floor under this. |
+| `plan` | Refuse every mutation with `PLAN_MODE_REFUSAL`, which tells the model to present its plan. A batch of reads that is here only for a path outside the roots is asked about instead, as in `prompt`. The kernel's `permissionMode: 'plan'` is the floor under this. |
 | `strict` | Refuse with `STRICT_MODE_REFUSAL`: nothing runs unless a rule allowed it. |
 
 A plan-approval request is approved and every other checkpoint continues. An answer of `approve-all` is remembered in the `remembered` box for the rest of the turn; a host that shows that state passes its own box.

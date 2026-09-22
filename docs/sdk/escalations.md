@@ -34,11 +34,11 @@ Both default to `'refuse'`, and `ReactiveAgentConfig` carries the same two field
 
 An escalated call is always routed to the turn's `resumeHandler`:
 
-- a gate `allow` becomes `review` for it (with `explicitReview`); a gate `deny` still refuses it;
+- a gate `allow` becomes `review` for it (with `explicitReview`); a gate `deny` still refuses it, and the refusal is recorded as a refused crossing even when every call in the batch was denied;
 - a remembered tool grant does not cover it;
 - `batchNeedsReview` is true for it even when the tool is read-only, and `accept-edits` does not approve it on its own.
 
-For `outsidePaths`, `createReviewHandler` asks its `prompt` in every mode that got that far — `auto` and a remembered "approve all" included, since both were answers about tools given before the path was named — and `plan` and `strict` refuse. With no `prompt` it refuses the batch with `OUTSIDE_ROOTS_UNATTENDED_REFUSAL`; a host with nobody to ask widens the roots up front with `additionalDirectories` instead. An `approve-all` answer to such a prompt latches for ordinary calls, never for the next path.
+For `outsidePaths`, `createReviewHandler` asks its `prompt` in every mode that got that far — `auto` and a remembered "approve all" included, since both were answers about tools given before the path was named. `strict` refuses it. `plan` asks about a batch in which every call only reads (exempt, not destructive, no explicit review, no escape), since reading is what plan mode is for, and refuses any batch that would change something with `PLAN_MODE_REFUSAL`. With no `prompt` it refuses the batch with `OUTSIDE_ROOTS_UNATTENDED_REFUSAL`; a host with nobody to ask widens the roots up front with `additionalDirectories` instead. An `approve-all` answer to such a prompt latches for ordinary calls, never for the next path.
 
 For `sandboxEscape` an approval is not enough. The decision must list the call's id in `confirmedEscalations` (on `approve_tools` or `modify_tools`); a call it does not list is refused and the rest of the batch runs. `createReviewHandler` fills it only after its `prompt` said yes — it asks in every mode that got that far, `auto` and a remembered "approve all" included — or, with no `prompt`, when `unattendedSandboxEscape: 'allow'`. Otherwise it refuses the batch with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`. A host's own handler that answers `approve_tools` to everything therefore cannot release an escape by accident.
 

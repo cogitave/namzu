@@ -212,7 +212,7 @@ export function composeEnvironmentPrompt(facts: EnvironmentFacts): string {
 function boundaryLines(boundary: ExecutionBoundary): string[] {
 	if (!boundary.sandbox) {
 		const outside = boundary.interactive
-			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time, whatever the permission mode. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
+			? 'A path anywhere else is not refused outright: the user is asked to approve that call first, every time — in plan mode too, for a read; the strict permission mode refuses it. When you need a directory repeatedly, suggest the user add it with `/add-dir <path>`.'
 			: 'A path anywhere else is refused in this session, because it needs a person to approve it and nobody is at the terminal. If you need one, say which directory and why, so the user can add it (`--add-dir <path>`) and run again.'
 		return [
 			'Tools run on this machine, not in a sandbox: shell commands and file changes go through the permission settings, which may ask the user before they run.',
@@ -225,7 +225,7 @@ function boundaryLines(boundary: ExecutionBoundary): string[] {
 		: ' It does not cut the network on this machine.'
 	const escapeRoute =
 		boundary.escape === 'ask'
-			? 'When one command genuinely cannot work inside it (it needs the network, a path it does not mount, or a host tool), set `dangerously_disable_sandbox: true` on that one `bash` call: the user is asked to approve it every time, in every permission mode. Never use it to get around a permission refusal.'
+			? 'When one command genuinely cannot work inside it (it needs the network, a path it does not mount, or a host tool), set `dangerously_disable_sandbox: true` on that one `bash` call: the user is asked to approve it every time, whatever else is approved; the plan and strict permission modes refuse it. Never use it to get around a permission refusal.'
 			: boundary.escape === 'unattended'
 				? 'When one command genuinely cannot work inside it, `dangerously_disable_sandbox: true` on that `bash` call runs it on the host: this session is configured to allow that without asking, and every use is recorded. Use it only when the sandbox is the obstacle.'
 				: 'Commands cannot leave the sandbox in this session. When one needs something the sandbox withholds, say what and why, and let the user decide.'

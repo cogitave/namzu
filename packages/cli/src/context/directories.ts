@@ -8,7 +8,11 @@ import { isAbsolute, relative, resolve } from 'node:path'
 export interface SessionDirectories {
 	list(): readonly string[]
 	/**
-	 * Add one for the rest of the session.
+	 * Add one for the rest of the session, stored under its canonical path.
+	 *
+	 * A directory inside the working directory is not added: the tools
+	 * already reach it, and a root inside the tree the agent writes to is one
+	 * a later command could swap for a link.
 	 *
 	 * A directory outside the working directory — decided after links are
 	 * followed — is added only when `approve` answers yes for the canonical
@@ -61,21 +65,36 @@ export function createSessionDirectories(cwd: string, directories: string[]): Se
 			const realRoot = await realpath(root).catch(() => root)
 			if (real === realRoot)
 				return { added: false, path: absolute, reason: 'That is the working directory.' }
-			if (!isInside(realRoot, real)) {
-				if (!options?.approve) {
-					return {
-						added: false,
-						path: absolute,
-						reason:
-							'It is outside the working directory, and adding it needs your approval, which this surface cannot ask for.',
-					}
-				}
-				if (!(await options.approve(real))) {
-					return { added: false, path: absolute, reason: 'Not approved.' }
+			// Inside the working directory there is nothing to add: the tools
+			// already reach it. Adding it anyway would make a root the agent can
+			// rewrite — `rm -r sub && ln -s /elsewhere sub` from one command, a
+			// sandboxed one included — and the file tools canonicalize a root at
+			// every call, so the added root would then lead elsewhere unasked.
+			if (isInside(realRoot, real)) {
+				return {
+					added: false,
+					path: real,
+					reason: 'It is inside the working directory, which the tools already reach.',
 				}
 			}
-			directories.push(absolute)
-			return { added: true, path: absolute }
+			if (directories.includes(real)) return { added: false, path: real, reason: 'Already added.' }
+			if (!options?.approve) {
+				return {
+					added: false,
+					path: absolute,
+					reason:
+						'It is outside the working directory, and adding it needs your approval, which this surface cannot ask for.',
+				}
+			}
+			if (!(await options.approve(real))) {
+				return { added: false, path: absolute, reason: 'Not approved.' }
+			}
+			// The canonical path, the one that was approved — never the spelling.
+			// The file tools canonicalize a root at every call, so a stored
+			// `./link` would follow wherever the link points later, not where it
+			// pointed when the question was asked.
+			directories.push(real)
+			return { added: true, path: real }
 		},
 	}
 }

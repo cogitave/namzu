@@ -70,7 +70,7 @@ const inputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			'Run this one command on the host, outside the sandbox. Only meaningful when commands are sandboxed, and only for a command that cannot work inside it (it needs the network, a path the sandbox does not mount, a host tool). The user is asked to approve it every time, whatever the permission mode; with nobody to ask it is refused. Never set it to get around a permission refusal, and never with run_in_background.',
+			'Run this one command on the host, outside the sandbox. Only meaningful when commands are sandboxed, and only for a command that cannot work inside it (it needs the network, a path the sandbox does not mount, a host tool). The user is asked to approve it every time, whatever else is approved (plan and strict modes refuse it); with nobody to ask it is refused. Never set it to get around a permission refusal, and never with run_in_background.',
 		),
 })
 

@@ -22,7 +22,9 @@ import { generateSessionId } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
 import {
 	OUTSIDE_ROOTS_UNATTENDED_REFUSAL,
+	PLAN_MODE_REFUSAL,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
+	STRICT_MODE_REFUSAL,
 	type ToolReviewPrompt,
 	createReviewHandler,
 } from '../review-policy.js'
@@ -171,9 +173,9 @@ describe('a path outside the working directory, on a host turn', () => {
 		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
 	})
 
-	it('is refused by a deny rule without anyone being asked', async () => {
+	it('is refused by a deny rule without anyone being asked, and recorded as refused', async () => {
 		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
-		const { texts } = await readOutside({
+		const { texts, file, audit } = await readOutside({
 			outsideRootAccess: 'review',
 			rules: [{ type: 'deny_by_name', toolNames: ['read'] }],
 			resumeHandler: (registry) => createReviewHandler({ mode: 'prompt', prompt, registry }),
@@ -181,6 +183,48 @@ describe('a path outside the working directory, on a host turn', () => {
 
 		expect(prompt).not.toHaveBeenCalled()
 		expect(texts.join('\n')).toMatch(/Blocked by the authorization gate/)
+		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
+		// Refused by a rule is still a crossing asked about and refused: the
+		// all-denied batch records it like the mixed and reviewed ones do.
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'outside_root_access',
+				tool: 'read',
+				resource: file,
+				outcome: 'refused',
+				reason: expect.stringMatching(/Blocked by the authorization gate/),
+			}),
+		)
+	})
+
+	it('is asked about in plan mode, which is for reading, and read once approved', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { texts, file, audit } = await readOutside({
+			outsideRootAccess: 'review',
+			resumeHandler: (registry) => createReviewHandler({ mode: 'plan', prompt, registry }),
+		})
+
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(texts.join('\n')).not.toContain(PLAN_MODE_REFUSAL)
+		expect(texts.join('\n')).toContain('OUTSIDE_CONTENT')
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'outside_root_access',
+				resource: file,
+				outcome: 'approved',
+			}),
+		)
+	})
+
+	it('is refused, unasked, in strict mode, which no rule can open to it', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { texts } = await readOutside({
+			outsideRootAccess: 'review',
+			resumeHandler: (registry) => createReviewHandler({ mode: 'strict', prompt, registry }),
+		})
+
+		expect(prompt).not.toHaveBeenCalled()
+		expect(texts.join('\n')).toContain(STRICT_MODE_REFUSAL)
 		expect(texts.join('\n')).not.toContain('OUTSIDE_CONTENT')
 	})
 
@@ -222,6 +266,34 @@ describe('a path outside the working directory, on a host turn', () => {
 		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({ outsidePaths: [target] })
 		expect(toolTexts(result.messages).join('\n')).not.toMatch(/escapes the working directory/)
 		expect(await readFile(target, 'utf8')).toBe('NEW_FILE')
+	})
+
+	it('is refused as a change, unasked, in plan mode when the call writes', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const handler = createReviewHandler({ mode: 'plan', prompt, exempt: (n) => n === 'read' })
+		const decision = await handler({
+			type: 'tool_review',
+			checkpointId: 'c',
+			toolCalls: [
+				{
+					id: 'w1',
+					name: 'write',
+					input: { path: '/mnt/c/Users/x.txt', content: 'x' },
+					isDestructive: false,
+					escalation: { outsidePaths: ['/mnt/c/Users/x.txt'] },
+				},
+				{
+					id: 'r1',
+					name: 'read',
+					input: { path: '/mnt/c/Users/y.txt' },
+					isDestructive: false,
+					escalation: { outsidePaths: ['/mnt/c/Users/y.txt'] },
+				},
+			],
+		} as never)
+
+		expect(prompt).not.toHaveBeenCalled()
+		expect(decision).toEqual({ action: 'reject_tools', feedback: PLAN_MODE_REFUSAL })
 	})
 
 	it('is refused, and recorded as refused, when the person declines', async () => {
@@ -307,6 +379,7 @@ function fakeSandbox(): Sandbox {
 async function escapeThroughQuery(input: {
 	readonly resumeHandler: ResumeHandler
 	readonly sandboxEscape?: 'refuse' | 'review'
+	readonly rules?: AuthorizationRule[]
 }) {
 	const base = await mkdtemp(join(tmpdir(), 'namzu-escape-'))
 	dirs.push(base)
@@ -334,6 +407,17 @@ async function escapeThroughQuery(input: {
 		messages: [createUserMessage('run it')],
 		workingDirectory: base,
 		...(input.sandboxEscape ? { sandboxEscape: input.sandboxEscape } : {}),
+		...(input.rules
+			? {
+					authorizationGate: {
+						enabled: true,
+						allowReadOnlyTools: false,
+						denyDangerousPatterns: false,
+						logDecisions: false,
+						rules: input.rules,
+					},
+				}
+			: {}),
 		sandboxProvider: {
 			id: 'sandbox-test',
 			name: 'Sandbox test',
@@ -432,6 +516,28 @@ describe('a command outside the sandbox', () => {
 		})
 
 		expect(text).toContain('HOST_RAN')
+	})
+
+	it('is refused by a deny rule without anyone being asked, and recorded as refused', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { text, sandbox, audit } = await escapeThroughQuery({
+			sandboxEscape: 'review',
+			rules: [{ type: 'deny_by_name', toolNames: ['bash'] }],
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt }),
+		})
+
+		expect(prompt).not.toHaveBeenCalled()
+		expect(text).toMatch(/Blocked by the authorization gate/)
+		expect(text).not.toContain('HOST_RAN')
+		expect(sandbox.exec).not.toHaveBeenCalled()
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'sandbox_escape',
+				tool: 'bash',
+				outcome: 'refused',
+				reason: expect.stringMatching(/Blocked by the authorization gate/),
+			}),
+		)
 	})
 
 	it('is refused by the tool itself on a turn that does not allow escapes', async () => {

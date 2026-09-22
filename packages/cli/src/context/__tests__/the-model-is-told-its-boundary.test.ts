@@ -50,7 +50,8 @@ describe('in the sandbox', () => {
 		expect(text).toContain('linux-bwrap, enforcing filesystem, network, process')
 		expect(text).toMatch(/The network is cut inside it/)
 		expect(text).toContain('`dangerously_disable_sandbox: true`')
-		expect(text).toMatch(/asked to approve it every time, in every permission mode/)
+		expect(text).toMatch(/asked to approve it every time, whatever else is approved/)
+		expect(text).toMatch(/plan and strict permission modes refuse it/)
 	})
 
 	it('says what a file-system-confining sandbox still shows, without claiming nothing else exists', () => {
