@@ -1,5 +1,219 @@
 # @namzu/cli
 
+## 27.0.0
+
+### Major Changes
+
+- 518b0d3: Every turn the CLI starts keeps its newest 10 checkpoints instead of all of
+  them. That covers interactive turns, `namzu run`, resumed and drained turns,
+  and delegated child sessions. A turn takes a checkpoint every iteration plus
+  one per tool review, and nothing set a limit, so a long session kept every
+  one. On one machine that came to 19,014 checkpoint files and 6.33 GB.
+
+  **What changes for you.** Only the newest 10 checkpoint documents of each turn
+  stay in `<session-id>/checkpoints/`, and `namzu drain` reports at most that
+  many per turn. A checkpoint whose decision is still outstanding is never
+  pruned. Resuming is unaffected, because every resume reads the checkpoint it
+  was handed or the newest one. If you inspect intermediate checkpoints by hand,
+  copy them out while the turn is still going.
+
+- b064cea: **The OS sandbox is now off by default.** Shell commands and file tools run
+  on the host under the permission system, the way other coding agents run
+  them: each shell command goes through your permission rules and mode, and a
+  file tool's path outside the working directory and the added directories is
+  shown to you as an approval request (`Outside the working directory: <path>`)
+  instead of being refused. It is asked every time — `auto`, `--yolo`, `plan`
+  (for a read) and an earlier "allow all tools for this session" included —
+  while `strict` and a `deny` rule still refuse it. **A headless turn refuses it**: pass the
+  directory with `--add-dir` (or `additionalDirectories`) when an unattended run
+  needs it. Each answer is an audit record.
+
+  **To keep the previous behaviour** (every command confined), write
+  `sandbox.enabled: true` in `namzu.config.json` or `~/.namzu/config.yaml`. The
+  sandbox is also on, without that line, when `sandbox.requireIsolation` names a
+  control or `sandbox.workspace` is `ephemeral`. `sandbox.enabled: false` keeps
+  working as before.
+
+  With the sandbox on, a `bash` call may set `dangerously_disable_sandbox: true`
+  to run one command on the host. It is asked about every time, `auto` and
+  `--yolo` included (`plan` and `strict` refuse it); it is refused when nobody can
+  be asked, unless `sandbox.allowUnattendedEscape: true`; `sandbox.allowEscape:
+false` refuses it always. Each approval or refusal is an audit record.
+
+  `/add-dir` of a directory outside the working directory now asks before adding
+  it, deciding after links are followed (a link inside that points outside is
+  asked about under the path it leads to, and that canonical path is what is
+  added). A directory inside the working directory is no longer added: the tools
+  already reach it. The system prompt states where tools run and how to reach past that, and
+  on WSL where the Windows drives are and how to start a Windows program.
+
+- 7cac6dc: `#note` and `/memory add` now save a typed memory file instead of appending a bullet to `<project>/.namzu/MEMORY.md`.
+
+  What changes for you:
+
+  - **Where a note goes.** `#note <text>` and `/memory add <text>` write `<name>.md` (type `project`; `/memory add --type user|feedback|project|reference <text>` picks another) into the project's stored memory — `<NAMZU_HOME>/projects/<slug>/memory/` by default — the same files the model's `save_memory`, `search_memory` and `read_memory` use. The terminal names the file. `/memory --user add <text>` is unchanged and still appends to `~/.namzu/MEMORY.md`. To keep writing a note into the curated project file, edit `<project>/.namzu/MEMORY.md` directly; it is still read into every turn.
+  - **Old notes are copied only when you ask, and your file is never changed.** The project's curated `MEMORY.md` is not rewritten, at launch or ever: nothing can tell a bullet `#note` appended from one you wrote. When it holds top-level bullets, the launch says how many, once per curated file, and `/memory import-notes` copies every top-level bullet (its first line) into a typed `project` memory, skipping any already stored — by an earlier import, a `#note` with the same text, or a copy you archived — so running it twice creates no duplicates. The bullets stay curated text in every turn until you delete them from the file yourself.
+  - **A one-time move of the JSON store on first launch.** An earlier JSON memory store (`index.json` + `content/`) in the same directory is imported with its ids and renamed `*.migrated`; the launch says so. A record too large for a memory file (over 256 KiB) is not imported and is named, with the retired file that still holds it.
+  - **The prompt.** Every turn carries a `## Stored memories (index)` section — one line per memory you or the model saved, at most 200, your `feedback` and `user` memories first. What the session memory promoter (or `compaction.consolidate`) writes after a turn is searchable but not listed, so a turn's record does not change the next turn's system prompt — and the curated sections are renamed `## Curated memory (all projects)` and `## Curated memory (this project)` (they were `## Durable memory` and `## Project memory`). Anything that matched those headings in a captured prompt must match the new ones.
+  - **`/memory show`** lists stored memories' index lines before the curated files, and what turns recorded on their own in a separate `Recorded by turns (N)` section, so those records are visible even though the prompt's index leaves them out.
+  - **Note names are short.** A note's file is named after its first words, at most 32 characters, so its index line keeps room for the note itself.
+
+  Nothing in the CLI's library exports changed.
+
+- 3e7a97b: The CLI moves to the SDK's session → turn → message model and to one state
+  layout under `NAMZU_HOME` (default `~/.namzu`). Conversations, checkpoints,
+  memory and resident state written by 26.x are **not read** by this version.
+
+  **Before you upgrade.**
+
+  - **Run `namzu drain` on 26.x** until it reports nothing parked. A turn still
+    parked on a decision or a provider wait when you upgrade cannot be resumed.
+  - **Export any conversation you want to keep** with
+    `namzu history --session <id> > conversation.json` on 26.x (with no
+    `--session`, the latest one in the folder); it prints the messages as JSON.
+    There is no migration: nothing is imported, so nothing is lost silently or
+    brought back half-read.
+
+  ## What changes for you
+
+  - **Where state lives.** Each working directory gets
+    `~/.namzu/projects/<slug>/`, where the slug is the directory's canonical
+    path with every character outside `[A-Za-z0-9]` replaced by `-`. A session is
+    `<session-id>.jsonl` there, with its child sessions, checkpoints, tasks,
+    feedback, goals, tool-result spills and file-history snapshots under
+    `<session-id>/`. Memory moves to `projects/<slug>/memory/`, resident state to
+    `projects/<slug>/residents/`, and git worktrees to
+    `projects/<slug>/worktrees/`. `~/.namzu/index.sqlite` is an index rebuilt
+    from the logs whenever it is missing or out of date; deleting it loses
+    nothing. The CLI still never writes into the working directory; `.namzu/`
+    there is read only, for the agents, skills, commands, plugins and
+    `MEMORY.md` you put in it.
+  - **Old state is left alone and reported.** `namzu state` now prints report
+    `version: 2` with a `legacy` category: the old top-level `state/`,
+    `sessions/`, `titles.json`, `desktop-sessions.json`, `delegation-history/`,
+    `checkpoints/`, `tenants/`, `goals/`, `feedback/`, `learning/`,
+    `residents/`, `worktrees/` and `memory/`, and every `projects/<uuid>/`
+    directory. It lists their paths and sizes and never opens, moves or deletes
+    them; remove them yourself once you have exported what you need. A new
+    `projects/<slug>/` is never reported as legacy.
+  - **One turn at a time per session.** A session has at most one active turn.
+    `namzu run` and `namzu run-stream` against a session whose turn is still
+    running, paused or interrupted now exit **75** (EX_TEMPFAIL) and name that
+    turn: on stderr for `run`, as an NDJSON
+    `{"kind":"error","code":"turn_in_progress",…}` event for `run-stream`. 75
+    keeps its existing meaning for a provider pause too; a wrapper that already
+    retries later on 75 needs no change. In the TUI the refusal offers
+    `/resume` or the new **`/abandon`**, which closes the paused turn so the next
+    prompt can start.
+  - **A rate limit on the first request pauses the turn.** A provider rate
+    limit or outage on a turn's first request used to fail it (`namzu run`
+    exit 1) with nothing to continue; it now pauses it at a checkpoint like the
+    same fault later in the turn: `namzu run` exits 75 naming the checkpoint,
+    `--wait-for-provider` waits and resumes it, and `/resume` or `namzu drain`
+    continues it.
+  - **`/agents runs` is now `/agents batches`**, with no alias. `/agents runs`
+    prints the unknown-subcommand usage.
+  - **NDJSON gains ids.** `run-stream`'s `done` and `usage` events carry
+    `sessionId` and `turnId`, and a `paused` event names its `turnId` instead
+    of a run id.
+  - **Hooks.** The events `run_start`, `run_end` and `run_interrupt` are
+    `turn_start`, `turn_end` and `turn_interrupt`; a config that names an old
+    event is refused at load with a message naming the new one. A hook's stdin
+    carries `turn_id` (not `run_id`) and, on `subagent_stop`,
+    `parent_session_id` and `parent_turn_id` (not `parent_run_id`); its
+    environment carries `NAMZU_TURN_ID` (not `NAMZU_RUN_ID`). `session_id` and
+    `NAMZU_SESSION_ID` are always set. `session_start` and `session_end` hooks
+    receive no turn id: the CLI no longer invents one for them.
+  - **`namzu drain`** keeps its flag names and exit codes (0, 1, 64, 77), but
+    `--store` means something else: it was the `runs/` directory a checkpoint
+    store wrote to, and it is now the namzu home (`NAMZU_HOME`, `~/.namzu` by
+    default) whose `projects/` hold the session logs. A `--store` without a
+    `projects/` directory is refused with 64, so a wrapper that still passes its
+    old `runs/` path must pass the home instead. A scope the store does not hold
+    (an unknown session, one under another project or tenant, a child session)
+    is also 64; state that cannot be read is 1. It finds parked turns through
+    the session index, takes each session's lease, and continues the same turn
+    from its checkpoint; a turn whose session lease another worker holds is
+    skipped and reported.
+  - **Delegation history is not carried over.** The history block and
+    `/agents` read finished child sessions from their logs; children recorded by
+    26.x do not appear.
+  - **Checkpoints.** A session keeps each turn's newest 10 checkpoints under
+    `<session-id>/checkpoints/`; one an open decision references is never
+    pruned. `/restore` snapshots are under `<session-id>/file-history/`.
+  - **Crash dumps are gone.** The session log and per-iteration checkpoints hold
+    everything an interrupted turn needs, so no `emergency/` dumps are written.
+    An interactive session that was interrupted closes that turn as interrupted
+    when you send the next prompt.
+  - **A stopped process gives its conversation back.** On SIGTERM, SIGHUP (a
+    closed terminal) or SIGINT, the TUI, `namzu run` and `namzu run-stream`
+    release the conversation's writer lease first, then stop the turn, close
+    the session (tool servers, background jobs, the `session_end` hook) and give
+    the terminal back, and then die of the signal they were sent: a wrapper
+    sees 143, 129 or 130 as before. The turn is left interrupted, so `/abandon`,
+    `/resume`, `namzu drain` or the TUI's next prompt take it at once; before,
+    they were refused as "leased by a live writer" for up to five minutes. A
+    second signal exits immediately. `run-stream` writes
+    `{"kind":"error","code":"terminated",…}` and a final `done` before it exits,
+    and `run` names the session on stderr. SIGKILL still leaves the lease to
+    expire. The message follows where the signal found the turn: a turn that
+    had already ended (the session still closing) is reported as recorded, not
+    interrupted, and `run-stream`'s one `done` is then the turn's own; a
+    `run --wait-for-provider` stopped during its wait says the turn is paused
+    at its checkpoint, and does not resume it.
+
+### Patch Changes
+
+- 96ac3ec: A session never writes generated state into its working directory, and a
+  session started in the home directory no longer reads the same memory file
+  twice.
+
+  Every entry point — `namzu`, `namzu run`, `namzu run-stream`, `namzu drain`
+  and resident runs — keeps its sessions, memory and task state under the
+  application home (`NAMZU_HOME`, else `~/.namzu`), in the working directory's
+  `projects/<slug>/`, and files them under that directory's one Project.
+  `<cwd>/.namzu` is only read, for the agents, skills, commands, plugins and
+  `MEMORY.md` you keep there.
+
+  Started in `$HOME` with no `NAMZU_HOME`, the project's `.namzu/MEMORY.md` and
+  the user's `~/.namzu/MEMORY.md` are one file. It was injected into every
+  prompt twice, under both headings. It is now read once, as the user memory.
+
+- 3641102: The turn-start repository snapshot (`git status` and recent commits, sent on a
+  send's first request) now reaches the model as request-only context after the
+  conversation, not as a system message. On Anthropic, each new send used to
+  change the system prompt and re-read the whole conversation uncached. Now the
+  cached conversation is kept and only the snapshot's own tokens are new.
+
+  What the model reads changes in two ways: the snapshot arrives in a user-role
+  message rather than a system message, and it follows the line
+  `Current step context (runtime-generated; not a new user request):`, which
+  every request-only context message opens with. The snapshot text itself is
+  unchanged.
+
+- Updated dependencies [8805360]
+- Updated dependencies [a729b17]
+- Updated dependencies [9355755]
+- Updated dependencies [755a81a]
+- Updated dependencies [cb1f00c]
+- Updated dependencies [3641102]
+- Updated dependencies [933ba6d]
+- Updated dependencies [3e7a97b]
+- Updated dependencies [a84dc1c]
+- Updated dependencies [b064cea]
+- Updated dependencies [9238347]
+- Updated dependencies [a14b013]
+- Updated dependencies [3641102]
+- Updated dependencies [3641102]
+- Updated dependencies [3e43fc2]
+  - @namzu/sdk@44.0.0
+  - @namzu/anthropic@6.0.1
+  - @namzu/openrouter@3.0.1
+  - @namzu/zen@2.4.0
+  - @namzu/computer-use@1.4.3
+  - @namzu/ollama@2.2.4
+  - @namzu/openai@4.0.0
+
 ## 26.3.0
 
 ### Minor Changes
