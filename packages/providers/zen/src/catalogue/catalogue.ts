@@ -27,6 +27,7 @@ import {
 	type ZenOmissions,
 	checkRosterFloor,
 	derive,
+	isDisplayableName,
 	parsePage,
 	parseServed,
 } from './derive.js'
@@ -310,7 +311,12 @@ function parseModel(value: unknown, service: ZenService, where: string): ZenMode
 	const id = raw.id
 	if (typeof id !== 'string' || !MODEL_ID.test(id)) invalid(`${where}.id`, 'is not a model id')
 	const name = raw.name
-	if (typeof name !== 'string' || name.trim().length === 0 || name.length > 200) {
+	if (
+		typeof name !== 'string' ||
+		name.trim().length === 0 ||
+		name.length > 200 ||
+		!isDisplayableName(name)
+	) {
 		invalid(`${where}.name`, 'is not a model name')
 	}
 	const protocol = raw.protocol
@@ -416,13 +422,22 @@ export function parseZenCatalogue(value: unknown): ZenCatalogue {
 /**
  * Exact lookup with the runtime catalogue first and the bundled snapshot
  * second. `catalogue` undefined is the bundled snapshot alone.
+ *
+ * An id the runtime catalogue lists in `unrouted` is found in neither: the
+ * newer sources say the service serves it and state no wire for it, and the
+ * bundled snapshot's older entry is not allowed to answer for them. Falling
+ * back would route the model on a wire nobody states any more, anonymously
+ * too if the old entry said so, and without saying anything.
  */
 export function findZenCatalogueModel(
 	catalogue: ZenCatalogue | undefined,
 	service: ZenService,
 	id: string,
 ): ZenModel | undefined {
-	return catalogue?.[service].find((model) => model.id === id) ?? findZenModel(service, id)
+	const runtime = catalogue?.[service].find((model) => model.id === id)
+	if (runtime) return runtime
+	if (isUnroutedZenModel(catalogue, service, id)) return undefined
+	return findZenModel(service, id)
 }
 
 /** Whether a runtime catalogue lists `id` as served with no known wire format. */

@@ -25,6 +25,7 @@ import {
 	type ZenCatalogueResult,
 	fetchZenCatalogue,
 	findZenCatalogueModel,
+	isUnroutedZenModel,
 	parseZenCatalogue,
 } from '@namzu/zen/catalogue'
 import type { ZenModel, ZenService } from '@namzu/zen/models'
@@ -59,6 +60,21 @@ export function findActiveZenModel(service: ZenService, id: string): ZenModel | 
 	return findZenCatalogueModel(active, service, id)
 }
 
+/**
+ * Whether the CLI can offer `model` on `providerId` — false only for a Zen or
+ * Zen Go id the active catalogue lists as served with no known wire format.
+ *
+ * `ZenProvider.listModels` lists such an id so that an embedder, who can pass
+ * `protocol`, can see it. The CLI has no key or flag that names a protocol, so
+ * choosing one would fail on every turn with a remedy the operator cannot
+ * apply; the CLI's listings leave it out instead.
+ */
+export function isOfferableModel(providerId: string, model: string): boolean {
+	const service: ZenService | undefined =
+		providerId === 'zen' ? 'zen' : providerId === 'zen-go' ? 'go' : undefined
+	return service === undefined || !isUnroutedZenModel(active, service, model)
+}
+
 /** Test seam: back to the bundled snapshot. */
 export function __resetZenCatalogueForTests(): void {
 	active = undefined
@@ -81,7 +97,15 @@ export interface ZenCatalogueRefresh {
 export interface StartZenCatalogueRefreshOptions {
 	/** The application home (`NAMZU_HOME`, default `~/.namzu`). */
 	readonly home: string
-	readonly log: Logger
+	/**
+	 * Where the refresh's lines go. A function is called for each line, and the
+	 * CLI passes `cliLogger` itself: the process logger is rebuilt when the TUI
+	 * installs its ring buffer or `run-stream` its NDJSON sink, both after the
+	 * refresh starts, and a logger captured at start would keep writing to the
+	 * sink that was current then — raw lines under Ink, pretty lines on a
+	 * machine-read stderr.
+	 */
+	readonly log: Logger | (() => Logger)
 	/** Defaults to the global `fetch`. */
 	readonly fetch?: typeof fetch
 	/** Defaults to `ZEN_CATALOGUE_REFRESH_BUDGET_MS`. */
@@ -109,13 +133,15 @@ export function startZenCatalogueRefresh(
 	const budget = options.budgetMs ?? ZEN_CATALOGUE_REFRESH_BUDGET_MS
 	const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(budget)])
 	const cachePath = join(options.home, ZEN_CATALOGUE_CACHE_PATH)
+	const source = options.log
+	const log = (): Logger => (typeof source === 'function' ? source() : source)
 	let landed = false
 
 	const run = async (): Promise<ZenCatalogueRefreshOutcome> => {
 		// Yield before touching anything, so even the synchronous prelude of a
 		// file read or a fetch happens after the caller has its handle back.
 		await Promise.resolve()
-		const cached = readLastGood(cachePath, options.log).then((catalogue) => {
+		const cached = readLastGood(cachePath, log).then((catalogue) => {
 			if (catalogue && !landed && !controller.signal.aborted) {
 				active = catalogue
 				activeSource = 'cache'
@@ -134,12 +160,12 @@ export function startZenCatalogueRefresh(
 			active = catalogue
 			activeSource = 'live'
 			await writeLastGood(cachePath, catalogue).catch((error: unknown) => {
-				options.log.warn('Zen model catalogue refreshed but the last-good copy was not written', {
+				log().warn('Zen model catalogue refreshed but the last-good copy was not written', {
 					'namzu.zen_catalogue.cache_path': cachePath,
 					'namzu.zen_catalogue.reason': errorText(error),
 				})
 			})
-			options.log.debug('Zen model catalogue refreshed', {
+			log().debug('Zen model catalogue refreshed', {
 				'namzu.zen_catalogue.zen_models': catalogue.zen.length,
 				'namzu.zen_catalogue.go_models': catalogue.go.length,
 			})
@@ -151,7 +177,7 @@ export function startZenCatalogueRefresh(
 			const reason = signal.aborted
 				? `the refresh did not finish within ${budget}ms`
 				: errorText(error)
-			options.log.warn('Zen model catalogue refresh failed; keeping the catalogue already in use', {
+			log().warn('Zen model catalogue refresh failed; keeping the catalogue already in use', {
 				'namzu.zen_catalogue.using': using,
 				'namzu.zen_catalogue.reason': reason,
 			})
@@ -173,7 +199,7 @@ export function startZenCatalogueRefresh(
 }
 
 /** The last-good copy, or undefined — one log line when one exists and is refused. */
-async function readLastGood(path: string, log: Logger): Promise<ZenCatalogue | undefined> {
+async function readLastGood(path: string, log: () => Logger): Promise<ZenCatalogue | undefined> {
 	let text: string
 	try {
 		const handle = await open(path, 'r')
@@ -186,7 +212,7 @@ async function readLastGood(path: string, log: Logger): Promise<ZenCatalogue | u
 		}
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') return undefined
-		log.warn('Zen model catalogue last-good copy could not be read; ignoring it', {
+		log().warn('Zen model catalogue last-good copy could not be read; ignoring it', {
 			'namzu.zen_catalogue.cache_path': path,
 			'namzu.zen_catalogue.reason': errorText(error),
 		})
@@ -195,7 +221,7 @@ async function readLastGood(path: string, log: Logger): Promise<ZenCatalogue | u
 	try {
 		return parseZenCatalogue(JSON.parse(text))
 	} catch (error) {
-		log.warn('Zen model catalogue last-good copy is not a valid catalogue; ignoring it', {
+		log().warn('Zen model catalogue last-good copy is not a valid catalogue; ignoring it', {
 			'namzu.zen_catalogue.cache_path': path,
 			'namzu.zen_catalogue.reason': errorText(error),
 		})

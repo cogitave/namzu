@@ -1,10 +1,16 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { constructProvider, describeProviderModels, verifyCredential } from '../../tui/agent.js'
 import { modelStep } from '../../tui/model-choices.js'
 import type { DetectedProvider } from './discover.js'
 import { ensureRegistered, isRegistered } from './register.js'
 import { ALL_PROVIDER_IDS, PROVIDER_REGISTRY } from './registry.js'
+import { __resetZenCatalogueForTests, startZenCatalogueRefresh } from './zen-catalogue.js'
 
 /**
  * The agreement `register.ts` says this file holds — and did not.
@@ -68,6 +74,58 @@ it.each(['zen', 'zen-go'] as const)(
 		}
 	},
 )
+
+it('leaves out of the picker a Zen id served with no known wire, which the CLI cannot call', async () => {
+	// The driver lists such an id for embedders, who can pass `protocol`. The
+	// CLI has no setting that names one, so offering it could only fail.
+	const entry = PROVIDER_REGISTRY.zen
+	const dir = mkdtempSync(join(tmpdir(), 'namzu-register-zen-'))
+	const fetch = vi
+		.spyOn(globalThis, 'fetch')
+		.mockImplementation(async () =>
+			Response.json({ data: [{ id: 'glm-5.3-flash' }, { id: 'served-only' }] }),
+		)
+	try {
+		const { parseZenCatalogue } = await import('@namzu/zen/catalogue')
+		const { findZenModel } = await import('@namzu/zen/models')
+		const glm = findZenModel('zen', 'glm-5.3-flash')
+		const go = findZenModel('go', 'kimi-k2.6') ?? glm
+		const catalogue = parseZenCatalogue(
+			JSON.parse(
+				JSON.stringify({
+					version: 1,
+					fetchedAt: '2026-09-22T00:00:00.000Z',
+					zen: [glm],
+					go: [go],
+					unrouted: { zen: ['served-only'], go: [] },
+				}),
+			),
+		)
+		await startZenCatalogueRefresh({
+			home: dir,
+			log: { debug() {}, info() {}, warn() {}, error() {} } as never,
+			fetchCatalogue: async () => ({
+				catalogue,
+				report: { servedUndocumented: [], undecided: [], stale: [], orphanPrices: [] },
+			}),
+		}).done
+		const credential: DetectedProvider = {
+			entry,
+			source: { kind: 'session' },
+			apiKey: 'not-a-real-key',
+			alternatives: [],
+		}
+		const listing = await describeProviderModels('zen', credential)
+		expect(listing).toMatchObject({ kind: 'ok' })
+		expect(listing.kind === 'ok' && listing.models.map((model) => model.id)).toEqual([
+			'glm-5.3-flash',
+		])
+	} finally {
+		fetch.mockRestore()
+		__resetZenCatalogueForTests()
+		removeTempDir(dir)
+	}
+})
 
 function constructionCredential(id: (typeof ALL_PROVIDER_IDS)[number]) {
 	if (id === 'codex') {

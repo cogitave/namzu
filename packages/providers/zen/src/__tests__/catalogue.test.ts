@@ -101,6 +101,8 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+const NAME_REFUSED = /control,\n {2}format or separator character/
+
 describe('buildZenCatalogue', () => {
 	it('derives models in exactly the shape the bundled snapshot carries', () => {
 		const { catalogue } = build()
@@ -230,6 +232,31 @@ describe('buildZenCatalogue', () => {
 		expect(() => build(input)).toThrow(message)
 	})
 
+	it.each([
+		['an escape sequence', 'Alpha\x1b]52;c;aGk=\x07\x1b[2J Chat', NAME_REFUSED],
+		['a C1 control', 'Alpha\u009b2J Chat', NAME_REFUSED],
+		['a bidi override', 'Alpha \u202eChat', NAME_REFUSED],
+		// `.` stops at U+2028, so this row is refused as one the rules cannot read.
+		['a line separator', 'Alpha\u2028Chat', /shaped like a route row/],
+	])('refuses a route row whose model name carries %s', (_why, name, message) => {
+		const input = sources({
+			docs: {
+				zen: ZEN_PAGE.replace('| Alpha Chat | alpha-chat', `| ${name} | alpha-chat`),
+				go: GO_PAGE,
+			},
+		})
+		expect(() => build(input)).toThrow(ZenCatalogueSourceError)
+		expect(() => build(input)).toThrow(message)
+	})
+
+	it('carries no bundled model whose name a terminal would interpret', () => {
+		for (const service of ['zen', 'go'] as const) {
+			for (const model of getZenModels(service)) {
+				expect(model.name).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u)
+			}
+		}
+	})
+
 	it('refuses a roster that collapsed past the floor of its baseline', () => {
 		expect(() =>
 			buildZenCatalogue(sources(), {
@@ -280,6 +307,15 @@ describe('parseZenCatalogue', () => {
 			(c: Record<string, unknown>) => ({
 				...c,
 				zen: (c.zen as object[]).map((m, i) => (i === 1 ? { ...m, inputPrice: -1 } : m)),
+			}),
+		],
+		[
+			'a name carrying an escape sequence',
+			(c: Record<string, unknown>) => ({
+				...c,
+				zen: (c.zen as object[]).map((m, i) =>
+					i === 0 ? { ...m, name: 'Alpha\x1b]52;c;aGk=\x07 Chat' } : m,
+				),
 			}),
 		],
 		[
@@ -498,6 +534,48 @@ describe('ZenProvider with a runtime catalogue', () => {
 		})
 		await expect(drain(stated.chatStream({ ...params, model: 'hidden-model' }))).rejects.toThrow()
 		expect(String(transport.mock.calls[0]?.[0])).toBe(`${ZEN_HOST}/responses`)
+	})
+
+	it('does not let the bundled snapshot answer for an id the runtime catalogue names unrouted', async () => {
+		// The case the runtime catalogue exists for: upstream stopped stating a
+		// wire for a model the bundled snapshot still carries, and the service
+		// still serves it. The old entry must not route it, anonymously or not.
+		const bundled = getZenModels('zen').find((model) => model.supportsAnonymousAccess === true)
+		expect(bundled).toBeDefined()
+		const id = (bundled as NonNullable<typeof bundled>).id
+		const { catalogue } = build(
+			sources({
+				served: {
+					zen: served(['alpha-chat', 'beta-messages', 'gamma-free', id]),
+					go: served(['go-chat']),
+				},
+			}),
+		)
+		expect(catalogue.unrouted.zen).toContain(id)
+		expect(findZenCatalogueModel(catalogue, 'zen', id)).toBeUndefined()
+		expect(findZenCatalogueModel(undefined, 'zen', id)).toBe(bundled)
+
+		const transport = vi.fn<typeof fetch>(async () => new Response(served([id])))
+		vi.stubGlobal('fetch', transport)
+		const anonymous = new ZenProvider({ catalogue })
+		await expect(drain(anonymous.chatStream({ ...params, model: id }))).rejects.toMatchObject({
+			kind: 'auth',
+		})
+		const keyed = new ZenProvider({ apiKey: 'fixture', catalogue })
+		await expect(drain(keyed.chatStream({ ...params, model: id }))).rejects.toMatchObject({
+			kind: 'bad_request',
+			detail: expect.stringContaining('no source states its wire format'),
+		})
+		expect(transport).not.toHaveBeenCalled()
+		expect(await keyed.listModels()).toEqual([
+			{
+				id,
+				name: `${id} (no known wire format)`,
+				supportsToolUse: false,
+				supportsStreaming: true,
+			},
+		])
+		expect(await keyed.resolveContextWindow(id)).toBeUndefined()
 	})
 
 	it('refuses a catalogue option that is neither a catalogue nor a function', () => {

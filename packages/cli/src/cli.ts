@@ -109,7 +109,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	const beginCatalogueRefresh = (config: NamzuCliConfig): void => {
 		if (catalogueRefresh !== undefined || config.modelCatalogueRefresh === false) return
 		try {
-			catalogueRefresh = startZenCatalogueRefresh({ home: resolveNamzuHome(), log: cliLogger() })
+			catalogueRefresh = startZenCatalogueRefresh({
+				home: resolveNamzuHome(),
+				// The function, not its current value: see the option's comment.
+				log: cliLogger,
+			})
 		} catch (error) {
 			// An unusable NAMZU_HOME is the command's problem to report, not this
 			// refresh's: the session runs on the bundled catalogue.

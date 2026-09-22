@@ -59,9 +59,16 @@ wrong-version copy on disk is refused with one `warn` line and ignored, never
 read in part. A derivation that meets any source it cannot read in full
 produces no catalogue.
 
-An id a service serves that no source gives a wire format for is shown in the
-picker as `<id> (no known wire format)`. Choosing it fails with a message
-asking for an explicit protocol, and no wire is guessed.
+An id a service serves that no source gives a wire format for is not offered:
+the model picker, `/model` and the model tool leave it out, even when the
+bundled catalogue once carried it. `@namzu/zen` lists such an id for hosts that
+can name a protocol, and the CLI has no setting that names one, so choosing it
+could only fail. No wire is guessed for it. A `model:` in the config that names
+one fails its turn with the driver's "no source states its wire format" error.
+
+A model name that carries a control, format or line-separator character is a
+source the refresh refuses, as is a last-good copy holding one, so no upstream
+text can write terminal escape sequences through the picker.
 
 ## Turning it off
 

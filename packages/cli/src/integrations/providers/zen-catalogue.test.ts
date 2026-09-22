@@ -9,6 +9,7 @@ import { findZenModel } from '@namzu/zen/models'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { __resetCliLoggerForTests, cliLogger, installCliLogging } from '../../logging.js'
 import { requiresCredentialForModel } from './access.js'
 import { PROVIDER_REGISTRY } from './registry.js'
 import {
@@ -17,6 +18,7 @@ import {
 	activeZenCatalogue,
 	activeZenCatalogueSource,
 	findActiveZenModel,
+	isOfferableModel,
 	startZenCatalogueRefresh,
 	writeLastGood,
 } from './zen-catalogue.js'
@@ -236,6 +238,55 @@ describe('startZenCatalogueRefresh', () => {
 			.done
 		expect(await provider.resolveContextWindow('fresh-model')).toBe(123_456)
 		expect(requiresCredentialForModel(zenEntry, 'fresh-free')).toBe(false)
+	})
+
+	/**
+	 * The TUI installs its ring buffer, and `run-stream` its NDJSON sink, after
+	 * the refresh has started; each rebuilds the process logger. A refresh that
+	 * kept the logger it started with would write its failure through the sink
+	 * that was current at launch: raw text under Ink, or a pretty line on a
+	 * stderr a host parses as NDJSON.
+	 */
+	it('writes each line through the process logger current when the line is logged', async () => {
+		const before: LogRecord[] = []
+		const after: LogRecord[] = []
+		let fail: (error: Error) => void = () => {}
+		try {
+			installCliLogging({ emit: (record) => before.push(record) }, 'debug')
+			const refresh = startZenCatalogueRefresh({
+				home: home(),
+				log: cliLogger,
+				fetchCatalogue: () =>
+					new Promise<ZenCatalogueResult>((_resolve, reject) => {
+						fail = reject
+					}),
+			})
+			await isPending(refresh.done)
+			installCliLogging({ emit: (record) => after.push(record) }, 'debug')
+			fail(new Error('offline'))
+			await expect(refresh.done).resolves.toMatchObject({ kind: 'failed', reason: 'offline' })
+			expect(before).toHaveLength(0)
+			expect(after.map((record) => record.body)).toEqual([
+				'Zen model catalogue refresh failed; keeping the catalogue already in use',
+			])
+		} finally {
+			__resetCliLoggerForTests()
+		}
+	})
+
+	it('offers every model except a Zen id the active catalogue serves with no known wire', async () => {
+		expect(isOfferableModel('zen', 'served-only')).toBe(true)
+		const { log } = capturing()
+		await startZenCatalogueRefresh({
+			home: home(),
+			log,
+			fetchCatalogue: async () => result(catalogue()),
+		}).done
+		expect(isOfferableModel('zen', 'served-only')).toBe(false)
+		expect(isOfferableModel('zen', 'fresh-model')).toBe(true)
+		// Unrouted is per service, and means nothing to another provider.
+		expect(isOfferableModel('zen-go', 'served-only')).toBe(true)
+		expect(isOfferableModel('openrouter', 'served-only')).toBe(true)
 	})
 
 	it('writes the last-good copy atomically, leaving no temp file behind', async () => {

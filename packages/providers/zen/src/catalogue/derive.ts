@@ -59,6 +59,33 @@ function unusable(message: string): never {
 	throw new ZenCatalogueSourceError(message)
 }
 
+/**
+ * Characters a model name may not carry: controls (C0, DEL, C1), format
+ * characters (bidi overrides, zero-widths) and line or paragraph separators.
+ *
+ * A name is upstream text that a host prints as it is, in a terminal picker
+ * among other places. An escape sequence in it would be an OSC 52 clipboard
+ * write or a screen clear in every session that lists the model, and a bidi
+ * override would show one name while meaning another. No real name needs any
+ * of them, so a source whose name carries one is a source these rules refuse.
+ */
+const UNDISPLAYABLE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
+
+/** Whether `name` is safe to print as it is: no control, format or separator character. */
+export function isDisplayableName(name: string): boolean {
+	return !UNDISPLAYABLE.test(name)
+}
+
+function routeName(cell: string, page: string): string {
+	const name = cell.trim()
+	if (!isDisplayableName(name)) {
+		unusable(
+			`${page} has a route row whose model name, ${JSON.stringify(name)}, carries a control,\n  format or separator character. A name is printed as it is wherever the model is\n  listed, so the run stops rather than carry it.`,
+		)
+	}
+	return name
+}
+
 /** A service, its documentation page, and the models.dev provider holding its limits. */
 export const ZEN_SERVICES: readonly {
 	readonly service: ZenService
@@ -224,7 +251,7 @@ export function parsePage(
 		)
 		if (route) {
 			routes.push({
-				name: (route[1] as string).trim(),
+				name: routeName(route[1] as string, page),
 				id: route[2] as string,
 				endpoint: route[3] as string,
 				npm: route[4] as string,
@@ -241,7 +268,7 @@ export function parsePage(
 		)
 		if (wireless) {
 			routes.push({
-				name: (wireless[1] as string).trim(),
+				name: routeName(wireless[1] as string, page),
 				id: wireless[2] as string,
 				endpoint: wireless[3] as string,
 				npm: undefined,

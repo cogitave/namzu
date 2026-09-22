@@ -252,7 +252,8 @@ page and each `/models` answer, 32 MiB for models.dev), redirects refused and an
 optional `signal`. It either returns a whole catalogue or rejects with
 `ZenCatalogueSourceError`, or with the signal's reason. A source it cannot
 read, a page whose route table no longer parses, a hostile endpoint cell, a
-models.dev entry that lost its fields, an effort level the SDK has no
+model name carrying a control, format or line-separator character (an escape
+sequence would reach every terminal that lists the model), a models.dev entry that lost its fields, an effort level the SDK has no
 `ReasoningEffort` for, or a roster that fell below 80% of the bundled one on
 either service all reject the whole result, so there is no partial list. It
 applies the review decisions the snapshot was generated under
@@ -262,7 +263,8 @@ host fetched itself.
 
 The result is plain data. `JSON.stringify` stores it, and `parseZenCatalogue`
 re-admits a stored copy with the same strictness, refusing a torn, edited or
-other-version document as a whole with `ZenCatalogueFormatError`.
+other-version document as a whole with `ZenCatalogueFormatError`; a stored name
+carrying such a character is refused the same way.
 
 `ZenConfig.catalogue` takes the catalogue, or a function returning it (or
 `undefined` for the bundled snapshot alone) that is called at every lookup, so a
@@ -276,7 +278,11 @@ carries nor omits by review. `listModels()` lists such an id as
 `<id> (no known wire format)`, with no price, limits or effort levels, and
 never for anonymous access. Calling it without `protocol` fails with
 `bad_request` ("no source states its wire format"); with `protocol` set it is
-sent on that wire. The bundled snapshot alone lists no such ids, as before.
+sent on that wire. An id in `unrouted` is not looked up in the bundled
+snapshot either, even when the snapshot carries it: the newer sources say the
+service still serves it and state no wire, and the snapshot's older entry does
+not get to answer for them, for routing or for anonymous admission. The bundled
+snapshot alone lists no such ids, as before.
 
 The Namzu CLI refreshes the catalogue this way in the background on every
 launch and keeps a last-good copy. See
