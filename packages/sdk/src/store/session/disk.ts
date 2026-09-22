@@ -26,8 +26,12 @@
  * every record) rather than the path layout; cross-tenant reads reject with
  * {@link TenantIsolationError} (Convention #17, session-hierarchy.md §12.2).
  *
- * Constructor takes `rootDir`; migration to the canonical `.namzu/projects/`
- * path lives in Phase 7 of the overall roadmap.
+ * Constructor takes `rootDir`. This entity tree is NOT the session layout:
+ * it is keyed by project id, so a `rootDir` equal to `NAMZU_HOME` puts
+ * UUID-named directories under `projects/`, which `namzu state` reports as
+ * legacy. Give it a directory of its own. Moving the entities onto the
+ * session log and index needs record types for session status, ownership
+ * and sub-session edges that the log does not have yet.
  */
 
 import { createHash } from 'node:crypto'
