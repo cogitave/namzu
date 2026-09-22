@@ -2,7 +2,7 @@ import { resolveContextWindow } from '../../../compaction/context-window.js'
 import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
-import { PreparationContextError } from '../../../run/preparation-context-error.js'
+import { PreparationContextError } from '../../../turn/preparation-context-error.js'
 import {
 	type Message,
 	type UserMessage,
@@ -14,7 +14,7 @@ import type {
 	PrepareStepResult,
 	StepResult,
 	StepVeto,
-} from '../../../types/run/index.js'
+} from '../../../types/session/index.js'
 import type { Skill } from '../../../types/skills/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { createCallbackInference } from '../callback-inference.js'
@@ -29,7 +29,7 @@ import { stepContextMessage } from './step-context.js'
  * Three of these read state the loop replaces or grows as it runs, so they
  * arrive as accessors rather than as values — `latestUserMessage` is replaced
  * on every operator turn and `steps` gains a member per step, and a captured
- * copy of either would describe an earlier return. `ctx` is the run's own
+ * copy of either would describe an earlier return. `ctx` is the turn's own
  * context object, passed through rather than re-derived, because
  * `selectContextModel` WRITES two of its fields (`contextModel` and
  * `activeProviderContextWindow`) for the compaction pass to read.
@@ -76,11 +76,11 @@ export function stepContext(
 ): PrepareStepContext {
 	const { ctx, latestUserMessage, steps } = shaping
 
-	const model = prepared.model ?? ctx.runConfig.model
+	const model = prepared.model ?? ctx.turnConfig.model
 	const window = resolveContextWindow(
 		ctx.compactionConfig?.contextWindowTokens,
 		model,
-		model === ctx.runConfig.model
+		model === ctx.turnConfig.model
 			? ctx.providerContextWindow
 			: model === ctx.contextModel
 				? ctx.activeProviderContextWindow
@@ -92,14 +92,16 @@ export function stepContext(
 		(preamble ? estimateMessageTokens(createSystemMessage(preamble)) : 0) +
 		(prepared.context ? estimateMessageTokens(stepContextMessage(prepared.context)) : 0)
 	const responseReserve = Math.min(
-		prepared.maxResponseTokens ?? ctx.runConfig.maxResponseTokens ?? Math.floor(window.tokens / 4),
+		prepared.maxResponseTokens ?? ctx.turnConfig.maxResponseTokens ?? Math.floor(window.tokens / 4),
 		Math.floor(window.tokens / 4),
 	)
 	return {
-		runId: ctx.runMgr.id,
+		sessionId: ctx.recorder.sessionId,
+		turnId: ctx.recorder.turnId,
+		turnStartedAt: ctx.recorder.turnStartedAt,
 		stepNumber,
-		messages: ctx.runMgr.messages,
-		...(ctx.captureRunEvidence ? { captureRunEvidence: ctx.captureRunEvidence } : {}),
+		messages: ctx.recorder.messages,
+		...(ctx.captureSessionEvidence ? { captureSessionEvidence: ctx.captureSessionEvidence } : {}),
 		...(latestUserMessage() ? { latestUserMessage: latestUserMessage() } : {}),
 		signal: ctx.abortController.signal,
 		contextBudget: {
@@ -158,7 +160,7 @@ export async function prepareStep(
 	for (const stage of stages) {
 		const inference = createCallbackInference(
 			ctx,
-			result.model ?? ctx.runConfig.model,
+			result.model ?? ctx.turnConfig.model,
 			'preparation',
 		)
 		try {
@@ -167,12 +169,12 @@ export async function prepareStep(
 				generateText: inference.generateText,
 			})
 			if (decided) result = { ...result, ...decided }
-			await selectContextModel(shaping, result.model ?? ctx.runConfig.model)
+			await selectContextModel(shaping, result.model ?? ctx.turnConfig.model)
 		} catch (err) {
 			// Skipped, and the rest still run: one broken concern must
 			// not silently disable the others it was declared beside.
 			ctx.log.error('a prepareStep stage threw — skipping it', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.step_number': stepNumber,
 				'exception.message': toErrorMessage(err),
 			})
@@ -217,7 +219,7 @@ export async function prepareStep(
 			// honest reading of "only these tools" when none of them exist,
 			// and is not what a reader of "ignoring them" would expect.
 			//
-			// Widening back to the run's list would be worse: it grants
+			// Widening back to the turn's list would be worse: it grants
 			// exactly the tools the caller asked to exclude, on the grounds
 			// that their own list failed. A step that can call nothing is
 			// constrained; a step that can call everything is a control
@@ -227,7 +229,7 @@ export async function prepareStep(
 					? 'prepareStep named only tools that are not registered — this step can call nothing'
 					: 'prepareStep named tools that are not registered — ignoring them'
 			ctx.log.warn(message, {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.step_number': stepNumber,
 				'namzu.runtime.unknown': unknown,
 				'namzu.runtime.remaining': known.length,
@@ -254,13 +256,13 @@ export async function selectContextModel(
 ): Promise<void> {
 	const { ctx } = shaping
 
-	if (model !== (ctx.contextModel ?? ctx.runConfig.model)) {
+	if (model !== (ctx.contextModel ?? ctx.turnConfig.model)) {
 		// A measurement from another tokenizer cannot price the new request.
-		ctx.runMgr.clearLastPromptTokens()
+		ctx.recorder.clearLastPromptTokens()
 	}
 	ctx.contextModel = model
 	ctx.activeProviderContextWindow =
-		model && model !== ctx.runConfig.model && !ctx.compactionConfig?.contextWindowTokens
+		model && model !== ctx.turnConfig.model && !ctx.compactionConfig?.contextWindowTokens
 			? await ctx.resolveModelContextWindow?.(model)
 			: undefined
 }

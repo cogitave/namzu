@@ -51,7 +51,7 @@ function searchRows(value: Record<string, unknown>): string[] | undefined {
 		!Array.isArray(value.matches) ||
 		!value.matches.every((match) => record(match) && typeof match.text === 'string') ||
 		typeof value.incomplete !== 'boolean' ||
-		!count(value.unavailableRuns)
+		!count(value.unavailable)
 	)
 		return undefined
 	const rows = [`Conversation search · ${value.matches.length} matches on this page`]
@@ -60,7 +60,7 @@ function searchRows(value: Record<string, unknown>): string[] | undefined {
 			? `Search incomplete${value.nextCursor ? ' · more to scan' : ''} · absence is inconclusive`
 			: 'Traversal finished within selected sources',
 	)
-	if (value.unavailableRuns > 0) rows.push(`${value.unavailableRuns} run(s) unavailable`)
+	if (value.unavailable > 0) rows.push(`${value.unavailable} record(s) unavailable`)
 	for (const match of value.matches.slice(0, 3)) {
 		rows.push(
 			`${sourceLabel(match)}${match.retained === 'preview' ? ' · preview flagged' : ''}${match.isError === true ? ' · original reported error' : ''}: ${preview(match.text)}`,

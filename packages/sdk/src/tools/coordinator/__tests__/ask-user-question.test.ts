@@ -7,11 +7,13 @@ import type {
 	HITLResumeDecision,
 	ResumeHandler,
 } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
 
-const RUN_ID = '4db4b128-e808-43d9-ac50-b6e79a72c452' as RunId
+const SESSION_ID = '4db4b128-e808-43d9-ac50-b6e79a72c452' as SessionId
+const TURN_ID = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
+const TURN = { sessionId: SESSION_ID, turnId: TURN_ID }
 const TOOL_USE_ID = 'toolu_question_1'
 
 const NO_ANSWER_SENTINEL =
@@ -41,7 +43,8 @@ function unusedGateway(): TaskScheduler {
 
 function testToolContext(): ToolContext {
 	return {
-		runId: RUN_ID,
+		sessionId: SESSION_ID,
+		turnId: TURN_ID,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -52,7 +55,8 @@ function testToolContext(): ToolContext {
 
 function contextWithoutToolUseId(): ToolContext {
 	return {
-		runId: RUN_ID,
+		sessionId: SESSION_ID,
+		turnId: TURN_ID,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -60,7 +64,11 @@ function contextWithoutToolUseId(): ToolContext {
 	}
 }
 
-function buildTools(opts: { resumeHandler?: ResumeHandler; runId?: RunId }): ToolDefinition[] {
+function buildTools(opts: {
+	resumeHandler?: ResumeHandler
+	sessionId?: SessionId
+	turnId?: TurnId
+}): ToolDefinition[] {
 	return buildCoordinatorTools({
 		gateway: unusedGateway(),
 		workingDirectory: '/tmp/test',
@@ -70,7 +78,7 @@ function buildTools(opts: { resumeHandler?: ResumeHandler; runId?: RunId }): Too
 }
 
 function askTool(handler: ResumeHandler): ToolDefinition {
-	const tools = buildTools({ resumeHandler: handler, runId: RUN_ID })
+	const tools = buildTools({ resumeHandler: handler, ...TURN })
 	const tool = tools.find((t) => t.name === 'ask_user_question')
 	if (!tool) throw new Error('ask_user_question tool missing from coordinator builder')
 	return tool
@@ -107,18 +115,23 @@ async function executeAsk(opts: {
 describe('coordinator ask_user_question registration', () => {
 	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })
 
-	it('registers the tool only when BOTH resumeHandler and runId are present', () => {
-		const present = buildTools({ resumeHandler: noopHandler, runId: RUN_ID })
+	it('registers the tool only when resumeHandler and the turn are all present', () => {
+		const present = buildTools({ resumeHandler: noopHandler, ...TURN })
 		expect(present.some((t) => t.name === 'ask_user_question')).toBe(true)
 	})
 
-	it('does not register without a runId', () => {
+	it('does not register without a turn', () => {
+		expect(
+			buildTools({ resumeHandler: noopHandler, sessionId: SESSION_ID }).some(
+				(t) => t.name === 'ask_user_question',
+			),
+		).toBe(false)
 		const tools = buildTools({ resumeHandler: noopHandler })
 		expect(tools.some((t) => t.name === 'ask_user_question')).toBe(false)
 	})
 
 	it('does not register without a resumeHandler', () => {
-		const tools = buildTools({ runId: RUN_ID })
+		const tools = buildTools({ ...TURN })
 		expect(tools.some((t) => t.name === 'ask_user_question')).toBe(false)
 	})
 
@@ -134,7 +147,7 @@ describe('coordinator ask_user_question registration', () => {
 		expect(tool.isReadOnly?.({})).toBe(true)
 		expect(tool.isDestructive?.({})).toBe(false)
 		// The single most load-bearing flag: hosts key park registries by
-		// runId, so intra-turn questions MUST serialize. true would let
+		// turn, so intra-turn questions MUST serialize. true would let
 		// executeBatch open concurrent parks that clobber and deadlock.
 		expect(tool.isConcurrencySafe?.({})).toBe(false)
 	})
@@ -191,7 +204,7 @@ describe('coordinator ask_user_question input schema', () => {
  * The failure they prevent is not hypothetical. A caller that mutates a schema
  * it received — normalizing it for one provider, adding a legacy alias — would
  * otherwise be editing the object every OTHER tool instance in the process is
- * also handing out, including definitions already registered in another run.
+ * also handing out, including definitions already registered in another turn.
  */
 describe('coordinator ask_user_question canonical schema isolation', () => {
 	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })
@@ -244,7 +257,7 @@ describe('coordinator ask_user_question request synthesis', () => {
 		if (!request || request.type !== 'user_question') {
 			throw new Error('expected a user_question request')
 		}
-		expect(request.runId).toBe(RUN_ID)
+		expect(request).toMatchObject({ sessionId: SESSION_ID, turnId: TURN_ID })
 		expect(request.checkpointId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)

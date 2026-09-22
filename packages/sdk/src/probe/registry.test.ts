@@ -40,7 +40,7 @@ describe('ProbeRegistry — typed dispatch', () => {
 		reg.dispatch(
 			{
 				type: 'tool_executing',
-				runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+				turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
 				toolName: 'fs.read',
 				input: {},
 			} as never,
@@ -54,7 +54,7 @@ describe('ProbeRegistry — typed dispatch', () => {
 		const handler = vi.fn()
 		reg.on('tool_executing', handler)
 		reg.dispatch(
-			{ type: 'tool_completed', runId: 'r' as never, toolName: 't', result: 'ok' } as never,
+			{ type: 'tool_completed', turnId: 'r' as never, toolName: 't', result: 'ok' } as never,
 			buildProbeContext(),
 		)
 		expect(handler).not.toHaveBeenCalled()
@@ -67,11 +67,11 @@ describe('ProbeRegistry — typed dispatch', () => {
 			seen.push(event.type)
 		})
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		reg.dispatch(
-			{ type: 'tool_completed', runId: 'r' as never, toolName: 't', result: 'ok' } as never,
+			{ type: 'tool_completed', turnId: 'r' as never, toolName: 't', result: 'ok' } as never,
 			buildProbeContext(),
 		)
 		expect(seen).toEqual(['tool_executing', 'tool_completed'])
@@ -84,12 +84,12 @@ describe('ProbeRegistry — typed dispatch', () => {
 			where: (event) => event.toolName === 'fs.write',
 		})
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'fs.read', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'fs.read', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(handler).not.toHaveBeenCalled()
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'fs.write', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'fs.write', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(handler).toHaveBeenCalledTimes(1)
@@ -105,7 +105,7 @@ describe('ProbeRegistry — ordering', () => {
 		reg.on('tool_executing', () => order.push('c'), { priority: 10, name: 'c' })
 		reg.on('tool_executing', () => order.push('d'), { priority: 0, name: 'd' })
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(order).toEqual(['d', 'b', 'a', 'c'])
@@ -117,7 +117,7 @@ describe('ProbeRegistry — ordering', () => {
 		reg.on('tool_executing', () => order.push('typed'))
 		reg.onAny(() => order.push('any'))
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 			() => order.push('between'),
 		)
@@ -141,7 +141,7 @@ describe('ProbeRegistry — name collision + override', () => {
 		reg.on('tool_executing', first, { name: 'x' })
 		reg.on('tool_executing', second, { name: 'x', override: true })
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(first).not.toHaveBeenCalled()
@@ -170,7 +170,7 @@ describe('ProbeRegistry — throw isolation', () => {
 		)
 		reg.on('tool_executing', () => seen.push('ran'), { priority: 10, name: 'good' })
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(seen).toEqual(['ran'])
@@ -189,7 +189,7 @@ describe('ProbeRegistry — throw isolation', () => {
 		)
 		reg.onAny(() => order.push('any'))
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 			() => order.push('between'),
 		)
@@ -206,7 +206,7 @@ describe('ProbeRegistry — frozen event boundary', () => {
 			}).toThrow()
 		})
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 	})
@@ -234,7 +234,7 @@ describe('ProbeRegistry — frozen event boundary', () => {
 			{ priority: 10 },
 		)
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'original', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'original', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(tampered).toEqual(['original'])
@@ -247,12 +247,12 @@ describe('ProbeRegistry — unsubscribe', () => {
 		const handler = vi.fn()
 		const unsub = reg.on('tool_executing', handler)
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		unsub()
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(handler).toHaveBeenCalledTimes(1)
@@ -264,11 +264,11 @@ describe('ProbeRegistry — unsubscribe', () => {
 		const unsub = reg.on(['tool_executing', 'tool_completed'], handler)
 		unsub()
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		reg.dispatch(
-			{ type: 'tool_completed', runId: 'r' as never, toolName: 't', result: 'ok' } as never,
+			{ type: 'tool_completed', turnId: 'r' as never, toolName: 't', result: 'ok' } as never,
 			buildProbeContext(),
 		)
 		expect(handler).not.toHaveBeenCalled()
@@ -281,7 +281,7 @@ describe('ProbeRegistry — catch-all', () => {
 		const seen: string[] = []
 		reg.onAny((event) => seen.push(event.type))
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		reg.dispatch(
@@ -305,7 +305,7 @@ describe('ProbeRegistry — ctx.isReplay', () => {
 			seenReplay = ctx.isReplay
 		})
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(seenReplay).toBe(false)
@@ -318,7 +318,7 @@ describe('ProbeRegistry — ctx.isReplay', () => {
 			seenReplay = ctx.isReplay
 		})
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext({ isReplay: true }),
 		)
 		expect(seenReplay).toBe(true)
@@ -329,7 +329,7 @@ describe('ProbeRegistry — veto API', () => {
 	it('returns allow when no veto handlers registered', () => {
 		const reg = createProbeRegistry()
 		const outcome = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(outcome.action).toBe('allow')
@@ -340,7 +340,7 @@ describe('ProbeRegistry — veto API', () => {
 		const reg = createProbeRegistry()
 		reg.veto('tool_executing', () => 'deny', { name: 'fs-guard' })
 		const outcome = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'fs.write', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'fs.write', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(outcome.action).toBe('deny')
@@ -353,7 +353,7 @@ describe('ProbeRegistry — veto API', () => {
 			name: 'sandbox',
 		})
 		const outcome = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'fs.write', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'fs.write', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(outcome.action).toBe('deny')
@@ -390,7 +390,7 @@ describe('ProbeRegistry — veto API', () => {
 		)
 
 		const outcome = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(outcome.action).toBe('deny')
@@ -403,7 +403,7 @@ describe('ProbeRegistry — veto API', () => {
 		// This asserted `allow`, with no rationale recorded for why. The
 		// result was that the SAME policy inverted its security posture
 		// depending on which surface it was written on: a content guardrail
-		// that throws blocks the run (and says so in its own comment —
+		// that throws blocks the turn (and says so in its own comment —
 		// "safety is unknown"), while a tool veto that threw waved the tool
 		// through. Nobody chose that asymmetry, which is how it survived.
 		//
@@ -432,7 +432,7 @@ describe('ProbeRegistry — veto API', () => {
 		)
 
 		const outcome = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(outcome.action).toBe('deny')
@@ -446,7 +446,7 @@ describe('ProbeRegistry — veto API', () => {
 
 	it('still skips a throwing OBSERVER, which was never asked a question', () => {
 		// The asymmetry that IS deliberate. An observer has no answer to
-		// withhold, so taking a run down because a metrics handler crashed
+		// withhold, so taking a turn down because a metrics handler crashed
 		// would be the same mistake pointing the other way.
 		const reg = createProbeRegistry()
 		reg.setLogger(makeLogger())
@@ -459,7 +459,7 @@ describe('ProbeRegistry — veto API', () => {
 		})
 
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(seen).toEqual(['second'])
@@ -477,7 +477,7 @@ describe('ProbeRegistry — veto API', () => {
 			{ name: 'v' },
 		)
 		reg.dispatch(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(vetoCalls).toEqual([])
@@ -491,11 +491,11 @@ describe('ProbeRegistry — veto API', () => {
 		})
 
 		const allow = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'fs.read', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'fs.read', input: {} } as never,
 			buildProbeContext(),
 		)
 		const deny = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 'fs.write.x', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 'fs.write.x', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(allow.action).toBe('allow')
@@ -506,13 +506,13 @@ describe('ProbeRegistry — veto API', () => {
 		const reg = createProbeRegistry()
 		const unsub = reg.veto('tool_executing', () => 'deny', { name: 'g' })
 		const denied = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(denied.action).toBe('deny')
 		unsub()
 		const allowed = reg.queryVeto(
-			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			{ type: 'tool_executing', turnId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
 		expect(allowed.action).toBe('allow')

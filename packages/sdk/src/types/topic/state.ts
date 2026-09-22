@@ -2,10 +2,10 @@ import type { TenantId, TopicId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
 
 /**
- * State that outlives a run but belongs to the conversation, not to a run.
+ * State that outlives a turn but belongs to the conversation, not to a turn.
  *
- * `PermissionMode` was resolved once per run and copied into the executor,
- * so leaving plan mode meant ending the run and starting a fresh one with
+ * `PermissionMode` was resolved once per turn and copied into the executor,
+ * so leaving plan mode meant ending the turn and starting a fresh one with
  * `permissionMode: 'auto'` — discarding the in-flight step and the
  * tool-schema context with it. The look-around, propose, get-approval,
  * continue-in-the-SAME-conversation flow could not be built on that, and
@@ -31,7 +31,7 @@ export interface TopicState {
 	readonly revision: number
 	readonly permissionMode: PermissionMode
 	/**
-	 * Messages left for the run that has not started yet.
+	 * Messages left for the turn that has not started yet.
 	 *
 	 * On the same record as the mode and under the same revision, so a host
 	 * queueing a message and one toggling the mode cannot silently overwrite

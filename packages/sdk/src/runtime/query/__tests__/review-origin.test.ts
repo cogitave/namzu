@@ -1,13 +1,15 @@
 import { expect, it } from 'vitest'
 
-import { generateCheckpointId, generateRunId } from '../../../utils/id.js'
+import { generateCheckpointId, generateSessionId, generateTurnId } from '../../../utils/id.js'
 import {
 	type ToolReviewAnswer,
 	type ToolReviewRequest,
 	createReviewHandler,
 } from '../review-policy.js'
 
-it('preserves each originating run when identical child reviews overlap', async () => {
+const SESSION_ID = generateSessionId()
+
+it('preserves each originating turn when identical child reviews overlap', async () => {
 	const seen: ToolReviewRequest[] = []
 	const resolve: Array<(answer: ToolReviewAnswer) => void> = []
 	const handler = createReviewHandler({
@@ -16,7 +18,7 @@ it('preserves each originating run when identical child reviews overlap', async 
 			return new Promise((done) => resolve.push(done))
 		},
 	})
-	const runIds = [generateRunId(), generateRunId()]
+	const turnIds = [generateTurnId(), generateTurnId()]
 	const calls = [
 		{
 			id: 'same-call',
@@ -25,15 +27,16 @@ it('preserves each originating run when identical child reviews overlap', async 
 			isDestructive: false,
 		},
 	]
-	const pending = runIds.map((runId) =>
+	const pending = turnIds.map((turnId) =>
 		handler({
+			sessionId: SESSION_ID,
 			type: 'tool_review',
-			runId,
+			turnId,
 			checkpointId: generateCheckpointId(),
 			toolCalls: calls,
 		}),
 	)
-	expect(seen.map((request) => request.runId)).toEqual(runIds)
+	expect(seen.map((request) => request.turnId)).toEqual(turnIds)
 	resolve[1]?.({ kind: 'reject', feedback: 'second only' })
 	resolve[0]?.({ kind: 'approve' })
 	expect(await Promise.all(pending)).toEqual([

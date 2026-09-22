@@ -17,7 +17,7 @@
  * handle all variants exhaustively.
  */
 
-import type { RunId, SessionId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { DeliverableId, SummaryId } from '../session/ids.js'
 
 /** Discriminator for {@link DeliverableRef}. */
@@ -52,15 +52,15 @@ export interface SessionSummaryDeliverable {
 }
 
 /**
- * A specific persisted message within a session run — useful for referencing
+ * A specific persisted message within a session turn — useful for referencing
  * a single LLM turn as an artifact (e.g. a decision record).
  */
 export interface MessageDeliverable {
 	readonly id: DeliverableId
 	readonly kind: 'message'
 	readonly sessionId: SessionId
-	readonly runId: RunId
-	/** Opaque identifier bound to the run's persisted message log. */
+	readonly turnId: TurnId
+	/** The message's id in the session log. */
 	readonly messageId: string
 }
 

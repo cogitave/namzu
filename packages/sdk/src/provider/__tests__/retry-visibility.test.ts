@@ -7,9 +7,9 @@ import { withProviderRetry } from '../retry.js'
 /**
  * A backoff used to produce no signal of any kind. With the default policy
  * — three retries, a 16s cap — or a server-directed delay up to the 60s
- * ceiling, a run can sit silent for the better part of a minute between
+ * ceiling, a turn can sit silent for the better part of a minute between
  * `iteration_started` and the next event. A non-CLI host saw nothing and
- * got no keepalive, so its watchdog cancelled a run that was about to
+ * got no keepalive, so its watchdog cancelled a turn that was about to
  * succeed; on the CLI the spinner kept moving, which made a backoff
  * indistinguishable from a hang rather than visibly frozen.
  *

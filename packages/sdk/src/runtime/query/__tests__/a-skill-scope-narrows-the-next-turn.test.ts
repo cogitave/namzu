@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * `allowed-tools` as a restriction rather than as advice.
@@ -19,7 +22,7 @@ import { ToolExecutor } from '../executor.js'
  * alongside the skill it loaded.
  */
 
-const RUN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as RunId
+const TURN_ID = 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -65,16 +68,17 @@ function executorWith(
 ): ToolExecutor {
 	return new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools: recordingRegistry(seen),
-			runId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 			...(allowedTools ? { allowedTools } : {}),
 		},
-		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
-		async (_e: RunEvent) => {},
+		new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		async (_e: SessionEventDraft) => {},
 		makeLogger(),
 	)
 }
@@ -169,7 +173,7 @@ describe('a scope narrows, and can never widen', () => {
 	})
 
 	it('is the whole scope when the turn was unrestricted', async () => {
-		// No run-level list means unrestricted, so the intersection has
+		// No turn-level list means unrestricted, so the intersection has
 		// nothing to intersect with — the scope itself becomes the list.
 		const seen: (readonly string[] | undefined)[] = []
 		const executor = executorWith(seen)

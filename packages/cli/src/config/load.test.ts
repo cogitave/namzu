@@ -421,7 +421,7 @@ describe('a config that cannot be read', () => {
 
 	it('does not drop a permission table it failed to parse', () => {
 		// The finding, stated as the caller sees it. Before: this returned a
-		// config with no `permissions` key and the run continued unrestricted.
+		// config with no `permissions` key and the turn continued unrestricted.
 		const home = userConfig('permissions:\n  bash: "deny"\n   badly: indented\n')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(ConfigLoadError)
 	})
@@ -610,21 +610,24 @@ describe('hooks', () => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
-			'hooks:\n  pre_tool_use:\n    - matcher: bash\n      command: ./check.sh\n      timeoutMs: 500\n  run_end:\n    - command: notify-send done\n',
+			'hooks:\n  pre_tool_use:\n    - matcher: bash\n      command: ./check.sh\n      timeoutMs: 500\n  turn_end:\n    - command: notify-send done\n',
 		)
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).hooks).toEqual({
 			pre_tool_use: [{ matcher: 'bash', command: './check.sh', timeoutMs: 500 }],
-			run_end: [{ command: 'notify-send done' }],
+			turn_end: [{ command: 'notify-send done' }],
 		})
 
 		for (const [bad, path] of [
 			['hooks:\n  on_save:\n    - command: x\n', 'hooks.on_save'],
-			['hooks:\n  run_end:\n    - matcher: x\n', 'hooks.run_end[0].command'],
-			['hooks:\n  run_end:\n    - command: x\n      shell: zsh\n', 'hooks.run_end[0].shell'],
+			['hooks:\n  turn_end:\n    - matcher: x\n', 'hooks.turn_end[0].command'],
+			['hooks:\n  turn_end:\n    - command: x\n      shell: zsh\n', 'hooks.turn_end[0].shell'],
 			[
-				'hooks:\n  run_end:\n    - command: x\n      timeoutMs: soon\n',
-				'hooks.run_end[0].timeoutMs',
+				'hooks:\n  turn_end:\n    - command: x\n      timeoutMs: soon\n',
+				'hooks.turn_end[0].timeoutMs',
 			],
+			// A run-era name is refused, and the refusal names its replacement.
+			['hooks:\n  run_end:\n    - command: x\n', 'hooks.run_end was renamed; name it `turn_end`'],
+			['hooks:\n  run_start:\n    - command: x\n', 'name it `turn_start`'],
 		]) {
 			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
 			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)

@@ -112,7 +112,7 @@ describe('a record carries the span it happened inside', () => {
 	it('survives a context manager that throws, and still emits the record', () => {
 		// A host's ContextManager is a host's object. Removing the try/catch in
 		// `getActiveSpanContext` fails this — the throw reaches the caller and
-		// the record is lost, turning a logging-integration bug into a run
+		// the record is lost, turning a logging-integration bug into a turn
 		// failure at a call site nobody suspects can throw.
 		vi.spyOn(context, 'active').mockImplementation(() => {
 			throw new Error('a hostile context manager')

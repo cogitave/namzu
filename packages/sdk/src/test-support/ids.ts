@@ -15,7 +15,6 @@ import type {
 	CredentialId,
 	DeliverableId,
 	DocumentId,
-	EmergencySaveId,
 	EnvironmentId,
 	ExecutionContextId,
 	HandoffId,
@@ -32,7 +31,6 @@ import type {
 	PluginId,
 	ProjectId,
 	RecordId,
-	RunId,
 	SandboxId,
 	SessionId,
 	SubSessionId,
@@ -63,10 +61,9 @@ export function fixtureUuid(label: string): string {
 
 /**
  * One entry per entity type, keyed by the bare concept rather than the
- * type name — `fixtureId.run('a')`, not `fixtureId.RunId('a')`.
+ * type name — `fixtureId.turn('a')`, not `fixtureId.TurnId('a')`.
  */
 export const fixtureId = {
-	run: (suffix: string): RunId => unsafeId<RunId>(fixtureUuid(`run_${suffix}`)),
 	turn: (suffix: string): TurnId => unsafeId<TurnId>(fixtureUuid(`turn_${suffix}`)),
 	record: (suffix: string): RecordId => unsafeId<RecordId>(fixtureUuid(`rec_${suffix}`)),
 	message: (suffix: string): MessageId => unsafeId<MessageId>(fixtureUuid(`msg_${suffix}`)),
@@ -98,8 +95,6 @@ export const fixtureId = {
 	advisory: (suffix: string): AdvisoryId => unsafeId<AdvisoryId>(fixtureUuid(`adv_${suffix}`)),
 	advisoryCall: (suffix: string): AdvisoryCallId =>
 		unsafeId<AdvisoryCallId>(fixtureUuid(`advc_${suffix}`)),
-	emergencySave: (suffix: string): EmergencySaveId =>
-		unsafeId<EmergencySaveId>(fixtureUuid(`esave_${suffix}`)),
 	memory: (suffix: string): MemoryId => unsafeId<MemoryId>(fixtureUuid(`mem_${suffix}`)),
 	plugin: (suffix: string): PluginId => unsafeId<PluginId>(fixtureUuid(`plg_${suffix}`)),
 	sandbox: (suffix: string): SandboxId => unsafeId<SandboxId>(fixtureUuid(`sbx_${suffix}`)),

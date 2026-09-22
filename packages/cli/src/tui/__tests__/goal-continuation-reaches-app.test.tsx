@@ -1,4 +1,10 @@
-/** Automatic SessionGoal rounds cross the rendered App boundary without outracing humans. */
+/**
+ * Automatic SessionGoal rounds cross the rendered App boundary without outracing humans.
+ *
+ * The kernel's turn recorder owns persistence; the fake session records each
+ * turn that settles with `done` into the conversation's log the way `query()`
+ * does, so the durable reads below see what a real turn would leave.
+ */
 
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,25 +14,27 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import {
 	DiskSessionGoalStore,
-	SqliteSessionStore,
 	type GoalRoundAuthority,
 	type Message,
 	type SessionGoalStore,
 	type UserMessage,
+	createAssistantMessage,
+	createUserMessage,
 } from '@namzu/sdk'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type {
 	TerminalNotification,
 	TerminalNotificationResult,
 } from '../../integrations/notifications/terminal.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import { DiskConversationEvidence } from '../../integrations/sessions/turn-evidence.js'
+import type { CliSessions } from '../../integrations/sessions/store.js'
 import type {
 	AgentEvent,
 	AgentSession,
 	AgentSessionOptions,
-	RunScope,
+	SessionScope,
 	SendOptions,
 } from '../agent.js'
 import type { TuiContext } from '../types.js'
@@ -38,7 +46,7 @@ const PREFS: Preferences = {
 }
 
 interface BoundSession {
-	readonly scope: RunScope
+	readonly scope: SessionScope
 	readonly goals: SessionGoalStore
 }
 
@@ -48,11 +56,32 @@ type SendImplementation = (
 	bound: BoundSession,
 ) => AsyncIterable<AgentEvent>
 
-let scope: RunScope | undefined
+let scope: SessionScope | undefined
 let sendImplementation: SendImplementation = async function* () {
 	yield { kind: 'done', stopReason: 'end_turn' }
 }
 const notificationRequests: TerminalNotification[] = []
+// The turn-boundary check App awaits right before it hands a turn to the
+// session. A test holds it to open the window a conversation switch lands in,
+// or fails it to exercise the refusal.
+let turnBoundary: (() => Promise<void>) | undefined
+
+vi.mock('../../integrations/sessions/store.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('../../integrations/sessions/store.js')>()
+	return {
+		...actual,
+		requireWritableConversation: async (
+			...args: Parameters<typeof actual.requireWritableConversation>
+		) => {
+			await actual.requireWritableConversation(...args)
+			if (args[2] === 'start conversation turn' && turnBoundary) {
+				const hook = turnBoundary
+				turnBoundary = undefined
+				await hook()
+			}
+		},
+	}
+})
 
 vi.mock('../../integrations/notifications/terminal.js', async (importOriginal) => {
 	const actual =
@@ -97,6 +126,30 @@ vi.mock('../agent.js', async (importOriginal) => {
 			}
 			scope = options.scope
 			const bound = { scope: options.scope, goals: options.sessionGoals }
+			const conversations = options.conversationSessions as CliSessions | undefined
+			// Each turn that settles with `done` is recorded, user prompt and answer.
+			async function* recorded(
+				messages: readonly Message[],
+				sendOptions: SendOptions | undefined,
+			): AsyncIterable<AgentEvent> {
+				const sessionId = bound.scope.sessionId
+				let text = ''
+				for await (const event of sendImplementation(messages, sendOptions, bound)) {
+					if (event.kind === 'delta') text += event.text
+					if (event.kind === 'done' && conversations) {
+						const user = messages.at(-1)
+						if (user) {
+							await recordTurn(
+								conversations,
+								sessionId,
+								[user, createAssistantMessage(text)],
+								{ originKind: sendOptions?.goalRound ? 'goal-round' : 'prompt' },
+							)
+						}
+					}
+					yield event
+				}
+			}
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
@@ -121,14 +174,14 @@ vi.mock('../agent.js', async (importOriginal) => {
 					throw new Error('resumePaused is not part of this test')
 				},
 				close: async () => {},
-				send: (messages, sendOptions) => sendImplementation(messages, sendOptions, bound),
+				send: (messages, sendOptions) => recorded(messages, sendOptions),
 			}
 		},
 	}
 })
 
 const { App } = await import('../App.js')
-const { listRecent, loadConversation, openSessions, startConversation, appendMessages } = await import(
+const { listRecent, loadConversation, openSessions, startConversation } = await import(
 	'../../integrations/sessions/store.js'
 )
 
@@ -141,6 +194,7 @@ afterEach(() => {
 	for (const harness of mounted.splice(0)) harness.unmount()
 	for (const root of roots.splice(0)) removeTempDir(root)
 	scope = undefined
+	turnBoundary = undefined
 	notificationRequests.length = 0
 	sendImplementation = async function* () {
 		yield { kind: 'done', stopReason: 'end_turn' }
@@ -397,17 +451,13 @@ it('does not start an admitted old-conversation round after /new crosses the bou
 	expect(sends).toEqual([])
 }, 30_000)
 
-it('rechecks ownership after durable evidence and before creating the provider generator', async () => {
+it('rechecks ownership after the turn-boundary await and before creating the provider generator', async () => {
 	const evidenceEntered = deferred()
 	const releaseEvidence = deferred()
-	const originalRecord = DiskConversationEvidence.prototype.recordTurnStarted
-	vi.spyOn(DiskConversationEvidence.prototype, 'recordTurnStarted').mockImplementation(
-		async function (this: DiskConversationEvidence, input) {
-			evidenceEntered.resolve()
-			await releaseEvidence.promise
-			return await originalRecord.call(this, input)
-		},
-	)
+	turnBoundary = async () => {
+		evidenceEntered.resolve()
+		await releaseEvidence.promise
+	}
 	let sends = 0
 	sendImplementation = async function* () {
 		sends += 1
@@ -419,7 +469,7 @@ it('rechecks ownership after durable evidence and before creating the provider g
 	await evidenceEntered.promise
 	const source = scope!.sessionId
 	await submit(harness, '/new')
-	await until(() => scope?.sessionId !== source, 'the conversation did not switch during evidence')
+	await until(() => scope?.sessionId !== source, 'the conversation did not switch during the boundary')
 	releaseEvidence.resolve()
 	await tick(160)
 
@@ -534,21 +584,21 @@ it('durably blocks at the configured cap instead of starting an unbounded turn',
 	})
 }, 30_000)
 
-it('fails closed when goal-turn evidence cannot be published', async () => {
-	vi.spyOn(DiskConversationEvidence.prototype, 'recordTurnStarted').mockRejectedValueOnce(
-		new Error('evidence disk unavailable'),
-	)
+it('fails closed when the goal turn cannot pass its turn boundary', async () => {
+	turnBoundary = async () => {
+		throw new Error('conversation log unavailable')
+	}
 	let sends = 0
 	sendImplementation = async function* () {
 		sends += 1
 		yield { kind: 'done', stopReason: 'end_turn' }
 	}
 
-	const { root, harness } = await mountedApp('namzu-goal-app-evidence-')
-	await submit(harness, '/goal require durable evidence')
+	const { root, harness } = await mountedApp('namzu-goal-app-boundary-')
+	await submit(harness, '/goal require a writable conversation')
 	await until(
-		() => harness.frames.join('\n').includes('durable evidence could not be recorded'),
-		'the evidence refusal did not reach the operator',
+		() => harness.frames.join('\n').includes('This turn was not started'),
+		'the boundary refusal did not reach the operator',
 	)
 	const sessionId = scope!.sessionId
 	expect(sends).toBe(0)
@@ -560,33 +610,7 @@ it('fails closed when goal-turn evidence cannot be published', async () => {
 	await submit(harness, '/goal status')
 	await until(
 		() => harness.frames.join('\n').includes('Automatic continuation: paused'),
-		'the failed evidence boundary did not disarm automatic work',
-	)
-}, 30_000)
-
-it('disarms when admitted messages cannot be persisted', async () => {
-	vi.spyOn(SqliteSessionStore.prototype, 'appendMessage').mockRejectedValueOnce(
-		new Error('message disk unavailable'),
-	)
-	let sends = 0
-	sendImplementation = async function* () {
-		sends += 1
-		yield { kind: 'delta', text: 'work that cannot be saved' }
-		yield { kind: 'done', stopReason: 'end_turn' }
-	}
-
-	const { harness } = await mountedApp('namzu-goal-app-persistence-')
-	await submit(harness, '/goal require durable messages')
-	await until(
-		() => harness.frames.join('\n').includes('A turn was not saved'),
-		'the persistence failure never reached the operator',
-	)
-	await tick(120)
-	expect(sends).toBe(1)
-	await submit(harness, '/goal status')
-	await until(
-		() => harness.frames.join('\n').includes('Automatic continuation: paused'),
-		'the persistence failure did not revoke automatic continuation',
+		'the failed turn boundary did not disarm automatic work',
 	)
 }, 30_000)
 
@@ -613,10 +637,10 @@ it.each(['resume', 'later'] as const)('asks before activating a resumed goal: %s
  roots.push(root)
  const sessions = await openSessions(root)
  const sessionId = await startConversation(sessions)
- await appendMessages(sessions, sessionId, [{ role: 'user', content: 'remember this work', timestamp: Date.now() }])
+ await recordTurn(sessions, sessionId, [createUserMessage('remember this work')])
  await sessions.goals.createGoal({ sessionId, objective: 'Finish the saved objective' }, sessions.tenantId)
  let resumedRounds = 0
- sendImplementation = async function* (_messages, options, bound) {
+ sendImplementation = async function* (_messages: readonly Message[], options: SendOptions | undefined, bound: BoundSession) {
   if (options?.goalRound) { resumedRounds++; await complete(bound, options.goalRound) }
   yield { kind: 'done', stopReason: 'end_turn' }
  }

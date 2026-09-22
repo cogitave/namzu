@@ -1,4 +1,4 @@
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type {
 	Plan,
 	PlanApprovalRequest,
@@ -27,12 +27,12 @@ export type PlanEventListener = (event: PlanEvent) => void | Promise<void>
 export type PlanApprovalHandler = (request: PlanApprovalRequest) => Promise<PlanApprovalResponse>
 
 /**
- * The plan a run declares, and the gate a host approves it through.
+ * The plan a turn declares, and the gate a host approves it through.
  *
  * **The kernel deliberately drives only part of this class.** It builds a plan
  * (`approve_plan` calls `startGenerating` / `addStep` / `markReady`), gates it
  * (`iteration/phases/context.ts` calls `approve` and `startExecution`),
- * translates its events onto the run stream (`EventTranslator.wirePlanManager`),
+ * translates its events onto the session event stream (`EventTranslator.wirePlanManager`),
  * and settles it on failure (`runtime/query/result.ts` calls `failPlan`). It
  * never reports a step outcome and never settles a plan that succeeded.
  *
@@ -55,12 +55,16 @@ export type PlanApprovalHandler = (request: PlanApprovalRequest) => Promise<Plan
  */
 export class PlanManager {
 	private currentPlan: Plan | null = null
-	private runId: RunId
+	private readonly scope: { readonly sessionId: SessionId; readonly turnId: TurnId }
 	private listeners: PlanEventListener[] = []
 	private approvalHandler?: PlanApprovalHandler
 
-	constructor(runId: RunId, approvalHandler?: PlanApprovalHandler) {
-		this.runId = runId
+	/** `scope` is the turn the plan belongs to; every plan and approval request carries it. */
+	constructor(
+		scope: { readonly sessionId: SessionId; readonly turnId: TurnId },
+		approvalHandler?: PlanApprovalHandler,
+	) {
+		this.scope = { sessionId: scope.sessionId, turnId: scope.turnId }
 		this.approvalHandler = approvalHandler
 	}
 
@@ -102,8 +106,8 @@ export class PlanManager {
 	 * refuse, exposed so a caller can ask before it commits.
 	 *
 	 * The kernel settles a successful plan only when this is empty. It cannot
-	 * catch the refusal instead: a throw on the success path would turn a run
-	 * that worked into a run that crashed on its way out, which is a worse
+	 * catch the refusal instead: a throw on the success path would make a turn
+	 * that worked into one that crashed on its way out, which is a worse
 	 * version of the bug the refusal exists to prevent.
 	 */
 	get unreportedSteps(): readonly PlanStep[] {
@@ -114,7 +118,8 @@ export class PlanManager {
 	startGenerating(title: string): Plan {
 		const plan: Plan = {
 			id: generatePlanId(),
-			runId: this.runId,
+			sessionId: this.scope.sessionId,
+			turnId: this.scope.turnId,
 			status: 'generating',
 			title,
 			steps: [],
@@ -167,7 +172,8 @@ export class PlanManager {
 
 		const request: PlanApprovalRequest = {
 			planId: this.currentPlan.id,
-			runId: this.runId,
+			sessionId: this.scope.sessionId,
+			turnId: this.scope.turnId,
 			title: this.currentPlan.title,
 			steps: this.currentPlan.steps,
 			summary: this.currentPlan.summary,

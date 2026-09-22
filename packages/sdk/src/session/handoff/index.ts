@@ -23,7 +23,7 @@ export type {
 } from './events.js'
 
 export { executeSingleHandoff } from './single.js'
-export type { RunStatusResolver, SingleHandoffDeps } from './single.js'
+export type { TurnStatusResolver, SingleHandoffDeps } from './single.js'
 
 export { executeBroadcastHandoff } from './broadcast.js'
 export type { BroadcastHandoffDeps } from './broadcast.js'

@@ -2,7 +2,6 @@ import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
-import { resolveRunStorage } from '../runtime/query/stores-held-in-memory.js'
 import { CompletionInbox } from '../scheduler/completion-inbox.js'
 import { LocalTaskScheduler } from '../scheduler/local.js'
 import { ASK_USER_QUESTION_TOOL_NAME, buildCoordinatorTools } from '../tools/coordinator/index.js'
@@ -15,14 +14,15 @@ import type {
 } from '../types/agent/index.js'
 import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId, TurnId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
-import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
+import type { SessionEventListener } from '../types/session/events.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 import { resolveAgentBudget } from './budget.js'
+import { childSessionStorage } from './storage.js'
 
 /**
  * Build the authoritative per-task ledger from the gateway's task handles.
@@ -36,19 +36,20 @@ import { resolveAgentBudget } from './budget.js'
  * The earlier implementation cast `handle.state` onto the synthesized result's
  * status, letting a worker that ended without a result count toward
  * `completedTasks`. That produced fabricated "done" workers with empty outputs
- * (observed in a live supervised run): the supervisor reported "3 workers done, 40KB
+ * (observed in a live supervised session): the supervisor reported "3 workers done, 40KB
  * reports" when the workers never started. Real workers (those with a present
  * `result`) are unaffected — their `result` is preserved verbatim.
  */
 export function synthesizeTaskResults(
 	taskHandles: readonly TaskHandle[],
-	runId: RunId,
+	turn: { readonly sessionId: SessionId; readonly turnId: TurnId },
 	now: number = Date.now(),
 ): AgentTaskResult[] {
 	return taskHandles.map((handle, index) => ({
 		agentId: handle.agentId,
 		result: handle.result ?? {
-			runId,
+			sessionId: turn.sessionId,
+			turnId: turn.turnId,
 			status: 'failed' as const,
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -85,18 +86,18 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 	}
 
 	/**
-	 * One run at a time per instance.
+	 * One turn at a time per instance.
 	 *
-	 * `abortController` and `currentRunId` are instance state, so two
-	 * overlapping runs share one abort controller — cancelling either kills
-	 * both — and the second clobbers the first's run id, so a later
-	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * `abortController` and `currentSessionId` are instance state, so two
+	 * overlapping turns share one abort controller — cancelling either kills
+	 * both — and the second clobbers the first's session, so a later
+	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
 	 */
 	async run(
 		input: AgentInput,
 		config: SupervisorAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<SupervisorAgentResult> {
 		return await this.underIdempotencyKey(config.idempotencyKey, () =>
 			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
@@ -106,18 +107,17 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 	private async runExclusive(
 		input: AgentInput,
 		config: SupervisorAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<SupervisorAgentResult> {
 		const startTime = Date.now()
-		const runId = this.createRunId()
-		this.bindRun(runId, config.logger)
-
 		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 			throw new Error(
 				'SupervisorAgent requires sessionId, topicId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
 		const sessionId = config.sessionId
+		const turnId = this.createTurnId()
+		this.bindTurn(sessionId, turnId, config.logger)
 		const topicId = config.topicId
 		const projectId = config.projectId
 		const tenantId = config.tenantId
@@ -136,18 +136,13 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const budget = await resolveAgentBudget(
 			input,
 			{ ...config, budget: config.budget ?? configuredScheduler?.budget },
-			runId,
+			{ sessionId, turnId },
 		)
 		if (configuredScheduler && configuredScheduler.budget !== budget) {
 			throw new Error('Injected task scheduler must share the supervisor token budget authority')
 		}
 
-		const childStorage = resolveRunStorage({
-			runStore: config.runStore,
-			pathBuilder: config.pathBuilder,
-			checkpointStore: config.checkpointStore,
-			runId,
-		}).children
+		const childStorage = await childSessionStorage(config, input.workingDirectory)
 
 		let gateway: TaskScheduler
 		if (configuredScheduler) {
@@ -165,7 +160,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					: undefined
 
 			const taskContext: AgentTaskContext = {
-				parentRunId: runId,
+				parentSessionId: sessionId,
+				parentTurnId: turnId,
 				parentAgentId: this.metadata.id,
 				parentAbortController: this.abortController,
 				// This context describes the CURRENT supervisor. AgentManager owns
@@ -174,12 +170,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				depth: config.depth ?? 0,
 				budget,
 				factoryOptions: mergedFactoryOptions,
-				// The supervisor already hands this to its OWN run. Handing it to
+				// The supervisor already hands this to its OWN turn. Handing it to
 				// the spawn context makes a worker's REVIEW-tier calls reach the
 				// same person. It does not grant the root-only question tool.
 				// Without the handler, workers silently auto-approved themselves.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-				// Handed down for the same reason: a worker is a fresh run whose
+				// Handed down for the same reason: a worker is a fresh turn whose
 				// executor installs the shipped screens unless the spawn says
 				// otherwise, so the supervisor's own choice — including an
 				// empty list, which `config.toolResultGuardrails` distinguishes
@@ -193,8 +189,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				projectId,
 				parentActor,
 				// A supervisor held in memory delegates to workers held in
-				// memory; without this each worker wrote a disk tree under
-				// `defaultStateRoot()` its supervisor never asked for.
+				// memory; without this each worker wrote a disk log under
+				// `NAMZU_HOME` its supervisor never asked for.
 				...(childStorage ? { childStorage } : {}),
 			}
 			// The only hop between the config and the gateway's policy. Omit it
@@ -216,7 +212,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
 
 		// Created here because the TOOLS are created here: the durability
-		// channel has to reach the tool instance, and the run that supplies
+		// channel has to reach the tool instance, and the turn that supplies
 		// it does not exist yet. `query` binds them once it does.
 		const questionParks = new QuestionParkBinding()
 		const pendingAnswers = new PendingAnswers()
@@ -235,7 +231,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		// From here to the return in a try/finally, so the listener is released
 		// on every way out. The registration loop below can throw
 		// ToolNameCollisionError, and a host that hits that fixes its config and
-		// runs again — which is how a leak of one listener per run becomes a leak
+		// runs again — which is how a leak of one listener per turn becomes a leak
 		// of one per ATTEMPT.
 		try {
 			const isRootAgent = (config.depth ?? 0) === 0
@@ -251,7 +247,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// has had to go and delete before.
 				allowDelegation: config.allowDelegation,
 				taskStore: input.taskStore,
-				runId,
+				sessionId,
+				turnId,
 				getPlanManager: () => planManagerRef,
 				// A human-question tool belongs only to the root agent. The handler
 				// itself still reaches `drainQuery` below: delegated REVIEW-tier
@@ -283,7 +280,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			// tools — but the coordinator tools were registered before that and
 			// unconditionally, so `{ create_task: 'disabled' }` was honoured
 			// everywhere except the one surface a host would most want to decline.
-			// A run that must not delegate had prompt text and a gateway refusal as
+			// A turn that must not delegate had prompt text and a gateway refusal as
 			// its only defences.
 			//
 			// Collision REFUSES rather than overwrites, and the principle is
@@ -296,7 +293,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			// decision made about the old binding stale.
 			//
 			// The counter-argument is that today the host's tool merely loses
-			// quietly and the run still works, so six reserved names is a real cost
+			// quietly and the turn still works, so six reserved names is a real cost
 			// on a name a consumer may have chosen long ago. It does not hold,
 			// because "loses quietly" is not what happens. `registerOne` ends with
 			// `availability.set(id, state)` and this call passes no state, so a tool
@@ -331,7 +328,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				this.metadata.id,
 			)
 
-			const run = await drainQuery(
+			const turn = await drainQuery(
 				{
 					systemPrompt: config.systemPrompt,
 					skills: config.skills,
@@ -344,7 +341,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					...(config.attachmentResolveTimeoutMs !== undefined
 						? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
 						: {}),
-					runConfig: {
+					turnConfig: {
 						model: config.model,
 						tokenBudget: config.tokenBudget,
 						timeoutMs: config.timeoutMs,
@@ -384,8 +381,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					topicId,
 					projectId,
 					tenantId,
-					runId,
-					parentRunId: config.parentRunId,
+					turnId,
+					...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
+					...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
 					depth: config.depth,
 					contextLevel: 'full',
 					onContextCreated: ({ planManager }) => {
@@ -430,37 +428,38 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					...(config.workingMemoryProvider
 						? { workingMemoryProvider: config.workingMemoryProvider }
 						: {}),
-					...(config.pathBuilder ? { pathBuilder: config.pathBuilder } : {}),
-					...(config.runStore ? { runStore: config.runStore } : {}),
+					...(config.paths ? { paths: config.paths } : {}),
+					...(config.sessionLog ? { sessionLog: config.sessionLog } : {}),
 					...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
 				},
 				listener,
 			)
 
 			const taskHandles = gateway.listTasks()
-			const taskResults = synthesizeTaskResults(taskHandles, runId)
+			const taskResults = synthesizeTaskResults(taskHandles, { sessionId, turnId })
 
 			const completedTasks = countCompletedTasks(taskResults)
 
 			return {
-				runId: run.id,
-				status: run.status === 'completed' ? 'completed' : 'failed',
-				stopReason: run.stopReason,
-				usage: run.tokenUsage,
+				sessionId,
+				turnId: turn.id,
+				status: turn.status === 'completed' ? 'completed' : 'failed',
+				stopReason: turn.stopReason,
+				usage: turn.tokenUsage,
 				budget: budget.summary(),
-				cost: run.costInfo,
-				iterations: run.currentIteration,
+				cost: turn.costInfo,
+				iterations: turn.currentIteration,
 				durationMs: Date.now() - startTime,
-				messages: run.messages,
-				result: run.result,
+				messages: turn.messages,
+				result: turn.result,
 				// `BaseAgentResult.structuredOutput` names "an archetype's result
 				// literal did not copy it" as a defect it was written to close.
 				// This literal still did not copy it, so the same defect was live
 				// in the one archetype nobody checked: the value would have been
-				// produced, recorded on the run, serialized into `result`, and
+				// produced, recorded on the turn, serialized into `result`, and
 				// absent from the type a supervisor host actually reads.
-				structuredOutput: run.structuredOutput,
-				lastError: run.lastError,
+				structuredOutput: turn.structuredOutput,
+				lastError: turn.lastError,
 				taskResults,
 				completedTasks,
 				totalTasks: taskResults.length,

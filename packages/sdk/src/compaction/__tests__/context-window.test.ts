@@ -8,7 +8,7 @@ import {
 
 /**
  * The compaction trigger divides "how full is the context" by a window.
- * It used to divide by `runConfig.tokenBudget` — a cumulative spend cap,
+ * It used to divide by `turnConfig.tokenBudget` — a cumulative spend cap,
  * a different quantity entirely — which is why the whole subsystem was
  * inert in every shipped consumer.
  */
@@ -41,7 +41,7 @@ describe('lookupContextWindow', () => {
 	})
 
 	it('keeps an unlisted Claude id on the conservative 200k floor', () => {
-		// Over-stating kills a run with `context_length_exceeded` and nothing
+		// Over-stating kills a turn with `context_length_exceeded` and nothing
 		// recoverable; under-stating costs one summarization pass. An id this
 		// table has never seen takes the survivable error.
 		expect(lookupContextWindow('claude-something-unreleased')).toBe(200_000)

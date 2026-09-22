@@ -424,7 +424,7 @@ export interface MCPClientConfig {
 	 * `DEFAULT_MCP_REQUEST_TIMEOUT_MS`.
 	 *
 	 * Without one, a wedged stdio server left every caller pending
-	 * forever — no error, no failure, just a run that stopped.
+	 * forever — no error, no failure, just a turn that stopped.
 	 */
 	requestTimeoutMs?: number
 	/**

@@ -1,14 +1,18 @@
-import { type ToolContext, generateRunId } from '@namzu/sdk'
+import { type ToolContext, generateTurnId } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { type RequestModelSwitch, buildSwitchModelTool } from './model-switch-tool.js'
 
 function context(signal?: AbortSignal): ToolContext {
-	return { runId: generateRunId(), abortSignal: signal } as ToolContext
+	return {
+		sessionId: '019a0000-0000-7000-8000-0000000000f3',
+		turnId: generateTurnId(),
+		abortSignal: signal,
+	} as unknown as ToolContext
 }
 
 describe('the interactive model-switch request tool', () => {
-	it('reports pending acceptance and passes the owning run context to the host', async () => {
+	it('reports pending acceptance and passes the owning turn context to the host', async () => {
 		const requestSwitch = vi.fn<RequestModelSwitch>(async () => ({
 			kind: 'pending',
 			selection: { id: 'zen', model: 'muse-spark-1.3-contributor-free' },

@@ -1,18 +1,19 @@
 ---
-"@namzu/sdk": minor
+"@namzu/sdk": major
 ---
 
-Checkpoint retention no longer ends a run, and no longer re-reads the whole
-history every iteration.
+Checkpoint retention is part of every checkpoint store, and a failed prune no
+longer ends a turn.
 
+- `SessionCheckpointStore.prune(scope, keepLast)` is **required**. It deletes
+  a turn's oldest committed checkpoints until `keepLast` newer ones remain and
+  returns the deleted ids, which the kernel records as `checkpoint_pruned`. It
+  never deletes a checkpoint an open decision references, and it counts and
+  deletes only checkpoints a `checkpoint_written` record commits. A custom
+  store implements it; the optional `pruneCheckpoints` it replaces is gone.
+  `selectSessionCheckpointsToPrune` is the selection the built-in stores use.
 - A prune that throws after an iteration's checkpoint is logged
   (`Checkpoint retention failed; older checkpoints are kept for now`) and the
-  run continues. Before, the error propagated and failed the live run.
-- New optional `CheckpointStore.pruneCheckpoints(scope, keepLast)`.
-  `CheckpointManager.prune` calls it when a store has it and falls back to
-  list-and-delete otherwise, with the same outcome. `DiskCheckpointStore`
-  implements it by reading the checkpoint files alone, so one damaged history
-  does not stop retention, and it collects the history the deleted
-  checkpoints held. Existing stores need no change.
-- `DiskCheckpointStore.listDurableRuns` reads checkpoint headers only.
-- `toDurableRunEntry` accepts checkpoints without their messages.
+  turn continues. Before, the error failed the live turn.
+- Listing parked work no longer reads checkpoints at all:
+  `SessionIndex.listPendingDecisions` and `listTurns` answer from the index.

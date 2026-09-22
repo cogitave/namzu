@@ -146,7 +146,7 @@ export function findPortableSchemaViolations(
  * Returns the input unchanged — the SAME reference — when nothing needs
  * rewriting, which is the overwhelming common case. The tools block sits at
  * position 0 of the prompt-cache prefix, so a fresh, equal object per request
- * would invalidate the cache for the whole run.
+ * would invalidate the cache for the whole turn.
  */
 export function toPortableToolSchema(json: Record<string, unknown>): Record<string, unknown> {
 	return makePortable(json) as Record<string, unknown>

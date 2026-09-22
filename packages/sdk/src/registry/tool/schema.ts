@@ -19,7 +19,7 @@ import { toPortableToolSchema } from './portable.js'
  *    schema does not change between iterations; the work was pure waste,
  *    and worse, it made byte-stability a hope rather than a guarantee. The
  *    tools block sits at the head of the prompt-cache prefix, so a single
- *    reordered key would invalidate the entire cache for the run.
+ *    reordered key would invalidate the entire cache for the turn.
  *
  * Memoizing on the schema OBJECT (a `WeakMap`, so an unregistered tool's
  * entry is collectable) makes the rendering both free and identical across

@@ -7,7 +7,7 @@ import { LocalSandboxProvider } from '../provider/local.js'
  * `SandboxExecOptions.signal` was declared, documented, exported — and
  * dropped by every backend. The local one built a fresh `AbortController`
  * from the call's own timeout and never linked the caller's signal to it, so
- * cancelling a run abandoned the *wait* while the sandboxed process kept
+ * cancelling a turn abandoned the *wait* while the sandboxed process kept
  * running. That is verbatim the failure the option's docstring says it exists
  * to prevent.
  *

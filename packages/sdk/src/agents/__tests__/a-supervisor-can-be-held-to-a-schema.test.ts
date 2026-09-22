@@ -121,7 +121,7 @@ describe('a supervisor can be held to a schema', () => {
 		// broke.
 		expect(result.result).toBe(JSON.stringify(ANSWER))
 
-		// The result-literal hop: the value exists on the run either way, and
+		// The result-literal hop: the value exists on the turn either way, and
 		// this is the surface a supervisor host actually reads.
 		expect(result.structuredOutput).toEqual(ANSWER)
 	}, 60_000)

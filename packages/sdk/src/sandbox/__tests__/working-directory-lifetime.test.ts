@@ -11,7 +11,7 @@ import { LocalSandboxProvider } from '../provider/local.js'
 /**
  * A sandbox handle and the workspace it exposes have different owners.
  *
- * The CLI creates one handle per SDK run, while a coding session spans many
+ * The CLI creates one handle per SDK turn, while a coding session spans many
  * runs. A caller-owned working directory must therefore survive handle
  * teardown; only provider-created temporary roots may be removed.
  */
@@ -35,17 +35,17 @@ describe('LocalSandboxProvider working-directory ownership', () => {
 		const provider = new LocalSandboxProvider(NOOP_LOGGER)
 
 		const first = await provider.create({ workingDirectory: cwd })
-		await first.writeFile('from-write.txt', 'written in the first run')
+		await first.writeFile('from-write.txt', 'written in the first turn')
 		const executed = await first.exec(process.execPath, [
 			'-e',
-			"require('node:fs').writeFileSync('from-exec.txt', 'executed in the first run')",
+			"require('node:fs').writeFileSync('from-exec.txt', 'executed in the first turn')",
 		])
 		expect(executed.exitCode).toBe(0)
 		await first.destroy()
 
 		const second = await provider.create({ workingDirectory: cwd })
-		expect((await second.readFile('from-write.txt')).toString()).toBe('written in the first run')
-		expect((await second.readFile('from-exec.txt')).toString()).toBe('executed in the first run')
+		expect((await second.readFile('from-write.txt')).toString()).toBe('written in the first turn')
+		expect((await second.readFile('from-exec.txt')).toString()).toBe('executed in the first turn')
 		await second.writeFile('from-second-run.txt', 'still the same workspace')
 		await second.destroy()
 

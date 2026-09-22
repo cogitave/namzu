@@ -73,7 +73,7 @@ async function run(
 		tools,
 		skillRegistry: skills,
 		maxToolOutputChars: 420,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,

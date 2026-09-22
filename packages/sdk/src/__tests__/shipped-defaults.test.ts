@@ -32,7 +32,7 @@ import { DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS } from '../store/attachment/index
  * Every expectation carries the reason the value is what it is.
  */
 
-describe('a run cannot hang', () => {
+describe('a turn cannot hang', () => {
 	it('tools have a deadline, and it is survivable rather than generous', () => {
 		// bash defaulted to ONE HOUR while ignoring Stop entirely.
 		expect(DEFAULT_TOOL_TIMEOUT_MS).toBe(120_000)
@@ -41,7 +41,7 @@ describe('a run cannot hang', () => {
 
 	it('MCP round trips have a deadline', () => {
 		// stdio — the default transport for local servers — armed no timer at
-		// all, so a wedged server hung the run with no error and no run_failed.
+		// all, so a wedged server hung the turn with no error and no turn_failed.
 		expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBeGreaterThan(0)
 		expect(DEFAULT_MCP_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000)
 	})
@@ -68,9 +68,9 @@ describe('a run cannot hang', () => {
 	})
 })
 
-describe('a run cannot be killed by one bad response', () => {
+describe('a turn cannot be killed by one bad response', () => {
 	it('transient provider failures are retried by default', () => {
-		// A single 429 or 503 used to terminate a run outright.
+		// A single 429 or 503 used to terminate a turn outright.
 		expect(DEFAULT_PROVIDER_RETRY.maxRetries).toBeGreaterThan(0)
 	})
 
@@ -83,7 +83,7 @@ describe('a run cannot be killed by one bad response', () => {
 	})
 })
 
-describe('a run cannot blow its own context', () => {
+describe('a turn cannot blow its own context', () => {
 	it('bounds the accumulated inline image and document request payload', () => {
 		expect(DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES).toBe(24 * 1024 * 1024)
 	})
@@ -98,7 +98,7 @@ describe('a run cannot blow its own context', () => {
 	})
 
 	it('compaction always resolves a real window, never a spend budget', () => {
-		// The trigger divided by `runConfig.tokenBudget` — a cumulative spend
+		// The trigger divided by `turnConfig.tokenBudget` — a cumulative spend
 		// cap — whenever `contextWindowTokens` was absent, which was always.
 		for (const model of [undefined, '', 'totally-unknown-model', 'claude-opus-5', 'gpt-4']) {
 			const resolved = resolveContextWindow(undefined, model)
@@ -109,12 +109,12 @@ describe('a run cannot blow its own context', () => {
 
 	it('the unknown-model fallback is conservative, not optimistic', () => {
 		// Under-estimating costs a summarization pass. Over-estimating kills
-		// the run on a provider context-length error with nothing recoverable.
+		// the turn on a provider context-length error with nothing recoverable.
 		expect(DEFAULT_ASSUMED_CONTEXT_WINDOW).toBeLessThanOrEqual(200_000)
 	})
 })
 
-describe('a run cannot loop on a demand the model will not meet', () => {
+describe('a turn cannot loop on a demand the model will not meet', () => {
 	it('structured-output re-prompts are bounded well below the iteration cap', () => {
 		expect(DEFAULT_STRUCTURED_OUTPUT_RETRIES).toBeGreaterThan(0)
 		// The shipped `maxIterations` default is 200; this must fail fast.
@@ -132,12 +132,12 @@ describe('the shipped test model can exercise the tool loop', () => {
 	})
 })
 
-describe('a run screens what a connected server answers', () => {
+describe('a turn screens what a connected server answers', () => {
 	it('installs exactly one screen, and it is the correspondence one', () => {
 		// The default is a control that can refuse a result, so which screen
 		// it is and how many there are is a fact worth pinning rather than
 		// reading out of the executor. `scope` stays the preset's own: a
-		// second screen arriving here by accident would change what every run
+		// second screen arriving here by accident would change what every turn
 		// refuses, which is the kind of default drift this file exists for.
 		expect(DEFAULT_TOOL_RESULT_GUARDRAILS).toHaveLength(1)
 		expect(DEFAULT_TOOL_RESULT_GUARDRAILS[0]).toMatchObject({
@@ -147,7 +147,7 @@ describe('a run screens what a connected server answers', () => {
 
 	it('is frozen, because callers are invited to extend it', () => {
 		// `[...DEFAULT_TOOL_RESULT_GUARDRAILS, mine()]`. A caller able to
-		// mutate it would be mutating the default for every other run in the
+		// mutate it would be mutating the default for every other turn in the
 		// process.
 		expect(Object.isFrozen(DEFAULT_TOOL_RESULT_GUARDRAILS)).toBe(true)
 	})

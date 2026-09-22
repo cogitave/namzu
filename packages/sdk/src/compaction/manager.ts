@@ -98,7 +98,7 @@ export class WorkingStateManager {
 	 * Failures evict OLDEST-first, unlike every other slot here.
 	 *
 	 * `keepFirstEntries` exists because early decisions are load-bearing —
-	 * the one that set the run's approach outlives twenty-five incidental
+	 * the one that set the turn's approach outlives twenty-five incidental
 	 * notes. That reasoning is right for decisions and backwards for
 	 * failures: the earliest failure is the one the model has most likely
 	 * already worked around, and the recent one is the thing it reads to
@@ -107,7 +107,7 @@ export class WorkingStateManager {
 	 * It also matters more than a preference. Sinha et al.,
 	 * "The Illusion of Diminishing Returns" (arXiv:2509.09677), inject
 	 * errors into a model's own history at controlled rates and measure
-	 * accuracy far later in the run: conditioning a model on its own
+	 * accuracy far later in the turn: conditioning a model on its own
 	 * error-prone history raises the likelihood of further errors, and
 	 * scaling does not rescue it. So a permanently-protected early failure
 	 * is not neutral ballast — it is the input that paper measures.
@@ -182,7 +182,7 @@ export class WorkingStateManager {
 	/**
 	 * Adopt a previously captured state.
 	 *
-	 * Used on resume: a run that compacted, checkpointed and came back in a
+	 * Used on resume: a turn that compacted, checkpointed and came back in a
 	 * new process needs the state its earlier summary was built from, or the
 	 * next compaction supersedes that summary with one covering only what
 	 * happened after the resume. See {@link restoreWorkingState}.
@@ -198,7 +198,7 @@ export class WorkingStateManager {
 	/**
 	 * Append, evicting from the MIDDLE once the list is full.
 	 *
-	 * This used to `shift()`, dropping the oldest entry — so on a long run
+	 * This used to `shift()`, dropping the oldest entry — so on a long turn
 	 * the 26th assistant note silently deleted the 1st, and "the structured
 	 * state that survives compaction" degraded into a rolling window over
 	 * recent activity. The early entries are the load-bearing ones: the

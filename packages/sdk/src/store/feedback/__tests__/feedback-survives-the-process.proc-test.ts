@@ -1,10 +1,13 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
+
+import { SessionPaths, slugForCwd } from '../../../session/paths.js'
+import type { SessionId } from '../../../types/ids/index.js'
 
 /**
  * Feedback written by one process, read by another.
@@ -17,10 +20,32 @@ import { afterEach, describe, expect, it } from 'vitest'
  */
 
 const DIST = join(import.meta.dirname, '../../../../dist/store/feedback/disk.js')
+const DIST_PATHS = join(import.meta.dirname, '../../../../dist/session/paths.js')
 const DIST_DIR = join(import.meta.dirname, '../../../../dist')
 const WORKER = join(import.meta.dirname, 'feedback-cas-worker.mjs')
+const FIXTURE_LOG = join(import.meta.dirname, '../../../__fixtures__/session-log/valid.jsonl')
 const exec = promisify(execFile)
 const UPDATE_RECORDS = 160
+const SLUG = slugForCwd('/work/feedback')
+
+// valid.jsonl: a real session log, and a message it holds.
+const SESSION = '1b898770-f856-497c-a28f-8a3f5aefb0b1'
+const MESSAGE = '18f2480c-1892-471c-8d5c-9c043b583e76'
+
+/** A layout under `home` whose project holds the fixture session log. */
+async function layout(home: string): Promise<void> {
+	const paths = new SessionPaths({ home, slug: SLUG })
+	await mkdir(paths.projectDir(), { recursive: true })
+	await copyFile(FIXTURE_LOG, paths.sessionLog({ sessionId: SESSION as SessionId }))
+}
+
+/** The script prologue that opens the disk store over `home`'s layout in a child process. */
+function openStore(home: string): string {
+	return `const { DiskMessageFeedbackStore } = await import(${JSON.stringify(DIST)})
+			const { SessionPaths } = await import(${JSON.stringify(DIST_PATHS)})
+			const paths = new SessionPaths({ home: ${JSON.stringify(home)}, slug: ${JSON.stringify(SLUG)} })
+			const store = new DiskMessageFeedbackStore({ paths })`
+}
 
 const dirs: string[] = []
 
@@ -37,32 +62,23 @@ describe('feedback survives the process that recorded it', () => {
 	it('is readable, with its version, from a second node invocation', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-proc-'))
 		dirs.push(root)
-		const runsDir = join(root, 'runs')
-		const feedbackDir = join(root, 'feedback')
-		await mkdir(join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584'), { recursive: true })
-		await writeFile(
-			join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584', 'transcript.jsonl'),
-			`${JSON.stringify({ seq: 1, type: 'text_delta', runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a' })}\n`,
-		)
-
-		const common = `const { DiskMessageFeedbackStore } = await import(${JSON.stringify(DIST)})
-			const store = new DiskMessageFeedbackStore({ rootDir: ${JSON.stringify(feedbackDir)}, runsDir: ${JSON.stringify(runsDir)} })`
+		await layout(root)
 
 		run(`(async () => {
-			${common}
-			await store.putMessageFeedback({ runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a', rating: 'bad', note: 'wrong file', expectedVersion: 0 })
+			${openStore(root)}
+			await store.putMessageFeedback({ sessionId: '${SESSION}', messageId: '${MESSAGE}', rating: 'bad', note: 'wrong file', expectedVersion: 0 })
 		})()`)
 
 		const out = run(`(async () => {
-			${common}
-			const listed = await store.listMessageFeedback({ runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584' })
+			${openStore(root)}
+			const listed = await store.listMessageFeedback({ sessionId: '${SESSION}' })
 			process.stdout.write(JSON.stringify(listed))
 		})()`)
 
 		expect(JSON.parse(out)).toEqual([
 			expect.objectContaining({
-				runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584',
-				messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a',
+				sessionId: SESSION,
+				messageId: MESSAGE,
 				rating: 'bad',
 				note: 'wrong file',
 				ownerVersion: 1,
@@ -77,19 +93,12 @@ describe('feedback survives the process that recorded it', () => {
 		// kernel's exclusive create nothing to hide behind.
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-proc2-'))
 		dirs.push(root)
-		const runsDir = join(root, 'runs')
-		await mkdir(join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584'), { recursive: true })
-		await writeFile(
-			join(runsDir, 'ea18dfb2-57ba-47cc-b667-56a2426d0584', 'transcript.jsonl'),
-			`${JSON.stringify({ seq: 1, type: 'text_delta', runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a' })}\n`,
-		)
-		const feedbackDir = join(root, 'feedback')
+		await layout(root)
 
 		const write = (rating: string) => `(async () => {
-			const { DiskMessageFeedbackStore } = await import(${JSON.stringify(DIST)})
-			const store = new DiskMessageFeedbackStore({ rootDir: ${JSON.stringify(feedbackDir)}, runsDir: ${JSON.stringify(runsDir)} })
+			${openStore(root)}
 			try {
-				await store.putMessageFeedback({ runId: 'ea18dfb2-57ba-47cc-b667-56a2426d0584', messageId: '5beb2a6b-4ab4-4213-b124-96481a5b058a', rating: '${rating}', expectedVersion: 0 })
+				await store.putMessageFeedback({ sessionId: '${SESSION}', messageId: '${MESSAGE}', rating: '${rating}', expectedVersion: 0 })
 				process.stdout.write('ok')
 			} catch (err) { process.stdout.write(err.name) }
 		})()`
@@ -101,34 +110,20 @@ describe('feedback survives the process that recorded it', () => {
 	it('admits one version-one update per message across real processes', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-update-proc-'))
 		dirs.push(root)
-		const runsDir = join(root, 'runs')
-		const feedbackDir = join(root, 'feedback')
-		const runId = randomUUID()
-		const runDir = join(runsDir, runId)
+		const sessionId = randomUUID() as SessionId
 		const ids = Array.from({ length: UPDATE_RECORDS }, () => randomUUID())
-		await mkdir(runDir, { recursive: true })
-		await writeFile(
-			join(runDir, 'transcript.jsonl'),
-			`${ids
-				.map((messageId, index) =>
-					JSON.stringify({
-						seq: index + 1,
-						type: 'text_delta',
-						runId,
-						messageId,
-					}),
-				)
-				.join('\n')}\n`,
-		)
+		// This test is about compare-and-set across processes, not about the
+		// session-log check (both-stores-agree covers that), so every process
+		// accepts these ids through the same injected check.
+		const known = new Set<string>(ids)
+		const accept = async (_session: SessionId, messageId: string) => known.has(messageId)
 
 		const { DiskMessageFeedbackStore } = await import('../disk.js')
-		const seed = new DiskMessageFeedbackStore({
-			rootDir: feedbackDir,
-			runsDir,
-		})
+		const paths = new SessionPaths({ home: root, slug: SLUG })
+		const seed = new DiskMessageFeedbackStore({ paths }, accept)
 		for (const messageId of ids) {
 			await seed.putMessageFeedback({
-				runId: runId as never,
+				sessionId,
 				messageId: messageId as never,
 				rating: 'good',
 				expectedVersion: 0,
@@ -143,15 +138,7 @@ describe('feedback survives the process that recorded it', () => {
 			Array.from({ length: 3 }, (_, index) =>
 				exec(
 					process.execPath,
-					[
-						WORKER,
-						DIST_DIR,
-						feedbackDir,
-						runsDir,
-						JSON.stringify({ runId, ids }),
-						`w${index}`,
-						barrier,
-					],
+					[WORKER, DIST_DIR, root, SLUG, JSON.stringify({ sessionId, ids }), `w${index}`, barrier],
 					{ maxBuffer: 4 * 1024 * 1024 },
 				),
 			),
@@ -178,10 +165,9 @@ describe('feedback survives the process that recorded it', () => {
 		expect(byId.size).toBe(UPDATE_RECORDS)
 		expect([...byId.values()].filter((winners) => winners.length !== 1)).toEqual([])
 
-		const durable = await new DiskMessageFeedbackStore({
-			rootDir: feedbackDir,
-			runsDir,
-		}).listMessageFeedback({ runId: runId as never })
+		const durable = await new DiskMessageFeedbackStore({ paths }, accept).listMessageFeedback({
+			sessionId,
+		})
 		expect(durable).toHaveLength(UPDATE_RECORDS)
 		for (const record of durable) {
 			const winners = byId.get(record.messageId)

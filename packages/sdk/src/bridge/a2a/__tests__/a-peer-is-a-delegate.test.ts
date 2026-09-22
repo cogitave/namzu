@@ -167,7 +167,7 @@ describe('reading a peer’s card', () => {
 	it('refuses a protocol version this kernel does not implement', async () => {
 		// Found once, at wiring time, which is the only moment a human is
 		// looking. Degrade here and the failure moves into the middle of a
-		// delegation with a run waiting on it.
+		// delegation with a turn waiting on it.
 		await expect(
 			fetchAgentCard('https://peer.example', {
 				fetch: async () => ok({ ...CARD, protocolVersion: '0.9.0' }),
@@ -346,7 +346,7 @@ describe('reading a peer’s card', () => {
 
 describe('a peer this client cannot speak to is refused at construction', () => {
 	it('refuses a card with no jsonrpc interface', async () => {
-		// Discovering that mid-delegation would waste a run's time on a wiring
+		// Discovering that mid-delegation would waste a turn's time on a wiring
 		// mistake the card states plainly.
 		expect(
 			() =>

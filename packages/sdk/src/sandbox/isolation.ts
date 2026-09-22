@@ -59,7 +59,7 @@ export function missingIsolation(
  *
  * Refusing is the whole point. A security control that is accepted and
  * then silently not applied is worse than one that was never offered: the
- * caller stops looking, and the run proceeds believing it is confined.
+ * caller stops looking, and the turn proceeds believing it is confined.
  */
 export function assertIsolation(
 	environment: SandboxEnvironment,
@@ -69,7 +69,7 @@ export function assertIsolation(
 	if (missing.length === 0) return
 
 	throw new Error(
-		`Sandbox environment "${environment}" cannot enforce ${missing.join(', ')} isolation, which this run requires. Enforced here: ${describeIsolation(environment)}. Run on a host that supports it, or drop the requirement explicitly — it will not be silently downgraded.`,
+		`Sandbox environment "${environment}" cannot enforce ${missing.join(', ')} isolation, which this turn requires. Enforced here: ${describeIsolation(environment)}. Run on a host that supports it, or drop the requirement explicitly — it will not be silently downgraded.`,
 	)
 }
 

@@ -1,6 +1,6 @@
-import type { RunPersistence } from '../../manager/run/persistence.js'
-import { buildLimitConfig, checkLimitsDetailed } from '../../run/LimitChecker.js'
-import type { LimitCheckerConfig, StopReason } from '../../types/run/index.js'
+import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
+import { buildLimitConfig, checkLimitsDetailed } from '../../turn/LimitChecker.js'
+import type { LimitCheckerConfig, StopReason } from '../../types/session/index.js'
 
 export interface GuardConfig {
 	tokenBudget: number
@@ -8,11 +8,11 @@ export interface GuardConfig {
 	costLimitUsd?: number
 	maxIterations?: number
 	/**
-	 * Wall-clock already consumed by this run before the current process
-	 * picked it up, from `IterationCheckpoint.guardState.elapsedMs`.
+	 * Wall-clock already consumed by this turn before the current process
+	 * picked it up, from the checkpoint's `guards.elapsedMs`.
 	 *
-	 * The timeout budget is a property of the RUN, not of the process
-	 * hosting it. Without the offset a run resumed from a checkpoint got a
+	 * The timeout budget is a property of the TURN, not of the process
+	 * hosting it. Without the offset a turn resumed from a checkpoint got a
 	 * fresh clock every time, so N resumes bought N x `timeoutMs`.
 	 */
 	elapsedMsOffset?: number
@@ -47,7 +47,7 @@ export class GuardCoordinator {
 	 * Adopt a checkpoint's elapsed time after construction.
 	 *
 	 * The guard is built before the checkpoint is read (restore is async and
-	 * happens inside the run generator), so the resume path cannot pass
+	 * happens inside the turn generator), so the resume path cannot pass
 	 * `elapsedMsOffset` to the constructor. Rather than reorder setup around
 	 * one field, let the resume branch hand it over.
 	 */
@@ -56,18 +56,18 @@ export class GuardCoordinator {
 	}
 
 	/**
-	 * Wall-clock left before this run is asked to start finishing.
+	 * Wall-clock left before this turn is asked to start finishing.
 	 *
 	 * NOT the time left before the deadline, and the difference is the whole
 	 * point. The checks above run BETWEEN iterations, so anything that waits
 	 * inside one cannot be stopped by them, and a caller sizing such a wait
-	 * needs a number the run actually owns: a fixed two-minute hold measured
-	 * against a run configured for twenty seconds kept it open for 120,267 ms.
+	 * needs a number the turn actually owns: a fixed two-minute hold measured
+	 * against a turn configured for twenty seconds kept it open for 120,267 ms.
 	 *
 	 * Measuring to the DEADLINE was the first attempt and it was wrong. The
 	 * binding constraint is `budgetWarningThreshold`, the point at which this
 	 * guard stops asking for more work and asks for a closing summary — that
-	 * last slice exists so the run can produce an answer, and a wait sized
+	 * last slice exists so the turn can produce an answer, and a wait sized
 	 * against the deadline eats into it. Half of the time-to-deadline, started
 	 * just under the threshold, ends at 95% of the budget: half the closing
 	 * reserve spent waiting for a result the closing answer was supposed to
@@ -78,9 +78,9 @@ export class GuardCoordinator {
 	 * iteration and this is read when the wait is about to start, so a long
 	 * iteration that crossed the line in between is told to wait for nothing.
 	 *
-	 * Reads through the same `startTime` the limit checks use, so a run
+	 * Reads through the same `startTime` the limit checks use, so a turn
 	 * resumed from a checkpoint (see `restoreElapsed`) reports the time left
-	 * on the RUN rather than on the process now hosting it.
+	 * on the TURN rather than on the process now hosting it.
 	 */
 	remainingBeforeFinalizeMs(): number {
 		if (this.limitConfig.timeoutMs === 0) return Number.POSITIVE_INFINITY
@@ -89,11 +89,11 @@ export class GuardCoordinator {
 	}
 
 	/**
-	 * Wall-clock left before the run's hard timeout.
+	 * Wall-clock left before the turn's hard timeout.
 	 *
 	 * Setup work that happens before the first iteration cannot rely on
 	 * {@link beforeIteration}: there is no iteration boundary to sample while
-	 * that work is pending. Callers use this value to put the same run-owned
+	 * that work is pending. Callers use this value to put the same turn-owned
 	 * deadline around such work instead of inventing a second clock.
 	 */
 	remainingUntilTimeoutMs(): number {
@@ -101,18 +101,18 @@ export class GuardCoordinator {
 		return Math.max(0, this.limitConfig.timeoutMs - (Date.now() - this.startTime))
 	}
 
-	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
+	beforeIteration(recorder: TurnRecorder, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,
-			totalTokens: runMgr.tokenUsage.totalTokens,
-			totalCost: runMgr.costInfo.totalCost,
-			unpricedTokens: runMgr.costInfo.unpricedTokens,
-			currentIteration: runMgr.currentIteration,
+			totalTokens: recorder.tokenUsage.totalTokens,
+			totalCost: recorder.costInfo.totalCost,
+			unpricedTokens: recorder.costInfo.unpricedTokens,
+			currentIteration: recorder.currentIteration,
 			startTime: this.startTime,
 		}
 
 		const limitResult = checkLimitsDetailed(this.limitConfig, limitState)
-		if (!abortSignal.aborted && runMgr.budget && runMgr.budget.remaining <= 0) {
+		if (!abortSignal.aborted && recorder.budget && recorder.budget.remaining <= 0) {
 			return {
 				shouldStop: true,
 				forceFinalize: false,

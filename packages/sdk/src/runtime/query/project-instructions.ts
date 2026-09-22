@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 
 import { NamzuError } from '../../types/errors/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import {
 	type Message,
 	type UserMessage,
@@ -11,7 +11,8 @@ import type { ToolResult } from '../../types/tool/index.js'
 
 /** One real registry execution, after retries and its terminal event. */
 export interface ToolResultObservation {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	readonly toolUseId: string
 	readonly toolName: string
 	readonly input: unknown
@@ -24,14 +25,14 @@ export interface ToolResultObservation {
 export interface ProjectInstructionCallbackContext {
 	/** A snapshot of the messages accepted before this callback starts. */
 	readonly messages: readonly Message[]
-	/** The run-owned cancellation signal for any host I/O the callback starts. */
+	/** The turn-owned cancellation signal for any host I/O the callback starts. */
 	readonly signal: AbortSignal
 }
 
 export type ProjectInstructionSnapshotUpdate = UserMessage | null | undefined
 
 /**
- * Host-owned live project policy for one run.
+ * Host-owned live project policy for one turn.
  *
  * Tool results are observed only after the registry has produced its final
  * result and the complete tool-result batch is in `context.messages`. Each

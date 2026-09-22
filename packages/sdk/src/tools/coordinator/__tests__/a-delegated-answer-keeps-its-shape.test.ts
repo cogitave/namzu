@@ -2,7 +2,7 @@
  * A schema-configured child answers with an OBJECT, and both delegation
  * surfaces used to hand the parent its prose instead.
  *
- * The value was never missing — `Run.structuredOutput` has carried it
+ * The value was never missing — `Turn.structuredOutput` has carried it
  * throughout, and the eval harness reads it correctly, which is the proof the
  * parser works and only the ergonomic boundaries drop it. A supervisor fanning
  * out to five specialists received five strings and had to make the model
@@ -30,7 +30,8 @@ const SERIALIZED = JSON.stringify({ orderId: 'A-1', refunded: true, amountUsd: 4
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		sessionId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},

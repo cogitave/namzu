@@ -9,7 +9,6 @@
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { ActorRef } from '../../types/session/actor.js'
 import type { Session } from '../../types/session/entity.js'
-import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CompletionMode,
 	FailureMode,
@@ -17,8 +16,7 @@ import type {
 	SubSessionKind,
 } from '../../types/session/sub-session.js'
 import type { SessionSummaryRef } from '../../types/summary/ref.js'
-import type { MessageId, SessionId, TenantId } from '../ids/index.js'
-import type { Message } from '../message/index.js'
+import type { SessionId, TenantId } from '../ids/index.js'
 import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../session/ids.js'
 
 /**
@@ -46,7 +44,7 @@ export interface CreateSessionParams {
 	projectId: ProjectId
 	/**
 	 * Initial owner of the session. May be `null` for bootstrap scenarios where
-	 * the first Run attaches an actor; the store rejects mutations against
+	 * the first turn attaches an actor; the store rejects mutations against
 	 * actor-less sessions from downstream consumers.
 	 */
 	currentActor: ActorRef | null
@@ -320,54 +318,9 @@ export interface SessionStore {
 	 */
 	deleteSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<void>
 
-	// Messages -----------------------------------------------------------------
-
-	/**
-	 * Append a single message to the session's message log. Returns the
-	 * assigned {@link MessageId}. Write is append-only; the store never
-	 * rewrites or reorders previously persisted messages.
-	 */
-	appendMessage(sessionId: SessionId, message: Message, tenantId: TenantId): Promise<MessageId>
-
-	/**
-	 * Replace the conversation view with a compacted history. OPTIONAL.
-	 *
-	 * This is not deletion of the underlying log. A durable implementation may
-	 * append one replacement record and project every later read from it, which
-	 * keeps the write atomic while preserving the earlier records for recovery.
-	 *
-	 * Optional because existing hosts implement this interface, and manual
-	 * compaction is a host capability rather than a requirement every store must
-	 * gain. A caller that offers durable compaction checks for it and refuses to
-	 * claim persistence when the store cannot perform the replacement.
-	 */
-	replaceMessages?(
-		sessionId: SessionId,
-		messages: readonly Message[],
-		tenantId: TenantId,
-	): Promise<void>
-
-	/**
-	 * Load the full message history for a session in insertion order.
-	 * Returns an empty array when the session has no messages.
-	 *
-	 * Returns payload-only {@link Message} records. Callers that need the
-	 * full persistence envelope (including {@link MessageId} and timestamp)
-	 * should use {@link SessionStore.loadSessionMessages} instead.
-	 */
-	loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]>
-
-	/**
-	 * Load the full {@link SessionMessage} envelope for every persisted
-	 * message in insertion order (Phase 9 Known Delta #7). Unlike
-	 * {@link SessionStore.loadMessages} this preserves the original
-	 * {@link MessageId} and timestamp — required for full-fidelity archival
-	 * round-trips via {@link ArchivalManager.archive}.
-	 *
-	 * Returns an empty array when the session has no messages; cross-tenant
-	 * reads reject with `TenantIsolationError` (Convention #17).
-	 */
-	loadSessionMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly SessionMessage[]>
+	// Messages are not on this contract. They live in the session log and are
+	// read through `foldSessionMessages(log)`; only `TurnRecorder` writes them,
+	// under the session lease.
 
 	// Linkage (pattern doc §10.4 / §14.3) ------------------------------------
 

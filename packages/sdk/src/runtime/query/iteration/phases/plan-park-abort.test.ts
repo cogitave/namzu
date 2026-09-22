@@ -4,7 +4,7 @@ import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../../provider/index.js'
 import { ToolRegistry } from '../../../../registry/index.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../../../../types/hitl/index.js'
-import type { Run, RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent, Turn } from '../../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -16,10 +16,10 @@ import { query } from '../../index.js'
 /**
  * The plan gate is a HITL park, and a Stop has to resolve it.
  *
- * `awaitDecisionOrAbort` races every other park against the run's abort
+ * `awaitDecisionOrAbort` races every other park against the turn's abort
  * signal — the tool review and the iteration checkpoint both go through
  * `awaitDecisionDurably` — but `runPlanGate` awaited `resumeHandler`
- * directly. A run parked on plan approval therefore ignored a Stop until
+ * directly. A turn parked on plan approval therefore ignored a Stop until
  * the host answered, which is the same hang the abort race was introduced
  * to remove elsewhere.
  *
@@ -30,26 +30,26 @@ import { query } from '../../index.js'
 
 registerMock()
 
-/** Long enough for the run to settle if it can, short enough to fail fast. */
+/** Long enough for the turn to settle if it can, short enough to fail fast. */
 const SETTLE_WINDOW_MS = 750
 
 function delay(ms: number): Promise<'hung'> {
 	return new Promise((resolve) => setTimeout(() => resolve('hung'), ms))
 }
 
-interface ParkedPlanRun {
+interface ParkedPlanTurn {
 	/** Resolves the moment the host is asked to approve the plan. */
 	parked: Promise<void>
-	/** Resolves with the run's terminal value, or 'hung' if it never settles. */
-	settled: Promise<Run | 'hung'>
-	events: RunEvent[]
+	/** Resolves with the turn's terminal value, or 'hung' if it never settles. */
+	settled: Promise<Turn | 'hung'>
+	events: SessionEvent[]
 	requests: HITLDecisionRequest[]
 	abort: () => void
 }
 
-function startRunParkedOnPlanApproval(): ParkedPlanRun {
+function startTurnParkedOnPlanApproval(): ParkedPlanTurn {
 	const controller = new AbortController()
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const requests: HITLDecisionRequest[] = []
 
 	let markParked: () => void = () => {}
@@ -64,7 +64,7 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -74,7 +74,7 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 			requests.push(request)
 			markParked()
 			// The host that never answers. This is the ordinary shape of a
-			// parked run: a human is reading the plan, or an approval queue is
+			// parked turn: a human is reading the plan, or an approval queue is
 			// holding it for one, and the SDK has no idea which.
 			return new Promise<HITLResumeDecision>(() => {})
 		},
@@ -85,8 +85,8 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 		},
 	})
 
-	const settled = (async (): Promise<Run | 'hung'> => {
-		// A manual drain rather than `for await`, because the run's terminal
+	const settled = (async (): Promise<Turn | 'hung'> => {
+		// A manual drain rather than `for await`, because the turn's terminal
 		// value is the thing under test and `for await` discards it.
 		const iterator = generator[Symbol.asyncIterator]()
 		try {
@@ -105,13 +105,13 @@ function startRunParkedOnPlanApproval(): ParkedPlanRun {
 		settled: Promise.race([settled, delay(SETTLE_WINDOW_MS)]),
 		events,
 		requests,
-		abort: () => controller.abort(new Error('operator stopped the run')),
+		abort: () => controller.abort(new Error('operator stopped the turn')),
 	}
 }
 
-describe('a Stop while the run is parked on plan approval', () => {
+describe('a Stop while the turn is parked on plan approval', () => {
 	it('resolves the park as cancelled instead of waiting for the host', async () => {
-		const run = startRunParkedOnPlanApproval()
+		const run = startTurnParkedOnPlanApproval()
 
 		await run.parked
 		// The park is real: the host was asked for a plan approval and has not
@@ -122,18 +122,18 @@ describe('a Stop while the run is parked on plan approval', () => {
 
 		const outcome = await run.settled
 		expect(outcome).not.toBe('hung')
-		expect((outcome as Run).status).toBe('cancelled')
-		expect((outcome as Run).stopReason).toBe('cancelled')
+		expect((outcome as Turn).status).toBe('cancelled')
+		expect((outcome as Turn).stopReason).toBe('cancelled')
 	})
 
 	it('reports the cancellation on the event stream', async () => {
-		const run = startRunParkedOnPlanApproval()
+		const run = startTurnParkedOnPlanApproval()
 
 		await run.parked
 		run.abort()
 		await run.settled
 
-		const completed = run.events.find((event) => event.type === 'run_completed')
+		const completed = run.events.find((event) => event.type === 'turn_completed')
 		expect(completed).toMatchObject({ stopReason: 'cancelled' })
 	})
 })

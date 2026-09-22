@@ -8,7 +8,7 @@ import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
-import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
+import { SessionPaths } from '../../session/paths.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
@@ -22,7 +22,7 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * `AgentManager` spawns and what the estate's own applications call. It
  * forwarded none of the loop-control seams on `QueryParams`, so a per-tool
  * deadline, a retry policy, a guardrail or a stop condition was reachable
- * only by dropping to `query()` and rebuilding the run wiring by hand.
+ * only by dropping to `query()` and rebuilding the turn wiring by hand.
  *
  * A feature a consumer cannot reach is a feature that does not exist for
  * them, so these assert reachability rather than behavior — the behavior
@@ -83,17 +83,13 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		const stateRoot = await mkdtemp(join(tmpdir(), 'namzu-reach-state-'))
 		dirs.push(stateRoot)
 
+		const paths = new SessionPaths({ home: stateRoot, slug: '-reach' })
 		const result = await agent().run(
 			{ messages: [createUserMessage('go')], workingDirectory },
-			{ ...config, pathBuilder: new DefaultPathBuilder(stateRoot) },
+			{ ...config, paths },
 		)
 
-		const runPath = new DefaultPathBuilder(stateRoot).runDir(
-			config.projectId as ProjectId,
-			config.sessionId as SessionId,
-			result.runId,
-		)
-		expect(existsSync(runPath)).toBe(true)
+		expect(existsSync(paths.sessionLog({ sessionId: result.sessionId }))).toBe(true)
 		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)
 	})
 
@@ -175,7 +171,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		// A step is recorded per TOOL-CALLING turn: a text-only turn breaks
 		// out of the loop before `recordStep` runs, so drive one tool call.
 		// (That the final text turn produces no step is worth revisiting on
-		// its own — it is a real hole in `Run.steps` — but changing loop
+		// its own — it is a real hole in `Turn.steps` — but changing loop
 		// semantics is not what this test is for.)
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'read_file', args: {} }] }, { text: 'done' }],
@@ -195,7 +191,7 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 })
 
 describe('SupervisorAgent forwards the durable layout seam', () => {
-	it('writes its run only below the injected path builder', async () => {
+	it('writes its turn only below the injected path builder', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-supervisor-reach-'))
 		const stateRoot = await mkdtemp(join(tmpdir(), 'namzu-supervisor-state-'))
 		dirs.push(workingDirectory, stateRoot)
@@ -232,16 +228,15 @@ describe('SupervisorAgent forwards the durable layout seam', () => {
 			topicId: 'c6e9492e-e27d-461e-a820-6b2cf9a7b3ae' as TopicId,
 			projectId: '6bb45fce-1fff-4b69-9226-df7b5778ca2c' as ProjectId,
 			tenantId: 'ed2de0d4-61b2-41f3-87a5-2ec372d324f1' as TenantId,
-			pathBuilder: new DefaultPathBuilder(stateRoot),
+			paths: new SessionPaths({ home: stateRoot, slug: '-reach' }),
 		} as never)
 
+		expect(result.sessionId).toBe('4c21c3a0-fd74-4425-8175-3e3e3d436269')
 		expect(
 			existsSync(
-				new DefaultPathBuilder(stateRoot).runDir(
-					'6bb45fce-1fff-4b69-9226-df7b5778ca2c' as ProjectId,
-					'4c21c3a0-fd74-4425-8175-3e3e3d436269' as SessionId,
-					result.runId,
-				),
+				new SessionPaths({ home: stateRoot, slug: '-reach' }).sessionLog({
+					sessionId: result.sessionId,
+				}),
 			),
 		).toBe(true)
 		expect(existsSync(join(workingDirectory, '.namzu'))).toBe(false)
@@ -290,7 +285,7 @@ describe('the <env> block keys on what a tool declares, not its name', () => {
 	})
 })
 
-describe('a provider is not handed the live run array', () => {
+describe('a provider is not handed the live turn array', () => {
 	it('what a driver retained at turn 1 still reads as turn 1 afterwards', async () => {
 		// `runMgr.messages` is the live array and the loop pushes onto it
 		// after the call returns, so a driver that retained its input watched
@@ -300,7 +295,7 @@ describe('a provider is not handed the live run array', () => {
 			turns: [{ toolCalls: [{ name: 'read_file', args: {} }] }, { text: 'done' }],
 		})
 		// Retain the REFERENCE, exactly as a logging or caching driver would,
-		// and read it only after the whole run has finished. Reading it
+		// and read it only after the whole turn has finished. Reading it
 		// during the call proves nothing — the divergence appears later.
 		const retained: (readonly unknown[])[] = []
 		const original = provider.chatStream.bind(provider)

@@ -187,7 +187,7 @@ export type HeadlessExpansion =
  *
  * `namzu run "/ozet hedef.js"` used to send that string to the model verbatim.
  * The model, reasonably, tried to make sense of it — offering to create a file
- * called `ozet hedef.js`. The run exited 0 with confident output that had
+ * called `ozet hedef.js`. The turn exited 0 with confident output that had
  * nothing to do with the command. It did not fail; it quietly did something
  * else, which is the shape worth removing.
  *

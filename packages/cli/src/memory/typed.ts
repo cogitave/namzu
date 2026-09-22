@@ -105,7 +105,7 @@ export function composeStoredMemoryPrompt(index: RenderedMemoryIndex): string | 
 	return [
 		'## Stored memories (index)',
 		'',
-		'Memories saved in earlier sessions, one line each: `- [name](name.md) — description`. Read one with read_memory (by name) when it bears on the task. Correct or archive a wrong one with update_memory rather than saving a second copy. Memories are point-in-time: verify a file, function or flag a memory names against the current code before relying on it. What earlier runs recorded on their own is not listed here; search_memory finds it.',
+		'Memories saved in earlier sessions, one line each: `- [name](name.md) — description`. Read one with read_memory (by name) when it bears on the task. Correct or archive a wrong one with update_memory rather than saving a second copy. Memories are point-in-time: verify a file, function or flag a memory names against the current code before relying on it. What earlier turns recorded on their own is not listed here; search_memory finds it.',
 		'',
 		index.text,
 	].join('\n')
@@ -131,7 +131,7 @@ export interface CuratedNotesImport {
 	readonly path: string
 	/** Top-level bullets the file holds, each counted once. */
 	readonly found: number
-	/** Memories created by this run. */
+	/** Memories created by this turn. */
 	readonly copied: number
 	/** Bullets already in stored memory, by an earlier import, a `#note`, or by hand. */
 	readonly alreadyStored: number
@@ -218,7 +218,7 @@ export function curatedBullets(text: string): string[] {
  * Create the memory for one curated bullet, false when it is already stored.
  *
  * Under the name its text slugs to, first: the store refuses a taken name
- * inside its lock, so two runs copying the same bullet at once write it once,
+ * inside its lock, so two turns copying the same bullet at once write it once,
  * the second finding the first's record by its source digest. A name held by
  * a memory with the same text is that bullet already stored; one held by an
  * unrelated memory falls back to a suffixed name.

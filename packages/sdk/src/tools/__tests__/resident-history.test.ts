@@ -2,12 +2,13 @@ import { expect, it, vi } from 'vitest'
 import type { ResidentHistorySource } from '../../manager/resident/history.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ToolContext } from '../../types/tool/index.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { buildResidentHistoryTools } from '../resident-history.js'
 
 function context(): ToolContext {
 	return {
-		runId: generateRunId(),
+		sessionId: generateSessionId(),
+		turnId: generateTurnId(),
 		workingDirectory: process.cwd(),
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -53,7 +54,7 @@ it('resolves ownership on every call and does not expose a rejected source or it
 	const registry = new ToolRegistry()
 	registry.register(
 		buildResidentHistoryTools((ctx) => {
-			if (ctx.runId !== owner.runId) throw new Error('secret host path or tenant detail')
+			if (ctx.turnId !== owner.turnId) throw new Error('secret host path or tenant detail')
 			return {
 				scope: {
 					tenantId: 'tenant',

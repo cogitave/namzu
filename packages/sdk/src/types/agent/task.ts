@@ -1,10 +1,10 @@
-import type { TokenBudget } from '../../run/token-budget.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { ActorRef } from '../../types/session/actor.js'
 import type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
 import type { ResumeHandler } from '../hitl/index.js'
-import type { RunId, SessionId, TaskId, TenantId } from '../ids/index.js'
+import type { SessionId, TaskId, TenantId, TurnId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
-import type { RunEventListener } from '../run/events.js'
+import type { SessionEventListener } from '../session/events.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
 import type { AgentInput, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { Agent } from './core.js'
@@ -24,19 +24,31 @@ export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
 }
 
 /**
- * Where a delegated child keeps its run state, as its parent chose it.
+ * Where a child session keeps its state, as its parent chose it.
  *
- * `memory`: the parent's run store is in memory and it named no path builder,
- * so the child runs in memory too. {@link AgentManager.sendMessage} gives the
- * child a fresh `InMemoryRunStore` (a run store is bound to one run) and, when
- * the parent named one, the parent's `checkpointStore`, so the child writes
- * nothing under `defaultStateRoot()`. A child config that already names a
- * `runStore` or a `pathBuilder` keeps what it names.
+ * `memory`: the parent's session log is in memory and it named no
+ * `SessionPaths`, so the child session runs in memory too.
+ * {@link AgentManager.sendMessage} gives the child a fresh
+ * `InMemorySessionLog` and, when the parent named one, the parent's
+ * `checkpointStore`, so the child writes nothing under `NAMZU_HOME`.
+ *
+ * `disk`: the parent's session is on disk in the layout `paths` (the one it
+ * named, or the default for its working directory under `NAMZU_HOME`). The
+ * child's log goes at `<parent-session-dir>/subagents/<child-id>.jsonl`
+ * beside its `<child-id>.meta.json`, nested under every ancestor.
+ *
+ * A child config that already names a `sessionLog` or `paths` keeps what it
+ * names.
  */
-export interface ChildRunStorage {
-	readonly kind: 'memory'
-	readonly checkpointStore?: import('../run/checkpoint-store.js').CheckpointStore
-}
+export type ChildSessionStorage =
+	| {
+			readonly kind: 'memory'
+			readonly checkpointStore?: import('../../store/checkpoint/index.js').SessionCheckpointStore
+	  }
+	| {
+			readonly kind: 'disk'
+			readonly paths: import('../../session/paths.js').SessionPaths
+	  }
 
 /**
  * Context carried into {@link AgentManager.sendMessage}. `tenantId`,
@@ -45,7 +57,11 @@ export interface ChildRunStorage {
  * must provide the full scoping set.
  */
 export interface AgentTaskContext {
-	parentRunId: RunId
+	/** The session that is delegating. */
+	parentSessionId: SessionId
+
+	/** The parent turn whose tool call is spawning the child. */
+	parentTurnId: TurnId
 
 	parentAgentId: string
 
@@ -54,7 +70,7 @@ export interface AgentTaskContext {
 	depth: number
 
 	/** Shared authority for this parent and every delegated descendant. */
-	budget: TokenBudget
+	budget: SessionTokenBudget
 
 	factoryOptions?: AgentFactoryOptions
 
@@ -80,10 +96,10 @@ export interface AgentTaskContext {
 	resumeHandler?: ResumeHandler
 
 	/**
-	 * The tool-result screens in force for the parent run, handed down so a
+	 * The tool-result screens in force for the parent session, handed down so a
 	 * delegated child screens its results the same way.
 	 *
-	 * A child is a fresh run with its own executor, so without this it
+	 * A child is a fresh turn with its own executor, so without this it
 	 * installs `DEFAULT_TOOL_RESULT_GUARDRAILS` whatever the parent decided —
 	 * and a host that turned the screens off with `[]` (or substituted a
 	 * `passthroughTools` exemption for a tool it knows) would find the
@@ -94,7 +110,7 @@ export interface AgentTaskContext {
 	 * stamps this onto the child config after the builder runs.
 	 *
 	 * Absent means the parent stated no policy of its own, and the child
-	 * installs the shipped default — which is what every run does when its
+	 * installs the shipped default — which is what every turn does when its
 	 * host configured nothing.
 	 */
 	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
@@ -117,14 +133,14 @@ export interface AgentTaskContext {
 	readonly toolDenies?: readonly string[]
 
 	/**
-	 * Where the parent keeps its run state, handed to every child it
-	 * delegates to. See {@link ChildRunStorage}. `SupervisorAgent` sets it
-	 * from its own `runStore` and `pathBuilder`; a host that builds its own
+	 * Where the parent keeps its turn state, handed to every child it
+	 * delegates to. See {@link ChildSessionStorage}. `SupervisorAgent` sets it
+	 * from its own `sessionLog` and `paths`; a host that builds its own
 	 * context for a `LocalTaskScheduler` beside an in-memory `query()` sets it
 	 * the same way. Absent: children resolve their storage from their own
 	 * config, as before.
 	 */
-	readonly childStorage?: ChildRunStorage
+	readonly childStorage?: ChildSessionStorage
 
 	/** Isolation boundary. Required per session-hierarchy.md §12.1. */
 	tenantId: TenantId
@@ -160,7 +176,7 @@ export interface AgentTaskContext {
 }
 
 /** Budget authority shared by an agent task and its descendants. */
-export type AgentTaskBudget = TokenBudget
+export type AgentTaskBudget = SessionTokenBudget
 
 export interface AgentTask {
 	taskId: TaskId
@@ -178,7 +194,7 @@ export interface AgentTask {
 
 	evictAfter?: number
 
-	runEventListener?: RunEventListener
+	sessionEventListener?: SessionEventListener
 }
 
 /**
@@ -207,9 +223,9 @@ export interface SendMessageOptions {
 	 * Display grouping for the delegated child, carried onto its
 	 * `agent_pending` event so a consumer watching from outside this process
 	 * can group the child the way this caller meant. Reach, not durability:
-	 * that event goes straight to a host's listener and enters no run's log,
+	 * that event goes straight to a host's listener and enters no session log,
 	 * so nothing here is persisted by the kernel. See the `agent_pending`
-	 * variant in `types/run/events.ts` for the full contract.
+	 * variant in `types/session/events.ts` for the full contract.
 	 *
 	 * These fields are display annotations only; they do not create
 	 * dependencies, barriers, or serial execution. The kernel reads none of

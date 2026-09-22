@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { eventTexts } from '../../evidence/index-page.js'
+import { recordTexts } from '../../evidence/index-page.js'
 import { passageMatcher } from '../../evidence/passages.js'
 import { EvidenceQueryError, evidenceMatcher, evidenceTexts, ftsMatchExpression } from '../fts.js'
 import type { EvidenceHit, SessionIndex } from '../index.js'
@@ -58,9 +58,9 @@ afterEach(() => {
 })
 
 /**
- * Today's evidence search, applied to the same records: `eventTexts` picks
+ * Today's evidence search, applied to the same records: `recordTexts` picks
  * the text parts and `passageMatcher` finds the first passage in each, as
- * `store/evidence/disk.ts` does for a run's event log.
+ * `store/evidence/disk.ts` does for a turn's event log.
  */
 async function todaysSearch(query: (typeof QUERIES)[number]): Promise<EvidenceHit[]> {
 	const hits: EvidenceHit[] = []
@@ -72,7 +72,7 @@ async function todaysSearch(query: (typeof QUERIES)[number]): Promise<EvidenceHi
 	)
 	for (const log of logs) {
 		for await (const { record } of readIndexableRecords(log.logPath)) {
-			const parts = eventTexts(record as unknown as Record<string, unknown>)
+			const parts = recordTexts(record as unknown as Record<string, unknown>)
 			parts.forEach((part, index) => {
 				const passage = match(part.text, 0)
 				if (passage === undefined) return
@@ -164,7 +164,7 @@ describe('evidence rules', () => {
 	it('extracts the same text parts as today’s extraction', async () => {
 		for (const log of await discoverSessionLogs(home)) {
 			for await (const { record } of readIndexableRecords(log.logPath)) {
-				const today = eventTexts(record as unknown as Record<string, unknown>)
+				const today = recordTexts(record as unknown as Record<string, unknown>)
 				const expected =
 					record.type === 'tool_completed'
 						? today.map((part) => ({

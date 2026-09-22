@@ -17,7 +17,7 @@ import { dirname } from 'node:path'
  * the mechanism meant to prevent it.
  *
  * This is not hypothetical for this SDK. The cross-process park and unpark
- * handoff — one process suspending a run and another resuming it — is a
+ * handoff — one process suspending a turn and another resuming it — is a
  * design where two processes legitimately touch the same records, and it is
  * the feature these stores exist to serve. One store already got this
  * right; the rest inherited the fixed name.

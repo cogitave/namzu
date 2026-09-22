@@ -19,13 +19,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const recordTokenUsage = vi.fn()
 const recordToolCall = vi.fn()
-const recordRunDuration = vi.fn()
+const recordTurnDuration = vi.fn()
 const recordModelDuration = vi.fn()
 
 vi.mock('@namzu/sdk', () => ({
 	recordTokenUsage: (...args: unknown[]) => recordTokenUsage(...args),
 	recordToolCall: (...args: unknown[]) => recordToolCall(...args),
-	recordRunDuration: (...args: unknown[]) => recordRunDuration(...args),
+	recordTurnDuration: (...args: unknown[]) => recordTurnDuration(...args),
 	recordModelDuration: (...args: unknown[]) => recordModelDuration(...args),
 }))
 
@@ -34,17 +34,17 @@ const { createPlatformMetrics } = await import('../metrics.js')
 beforeEach(() => {
 	recordTokenUsage.mockClear()
 	recordToolCall.mockClear()
-	recordRunDuration.mockClear()
+	recordTurnDuration.mockClear()
 	recordModelDuration.mockClear()
 })
 
 describe('the seconds-to-milliseconds boundary', () => {
-	it('multiplies a run duration by 1000 before it reaches the recorder', () => {
-		createPlatformMetrics().recordRunDuration('completed', 1.5)
+	it('multiplies a turn duration by 1000 before it reaches the recorder', () => {
+		createPlatformMetrics().recordTurnDuration('completed', 1.5)
 
 		// 1500, not 1.5 and not 0.0015. Dividing instead of multiplying, or
 		// dropping the conversion, both leave a number the recorder accepts.
-		expect(recordRunDuration).toHaveBeenCalledWith('completed', 1500)
+		expect(recordTurnDuration).toHaveBeenCalledWith('completed', 1500)
 	})
 
 	it('multiplies a model latency by 1000 too', () => {
@@ -55,11 +55,11 @@ describe('the seconds-to-milliseconds boundary', () => {
 
 	it('converts a sub-millisecond duration rather than rounding it away', () => {
 		// 0.0004s is 0.4ms. A conversion that floored to whole milliseconds
-		// would report zero for every fast run, and a histogram of zeroes
+		// would report zero for every fast turn, and a histogram of zeroes
 		// looks like a working instrument.
-		createPlatformMetrics().recordRunDuration('completed', 0.0004)
+		createPlatformMetrics().recordTurnDuration('completed', 0.0004)
 
-		expect(recordRunDuration).toHaveBeenCalledWith('completed', 0.4)
+		expect(recordTurnDuration).toHaveBeenCalledWith('completed', 0.4)
 	})
 })
 
@@ -97,7 +97,7 @@ describe('resolution is deferred, which is why this returns a bag of closures', 
 
 		expect(recordTokenUsage).not.toHaveBeenCalled()
 		expect(recordToolCall).not.toHaveBeenCalled()
-		expect(recordRunDuration).not.toHaveBeenCalled()
+		expect(recordTurnDuration).not.toHaveBeenCalled()
 		expect(recordModelDuration).not.toHaveBeenCalled()
 	})
 

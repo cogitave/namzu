@@ -10,5 +10,5 @@ export {
 	UnknownReadModelError,
 } from './registry.js'
 export type { ReadModel } from './registry.js'
-export { RUN_STATUS_READ_MODEL_ID, createRunStatusReadModel } from './run-status.js'
-export type { RunStatusReadModelOptions, RunStatusState } from './run-status.js'
+export { SESSION_STATUS_READ_MODEL_ID, createSessionStatusReadModel } from './session-status.js'
+export type { SessionStatusReadModelOptions, SessionStatusState } from './session-status.js'

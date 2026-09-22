@@ -22,7 +22,7 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { cancelCauseOf, generateRunId } from '@namzu/sdk'
+import { cancelCauseOf, generateSessionId } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
@@ -37,8 +37,8 @@ const decisions: PermissionDecision[] = []
 /** Per-turn modes and executions observed beyond the App boundary. */
 const permissionModes: unknown[] = []
 const turnSignals: Array<AbortSignal | undefined> = []
-const firstReviewRun = generateRunId()
-const secondReviewRun = generateRunId()
+const firstReviewSession = generateSessionId()
+const secondReviewSession = generateSessionId()
 let parallelApprovals = false
 let toolExecutions = 0
 let requestedToolCalls: PermissionRequest['toolCalls'] = [
@@ -81,6 +81,8 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -124,7 +126,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				mcpFailed: [],
 				agentIds: [],
 				configNotices: [],
-				// The TUI never resumes a durable run; a stub that answered would
+				// The TUI never resumes a durable turn; a stub that answered would
 				// make a resume look reachable from here.
 				resumeDurable: async () => {
 					throw new Error('not used by the TUI')
@@ -155,16 +157,17 @@ vi.mock('../agent.js', async (importOriginal) => {
 						return
 					}
 					if (opts?.permissionMode === 'strict') return
-					const req: PermissionRequest = {
+					// The session the review came from: a child's, so the prompt names it.
+					const req = {
 						toolCalls: requestedToolCalls,
-						runId: firstReviewRun,
-					}
+						sessionId: firstReviewSession,
+					} as PermissionRequest
 					if (parallelApprovals) {
 						await Promise.all(
 							[
 								req,
 								{
-									runId: secondReviewRun,
+									sessionId: secondReviewSession,
 									toolCalls: [
 										{
 											id: 'call-2',
@@ -173,7 +176,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 											input: { command: 'echo second-review' },
 										},
 									],
-								},
+								} as PermissionRequest,
 							].map(async (request) => {
 								const decision = await opts?.onPermission?.(request)
 								if (decision) decisions.push(decision)
@@ -693,8 +696,8 @@ describe('concurrent permission requests', () => {
 		parallelApprovals = true
 		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 		expect(lastFrame()).toContain('1 more awaiting approval')
-		expect(lastFrame()).toContain(`Run: ${firstReviewRun}`)
-		expect(lastFrame()).not.toContain(secondReviewRun)
+		expect(lastFrame()).toContain(`Session: ${firstReviewSession}`)
+		expect(lastFrame()).not.toContain(secondReviewSession)
 		expect(lastFrame()).not.toContain('echo second-review')
 		settle()
 		stdin.write('y')
@@ -702,8 +705,8 @@ describe('concurrent permission requests', () => {
 		await tick(60)
 		expect(decisions).toEqual([{ kind: 'approve' }])
 		expect(lastFrame()).toContain('echo second-review')
-		expect(lastFrame()).toContain(`Run: ${secondReviewRun}`)
-		expect(lastFrame()).not.toContain(firstReviewRun)
+		expect(lastFrame()).toContain(`Session: ${secondReviewSession}`)
+		expect(lastFrame()).not.toContain(firstReviewSession)
 		stdin.write('\r')
 		await tick(60)
 		expect(decisions).toHaveLength(1)

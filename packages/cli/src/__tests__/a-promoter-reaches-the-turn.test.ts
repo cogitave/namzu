@@ -1,10 +1,10 @@
 /**
- * What the run learned reaches the store the next run reads from.
+ * What the turn learned reaches the store the next turn reads from.
  *
  * `promoteMemory` is invoked once at settle with the compaction pass's
  * structured output, and **no shipped app supplied the hook** — so every
- * decision, discovery and stated requirement a run extracted was serialized
- * into one system message and dropped when the run ended. The promoter's own
+ * decision, discovery and stated requirement a turn extracted was serialized
+ * into one system message and dropped when the turn ended. The promoter's own
  * unit tests prove what it writes; they prove nothing about whether anybody
  * asks it, and the hop from `createAgentSession` to `query()` is one line.
  *
@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { ToolRegistry } from '@namzu/sdk'
-import type { RunId, RunMemoryCandidate, ToolContext } from '@namzu/sdk'
+import type { SessionId, SessionMemoryCandidate, ToolContext, TurnId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -85,9 +85,10 @@ function detectedAnthropic(): DetectedProvider[] {
 	]
 }
 
-function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
+function candidate(over: Partial<SessionMemoryCandidate> = {}): SessionMemoryCandidate {
 	return {
-		runId: 'a6ef4a3c-dd6b-4115-90d3-9fb61cdb2a81' as RunMemoryCandidate['runId'],
+		sessionId: '019a0000-0000-7000-8000-0000000000b1' as SessionId,
+		turnId: 'a6ef4a3c-dd6b-4115-90d3-9fb61cdb2a81' as TurnId,
 		task: 'wire the invoice job',
 		decisions: [],
 		discoveries: [],
@@ -100,7 +101,7 @@ function candidate(over: Partial<RunMemoryCandidate> = {}): RunMemoryCandidate {
 	}
 }
 
-async function drive(): Promise<(c: RunMemoryCandidate) => void | Promise<void>> {
+async function drive(): Promise<(c: SessionMemoryCandidate) => void | Promise<void>> {
 	const { createAgentSession } = await import('../tui/agent.js')
 	const session = await createAgentSession(prefs, detectedAnthropic(), { cwd })
 	for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
@@ -108,16 +109,17 @@ async function drive(): Promise<(c: RunMemoryCandidate) => void | Promise<void>>
 	}
 	expect(queryCalls.length, 'the turn must have reached query()').toBe(1)
 	const promoteMemory = queryCalls[0]?.promoteMemory
-	// Deleting the line that hands it over leaves every run's extracted
-	// knowledge on the floor at settle — silently, because a run that
-	// remembers nothing looks exactly like a run that learned nothing.
+	// Deleting the line that hands it over leaves every turn's extracted
+	// knowledge on the floor at settle — silently, because a turn that
+	// remembers nothing looks exactly like a turn that learned nothing.
 	expect(typeof promoteMemory).toBe('function')
-	return promoteMemory as (c: RunMemoryCandidate) => void | Promise<void>
+	return promoteMemory as (c: SessionMemoryCandidate) => void | Promise<void>
 }
 
 function toolContext(): ToolContext {
 	return {
-		runId: '225ccf73-c558-4774-8681-93fbe9048da9' as RunId,
+		sessionId: '019a0000-0000-7000-8000-0000000000b2' as SessionId,
+		turnId: '225ccf73-c558-4774-8681-93fbe9048da9' as TurnId,
 		workingDirectory: cwd,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -125,7 +127,7 @@ function toolContext(): ToolContext {
 	}
 }
 
-describe('the run memory promoter', () => {
+describe('the turn memory promoter', () => {
 	it('is handed to every turn', async () => {
 		await drive()
 	})
@@ -156,12 +158,12 @@ describe('the run memory promoter', () => {
 			return queryCalls.at(-1) ?? {}
 		}
 		const first = await turn()
-		const promote = first.promoteMemory as (c: RunMemoryCandidate) => Promise<void>
+		const promote = first.promoteMemory as (c: SessionMemoryCandidate) => Promise<void>
 		await promote(candidate({ userRequirements: ['never email an invoice twice'] }))
 		const store = sessionMemoryStore(cwd)
 		expect((await store.list()).totalCount).toBe(1)
 		expect((await store.readIndex()).text).toBe('')
-		// A run's record changes nothing the prompt cache is keyed on.
+		// A turn's record changes nothing the prompt cache is keyed on.
 		expect((await turn()).systemPrompt).toBe(first.systemPrompt)
 	})
 
@@ -305,14 +307,14 @@ describe('the run memory promoter', () => {
 		expect(readFileSync(outsidePath, 'utf-8')).toBe(outsideBytes)
 	})
 
-	it('leaves the store empty for a run that learned nothing', async () => {
+	it('leaves the store empty for a turn that learned nothing', async () => {
 		const promote = await drive()
 
 		await promote(candidate({ files: ['src/a.ts'] }))
 
 		const store = sessionMemoryStore(cwd)
 		// Emptiness, not "the write succeeded". The model reads this store on
-		// later runs, so a record per run is context spent on runs that found
+		// later turns, so a record per turn is context spent on runs that found
 		// nothing.
 		expect((await store.list()).totalCount).toBe(0)
 	})

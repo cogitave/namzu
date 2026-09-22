@@ -93,7 +93,7 @@ guidance is readable but has no retroactively invented preservation evidence.
 
 Each callback must await `context.recordUsage` for every non-overlapping execution,
 including generation, unsuccessful cases, reviewers and other side calls.
-`ResidentLearningReceipt` contains a UUID `runId`, `tokens` and `costUsd`.
+`ResidentLearningReceipt` contains a UUID `turnId`, `tokens` and `costUsd`.
 Unknown fields are `null`. Duplicate UUIDs, including case aliases, are refused;
 an invalid receipt invalidates the stage even if the callback catches the error.
 There are at most 1,024 receipts in one cycle. Token totals must remain safe
@@ -181,7 +181,7 @@ establish the new admission requirement.
 
 The host supplies a synthetic workspace routing convention after observing a
 cold knowledge gap. The experiment separates frozen behavior, retained raw
-correction and generated guidance in fresh runs. The primary activation comparison
+correction and generated guidance in fresh turns. The primary activation comparison
 is guidance versus frozen behavior; the raw-memory control may explain the same
 gain. Confirmation, holdout, reopening and rollback are separately recorded.
 This is a narrow acquired-convention experiment, not a demonstration that

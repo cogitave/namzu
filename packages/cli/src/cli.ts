@@ -270,7 +270,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	}
 
 	// Stopping or inspecting a resident must remain possible with broken config.
-	// Its run action resolves this bridge only after trusting the bound cwd.
+	// Its turn action resolves this bridge only after trusting the bound cwd.
 	const getResidentContext = () =>
 		bindTrustedProjectContext(getRecoveryContext(), getTrustedContext)
 	for (const def of [
@@ -358,7 +358,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					// `!== undefined`, never `??`: an empty list is the operator
 					// switching the screens off, and it is the answer this key
-					// exists for. A truthiness test would drop it and the run
+					// exists for. A truthiness test would drop it and the turn
 					// would install the kernel default instead — the opposite
 					// of what was asked for, in the one case the operator was
 					// explicit about.

@@ -3,21 +3,21 @@
  *
  * `--cwd` was parsed, and reached the session store and the skill search, and
  * stopped there: the agent run itself was started with the PROCESS's directory,
- * so a run pointed at another checkout globbed this one and reported finding
+ * so a turn pointed at another checkout globbed this one and reported finding
  * nothing — which reads as "the file isn't there" rather than "I looked in the
  * wrong place". Nothing caught it because no test ran a file tool against a
  * directory that was not the process's own, so both directories were the same
  * string in every assertion. These two do.
  */
 
-import { existsSync, lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { BackgroundJobRegistry, type ToolRegistry, getBuiltinTools } from '@namzu/sdk'
-import type { RunId, ToolContext } from '@namzu/sdk'
+import type { ToolContext, TurnId } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import { openSessions, startConversation } from '../../integrations/sessions/store.js'
@@ -55,7 +55,8 @@ afterEach(() => {
 
 function toolContext(workingDirectory: string): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId,
+		sessionId: '019a0000-0000-7000-8000-0000000000f4' as ToolContext['sessionId'],
+		turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId,
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -125,20 +126,25 @@ describe('createAgentSession runs where it is told to', () => {
 				stateRoot,
 				scope: parentScope,
 			})
-			const projectRoot = stateRoot
+			const projects = join(stateRoot, 'projects')
+			const [slug, ...others] = readdirSync(projects)
 
 			expect(session.hasProvider).toBe(true)
-			expect(existsSync(join(stateRoot, 'projects'))).toBe(false)
-			expect(lstatSync(projectRoot).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(projectRoot, 'memory')).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(projectRoot, 'tenants')).mode & 0o777).toBe(0o700)
+			// One project directory, private, and everything the session keeps
+			// (memory, session logs, their side directories) sits inside it.
+			expect(others).toEqual([])
+			expect(lstatSync(projects).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(projects, String(slug))).mode & 0o777).toBe(0o700)
+			// No run-era trees beside it.
+			expect(existsSync(join(stateRoot, 'memory'))).toBe(false)
+			expect(existsSync(join(stateRoot, 'tenants'))).toBe(false)
 			expect(existsSync(join(workDir, '.namzu'))).toBe(false)
 			await session.close()
 		},
 	)
 
 	it.runIf(process.platform !== 'win32')(
-		'hands background jobs and the default sandbox to the same run',
+		'hands background jobs and the default sandbox to the same turn',
 		async () => {
 			const { createAgentSession } = await import('../agent.js')
 			const parentScope = await scope()
@@ -166,7 +172,7 @@ describe('createAgentSession runs where it is told to', () => {
 					backgroundJobs: expect.any(BackgroundJobRegistry),
 					backgroundJobOwner: parentScope.sessionId,
 					sandboxProvider: expect.objectContaining({ create: expect.any(Function) }),
-					runConfig: { sandbox: { workspace: 'working-directory' } },
+					turnConfig: { sandbox: { workspace: 'working-directory' } },
 				})
 				expect(tools.map((tool) => tool.name)).toContain('job')
 				expect(
@@ -208,7 +214,7 @@ describe('createAgentSession runs where it is told to', () => {
 		await session.close()
 	})
 
-	it('passes the caller-supplied cwd to the run, not the process directory', async () => {
+	it('passes the caller-supplied cwd to the turn, not the process directory', async () => {
 		const { createAgentSession } = await import('../agent.js')
 		const session = await createAgentSession(prefs, detectedAnthropic(), {
 			cwd: workDir,
@@ -227,7 +233,7 @@ describe('createAgentSession runs where it is told to', () => {
 		expect(queryCalls[0].workingDirectory).toBe(workDir)
 		expect(queryCalls[0].workingDirectory).not.toBe(process.cwd())
 		expect(queryCalls[0]).toMatchObject({
-			runConfig: { sandbox: { workspace: 'working-directory' } },
+			turnConfig: { sandbox: { workspace: 'working-directory' } },
 		})
 		// Keep this cwd-routing test from manufacturing an unrelated legacy
 		// store in the directory whose file-tool behavior it is measuring. CLI
@@ -243,11 +249,11 @@ describe('createAgentSession runs where it is told to', () => {
 		})
 
 		for await (const _ of session.send([{ role: 'user', content: 'hello', timestamp: 0 }])) {
-			// drained; the assertion is on the run configuration
+			// drained; the assertion is on the turn configuration
 		}
 
 		expect(queryCalls[0]).toMatchObject({
-			runConfig: { sandbox: { workspace: 'ephemeral' } },
+			turnConfig: { sandbox: { workspace: 'ephemeral' } },
 		})
 	})
 

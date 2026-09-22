@@ -183,7 +183,7 @@ describe('what the command inherits from the host', () => {
 		// The defect this closes: the host path spawned with `...process.env`,
 		// so a command that printed its environment returned the operator's
 		// provider keys into a transcript that is persisted and re-sent to the
-		// provider on every later turn of the run.
+		// provider on every later turn of the turn.
 		process.env.NAMZU_PROC_FAKE_API_KEY = 'sk-must-not-appear'
 		try {
 			const result = await run({ command: READ('NAMZU_PROC_FAKE_API_KEY') })

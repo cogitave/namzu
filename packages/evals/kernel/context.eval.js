@@ -15,19 +15,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	DefaultPathBuilder,
 	MockLLMProvider,
+	SessionPaths,
 	ToolRegistry,
 	autoApproveHandler,
 	createSlidingWindowReducer,
 	customScorer,
 	drainQuery,
-	evalRunFromRun,
+	evalTurnFromTurn,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 	runExperiment,
+	slugForCwd,
 } from "@namzu/sdk";
 import { z } from "zod";
 
@@ -55,10 +56,10 @@ async function runCase(input) {
 	// case used to leave its directory, and the run state in it, behind.
 	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-ctx-"));
 	try {
-		const run = await drainQuery({
+		const turn = await drainQuery({
 			provider: new MockLLMProvider({ turns: input.turns }),
 			tools: registry(),
-			runConfig: {
+			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,
 				tokenBudget: 1_000_000,
@@ -70,7 +71,10 @@ async function runCase(input) {
 			workingDirectory: scratch,
 			// State under the scratch directory, not the default root: the
 			// directory is removed below, and with it everything the run wrote.
-			pathBuilder: new DefaultPathBuilder(join(scratch, ".namzu")),
+			paths: new SessionPaths({
+				home: join(scratch, ".namzu"),
+				slug: slugForCwd(scratch),
+			}),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
@@ -83,10 +87,10 @@ async function runCase(input) {
 			...(input.contextReducer ? { contextReducer: input.contextReducer } : {}),
 		});
 
-		const evalRun = evalRunFromRun(run);
-		// The scorers below need the final history, which `EvalRun` does not
+		const evalTurn = evalTurnFromTurn(turn);
+		// The scorers below need the final history, which `EvalTurn` does not
 		// carry. Attached rather than widening the shared type for one suite.
-		return Object.assign(evalRun, { finalMessages: run.messages ?? [] });
+		return Object.assign(evalTurn, { finalMessages: turn.messages ?? [] });
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
@@ -95,8 +99,8 @@ async function runCase(input) {
 const call = (id) => ({ id, name: "fetch_a_lot", rawArguments: "{}" });
 
 /** A run must never end holding a tool result whose call is gone. */
-const noOrphanedResults = customScorer("no-orphaned-tool-results", (run) => {
-	const messages = run.finalMessages ?? [];
+const noOrphanedResults = customScorer("no-orphaned-tool-results", (turn) => {
+	const messages = turn.finalMessages ?? [];
 	const callIds = new Set();
 	for (const m of messages) {
 		for (const tc of m.toolCalls ?? []) callIds.add(tc.id);
@@ -117,8 +121,8 @@ const noOrphanedResults = customScorer("no-orphaned-tool-results", (run) => {
 });
 
 /** The system prefix is the agent's identity; compaction must not eat it. */
-const keepsTheSystemFloor = customScorer("keeps-system-floor", (run) => {
-	const messages = run.finalMessages ?? [];
+const keepsTheSystemFloor = customScorer("keeps-system-floor", (turn) => {
+	const messages = turn.finalMessages ?? [];
 	return messages[0]?.role === "system"
 		? { score: 1, reason: "the leading system message survived" }
 		: {
@@ -127,10 +131,10 @@ const keepsTheSystemFloor = customScorer("keeps-system-floor", (run) => {
 			};
 });
 
-const settled = customScorer("settled", (run) =>
-	run.error
-		? { score: 0, reason: `run threw: ${run.error}` }
-		: { score: 1, reason: `settled as ${run.stopReason ?? "unknown"}` },
+const settled = customScorer("settled", (turn) =>
+	turn.error
+		? { score: 0, reason: `turn threw: ${turn.error}` }
+		: { score: 1, reason: `settled as ${turn.stopReason ?? "unknown"}` },
 );
 
 export default async function context() {

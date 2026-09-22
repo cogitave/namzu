@@ -1,7 +1,6 @@
 import { getEventListeners } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -16,14 +15,15 @@ import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { RunEvent } from '../../../types/run/events.js'
 import type { ActorRef } from '../../../types/session/actor.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import {
-	generateRunId,
+	generateSessionId,
 	generateSummaryId,
 	generateTenantId,
+	generateTurnId,
 	generateWorkspaceId,
 } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
@@ -75,7 +75,8 @@ async function harness(configBuilder: NonNullable<AgentDefinition['configBuilder
 	workspaceRegistry.register(backend)
 	const run = vi.fn(
 		async (_input: unknown, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 20, completionTokens: 20 },
 			cost: { ...ZERO_COST },
@@ -127,11 +128,15 @@ async function harness(configBuilder: NonNullable<AgentDefinition['configBuilder
 	})
 	managers.push(manager)
 	const context: AgentTaskContext = {
-		parentRunId: generateRunId(),
+		parentSessionId: parent.id,
+		parentTurnId: generateTurnId(),
 		parentAgentId: 'parent',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(1_000, budgetRunId()),
+		budget: SessionTokenBudget.create(1_000, {
+			rootSessionId: parent.id,
+			rootTurnId: generateTurnId(),
+		}),
 		tenantId,
 		topicId: topic.id,
 		sessionId: parent.id,
@@ -167,7 +172,7 @@ async function expectRolledBack(h: Awaited<ReturnType<typeof harness>>) {
 	expect(h.run).not.toHaveBeenCalled()
 	expect(h.context.budget.remaining).toBe(1_000)
 	expect(getEventListeners(h.context.parentAbortController.signal, 'abort')).toEqual([])
-	expect(h.manager.listByParent(h.context.parentRunId)).toEqual([])
+	expect(h.manager.listByParent(h.context.parentSessionId)).toEqual([])
 	expect(await h.store.getChildren(h.parent.id, h.context.tenantId)).toEqual([])
 	expect(await h.store.listSessionsByProject(h.context.projectId, h.context.tenantId)).toEqual([
 		h.parent,
@@ -175,7 +180,7 @@ async function expectRolledBack(h: Awaited<ReturnType<typeof harness>>) {
 	expect(h.disposeWorkspace).toHaveBeenCalledExactlyOnceWith(h.workspace)
 }
 
-describe('a child runs inside its reservation', () => {
+describe('a child sessions inside its reservation', () => {
 	it.each([
 		{ requested: 0, expected: 500 },
 		{ requested: 10_000, expected: 500 },
@@ -239,7 +244,7 @@ describe('startup owns its resources until the child invocation starts', () => {
 		const h = await harness(async () => {
 			throw failure
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		await expect(
 			h.manager.sendMessage(h.options, h.context, (event) => {
 				events.push(event)
@@ -248,12 +253,12 @@ describe('startup owns its resources until the child invocation starts', () => {
 		await expectRolledBack(h)
 		expect(events.map((event) => event.type)).toEqual([
 			'agent_pending',
-			'subsession_spawned',
+			'child_session_spawned',
 			'agent_failed',
 		])
 	})
 
-	it.each(['agent_pending', 'subsession_spawned'] as const)(
+	it.each(['agent_pending', 'child_session_spawned'] as const)(
 		'rolls back an asynchronous %s listener failure',
 		async (eventType) => {
 			const h = await harness(() => config(100))
@@ -283,7 +288,7 @@ describe('startup owns its resources until the child invocation starts', () => {
 		})
 		const spawning = h.manager.sendMessage(h.options, h.context)
 		await entered
-		h.manager.cancelAll(h.context.parentRunId)
+		h.manager.cancelAll(h.context.parentSessionId)
 		release()
 		await expect(spawning).rejects.toThrow()
 		await expectRolledBack(h)
@@ -314,7 +319,10 @@ describe('parent and descendants share one spending authority', () => {
 	})
 
 	it('inherits the allocated authority after builder and caller overrides', async () => {
-		const unrelated = TokenBudget.create(100_000, budgetRunId())
+		const unrelated = SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		})
 		const h = await harness(() => ({ ...config(1_000), budget: unrelated }))
 		h.options.configOverrides = { budget: unrelated }
 		const task = await h.manager.sendMessage(h.options, h.context)
@@ -322,7 +330,7 @@ describe('parent and descendants share one spending authority', () => {
 		const handed = h.run.mock.calls[0]?.[1].budget
 		expect(handed).toBe(task.context.budget)
 		expect(handed).not.toBe(unrelated)
-		expect(handed?.rootRunId).toBe(h.context.budget.rootRunId)
+		expect(handed?.scope).toEqual(h.context.budget.scope)
 		expect(unrelated.treeTokens).toBe(0)
 	})
 
@@ -331,10 +339,11 @@ describe('parent and descendants share one spending authority', () => {
 		h.run.mockImplementation(async (_input, childConfig) => {
 			const child = childConfig.budget!
 			const grandchild = child.reserve(120)
-			grandchild.bindRun(generateRunId())
+			grandchild.bindTurn(generateSessionId(), generateTurnId())
 			grandchild.settle(40)
 			return {
-				runId: generateRunId(),
+				sessionId: generateSessionId(),
+				turnId: generateTurnId(),
 				status: 'completed',
 				usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 30, completionTokens: 30 },
 				cost: ZERO_COST,
@@ -353,7 +362,7 @@ describe('parent and descendants share one spending authority', () => {
 	it('retains observed usage when a child throws before returning a result', async () => {
 		const h = await harness(() => config(1_000))
 		h.run.mockImplementation(async (_input, childConfig) => {
-			childConfig.budget!.bindRun(generateRunId())
+			childConfig.budget!.bindTurn(generateSessionId(), generateTurnId())
 			childConfig.budget!.recordUsage({
 				...EMPTY_TOKEN_USAGE,
 				totalTokens: 70,
@@ -364,7 +373,7 @@ describe('parent and descendants share one spending authority', () => {
 		const task = await h.manager.sendMessage(h.options, h.context)
 		await h.manager.waitForCompletion(task.taskId)
 		expect(task.result?.usage.totalTokens).toBe(70)
-		expect(task.result?.runId).toBe(task.context.budget.runId)
+		expect(task.result?.turnId).toBe(task.context.budget.turnId)
 		expect(task.result?.cost.unpricedTokens).toBe(70)
 		expect(h.context.budget.remaining).toBe(500)
 		expect(h.context.budget.summary().reservedTokens).toBe(430)
@@ -373,7 +382,8 @@ describe('parent and descendants share one spending authority', () => {
 	it('charges actual overage instead of hiding spend above the child reservation', async () => {
 		const h = await harness(() => config(1_000))
 		h.run.mockResolvedValue({
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 600, completionTokens: 600 },
 			cost: ZERO_COST,
@@ -399,8 +409,9 @@ describe('parent and descendants share one spending authority', () => {
 		})
 		h.run.mockImplementation(async (_input, childConfig) => {
 			const budget = childConfig.budget!
-			const runId = generateRunId()
-			budget.bindRun(runId)
+			const sessionId = generateSessionId()
+			const turnId = generateTurnId()
+			budget.bindTurn(sessionId, turnId)
 			const requestId = await budget.beginRequest()
 			markStarted()
 			await held
@@ -411,7 +422,8 @@ describe('parent and descendants share one spending authority', () => {
 			}
 			await budget.finishRequest(requestId, usage)
 			return {
-				runId,
+				sessionId,
+				turnId,
 				status: 'cancelled',
 				usage,
 				cost: ZERO_COST,
@@ -440,7 +452,8 @@ it('holds the grant after cancellation until a child without a request marker ac
 	h.run.mockImplementation(async () => {
 		await held
 		return {
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			status: 'cancelled',
 			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 80, completionTokens: 80 },
 			cost: ZERO_COST,

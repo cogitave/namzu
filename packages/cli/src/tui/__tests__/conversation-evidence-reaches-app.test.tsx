@@ -1,4 +1,4 @@
-import { type RunEvent, ToolRegistry, createToolPresenter, generateRunId } from '@namzu/sdk'
+import { type SessionEvent, ToolRegistry, createToolPresenter, generateTurnId } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -7,6 +7,8 @@ let calls: { name: string; result: string; isError?: boolean }[] = []
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -26,13 +28,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async () => fakeAgentSession({
 			send: async function* () {
 				const presenter = createToolPresenter(new ToolRegistry())
-				const runId = generateRunId()
+				const turnId = generateTurnId()
 				for (const [index, call] of calls.entries()) {
 					for (const event of [
-						{ type: 'tool_executing', runId, toolUseId: `call-${index}`, toolName: call.name, input: {} },
-						{ type: 'tool_completed', runId, toolUseId: `call-${index}`, toolName: call.name, result: call.result, isError: call.isError ?? false },
+						{ type: 'tool_executing', turnId, toolUseId: `call-${index}`, toolName: call.name, input: {} },
+						{ type: 'tool_completed', turnId, toolUseId: `call-${index}`, toolName: call.name, result: call.result, isError: call.isError ?? false },
 					]) {
-						const mapped = actual.toAgentEvent(event as RunEvent, presenter)
+						const mapped = actual.toAgentEvent(event as unknown as SessionEvent, presenter)
 						if (mapped) yield mapped
 					}
 				}
@@ -62,7 +64,7 @@ async function start(cols: number) {
 
 it.each([40, 100])('shows preview and original error status, then opens the full JSON at %i columns', async (cols) => {
 	calls = [{ name: 'read_conversation', result: JSON.stringify({
-		runId: 'bcd3d4e0-ea88-4cfa-afb1-ed135da49ea8', seq: 2, part: 0,
+		turnId: 'bcd3d4e0-ea88-4cfa-afb1-ed135da49ea8', seq: 2, part: 0,
 		recordKind: 'tool_result', source: 'tool_completed', toolName: 'read', isError: true,
 		text: `${'retained '.repeat(60)}FINAL_RECEIPT`, offset: 0, complete: true, retainedPreview: true,
 	}) }]
@@ -88,7 +90,7 @@ it.each([40, 100])('shows preview and original error status, then opens the full
 
 it('renders incomplete search and empty lookup honestly, and leaves retrieval failures visible', async () => {
 	calls = [
-		{ name: 'search_conversation', result: JSON.stringify({ matches: [], incomplete: true, unavailableRuns: 1 }) },
+		{ name: 'search_conversation', result: JSON.stringify({ matches: [], incomplete: true, unavailable: 1 }) },
 		{ name: 'read_conversation', result: JSON.stringify({ text: '', offset: 0, complete: false, retainedPreview: false, nextCursor: 'opaque' }) },
 		{ name: 'read_conversation', isError: true, result: 'Cannot read this evidence address.' },
 	]
@@ -97,7 +99,7 @@ it('renders incomplete search and empty lookup honestly, and leaves retrieval fa
 	await until(() => painted().includes('failed: Cannot read this evidence address.'))
 	expect(painted()).toContain('0 matches on this page')
 	expect(painted()).toContain('Search incomplete · absence is inconclusive')
-	expect(painted()).toContain('1 run(s) unavailable')
+	expect(painted()).toContain('1 record(s) unavailable')
 	expect(painted()).toContain('Locating retained text · continue scan')
 	expect(painted()).not.toContain('Selected retained part returned')
 })

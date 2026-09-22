@@ -132,7 +132,7 @@ describe('SDK test working-directory owner', () => {
 			expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(1)
 			// stderr, not stdout: Vitest 4 prints the "Failed Tests" diagnostic
 			// block — the assertion message, the source frame and the stack —
-			// on stderr, where Vitest 3 put it on stdout. The run summary
+			// on stderr, where Vitest 3 put it on stdout. The turn summary
 			// above stays on stdout, which is why the passing case one test up
 			// still reads the summary from there and did not have to move.
 			//

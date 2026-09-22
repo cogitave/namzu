@@ -47,7 +47,8 @@ function detectedAnthropic(): DetectedProvider[] {
 
 const review = {
 	type: 'tool_review',
-	runId: '64e436d8-4c5f-46f7-b3fb-35ca1a31a891',
+	sessionId: '019a0000-0000-7000-8000-00000000a0a1',
+	turnId: '64e436d8-4c5f-46f7-b3fb-35ca1a31a891',
 	checkpointId: '45a5d18a-3a8a-48a4-9274-bd2a85ba7e18',
 	toolCalls: [
 		{
@@ -99,12 +100,12 @@ describe('the TUI permission-mode hop', () => {
 		const handler = queryCalls[0]?.resumeHandler as
 			| ((request: unknown) => Promise<unknown>)
 			| undefined
-		expect(queryCalls[0]?.runConfig).toMatchObject({ permissionMode: 'auto' })
+		expect(queryCalls[0]?.turnConfig).toMatchObject({ permissionMode: 'auto' })
 		expect(handler, 'createAgentSession did not install a resume handler').toBeTypeOf('function')
 		expect(await handler?.(review)).toEqual({
 			action: 'reject_tools',
 			feedback:
-				'Refused: this run only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
+				'Refused: this turn only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
 		})
 		expect(onPermission).not.toHaveBeenCalled()
 	})

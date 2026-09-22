@@ -11,9 +11,9 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
-import { isEphemeralEvent } from '../../../types/run/events.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import { isEphemeralEvent } from '../../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -51,7 +51,7 @@ async function runWith(opts: {
 	readonly resultChars: number
 	readonly filler: number
 	readonly tokenBudget: number
-}): Promise<{ events: RunEvent[]; messages: readonly Message[] }> {
+}): Promise<{ events: SessionEvent[]; messages: readonly Message[] }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-cleared-'))
 	dirs.push(workingDirectory)
 
@@ -63,12 +63,12 @@ async function runWith(opts: {
 		),
 	]
 
-	const seen: RunEvent[] = []
+	const seen: SessionEvent[] = []
 	const run = await drainQuery(
 		{
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools: new ToolRegistry(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: opts.tokenBudget,
@@ -87,7 +87,7 @@ async function runWith(opts: {
 			compactionConfig: CompactionConfigSchema.parse({
 				strategy: 'structured',
 				// Set explicitly. The trigger measures against the CONTEXT
-				// WINDOW, not `tokenBudget` — a run that leaves this unset
+				// WINDOW, not `tokenBudget` — a turn that leaves this unset
 				// falls back to the model table, which for a mock model is
 				// large enough that no fixture of a sane size ever triggers.
 				contextWindowTokens: opts.tokenBudget,
@@ -99,7 +99,7 @@ async function runWith(opts: {
 				minToolResultCharsToClear: 1_000,
 			}),
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			seen.push(event)
 		},
 	)
@@ -110,7 +110,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 	it('reports the clear with an exact count when it relieves enough pressure', async () => {
 		// Two oversized results and little else, so the clear alone brings the
 		// context back under the trigger. Deleting the `emitEvent` call leaves
-		// the run behaving identically and fails only here.
+		// the turn behaving identically and fails only here.
 		const { events, messages } = await runWith({
 			resultChars: 80_000,
 			filler: 2,
@@ -120,7 +120,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		const cleared = events.filter((e) => e.type === 'compaction_tool_results_cleared')
 
 		expect(cleared).toHaveLength(1)
-		const [event] = cleared as [Extract<RunEvent, { type: 'compaction_tool_results_cleared' }>]
+		const [event] = cleared as [Extract<SessionEvent, { type: 'compaction_tool_results_cleared' }>]
 		expect(event.clearedCount).toBe(2)
 		// Both results, not one: a single 80k result cannot account for this.
 		// Bounded above too — the clear leaves a placeholder behind, so a
@@ -154,7 +154,7 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		expect(order).toContain('compaction_completed')
 
 		const cleared = events.find((e) => e.type === 'compaction_tool_results_cleared') as Extract<
-			RunEvent,
+			SessionEvent,
 			{ type: 'compaction_tool_results_cleared' }
 		>
 		expect(cleared.reliefWasEnough).toBe(false)
@@ -164,11 +164,11 @@ describe('clearing tool results is on the wire, not only in a log line', () => {
 		// The event exists so `transcript.jsonl` can explain why a tool result
 		// it shows is empty. Adding it to `EPHEMERAL_EVENT_TYPES` — where the
 		// deltas and progress pings live — would keep every assertion above
-		// green and delete it from the one record that outlives the run.
+		// green and delete it from the one record that outlives the turn.
 		expect(
 			isEphemeralEvent({
 				type: 'compaction_tool_results_cleared',
-				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+				turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				clearedCount: 1,
 				charsReclaimed: 10,

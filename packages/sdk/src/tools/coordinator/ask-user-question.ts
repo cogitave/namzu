@@ -1,19 +1,19 @@
 /**
- * The one tool that turns a run around to face the human.
+ * The one tool that turns a turn around to face the human.
  *
  * It used to be built inside `buildCoordinatorTools`, which needs a gateway,
  * a scheduler and a roster the question has no use for — so a host that
  * wanted only this tool (an interactive terminal with no delegation) had to
  * assemble the whole coordinator set and fish the question out of it, and
- * had to invent a run id at build time because the builder demanded one.
- * This builder needs the park handler and nothing else; the run id is read
+ * had to invent a turn id at build time because the builder demanded one.
+ * This builder needs the park handler and nothing else; the turn id is read
  * from the calling `ToolContext` unless the host pins one.
  */
 
 import { z } from 'zod'
 import type { PendingAnswers, QuestionParkRecorder } from '../../runtime/query/question-park.js'
 import type { ResumeHandler, UserQuestionOption } from '../../types/hitl/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { generateCheckpointId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
@@ -75,14 +75,15 @@ const askUserQuestionModelInputSchema: Record<string, unknown> = {
 }
 
 export interface AskUserQuestionToolOptions {
-	/** Where the question goes; the run parks on it until an answer comes back. */
+	/** Where the question goes; the turn parks on it until an answer comes back. */
 	resumeHandler: ResumeHandler
 	/**
-	 * The run the park is recorded against. Omit it and the tool uses the
-	 * `runId` of the call that asked, which is the right run in every case
-	 * but a host that answers questions for a run other than the one it drives.
+	 * The session and turn the park is recorded against. Omit them and the
+	 * tool uses those of the call that asked, which is right in every case but
+	 * a host that answers questions for a turn other than the one it drives.
 	 */
-	runId?: RunId
+	sessionId?: SessionId
+	turnId?: TurnId
 	/** See the same field on `CoordinatorToolsOptions`. */
 	questionParks?: QuestionParkRecorder
 	/** See the same field on `CoordinatorToolsOptions`. */
@@ -152,8 +153,8 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 		// MUST stay false: the executor serializes non-concurrency-safe
 		// tools in a single chain, so N question blocks in one assistant
 		// turn park strictly one-at-a-time. Hosts key their park/resolve
-		// registries by runId — concurrent parks on one run clobber each
-		// other and the first promise never resolves (run hangs to TTL).
+		// registries by turn — concurrent parks on one turn clobber each
+		// other and the first promise never resolves (the turn hangs to TTL).
 		concurrencySafe: false,
 		async execute({ question, header, options, multiSelect, allowFreeText }, context) {
 			const toolUseId = context.toolUseId
@@ -185,7 +186,7 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 				allowFreeText,
 			}
 
-			// An answer carried in from a resumed run. Checked before the
+			// An answer carried in from a resumed turn. Checked before the
 			// park, because re-entering this tool is HOW the answer gets
 			// delivered: the batch is re-executed, and without this the
 			// re-execution would ask the user something they already
@@ -204,7 +205,8 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 				carried ??
 				(await parkHandler({
 					type: 'user_question',
-					runId: config.runId ?? context.runId,
+					sessionId: config.sessionId ?? context.sessionId,
+					turnId: config.turnId ?? context.turnId,
 					// Provider correlation ids remain verbatim in questionData;
 					// an unpersisted park gets its own safe checkpoint identifier.
 					checkpointId: parkedAt ?? generateCheckpointId(),
@@ -241,7 +243,7 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 			if (decision.action !== 'answer_question') return noAnswer
 			if (decision.questionId !== undefined && decision.questionId !== toolUseId) {
 				// Misdirection guard: this answer was meant for a different
-				// question parked under the same run (stale client). Never
+				// question parked under the same turn (stale client). Never
 				// fabricate a selection against the wrong question.
 				return noAnswer
 			}

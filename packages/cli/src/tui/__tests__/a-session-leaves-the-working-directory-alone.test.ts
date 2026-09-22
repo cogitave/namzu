@@ -15,9 +15,9 @@
  */
 
 import { existsSync } from 'node:fs'
-import { mkdtemp, readdir } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { MockLLMProvider, ProviderRegistry, createUserMessage } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -76,19 +76,28 @@ it('writes nothing into the working directory', async () => {
 	await oneTurn(cwd)
 
 	expect(await readdir(cwd)).toEqual([])
-	// The run went somewhere: the application home the suite owns.
-	expect(existsSync(join(resolveNamzuHome(), 'sessions'))).toBe(true)
+	// The turn went somewhere: the project's directory under the application
+	// home the suite owns, as one session log.
+	const project = dirname(sessionMemoryDir(cwd))
+	expect(existsSync(join(project, 'project.json'))).toBe(true)
+	expect((await readdir(project)).filter((name) => name.endsWith('.jsonl'))).toHaveLength(1)
 })
 
 it('files two sessions in one directory under one Project', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-one-project-'))
 	roots.push(cwd)
-	const memory = join(resolveNamzuHome(), 'memory')
-	const before = new Set(existsSync(memory) ? await readdir(memory) : [])
+	const projects = join(resolveNamzuHome(), 'projects')
+	const before = new Set(existsSync(projects) ? await readdir(projects) : [])
 
 	await oneTurn(cwd)
+	const project = dirname(sessionMemoryDir(cwd))
+	const first = await readFile(join(project, 'project.json'), 'utf8')
 	await oneTurn(cwd)
 
-	const added = (await readdir(memory)).filter((name) => !before.has(name))
-	expect(added).toEqual([basename(sessionMemoryDir(cwd))])
+	// One project directory for the working directory, minted once, holding
+	// both sessions' logs.
+	const added = (await readdir(projects)).filter((name) => !before.has(name))
+	expect(added).toEqual([basename(project)])
+	expect(await readFile(join(project, 'project.json'), 'utf8')).toBe(first)
+	expect((await readdir(project)).filter((name) => name.endsWith('.jsonl'))).toHaveLength(2)
 })

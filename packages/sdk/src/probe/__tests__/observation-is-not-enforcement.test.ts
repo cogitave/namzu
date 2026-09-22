@@ -4,9 +4,9 @@ import type { ProbeEnforcement, ProbeObservation } from '../registry.js'
 import { ProbeRegistry } from '../registry.js'
 
 /**
- * The SDK barrel introduced this module as "typed observation over
- * AgentBus + RunEvent stream". That is what `on`, `onAny` and `dispatch`
- * do. It is not what `veto` and `queryVeto` do: a registered veto handler
+ * The SDK barrel introduced this module as typed observation over the
+ * AgentBus and the event stream (now `SessionEvent`). That is what `on`,
+ * `onAny` and `dispatch` do. It is not what `veto` and `queryVeto` do: a registered veto handler
  * denies a tool call and the executor turns that denial into a failed
  * `tool_result`, which is enforcement — the third of the three gates on a
  * tool call, sitting behind a name that said telemetry.
@@ -18,7 +18,7 @@ import { ProbeRegistry } from '../registry.js'
 
 describe('the two halves of a probe registry', () => {
 	it('gives observation no way to refuse', () => {
-		// Enforced by `tsc`, not by this run. Adding `veto` to
+		// Enforced by `tsc`, not by this turn. Adding `veto` to
 		// `ProbeObservation` — or typing a consumer as the whole registry
 		// again — fails the Type check step, not this assertion.
 		expectTypeOf<ProbeObservation>().not.toHaveProperty('veto')

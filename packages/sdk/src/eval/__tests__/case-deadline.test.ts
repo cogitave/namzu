@@ -2,7 +2,7 @@ import { getEventListeners } from 'node:events'
 import { describe, expect, it } from 'vitest'
 
 import { runExperiment } from '../experiment.js'
-import type { EvalRun } from '../types.js'
+import type { EvalTurn } from '../types.js'
 
 /**
  * `executeCase` was a bare await, so a `run` closure that never settled
@@ -16,7 +16,7 @@ import type { EvalRun } from '../types.js'
  * the suite's to absorb silently.
  */
 
-const emptyRun = (): EvalRun => ({
+const emptyRun = (): EvalTurn => ({
 	output: 'ok',
 	steps: [],
 	toolCalls: [],
@@ -25,7 +25,7 @@ const emptyRun = (): EvalRun => ({
 	durationMs: 0,
 })
 
-const never = () => new Promise<EvalRun>(() => {})
+const never = () => new Promise<EvalTurn>(() => {})
 
 const scorer = {
 	name: 'always-one',
@@ -43,7 +43,7 @@ describe('a case that never settles', () => {
 		})
 
 		expect(report.cases).toHaveLength(1)
-		expect(report.cases[0]?.run.error).toMatch(/timed out after 20ms/)
+		expect(report.cases[0]?.turn.error).toMatch(/timed out after 20ms/)
 	})
 
 	it('does not take the rest of the suite with it', async () => {
@@ -76,7 +76,7 @@ describe('a case that never settles', () => {
 			run: never,
 		})
 
-		expect(report.cases[0]?.run.durationMs).toBeGreaterThanOrEqual(20)
+		expect(report.cases[0]?.turn.durationMs).toBeGreaterThanOrEqual(20)
 	})
 })
 
@@ -135,7 +135,7 @@ describe('a suite with no deadline set', () => {
 		})
 
 		expect(report.passed).toBe(1)
-		expect(report.cases[0]?.run.error).toBeUndefined()
+		expect(report.cases[0]?.turn.error).toBeUndefined()
 	})
 
 	it('still turns a throw into a result rather than a crash', async () => {
@@ -148,7 +148,7 @@ describe('a suite with no deadline set', () => {
 			},
 		})
 
-		expect(report.cases[0]?.run.error).toBe('broken case')
+		expect(report.cases[0]?.turn.error).toBe('broken case')
 	})
 })
 

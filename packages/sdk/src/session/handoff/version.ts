@@ -7,7 +7,7 @@
  * fast).
  */
 
-import type { RunId, SessionId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 
 /**
  * Raised when a handoff's CAS write finds {@link Session.ownerVersion} has
@@ -34,24 +34,28 @@ export class HandoffVersionConflict extends Error {
 /**
  * Reasons a session cannot transition `* → locked` for handoff. See
  * session-hierarchy.md §5.1 — lock entry requires an `idle` session with all
- * runs terminal. The three reasons are the non-terminal Run statuses that
+ * turns terminal. The three reasons are the non-terminal turn statuses that
  * fan in to a non-idle Session.
  */
-export type HandoffLockRejectedReason = 'active_run' | 'pending_hitl' | 'pending_subsession'
+export type HandoffLockRejectedReason = 'active_turn' | 'pending_hitl' | 'pending_subsession'
 
 /**
- * Raised when a handoff targets a session whose current Run is non-terminal.
- * Callers must wait for the active Run to terminalize (or cancel it) before
+ * Raised when a handoff targets a session whose current turn is non-terminal.
+ * Callers must wait for the active turn to terminalize (or cancel it) before
  * re-attempting the handoff (session-hierarchy.md §5.1).
  */
 export class HandoffLockRejected extends Error {
 	readonly details: {
 		sessionId: SessionId
 		reason: HandoffLockRejectedReason
-		runId?: RunId
+		turnId?: TurnId
 	}
 
-	constructor(details: { sessionId: SessionId; reason: HandoffLockRejectedReason; runId?: RunId }) {
+	constructor(details: {
+		sessionId: SessionId
+		reason: HandoffLockRejectedReason
+		turnId?: TurnId
+	}) {
 		super(`Handoff lock rejected on ${details.sessionId}: ${details.reason}`)
 		this.name = 'HandoffLockRejected'
 		this.details = details

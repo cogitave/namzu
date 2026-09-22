@@ -337,7 +337,7 @@ const MAX_TUPLE_ARITY = 32
  * server JSON Schema → Zod → JSON Schema on the wire. So whatever is emitted
  * here has to be a construct the receiving wire accepts, and a construct it
  * rejects fails the ENTIRE request rather than degrading one tool — taking
- * down every run that offered the toolset. A faithful conversion that cannot
+ * down every turn that offered the toolset. A faithful conversion that cannot
  * be sent is strictly worse than a lossy one that can.
  *
  * NO positional shape is a construct every wire accepts. That was measured the

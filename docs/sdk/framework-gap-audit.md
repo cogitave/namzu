@@ -104,7 +104,7 @@ The audit found `reviewAnswer` only on the plain-text path. Optional
 candidates before settlement, with bounded corrections, fail-closed errors and
 checkpointed rejection counts. Pydantic's
 [parsed-output validators](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/_output.py#L126)
-provide a run-aware async validation/retry hook. Zod refinements are not absent
+provide a turn-aware async validation/retry hook. Zod refinements are not absent
 in Namzu; the host review gap is now addressed.
 Query request assembly now populates provider-level `responseFormat` for
 explicit native mode in `StructuredOutputConfig`; Pydantic exposes explicit
@@ -113,13 +113,13 @@ Acceptance: a schema-valid answer rejected by a host check is corrected within
 one bounded review loop; a native-schema run sends the expected wire format.
 
 **Cumulative tool-call admission is distinct from concurrency.**
-`packages/sdk/src/run/LimitChecker.ts` checks tokens, cost, time and iterations;
+`packages/sdk/src/turn/LimitChecker.ts` checks tokens, cost, time and iterations;
 the executor caps simultaneous calls. Optional
 [tool call budgets](tool-call-budget.md) now add cumulative batch preadmission
-and durable per-run accounting for retries, nested calls and recovery. Pydantic checks a
+and durable per-turn accounting for retries, nested calls and recovery. Pydantic checks a
 [projected batch count](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/_tool_execution.py#L495)
 before executing calls. Acceptance: a batch of three with only two calls left
-executes none; retries, nested calls and resumed runs have documented accounting.
+executes none; retries, nested calls and resumed turns have documented accounting.
 
 **Task status is stored but not automatically reminded each step.** The CLI
 owns durable task tools, yet its current per-step context contributes memory
@@ -131,7 +131,7 @@ test next-request visibility after compaction and measure saved repeated work
 against extra prompt tokens before enabling a blanket reminder.
 
 **External workflow engines are an optional integration gap.** Namzu already
-has fenced claims, injectable run/checkpoint stores and completed-call recovery.
+has fenced claims, injectable session-log and checkpoint stores and completed-call recovery.
 Pydantic additionally ships integrations such as
 [Temporal durability](https://github.com/pydantic/pydantic-ai/blob/62f1e8302a356d09962c55117f41a282cf1eb243/pydantic_ai_slim/pydantic_ai/durable_exec/temporal/_durability.py#L103).
 Namzu hosts currently own worker orchestration. Acceptance for such an adapter

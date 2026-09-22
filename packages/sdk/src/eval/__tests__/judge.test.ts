@@ -4,10 +4,10 @@ import type { ChatCompletionParams, StreamChunk } from '../../types/provider/ind
 import type { LLMProvider } from '../../types/provider/interface.js'
 import { runExperiment } from '../experiment.js'
 import { judgeScorer } from '../judge.js'
-import type { EvalCase, EvalRun } from '../types.js'
+import type { EvalCase, EvalTurn } from '../types.js'
 
 /**
- * Every other scorer is a pure function over the run, which is what makes
+ * Every other scorer is a pure function over the turn, which is what makes
  * them reproducible and what makes them unable to say whether an answer is
  * GOOD. A judge closes that, and brings a failure mode none of the others
  * have: it can fail to answer at all. A failed measurement scored zero
@@ -53,7 +53,7 @@ function fakeProvider(reply: string | (() => never), tokens = 42): LLMProvider {
 	return provider
 }
 
-const RUN: EvalRun = {
+const TURN: EvalTurn = {
 	output: 'The capital of France is Paris.',
 	steps: [],
 	toolCalls: ['search'],
@@ -75,7 +75,7 @@ describe('grading', () => {
 			rubric: RUBRIC,
 			scale: 4,
 		})
-		const score = await scorer.score(RUN, CASE)
+		const score = await scorer.score(TURN, CASE)
 
 		expect(score.score).toBe(0.75)
 		expect(score.reason).toBe('names the right city')
@@ -88,7 +88,7 @@ describe('grading', () => {
 			model: 'm',
 			rubric: RUBRIC,
 		})
-		expect((await scorer.score(RUN, CASE)).score).toBe(1)
+		expect((await scorer.score(TURN, CASE)).score).toBe(1)
 	})
 
 	it('handles a brace inside the reason string', async () => {
@@ -99,7 +99,7 @@ describe('grading', () => {
 			scale: 4,
 		})
 		// A naive scan to the first `}` would cut the object in half here.
-		expect((await scorer.score(RUN, CASE)).score).toBe(0.5)
+		expect((await scorer.score(TURN, CASE)).score).toBe(0.5)
 	})
 
 	it('carries what the judging itself cost', async () => {
@@ -110,14 +110,14 @@ describe('grading', () => {
 		})
 		// A judge is the most expensive scorer there is; a bill nobody can
 		// attribute is a bill nobody controls.
-		expect((await scorer.score(RUN, CASE)).details?.judgeTokens).toBe(1234)
+		expect((await scorer.score(TURN, CASE)).details?.judgeTokens).toBe(1234)
 	})
 
 	it('grades the same run the same way twice', async () => {
 		const provider = fakeProvider('{"grade": 4, "reason": "ok"}') as LLMProvider & {
 			seen: ChatCompletionParams[]
 		}
-		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(RUN, CASE)
+		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(TURN, CASE)
 		// Sampling noise is indistinguishable from a regression, so the
 		// judge does not sample.
 		expect(provider.seen[0]?.temperature).toBe(0)
@@ -130,7 +130,7 @@ describe('what the judge is shown', () => {
 
 	it('shows the rubric, the task and the answer', async () => {
 		const provider = fakeProvider('{"grade": 4, "reason": "ok"}')
-		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(RUN, CASE)
+		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(TURN, CASE)
 
 		const prompt = promptOf(provider)
 		expect(prompt).toContain(RUBRIC)
@@ -140,7 +140,7 @@ describe('what the judge is shown', () => {
 
 	it('withholds the trajectory unless asked', async () => {
 		const off = fakeProvider('{"grade": 4, "reason": "ok"}')
-		await judgeScorer({ provider: off, model: 'm', rubric: RUBRIC }).score(RUN, CASE)
+		await judgeScorer({ provider: off, model: 'm', rubric: RUBRIC }).score(TURN, CASE)
 		expect(promptOf(off)).not.toContain('TOOLS CALLED')
 
 		const on = fakeProvider('{"grade": 4, "reason": "ok"}')
@@ -149,7 +149,7 @@ describe('what the judge is shown', () => {
 			model: 'm',
 			rubric: RUBRIC,
 			includeTrajectory: true,
-		}).score(RUN, CASE)
+		}).score(TURN, CASE)
 		expect(promptOf(on)).toContain('search')
 	})
 
@@ -160,16 +160,16 @@ describe('what the judge is shown', () => {
 			model: 'm',
 			rubric: RUBRIC,
 			maxOutputChars: 10,
-		}).score({ ...RUN, output: 'x'.repeat(500) }, CASE)
+		}).score({ ...TURN, output: 'x'.repeat(500) }, CASE)
 
 		// A judge shown a silently cut answer marks it down for stopping
-		// mid-sentence, which scores our truncation rather than the run.
+		// mid-sentence, which scores our truncation rather than the turn.
 		expect(promptOf(provider)).toContain('cut at 10 characters by the harness')
 	})
 
 	it('offers the reference answer when the case has one', async () => {
 		const provider = fakeProvider('{"grade": 4, "reason": "ok"}')
-		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(RUN, {
+		await judgeScorer({ provider, model: 'm', rubric: RUBRIC }).score(TURN, {
 			...CASE,
 			expected: 'Paris',
 		})
@@ -182,26 +182,28 @@ describe('a judge that cannot judge', () => {
 		judgeScorer({ provider: fakeProvider(reply), model: 'm', rubric: RUBRIC, scale: 4 })
 
 	it('throws on a reply with no JSON at all', async () => {
-		await expect(failing('I think it was pretty good!').score(RUN, CASE)).rejects.toThrow(/no JSON/)
+		await expect(failing('I think it was pretty good!').score(TURN, CASE)).rejects.toThrow(
+			/no JSON/,
+		)
 	})
 
 	it('throws on a grade outside the scale it was given', async () => {
 		// Clamping would turn a judge that misread the scale into a
 		// confident score, and a judge that misread the scale did not apply
 		// the rubric either.
-		await expect(failing('{"grade": 9, "reason": "great"}').score(RUN, CASE)).rejects.toThrow(
+		await expect(failing('{"grade": 9, "reason": "great"}').score(TURN, CASE)).rejects.toThrow(
 			/outside the 0\.\.4 scale/,
 		)
 	})
 
 	it('throws on a non-numeric grade', async () => {
-		await expect(failing('{"grade": "good", "reason": "x"}').score(RUN, CASE)).rejects.toThrow(
+		await expect(failing('{"grade": "good", "reason": "x"}').score(TURN, CASE)).rejects.toThrow(
 			/no numeric grade/,
 		)
 	})
 
 	it('throws on an unterminated object', async () => {
-		await expect(failing('{"grade": 3, "reason": "cut off').score(RUN, CASE)).rejects.toThrow(
+		await expect(failing('{"grade": 3, "reason": "cut off').score(TURN, CASE)).rejects.toThrow(
 			/unterminated/,
 		)
 	})
@@ -234,7 +236,7 @@ describe('a broken judge is not a bad run', () => {
 	const dataset = {
 		name: 'suite',
 		cases: [CASE],
-		run: async (): Promise<EvalRun> => RUN,
+		run: async (): Promise<EvalTurn> => TURN,
 	}
 
 	it('reports the case as inconclusive rather than failed', async () => {

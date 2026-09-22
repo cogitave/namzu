@@ -2,15 +2,28 @@ import { buildProbeContext } from '../probe/context.js'
 import { probe as defaultProbeRegistry } from '../probe/registry.js'
 import type { ProbeObservation } from '../probe/registry.js'
 import type { AuthConfig, CredentialRef, CredentialVault } from '../types/connector/index.js'
-import type { ConnectorId, CredentialId, RunId, TenantId } from '../types/ids/index.js'
+import type { ConnectorId, CredentialId, SessionId, TenantId, TurnId } from '../types/ids/index.js'
 import type { CredentialProvider } from './CredentialProvider.js'
 
 export interface VaultInstrumentationOptions {
 	/** Observation only — a vault wrapper records, it never refuses. */
 	readonly probes?: ProbeObservation
-	readonly runId?: RunId
+	/** The session whose lookups and changes this wrapper observes. */
+	readonly sessionId?: SessionId
+	/** The turn whose lookups and changes this wrapper observes. */
+	readonly turnId?: TurnId
 	readonly vaultId?: string
 	readonly tenantId?: TenantId
+}
+
+function scopeOf(opts: VaultInstrumentationOptions): {
+	sessionId?: SessionId
+	turnId?: TurnId
+} {
+	return {
+		...(opts.sessionId !== undefined ? { sessionId: opts.sessionId } : {}),
+		...(opts.turnId !== undefined ? { turnId: opts.turnId } : {}),
+	}
 }
 
 export function wrapVaultWithProbes(
@@ -18,7 +31,7 @@ export function wrapVaultWithProbes(
 	opts: VaultInstrumentationOptions = {},
 ): CredentialVault {
 	const probes = opts.probes ?? defaultProbeRegistry
-	const runId = opts.runId
+	const scope = scopeOf(opts)
 	const vaultId = opts.vaultId ?? vault.constructor.name
 	const tenantIdHint = opts.tenantId
 
@@ -41,9 +54,9 @@ export function wrapVaultWithProbes(
 					credentialId,
 					tenantId: tenantIdHint,
 					found: result !== undefined,
-					runId,
+					...scope,
 				},
-				buildProbeContext({ runId }),
+				buildProbeContext(scope),
 			)
 			return result
 		},
@@ -61,9 +74,9 @@ export function wrapVaultWithProbes(
 					credentialId,
 					tenantId,
 					found: result !== undefined,
-					runId,
+					...scope,
 				},
-				buildProbeContext({ runId }),
+				buildProbeContext(scope),
 			)
 			return result
 		},
@@ -111,7 +124,7 @@ export function wrapCredentialProviderWithProbes(
 				// must not be.
 				ref,
 				...(opts.tenantId ? { tenantId: opts.tenantId } : {}),
-				...(opts.runId ? { runId: opts.runId } : {}),
+				...scopeOf(opts),
 			},
 			buildProbeContext(),
 		)

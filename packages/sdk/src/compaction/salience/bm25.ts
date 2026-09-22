@@ -1,5 +1,5 @@
 /**
- * BM25 over the run's own messages.
+ * BM25 over the turn's own messages.
  *
  * The corpus is small — a few hundred documents at most — so the index
  * is rebuilt from term frequencies each pass rather than maintained
@@ -7,7 +7,7 @@
  * constants are the textbook ones (k1 = 1.2, b = 0.75). What matters
  * here is not ranking quality against a web corpus but that a message
  * mentioning the goal's identifiers outscores one that does not, and
- * that a term every message contains (the run's own file name, say)
+ * that a term every message contains (the turn's own file name, say)
  * stops counting.
  */
 

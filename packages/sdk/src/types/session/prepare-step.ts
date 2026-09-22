@@ -1,0 +1,299 @@
+import type { TokenUsage } from '../common/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
+import type { Message, UserMessage } from '../message/index.js'
+import type { ToolChoice } from '../provider/chat.js'
+import type { Skill } from '../skills/index.js'
+import type { StepResult } from './step.js'
+import type { StepProvenance } from './step.js'
+
+/** @experimental Bounded, tool-free inference shared by preparation and answer review. */
+export interface PreparationTextRequest {
+	readonly system: string
+	readonly prompt: string
+	/** Default 256; maximum 1,024. A provider limit, not a hard billing ceiling. */
+	readonly maxTokens?: number
+	/**
+	 * Accepted and validated; no longer bounds the request.
+	 *
+	 * @deprecated An auxiliary request that ends without its final usage
+	 * receipt leaves the turn's shared ledger with unresolved spend, which stops
+	 * the turn — so a deadline short enough to fire in normal use does not bound
+	 * the call, it ends the turn that made it. The call is bounded by the
+	 * provider's own request timeout and by the turn's cancellation instead, the
+	 * same two bounds every other model request in the turn has. Passing this
+	 * field changes nothing; it is retained so an existing caller keeps
+	 * compiling until it is removed in a later major.
+	 */
+	readonly timeoutMs?: number
+	readonly signal?: AbortSignal
+}
+
+/** @experimental Side-call usage also contributes to the owning turn's totals. */
+export interface PreparationTextResult {
+	readonly text: string
+	readonly usage: TokenUsage
+	readonly servedBy: StepProvenance
+}
+
+/**
+ * What the loop knows before it calls the model again.
+ *
+ * `stopWhen` (shipped earlier) let a turn DECIDE TO STOP based on what the
+ * steps produced. This is the other half of the same idea: deciding how
+ * the next step should be shaped. Without it, a turn's tool surface, model
+ * and sampling parameters are fixed at `query()` time, so a phased agent —
+ * research with search tools, then write with file tools, then verify with
+ * a cheaper model — had to be built as three separate turns, each losing
+ * the prior one's context.
+ */
+export interface PrepareStepContext {
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
+	/**
+	 * When the turn began, in epoch milliseconds. A resumed turn keeps the
+	 * time of its `turn_started` record, whichever process wrote it, so a
+	 * step can tell what happened in this turn before it paused.
+	 */
+	readonly turnStartedAt?: number
+	/**
+	 * Optional turn-owned inference for context preparation. At most one call per
+	 * stage invocation; cannot be called after that stage returns. Uses the turn's
+	 * metered provider/fallback chain and the model selected by preceding stages.
+	 * Only supplied text is sent (12,000 characters total); no tools or history
+	 * are implicitly attached. Returned text is bounded to 8,192 characters.
+	 * Absent in beforeStep and in hosts which do not supply this capability.
+	 */
+	readonly generateText?: (request: PreparationTextRequest) => Promise<PreparationTextResult>
+	/**
+	 * Optional writer-bound snapshot of this invocation's completed events.
+	 * Never discovers other sessions or repeats tools. Unsupported stores return
+	 * undefined; cancellation or a settled invocation rejects capture. A local
+	 * signal can shorten, never extend, the turn's lifetime.
+	 */
+	readonly captureSessionEvidence?: (
+		maxReadBytes?: number,
+		signal?: AbortSignal,
+	) => Promise<import('../../store/evidence/types.js').SessionTextEvidenceSource | undefined>
+	/** 1-based, matching the iteration number in events and traces. */
+	readonly stepNumber: number
+	/** Full history as it stands, so a decision can read what happened. */
+	readonly messages: readonly Message[]
+	/**
+	 * Latest operator, goal-round, or steering input accepted by this turn,
+	 * retained even when compaction removes it from `messages`. Project
+	 * instructions and task-completion context do not replace operator intent.
+	 */
+	readonly latestUserMessage?: UserMessage
+	/** The turn's cancellation signal, for bounded asynchronous preparation. */
+	readonly signal?: AbortSignal
+	/**
+	 * Estimated room for additional step context after existing messages,
+	 * earlier stages' system/skills/context, and a response reserve. Recomputed for
+	 * each stage and its selected model; not a billing limit or fit guarantee.
+	 * `beforeStep` observes its existing boundary before compaction runs.
+	 */
+	readonly contextBudget?: {
+		readonly remainingTokens: number
+		readonly windowTokens: number
+	}
+	/** Every completed step, in order. */
+	readonly steps: readonly StepResult[]
+
+	/**
+	 * What the stages before this one decided, when several were supplied.
+	 *
+	 * Empty for the first stage, and empty for a single `prepareStep`.
+	 * Reading it is how a later stage refines an earlier one — narrowing a
+	 * tool set that has already been narrowed, or leaving a model alone
+	 * because something upstream had a reason to change it.
+	 */
+	readonly prepared: Readonly<PrepareStepResult>
+}
+
+/**
+ * Overrides for the NEXT step. Every field is optional; an omitted field
+ * keeps the turn's configured value, and returning nothing at all is the
+ * same as not supplying a `prepareStep`.
+ */
+export interface PrepareStepResult {
+	/**
+	 * Restrict which tools the model may call this step, by name. Names
+	 * that are not registered are dropped with a warning rather than
+	 * failing the turn.
+	 *
+	 * **Dropping every name leaves the step able to call nothing**, and that
+	 * is deliberate rather than an accident of the filter. This list means
+	 * "only these": if a rename outlives a phase list, the only set
+	 * satisfying "only the tools that no longer exist" is the empty one, and
+	 * widening back to the turn's list would grant precisely what the caller
+	 * did not ask for. The step is constrained, not crashed — the model
+	 * answers from what it has and the turn continues.
+	 *
+	 * This changed meaning when the list started bounding what may RUN
+	 * rather than only what the model is shown. Before, an aged-out list hid
+	 * every tool from the model while leaving all of them callable, which
+	 * was neither reading.
+	 *
+	 * The warning is the part to watch: it goes to the logger, and a host
+	 * that silences its logger sees a phase quietly stop doing anything.
+	 *
+	 * **This costs a prompt-cache prefix.** Tools render at position 0, so
+	 * changing the set between steps invalidates the cached prefix for that
+	 * step. That is inherent to narrowing, not an implementation detail, so
+	 * it is worth doing when a phase boundary genuinely changes what the
+	 * agent should reach for — and not worth doing every step.
+	 *
+	 * Note it does NOT imply a `tool_choice`. Not every provider has an
+	 * `allowed_tools` parameter, and moving `tool_choice` invalidates cached
+	 * MESSAGE blocks as well — a strictly worse trade for the same effect.
+	 * When a step genuinely needs the model FORCED rather than narrowed, ask
+	 * for it explicitly through {@link PrepareStepResult.toolChoice} and pay
+	 * that cost knowingly.
+	 */
+	readonly activeTools?: readonly string[]
+
+	/**
+	 * Force this step's tool use: `'required'` to make the model call
+	 * something, `'none'` to forbid it, or a named function to demand that
+	 * one. Absent leaves the provider's default.
+	 *
+	 * **It applies to this step only, by construction.** That is the whole
+	 * reason it lives here rather than on the turn config. A forced choice
+	 * that persists makes the model call a tool, see the result, and be
+	 * forced again — an agent that cannot stop. The one peer SDK that puts
+	 * `tool_choice` on persistent model settings has to undo it with a
+	 * tool-use tracker, an opt-out flag and a reset applied at two call
+	 * sites; the flag defaults to on precisely because turning it off hangs
+	 * the agent. Here there is nothing to reset and no flag to get wrong:
+	 * the next step is prepared fresh, so the force cannot outlive the step
+	 * that asked for it.
+	 *
+	 * **It costs more cache than `activeTools`.** Narrowing tools
+	 * invalidates the tool prefix; moving `tool_choice` invalidates cached
+	 * message blocks too. Worth it at a real phase boundary — "this step
+	 * must produce the structured answer" — and not worth it as a habit.
+	 */
+	readonly toolChoice?: ToolChoice
+
+	/**
+	 * Put these skills in front of the model for this step only.
+	 *
+	 * A turn's skills are fixed at `query()` time and rendered into the cached
+	 * system prefix, so every skill a turn might ever need is paid for on
+	 * every single turn. A phased agent rarely needs them all at once —
+	 * research wants the search skill, writing wants the style guide, and
+	 * neither benefits from carrying the other.
+	 *
+	 * Rendered into the same ephemeral system message `system` uses. Providers
+	 * may move that message before history, so changing skills can invalidate
+	 * reuse of the conversation prefix even though the turn's prompt is unchanged.
+	 *
+	 * ADDITIVE to the turn's skills, not a replacement. A skill the turn
+	 * always carries is not something a step should be able to take away by
+	 * naming a different one — that would make every step's list a complete
+	 * restatement, and a phase that forgot one would silently lose it.
+	 *
+	 * Sub-agents are deliberately NOT per-step. Which agents `create_task`
+	 * can reach is baked into that tool's input schema, so varying it would
+	 * rebuild the tool catalogue every step — a worse prompt-cache trade
+	 * than moving tools, for a narrowing a step can already express by
+	 * withholding `create_task` through {@link PrepareStepResult.activeTools}.
+	 */
+	readonly skills?: readonly Skill[]
+
+	/** Use a different model for this step. */
+	readonly model?: string
+
+	/**
+	 * Guidance for this step ONLY, appended as a system message that is not
+	 * retained afterwards.
+	 *
+	 * Some providers collect all system messages before conversation history.
+	 * Changing this field can therefore invalidate reuse of the history prefix.
+	 * Use `context` for changing observations that do not require system authority.
+	 */
+	readonly system?: string
+
+	/**
+	 * Current observations for this request only, appended after history and any
+	 * step system guidance. Carried as a visibly labelled user-role message with
+	 * runtime provenance, not operator input or system authority. It never enters
+	 * durable conversation history or replaces `latestUserMessage`.
+	 *
+	 * Useful for changing inventories and retrieved data on providers that hoist
+	 * system messages. This preserves the history's placement, not a cache-hit
+	 * guarantee. Later stages may compose `prepared.context` or replace it; an
+	 * empty string clears it. The next step starts without it.
+	 */
+	readonly context?: string
+
+	readonly temperature?: number
+	readonly maxResponseTokens?: number
+}
+
+/**
+ * Called before each model call, with everything the turn has produced so
+ * far.
+ *
+ * A throw fails OPEN — the step proceeds with the turn's configured values.
+ * Same reasoning as `stopWhen` and deliberately opposite to a guardrail: a
+ * broken step-shaping hook should not kill an otherwise healthy turn, and
+ * unlike a safety check, nothing unsafe gets through when it is skipped.
+ */
+export type PrepareStep = (
+	context: PrepareStepContext,
+) => PrepareStepResult | undefined | Promise<PrepareStepResult | undefined>
+
+/**
+ * A refusal of the next model call, with the reason it happened.
+ *
+ * An object rather than a boolean, for two reasons that are both about the
+ * reader. A bare boolean does not say which polarity means stop — `true`
+ * is equally readable as "allowed" and as "veto" — and it carries nothing
+ * into the turn record, so an operator finds a turn that stopped and no
+ * account of why.
+ */
+export interface StepVeto {
+	readonly reason: string
+}
+
+/**
+ * Called before each model call, and able to refuse it.
+ *
+ * `prepareStep` can only RESHAPE a step — `activeTools`, `model`,
+ * `system`, `temperature` — and cannot reject one. `StopCondition` reads
+ * `steps`, so it fires after the step it disliked has already run and been
+ * paid for. Neither is what a host with a live rate limit, a revoked
+ * tenant or a spend ceiling needs, and the only remaining path was a
+ * durable checkpoint built for human review of tool calls.
+ *
+ * A throw fails CLOSED, deliberately opposite to `prepareStep` above.
+ * They are different kinds of hook: a broken step-SHAPER should not kill
+ * an otherwise healthy turn, because nothing unsafe gets through when it is
+ * skipped. A broken step-REFUSER skipped is a refusal that did not happen,
+ * which is the thing it exists to prevent.
+ */
+export type BeforeStep = (
+	context: PrepareStepContext,
+) => StepVeto | undefined | Promise<StepVeto | undefined>
+
+/**
+ * One shaping stage, or several applied in order.
+ *
+ * A single slot is enough for one concern and no help with two. A host
+ * with a per-tenant system prefix AND a cost-based model downgrade had to
+ * hand-compose them into one callback, which puts the ordering in the
+ * host's code where nothing can see it and makes each concern's failure
+ * the other's problem.
+ *
+ * An ARRAY is ordered by declaration, not by registration. That
+ * distinction is the whole reason this is safe where a plugin-style
+ * fan-out would not be: the author writes the order down, so "who wins"
+ * is a line of their code rather than an accident of install history.
+ * Each stage sees what the ones before it decided, and a later stage
+ * overrides a field an earlier one set — last writer wins, visibly.
+ *
+ * A stage that throws is skipped and the rest still run, so one broken
+ * concern cannot silently disable the others.
+ */
+export type PrepareStepChain = PrepareStep | readonly PrepareStep[]

@@ -1,3 +1,5 @@
+import type { TurnId } from '../ids/index.js'
+
 /**
  * Per-turn context the SDK is allowed to hand a working-memory provider.
  *
@@ -9,9 +11,9 @@
  * the primacy edge; the host OWNS the content and its authority framing.
  */
 export interface WorkingMemoryTurnContext {
-	/** The active run id (opaque). */
-	readonly runId: string
-	/** 1-based iteration counter for this run. */
+	/** The active turn. */
+	readonly turnId: TurnId
+	/** 1-based iteration counter for this turn. */
 	readonly iteration: number
 }
 
@@ -24,6 +26,6 @@ export interface WorkingMemoryTurnContext {
  * is injected (the byte-identical-when-empty property). Async so the host can
  * `stat` the output dir / read the registry each turn. Failure-isolated by the
  * SDK: a throwing/slow provider degrades to "no refresh this turn", never
- * breaks the run.
+ * breaks the turn.
  */
 export type WorkingMemoryProvider = (ctx: WorkingMemoryTurnContext) => string | Promise<string>

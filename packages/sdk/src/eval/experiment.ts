@@ -2,7 +2,7 @@ import type {
 	CaseResult,
 	CaseStatus,
 	EvalCase,
-	EvalRun,
+	EvalTurn,
 	ExperimentReport,
 	Score,
 	Scorer,
@@ -18,11 +18,11 @@ export interface ExperimentConfig<TInput = unknown> {
 	/** Applied to every case unless the case overrides them. */
 	scorers: readonly Scorer[]
 	/**
-	 * Execute one case. Returning an `EvalRun` rather than driving `query()`
-	 * here keeps the harness independent of how you construct a run —
+	 * Execute one case. Returning an `EvalTurn` rather than driving `query()`
+	 * here keeps the harness independent of how you construct a turn —
 	 * scripted mock, real provider, or a whole agent behind a facade.
 	 */
-	run: (input: TInput, evalCase: EvalCase<TInput>, signal: AbortSignal) => Promise<EvalRun>
+	run: (input: TInput, evalCase: EvalCase<TInput>, signal: AbortSignal) => Promise<EvalTurn>
 	/**
 	 * Wall-clock deadline for one case, including execution and every
 	 * scorer. Unset means no deadline.
@@ -32,7 +32,7 @@ export interface ExperimentConfig<TInput = unknown> {
 	 * both phases; I/O-owning scorers should forward it to their transport,
 	 * as `judgeScorer` does.
 	 *
-	 * A run that exhausts the budget is reported as failed. A scorer that
+	 * A turn that exhausts the budget is reported as failed. A scorer that
 	 * exhausts the remainder is unavailable, making an otherwise unjudged
 	 * case inconclusive. Either way the suite continues: forty cases should
 	 * not be lost to one operation that hung.
@@ -166,7 +166,7 @@ async function evaluateCase<TInput>(
 ): Promise<CaseResult> {
 	const deadline = openCaseDeadline(timeoutMs)
 	try {
-		const run = await executeCase(config, evalCase, deadline)
+		const turn = await executeCase(config, evalCase, deadline)
 		const scorers = evalCase.scorers ?? config.scorers
 		const scores: Record<string, Score> = {}
 
@@ -184,7 +184,7 @@ async function evaluateCase<TInput>(
 				)
 			}
 			seen.add(scorer.name)
-			scores[scorer.name] = await safeScore(scorer, run, evalCase, deadline)
+			scores[scorer.name] = await safeScore(scorer, turn, evalCase, deadline)
 		}
 
 		// Only scores that were actually produced count — an unavailable
@@ -201,7 +201,7 @@ async function evaluateCase<TInput>(
 		// judge 1 averages to 0.75 and reports passed at a threshold of
 		// 0.75 — the exact regression the harness exists to catch,
 		// reported green. An UNAVAILABLE gate does not fail the case;
-		// it did not judge the run at all, which is the inconclusive
+		// it did not judge the turn at all, which is the inconclusive
 		// path, not a failure.
 		const failedGates = scorers
 			.filter((s) => s.severity === 'gate')
@@ -222,7 +222,7 @@ async function evaluateCase<TInput>(
 						: 'failed'
 		return {
 			case: evalCase.name,
-			run,
+			turn,
 			scores,
 			mean,
 			status,
@@ -238,13 +238,13 @@ async function evaluateCase<TInput>(
 
 /**
  * A case that throws is a RESULT, not a crash. An eval suite whose first
- * broken case aborts the run tells you nothing about the other forty.
+ * broken case aborts the suite tells you nothing about the other forty.
  */
 async function executeCase<TInput>(
 	config: ExperimentConfig<TInput>,
 	evalCase: EvalCase<TInput>,
 	deadline: CaseDeadline,
-): Promise<EvalRun> {
+): Promise<EvalTurn> {
 	const startedAt = Date.now()
 	try {
 		const work = config.run(evalCase.input, evalCase, deadline.signal)
@@ -268,29 +268,29 @@ async function executeCase<TInput>(
 /** A throwing scorer scores zero with the throw as its reason. */
 async function safeScore(
 	scorer: Scorer,
-	run: EvalRun,
+	turn: EvalTurn,
 	evalCase: EvalCase,
 	deadline: CaseDeadline,
 ): Promise<Score> {
-	// A run that THREW scores zero, whatever the scorer would have said.
+	// A turn that THREW scores zero, whatever the scorer would have said.
 	// `executeCase` catches the failure and returns an empty run, and an
 	// empty run walks straight into every scorer's happy path:
 	// `stepBudgetScorer` sees 0 steps against its allowance and returns 1,
 	// `trajectoryScorer` sees no tools expected and none called and returns
-	// 1. So a suite whose runs were all dying reported green. The failure is
-	// recorded on `run.error` and nothing consulted it.
-	if (run.error !== undefined) {
-		return { score: 0, reason: `run failed: ${run.error}`, details: { error: run.error } }
+	// 1. So a suite whose turns were all dying reported green. The failure is
+	// recorded on `turn.error` and nothing consulted it.
+	if (turn.error !== undefined) {
+		return { score: 0, reason: `turn failed: ${turn.error}`, details: { error: turn.error } }
 	}
 
 	try {
 		deadline.signal.throwIfAborted()
 		// Defer invocation into the promise so a synchronous scorer throw is
 		// raced and observed by the same path as an asynchronous rejection.
-		const work = Promise.resolve().then(() => scorer.score(run, evalCase, deadline.signal))
+		const work = Promise.resolve().then(() => scorer.score(turn, evalCase, deadline.signal))
 		return await deadline.race(work)
 	} catch (err) {
-		// UNAVAILABLE, not zero. A scorer that threw did not judge the run
+		// UNAVAILABLE, not zero. A scorer that threw did not judge the turn
 		// badly — it failed to judge it at all, and the two call for
 		// opposite responses. Scoring the throw zero was survivable while
 		// every scorer was a pure function; a scorer that reaches a provider
@@ -299,7 +299,7 @@ async function safeScore(
 		return {
 			score: 0,
 			unavailable: true,
-			reason: `scorer "${scorer.name}" could not judge this run: ${
+			reason: `scorer "${scorer.name}" could not judge this turn: ${
 				err instanceof Error ? err.message : String(err)
 			}`,
 		}
@@ -355,8 +355,8 @@ export function formatReport(report: ExperimentReport): string {
 		`${report.name}: ${report.passed}/${report.cases.length} passed (mean ${report.mean.toFixed(2)}) in ${report.durationMs}ms`,
 		// On its own line and always printed, including when the interval is
 		// undefined. A mean printed alone is the thing that has been
-		// over-read: two runs three points apart look like a difference, and
-		// at the n a hand-built suite has they are usually the same run
+		// over-read: two experiments three points apart look like a difference, and
+		// at the n a hand-built suite has they are usually the same experiment
 		// twice. Computing the interval and not showing it would leave the
 		// reader exactly where they started.
 		`  ${describeUncertainty(report.mean, report.uncertainty ?? derivedUncertainty(report))}`,
@@ -395,7 +395,7 @@ export function formatReport(report: ExperimentReport): string {
 					lines.push(`      ${name}: ${score.reason}`)
 				}
 			}
-			if (failure.run.error) lines.push(`      error: ${failure.run.error}`)
+			if (failure.turn.error) lines.push(`      error: ${failure.turn.error}`)
 		}
 	}
 

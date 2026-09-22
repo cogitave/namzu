@@ -6,15 +6,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryRecallStep } from '../../../run/memory-recall.js'
 import { MarkdownMemoryStore } from '../../../store/memory/markdown.js'
+import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
-import { generateRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { buildMemoryTools } from '../index.js'
 
 const context: ToolContext = {
-	runId: generateRunId(),
+	sessionId: generateSessionId(),
+	turnId: generateTurnId(),
 	workingDirectory: process.cwd(),
 	abortSignal: new AbortController().signal,
 	env: {},
@@ -125,7 +126,8 @@ describe('typed memory through the model tools', () => {
 		expect(search.output).toContain('(retry-helper, project, 20 days old)')
 
 		const recall = await createMemoryRecallStep({ store })({
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			stepNumber: 1,
 			messages: [createUserMessage('How do cerulean requests retry?')],
 			steps: [],
@@ -144,7 +146,8 @@ describe('typed memory through the model tools', () => {
 			content: 'cerulean-cache is 14 hours',
 		})
 		const recall = await createMemoryRecallStep({ store })({
-			runId: generateRunId(),
+			sessionId: generateSessionId(),
+			turnId: generateTurnId(),
 			stepNumber: 1,
 			messages: [createUserMessage('cerulean-cache expiry?')],
 			steps: [],

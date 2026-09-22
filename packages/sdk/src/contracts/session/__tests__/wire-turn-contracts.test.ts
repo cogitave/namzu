@@ -105,7 +105,7 @@ describe('session stream events', () => {
 		expectTypeOf<z.infer<typeof TurnStreamEventTypeSchema>>().toEqualTypeOf<TurnStreamEventType>()
 	})
 
-	it('carries no run.* event', () => {
+	it('carries no turn.* event', () => {
 		expectTypeOf<Extract<SessionStreamEventType, `run.${string}`>>().toBeNever()
 		expect(TurnStreamEventTypeSchema.safeParse('run.started').success).toBe(false)
 	})

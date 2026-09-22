@@ -5,14 +5,17 @@ import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import { ActivityStore } from '../../../../store/activity/memory.js'
 import type { AuthorizationGateConfig } from '../../../../types/authorization/index.js'
 import type { HITLResumeDecision } from '../../../../types/hitl/index.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import type { Message } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
+import { generateSessionId } from '../../../../utils/id.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { ToolExecutor } from '../../executor.js'
 import type { IterationContext } from './context.js'
 import { runToolReview } from './tool-review.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * Regression suite for the tool-review invariant:
@@ -20,7 +23,7 @@ import { runToolReview } from './tool-review.js'
  *   Every `tool_use` block the model emits is answered by exactly one
  *   `tool_result`, on every path — gate denial, human rejection, partial
  *   approval — because an unanswered `tool_use` makes the NEXT provider
- *   request malformed and kills the run.
+ *   request malformed and kills the turn.
  *
  * Plus the policy invariant discovered alongside it: a human "approve" on
  * the gate's mixed-decision path must not execute the calls the gate
@@ -30,7 +33,7 @@ import { runToolReview } from './tool-review.js'
  * never an absent record.
  */
 
-const RUN_ID = '91977d69-9b92-46f6-baa5-d077027fed93' as RunId
+const TURN_ID = '91977d69-9b92-46f6-baa5-d077027fed93' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -133,14 +136,15 @@ function harness(opts: {
 
 	const toolExecutor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
-			runId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 		},
-		new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async () => {},
 		log,
 	)
@@ -150,8 +154,8 @@ function harness(opts: {
 		toolExecutor,
 		log,
 		abortController: new AbortController(),
-		runMgr: {
-			id: RUN_ID,
+		recorder: {
+			id: TURN_ID,
 			messages,
 			pushMessage: (m: Message) => {
 				messages.push(m)

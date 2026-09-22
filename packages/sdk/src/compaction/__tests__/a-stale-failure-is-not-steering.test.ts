@@ -5,7 +5,7 @@ import { WorkingStateManager } from '../manager.js'
 /**
  * Every list in working state keeps its earliest entries when it has to
  * drop something, because early decisions are load-bearing — the one that
- * set the run's approach outlives twenty-five incidental notes.
+ * set the turn's approach outlives twenty-five incidental notes.
  *
  * For failures that reasoning is backwards. The earliest failure is the
  * one the model has most likely already worked around; the recent one is
@@ -55,7 +55,7 @@ describe('the failures slot', () => {
 describe('every other slot', () => {
 	it('still protects its earliest decisions', () => {
 		// The change is to one slot, not to the policy. A decision that set
-		// the run's approach has to outlive later noise, and breaking that
+		// the turn's approach has to outlive later noise, and breaking that
 		// while fixing failures would trade one defect for another.
 		const m = managerWith(3, 2)
 		for (const d of ['first', 'second', 'third', 'fourth']) m.addDecision(d)

@@ -2,7 +2,7 @@
 type: Reference
 title: Request-only step context
 description: Separate changing observations (step context, the working-memory slot, context contributions) from system policy and durable operator intent, after history where caches keep it.
-resource: packages/sdk/src/types/run/prepare-step.ts
+resource: packages/sdk/src/types/session/prepare-step.ts
 tags: [sdk, context, providers, runtime]
 ---
 
@@ -17,7 +17,7 @@ The same channel carries two kernel observations besides that field, so one
 request can hold several request-only context messages. In order, after the
 history and any step system guidance:
 
-1. **The working-memory slot.** The run's history keeps the slot where it
+1. **The working-memory slot.** The turn's history keeps the slot where it
    always was, as the last leading system message that compaction preserves.
    The request does not: the kernel takes it out of the system run and sends
    it as a runtime-context message of kind `step-context`, under the same
@@ -46,6 +46,10 @@ export const currentState: PrepareStep = ({ messages, prepared }) => ({
 })
 ```
 
+The context names the step's `sessionId`, `turnId` and `turnStartedAt` (epoch
+milliseconds). A resumed turn keeps the time of its `turn_started` record, so a
+step in the resuming process can still tell what the turn did before it paused.
+
 Pass the callback as `prepareStep`, or as a stage in its ordered array, to
 `query`/`drainQuery`. Later stages see the accumulated `prepared.context` and its
 estimated token cost in `contextBudget.remainingTokens`. They may compose it,
@@ -62,7 +66,7 @@ request room, and adds nothing after cancellation. Other callback exceptions
 retain their diagnostic-only behavior. See [evidence recall](evidence-recall.md)
 for query-planning, retrieval, timeout and pending-read states.
 
-The message is projected into the request, not appended to the run's conversation
+The message is projected into the request, not appended to the turn's conversation
 history. It therefore does not accumulate, enter a later compaction as an
 operator message, or persist as conversation input on resume. A host can record
 provider requests separately; request-context digests can still describe its
@@ -73,14 +77,14 @@ text the operator typed.
 
 ## Capturing the active invocation
 
-`PrepareStepContext.captureRunEvidence(maxReadBytes?, signal?)` exposes the
+`PrepareStepContext.captureSessionEvidence(maxReadBytes?, signal?)` exposes the
 same writer-owned boundary used by evidence tools. It is available to both
 `prepareStep` and `beforeStep` through their shared context. It returns a
-`RunTextEvidenceSource`, or `undefined` when the store does not implement
-capture. The optional signal can shorten the run's lifetime for this read;
-it cannot keep a cancelled or settled run active. Capture is serialized with
+`SessionTextEvidenceSource`, or `undefined` when the store does not implement
+capture. The optional signal can shorten the turn's lifetime for this read;
+it cannot keep a cancelled or settled turn active. Capture is serialized with
 complete durable appends and checks cancellation before and after acquiring
-the boundary. It does not accept a path or another run ID.
+the boundary. It does not accept a path or another turn ID.
 
 The [automatic recall step](evidence-recall.md) passes a wrapper of this
 capability to its host retriever. Each pass obtains a fresh boundary. A bounded
@@ -131,7 +135,7 @@ among the request's `system` messages, so it is also missing from the
 system messages. It appears after the history as a user-role message with
 source `{ type: 'runtime-context', kind: 'step-context' }`, whose first line
 is the runtime-generated label and whose remaining lines are the slot,
-starting with the same `[WORKING MEMORY]` header. The run's history,
+starting with the same `[WORKING MEMORY]` header. The turn's history,
 checkpoints and compaction are unchanged. The closing request after an empty
 completion moves the slot the same way.
 
@@ -155,7 +159,7 @@ Choose `context` for an observation the model should read and weigh, such as a
 repository snapshot or a status. Choose `turn` only when the text must carry
 the authority of an instruction, and accept that a changing `turn` section
 invalidates a hoisting driver's cached conversation prefix. Neither is pushed
-onto the run's history.
+onto the turn's history.
 
 This preserves a reusable history prefix; it does not guarantee a cache hit or
 reduce total input tokens by itself. Other system contributions, tool schemas,
@@ -232,9 +236,9 @@ runtime observations through the same request-only context channel:
   these slots first, most recently launched first, so a long-running task stays
   named for as long as it keeps running regardless of how many other tasks this
   run has since launched; the most recently settled tasks fill whatever slots
-  running tasks leave over. It reports scheduler state, child run status, any
+  running tasks leave over. It reports scheduler state, child session status, any
   stop reason and whether the result was delivered to history. Unknown
-  scheduler state stays unknown. Other runs' tasks and worker result bodies are
+  scheduler state stays unknown. Other turns' tasks and worker result bodies are
   excluded; an omitted count covers tasks left out entirely, and a running task
   that does not fit is additionally named in the preamble as still running
   rather than folded silently into that count.
@@ -253,7 +257,7 @@ The ledger these entries are checked against is scoped to a conversation, and a
 conversation that is resumed rebuilds it by replaying its own restored history
 once, before the first request — see
 [the observation ledger](tool-execution.md#file-changes-between-observation-and-edit). So a
-resumed run's first request can carry entries for files it wrote before the
+resumed turn's first request can carry entries for files it wrote before the
 session closed, and it can carry them only for paths the replay reconstructed
 exactly. A path it could not reconstruct is left out of the ledger altogether
 rather than entered without a fingerprint, so the read-before-overwrite refusal
@@ -292,9 +296,9 @@ projection is applied to a closing request after an empty completion.
 `PrepareStepContext.generateText` is an optional experimental capability supplied
 by the kernel to each `prepareStep` stage, absent from `beforeStep`. A stage may
 await one tool-free inference call; its capability is revoked when that stage
-returns. This lets context preparation use the owning run's provider, retry and
+returns. This lets context preparation use the owning turn's provider, retry and
 fallback chain, token admission and cancellation rather than an unmetered client.
-The model is the one selected by preceding stages, with the run's effort setting.
+The model is the one selected by preceding stages, with the turn's effort setting.
 
 `PreparationTextRequest` contains only `system`, `prompt`, optional `maxTokens`,
 `timeoutMs` and `signal`. No conversation, tool definitions, private reasoning or
@@ -304,14 +308,14 @@ cannot exceed 1,024. A caller signal can shorten the stage/run lifetime. These
 limits do not guarantee a provider billing ceiling.
 
 `timeoutMs` is accepted and validated and no longer bounds the request. It cannot:
-an auxiliary request that ends without its final usage receipt leaves the run's
+an auxiliary request that ends without its final usage receipt leaves the turn's
 shared ledger unresolved, and an unresolved request admits nothing further, so a
-deadline that fired in normal use did not bound the call — it ended the run that
+deadline that fired in normal use did not bound the call — it ended the turn that
 made it. Against a reasoning model whose auxiliary answer took 17 s, a 10 s
 deadline stopped every turn after the first before the model was asked. The call
-is bounded instead by the provider's own request timeout and by the run's
-cancellation, the same two bounds every other model request in the run has; a
-run-level `timeoutMs` on `runConfig` bounds the turn that contains it. The field
+is bounded instead by the provider's own request timeout and by the turn's
+cancellation, the same two bounds every other model request in the turn has; a
+turn-level `timeoutMs` on `turnConfig` bounds the turn that contains it. The field
 is deprecated and will be removed in a later major.
 
 `PreparationTextResult` returns `text` (at most 8,192 units), `usage` and
@@ -322,14 +326,14 @@ reject; optional-stage failures retain the existing diagnostic and fail-open
 behavior. Cancellation with an unresolved receipt remains visible in the token
 ledger and can prevent further spending.
 
-Measured auxiliary usage and cost contribute to the owning run and budget. They
+Measured auxiliary usage and cost contribute to the owning turn and budget. They
 are excluded from the main-model `StepResult` counters and do not create a
 conversation message or a separate step. Model `maxIterations` counts loop steps,
 not these additional provider requests; token budgets still cover both. A host
 using the returned text must validate and label it appropriately. In particular,
 a query interpretation is neither system policy nor independent evidence.
 
-[Answer reviewers](verification.md#run-owned-review-inference) share this bounded
+[Answer reviewers](verification.md#turn-owned-review-inference) share this bounded
 request/result shape and inference implementation. They receive their own
 invocation-scoped capability after a candidate is produced; preparation's
 capability cannot be retained for that later phase.

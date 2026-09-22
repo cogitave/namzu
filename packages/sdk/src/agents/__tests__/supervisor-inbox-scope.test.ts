@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import { TokenBudget } from '../../run/token-budget.js'
-import { generateRunId } from '../../utils/id.js'
+import { SessionTokenBudget } from '../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
@@ -17,14 +17,17 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * A gateway the HOST owns, which is the case that goes wrong.
  *
  * `SupervisorAgentConfig.scheduler` is a first-class option, and a host that
- * built a scheduler reuses it — across sequential runs, and across concurrent
- * ones. The supervisor attached a fresh `CompletionInbox` to it on every run
- * and never detached, so the subscription set only grew: three runs, three
- * live listeners, each still holding its own run's handles and each still
- * being handed every other run's completions.
+ * built a scheduler reuses it — across sequential turns, and across concurrent
+ * ones. The supervisor attached a fresh `CompletionInbox` to it on every turn
+ * and never detached, so the subscription set only grew: three turns, three
+ * live listeners, each still holding its own turn's handles and each still
+ * being handed every other turn's completions.
  */
 class HostGateway implements TaskScheduler {
-	budget = TokenBudget.create(200_000, generateRunId()).reserve(100_000)
+	budget = SessionTokenBudget.create(200_000, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	}).reserve(100_000)
 	readonly listeners = new Set<(h: TaskHandle) => void>()
 
 	async createTask(): Promise<TaskHandle> {
@@ -67,7 +70,10 @@ async function runOnce(
 	id: string,
 	options: { collide?: boolean } = {},
 ): Promise<void> {
-	scheduler.budget = TokenBudget.create(200_000, generateRunId()).reserve(100_000)
+	scheduler.budget = SessionTokenBudget.create(200_000, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	}).reserve(100_000)
 	const agent = new SupervisorAgent({
 		id,
 		name: 'Supervisor',
@@ -114,12 +120,12 @@ describe('a supervisor releases the gateway it borrowed', () => {
 		}
 	}, 60_000)
 
-	it('releases it when setup throws before the run ever starts', async () => {
+	it('releases it when setup throws before the turn ever starts', async () => {
 		// The reason it is a `finally` covering the whole body and not a line
 		// after `drainQuery`. A host whose tool shares a coordinator name gets
 		// `ToolNameCollisionError` from the registration loop — after the inbox
 		// attached — then fixes its config and runs again. A leak of one
-		// listener per run becomes one per ATTEMPT, and the attempts are what
+		// listener per turn becomes one per ATTEMPT, and the attempts are what
 		// there are most of.
 		const gateway = new HostGateway()
 
@@ -127,11 +133,11 @@ describe('a supervisor releases the gateway it borrowed', () => {
 			ToolNameCollisionError,
 		)
 
-		expect(gateway.listeners.size, 'a run that threw left its listener attached').toBe(0)
+		expect(gateway.listeners.size, 'a turn that threw left its listener attached').toBe(0)
 	}, 60_000)
 
-	it('never hands a completion to a run that did not launch it', async () => {
-		// Two supervisors, one gateway. The second run's inbox is gone by the
+	it('never hands a completion to a turn that did not launch it', async () => {
+		// Two supervisors, one gateway. The second turn's inbox is gone by the
 		// time this fires, but the assertion that matters is the one above it:
 		// nothing is listening that should not be.
 		const gateway = new HostGateway()

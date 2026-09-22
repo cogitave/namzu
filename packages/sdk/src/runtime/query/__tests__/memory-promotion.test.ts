@@ -3,11 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryPromoter } from '../../../run/memory-promoter.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { createMemoryPromoter } from '../../../turn/memory-promoter.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
-import type { RunMemoryCandidate } from '../../../types/run/memory-promotion.js'
-import { memoryCandidateFor } from '../../../types/run/memory-promotion.js'
+import type { SessionMemoryCandidate } from '../../../types/session/memory-promotion.js'
+import { memoryCandidateFor } from '../../../types/session/memory-promotion.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -19,7 +19,7 @@ import { drainQuery } from '../index.js'
 /**
  * namzu could STORE a memory and could not FORM one. `MemoryStore` and
  * its disk implementation have been here all along, and the only path
- * into them was the model calling `save_memory` — so a run that worked
+ * into them was the model calling `save_memory` — so a turn that worked
  * out a durable fact and never thought to write it down lost it at
  * settle, along with everything the compaction pass had already
  * extracted and structured on the way.
@@ -28,7 +28,7 @@ import { drainQuery } from '../index.js'
 registerMock()
 
 function run(opts: {
-	promoteMemory?: (candidate: RunMemoryCandidate) => void | Promise<void>
+	promoteMemory?: (candidate: SessionMemoryCandidate) => void | Promise<void>
 	failing?: boolean
 	compaction?: boolean
 }) {
@@ -41,7 +41,7 @@ function run(opts: {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'ship the invoice job' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -53,22 +53,23 @@ function run(opts: {
 	})
 }
 
-describe('what a finished run leaves behind', () => {
-	it('offers the extracted state when the run settles', async () => {
+describe('what a finished turn leaves behind', () => {
+	it('offers the extracted state when the turn settles', async () => {
 		const promote = vi.fn()
 		await run({ promoteMemory: promote })
 
 		expect(promote).toHaveBeenCalledTimes(1)
-		const candidate = promote.mock.calls[0]?.[0] as RunMemoryCandidate
-		expect(candidate.runId).toMatch(
+		const candidate = promote.mock.calls[0]?.[0] as SessionMemoryCandidate
+		expect(candidate.turnId).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
 		)
+		expect(candidate.sessionId).toMatch(/^[0-9a-f]{8}-/)
 		expect(candidate.task).toContain('invoice')
 	})
 
 	it('offers it after a FAILED run too', async () => {
-		// A run that fell over still discovered things, and the approach that
-		// failed is exactly what a later run should not pay for twice.
+		// A turn that fell over still discovered things, and the approach that
+		// failed is exactly what a later turn should not pay for twice.
 		const promote = vi.fn()
 		await run({ promoteMemory: promote, failing: true }).catch(() => {})
 
@@ -76,7 +77,7 @@ describe('what a finished run leaves behind', () => {
 	})
 
 	it('does not retract an answer when the host throws', async () => {
-		// A memory that failed to form must not fail a run that already
+		// A memory that failed to form must not fail a turn that already
 		// produced its answer.
 		const settled = await run({
 			promoteMemory: () => {
@@ -108,21 +109,21 @@ describe('what a finished run leaves behind', () => {
 		expect(settled.result).toBe('done')
 	})
 
-	it('leaves the store empty when the run discovered nothing', async () => {
+	it('leaves the store empty when the turn discovered nothing', async () => {
 		// End to end, through the real runtime: a mock turn produces a task
 		// and no knowledge, so the shipped promoter writes nothing.
 		//
 		// Asserted as EMPTINESS rather than as "the promoter was called". A
-		// promoter that wrote a record per run would be called exactly the
+		// promoter that wrote a record per turn would be called exactly the
 		// same number of times, and would fill the store the model reads on
-		// later runs with accounts of runs that found nothing.
+		// later turns with accounts of runs that found nothing.
 		const store = new InMemoryMemoryStore()
 		await run({ promoteMemory: createMemoryPromoter({ store }) })
 
 		expect((await store.list()).totalCount).toBe(0)
 	})
 
-	it('writes one record when the run did learn something', async () => {
+	it('writes one record when the turn did learn something', async () => {
 		// The guard on the test above: a promoter that never writes passes it
 		// while being the defect this whole hook exists to fix.
 		const store = new InMemoryMemoryStore()
@@ -137,11 +138,11 @@ describe('what a finished run leaves behind', () => {
 		expect(page.entries[0]?.title).toContain('invoice')
 	})
 
-	it('awaits an async host before the run returns', async () => {
+	it('awaits an async host before the turn returns', async () => {
 		// Fire-and-forget would race a one-shot process exiting, and the
-		// write would be lost precisely on the runs that are shortest.
-		// Asserted as an ORDER, not a flag: a flag checked after the run
-		// passes whenever the run happens to be slower than the write, which
+		// write would be lost precisely on the turns that are shortest.
+		// Asserted as an ORDER, not a flag: a flag checked after the turn
+		// passes whenever the turn happens to be slower than the write, which
 		// makes the test a race rather than a check.
 		const order: string[] = []
 		await run({
@@ -170,16 +171,20 @@ describe('what a finished run leaves behind', () => {
 })
 
 describe('whether there is anything to offer', () => {
-	// Tested apart from the run because inside the `try` the decision and
+	// Tested apart from the turn because inside the `try` the decision and
 	// the catch that swallows its failure look identical from outside: drop
-	// the guard and the candidate throws, the catch logs, and the run-level
+	// the guard and the candidate throws, the catch logs, and the turn-level
 	// assertion still holds for the wrong reason.
 
 	it('is nothing at all without an extractor', () => {
 		// Inventing an empty candidate would ask a host to store a record of
 		// nothing.
 		expect(
-			memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, undefined),
+			memoryCandidateFor(
+				'5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+				'37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+				undefined,
+			),
 		).toBeUndefined()
 	})
 
@@ -194,13 +199,17 @@ describe('whether there is anything to offer', () => {
 			files: new Map([['src/a.ts', {}]]),
 			evicted: { decisions: 2 },
 		}
-		const candidate = memoryCandidateFor('37ddff8e-e13f-4e57-937f-d048fa323f5e' as never, {
-			getState: () => state,
-		})
+		const candidate = memoryCandidateFor(
+			'5b2f0c1d-7e3a-4c9b-8f10-2a3b4c5d6e7f' as never,
+			'37ddff8e-e13f-4e57-937f-d048fa323f5e' as never,
+			{
+				getState: () => state,
+			},
+		)
 
 		expect(candidate?.files).toEqual(['src/a.ts'])
 		expect(candidate?.userRequirements).toEqual(['never bill twice'])
-		// Copied, so a host holding the candidate cannot edit the run's state.
+		// Copied, so a host holding the candidate cannot edit the turn's state.
 		expect(candidate?.decisions).not.toBe(state.decisions)
 		// Carried rather than hidden: a host deciding whether this is worth
 		// storing should know it is looking at a truncated record.

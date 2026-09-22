@@ -129,7 +129,7 @@ export interface CodingAgentDoctrineOptions {
 
 /**
  * The doctrine as a `static` contribution: it depends on nothing that changes
- * inside a run, so it belongs in the cached prefix. Register it on the
+ * inside a turn, so it belongs in the cached prefix. Register it on the
  * `PromptContributionRegistry` handed to `query`; it renders after
  * `systemPrompt` and the skills section.
  */

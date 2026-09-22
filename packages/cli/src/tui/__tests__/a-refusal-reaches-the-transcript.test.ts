@@ -10,7 +10,7 @@
  * are invisible is switched off for the wrong reason."
  *
  * Driven end to end from the CLI's own config vocabulary: the screens are the
- * ones `toolResultScreens` resolves to, the run is a real `runAgent` with a
+ * ones `toolResultScreens` resolves to, the turn is a real `runAgent` with a
  * real registry, and the row is produced by the CLI's own `toAgentEvent`.
  */
 
@@ -21,7 +21,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
 	MockLLMProvider,
-	type RunEvent,
+	type SessionEvent,
 	ToolRegistry,
 	createToolPresenter,
 	createUserMessage,
@@ -43,7 +43,7 @@ import { toAgentEvent } from '../agent.js'
 
 registerMock()
 
-// The run's durable state goes under its working directory's `.namzu` when
+// The turn's durable state goes under its working directory's `.namzu` when
 // no path builder is given. `process.cwd()` put it inside this package.
 const workDirs: string[] = []
 afterEach(() => {
@@ -92,7 +92,7 @@ function framedSearchTool(): ToolDefinition {
 }
 
 /**
- * Run one tool call through a real run and return every event it emitted.
+ * Run one tool call through a real turn and return every event it emitted.
  *
  * `drainQuery` rather than `runAgent` because the listener is what this test
  * is about: `runAgent` takes no listener, so a test built on it could only
@@ -100,10 +100,10 @@ function framedSearchTool(): ToolDefinition {
  */
 async function eventsFor(
 	screens: Parameters<typeof resolveToolResultScreens>[0],
-): Promise<readonly RunEvent[]> {
+): Promise<readonly SessionEvent[]> {
 	const registry = new ToolRegistry({ resultGuardrails: resolveToolResultScreens(screens) })
 	registry.register(framedSearchTool())
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const workingDirectory = mkdtempSync(join(tmpdir(), 'namzu-refusal-'))
 	workDirs.push(workingDirectory)
 
@@ -121,7 +121,12 @@ async function eventsFor(
 			sessionId: generateSessionId(),
 			tenantId: generateTenantId(),
 			topicId: generateTopicId(),
-			runConfig: { model: 'mock-model', maxIterations: 4, tokenBudget: 100_000, timeoutMs: 20_000 },
+			turnConfig: {
+				model: 'mock-model',
+				maxIterations: 4,
+				tokenBudget: 100_000,
+				timeoutMs: 20_000,
+			},
 		},
 		(event) => {
 			events.push(event)

@@ -1,16 +1,32 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
 import { hostLogger } from '../../../__fixtures__/host-logger.js'
 import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
-import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
-import { posix } from '../../../test-support/paths.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import { InMemorySessionTokenBudgetStore } from '../../../store/budget/index.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
-import type { AgentRunConfig } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { TurnConfig } from '../../../types/session/index.js'
 import { NOOP_LOGGER } from '../../../utils/log/create-logger.js'
 import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
-import { RunContextFactory } from '../context.js'
+import { TurnContextFactory } from '../context.js'
+import type { SessionStorage } from '../session-storage.js'
+import { checkpointStoreFor } from './support/session.js'
+
+/** Storage for an in-memory session, or for one whose log sits in `sessionDir`. */
+function storage(sessionId: SessionId, sessionDir?: string): SessionStorage {
+	const log = new InMemorySessionLog({ sessionId })
+	return {
+		log,
+		paths: undefined,
+		sessionDir,
+		checkpoints: checkpointStoreFor(log),
+		tokenBudget: new InMemorySessionTokenBudgetStore(),
+		children: undefined,
+	}
+}
 
 function mockProvider(): LLMProvider {
 	return {
@@ -20,12 +36,12 @@ function mockProvider(): LLMProvider {
 	} as unknown as LLMProvider
 }
 
-function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.build>[0]> = {}) {
+function buildConfig(overrides: Partial<Parameters<typeof TurnContextFactory.build>[0]> = {}) {
 	const sessionId = 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede' as SessionId
 	const topicId = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 	const projectId = '08c9b09c-4412-478c-878b-dc94927c760f' as ProjectId
 	const tenantId = 'a8e039fb-e8d3-4206-9ed8-4cb17d5d8222' as TenantId
-	const runConfig: AgentRunConfig = {
+	const turnConfig: TurnConfig = {
 		model: 'test',
 		tokenBudget: 1_000,
 		timeoutMs: 5_000,
@@ -34,22 +50,24 @@ function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.buil
 	return {
 		agentId: 'agent-1',
 		agentName: 'agent-1',
-		runConfig,
+		turnConfig,
 		provider: mockProvider(),
 		messages: [],
 		sessionId,
 		topicId,
 		projectId,
 		tenantId,
+		turnId: 'b1f6e0d4-2f0a-4a53-9d3c-6f3f6f3c1a11' as TurnId,
+		storage: storage(sessionId),
 		workingDirectory: '/tmp/run-context-test',
 		...overrides,
 	}
 }
 
-describe('RunContextFactory.build', () => {
+describe('TurnContextFactory.build', () => {
 	it('requires sessionId, topicId, projectId, tenantId and returns them on the context', () => {
 		const cfg = buildConfig()
-		const ctx = RunContextFactory.build(cfg)
+		const ctx = TurnContextFactory.build(cfg)
 
 		expect(ctx.sessionId).toBe(cfg.sessionId)
 		expect(ctx.topicId).toBe(cfg.topicId)
@@ -57,66 +75,40 @@ describe('RunContextFactory.build', () => {
 		expect(ctx.tenantId).toBe(cfg.tenantId)
 	})
 
-	it('uses the injected PathBuilder to resolve the output dir (no hardcoded .namzu/threads)', () => {
-		const pathBuilderMock: PathBuilder = {
-			rootDir: vi.fn(() => '/mock/root'),
-			projectDir: vi.fn((pid) => `/mock/root/projects/${pid}`),
-			sessionDir: vi.fn((pid, sid) => `/mock/root/projects/${pid}/sessions/${sid}`),
-			subSessionDir: vi.fn(),
-			runDir: vi.fn(),
-		}
-
-		const cfg = buildConfig({ pathBuilder: pathBuilderMock })
-		const ctx = RunContextFactory.build(cfg)
-
-		expect(pathBuilderMock.sessionDir).toHaveBeenCalledWith(cfg.projectId, cfg.sessionId)
-		expect(ctx.outputDir).toBe(`/mock/root/projects/${cfg.projectId}/sessions/${cfg.sessionId}`)
-		// Legacy hardcoded path must not leak.
-		expect(ctx.outputDir).not.toContain('.namzu/threads')
-	})
-
-	it('falls back to DefaultPathBuilder rooted at {cwd}/.namzu when no pathBuilder is provided', () => {
+	it('spills tool results beside the session log', () => {
+		const sessionDir = join('/home', 'projects', 'demo', 'fea5c0c7-1d0f-46cc-9844-c3a8f90afede')
 		const cfg = buildConfig()
-		const ctx = RunContextFactory.build(cfg)
+		const ctx = TurnContextFactory.build({ ...cfg, storage: storage(cfg.sessionId, sessionDir) })
 
-		// Layout lives under projects/{pid}/sessions/{sid} — no `.namzu/threads/`.
-		expect(posix(ctx.outputDir)).toContain(
-			'/.namzu/projects/08c9b09c-4412-478c-878b-dc94927c760f/sessions/fea5c0c7-1d0f-46cc-9844-c3a8f90afede',
-		)
-		expect(ctx.outputDir).not.toContain('threads')
+		expect(ctx.toolResultsDir).toBe(join(sessionDir, 'tool-results'))
 	})
 
-	it('seeds RunPersistence with propagated sessionId/topicId/tenantId/projectId', () => {
+	it('has nowhere to spill for a session held in memory', () => {
+		const ctx = TurnContextFactory.build(buildConfig())
+
+		expect(ctx.toolResultsDir).toBeUndefined()
+	})
+
+	it('seeds TurnRecorder with propagated sessionId/topicId/tenantId/projectId', () => {
 		const cfg = buildConfig()
-		const ctx = RunContextFactory.build(cfg)
+		const ctx = TurnContextFactory.build(cfg)
 
-		expect(ctx.runMgr.sessionId).toBe(cfg.sessionId)
-		expect(ctx.runMgr.topicId).toBe(cfg.topicId)
-		expect(ctx.runMgr.tenantId).toBe(cfg.tenantId)
-		expect(ctx.runMgr.projectId).toBe(cfg.projectId)
+		expect(ctx.recorder.sessionId).toBe(cfg.sessionId)
+		expect(ctx.recorder.topicId).toBe(cfg.topicId)
+		expect(ctx.recorder.tenantId).toBe(cfg.tenantId)
+		expect(ctx.recorder.projectId).toBe(cfg.projectId)
 	})
 
-	it('reuses the runId supplied by the caller', () => {
-		const runId = '32dac363-0593-4feb-b737-d1c7a195a51b' as RunId
-		const ctx = RunContextFactory.build(buildConfig({ runId }))
-		expect(ctx.runId).toBe(runId)
+	it('uses the turnId supplied by the caller', () => {
+		const turnId = '32dac363-0593-4feb-b737-d1c7a195a51b' as TurnId
+		const ctx = TurnContextFactory.build(buildConfig({ turnId }))
+		expect(ctx.turnId).toBe(turnId)
+		expect(ctx.recorder.turnId).toBe(turnId)
 	})
 
-	it('DefaultPathBuilder lays out runs under sessions/{sessionId}/runs', () => {
-		const builder = new DefaultPathBuilder('/base/.namzu')
-		const runDir = builder.runDir(
-			'3f488113-b658-4c23-833c-69d1e9072a19' as ProjectId,
-			'a5969474-3d01-47d2-9887-476be3e4dcb4' as SessionId,
-			'f324d96c-eb82-495b-ada1-02447f83cf65' as RunId,
-		)
-		expect(posix(runDir)).toBe(
-			'/base/.namzu/projects/3f488113-b658-4c23-833c-69d1e9072a19/sessions/a5969474-3d01-47d2-9887-476be3e4dcb4/runs/f324d96c-eb82-495b-ada1-02447f83cf65',
-		)
-	})
-
-	it("carries the caller's stop reason across into the run", () => {
+	it("carries the caller's stop reason across into the turn", () => {
 		const host = new AbortController()
-		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
+		const ctx = TurnContextFactory.build(buildConfig({ signal: host.signal }))
 
 		host.abort(new Error('nightly window closed'))
 
@@ -129,7 +121,7 @@ describe('RunContextFactory.build', () => {
 		const reason = new Error('authority was already withdrawn')
 		host.abort(reason)
 
-		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
+		const ctx = TurnContextFactory.build(buildConfig({ signal: host.signal }))
 
 		expect(ctx.abortController.signal.aborted).toBe(true)
 		expect(ctx.abortController.signal.reason).toBe(reason)
@@ -137,7 +129,7 @@ describe('RunContextFactory.build', () => {
 
 	it('still aborts when the caller gave no reason', () => {
 		const host = new AbortController()
-		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
+		const ctx = TurnContextFactory.build(buildConfig({ signal: host.signal }))
 
 		host.abort()
 
@@ -145,21 +137,21 @@ describe('RunContextFactory.build', () => {
 	})
 })
 
-describe('RunContextFactory.buildLogger', () => {
+describe('TurnContextFactory.buildLogger', () => {
 	afterEach(() => {
 		__resetProcessSinkForTests()
 	})
 
-	it("binds namzu.run.id and the rest of the run scope onto the host's logger", () => {
+	it("binds namzu.turn.id and the rest of the turn scope onto the host's logger", () => {
 		const records: LogRecord[] = []
 		const sink: LogSink = { emit: (record) => records.push(record) }
 
 		const cfg = buildConfig()
-		const runId = 'ae683305-c07d-4685-a4db-e1aef4680237' as RunId
-		const log = RunContextFactory.buildLogger({
+		const turnId = 'ae683305-c07d-4685-a4db-e1aef4680237' as TurnId
+		const log = TurnContextFactory.buildLogger({
 			agentName: cfg.agentName,
-			runConfig: { ...cfg.runConfig, logger: hostLogger(sink) },
-			runId,
+			turnConfig: { ...cfg.turnConfig, logger: hostLogger(sink) },
+			turnId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
 			projectId: cfg.projectId,
@@ -168,7 +160,7 @@ describe('RunContextFactory.buildLogger', () => {
 		log.info('hello')
 
 		expect(records).toHaveLength(1)
-		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
+		expect(records[0]?.attributes[NAMZU.TURN_ID]).toBe(turnId)
 		expect(records[0]?.attributes[GENAI.AGENT_NAME]).toBe(cfg.agentName)
 		expect(records[0]?.attributes[NAMZU.SESSION_ID]).toBe(cfg.sessionId)
 		expect(records[0]?.attributes[NAMZU.THREAD_ID]).toBe(cfg.topicId)
@@ -182,7 +174,7 @@ describe('RunContextFactory.buildLogger', () => {
 	})
 
 	it('emits nothing at all when the host supplied no logger, process sink installed or not', () => {
-		// LOG-20's whole claim, in one assertion. `runConfig.logger` absent
+		// LOG-20's whole claim, in one assertion. `turnConfig.logger` absent
 		// used to mean "resolve the process-wide root", so a library the host
 		// never handed a logger wrote to the host's stderr — and installing a
 		// process sink silently rerouted SDK internals the host never asked to
@@ -193,10 +185,10 @@ describe('RunContextFactory.buildLogger', () => {
 		installProcessSink(sink, 'debug', { replace: true })
 
 		const cfg = buildConfig()
-		RunContextFactory.buildLogger({
+		TurnContextFactory.buildLogger({
 			agentName: cfg.agentName,
-			runConfig: cfg.runConfig,
-			runId: '892557f8-96dc-4ce9-b958-ec6917ddad2c' as RunId,
+			turnConfig: cfg.turnConfig,
+			turnId: '892557f8-96dc-4ce9-b958-ec6917ddad2c' as TurnId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
 			projectId: cfg.projectId,
@@ -210,7 +202,7 @@ describe('RunContextFactory.buildLogger', () => {
 		expect(NOOP_LOGGER.counters.dropped).toBeGreaterThan(0)
 	})
 
-	it('derives from the host-supplied runConfig.logger, not from any other source', () => {
+	it('derives from the host-supplied turnConfig.logger, not from any other source', () => {
 		// A capturing sink installed as the process DEFAULT — proves nothing by
 		// itself, since every logger in this test would be reachable from it
 		// too if buildLogger ignored the host's own logger. The marker logger
@@ -232,10 +224,10 @@ describe('RunContextFactory.buildLogger', () => {
 		})
 
 		const cfg = buildConfig()
-		const log = RunContextFactory.buildLogger({
+		const log = TurnContextFactory.buildLogger({
 			agentName: cfg.agentName,
-			runConfig: { ...cfg.runConfig, logger: marker },
-			runId: 'b177e5bf-5b2a-4006-83df-04313ca307d7' as RunId,
+			turnConfig: { ...cfg.turnConfig, logger: marker },
+			turnId: 'b177e5bf-5b2a-4006-83df-04313ca307d7' as TurnId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
 			projectId: cfg.projectId,
@@ -248,25 +240,25 @@ describe('RunContextFactory.buildLogger', () => {
 	})
 })
 
-describe('RunContextFactory.build accepts a pre-built logger', () => {
+describe('TurnContextFactory.build accepts a pre-built logger', () => {
 	afterEach(() => {
 		__resetProcessSinkForTests()
 	})
 
 	it('uses config.log unchanged instead of constructing its own via buildLogger', () => {
 		const cfg = buildConfig()
-		const runId = 'd4f86af4-7306-4cd3-bafa-4afdb81a3c25' as RunId
-		const preBuilt = RunContextFactory.buildLogger({
+		const turnId = 'd4f86af4-7306-4cd3-bafa-4afdb81a3c25' as TurnId
+		const preBuilt = TurnContextFactory.buildLogger({
 			agentName: cfg.agentName,
-			runConfig: cfg.runConfig,
-			runId,
+			turnConfig: cfg.turnConfig,
+			turnId,
 			sessionId: cfg.sessionId,
 			topicId: cfg.topicId,
 			projectId: cfg.projectId,
 			tenantId: cfg.tenantId,
 		})
 
-		const ctx = RunContextFactory.build(buildConfig({ runId, log: preBuilt }))
+		const ctx = TurnContextFactory.build(buildConfig({ turnId, log: preBuilt }))
 
 		expect(ctx.log).toBe(preBuilt)
 	})
@@ -275,15 +267,15 @@ describe('RunContextFactory.build accepts a pre-built logger', () => {
 		const records: LogRecord[] = []
 		const sink: LogSink = { emit: (record) => records.push(record) }
 
-		const runId = '05a0d6cb-6960-41b7-9e67-ed4dbed4e3cb' as RunId
-		const base = buildConfig({ runId })
-		const ctx = RunContextFactory.build({
+		const turnId = '05a0d6cb-6960-41b7-9e67-ed4dbed4e3cb' as TurnId
+		const base = buildConfig({ turnId })
+		const ctx = TurnContextFactory.build({
 			...base,
-			runConfig: { ...base.runConfig, logger: hostLogger(sink) },
+			turnConfig: { ...base.turnConfig, logger: hostLogger(sink) },
 		})
 		ctx.log.info('hello')
 
 		expect(records).toHaveLength(1)
-		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
+		expect(records[0]?.attributes[NAMZU.TURN_ID]).toBe(turnId)
 	})
 })

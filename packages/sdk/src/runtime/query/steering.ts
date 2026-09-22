@@ -17,9 +17,9 @@ export function isOperatorUserMessage(message: Message): message is UserMessage 
  * The gap this closes is narrow and was documented rather than fixed:
  * `AgentManager` has had `queueMessage` / `drainMessages` for a while, and
  * nothing in the iteration loop ever read them — the type says so in as many
- * words. So a host watching a run go the wrong way had two options, and both
+ * words. So a host watching a turn go the wrong way had two options, and both
  * are worse than they sound. Cancel and start over throws away every tool
- * result the run had already paid for. Reject through the review gate only
+ * result the turn had already paid for. Reject through the review gate only
  * works if a tool call happens to be pending approval, and it says "no" when
  * the host wanted to say "yes, but look at this first".
  *
@@ -90,7 +90,7 @@ export class SteeringBinding implements SteeringChannel {
  * as something the tool said — so a steer saying "stop and ask me first" would
  * look like output from `bash`.
  *
- * This is NOT the untrusted-content envelope. The host operating the run is
+ * This is NOT the untrusted-content envelope. The host operating the turn is
  * the one party whose words the agent SHOULD act on; framing them as material
  * to be worked with rather than followed would inverting the very thing the
  * host is trying to do. Different party, different frame, on purpose.
@@ -138,8 +138,21 @@ export function formatJobNote(text: string): string {
 	return `\n\n[Background job update]\n${text}`
 }
 
+const STEERING_NOTE_HEADER =
+	'\n\n[Message from the operator, received while this tool was running]\n'
+
 export function formatSteeringNote(text: string): string {
-	return `\n\n[Message from the operator, received while this tool was running]\n${text}`
+	return `${STEERING_NOTE_HEADER}${text}`
+}
+
+/**
+ * The operator guidance the last steering note in a tool result carries, or
+ * `undefined` when the result carries none. The inverse of
+ * {@link formatSteeringNote} applied by {@link attachSteering}.
+ */
+export function readSteeringNote(content: string): string | undefined {
+	const at = content.lastIndexOf(STEERING_NOTE_HEADER)
+	return at < 0 ? undefined : content.slice(at + STEERING_NOTE_HEADER.length)
 }
 
 /**

@@ -52,7 +52,7 @@ const second = await runAgent({
   ...first.identity,
   provider,
   model: 'muse-spark-1.3-contributor-free',
-  prompt: [...first.run.messages, { role: 'user', content: 'Give one example.' }],
+  prompt: [...first.turn.messages, { role: 'user', content: 'Give one example.' }],
 })
 
 console.log(second.output)
@@ -162,7 +162,7 @@ service stopped serving it and both pages stopped routing it, and the
 neither documents nor serves the id, so a record made for a temporary absence
 does not outlive the model. That is the other half of the discipline the
 `served-but-undocumented` case above shows: a decision recorded here is
-re-examined on every run rather than left standing.
+re-examined on every turn rather than left standing.
 
 While the absence was temporary the escape hatch was the ordinary one — state
 the wire, `new ZenProvider({ apiKey, model: 'union-alpha', protocol:
@@ -252,7 +252,7 @@ model the catalogue carries, and this one is not carried.
 
 The guard is unchanged around the new shape, which is what makes reading it
 safe: a row that has LOST that column, or carries a marker the page does not
-use, is still a page that moved and still stops the run at exit 2. What
+use, is still a page that moved and still stops the turn at exit 2. What
 separates the two is that one is a statement the page makes and the other is a
 row the script no longer reads.
 
@@ -364,7 +364,7 @@ two services' own `/models` answers on `https://opencode.ai`, by
 roster last moved; the gate is what establishes whether it is still true, and
 the refresh workflow is what makes it move without anybody remembering.
 `NAMZU_ZEN_DOCS_REF` selects another branch for the two pages and
-`NAMZU_ZEN_MODELS_BASE` another host for the served rosters, for a run that has
+`NAMZU_ZEN_MODELS_BASE` another host for the served rosters, for a turn that has
 to read elsewhere.
 OpenCode's [provider
 integration](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts)
@@ -374,7 +374,7 @@ Automated tests exercise the actual installed adapters with local HTTP/SSE
 fixtures: native request bodies, tool continuations, signed metadata replay,
 route changes, cancellation, usage and error classification. A full SDK
 kernel fixture executes a registered tool and checks its result in the next
-model request and the run's completed answer. These tests do not
+model request and the turn's completed answer. These tests do not
 establish live account access, inference quality or current billing.
 
 On 2026-09-08, a live public-access check found installed OpenCode 1.18.29 with zero stored
@@ -388,7 +388,7 @@ no account key, and the production tool set. Its `read` tool opened
 completed with `isError: false`; after two model requests, `done` returned
 the exact nonce with `end_turn`. This validates that model's public text
 and file-tool continuation path. It does not establish every public model,
-paid-account access, Go inference, or billing: the run reported 13,749
+paid-account access, Go inference, or billing: the turn reported 13,749
 unpriced tokens, which are not a verified charge.
 
 ### Turns that disable tools

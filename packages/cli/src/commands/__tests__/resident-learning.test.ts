@@ -5,7 +5,7 @@ import { SqliteResidentLearningStore } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { residentLearningStore } from '../../integrations/resident/learning-storage.js'
-import { lookupResident } from '../../integrations/resident/storage.js'
+import { lookupResident, residentDirectoryFor } from '../../integrations/resident/storage.js'
 import { residentCommand } from '../resident.js'
 import type { CommandContext } from '../types.js'
 
@@ -59,13 +59,13 @@ export default function(host) {
   skillName:candidate.name, failure:{evidence:{key:'failed-read',source:'fixture:actual-observation',reason:'Expected a source read.'},trace:'Original source was not read.'},
   resources:{unit:'tokens',maxUnits:100},
   protection:{verification:['verification-1'],confirmation:['confirmation-1']},
-  generate:async context=>{await context.recordUsage({runId:randomUUID(),tokens:5,costUsd:null});return {candidate,usageComplete:true}},
+  generate:async context=>{await context.recordUsage({sessionId:randomUUID(),turnId:randomUUID(),tokens:5,costUsd:null});return {candidate,usageComplete:true}},
   evaluate:async context=>{
-   await context.recordUsage({runId:randomUUID(),tokens:20,costUsd:null});
+   await context.recordUsage({sessionId:randomUUID(),turnId:randomUUID(),tokens:20,costUsd:null});
    ${fail ? "throw new Error('Independent evaluation was interrupted.');" : ''}
    const trials=side=>Array.from({length:10},(_,i)=>{
     const passed=side==='candidate'||i>1, taskId=context.stage+'-'+Math.floor(i/2);
-    return {taskId,trial:i%2,conditions:context.stage+'-'+i,trajectoryId:side+'-'+context.stage+'-'+i,result:{case:taskId,passed,status:passed?'passed':'failed',mean:Number(passed),scores:{exact:{score:Number(passed),reason:'Independent fixture check.'}},run:{output:passed?'observed':'missing',steps:[],toolCalls:[],totalTokens:1,totalCostUsd:0,durationMs:1}}};
+    return {taskId,trial:i%2,conditions:context.stage+'-'+i,trajectoryId:side+'-'+context.stage+'-'+i,result:{case:taskId,passed,status:passed?'passed':'failed',mean:Number(passed),scores:{exact:{score:Number(passed),reason:'Independent fixture check.'}},turn:{output:passed?'observed':'missing',steps:[],toolCalls:[],totalTokens:1,totalCostUsd:0,durationMs:1}}};
    });
    const baseline=trials('baseline'), candidate=trials('candidate');
    return {usageComplete:true,batch:{baselineRevision:context.baselineRevision,candidateRevision:context.candidateRevision,baseline,candidate,attributions:[{taskId:context.stage+'-0',effect:'improvement',reason:'Independent trace comparison.',baselineTrajectories:baseline.slice(0,2).map(t=>t.trajectoryId),candidateTrajectories:candidate.slice(0,2).map(t=>t.trajectoryId)}]}};
@@ -84,12 +84,18 @@ async function resident() {
 	return value
 }
 
+/** The resident's own learning database, beside its runner state. */
+async function learningDatabase(): Promise<string> {
+	const value = await resident()
+	return join(residentDirectoryFor(value.root, value.slug, value.agentKey), 'learning.sqlite')
+}
+
 it('does not create learning state or load a module during empty inspection', async () => {
 	expect((await command(['learning'])).code).toBe(0)
 	expect(existsSync(join(home, 'state'))).toBe(false)
 	expect((await command(['add', '--trust', 'Inspect sources.'])).code).toBe(0)
 	expect((await command(['learning'])).code).toBe(0)
-	expect(existsSync(join(home, 'state', 'learning.sqlite'))).toBe(false)
+	expect(existsSync(await learningDatabase())).toBe(false)
 	expect(existsSync(join(home, 'learning'))).toBe(false)
 })
 
@@ -98,7 +104,7 @@ it('refuses untrusted host execution before importing the selected module', asyn
 	const path = moduleFile()
 	expect((await command(['learn', path])).code).toBe(77)
 	expect(existsSync(join(root, 'imported'))).toBe(false)
-	expect(existsSync(join(home, 'state', 'learning.sqlite'))).toBe(false)
+	expect(existsSync(await learningDatabase())).toBe(false)
 })
 
 it('refuses a legacy host without protection before executing generation', async () => {
@@ -145,11 +151,13 @@ it('runs the host factory through the real SDK gate, persists both batches and i
 		'candidateRevision',
 		cycle.candidateRevision,
 	)
-	const before = readFileSync(join(home, 'state', 'learning.sqlite'))
+	const before = readFileSync(await learningDatabase())
 	const inspection = await command(['learning', cycle.cycleId, '--events', '--limit', '2'])
 	expect(inspection.code).toBe(0)
 	expect(inspection.printed[0]?.events).toHaveLength(2)
-	expect(readFileSync(join(home, 'state', 'learning.sqlite'))).toEqual(before)
+	expect(readFileSync(await learningDatabase())).toEqual(before)
+	// The installation-wide location of the old layout is never created.
+	expect(existsSync(join(home, 'state'))).toBe(false)
 })
 
 it('forwards optional environment exploration and retains its evidence before synthesis', async () => {
@@ -160,7 +168,7 @@ it('forwards optional environment exploration and retains its evidence before sy
 		readFileSync(path, 'utf8').replace(
 			'generate:async context=>{',
 			`explore:async context=>{
-   await context.recordUsage({runId:randomUUID(),tokens:7,costUsd:null});
+   await context.recordUsage({sessionId:randomUUID(),turnId:randomUUID(),tokens:7,costUsd:null});
    return {observations:{evidence:{key:'probe',source:'service-output',reason:'Observed.'},trace:'preview returned a destination'},usageComplete:true};
   },
   generate:async context=>{if(context.exploration?.trace!=='preview returned a destination')throw new Error('exploration missing');`,
@@ -232,7 +240,8 @@ it('inspects observations without leaking full traces or implying an executor is
 	const store = residentLearningStore(resident)
 	if (!store) throw new Error('Missing store.')
 	await store.observe({
-		runId: 'c7b3b083-1934-4cae-a445-2a8dd580d4a1',
+		sessionId: '0199a8d2-37dd-7f8e-9e13-4e57937fd049',
+		turnId: 'c7b3b083-1934-4cae-a445-2a8dd580d4a1',
 		skillName: 'source-check',
 		evaluatorRevision: 'muse-low-v1',
 		baselineRevision: 'none',
@@ -262,7 +271,7 @@ it('selects a stored failure through the host module and does not replay it on a
 	body = body.replace(
 		' return {\n  skillName:',
 		`
- await host.store.observe({runId:'a33cc456-e5d6-46c6-9347-db1c4300ab08',skillName:candidate.name,evaluatorRevision:'fixture-v1',baselineRevision:'none',taskKey:'source-fixture',outcome:'failed',usageComplete:true,evidence:{key:'source',source:'host-fixture',reason:'No source read.'},trace:'Source was not read.'});
+ await host.store.observe({sessionId:'0199a8d2-37dd-7f8e-9e13-4e57937fd04a',turnId:'a33cc456-e5d6-46c6-9347-db1c4300ab08',skillName:candidate.name,evaluatorRevision:'fixture-v1',baselineRevision:'none',taskKey:'source-fixture',outcome:'failed',usageComplete:true,evidence:{key:'source',source:'host-fixture',reason:'No source read.'},trace:'Source was not read.'});
  return {evaluators:[{skillName:candidate.name,evaluatorRevision:'fixture-v1'}],\n  skillName:`,
 	)
 	writeFileSync(path, body)

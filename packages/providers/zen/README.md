@@ -22,7 +22,9 @@ Free (`muse-spark-1.3-contributor-free`). Zen Go still requires its own API key.
 pnpm add @namzu/sdk @namzu/zen zod@^3
 ```
 
-Requires Node.js 20+ and `@namzu/sdk >=36.0.0`. The optional package uses the
+Requires Node.js 20+ and `@namzu/sdk >=36.0.0`; the example below uses the
+`turn` field `runAgent` returns from `@namzu/sdk` 44 on (earlier versions call
+it `run`). The optional package uses the
 official AI SDK provider adapters directly through `LanguageModelV3.doStream`;
 it does not depend on the `ai` orchestration package or another Namzu provider.
 
@@ -32,7 +34,7 @@ import { ZenProvider } from '@namzu/zen'
 
 const sessionId = generateSessionId()
 const provider = new ZenProvider({ sessionId })
-const { output, run, identity } = await runAgent({
+const { output, turn, identity } = await runAgent({
   provider,
   model: 'muse-spark-1.3-contributor-free',
   sessionId,
@@ -41,7 +43,7 @@ const { output, run, identity } = await runAgent({
 })
 
 console.log(output)
-console.log(run.stopReason)
+console.log(turn.stopReason)
 console.log(identity)
 ```
 
@@ -135,7 +137,7 @@ upstream has moved.
 Tests use the real provider adapters with local HTTP/SSE fixtures, including
 tool continuations, signatures, cancellation and error classification.
 An SDK kernel test executes a registered tool and feeds its result into the
-next model request before completing the run.
+next model request before completing the turn.
 On 2026-09-08, live text inference on `muse-spark-1.3-contributor-free`
 succeeded without an account key through installed OpenCode and Namzu's
 driver. A live Namzu `run-stream` call with low effort and production tools

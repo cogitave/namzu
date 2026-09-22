@@ -36,7 +36,11 @@ the runtime's existing instrumentation starts reaching a collector.
 pnpm add @namzu/sdk @namzu/telemetry
 ```
 
-`@namzu/sdk` is a peer dependency. Install both.
+`@namzu/sdk >=44.0.0` is a peer dependency. Install both.
+
+**Compatibility.** `@namzu/telemetry` before 3.0.0 breaks on `@namzu/sdk >=44`,
+where the attribute keys were renamed (the run attribute keys became `namzu.turn.*`,
+and every span gained `gen_ai.conversation.id`). Use `@namzu/telemetry >=3`.
 
 ## Usage
 

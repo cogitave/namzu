@@ -4,7 +4,7 @@ import type { ChatCompletionParams, StreamChunk } from '../../types/provider/ind
 import type { LLMProvider } from '../../types/provider/interface.js'
 import { runExperiment } from '../experiment.js'
 import { judgeScorer } from '../judge.js'
-import type { EvalRun } from '../types.js'
+import type { EvalTurn } from '../types.js'
 
 interface Deferred<T> {
 	readonly promise: Promise<T>
@@ -19,7 +19,7 @@ function deferred<T>(): Deferred<T> {
 	return { promise, resolve }
 }
 
-const completedRun = (): EvalRun => ({
+const completedRun = (): EvalTurn => ({
 	output: 'Paris',
 	steps: [],
 	toolCalls: [],

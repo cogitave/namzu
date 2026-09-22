@@ -276,12 +276,8 @@ const actorRef = z.custom<ActorRef>(
 	{ message: 'expected an actor reference' },
 )
 
-/** The request the turn parked on, minus the turn identity the envelope already carries. */
-export type SessionDecisionRequest = HITLDecisionRequest extends infer R
-	? R extends HITLDecisionRequest
-		? Omit<R, 'runId'>
-		: never
-	: never
+/** The request the turn parked on, exactly as the resume handler receives it. */
+export type SessionDecisionRequest = HITLDecisionRequest
 
 const HITL_REQUEST_TYPES = new Set([
 	'plan_approval',
@@ -293,8 +289,7 @@ const decisionRequest = z.custom<SessionDecisionRequest>(
 	(value) =>
 		isPlainObject(value) &&
 		HITL_REQUEST_TYPES.has(value.type as string) &&
-		isEntityId(value.checkpointId, 'checkpoint') &&
-		!('runId' in value),
+		isEntityId(value.checkpointId, 'checkpoint'),
 	{ message: 'expected a decision request' },
 )
 const decision = z.custom<HITLResumeDecision>(
@@ -513,10 +508,10 @@ export const ChildSessionEndedRecordSchema = recordSchema('child_session_ended',
 // Other record-only types
 
 /**
- * One audit-trail entry. It holds everything `AuditEvent` (`types/run/audit.ts`)
+ * One audit-trail entry. It holds everything `AuditEvent` (`types/session/audit.ts`)
  * records today: `who` becomes `actor` plus `persona`, `what` is flattened into
  * `action`, `tool` and `resource`, and the envelope's `seq`, `ts` and `turnId`
- * replace the trail's own sequence, timestamp and run id.
+ * replace the trail's own sequence, timestamp and turn id.
  */
 export const AuditRecordSchema = recordSchema('audit', {
 	auditId: text.min(1),

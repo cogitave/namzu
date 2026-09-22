@@ -71,12 +71,27 @@ import type {
 	TerminalSession,
 } from '@namzu/sdk'
 
-import type {
-	ConformanceAssertion,
-	ConformanceDescribe,
-	ConformanceExpect,
-	ConformanceIt,
-} from '@namzu/sdk/testing'
+/**
+ * The runner shapes the suite takes, declared here rather than imported.
+ * `@namzu/sdk/testing` exported them beside the checkpoint-store suite, and
+ * that suite and these exports went with it; they are structurally the
+ * same types, so a runner written against either still fits.
+ */
+
+/** The assertions the suite uses, and nothing more. */
+interface ConformanceAssertion {
+	toBe(expected: unknown): void
+	toEqual(expected: unknown): void
+	toBeGreaterThan(expected: number): void
+	toMatch(expected: RegExp): void
+}
+
+/** Shape of the `expect` a runner supplies. */
+type ConformanceExpect = (actual: unknown) => ConformanceAssertion
+/** Shape of the `it` a runner supplies. */
+type ConformanceIt = (name: string, body: () => Promise<void>) => unknown
+/** Shape of the `describe` a runner supplies. */
+type ConformanceDescribe = (name: string, body: () => void) => unknown
 
 /**
  * The contract revision these assertions express. Carried on the describe

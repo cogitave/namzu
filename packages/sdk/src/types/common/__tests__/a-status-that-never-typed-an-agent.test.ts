@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunExecutionStatus } from '../index.js'
+import type { TurnExecutionStatus } from '../../session/turn.js'
 import { isTerminalStatus } from '../index.js'
 
 /**
  * `AgentStatus` never typed an agent.
  *
- * Every one of its uses in this package was a run's status, a run's audit
- * outcome, or the status field of a run's result. `AbstractAgent` and
+ * Every one of its uses in this package was a turn's status, a turn's audit
+ * outcome, or the status field of a turn's result. `AbstractAgent` and
  * `ReactiveAgent` have no status of their own — an agent is a
  * configuration, and it is the RUN that is idle, running or cancelled. So
  * a reader importing `AgentStatus` to describe an agent's lifecycle was
@@ -20,12 +20,12 @@ import { isTerminalStatus } from '../index.js'
  * itself — the thing the rename was about.
  */
 
-describe('the run lifecycle union', () => {
+describe('the turn lifecycle union', () => {
 	it('treats exactly the three settled values as terminal', () => {
 		// Pinned member by member rather than by count: adding a seventh
 		// member to the union and forgetting it here would otherwise pass.
-		const settled: RunExecutionStatus[] = ['completed', 'failed', 'cancelled']
-		const live: RunExecutionStatus[] = ['idle', 'pending', 'running']
+		const settled: TurnExecutionStatus[] = ['completed', 'failed', 'cancelled']
+		const live: TurnExecutionStatus[] = ['idle', 'pending', 'running']
 
 		expect(settled.map(isTerminalStatus)).toEqual([true, true, true])
 		expect(live.map(isTerminalStatus)).toEqual([false, false, false])

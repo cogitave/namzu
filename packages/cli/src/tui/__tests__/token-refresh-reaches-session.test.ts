@@ -6,6 +6,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { emptySessionLog } from '../../__fixtures__/session-log.js'
 
 import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
 
@@ -136,7 +137,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			runCalls.queries.push(params)
 			return (async function* () {})()
 		},
-		resumeRun: async (params: Record<string, unknown>) => {
+		resumeSession: async (params: Record<string, unknown>) => {
 			runCalls.resumes.push(params)
 			return { resumed: false, reason: 'no-checkpoint' } as const
 		},
@@ -200,7 +201,7 @@ function providerToken(params: Record<string, unknown>): string | undefined {
 
 function durableEntry(suffix: string) {
 	return {
-		runId: fixtureUuid(`run_refresh_${suffix}`),
+		turnId: fixtureUuid(`turn_refresh_${suffix}`),
 		tenantId: '40f5a040-2a13-4fb9-b9da-a70febd8aed4',
 		projectId: 'd9f9ea20-e053-4c89-a15a-3bfb04ddcd25',
 		sessionId: 'e163bef4-b8ba-4195-ac1f-96fb05654922',
@@ -269,7 +270,7 @@ afterEach(async () => {
 	vi.restoreAllMocks()
 })
 
-describe('a run owns the token refresh that precedes it', () => {
+describe('a turn owns the token refresh that precedes it', () => {
 	it('refreshes an expired Claude session and publishes its rotating grant before query', async () => {
 		borrowedExternal.current = {
 			accessToken: 'cc-borrowed',
@@ -352,6 +353,7 @@ describe('a run owns the token refresh that precedes it', () => {
 		const cause = new Error('durable claim withdrawn')
 		const pending = agent.resumeDurable({
 			entry: durableEntry('cancelled'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 			signal: controller.signal,
 		})
@@ -385,6 +387,7 @@ describe('one session publishes refresh state in order', () => {
 		await expect(
 			agent.resumeDurable({
 				entry: durableEntry('same-rejected-grant'),
+				sessionLog: emptySessionLog(undefined),
 				checkpointStore: {} as never,
 			}),
 		).rejects.toBeInstanceOf(CredentialRefreshRejectedError)
@@ -411,6 +414,7 @@ describe('one session publishes refresh state in order', () => {
 			.next()
 		const resume = agent.resumeDurable({
 			entry: durableEntry('concurrent-rejected-grant'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 
@@ -443,6 +447,7 @@ describe('one session publishes refresh state in order', () => {
 		}
 		await agent.resumeDurable({
 			entry: durableEntry('after-new-login'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 
@@ -475,6 +480,7 @@ describe('one session publishes refresh state in order', () => {
 		await expect(
 			agent.resumeDurable({
 				entry: durableEntry('after-withdrawal'),
+				sessionLog: emptySessionLog(undefined),
 				checkpointStore: {} as never,
 			}),
 		).rejects.toBeInstanceOf(CredentialWithdrawnError)
@@ -501,6 +507,7 @@ describe('one session publishes refresh state in order', () => {
 		await expect(
 			agent.resumeDurable({
 				entry: durableEntry('busy-cas'),
+				sessionLog: emptySessionLog(undefined),
 				checkpointStore: {} as never,
 			}),
 		).rejects.toBeInstanceOf(CredentialPublicationError)
@@ -514,6 +521,7 @@ describe('one session publishes refresh state in order', () => {
 		}
 		await agent.resumeDurable({
 			entry: durableEntry('after-busy'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 
@@ -538,6 +546,7 @@ describe('one session publishes refresh state in order', () => {
 		const agent = await session()
 		const pending = agent.resumeDurable({
 			entry: durableEntry('logged-out'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
@@ -571,6 +580,7 @@ describe('one session publishes refresh state in order', () => {
 		const agent = await session()
 		const pending = agent.resumeDurable({
 			entry: durableEntry('external-winner'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
@@ -628,10 +638,12 @@ describe('one session publishes refresh state in order', () => {
 
 		const first = agent.resumeDurable({
 			entry: durableEntry('a'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 		const second = agent.resumeDurable({
 			entry: durableEntry('b'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled())
@@ -668,6 +680,7 @@ describe('one session publishes refresh state in order', () => {
 		const agent = await session()
 		const first = agent.resumeDurable({
 			entry: durableEntry('owner'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
@@ -676,6 +689,7 @@ describe('one session publishes refresh state in order', () => {
 		const cause = new Error('queued claim expired')
 		const cancelled = agent.resumeDurable({
 			entry: durableEntry('waiter'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 			signal: controller.signal,
 		})
@@ -684,6 +698,7 @@ describe('one session publishes refresh state in order', () => {
 
 		const third = agent.resumeDurable({
 			entry: durableEntry('behind-waiter'),
+			sessionLog: emptySessionLog(undefined),
 			checkpointStore: {} as never,
 		})
 		await new Promise((resolve) => setTimeout(resolve, 0))

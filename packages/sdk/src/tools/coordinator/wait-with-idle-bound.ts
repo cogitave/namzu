@@ -10,7 +10,7 @@ import type { TaskId } from '../../types/ids/index.js'
  * The same number cannot be both "how long is too long" and "how quiet is too
  * quiet", so this keeps them apart:
  *
- *  - the **run bound** counts elapsed time and is never refreshed. It exists
+ *  - the **wall-clock bound** counts elapsed time and is never refreshed. It exists
  *    for a worker that stays busy forever.
  *  - the **idle bound** counts time since the worker last did anything, and
  *    resets whenever it does. It exists for a worker that stopped.
@@ -32,7 +32,7 @@ export type WaitOutcome =
 	| {
 			readonly kind: 'timeout'
 			/** Which clock ran out. */
-			readonly cause: 'idle' | 'run'
+			readonly cause: 'idle' | 'wall'
 			readonly elapsedMs: number
 			/** False when the gateway cannot report progress, so only the wall clock applied. */
 			readonly idleBoundArmed: boolean
@@ -40,11 +40,11 @@ export type WaitOutcome =
 
 export interface WaitBounds {
 	/** Elapsed-time ceiling, never refreshed. */
-	readonly runMs: number
+	readonly wallMs: number
 	/**
 	 * Time-without-progress ceiling, refreshed on every progress signal.
 	 *
-	 * Omit to bound by the run clock alone.
+	 * Omit to bound by the turn clock alone.
 	 */
 	readonly idleMs?: number
 }
@@ -94,9 +94,9 @@ export async function waitForTaskWithBounds(
 			const tick = setInterval(() => {
 				if (settled) return
 				const elapsed = now() - startedAt
-				if (elapsed >= bounds.runMs) {
+				if (elapsed >= bounds.wallMs) {
 					clearInterval(tick)
-					resolve({ kind: 'timeout', cause: 'run', elapsedMs: elapsed, idleBoundArmed })
+					resolve({ kind: 'timeout', cause: 'wall', elapsedMs: elapsed, idleBoundArmed })
 					return
 				}
 				if (idleBoundArmed && bounds.idleMs !== undefined) {

@@ -23,7 +23,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			runCalls.queries.push(params)
 			return (async function* () {})()
 		},
-		resumeRun: async (params: Record<string, unknown>) => {
+		resumeSession: async (params: Record<string, unknown>) => {
 			runCalls.resumes.push(params)
 			return { resumed: false, reason: 'no-checkpoint' } as const
 		},
@@ -139,7 +139,7 @@ it('offers the admitted account, adopts rotations, and refuses deletion before m
 		model: PROVIDER_REGISTRY.codex.defaultModel,
 	})
 	expect(runCalls.queries.map(providerToken)).toEqual([secondToken])
-	expect(runCalls.queries[0]?.runConfig).toMatchObject({
+	expect(runCalls.queries[0]?.turnConfig).toMatchObject({
 		model: PROVIDER_REGISTRY.codex.defaultModel,
 	})
 

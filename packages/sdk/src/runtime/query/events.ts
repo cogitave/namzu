@@ -1,21 +1,32 @@
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { PlanEvent, PlanManager } from '../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../manager/run/persistence.js'
+import type { TurnBeginDraft, TurnRecorder } from '../../manager/session/turn-recorder.js'
 import { buildProbeContext } from '../../probe/context.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeObservation } from '../../probe/registry.js'
 import type { ActivityEvent, ActivityStore } from '../../store/activity/memory.js'
-import type { RunId } from '../../types/ids/index.js'
-import type { FencingToken } from '../../types/run/checkpoint-store.js'
-import { type PersistedRunEvent, isEphemeralEvent } from '../../types/run/events.js'
-import type { RunEvent } from '../../types/run/index.js'
-import type { ReadRunEventsOptions } from '../../types/run/store.js'
+import { createAnchoredSessionTextEvidenceSource } from '../../store/evidence/disk.js'
+import type { SessionTextEvidenceSource } from '../../store/evidence/types.js'
+import type { ReadSessionLogOptions, SessionLogEntry } from '../../store/session-log/index.js'
+import type { CheckpointId, SessionId, TurnId } from '../../types/ids/index.js'
+import { type SessionEvent, isEphemeralEvent } from '../../types/session/events.js'
+import type { SessionRecord } from '../../types/session/records.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
 import { awaitWithAbort } from '../../utils/await-with-abort.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
-export type EmitEvent = (event: RunEvent) => Promise<void>
+/**
+ * A live event as the loop builds it: `sessionId` and `turnId` may be left
+ * out, and the translator stamps the turn's own.
+ */
+export type SessionEventDraft = SessionEvent extends infer E
+	? E extends SessionEvent
+		? Omit<E, 'sessionId' | 'turnId'> & { sessionId?: SessionId; turnId?: TurnId }
+		: never
+	: never
+
+export type EmitEvent = (event: SessionEventDraft) => Promise<void>
 
 /**
  * Soft cap on the in-memory pending-event queue. When the queue exceeds
@@ -24,43 +35,41 @@ export type EmitEvent = (event: RunEvent) => Promise<void>
  * they carry state transitions consumers cannot reconstruct.
  *
  * Sized for ~5–10 seconds of worst-case provider delta cadence
- * (100 deltas/s sustained) before pressure kicks in. Tune via
- * empirical evidence; not a hard guarantee, just a safety net.
- *
- * See ses_001-tool-stream-events.
+ * (100 deltas/s sustained) before pressure kicks in.
  */
 const PENDING_EVENT_SOFT_CAP = 1000
 
+/**
+ * The turn's one funnel from "something happened" to the live stream and the
+ * session log.
+ *
+ * Every non-ephemeral event is appended to the session log first (through
+ * the turn's {@link TurnRecorder}, in order with its messages and records),
+ * and only then queued for the consumer carrying the record's `seq` and
+ * `generation`. A failed append still delivers the event, unstamped: losing
+ * the news of a failure is worse than delivering it without a cursor.
+ */
 export class EventTranslator {
-	private pendingEvents: RunEvent[] = []
-	private runMgr: RunPersistence
+	private pendingEvents: SessionEvent[] = []
+	private readonly recorder: TurnRecorder
 	private probes: ProbeObservation
 	private droppedDeltaCount = 0
 	private readonly log: Logger
 
 	constructor(
-		runMgr: RunPersistence,
+		recorder: TurnRecorder,
 		probeRegistry: ProbeObservation = defaultProbeRegistry,
 		log?: Logger,
 	) {
-		this.runMgr = runMgr
+		this.recorder = recorder
 		this.probes = probeRegistry
 		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'runtime/query/events' })
 	}
 
-	/**
-	 * The claim this run is being written under, when it holds one.
-	 *
-	 * Stamped on every durable event as its `generation`, so a consumer whose
-	 * cursor predates a takeover is told its sequence space changed instead of
-	 * being handed a splice from a different writer's log.
-	 */
-	private generation: FencingToken | undefined
-
-	/** Serializes sequence assignment, appends, and transcript snapshots. */
+	/** Serializes appends and reads against each other. */
 	private appendChain: Promise<void> = Promise.resolve()
 
-	private async withTranscriptLock<T>(operation: () => Promise<T>): Promise<T> {
+	private async withLogLock<T>(operation: () => Promise<T>): Promise<T> {
 		const previous = this.appendChain
 		let release!: () => void
 		this.appendChain = new Promise<void>((resolve) => {
@@ -74,113 +83,141 @@ export class EventTranslator {
 		}
 	}
 
-	/** Keep a live transcript read between whole appends, including later queued writes. */
-	readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {
-		return this.withTranscriptLock(() => this.runMgr.getRunStore().readEvents(options))
+	/** The session log's records, read between whole appends. */
+	readRecords(options: ReadSessionLogOptions = {}): Promise<readonly SessionRecord[]> {
+		return this.withLogLock(async () => {
+			await this.recorder.flush()
+			const read = await this.recorder.log.readAll(options)
+			return read.entries.map((entry) => entry.record)
+		})
 	}
 
-	captureRunEvidence(
+	/**
+	 * A text evidence source over the turn's session log, captured while the
+	 * turn is running. `undefined` for a log that is not on disk.
+	 */
+	captureSessionEvidence(
 		maxReadBytes?: number,
 		signal?: AbortSignal,
-	): Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined> {
-		const capture = this.withTranscriptLock(async () => {
+	): Promise<SessionTextEvidenceSource | undefined> {
+		const capture = this.withLogLock(async () => {
 			signal?.throwIfAborted()
-			const run = this.runMgr.getRun()
-			if (run.status !== 'running')
+			if (this.recorder.status !== 'running') {
 				throw new Error('Evidence capture requires the active invocation.')
-			const { tenantId, projectId, sessionId, runId } = this.runMgr.getRunScope()
-			const source = await this.runMgr
-				.getRunStore()
-				.captureTextEvidence?.({ tenantId, projectId, sessionId, runId }, maxReadBytes, signal)
+			}
+			const head = await this.recorder.head()
+			const logPath = (this.recorder.log as { file?: unknown }).file
+			if (typeof logPath !== 'string' || !head) return undefined
+			// Anchored at the head this writer just appended: records appended
+			// later neither invalidate the capture nor become visible to it.
+			const source = createAnchoredSessionTextEvidenceSource(
+				{
+					scope: {
+						tenantId: this.recorder.tenantId,
+						projectId: this.recorder.projectId,
+						sessionId: this.recorder.sessionId,
+						turnId: this.recorder.turnId,
+					},
+					logPath,
+					consistency: 'snapshot',
+					...(maxReadBytes !== undefined ? { maxReadBytes } : {}),
+				},
+				head.pointer,
+			)
 			signal?.throwIfAborted()
-			if (this.runMgr.getRun().status !== 'running')
+			if (this.recorder.status !== 'running') {
 				throw new Error('Evidence capture requires the active invocation.')
+			}
 			return source
 		})
 		return awaitWithAbort(capture, signal)
 	}
 
-	setGeneration(fence: FencingToken | undefined): void {
-		this.generation = fence
+	/** Stamp the turn's identity on an event the loop built without it. */
+	private stamp(draft: SessionEventDraft): SessionEvent {
+		return {
+			...draft,
+			sessionId: draft.sessionId ?? this.recorder.sessionId,
+			...(draft.turnId !== undefined
+				? { turnId: draft.turnId }
+				: this.recorder.isClosed
+					? {}
+					: { turnId: this.recorder.turnId }),
+		} as SessionEvent
 	}
 
-	readonly emitEvent: EmitEvent = async (event: RunEvent): Promise<void> => {
-		this.probes.dispatch(event, buildProbeContext({ runId: event.runId }))
+	readonly emitEvent: EmitEvent = async (draft: SessionEventDraft): Promise<void> => {
+		const event = this.stamp(draft)
+		this.probes.dispatch(
+			event,
+			buildProbeContext({ sessionId: event.sessionId, turnId: this.recorder.turnId }),
+		)
 
-		// D2: bound the queue. Drop oldest ephemeral events under
-		// pressure rather than letting unbounded growth swamp a slow
-		// consumer (or lock the orchestrator on awaitable disk I/O).
-		// Lifecycle events are sacred — they carry state transitions a
-		// consumer cannot reconstruct from neighbouring events.
+		// Bound the queue: drop the oldest ephemeral event under pressure rather
+		// than letting a slow consumer grow it without limit. Lifecycle events
+		// are never dropped.
 		if (this.pendingEvents.length >= PENDING_EVENT_SOFT_CAP) {
 			const dropIdx = this.pendingEvents.findIndex(isEphemeralEvent)
 			if (dropIdx !== -1) {
 				this.pendingEvents.splice(dropIdx, 1)
 				this.droppedDeltaCount += 1
 				if (this.droppedDeltaCount === 1 || this.droppedDeltaCount % 100 === 0) {
-					this.log.warn('Dropped ephemeral RunEvent under bus pressure', {
-						[NAMZU.RUN_ID]: event.runId,
+					this.log.warn('Dropped ephemeral SessionEvent under bus pressure', {
+						[NAMZU.TURN_ID]: this.recorder.turnId,
 						'namzu.runtime.dropped_count': this.droppedDeltaCount,
 						'namzu.runtime.queue_size': this.pendingEvents.length,
 					})
 				}
 			}
-			// If no ephemeral events are buffered the lifecycle events
-			// themselves are the queue's contents — accept the overflow
-			// and rely on consumer drain catching up. Better to grow
-			// briefly than to drop a state transition.
 		}
 
-		// D1 middle path: ephemeral events never enter `transcript.jsonl`.
-		// They live only on the in-memory bus for live UI rendering.
-		// Replay (`runtime/query/replay/prepare.ts`) reads checkpoints
-		// not transcripts, so this preserves replay fidelity while
-		// eliminating the durable bloat review flagged.
+		// Ephemeral events never reach the log. No number, and that is the
+		// honest statement: nothing persists this, so a consumer must never
+		// advance a cursor to it.
 		if (isEphemeralEvent(event)) {
-			// No number, and that is the honest statement: nothing will
-			// persist this, so a consumer must never advance a cursor to it.
 			this.pendingEvents.push(event)
 			return
 		}
 
-		// One appender at a time, and this is not a precaution — it is the fix
-		// for a measured defect. Taking the number, awaiting the write and then
-		// committing is a read-modify-write, and emits genuinely interleave:
-		// the task store, the plan manager and a batch of parallel tools all
-		// emit into this one funnel. Measured on a two-tool run, three events
-		// took the number 15 and two took 12. A duplicated sequence is worse
-		// than a missing one — a consumer asking for everything above 15 is
-		// handed part of the run it already had, spliced in as if it were new.
-		await this.withTranscriptLock(async () => {
-			// The number is a claim that the event is IN the log, so it is taken
-			// against the append and not before it. The candidate goes to the
-			// store first; only a write that landed advances the counter and
-			// reaches the live stream carrying it.
-			//
-			// The failure path still delivers the event — unstamped. A store
-			// that cannot record a `run_failed` must not also swallow it, and an
-			// unstamped event says exactly what is true of it: it happened, and
-			// it is not recoverable.
-			const seq = this.runMgr.nextEventSeq()
-			const stamped = {
-				...event,
-				seq,
-				...(this.generation !== undefined ? { generation: this.generation } : {}),
-			} as RunEvent
-
+		// One appender at a time: task store, plan manager and parallel tools
+		// all emit into this funnel, and the record's seq is taken against the
+		// append, not before it.
+		await this.withLogLock(async () => {
+			let entry: Awaited<ReturnType<TurnRecorder['appendEvent']>>
 			try {
-				await this.runMgr.getRunStore().appendEvent(stamped)
+				entry = await this.recorder.appendEvent(event)
 			} catch (err) {
 				this.pendingEvents.push(event)
 				throw err
 			}
-
-			this.runMgr.commitEventSeq(seq)
-			this.pendingEvents.push(stamped)
+			this.pendingEvents.push(
+				entry === undefined
+					? event
+					: ({ ...event, seq: entry.record.seq, generation: entry.record.gen } as SessionEvent),
+			)
 		})
-	};
+	}
 
-	*drainPending(): Generator<RunEvent> {
+	/**
+	 * Begin the turn: `turn_started` in the log (with the prompt message it
+	 * names right after it), and the same event on the live stream.
+	 */
+	async beginTurn(draft: TurnBeginDraft): Promise<void> {
+		await this.withLogLock(async () => {
+			const entry = await this.recorder.begin(draft)
+			this.pendingEvents.push(liveEventOf(entry))
+		})
+	}
+
+	/** Continue a paused or interrupted turn: `turn_resuming`, same `turnId`. */
+	async resumeTurn(fromCheckpointId: CheckpointId, resolvedDecisionId?: string): Promise<void> {
+		await this.withLogLock(async () => {
+			const entry = await this.recorder.resume(fromCheckpointId, resolvedDecisionId)
+			this.pendingEvents.push(liveEventOf(entry))
+		})
+	}
+
+	*drainPending(): Generator<SessionEvent> {
 		let event = this.pendingEvents.shift()
 		while (event !== undefined) {
 			yield event
@@ -188,13 +225,12 @@ export class EventTranslator {
 		}
 	}
 
-	wireActivityStore(activityStore: ActivityStore, runId: RunId): void {
+	wireActivityStore(activityStore: ActivityStore): void {
 		activityStore.on(async (event: ActivityEvent) => {
 			const activity = event.activity
 			if (event.type === 'activity.created') {
 				await this.emitEvent({
 					type: 'activity_created',
-					runId,
 					activityId: activity.id,
 					activityType: activity.type,
 					description: activity.description,
@@ -202,7 +238,6 @@ export class EventTranslator {
 			} else {
 				await this.emitEvent({
 					type: 'activity_updated',
-					runId,
 					activityId: activity.id,
 					status: activity.status,
 					output: activity.output,
@@ -212,16 +247,20 @@ export class EventTranslator {
 		})
 	}
 
-	wireTaskStore(taskStore: TaskStore, runId: RunId): () => void {
+	/**
+	 * Report the session's task list on the turn's stream. A task belongs to
+	 * the session; every change to one of its tasks during this turn is
+	 * reported, whichever turn created it.
+	 */
+	wireTaskStore(taskStore: TaskStore, sessionId: SessionId): () => void {
 		const unsubscribe = taskStore.on(async (event: TaskEvent) => {
 			const task = event.task
 
-			if (task.runId !== runId) return
+			if (task.sessionId !== sessionId) return
 			switch (event.type) {
 				case 'task.created':
 					await this.emitEvent({
 						type: 'task_created',
-						runId,
 						taskId: task.id,
 						subject: task.subject,
 						status: task.status,
@@ -236,7 +275,6 @@ export class EventTranslator {
 				case 'task.deleted':
 					await this.emitEvent({
 						type: 'task_updated',
-						runId,
 						taskId: task.id,
 						subject: task.subject,
 						status: task.status,
@@ -245,10 +283,6 @@ export class EventTranslator {
 					})
 					break
 				default: {
-					// `TaskEvent.type` is scoped to task-store events; sub-session
-					// lifecycle events (subsession_spawned / _messaged / _idled) and
-					// run-scoped `RunEvent` variants never reach this wrapper. The
-					// exhaustiveness guard below enforces that at compile time.
 					const _exhaustive: never = event.type
 					throw new Error(`Unhandled task event type: ${_exhaustive}`)
 				}
@@ -257,14 +291,13 @@ export class EventTranslator {
 		return unsubscribe
 	}
 
-	wirePlanManager(planManager: PlanManager, runId: RunId): void {
+	wirePlanManager(planManager: PlanManager): void {
 		planManager.on(async (event: PlanEvent) => {
 			const plan = event.plan
 			switch (event.type) {
 				case 'plan.ready':
 					await this.emitEvent({
 						type: 'plan_ready',
-						runId,
 						planId: plan.id,
 						title: plan.title,
 						steps: plan.steps,
@@ -272,16 +305,11 @@ export class EventTranslator {
 					})
 					break
 				case 'plan.approved':
-					await this.emitEvent({
-						type: 'plan_approved',
-						runId,
-						planId: plan.id,
-					})
+					await this.emitEvent({ type: 'plan_approved', planId: plan.id })
 					break
 				case 'plan.rejected':
 					await this.emitEvent({
 						type: 'plan_rejected',
-						runId,
 						planId: plan.id,
 						reason: plan.rejectionReason,
 					})
@@ -290,7 +318,6 @@ export class EventTranslator {
 					if (event.step) {
 						await this.emitEvent({
 							type: 'plan_step_updated',
-							runId,
 							planId: plan.id,
 							stepId: event.step.id,
 							status: event.step.status,
@@ -298,37 +325,40 @@ export class EventTranslator {
 					}
 					break
 				case 'plan.completed':
-					await this.emitEvent({
-						type: 'plan_completed',
-						runId,
-						planId: plan.id,
-					})
+					await this.emitEvent({ type: 'plan_completed', planId: plan.id })
 					break
 				case 'plan.failed':
 					await this.emitEvent({
 						type: 'plan_failed',
-						runId,
 						planId: plan.id,
 						...(plan.failureReason ? { reason: plan.failureReason } : {}),
 					})
 					break
-				// Deliberately silent, and not for the same reason the terminal
-				// pair used to be. `plan.generating` and `plan.executing` are
-				// already bracketed by `plan_ready` and `plan_approved` — a
-				// consumer learns both facts from events it already gets, so an
-				// event here would carry nothing a reader did not have.
+				// Silent: `plan.generating` and `plan.executing` are already
+				// bracketed by `plan_ready` and `plan_approved`.
 				case 'plan.generating':
 				case 'plan.executing':
 					break
 				default: {
-					// `PlanEvent.type` is scoped to plan-manager events; sub-session
-					// lifecycle events and other `RunEvent` variants never reach this
-					// wrapper. The exhaustiveness guard below enforces that at compile
-					// time.
 					const _exhaustive: never = event.type
 					throw new Error(`Unhandled plan event type: ${_exhaustive}`)
 				}
 			}
 		})
 	}
+}
+
+/** The live event a lifecycle record stands for: its payload plus the envelope's identity and seq. */
+function liveEventOf(entry: SessionLogEntry): SessionEvent {
+	const {
+		v: _v,
+		id: _id,
+		ts: _ts,
+		prev: _prev,
+		prevText: _prevText,
+		gen,
+		seq,
+		...payload
+	} = entry.record as SessionRecord & { prevText?: unknown }
+	return { ...payload, seq, generation: gen } as unknown as SessionEvent
 }

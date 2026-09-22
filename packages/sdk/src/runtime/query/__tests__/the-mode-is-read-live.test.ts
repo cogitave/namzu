@@ -16,7 +16,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
- * The mode was frozen at run start, so leaving plan mode meant ending the
+ * The mode was frozen at turn start, so leaving plan mode meant ending the
  * run.
  *
  * `permissionMode` was resolved once in the context factory and copied into
@@ -88,7 +88,7 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider,
 		tools: registry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,
@@ -112,9 +112,9 @@ async function run(opts: {
 		.map((m) => m.content as string)
 }
 
-describe('the mode is read live, not frozen at run start', () => {
+describe('the mode is read live, not frozen at turn start', () => {
 	it('refuses a write in plan mode and allows it after the mode flips, in ONE run', async () => {
-		// The whole point. Before this, leaving plan mode meant ending the run
+		// The whole point. Before this, leaving plan mode meant ending the turn
 		// and discarding the in-flight step and tool-schema context.
 		const modeRef = { current: 'plan' as PermissionMode }
 		let turn = 0
@@ -135,7 +135,7 @@ describe('the mode is read live, not frozen at run start', () => {
 		expect(outputs[1]).toContain('write ran')
 	})
 
-	it('takes the mode from the topic record when the run config names none', async () => {
+	it('takes the mode from the topic record when the turn config names none', async () => {
 		const topicStateStore = new InMemoryTopicStateStore()
 		await topicStateStore.setPermissionMode(TOPIC, TENANT, 'plan', { revision: 0 })
 
@@ -236,7 +236,7 @@ describe('the mode is read live, not frozen at run start', () => {
 				] as never,
 			}),
 			tools: registryWithFlip,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 200_000,
@@ -263,7 +263,7 @@ describe('the mode is read live, not frozen at run start', () => {
 		expect(outputs[0]).toContain('read ran')
 		expect(outputs[1]).toMatch(/plan mode/i)
 		expect(outputs[2]).toMatch(/plan mode/i)
-		// And the NEXT batch saw the new mode. A per-run read fails here.
+		// And the NEXT batch saw the new mode. A per-turn read fails here.
 		expect(outputs[3]).toContain('write ran')
 	})
 })

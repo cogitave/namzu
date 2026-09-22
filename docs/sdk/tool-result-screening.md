@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Tool-result screening
-description: Where a tool result is judged before anything reads it, what the four verdicts mean, the two screens namzu ships, the scope and the per-tool exception, and how a run, a registry and the CLI each choose them.
+description: Where a tool result is judged before anything reads it, what the four verdicts mean, the two screens namzu ships, the scope and the per-tool exception, and how a turn, a registry and the CLI each choose them.
 resource: packages/sdk/src/registry/tool/screen.ts
 tags: [sdk, tools, guardrails, security]
 status: stable
@@ -10,10 +10,10 @@ generated: { by: process:claude-code, at: 2026-09-18T00:00:00Z }
 
 # Tool-result screening
 
-A tool result is the one thing a run reads that no input gate has seen. The
-prompt was screened before the run started; the tool's arguments were validated,
+A tool result is the one thing a turn reads that no input gate has seen. The
+prompt was screened before the turn started; the tool's arguments were validated,
 authorized and reviewed before it ran; what came back was not examined at all.
-That is the shape of an indirect injection — the run is legitimate, the call is
+That is the shape of an indirect injection — the turn is legitimate, the call is
 legitimate, and the payload arrives riding on an answer the model asked for.
 
 Result screening happens at the registry boundary.
@@ -51,9 +51,9 @@ turns every exception into a result the model reads and works around — which i
 what `refuse` already is — so a `halt` that returned rather than threw would be
 silently demoted to one.
 
-A screen that throws fails closed as `refuse`, matching the run-level
+A screen that throws fails closed as `refuse`, matching the turn-level
 guardrails: one broken screen means this result's safety is unknown, not that
-the run is unsalvageable.
+the turn is unsalvageable.
 
 ## `toolResultInjectionGuardrail()`
 
@@ -175,9 +175,9 @@ reached after normalising whitespace.
 
 ## Who chooses the screens
 
-**A run installs the default.** `DEFAULT_TOOL_RESULT_GUARDRAILS` is one
+**A turn installs the default.** `DEFAULT_TOOL_RESULT_GUARDRAILS` is one
 correspondence screen, and the executor puts it on the tool context of every
-run. A default here rather than on the registry because a run usually does not
+run. A default here rather than on the registry because a turn usually does not
 build its registry: a host assembles one and hands it to `runAgent`, so a
 registry-construction option alone is the host's to write and the kernel's
 default would reach nobody.
@@ -186,7 +186,7 @@ default would reach nobody.
 array, which means none — a registry that stated its policy has stated it, and a
 run must not overrule it.
 
-**A run config option overrides the default** for a registry that declared
+**A turn config option overrides the default** for a registry that declared
 nothing:
 
 ```ts
@@ -200,8 +200,8 @@ await runAgent({
 })
 ```
 
-The same option exists on `BaseAgentConfig`, so it reaches the agents a run
-delegates to — a delegated child is a fresh run with its own executor, and a
+The same option exists on `BaseAgentConfig`, so it reaches the agents a turn
+delegates to — a delegated child is a fresh turn with its own executor, and a
 switch that reached the parent and not its children would leave the default on
 in exactly the half a host was trying to change. `AgentManager` stamps it onto
 the child config after the child's `configBuilder` runs, the way it stamps

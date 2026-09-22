@@ -7,7 +7,7 @@ import { buildCoordinatorTools } from '../index.js'
  * A model that serializes `steps` instead of building it tends to reach
  * for markup. Split on newlines, that string became one "step" per LINE —
  * so a host numbered `<step>`, `</step>` and `</steps>` in its approval
- * card and asked a person to approve them. Reported from a real run.
+ * card and asked a person to approve them. Reported from a real turn.
  *
  * The parse is checked here through the tool's own input schema, which is
  * where the preprocess actually runs.

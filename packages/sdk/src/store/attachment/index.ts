@@ -5,11 +5,11 @@ import type { Message, MessageAttachment } from '../../types/message/index.js'
  *
  * Every attachment was inline base64 on the message. That is fine for one
  * screenshot and wrong for everything else it implies: the bytes are copied
- * into the run's durable transcript, into every checkpoint, into every
+ * into the turn's durable transcript, into every checkpoint, into every
  * compaction pass that walks the history, and — because a conversation
  * resends its history — into every subsequent request. A 4 MB PDF attached
  * once is 4 MB in the transcript and 4 MB on the wire per turn for the rest
- * of the run.
+ * of the turn.
  *
  * So a message may carry a REFERENCE instead. The kernel treats `ref` as
  * opaque: this seam says nothing about whether it is a hash, a path, or a
@@ -72,7 +72,7 @@ export interface AttachmentResolutionOptions extends AttachmentOperationOptions 
 	readonly timeoutMs?: number
 }
 
-/** One minute is long enough for remote stores without letting a run wedge forever. */
+/** One minute is long enough for remote stores without letting a turn wedge forever. */
 export const DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS = 60_000
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -100,13 +100,13 @@ export class AttachmentNotFoundError extends Error {
 	}
 }
 
-/** A message that carries a ref, in a run with nowhere to resolve it. */
+/** A message that carries a ref, in a turn with nowhere to resolve it. */
 export class NoAttachmentStoreError extends Error {
 	readonly details: { ref: string }
 
 	constructor(details: { ref: string }) {
 		super(
-			`A message carries a stored attachment ("${details.ref}") but this run has no attachment store.`,
+			`A message carries a stored attachment ("${details.ref}") but this turn has no attachment store.`,
 		)
 		this.name = 'NoAttachmentStoreError'
 		this.details = details

@@ -4,10 +4,11 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import {
 	createAssistantMessage,
@@ -16,10 +17,11 @@ import {
 } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ChatCompletionParams, LLMProvider, MockTurn } from '../../../types/provider/index.js'
-import type { AnswerReviewContext } from '../../../types/run/answer-review.js'
-import { generateRunId } from '../../../utils/id.js'
+import type { AnswerReviewContext } from '../../../types/session/answer-review.js'
+import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
+import { turnCheckpoints } from './support/session.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -30,18 +32,18 @@ async function fixture(provider: LLMProvider) {
 	roots.push(workingDirectory)
 	return {
 		provider,
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		tools: new ToolRegistry(),
 		agentId: 'review-request',
 		agentName: 'Review request',
 		workingDirectory,
-		runConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 4, timeoutMs: 5000 },
+		turnConfig: { model: 'mock', tokenBudget: 10000, maxIterations: 4, timeoutMs: 5000 },
 		tenantId: fixtureId.tenant('review-request'),
 		projectId: fixtureId.project('review-request'),
 		sessionId: fixtureId.session('review-request'),
 		topicId: fixtureId.topic('review-request'),
 		messages: [createUserMessage('Use the supplied reference.')],
-		checkpointStore: new InMemoryCheckpointStore(),
+		sessionLog: new InMemorySessionLog({ sessionId: fixtureId.session('review-request') }),
 		retry: false,
 	} satisfies Parameters<typeof drainQuery>[0]
 }
@@ -114,10 +116,12 @@ it.each(['prose', 'tool', 'native'] as const)(
 		expect(requests[1]?.at(-1)?.content).toContain('Request-only reference: B42')
 		if (mode !== 'prose') expect(result.structuredOutput).toEqual({ code: 'B42' })
 		expect(JSON.stringify(result.messages)).not.toContain('Request-only reference:')
-		const checkpoints = await params.checkpointStore.listCheckpoints(params)
+		const checkpoints = await turnCheckpoints(params)
 		expect(checkpoints.length).toBeGreaterThan(0)
 		expect(JSON.stringify(checkpoints)).not.toContain('requestMessages')
 		expect(JSON.stringify(checkpoints)).not.toContain('Request-only reference:')
+		const recorded = JSON.stringify(await params.sessionLog.readAll())
+		expect(recorded).not.toContain('Request-only reference:')
 	},
 )
 
@@ -263,7 +267,7 @@ it.each(['inbound', 'steering'] as const)(
 	},
 )
 
-it('does not publish a tool-mode candidate if the final inbound check cancels the run', async () => {
+it('does not publish a tool-mode candidate if the final inbound check cancels the turn', async () => {
 	const controller = new AbortController()
 	const provider = new MockLLMProvider({
 		turns: [{ toolCalls: [{ name: 'structured_output', args: { code: 'A17' } }] }],
@@ -282,7 +286,10 @@ it('does not publish a tool-mode candidate if the final inbound check cancels th
 	expect(run.structuredOutput).toBeUndefined()
 })
 
-it('rebuilds request evidence after checkpoint resume instead of retaining the old snapshot', async () => {
+it('rebuilds request evidence on the next turn instead of retaining the old snapshot', async () => {
+	// A checkpoint holds no messages, and request-only evidence never reaches
+	// the session log: the next turn of the session folds the log and builds
+	// its own request evidence.
 	const provider = new MockLLMProvider({ turns: [{ text: 'wrong' }] })
 	const params = await fixture(provider)
 	const first = await drainQuery({
@@ -295,24 +302,27 @@ it('rebuilds request evidence after checkpoint resume instead of retaining the o
 		},
 	})
 	expect(first.stopReason).toBe('answer_rejected')
-	const checkpoints = await params.checkpointStore.listCheckpoints(params)
-	const checkpoint = checkpoints.find((c) => c.answerReviewAttempts === 1)
+	const checkpoints = await turnCheckpoints(params)
+	const checkpoint = checkpoints.find((c) => c.review.answerAttempts === 1)
 	if (!checkpoint) throw new Error('Missing rejection checkpoint')
 	expect(JSON.stringify(checkpoint)).not.toContain('Old request-only source:')
+	const history = await readFoldedHistory(params.sessionLog)
+	expect(JSON.stringify(history)).not.toContain('Old request-only source:')
 	const review = vi.fn((_answer: string, context: AnswerReviewContext) => {
 		expect(evidence(context)).toContain('New request-only source: B42')
 		expect(JSON.stringify(context.requestMessages)).not.toContain('Old request-only source:')
 		return { accept: true as const }
 	})
-	const resumed = await drainQuery({
+	const next = await drainQuery({
 		...params,
+		turnId: generateTurnId(),
+		messages: [createUserMessage('Try again with the new reference.')],
 		tools: new ToolRegistry(),
 		provider: new MockLLMProvider({ turns: [{ text: 'B42' }] }),
-		resumeFromCheckpoint: checkpoint.id,
 		prepareStep: () => ({ context: 'New request-only source: B42' }),
 		maxAnswerReviews: 1,
 		reviewAnswer: review,
 	})
-	expect(resumed.stopReason, resumed.lastError).toBe('end_turn')
+	expect(next.stopReason, next.lastError).toBe('end_turn')
 	expect(review).toHaveBeenCalledOnce()
 })

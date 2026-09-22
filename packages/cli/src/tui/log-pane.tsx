@@ -37,7 +37,7 @@ import { contextLogging, installCliLogging } from '../logging.js'
 import type { ResolvedLogging } from '../logging.js'
 
 /** `ringBufferSink(512)` in the ratified design (§6.1) — enough for a full
- *  boot narrative plus a run's worth of tool chatter without holding an
+ *  boot narrative plus a turn's worth of tool chatter without holding an
  *  unbounded amount of a long TUI session's history in memory. */
 const RING_CAPACITY = 512
 

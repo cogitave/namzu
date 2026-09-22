@@ -1,4 +1,4 @@
-import type { StepResult } from '../types/run/step.js'
+import type { StepResult } from '../types/session/step.js'
 import type { ScoreUncertainty } from './uncertainty.js'
 
 /**
@@ -13,7 +13,7 @@ export interface EvalCase<TInput = unknown> {
 	/** Free-form expectation, consumed by whichever scorers you attach. */
 	expected?: unknown
 	/**
-	 * Tool names the run is expected to call, in order. Consumed by
+	 * Tool names the turn is expected to call, in order. Consumed by
 	 * `trajectoryScorer`.
 	 */
 	expectedTools?: readonly string[]
@@ -22,8 +22,8 @@ export interface EvalCase<TInput = unknown> {
 }
 
 /** What actually happened, handed to every scorer. */
-export interface EvalRun {
-	/** Final assistant text, when the run produced one. */
+export interface EvalTurn {
+	/** Final assistant text, when the turn produced one. */
 	output: string | null
 	/** Schema-validated final output, when `structuredOutput` was requested. */
 	structuredOutput?: unknown
@@ -34,14 +34,14 @@ export interface EvalRun {
 	totalTokens: number
 	totalCostUsd: number
 	durationMs: number
-	/** Set when the run threw rather than settling. */
+	/** Set when the turn threw rather than settling. */
 	error?: string
 }
 
 /**
- * A judgement about one run.
+ * A judgement about one turn.
  *
- * `reason` is REQUIRED, not optional. A bare number tells you a run got
+ * `reason` is REQUIRED, not optional. A bare number tells you a turn got
  * worse without telling you how, which is exactly when you need to know —
  * so every scorer has to be able to explain itself, and one that cannot
  * is a scorer that should not exist.
@@ -57,7 +57,7 @@ export interface Score {
 	 * unreachable, its verdict did not parse.
 	 *
 	 * A failed measurement is not a measurement of zero. Scoring it zero
-	 * says "the run was bad" when the truth is "we do not know", and the
+	 * says "the turn was bad" when the truth is "we do not know", and the
 	 * two demand opposite responses: one is a regression to chase, the
 	 * other is a broken harness to fix. This mattered little while every
 	 * scorer was a pure function — a throw there is a bug — and matters a
@@ -104,7 +104,7 @@ export interface Scorer {
 	 * scorer may ignore it; a scorer that owns I/O should carry it to that
 	 * transport so timed-out work is stopped rather than merely abandoned.
 	 */
-	score(run: EvalRun, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
+	score(turn: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Score | Promise<Score>
 	/** See {@link ScorerSeverity}. Default `soft`. */
 	severity?: ScorerSeverity
 	/**
@@ -128,7 +128,7 @@ export type CaseStatus = 'passed' | 'failed' | 'inconclusive'
 
 export interface CaseResult {
 	case: string
-	run: EvalRun
+	turn: EvalTurn
 	scores: Record<string, Score>
 	/** Mean of this case's AVAILABLE scores. Zero when none were. */
 	mean: number
@@ -154,8 +154,8 @@ export interface ExperimentReport {
 	 * How much of {@link mean} is signal.
 	 *
 	 * A mean on its own has been read as a result, and at the n a
-	 * hand-built suite has it usually is not one: two runs three points
-	 * apart are normally the same run twice.
+	 * hand-built suite has it usually is not one: two experiments three points
+	 * apart are normally the same experiment twice.
 	 *
 	 * Optional, and deliberately so after trying it the other way. A suite
 	 * file is loaded at runtime and may be plain JavaScript, so a required

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -56,7 +56,8 @@ function recordingAgent(
 			seen.configs.push(config)
 			await held
 			return {
-				runId: budgetRunId(),
+				sessionId: generateSessionId(),
+				turnId: generateTurnId(),
 				status: 'completed',
 				result: 'ok',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -141,11 +142,15 @@ async function spawnChain(denies: (readonly string[] | undefined)[]): Promise<{
 	})
 
 	let context: AgentTaskContext = {
-		parentRunId: '7925f8f2-fc1a-4990-9de9-4461959f7bf1' as never,
+		parentSessionId: '7925f8f2-fc1a-4990-9de9-4461959f7bf1' as never,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		}),
 		tenantId: TENANT,
 		topicId: topic.id,
 		sessionId: parentSession.id,

@@ -47,7 +47,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { ToolContext, ToolDefinition, ToolTierConfig } from '../../types/tool/index.js'
 
 import { ToolRegistry } from './execute.js'
@@ -66,7 +66,8 @@ function makeTool(name: string, overrides: Partial<ToolDefinition> = {}): ToolDe
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 	return {
-		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -635,7 +636,8 @@ describe('ToolRegistry — execute', () => {
 			makeContext({
 				permissionContext: {
 					mode: 'plan',
-					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+					sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+					turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 					workingDirectory: '/tmp',
 				},
 			}),
@@ -654,7 +656,8 @@ describe('ToolRegistry — execute', () => {
 			makeContext({
 				permissionContext: {
 					mode: 'plan',
-					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+					sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+					turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 					workingDirectory: '/tmp',
 				},
 			}),
@@ -781,7 +784,8 @@ describe('ToolRegistry — execute', () => {
 			makeContext({
 				permissionContext: {
 					mode: 'plan',
-					runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+					sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+					turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 					workingDirectory: '/tmp',
 				},
 			}),

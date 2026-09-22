@@ -5,7 +5,7 @@ import type { CompletionInbox } from '../../scheduler/completion-inbox.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { TaskScheduler } from '../../types/agent/scheduler.js'
 import type { ResumeHandler } from '../../types/hitl/index.js'
-import type { RunId, TaskId } from '../../types/ids/index.js'
+import type { SessionId, TaskId, TurnId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
@@ -42,7 +42,7 @@ export interface CoordinatorToolsOptions {
 	allowedAgentIds: string[]
 
 	/**
-	 * May this run delegate at all? Defaults to true.
+	 * May this turn delegate at all? Defaults to true.
 	 *
 	 * Same field, same name, as SupervisorAgentConfig.allowDelegation — the
 	 * name is kept identical deliberately. This options bag already renames
@@ -54,16 +54,22 @@ export interface CoordinatorToolsOptions {
 	taskStore?: TaskStore
 
 	/**
-	 * Called when a plan is APPROVED, so the run can leave plan mode.
+	 * Called when a plan is APPROVED, so the turn can leave plan mode.
 	 *
 	 * A callback rather than a store handle, because what "leaving plan
-	 * mode" means belongs to whoever owns the mode — a run flipping its own
+	 * mode" means belongs to whoever owns the mode — a turn flipping its own
 	 * box, a host persisting to a topic record, both, or neither. This file
 	 * knows only that approval happened.
 	 */
 	onPlanApproved?: () => Promise<void> | void
 
-	runId?: RunId
+	/**
+	 * The session and turn these tools act for: a delegated plan step is
+	 * filed as a task of this session, created by this turn, and a question
+	 * park is addressed to them.
+	 */
+	sessionId?: SessionId
+	turnId?: TurnId
 
 	getPlanManager?: () => PlanManager | undefined
 
@@ -82,9 +88,9 @@ export interface CoordinatorToolsOptions {
 
 	/**
 	 * HITL park channel for `ask_user_question`. The tool is registered
-	 * only when BOTH `resumeHandler` and `runId` are present — without a
-	 * handler there is no one to route the question to, and without a
-	 * runId the park request cannot be addressed.
+	 * only when `resumeHandler`, `sessionId` and `turnId` are all present —
+	 * without a handler there is no one to route the question to, and
+	 * without the turn the park request cannot be addressed.
 	 */
 	resumeHandler?: ResumeHandler
 
@@ -92,14 +98,14 @@ export interface CoordinatorToolsOptions {
 	 * Makes a question park durable and visible.
 	 *
 	 * Without it the park exists only as a suspended `await` inside one
-	 * process — nothing on disk says a human owes this run an answer, and a
+	 * process — nothing on disk says a human owes this turn an answer, and a
 	 * remote host cannot observe the question at all. Optional because a
 	 * host driving the tools directly may have no checkpoint store.
 	 */
 	questionParks?: QuestionParkRecorder
 
 	/**
-	 * Answers carried in from a resumed run, keyed by `questionId`.
+	 * Answers carried in from a resumed turn, keyed by `questionId`.
 	 *
 	 * Consulted BEFORE the park handler: a re-entered `ask_user_question`
 	 * must return the answer that was already given rather than asking
@@ -182,7 +188,7 @@ function unwrapStepLine(line: string): string {
  *
  * Split on newlines, that is seven "steps", five of which are tags. A host
  * then numbered them in an approval card and asked a person to approve
- * `</steps>` — reported from a real run. The descriptions the model named
+ * `</steps>` — reported from a real turn. The descriptions the model named
  * are right there, so read them; fall back to lines only when there are
  * none, and drop the lines that carry no words at all.
  */
@@ -284,7 +290,7 @@ const approvePlanModelInputSchema: Record<string, unknown> = {
  * The delegate roster, as a closed set — including when it is empty.
  *
  * This used to be `agentIds.length > 0 ? z.enum(agentIds) : z.string()`, so
- * the one input that means "this run may delegate to nobody" became "this run
+ * the one input that means "this turn may delegate to nobody" became "this turn
  * may name anything". An allow-list *is* the enumeration of the conditions
  * under which access is permitted; an empty one enumerates nothing and so
  * admits nothing. Degrading it to an open string instead is **failing open**
@@ -314,7 +320,7 @@ function delegateSchema(agentIds: readonly string[]): z.ZodType<string> {
 		return z.never({
 			errorMap: () => ({
 				message:
-					'This run has no delegates configured, so it cannot launch a task. That is the configured state, not a missing argument.',
+					'This turn has no delegates configured, so it cannot launch a task. That is the configured state, not a missing argument.',
 			}),
 		}) as unknown as z.ZodType<string>
 	}
@@ -350,7 +356,7 @@ const LISTED_RESULT_LIMIT = 2_000
  * bound a delegated child at all land on an hour, and several impose no
  * wall-clock bound whatsoever, bounding turns or depth instead.
  *
- * A wedged child is still caught, an hour later, and the run budget and
+ * A wedged child is still caught, an hour later, and the turn budget and
  * iteration ceiling both still apply above this.
  */
 export const DELEGATION_TIMEOUT_MS = 60 * 60 * 1000
@@ -402,7 +408,8 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		allowDelegation,
 		taskStore,
 		onPlanApproved,
-		runId,
+		sessionId,
+		turnId,
 		getPlanManager,
 		resumeHandler,
 		questionParks,
@@ -421,9 +428,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	 * The tasks THIS surface launched — the scope of everything it will read back.
 	 *
 	 * A `TaskScheduler` is shared on purpose: `SupervisorAgentConfig.scheduler`
-	 * exists so a host can hand the same one to several runs. `listTasks()` is
+	 * exists so a host can hand the same one to several turns. `listTasks()` is
 	 * therefore gateway-wide by design, and `agent_task_list` used to hand that
-	 * straight to the model — so a supervisor could read a sibling run's worker
+	 * straight to the model — so a supervisor could read a sibling session's worker
 	 * output, including the `result` field, by listing. `wait_for_task` had the
 	 * same reach through `getTask`.
 	 *
@@ -435,7 +442,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	 * The scope lives here rather than in `listTasks()` because the two answer
 	 * different questions. A host calling `listTasks()` is the operator and may
 	 * legitimately want everything on its gateway; a model calling
-	 * `agent_task_list` is one run asking about its own work. Narrowing the
+	 * `agent_task_list` is one turn asking about its own work. Narrowing the
 	 * gateway method would take the operator's view away to fix the model's.
 	 *
 	 * Consequence worth stating: a task launched through a DIFFERENT surface on
@@ -452,7 +459,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	 *
 	 * A background launch returns a task id and promises the result "later, as
 	 * a task notification". The only thing that keeps that promise is the
-	 * inbox: it is what holds the run open for an outstanding worker and what
+	 * inbox: it is what holds the turn open for an outstanding worker and what
 	 * puts the completion into the transcript. With no inbox the tool told the
 	 * model to expect a message on a channel that does not exist — measured,
 	 * and the launch itself succeeded, so nothing failed loudly either.
@@ -573,9 +580,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						status: 'in_progress',
 						owner: agent_id,
 					})
-				} else if (runId) {
+				} else if (sessionId && turnId) {
 					const planTask = await taskStore.create({
-						runId,
+						sessionId,
+						turnId,
 						subject: description,
 						activeForm: description,
 						owner: agent_id,
@@ -592,12 +600,12 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				runtimeContext: opts.runtimeContext,
 				...(planStepId ? { planStepId } : {}),
 				...(planId ? { planId } : {}),
-				// Hang the child run off THIS tool's span, so the delegation
+				// Hang the child session off THIS tool's span, so the delegation
 				// shows up inside the turn that asked for it.
 				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
 				// Same as the `Agent` tool: a delegate inherits the environment
 				// its parent was given, or it runs against different services
-				// than the run that asked for the work — and the run's screens,
+				// than the turn that asked for the work — and the turn's screens,
 				// for the same reason: the child's executor installs the shipped
 				// default unless the spawn says otherwise, so a parent that
 				// turned them off had that decision revert behind every
@@ -664,8 +672,8 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			}
 
 			if (background) {
-				// Tell the inbox to hold the run open for this. Without it the
-				// supervisor could launch a worker, answer, and settle the run
+				// Tell the inbox to hold the turn open for this. Without it the
+				// supervisor could launch a worker, answer, and settle the turn
 				// while the worker was still going — discarding the result the
 				// launch existed to produce.
 				completionInbox?.expect(handle.taskId)
@@ -700,7 +708,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// Giving up does NOT cancel the child: it keeps going, and its
 			// result still reaches the supervisor as a notification.
 			const outcome = await waitForTaskWithBounds(gateway, handle.taskId, {
-				runMs: DELEGATION_TIMEOUT_MS,
+				wallMs: DELEGATION_TIMEOUT_MS,
 				idleMs: DELEGATION_IDLE_MS,
 			})
 			if (outcome.kind === 'timeout') {
@@ -825,21 +833,21 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// ONE cast, hoisted, and deliberately not `asTaskId`. The membership
 			// gate below is a strictly stronger check than the prefix: a
 			// `task_` spelling proves nothing about ownership, and
-			// `launchedHere` proves both that the id is real and that this run
+			// `launchedHere` proves both that the id is real and that this turn
 			// owns it. A prefix check in front of it would be a check whose
 			// every failure the next line already catches.
 			const taskId = task_id as TaskId
 			// Same scope as the listing — see `launchedHere`. Asked FIRST, so a
-			// task belonging to a sibling run on a shared gateway is refused
+			// task belonging to a sibling session on a shared gateway is refused
 			// here rather than waited on and then read.
 			if (!launchedHere.has(taskId)) {
 				// Deliberately does not distinguish "never existed" from
 				// "belongs to someone else". The second answer is itself the
-				// leak in miniature: it confirms a task id a run was not
+				// leak in miniature: it confirms a task id a turn was not
 				// supposed to know about.
 				return {
 					success: false,
-					output: `No task ${task_id} was launched by this run. Call agent_task_list to see the tasks you can wait on.`,
+					output: `No task ${task_id} was launched by this turn. Call agent_task_list to see the tasks you can wait on.`,
 					data: { task_id },
 				}
 			}
@@ -854,7 +862,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			}
 
 			const outcome = await waitForTaskWithBounds(gateway, taskId, {
-				runMs: DELEGATION_TIMEOUT_MS,
+				wallMs: DELEGATION_TIMEOUT_MS,
 				idleMs: DELEGATION_IDLE_MS,
 			})
 			if (outcome.kind === 'timeout') {
@@ -917,7 +925,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// which is why this is a cast and not a throwing constructor.
 			const taskId = task_id as TaskId
 			gateway.cancelTask(taskId)
-			// Stop holding the run open for it. `expect` put this task on the
+			// Stop holding the turn open for it. `expect` put this task on the
 			// inbox's outstanding list at launch and only a completion takes it
 			// off — so without this a cancelled worker kept `hasPendingWork`
 			// true and every attempt to settle paid the full grace period
@@ -948,20 +956,20 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// ONE cast, hoisted, and deliberately not `asTaskId`. The membership
 			// gate below is a strictly stronger check than the prefix: a
 			// `task_` spelling proves nothing about ownership, and
-			// `launchedHere` proves both that the id is real and that this run
+			// `launchedHere` proves both that the id is real and that this turn
 			// owns it. A prefix check in front of it would be a check whose
 			// every failure the next line already catches.
 			const taskId = task_id as TaskId
 			// Same fencing as the listing and the wait — see `launchedHere`.
-			// Asked FIRST, so a task belonging to a sibling run on a shared
+			// Asked FIRST, so a task belonging to a sibling session on a shared
 			// gateway is refused before anything is delivered to it.
 			if (!launchedHere.has(taskId)) {
 				// Does not distinguish "never existed" from "belongs to someone
 				// else", for the reason `wait_for_task` gives: the second answer
-				// confirms a task id this run was not supposed to know.
+				// confirms a task id this turn was not supposed to know.
 				return {
 					success: false,
-					output: `No task ${task_id} was launched by this run. Call agent_task_list to see the tasks you can steer.`,
+					output: `No task ${task_id} was launched by this turn. Call agent_task_list to see the tasks you can steer.`,
 					data: { task_id },
 				}
 			}
@@ -1005,7 +1013,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const agentTaskList = defineTool({
 		name: 'agent_task_list',
-		description: `Inspect the live state of the agent tasks YOU launched with create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Tasks launched by another run are not listed, even when it shares this gateway. Distinct from the plan-task store's \`task_list\` (which lists planning tasks): this tool lists running/completed worker invocations. ${listingAdvice}`,
+		description: `Inspect the live state of the agent tasks YOU launched with create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Tasks launched by another turn are not listed, even when it shares this gateway. Distinct from the plan-task store's \`task_list\` (which lists planning tasks): this tool lists running/completed worker invocations. ${listingAdvice}`,
 		inputSchema: z.object({
 			state: z
 				.enum(['pending', 'running', 'completed', 'failed', 'canceled'])
@@ -1018,19 +1026,19 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ state }) {
-			// Scoped to this run's own launches — see `launchedHere`. The
-			// gateway may hold a sibling run's tasks, and this listing is not
+			// Scoped to this turn's own launches — see `launchedHere`. The
+			// gateway may hold a sibling session's tasks, and this listing is not
 			// the door to them.
 			const handles = gateway.listTasks().filter((h) => launchedHere.has(h.taskId))
 			const filtered = state ? handles.filter((h) => h.state === state) : handles
 			const items = filtered.map((h) => {
-				const runStatus = h.result?.status
+				const turnStatus = h.result?.status
 				const lastError = h.result?.lastError ?? undefined
 				// The worker's actual output, which this listing used to drop. It
 				// read `h.result` for the status and the error and stopped one
 				// property short of the thing the task was launched to produce —
 				// so a supervisor that knew a task_id and knew it had completed
-				// still had no way to read what it said. That is the state a run
+				// still had no way to read what it said. That is the state a turn
 				// lands in whenever the launching call was abandoned, which is
 				// exactly when this listing gets consulted.
 				const output = h.result?.result ?? undefined
@@ -1038,7 +1046,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					task_id: h.taskId,
 					agent_id: h.agentId,
 					state: h.state,
-					run_status: runStatus,
+					turn_status: turnStatus,
 					created_at: new Date(h.createdAt).toISOString(),
 					completed_at: h.completedAt ? new Date(h.completedAt).toISOString() : null,
 					duration_ms: h.completedAt ? h.completedAt - h.createdAt : null,
@@ -1055,7 +1063,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			}
 			const lines = items.length
 				? items.map((i) => {
-						const head = `- ${i.task_id} → ${i.agent_id} [${i.state}${i.run_status && i.run_status !== i.state ? ` / ${i.run_status}` : ''}]${
+						const head = `- ${i.task_id} → ${i.agent_id} [${i.state}${i.turn_status && i.turn_status !== i.state ? ` / ${i.turn_status}` : ''}]${
 							i.duration_ms !== null ? ` (${Math.round(i.duration_ms / 1000)}s)` : ''
 						}${i.last_error ? ` — error: ${i.last_error.slice(0, 200)}` : ''}`
 						// The output goes in the rendered TEXT, not only in `data`.
@@ -1071,7 +1079,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						// third way to read a delegate's output and the only one that
 						// pasted it bare — so a worker's text was material on two
 						// paths and read as the parent's own reasoning on the third,
-						// and which one a run got depended on how the model chose to
+						// and which one a turn got depended on how the model chose to
 						// fetch it.
 						const framed = wrapUntrusted(
 							{
@@ -1107,7 +1115,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// is kept because it was correct and has expired rather than been wrong.
 	//
 	// It read: on a LIVE task the manager accepts the call and pushes onto
-	// `pendingMessages`, and NOTHING drains that queue during a run — so the
+	// `pendingMessages`, and NOTHING drains that queue during a turn — so the
 	// tool had no state it worked in. Terminal tasks refused it; live ones
 	// accepted it into a queue nobody read. Registering it would have handed
 	// the model a call that silently does nothing, which is worse than an
@@ -1167,11 +1175,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// second one is not derivable from the first.
 	//
 	// An empty roster answers WHO may be called: nobody, so the tools have
-	// nothing to act on. `allowDelegation: false` answers WHETHER this run may
+	// nothing to act on. `allowDelegation: false` answers WHETHER this turn may
 	// call anyone, which a non-empty roster cannot settle — a host that runs a
 	// specialist by putting its persona into the supervisor shell and its id
 	// into the roster has a list of one and must still delegate to nobody.
-	// From inside this function that run is indistinguishable from a
+	// From inside this function that turn is indistinguishable from a
 	// supervisor whose roster happens to hold a single specialist, so the
 	// caller states the fact rather than the SDK guessing it.
 	//
@@ -1204,7 +1212,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			permissions: [],
 			readOnly: true,
 			destructive: false,
-			// Parks through the SAME runId-keyed host resume registry as
+			// Parks through the SAME turn-keyed host resume registry as
 			// ask_user_question — concurrent parks in one batch clobber the
 			// registry entry and deadlock the loser, so the executor must
 			// serialize this tool exactly like the question tool.
@@ -1263,7 +1271,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						output: '',
 						error:
 							agentIds.length === 0
-								? `This plan delegates to ${unknownAgents.join(', ')}, but this run has no delegates. Plan the work as your own steps and omit agent_id.`
+								? `This plan delegates to ${unknownAgents.join(', ')}, but this turn has no delegates. Plan the work as your own steps and omit agent_id.`
 								: `No such agent: ${unknownAgents.join(', ')}. Delegate only to ${agentIds.join(', ')}, or omit agent_id for a step you carry out yourself.`,
 					}
 				}
@@ -1318,9 +1326,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						: `Plan approved by user. Proceed with execution — launch workers via create_task.${howToReport}`
 					// An approved plan LEAVES plan mode, in this conversation and
 					// durably. That flow — look around under plan mode, propose,
-					// get approval, continue in the SAME run — is what the mode's
-					// per-run lifetime made impossible: leaving it meant ending
-					// the run and discarding the step and tool-schema context.
+					// get approval, continue in the SAME turn — is what the mode's
+					// per-turn lifetime made impossible: leaving it meant ending
+					// the turn and discarding the step and tool-schema context.
 					//
 					// Failures are swallowed with a log rather than turning an
 					// approval into a refusal. The user said yes; a state store
@@ -1428,8 +1436,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		tools.push(updatePlanStep)
 	}
 
-	if (resumeHandler && runId) {
-		tools.push(buildAskUserQuestionTool({ resumeHandler, runId, questionParks, pendingAnswers }))
+	if (resumeHandler && sessionId && turnId) {
+		tools.push(
+			buildAskUserQuestionTool({ resumeHandler, sessionId, turnId, questionParks, pendingAnswers }),
+		)
 	}
 
 	return tools

@@ -71,11 +71,11 @@ export interface AgentNarrationBandProps {
  *
  * Outside is the point. Inside the frame these rows would read as chrome the
  * panel emitted about its agents; above it, unboxed and aligned with the
- * rail's inner text, they read as the run talking — which is what they are
+ * rail's inner text, they read as the turn talking — which is what they are
  * (see {@link SubagentNarrationLine} for why only the parent may write one).
  *
  * The band claims a row per line and nothing more: no border, no heading, no
- * blank separator, and nothing at all when there is no commentary, so a run
+ * blank separator, and nothing at all when there is no commentary, so a turn
  * that never narrates renders exactly as it did before this existed. The
  * monitor bounds the list, so the rows this can spend are bounded with it, and
  * the rail below keeps its own height budget either way — that budget is
@@ -850,7 +850,7 @@ export function agentPickerPageSize(terminalRows: number, wide = true): number {
  * than growing the box, because the box is already sized to leave the parent
  * its two footer rows and the terminal its cursor row — a box one row taller
  * would take the cursor row, on the one screen where the extra row exists to
- * stop a misreading rather than to show more of the run.
+ * stop a misreading rather than to show more of the turn.
  */
 function transcriptBannerRows(agent: SubagentActivity): number {
 	return agent.replayed ? 1 : 0
@@ -1018,7 +1018,7 @@ function agentMetaParts(
 	// Unconditional, and first, because it is the only part here that changes
 	// what the row MEANS rather than describing the work: a saved row reports
 	// a child that finished in some other process. Five cells is a price worth
-	// paying at every width to keep a past run from reading as a present one.
+	// paying at every width to keep a past turn from reading as a present one.
 	if (agent.replayed) parts.push('saved')
 	if (options.showModel && agent.model) {
 		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))

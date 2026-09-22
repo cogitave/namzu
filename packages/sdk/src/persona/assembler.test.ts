@@ -26,7 +26,7 @@ import {
  * `mergePersonas` and `withSessionContext` are exported from the package root
  * and nothing inside the kernel calls them yet, which is the other way a
  * function stays dark: a public contract with no caller. Both are assertions
- * about a returned value, so they are testable here without a run.
+ * about a returned value, so they are testable here without a turn.
  *
  * What is pinned below is what the module promises, in the module's own
  * terms: which sections appear (and which do NOT, since an empty heading is
@@ -310,7 +310,7 @@ describe('mergePersonas', () => {
 	it('does not hand back the base’s own arrays', () => {
 		// A merge that returned `base.expertise.domains` when the override had
 		// none would make the next `push` on the result an edit to the base —
-		// and a base persona is shared by every run built from it. Fresh arrays
+		// and a base persona is shared by every turn built from it. Fresh arrays
 		// are what keeps an extending persona from writing through.
 		const base = persona({
 			expertise: { domains: ['TypeScript'] },
@@ -347,9 +347,9 @@ describe('mergePersonas', () => {
 
 describe('withSessionContext', () => {
 	it('returns a persona carrying the context and leaves the original alone', () => {
-		// The original is not incidental: a run's persona is the host's config
-		// object, often shared across runs, and stamping a turn's context onto
-		// it would leak one run's context into the next.
+		// The original is not incidental: a turn's persona is the host's config
+		// object, often shared across turns, and stamping a turn's context onto
+		// it would leak one turn's context into the next.
 		const base = persona({ sessionContext: 'from the file' })
 
 		const stamped = withSessionContext(base, 'turn two')

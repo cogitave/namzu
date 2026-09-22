@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { TokenBudget } from '../../../run/token-budget.js'
 import { toolResultCorrespondenceGuardrail } from '../../../runtime/query/guardrail-presets.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
 import { fixtureId, fixtureUuid } from '../../../test-support/ids.js'
@@ -18,7 +18,7 @@ import type { ToolResultGuardrailSpec } from '../../../types/guardrail/index.js'
 import type { AgentId, TenantId } from '../../../types/ids/index.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 import { TopicManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
@@ -27,7 +27,7 @@ import { AgentManager } from '../lifecycle.js'
  * and in the agents it delegates to", and until now the kernel did not do the
  * second half.
  *
- * A child is a fresh run with its own executor, which installs
+ * A child is a fresh turn with its own executor, which installs
  * `DEFAULT_TOOL_RESULT_GUARDRAILS` whenever nothing said otherwise — so a
  * parent that turned the screens off with `[]`, or substituted a screen with
  * its own `passthroughTools`, had that decision revert the moment it
@@ -60,7 +60,8 @@ function recordingAgent(seen: { config?: BaseAgentConfig }) {
 		async run(_input: unknown, config: BaseAgentConfig): Promise<BaseAgentResult> {
 			seen.config = config
 			return {
-				runId: fixtureId.run('child'),
+				sessionId: fixtureId.session('child'),
+				turnId: fixtureId.turn('child'),
 				status: 'completed',
 				result: 'ok',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -159,11 +160,15 @@ async function spawnWith(options: {
 	})
 
 	const context: AgentTaskContext = {
-		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		parentSessionId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		}),
 		tenantId: TENANT,
 		topicId: thread.id,
 		sessionId: parentSession.id,
@@ -191,7 +196,7 @@ async function spawnWith(options: {
 
 const NONE: readonly ToolResultGuardrailSpec[] = Object.freeze([])
 
-describe('the screens a parent run chose', () => {
+describe('the screens a parent session chose', () => {
 	it('reach a child whose configBuilder never heard of them', async () => {
 		const config = await spawnWith({
 			inherited: [
@@ -227,7 +232,7 @@ describe('the screens a parent run chose', () => {
 
 	it('are left to the default when the parent stated none', async () => {
 		// Not `[]`. Absent means the parent configured nothing, and the child
-		// installs the shipped default exactly as any other run does.
+		// installs the shipped default exactly as any other turn does.
 		const config = await spawnWith({})
 
 		expect(config?.toolResultGuardrails).toBeUndefined()

@@ -5,13 +5,16 @@
  * pre-registered definition needed. Omit `role` for a general-purpose one.
  * The call waits for a final result unless background execution is requested
  * or operator input releases the wait.
- * The child then stays owned by the parent run, and its completion reaches the
+ * The child then stays owned by the parent turn, and its completion reaches the
  * same query's inbox. Headless callers also support explicit background work.
  *
  * The runtime is fully self-contained: a dedicated in-memory session/thread
  * store backs the AgentManager, so sub-agent bookkeeping never touches the
- * CLI's on-disk `/resume` conversation store. A separate session-scoped
- * receipt archive preserves observed outcomes without restoring execution authority.
+ * CLI's `/resume` conversation store. Each child is a child session whose log
+ * the SDK writes under the parent's `<session-id>/subagents/`, and the parent's
+ * log records its spawn and its ending; the saved-agents reader
+ * (`saved-agents.ts`) reads those records back as evidence, never as execution
+ * authority.
  */
 
 import {
@@ -29,26 +32,27 @@ import {
 	type Agent as CoreAgent,
 	type CreateTaskOptions,
 	DefaultCapacityValidator,
+	DiskSessionTokenBudgetStore,
 	EXPLORE_AGENT_DESCRIPTION,
 	EXPLORE_AGENT_ID,
 	EXPLORE_AGENT_PROMPT,
 	InMemorySessionStore,
+	InMemorySessionTokenBudgetStore,
 	InMemoryTopicStore,
 	type LLMProvider,
 	LocalTaskScheduler,
-	type PathBuilder,
 	type Project,
 	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
 	type ReasoningEffort,
 	type ResumeHandler,
-	RunCancelled,
-	type RunEvent,
-	type RunId,
 	type SandboxProvider,
+	type SessionEvent,
 	type SessionId,
+	type SessionPaths,
 	SessionSummaryMaterializer,
+	type SessionTokenBudgetStore,
 	type TaskHandle,
 	type TaskId,
 	type TaskScheduler,
@@ -59,21 +63,23 @@ import {
 	type Topic,
 	TopicArchivedError,
 	TopicManager,
+	TurnCancelled,
+	type TurnId,
 	WorkspaceBackendRegistry,
-	asRunId,
 	asTaskId,
+	asTurnId,
 	defineTool,
 	filterReadOnlyTools,
 	filterToolsNamed,
 	generateSummaryId,
 	isTerminalAgentTaskState,
 	mcpJsonSchemaToZod,
-	openTokenBudget,
+	openSessionTokenBudget,
 	requireOpenProject,
 } from '@namzu/sdk'
 
-import { resolveRunGuards } from '../../config/run-limits.js'
-import type { RunLimitsConfig } from '../../config/schema.js'
+import { resolveTurnGuards } from '../../config/run-limits.js'
+import type { TurnLimitsConfig } from '../../config/schema.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import { CLI_CHECKPOINT_RETENTION } from '../state/retention.js'
 import {
@@ -84,8 +90,8 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
-import { DelegationHistory, HISTORY_GUIDANCE } from './history.js'
-import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
+import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from './policy.js'
+import { SAVED_AGENTS_GUIDANCE, type SavedAgentHistory } from './saved-agents.js'
 
 /**
  * The parent's narration tool, named once.
@@ -145,7 +151,7 @@ const SUBAGENT_PROMPT = [
 	'- If you need to research and have no web tool available, say so plainly and answer from your own knowledge with that caveat — do not invent sources, data, or URLs.',
 	'- Do not invent command output or results. If you cannot complete the task, say what blocked you.',
 	'',
-	// The same working rules the parent runs under. A delegated task edits the
+	// The same working rules the parent sessions under. A delegated task edits the
 	// same repository, and a child that reads a file before editing it while
 	// the parent does not is the same defect in the other direction.
 	NAMZU_WORKING_DOCTRINE,
@@ -164,22 +170,38 @@ export interface DelegatedModel {
 }
 
 export interface SubagentRuntimeOptions {
-	/** Resolve the actual invoking run; reject calls whose parent no longer exists. */
-	readonly resolveParent: (runId: RunId) => Promise<SubagentParent>
+	/** Resolve the actual invoking turn; reject calls whose parent no longer exists. */
+	readonly resolveParent: (turnId: TurnId) => Promise<SubagentParent>
 	readonly cwd: string
-	/** Private project root for session-scoped delegation receipts. */
-	readonly historyRoot?: string
+	/**
+	 * The saved agents of one parent conversation, read back from the session
+	 * index and the child logs (`createSavedAgentHistory`). Absent: the
+	 * `agent_task_list` history view reports that saved history is unavailable.
+	 */
+	readonly savedAgents?: (sessionId: SessionId) => SavedAgentHistory
 	readonly model: string
 	/** Aggregate parent-and-descendant limit; absent or zero means unlimited. */
 	readonly tokenBudget?: number
-	/** Immutable settings captured by the invoking run, including TUI overrides. */
-	readonly resolveLimits?: (runId: RunId) => RunLimitsConfig | undefined
+	/** Immutable settings captured by the invoking turn, including TUI overrides. */
+	readonly resolveLimits?: (turnId: TurnId) => TurnLimitsConfig | undefined
 	/** Main-loop iterations for built-in children. Omitted or 0 is unlimited. */
 	readonly maxIterations?: number
-	/** Run duration for children in milliseconds. Omitted or 0 is unlimited. */
+	/** Turn duration for children in milliseconds. Omitted or 0 is unlimited. */
 	readonly timeoutMs?: number
-	/** Durable layout for child runs; omitted preserves the SDK default. */
-	readonly pathBuilder?: PathBuilder
+	/**
+	 * The project layout child sessions are filed in. Children log under their
+	 * parent's `<session-id>/subagents/`, and the root turn's token ledger is
+	 * `<session-id>/budgets/<turn-id>.json` — the same file the parent's
+	 * `query()` spends from. Omitted: children keep their state in memory and
+	 * the ledger lives in {@link tokenBudgetStore}.
+	 */
+	readonly paths?: SessionPaths
+	/**
+	 * Where the root turn's token ledger is kept, when the host shares one
+	 * store between the parent's `query()` and this runtime. Defaults to the
+	 * disk store over {@link paths}, or else a store private to this runtime.
+	 */
+	readonly tokenBudgetStore?: SessionTokenBudgetStore
 	/** Root every child allocation at the session workspace or a fresh temp tree. */
 	readonly sandboxWorkspace?: 'working-directory' | 'ephemeral'
 	/** Construct a fresh provider with the invoking conversation and current credential. */
@@ -202,13 +224,13 @@ export interface SubagentRuntimeOptions {
 	) => ReactiveAgentConfig['webSearch']
 	readonly authorizationGate?: AuthorizationGateConfig
 	/**
-	 * Resolve the interactive authority owned by the parent run that invoked
+	 * Resolve the interactive authority owned by the parent turn that invoked
 	 * the Agent tool. Absent means the child has no human review channel.
 	 */
-	readonly resolveResumeHandler?: (runId: ToolContext['runId']) => ResumeHandler | undefined
+	readonly resolveResumeHandler?: (turnId: ToolContext['turnId']) => ResumeHandler | undefined
 	/** Wake a delegation wait when this parent has undelivered operator input. */
 	readonly resolveWaitForInbound?: (
-		runId: RunId,
+		turnId: TurnId,
 	) => ((signal: AbortSignal) => Promise<void>) | undefined
 	/** Use the same execution boundary the parent session reports. */
 	readonly sandboxProvider?: SandboxProvider
@@ -220,14 +242,14 @@ export interface SubagentRuntimeOptions {
 	 * Produces the "where and when" block for a child, at the moment the child
 	 * is built rather than once for the session.
 	 *
-	 * A function because both facts it carries can change while the parent runs:
+	 * A function because both facts it carries can change while the parent sessions:
 	 * a long session crosses midnight, and the parent may itself have checked
 	 * out a branch since it started. A string captured at startup would hand
 	 * every later sub-agent a confident, stale answer.
 	 */
 	readonly readEnvironment?: () => Promise<string>
-	/** Receives the child's RunEvents (lineage-stamped) — for the tree view. */
-	readonly onEvent?: (event: RunEvent) => void
+	/** Receives the child's session events (lineage-stamped) — for the tree view. */
+	readonly onEvent?: (event: SessionEvent) => void
 	/**
 	 * Agents a project or user defined in `.namzu/agents/<name>.md`. Each
 	 * becomes a type the `Agent` tool offers beside the built-in two, with
@@ -237,12 +259,12 @@ export interface SubagentRuntimeOptions {
 }
 
 export interface SubagentRuntime {
-	/** One immutable scheduler context per actual parent run. */
-	gatewayForRun(runId: RunId): Promise<TaskScheduler>
+	/** One immutable scheduler context per actual parent turn. */
+	gatewayForTurn(turnId: TurnId): Promise<TaskScheduler>
 	/** The same inbox the parent query drains after a delegation yields. */
-	completionInboxForRun(runId: RunId): Promise<CompletionInbox>
-	/** Release a settled parent's bookkeeping and cancel children it still owns. */
-	releaseRun(runId: RunId): Promise<void>
+	completionInboxForTurn(turnId: TurnId): Promise<CompletionInbox>
+	/** Release a settled parent turn's bookkeeping and cancel children it still owns. */
+	releaseTurn(turnId: TurnId): Promise<void>
 	readonly modelCatalogueTool?: ToolDefinition
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
@@ -257,7 +279,7 @@ export interface SubagentRuntime {
 	 * Registered on the PARENT's registry only, like every other tool here, and
 	 * only by a host that has an operator watching — see `createAgentSession`.
 	 * A child's roster is whatever the host's `buildTools()` returns, which
-	 * never carries this one: that is what makes narration the run's own voice
+	 * never carries this one: that is what makes narration the turn's own voice
 	 * rather than a child's, and the property a test holds.
 	 */
 	readonly narrationTool: ToolDefinition
@@ -268,12 +290,12 @@ export interface SubagentRuntime {
 	close(): Promise<void>
 }
 
-/** Recheck the invoking run before admitting work through a retained gateway. */
+/** Recheck the invoking turn before admitting work through a retained gateway. */
 class ParentTaskScheduler extends LocalTaskScheduler {
 	constructor(
 		manager: AgentManager,
 		context: AgentTaskContext,
-		onEvent: ((event: RunEvent) => void) | undefined,
+		onEvent: ((event: SessionEvent) => void) | undefined,
 		private readonly validateParent: () => Promise<void>,
 	) {
 		super(manager, context, onEvent)
@@ -306,22 +328,22 @@ class ParentTaskScheduler extends LocalTaskScheduler {
 
 	override async waitForTask(taskId: TaskId): Promise<TaskHandle> {
 		const task = this.getTask(taskId)
-		if (!task) throw new Error(`Task ${taskId} does not belong to this parent run`)
+		if (!task) throw new Error(`Task ${taskId} does not belong to this parent turn`)
 		if (isTerminalAgentTaskState(task.state)) return task
 		return super.waitForTask(taskId)
 	}
 
 	override async continueTask(taskId: TaskId, message: string): Promise<void> {
-		if (!this.owns(taskId)) throw new Error(`Task ${taskId} does not belong to this parent run`)
+		if (!this.owns(taskId)) throw new Error(`Task ${taskId} does not belong to this parent turn`)
 		await this.validateParent()
 		await super.continueTask(taskId, message)
 	}
 }
 
-/** A delegated run may never inherit the SDK's headless auto-approval fallback. */
+/** A delegated child may never inherit the SDK's headless auto-approval fallback. */
 const refuseUnownedChildReview: ResumeHandler = async () => ({
 	action: 'abort',
-	reason: 'The parent run no longer owns an interactive review channel for this sub-agent.',
+	reason: 'The parent turn no longer owns an interactive review channel for this sub-agent.',
 })
 
 /**
@@ -384,14 +406,23 @@ export async function createSubagentRuntime(
 		readonly ready: Promise<SessionRuntime>
 		owners: number
 	}
-	const parents = new Map<RunId, Promise<ParentRuntime>>()
+	const parents = new Map<TurnId, Promise<ParentRuntime>>()
 	const sessions = new Map<string, SharedSession>()
+	// A ledger this runtime keeps for itself, when neither a shared store nor a
+	// project layout was given. Process-local: it bounds the children of one
+	// root turn, and the parent's own spend is counted wherever the parent
+	// keeps its ledger.
+	const tokenBudgetStore: SessionTokenBudgetStore =
+		opts.tokenBudgetStore ??
+		(opts.paths
+			? new DiskSessionTokenBudgetStore({ paths: opts.paths })
+			: new InMemorySessionTokenBudgetStore())
 	let closed = false
 	const sessionKey = ({ project, sessionId }: SubagentParent): string =>
 		JSON.stringify([project.tenantId, project.id, sessionId])
 
-	const resolveParent = async (runId: RunId): Promise<SubagentParent> => {
-		const parent = structuredClone(await opts.resolveParent(runId))
+	const resolveParent = async (turnId: TurnId): Promise<SubagentParent> => {
+		const parent = structuredClone(await opts.resolveParent(turnId))
 		const { project, topic } = parent
 		if (topic.projectId !== project.id || topic.tenantId !== project.tenantId) {
 			throw new Error('Delegation parent topic does not belong to its project and tenant')
@@ -426,7 +457,7 @@ export async function createSubagentRuntime(
 		const manager = new AgentManager(
 			registry,
 			{
-				childTimeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+				childTimeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				capacityBehavior: 'queue',
 			},
 			{
@@ -450,7 +481,7 @@ export async function createSubagentRuntime(
 
 	const refreshLimits = async (shared: SessionRuntime, parent: SubagentParent): Promise<void> => {
 		if (shared.topicId !== parent.topic.id)
-			throw new Error('Delegation parent changed its topic while runs are active')
+			throw new Error('Delegation parent changed its topic while turns are active')
 		// A slow metadata read must not overwrite a newer project snapshot.
 		const updatedAt = parent.project.updatedAt.getTime()
 		if (updatedAt < shared.projectUpdatedAt) return
@@ -493,23 +524,22 @@ export async function createSubagentRuntime(
 		}
 	}
 
-	const gatewayForRun = async (runId: RunId): Promise<TaskScheduler> => {
+	const gatewayForTurn = async (turnId: TurnId): Promise<TaskScheduler> => {
 		if (closed) throw new Error('Sub-agent runtime is closed')
-		let pending = parents.get(runId)
+		let pending = parents.get(turnId)
 		if (!pending) {
 			pending = (async (): Promise<ParentRuntime> => {
-				const parent = await resolveParent(runId)
-				const budget = await openTokenBudget({
-					scope: {
-						tenantId: parent.project.tenantId,
-						projectId: parent.project.id,
-						sessionId: parent.sessionId,
-						runId,
-					},
-					limit: resolveRunGuards(opts, opts.resolveLimits?.(runId)).tokenBudget,
-					pathBuilder: opts.pathBuilder,
-					workingDirectory: opts.cwd,
+				const parent = await resolveParent(turnId)
+				// The invoking turn is the root of this delegation tree, so its
+				// ledger is keyed `(parent session, invoking turn)` — the ledger the
+				// parent's own `query()` opened for this turn when it shares the
+				// store. Every child spends from an account reserved under it.
+				const budget = await openSessionTokenBudget({
+					store: tokenBudgetStore,
+					scope: { rootSessionId: parent.sessionId, rootTurnId: turnId },
+					limit: resolveTurnGuards(opts, opts.resolveLimits?.(turnId)).tokenBudget,
 				})
+				budget.bindTurn(parent.sessionId, turnId)
 				const lease = await acquireSession(parent)
 				const { manager } = lease.shared
 				const parentAbortController = new AbortController()
@@ -519,13 +549,14 @@ export async function createSubagentRuntime(
 						closed ||
 						released ||
 						parentAbortController.signal.aborted ||
-						parents.get(runId) !== pending
+						parents.get(turnId) !== pending
 					) {
-						throw new Error(`Parent run ${runId} was released`)
+						throw new Error(`Parent turn ${turnId} was released`)
 					}
 				}
 				const taskContext: AgentTaskContext = {
-					parentRunId: runId,
+					parentSessionId: parent.sessionId,
+					parentTurnId: turnId,
 					parentAgentId: 'namzu',
 					parentAbortController,
 					depth: 0,
@@ -542,10 +573,10 @@ export async function createSubagentRuntime(
 				}
 				const gateway = new ParentTaskScheduler(manager, taskContext, opts.onEvent, async () => {
 					assertOwned()
-					const current = await resolveParent(runId)
+					const current = await resolveParent(turnId)
 					assertOwned()
 					if (sessionKey(current) !== sessionKey(parent))
-						throw new Error('Delegation run changed its parent scope')
+						throw new Error('Delegation turn changed its parent scope')
 					await refreshLimits(lease.shared, current)
 					assertOwned()
 				})
@@ -557,8 +588,12 @@ export async function createSubagentRuntime(
 					close() {
 						if (released) return
 						released = true
-						parentAbortController.abort(new RunCancelled('parent'))
-						manager.cancelAll(runId, 'parent')
+						parentAbortController.abort(new TurnCancelled('parent'))
+						// Only this turn's children. The manager is shared by every
+						// turn of the session, and `cancelAll` would reach them all.
+						for (const task of manager.listByParent(parent.sessionId)) {
+							if (task.context.parentTurnId === turnId) manager.cancel(task.taskId, 'parent')
+						}
 						completionInbox.close()
 						lease.release()
 					},
@@ -569,31 +604,31 @@ export async function createSubagentRuntime(
 				}
 				return runtime
 			})()
-			parents.set(runId, pending)
+			parents.set(turnId, pending)
 		}
 		try {
 			const runtime = await pending
-			if (closed || parents.get(runId) !== pending)
-				throw new Error(`Parent run ${runId} was released`)
+			if (closed || parents.get(turnId) !== pending)
+				throw new Error(`Parent turn ${turnId} was released`)
 			return runtime.gateway
 		} catch (error) {
-			if (parents.get(runId) === pending) parents.delete(runId)
+			if (parents.get(turnId) === pending) parents.delete(turnId)
 			throw error
 		}
 	}
-	const releaseRun = async (runId: RunId): Promise<void> => {
-		const pending = parents.get(runId)
+	const releaseTurn = async (turnId: TurnId): Promise<void> => {
+		const pending = parents.get(turnId)
 		if (!pending) return
-		parents.delete(runId)
+		parents.delete(turnId)
 		await pending.then(
 			(runtime) => runtime.close(),
 			() => undefined,
 		)
 	}
-	const completionInboxForRun = async (runId: RunId): Promise<CompletionInbox> => {
-		await gatewayForRun(runId)
-		const pending = parents.get(runId)
-		if (!pending) throw new Error(`Parent run ${runId} was released`)
+	const completionInboxForTurn = async (turnId: TurnId): Promise<CompletionInbox> => {
+		await gatewayForTurn(turnId)
+		const pending = parents.get(turnId)
+		if (!pending) throw new Error(`Parent turn ${turnId} was released`)
 		return (await pending).completionInbox
 	}
 
@@ -699,7 +734,7 @@ export async function createSubagentRuntime(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS),
+		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
 			const {
 				description,
@@ -779,25 +814,25 @@ export async function createSubagentRuntime(
 				prompt,
 				batchId: context.toolBatchId,
 				toolUseId: context.toolUseId,
-				workflowId: String(context.runId),
+				workflowId: String(context.turnId),
 				workflow,
 				phase,
 				phaseOrder: phase_order,
 				phaseDetail: phase_detail,
 			})
-			// The child is a separate run, but its human authority belongs to the
+			// The child is a separate session, but its human authority belongs to the
 			// parent turn that invoked Agent. `drainQuery` deliberately auto-approves
 			// when a handler is omitted for headless SDK callers; omission here would
 			// therefore turn a missing/stale parent mapping into permission to mutate
 			// the real project. Always install a handler, and abort if ownership can no
 			// longer be proved.
-			const resumeHandler = opts.resolveResumeHandler?.(context.runId) ?? refuseUnownedChildReview
+			const resumeHandler = opts.resolveResumeHandler?.(context.turnId) ?? refuseUnownedChildReview
 			const configOverrides = {
-				...resolveRunGuards(opts, opts.resolveLimits?.(context.runId)),
+				...resolveTurnGuards(opts, opts.resolveLimits?.(context.turnId)),
 				...(selection ? { model: selection.model, effort: selection.effort } : {}),
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
-				// The parent run's tool-result screens, so a sub-agent judges a
-				// connected answer the way the run that asked for the work
+				// The parent turn's tool-result screens, so a sub-agent judges a
+				// connected answer the way the turn that asked for the work
 				// does. Without it the child's executor installs the shipped
 				// default, and `toolResultScreens: []` — the operator's off
 				// switch — would hold for the parent and not for anything it
@@ -816,32 +851,19 @@ export async function createSubagentRuntime(
 				if (dynamic) registry.unregister(agentId)
 			}
 			try {
-				const completionInbox = await completionInboxForRun(context.runId)
-				const parent = await resolveParent(context.runId)
-				const history = opts.historyRoot
-					? new DelegationHistory(opts.historyRoot, parent.sessionId)
-					: undefined
-				const save = (handle: TaskHandle, terminal: boolean): void => {
-					history?.write({
-						taskId: handle.taskId,
-						parentRunId: context.runId,
-						description,
-						status: terminal ? agentTaskOutcome(handle) : 'unresolved',
-						...(terminal ? { output: String(completedAgentResult(handle).output ?? '') } : {}),
-					})
-				}
+				const completionInbox = await completionInboxForTurn(context.turnId)
+				// Nothing is saved here: the SDK records the child's spawn and its
+				// ending in the parent's log, and the child's own log beside it.
 				const outcome = await runBlockingAgentTask({
-					gateway: await gatewayForRun(context.runId),
+					gateway: await gatewayForTurn(context.turnId),
 					signal: context.abortSignal,
-					waitForInbound: opts.resolveWaitForInbound?.(context.runId),
+					waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
 					background: run_in_background === true,
 					completionInbox,
-					onCreated: (handle) => {
-						save(handle, false)
+					onCreated: () => {
 						taskOwnsCleanup = true
 					},
 					onSettled: (completed) => {
-						save(completed, true)
 						tracker.settle(completed)
 					},
 					onFailed: (error) => tracker.fail(error),
@@ -860,7 +882,7 @@ export async function createSubagentRuntime(
 						...(phase ? { phase } : {}),
 						...(phase_detail ? { phaseDetail: phase_detail } : {}),
 						...(phase_order !== undefined ? { phaseOrder: phase_order } : {}),
-						// Hang the child run off THIS tool's span, so the delegation
+						// Hang the child session off THIS tool's span, so the delegation
 						// shows up inside the turn that asked for it. Without it a
 						// sub-agent opens its OWN root trace, and the one structure
 						// a delegation trace exists to record — who dispatched whom
@@ -897,10 +919,10 @@ export async function createSubagentRuntime(
 	const agentTaskListTool = defineTool({
 		name: 'agent_task_list',
 		description:
-			'List the agent invocations launched by this run and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect saved receipts from this conversation, optionally task_id for one saved result; archives do not prove liveness.',
+			'List the agent invocations launched by this turn and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect agents saved from earlier turns of this conversation, optionally session_id for one saved result; saved agents are not live.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
-			properties: { history: { type: 'boolean' }, task_id: { type: 'string' } },
+			properties: { history: { type: 'boolean' }, session_id: { type: 'string' } },
 			additionalProperties: false,
 		}),
 		category: 'custom',
@@ -909,31 +931,28 @@ export async function createSubagentRuntime(
 		destructive: false,
 		concurrencySafe: true,
 		async execute(input, context) {
-			const request = input as { history?: boolean; task_id?: string }
-			if (request.history || request.task_id) {
-				if (!opts.historyRoot)
+			const request = input as { history?: boolean; session_id?: string }
+			if (request.history || request.session_id) {
+				if (!opts.savedAgents)
 					return {
 						success: false,
 						output: 'Saved delegation history is unavailable in this host.',
 					}
-				const parent = await resolveParent(context.runId)
-				const history = new DelegationHistory(opts.historyRoot, parent.sessionId)
-				const saved = request.task_id
-					? { tasks: [history.read(request.task_id)], omitted: 0 }
-					: history.list()
-				const tasks = saved.tasks.map(({ output, ...row }) =>
-					request.task_id ? { ...row, output } : row,
-				)
+				const parent = await resolveParent(context.turnId)
+				const history = opts.savedAgents(parent.sessionId)
+				const saved = request.session_id
+					? { agents: [await history.read(request.session_id)], omitted: 0 }
+					: await history.list()
 				return {
 					success: true,
 					output: JSON.stringify({
-						...saved,
-						tasks,
-						guidance: HISTORY_GUIDANCE,
+						agents: saved.agents,
+						omitted: saved.omitted,
+						guidance: SAVED_AGENTS_GUIDANCE,
 					}),
 				}
 			}
-			const gateway = await gatewayForRun(context.runId)
+			const gateway = await gatewayForTurn(context.turnId)
 			const tasks = gateway.listTasks()
 			const labels = new Map(
 				activity.getSnapshot().map((entry) => [entry.taskId, entry.description]),
@@ -965,7 +984,7 @@ export async function createSubagentRuntime(
 	const waitForTaskTool = defineTool({
 		name: 'wait_for_task',
 		description:
-			'Wait for a task this run already launched, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues.',
+			'Wait for a task this turn already launched, or retrieve its complete result after a task notification. This does not start new work. Operator input releases the wait while the task continues.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -981,9 +1000,9 @@ export async function createSubagentRuntime(
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS),
+		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS),
 		async execute(input, context) {
-			const gateway = await gatewayForRun(context.runId)
+			const gateway = await gatewayForTurn(context.turnId)
 			let taskId: TaskId
 			try {
 				taskId = asTaskId((input as { task_id: string }).task_id)
@@ -999,14 +1018,14 @@ export async function createSubagentRuntime(
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent run.`,
+					error: `Task ${taskId} does not belong to this parent turn.`,
 				}
 			const outcome = await runBlockingAgentTask({
 				gateway,
 				task,
 				signal: context.abortSignal,
-				completionInbox: await completionInboxForRun(context.runId),
-				waitForInbound: opts.resolveWaitForInbound?.(context.runId),
+				completionInbox: await completionInboxForTurn(context.turnId),
+				waitForInbound: opts.resolveWaitForInbound?.(context.turnId),
 				onCreated: () => {},
 				onSettled: () => {},
 				onFailed: () => {},
@@ -1030,7 +1049,7 @@ export async function createSubagentRuntime(
 	const sendMessageTool = defineTool({
 		name: 'send_message',
 		description:
-			'Queue a correction or additional context for a running or queued sub-agent task owned by this run. The child receives it at its next request boundary; acceptance is not delivery. This does not start new work or restart finished tasks.',
+			'Queue a correction or additional context for a running or queued sub-agent task owned by this turn. The child receives it at its next request boundary; acceptance is not delivery. This does not start new work or restart finished tasks.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1066,13 +1085,13 @@ export async function createSubagentRuntime(
 					error: 'Message must not be blank.',
 				}
 			const taskId = asTaskId(task_id)
-			const gateway = await gatewayForRun(context.runId)
+			const gateway = await gatewayForTurn(context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent run.`,
+					error: `Task ${taskId} does not belong to this parent turn.`,
 				}
 			if (isTerminalAgentTaskState(task.state))
 				return {
@@ -1097,7 +1116,7 @@ export async function createSubagentRuntime(
 	const cancelAgentTool = defineTool({
 		name: 'cancel_agent',
 		description:
-			'Request cancellation of one running or queued agent task owned by this run. Other agents and the parent continue. Acceptance is not proof of termination; check agent_task_list or wait_for_task for the terminal outcome. Does not restart finished tasks.',
+			'Request cancellation of one running or queued agent task owned by this turn. Other agents and the parent continue. Acceptance is not proof of termination; check agent_task_list or wait_for_task for the terminal outcome. Does not restart finished tasks.',
 		inputSchema: mcpJsonSchemaToZod({
 			type: 'object',
 			properties: {
@@ -1117,13 +1136,13 @@ export async function createSubagentRuntime(
 		async execute(input, context) {
 			context.abortSignal.throwIfAborted()
 			const taskId = asTaskId((input as { task_id: string }).task_id)
-			const gateway = await gatewayForRun(context.runId)
+			const gateway = await gatewayForTurn(context.turnId)
 			const task = gateway.getTask(taskId)
 			if (!task)
 				return {
 					success: false,
 					output: '',
-					error: `Task ${taskId} does not belong to this parent run.`,
+					error: `Task ${taskId} does not belong to this parent turn.`,
 				}
 			if (isTerminalAgentTaskState(task.state))
 				return {
@@ -1176,7 +1195,7 @@ export async function createSubagentRuntime(
 		// for the operator who would otherwise be asked to approve being shown
 		// it — a consent dialog per line of commentary is a tool nobody would
 		// call. This is not a claim that the line is ephemeral: the kernel
-		// records THIS call in the run's transcript and checkpoints exactly as
+		// records THIS call in the session log and checkpoints exactly as
 		// it records every other, so the text comes back into the model's own
 		// history on a resume even though the band it was shown in does not.
 		// Narration's parent-only boundary does not rest on this flag either:
@@ -1223,7 +1242,7 @@ export async function createSubagentRuntime(
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
 		closed = true
-		closePromise = Promise.all([...parents.keys()].map(releaseRun)).then(() => activity.close())
+		closePromise = Promise.all([...parents.keys()].map(releaseTurn)).then(() => activity.close())
 		return closePromise
 	}
 
@@ -1262,9 +1281,9 @@ export async function createSubagentRuntime(
 	return {
 		cancelAgentTool,
 		modelCatalogueTool,
-		gatewayForRun,
-		completionInboxForRun,
-		releaseRun,
+		gatewayForTurn,
+		completionInboxForTurn,
+		releaseTurn,
 		agentTool,
 		waitForTaskTool,
 		agentTaskListTool,
@@ -1389,25 +1408,25 @@ async function runBlockingAgentTask(
 }
 
 function agentTaskOutcome(task: TaskHandle): string {
-	const run = task.result
-	if (run?.status && run.status !== 'completed') return run.status
-	if (task.state === 'completed' && run?.stopReason && run.stopReason !== 'end_turn')
+	const result = task.result
+	if (result?.status && result.status !== 'completed') return result.status
+	if (task.state === 'completed' && result?.stopReason && result.stopReason !== 'end_turn')
 		return 'incomplete'
 	return task.state
 }
 
 /** Lifecycle completion is not proof the requested task finished successfully. */
 function completedAgentResult(completed: TaskHandle): ToolResult {
-	const run = completed.result
+	const turn = completed.result
 	const status = agentTaskOutcome(completed)
 	const succeeded = status === 'completed'
-	const value = run?.structuredOutput ?? run?.result
+	const value = turn?.structuredOutput ?? turn?.result
 	let resultText =
 		typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value)
-	if (!resultText && run?.stopReason && run.stopReason !== 'end_turn') {
-		// A hard limit can stop between tool rounds without setting Run.result.
+	if (!resultText && turn?.stopReason && turn.stopReason !== 'end_turn') {
+		// A hard limit can stop between tool rounds without setting Turn.result.
 		// Keep the child's last visible statement, never its reasoning or tool data.
-		const partial = [...run.messages]
+		const partial = [...turn.messages]
 			.reverse()
 			.find(
 				(message) =>
@@ -1418,8 +1437,8 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 		if (typeof partial === 'string') resultText = partial
 	}
 	const stopNote =
-		run?.stopReason && run.stopReason !== 'end_turn'
-			? `Sub-agent run ended with stop reason "${run.stopReason}". Output may be partial; this does not establish task completion.\n\n`
+		turn?.stopReason && turn.stopReason !== 'end_turn'
+			? `Sub-agent turn ended with stop reason "${turn.stopReason}". Output may be partial; this does not establish task completion.\n\n`
 			: ''
 	// ToolResult.data is host metadata, not necessarily model-visible content.
 	// Keep the handle and terminal status separate from arbitrary child output
@@ -1430,14 +1449,14 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 		output,
 		...(!succeeded
 			? {
-					error: `Sub-agent ${completed.agentId} ${status}: ${run?.lastError ?? ''}\n${output}`,
+					error: `Sub-agent ${completed.agentId} ${status}: ${turn?.lastError ?? ''}\n${output}`,
 				}
 			: {}),
 		data: {
 			task_id: completed.taskId,
 			state: completed.state,
 			status,
-			...(run?.stopReason ? { stop_reason: run.stopReason } : {}),
+			...(turn?.stopReason ? { stop_reason: turn.stopReason } : {}),
 		},
 	}
 }
@@ -1484,20 +1503,20 @@ function buildDefinition(
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
 		configBuilder: async (options): Promise<ReactiveAgentConfig> => {
-			const limits = resolveRunGuards(
+			const limits = resolveTurnGuards(
 				opts,
-				options.parentRunId ? opts.resolveLimits?.(asRunId(options.parentRunId)) : undefined,
+				options.parentTurnId ? opts.resolveLimits?.(asTurnId(options.parentTurnId)) : undefined,
 			)
 			// Resolved HERE, per child, rather than captured once for the session:
 			// what day it is and which branch is checked out can both have changed
 			// since the parent started, and a sub-agent asserting the stale answer
 			// is worse than one that was never told.
 			const environment = opts.readEnvironment ? await opts.readEnvironment() : null
-			// AgentManager supplies the actual parent run before it stamps the child's
+			// AgentManager supplies the actual parent turn before it stamps the child's
 			// own Session ID. All delegated work shares that invoking conversation's
 			// upstream billing session, even after the TUI moves to another one.
-			const parent = options.parentRunId
-				? await opts.resolveParent(asRunId(options.parentRunId))
+			const parent = options.parentTurnId
+				? await opts.resolveParent(asTurnId(options.parentTurnId))
 				: undefined
 			const provider = await opts.buildProvider(parent?.sessionId, selection)
 			const registry = tools()
@@ -1505,7 +1524,7 @@ function buildDefinition(
 			return {
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
-				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_TURN_TIMEOUT_MS,
 				maxIterations: limits.maxIterations,
 				pruneKeepLast: CLI_CHECKPOINT_RETENTION,
 				provider,
@@ -1532,7 +1551,7 @@ function buildDefinition(
 				...(opts.sandboxTeardownTimeoutMs !== undefined
 					? { sandboxTeardownTimeoutMs: opts.sandboxTeardownTimeoutMs }
 					: {}),
-				...(opts.pathBuilder ? { pathBuilder: opts.pathBuilder } : {}),
+				...(opts.paths ? { paths: opts.paths } : {}),
 			}
 		},
 	}

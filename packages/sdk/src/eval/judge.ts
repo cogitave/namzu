@@ -1,12 +1,12 @@
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../provider/idle-timeout.js'
 import type { LLMProvider } from '../types/provider/interface.js'
-import type { EvalCase, EvalRun, Score, Scorer } from './types.js'
+import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
 /**
  * Grade an open-ended answer with a model.
  *
- * Every other scorer here is a pure function over the run, which is what
+ * Every other scorer here is a pure function over the turn, which is what
  * makes them cheap and reproducible — and also what makes them unable to
  * say anything about whether an answer is *good*. `containsScorer` can
  * check that a required phrase appears; it cannot tell a correct
@@ -46,7 +46,7 @@ export interface JudgeScorerConfig {
 	 */
 	scale?: number
 	/**
-	 * Show the judge which tools the run called. Default false.
+	 * Show the judge which tools the turn called. Default false.
 	 *
 	 * Useful when the rubric is about method rather than answer, and a
 	 * needless cost otherwise — the trajectory is usually longer than the
@@ -58,7 +58,7 @@ export interface JudgeScorerConfig {
 	 *
 	 * Truncation is disclosed IN the prompt. A judge shown a silently cut
 	 * answer marks it down for stopping mid-sentence, which scores our
-	 * truncation rather than the run.
+	 * truncation rather than the turn.
 	 */
 	maxOutputChars?: number
 	/**
@@ -150,12 +150,12 @@ function parseVerdict(reply: string, scale: number): Verdict {
 
 function buildPrompt(
 	config: JudgeScorerConfig,
-	run: EvalRun,
+	turn: EvalTurn,
 	evalCase: EvalCase,
 	scale: number,
 ): string {
 	const limit = config.maxOutputChars ?? DEFAULT_MAX_OUTPUT_CHARS
-	const answer = run.output ?? ''
+	const answer = turn.output ?? ''
 	const truncated = answer.length > limit
 
 	const sections: string[] = [
@@ -180,7 +180,7 @@ function buildPrompt(
 	if (config.includeTrajectory === true) {
 		sections.push(
 			'',
-			`TOOLS CALLED, in order:\n${run.toolCalls.length > 0 ? run.toolCalls.join(' -> ') : '(none)'}`,
+			`TOOLS CALLED, in order:\n${turn.toolCalls.length > 0 ? turn.toolCalls.join(' -> ') : '(none)'}`,
 		)
 	}
 
@@ -219,12 +219,12 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 
 	return {
 		name: config.name ?? 'judge',
-		async score(run: EvalRun, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
+		async score(turn: EvalTurn, evalCase: EvalCase, signal?: AbortSignal): Promise<Score> {
 			const response = await collectChatCompletion(
 				provider.chatStream({
 					model: config.model,
-					messages: [{ role: 'user', content: buildPrompt(config, run, evalCase, scale) }],
-					// The same run must grade the same way twice, or a
+					messages: [{ role: 'user', content: buildPrompt(config, turn, evalCase, scale) }],
+					// The same turn must grade the same way twice, or a
 					// regression cannot be told from sampling noise.
 					temperature: 0,
 					maxTokens: 512,

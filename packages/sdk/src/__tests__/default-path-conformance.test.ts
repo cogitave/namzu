@@ -8,11 +8,14 @@ import { IterationOrchestrator } from '../runtime/query/iteration/index.js'
 import { ActivityStore } from '../store/activity/memory.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { HITLResumeDecision } from '../types/hitl/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { TurnId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
-import type { RunEvent } from '../types/run/index.js'
+import type { SessionEvent } from '../types/session/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
+import { generateSessionId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The loop driven the way the SHIPPED CLI drives it, with a human who says
@@ -22,7 +25,7 @@ import type { Logger } from '../utils/logger.js'
  * defect on the default path, and every one of them was invisible because
  * the existing tests configured their way around it — the SDK default
  * `autoApproveHandler` means CI never once saw a rejection, so "every
- * decline kills the run" shipped and stayed shipped. The CLI wires a real
+ * decline kills the turn" shipped and stayed shipped. The CLI wires a real
  * permission prompt straight onto `reject_tools`, so a user declining a
  * tool was the first thing to hit it.
  *
@@ -30,7 +33,7 @@ import type { Logger } from '../utils/logger.js'
  * turn, is the conversation still something a provider would accept?
  */
 
-const RUN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as RunId
+const TURN_ID = '2d22dc61-d2a5-483c-a73d-a70e2a57e414' as TurnId
 
 /** The CLI's gate, verbatim in shape: read-only allowed, dangerous denied. */
 const CLI_GATE: AuthorizationGateConfig = {
@@ -75,14 +78,14 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
 	})
 
-	const runMgr = {
-		id: RUN_ID,
+	const recorder = {
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,
@@ -124,14 +127,15 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: new MockLLMProvider({ turns: opts.turns as never }),
-		// The CLI's runConfig shape: a huge cumulative budget and a model id.
-		runConfig: { model: 'claude-opus-5', maxIterations: 50, tokenBudget: 1_000_000 },
+		// The CLI's turnConfig shape: a huge cumulative budget and a model id.
+		turnConfig: { model: 'claude-opus-5', maxIterations: 50, tokenBudget: 1_000_000 },
 		tools,
-		runMgr,
+		recorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
-				runId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -145,7 +149,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
 			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }),
@@ -178,7 +182,7 @@ async function drain(o: IterationOrchestrator) {
  *
  * An unanswered `tool_use` is a protocol violation — the wire replies
  * `400 messages.N: Did not find 1 tool_result block(s)` — and with no
- * provider retry that ends the run.
+ * provider retry that ends the turn.
  */
 function expectSendableHistory(messages: Message[]) {
 	const dangling = findDanglingMessages(messages)

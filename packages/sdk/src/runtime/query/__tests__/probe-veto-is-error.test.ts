@@ -2,18 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createProbeRegistry } from '../../../probe/registry.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { SessionEventDraft } from '../events.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The probe-veto branch was the only result-producing branch in the
  * executor that left `isError` off, and `isError` being optional meant the
  * compiler could not notice. Five lines above it, the `tool_completed`
- * event for the same veto carried `isError: true` — so the run's event
+ * event for the same veto carried `isError: true` — so the turn's event
  * stream and the result it returned disagreed about the same call, in the
  * same function.
  *
@@ -25,7 +29,7 @@ import { ToolExecutor } from '../executor.js'
  * guard against clearing error results silently excluded vetoed ones.
  */
 
-const RUN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as RunId
+const TURN_ID = '5fb9bccf-9833-4de4-98ea-007296e4f93f' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -63,7 +67,7 @@ function response(): ChatCompletionResponse {
 }
 
 describe('a tool call a probe vetoed', () => {
-	let emitted: RunEvent[]
+	let emitted: SessionEvent[]
 	let executor: ToolExecutor
 
 	beforeEach(() => {
@@ -75,16 +79,17 @@ describe('a tool call a probe vetoed', () => {
 
 		executor = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools: makeToolRegistry(),
-				runId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
-			async (e: RunEvent) => {
-				emitted.push(e)
+			new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+			async (e: SessionEventDraft) => {
+				emitted.push(e as SessionEvent)
 			},
 			makeLogger(),
 			probes,
@@ -125,14 +130,15 @@ describe('a tool call a probe vetoed', () => {
 		const probes = createProbeRegistry()
 		const allowed = new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools: makeToolRegistry(),
-				runId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
 				abortSignal: new AbortController().signal,
 			},
-			new ActivityStore(RUN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+			new ActivityStore(TURN_ID, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 			async () => {},
 			makeLogger(),
 			probes,

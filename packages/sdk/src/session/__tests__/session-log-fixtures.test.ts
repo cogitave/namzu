@@ -341,7 +341,7 @@ describe('the record schema refuses', () => {
 
 	it.each([
 		['another schema version', (r: Record<string, unknown>) => ({ ...r, v: 2 })],
-		['a run id', (r: Record<string, unknown>) => ({ ...r, runId: ids.turn('x') })],
+		['a turn id', (r: Record<string, unknown>) => ({ ...r, runId: ids.turn('x') })],
 		['lineage on a record', (r: Record<string, unknown>) => ({ ...r, lineage: { depth: 1 } })],
 		[
 			'a turn-bound event outside a turn',

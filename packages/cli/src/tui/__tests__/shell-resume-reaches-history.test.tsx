@@ -28,17 +28,12 @@ vi.mock('../../user-commands/store.js', () => ({
 	discoverUserCommands: () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId: 'tenant',
 		projectId: '08c9b09c-4412-478c-878b-dc94927c760f',
 		topicId: '4bd72c65-bcc9-475c-8d7c-27d622df04e8',
-		turnEvidence: {
-			recordTurnStarted: async (input: unknown) => ({
-				...(input as object),
-				turnId: 'turn_1',
-			}),
-			recordTurnSettled: async (input: unknown) => input,
-		},
 	}),
 	startConversation,
 	loadResumableConversation,

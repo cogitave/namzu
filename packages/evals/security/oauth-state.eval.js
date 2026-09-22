@@ -30,7 +30,7 @@
  * at all.
  *
  * Deterministic: no provider, no kernel, no network. The `run` step returns a
- * fabricated `EvalRun` carrying the attempt, and the scorers read it.
+ * fabricated `EvalTurn` carrying the attempt, and the scorers read it.
  */
 
 import { createHash, randomBytes } from 'node:crypto'
@@ -69,10 +69,10 @@ function authorizationUrl(input) {
 }
 
 /**
- * An `EvalRun` that drove nothing.
+ * An `EvalTurn` that drove nothing.
  *
  * `error` is deliberately absent: setting it makes the scorers short-circuit
- * to zero with a "run failed" reason, which would report a broken harness as
+ * to zero with a "turn failed" reason, which would report a broken harness as
  * a failed property.
  *
  * @param {{ url: string, state: string, verifier: string }} attempt

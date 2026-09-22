@@ -5,14 +5,14 @@ import { afterEach, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { createEvidenceRecallStep } from '../../../run/evidence-recall.js'
+import { createEvidenceRecallStep } from '../../../turn/evidence-recall.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -56,7 +56,7 @@ it.each(['query_planning', 'retrieval'] as const)(
 				createAssistantMessage('It has an identifier.'),
 				operator,
 			],
-			runConfig: { model: 'mock', maxIterations: 2, tokenBudget: 100_000, timeoutMs: 10_000 },
+			turnConfig: { model: 'mock', maxIterations: 2, tokenBudget: 100_000, timeoutMs: 10_000 },
 			prepareStep: [
 				() => ({ context: 'Earlier stage context.', system: 'Stable policy.' }),
 				createEvidenceRecallStep({
@@ -68,7 +68,7 @@ it.each(['query_planning', 'retrieval'] as const)(
 							return {
 								candidates: [
 									{
-										scope: { ...scope, runId: generateRunId() },
+										scope: { ...scope, turnId: generateTurnId() },
 										seq: 2,
 										part: 0,
 										source: 'tool_completed',

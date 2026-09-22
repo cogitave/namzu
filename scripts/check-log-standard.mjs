@@ -521,10 +521,10 @@ const MAX_ATTRIBUTE_BAG_HOPS = 5
  * hop, every one of those real call sites reads as unresolvable — measured
  * directly while building this rule, before the hop was added.
  *
- * A PROPERTY ACCESS folds too — `NAMZU.RUN_ID` against the `as const`
+ * A PROPERTY ACCESS folds too — `NAMZU.TURN_ID` against the `as const`
  * constants table — and that branch was missing, which made this rule
- * penalise the very table it was written alongside. `[NAMZU.RUN_ID]` read
- * as unresolvable while the string literal `'namzu.run.id'` passed, so the
+ * penalise the very table it was written alongside. `[NAMZU.TURN_ID]` read
+ * as unresolvable while the string literal `'namzu.turn.id'` passed, so the
  * gate rewarded the hand-typed spelling over the shared constant: exactly
  * backwards.
  *
@@ -538,7 +538,7 @@ const MAX_ATTRIBUTE_BAG_HOPS = 5
  * the fixture's 'k' and 'l' cases are what hold it.
  *
  * The fold goes through the TYPE rather than the declaration, and that is
- * what keeps it conservative. `NAMZU.RUN_ID` has type `"namzu.run.id"` only
+ * what keeps it conservative. `NAMZU.TURN_ID` has type `"namzu.turn.id"` only
  * because the table is `as const`; drop the `as const` and the type widens
  * to `string`, which does not fold — which is right, because a mutable
  * property is not a provable key. Nothing is accepted here that the type

@@ -98,7 +98,7 @@ function classify(line: string, next: string | undefined): BlockKind {
  *
  * Blank lines separate blocks and belong to none, so they appear in no segment.
  * Every other line lands in exactly one, which is what lets a segment be used
- * as a cache key: two runs that produce the same segment produce the same
+ * as a cache key: two turns that produce the same segment produce the same
  * block, because {@link parseBlock} reads nothing else.
  */
 export function scanBlocks(src: string): string[] {

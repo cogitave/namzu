@@ -1,16 +1,13 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
+import { afterAll, describe, expect, it, vi } from 'vitest'
+
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { cliLogger } from '../../logging.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { CommandContext } from '../types.js'
-
-vi.mock('@namzu/sdk', async (importOriginal) => {
-	const actual = await importOriginal<typeof import('@namzu/sdk')>()
-	return {
-		...actual,
-		drainRuns: async () => ({}),
-	}
-})
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -27,9 +24,16 @@ vi.mock('../../tui/agent.js', () => ({
 
 const { drainCommand } = await import('../drain.js')
 
+// A real namzu home, so the pass gets past the store check: the sink is
+// installed before it, and what follows must not depend on the store being
+// refused.
+const HOME = mkdtempSync(join(tmpdir(), 'namzu-drain-sink-'))
+mkdirSync(join(HOME, 'projects'))
+afterAll(() => removeTempDir(HOME))
+
 const SCOPE_ARGS = [
 	'--store',
-	'/tmp/runs',
+	HOME,
 	'--tenant',
 	'6ab233e0-9e27-4517-8861-61d4b85f396e',
 	'--project',

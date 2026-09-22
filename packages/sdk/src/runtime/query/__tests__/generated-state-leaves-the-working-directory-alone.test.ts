@@ -7,7 +7,7 @@ import { afterEach, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { defaultStateRoot } from '../../../session/workspace/state-root.js'
+import { resolveNamzuHome } from '../../../session/home.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -15,16 +15,17 @@ import {
 	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+import { defaultSessionPaths } from '../session-storage.js'
 
 /**
- * A run with no path builder writes under `defaultStateRoot()`, not into
- * `<workingDirectory>/.namzu`.
+ * A turn given no session log writes under `NAMZU_HOME`
+ * (`~/.namzu/projects/<slug>/`), not into `<workingDirectory>/.namzu`.
  *
  * The old default put generated state inside whatever directory the agent was
  * pointed at: repositories gained a `.namzu/`, package tests left one in the
- * package, and a run started in `$HOME` wrote into the CLI's `~/.namzu`. The
- * runner points `NAMZU_STATE_DIR` into its owned root, so this checks the
- * root the kernel resolved, whatever it is.
+ * package, and a turn started in `$HOME` wrote into the CLI's `~/.namzu`. The
+ * runner points `NAMZU_HOME` into its owned root, so this checks the home the
+ * kernel resolved, whatever it is.
  */
 
 registerMock()
@@ -35,31 +36,33 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-it('writes nothing into the working directory when no path builder is given', async () => {
+it('writes nothing into the working directory when no session log is given', async () => {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-no-state-here-'))
 	dirs.push(workingDirectory)
-	const projectId = generateProjectId()
+	const sessionId = generateSessionId()
 
-	const run = await drainQuery({
+	const turn = await drainQuery({
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
 			tokenBudget: 200_000,
 			maxIterations: 2,
 		},
-		projectId,
-		sessionId: generateSessionId(),
+		projectId: generateProjectId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 	})
 
-	expect(run.status).toBe('completed')
+	expect(turn.status).toBe('completed')
 	expect(await readdir(workingDirectory)).toEqual([])
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(true)
+	const paths = await defaultSessionPaths(workingDirectory)
+	expect(paths.home).toBe(resolveNamzuHome())
+	expect(existsSync(paths.sessionLog({ sessionId }))).toBe(true)
 })

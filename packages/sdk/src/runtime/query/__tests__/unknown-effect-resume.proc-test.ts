@@ -1,20 +1,27 @@
 import { execFile, fork } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
+import { SessionPaths } from '../../../session/paths.js'
+import { DiskSessionLog } from '../../../store/session-log/index.js'
+import type { SessionId } from '../../../types/ids/index.js'
 
-it.each(['single', 'batch', 'partial'])(
+// A batch's results reach the history only when the whole batch settles, so
+// a sibling that finished before the kill is known from its own record in the
+// log, never from a history the checkpoint carries.
+it.each(['single', 'batch'])(
 	'does not repeat an effect after a hard kill before its result (%s checkpoint)',
 	async (shape) => {
 		const sibling = shape !== 'single'
 		const root = await mkdtemp(join(tmpdir(), 'namzu-unknown-effect-'))
+		await mkdir(join(root, 'home'))
 		let child: ReturnType<typeof fork> | undefined
 		try {
 			const scope = Object.fromEntries(
-				['tenantId', 'projectId', 'sessionId', 'topicId', 'runId'].map((key) => [
+				['tenantId', 'projectId', 'sessionId', 'topicId', 'turnId'].map((key) => [
 					key,
 					randomUUID(),
 				]),
@@ -33,14 +40,16 @@ for(const name of names)tools.register({name,description:'Synthetic local effect
  if(seed&&name==='uncertain'){process.send({ready:true});setInterval(()=>{},1000);await new Promise(()=>{});}
  return{success:true,output:name+' receipt'};
 }});
-const store=new sdk.DiskCheckpointStore({baseDir:join(root,'runs')});
-const params={...scope,tools,checkpointStore:store,runStore:new sdk.RunDiskStore({baseDir:join(root,'runs')}),workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',runConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
+const paths=new sdk.SessionPaths({home:join(root,'home'),slug:'effects'});
+const log=sdk.DiskSessionLog.at(paths,{sessionId:scope.sessionId});
+// A short lease, so the resuming process can take the session the killed one left.
+const lease=await log.claim({holder:mode+':'+process.pid,ttlMs:400});
+const params={...scope,tools,paths,lease,workingDirectory:root,agentId:'effect-probe',agentName:'Effect probe',turnConfig:{model:'mock',maxIterations:3,tokenBudget:20000,timeoutMs:15000},resumeHandler:async req=>({action:req.type==='tool_review'?'approve_tools':'continue'})};
 if(seed)await sdk.drainQuery({...params,provider:new sdk.MockLLMProvider({turns:[{toolCalls:names.map(name=>({id:name,name,args:{}}))}]}),messages:[sdk.createUserMessage('Do each effect once.')]});
-else{if(hasSibling==='partial'){const latest=(await store.listCheckpoints(scope)).at(-1);
- if(!latest)throw new Error('Missing checkpoint');
- await store.writeCheckpoint(scope,{...latest,messages:[...latest.messages,sdk.createToolMessage('settled receipt','settled')]});}
+else{const {turnId:_t,...session}=scope;
+ // The checkpoints are found beside the log, under the same paths.
  const provider=new sdk.MockLLMProvider({turns:[{text:'Inspect the unknown effect before retrying.'}]});
- const outcome=await sdk.resumeRun({...params,scope,provider});console.log(JSON.stringify({resumed:outcome.resumed,messages:provider.requests[0]?.messages}));}
+ const outcome=await sdk.resumeSession({...params,...session,scope,sessionLog:log,provider});console.log(JSON.stringify({resumed:outcome.resumed,messages:provider.requests[0]?.messages}));}
 `,
 			)
 			child = fork(script, ['seed', root, JSON.stringify(scope), shape], {
@@ -71,16 +80,23 @@ else{if(hasSibling==='partial'){const latest=(await store.listCheckpoints(scope)
 			child.kill('SIGKILL')
 			expect(await exited).toMatchObject({ signal: 'SIGKILL' })
 			expect(await readFile(join(root, 'uncertain'), 'utf8')).toBe('1')
-			const events = (await readFile(join(root, 'runs', scope.runId!, 'transcript.jsonl'), 'utf8'))
-				.trim()
-				.split('\n')
-				.map((line) => JSON.parse(line))
+			const log = DiskSessionLog.at(
+				new SessionPaths({ home: join(root, 'home'), slug: 'effects' }),
+				{
+					sessionId: scope.sessionId as SessionId,
+				},
+			)
+			const events = (await log.readAll()).entries.map(
+				(entry) => entry.record as { type: string; toolUseId?: string },
+			)
 			expect(events.some((e) => e.type === 'tool_executing' && e.toolUseId === 'uncertain')).toBe(
 				true,
 			)
 			expect(events.some((e) => e.type === 'tool_completed' && e.toolUseId === 'uncertain')).toBe(
 				false,
 			)
+			// Past the killed process's lease.
+			await new Promise((resolve) => setTimeout(resolve, 500))
 			const { stdout } = await promisify(execFile)(
 				process.execPath,
 				[script, 'resume', root, JSON.stringify(scope), shape],

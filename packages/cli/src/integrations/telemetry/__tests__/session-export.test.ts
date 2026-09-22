@@ -132,12 +132,12 @@ describe('the file sink', () => {
 		const path = join(dir, 'nested', 'session.jsonl')
 		const sink = fileSink(path)
 		sink.emit({ event: { type: 'text_delta' }, at: 1 })
-		sink.emit({ event: { type: 'run_completed' }, at: 2 })
+		sink.emit({ event: { type: 'turn_completed' }, at: 2 })
 
 		const lines = readFileSync(path, 'utf-8').trimEnd().split('\n')
 		expect(lines).toHaveLength(2)
 		expect(JSON.parse(lines[0] as string)).toMatchObject({ event: { type: 'text_delta' } })
-		expect(JSON.parse(lines[1] as string)).toMatchObject({ event: { type: 'run_completed' } })
+		expect(JSON.parse(lines[1] as string)).toMatchObject({ event: { type: 'turn_completed' } })
 	})
 })
 
@@ -225,7 +225,7 @@ describe('the doctor row', () => {
 		expect(result.status).toBe('pass')
 		expect(result.message).toContain('/var/log/namzu/session.jsonl')
 		expect(result.message).toContain('1 redactor')
-		expect(result.message).toContain('every run event')
+		expect(result.message).toContain('every session event')
 	})
 
 	it('is a pass, not a warning, when export is on', async () => {
@@ -256,8 +256,8 @@ describe('the doctor row', () => {
 			absent as never,
 		)
 
-		// The run refuses in this state. A doctor that reported `pass` would
-		// send an operator into a run that cannot start.
+		// The turn refuses in this state. A doctor that reported `pass` would
+		// send an operator into a turn that cannot start.
 		expect(result.status).toBe('fail')
 		expect(result.remediation).toContain('@namzu/telemetry')
 	})

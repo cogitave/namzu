@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { RunCancelled, cancelCauseOf } from '../../types/run/cancel-cause.js'
+import { TurnCancelled, cancelCauseOf } from '../../types/session/cancel-cause.js'
 import { abortReasonText } from '../../utils/abort.js'
 
 /**
- * `stopReason: 'cancelled'` said a run was cancelled and nothing more, and
+ * `stopReason: 'cancelled'` said a turn was cancelled and nothing more, and
  * the cases behind it want different responses. An operator pressing
  * cancel is not a defect. A parent abandoning its children is a fact about
  * the parent, and looking for the child's problem wastes the reader's
@@ -15,17 +15,17 @@ import { abortReasonText } from '../../utils/abort.js'
  * manager aborted a child with the bare string `'canceled'`, which
  * `abortReasonText` suppresses BY NAME: its docblock cites that exact call
  * site, because rendering it would print "was cancelled: canceled". Both
- * paths arrived at the run loop indistinguishable.
+ * paths arrived at the turn loop indistinguishable.
  */
 
 describe('an abort reason that carries a cause', () => {
 	it('is legible to the cause reader and silent to the prose renderer', () => {
 		// One signal, both assertions, because the pair is the design. The
-		// cause must NOT become prose in the run's error text — that is the
+		// cause must NOT become prose in the turn's error text — that is the
 		// noise `abortReasonText` exists to suppress — and it must still be
 		// recoverable by something asking for it directly.
 		const controller = new AbortController()
-		controller.abort(new RunCancelled('parent'))
+		controller.abort(new TurnCancelled('parent'))
 
 		expect(abortReasonText(controller.signal.reason)).toBeUndefined()
 		expect(cancelCauseOf(controller.signal.reason)).toBe('parent')
@@ -51,8 +51,8 @@ describe('an abort reason that carries a cause', () => {
 		// Two copies of the package defeat `instanceof` and nothing announces
 		// it — the answer this codebase already settled on for provider
 		// errors. A structural twin from another copy must still be read.
-		const fromAnotherCopy = Object.assign(new Error('run cancelled by budget'), {
-			name: 'RunCancelled',
+		const fromAnotherCopy = Object.assign(new Error('turn cancelled by budget'), {
+			name: 'TurnCancelled',
 			cancelCause: 'budget' as const,
 		})
 
@@ -63,7 +63,7 @@ describe('an abort reason that carries a cause', () => {
 		// `Error.cause` already exists and means "the error this one
 		// wrapped". Reusing that name would put two unrelated meanings on one
 		// property and change what anything reading `err.cause` gets.
-		const cancelled = new RunCancelled('hook')
+		const cancelled = new TurnCancelled('hook')
 
 		expect(cancelled.cancelCause).toBe('hook')
 		expect(cancelled.cause).toBeUndefined()

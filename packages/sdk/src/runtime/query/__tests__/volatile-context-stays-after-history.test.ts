@@ -6,7 +6,7 @@ import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import type { Message } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -21,7 +21,7 @@ import { WORKING_MEMORY_HEADER } from '../iteration/phases/working-memory.js'
  * request-only context channel, never the system run.
  *
  * A driver may hoist every system message ahead of the conversation —
- * Anthropic renders tools, then system, then messages — so a system message
+ * some render tools, then system, then messages — so a system message
  * whose text changes invalidates the cached conversation prefix, and the
  * whole history is re-read at full price. The working-memory slot changes
  * whenever a pin does; a `context` contribution changes whenever the host's
@@ -81,7 +81,7 @@ function setup() {
 		agentName: 'A',
 		systemPrompt: 'You are a coding agent.',
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		compactionConfig: CompactionConfigSchema.parse({}),
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
@@ -99,7 +99,7 @@ describe('the working-memory slot in a request', () => {
 				{ text: 'done' },
 			],
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const result = await drainQuery(
 			{ ...setup(), provider, messages: [{ role: 'user', content: 'pin things' }] },
 			(event) => {
@@ -133,7 +133,7 @@ describe('the working-memory slot in a request', () => {
 			}
 		}
 
-		// The run's own history still keeps the slot where compaction
+		// The turn's own history still keeps the slot where compaction
 		// preserves it: in the leading system run.
 		const history = (result as { messages?: Message[] }).messages ?? []
 		const lead: Message[] = []
@@ -188,7 +188,7 @@ describe('a context contribution', () => {
 			expect(messages.map(text).join('\n').split('OBSERVED AT').length - 1).toBe(1)
 		}
 
-		// Request-only: never pushed onto the run's history.
+		// Request-only: never pushed onto the turn's history.
 		const history = (result as { messages?: Message[] }).messages ?? []
 		expect(history.map(text).join('\n')).not.toContain('OBSERVED AT')
 	})

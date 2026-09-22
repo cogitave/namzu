@@ -5,7 +5,7 @@
  * thinking row is shown while the model reasons, and once the reply starts
  * the row is gone and its text is in no message. Reasoning is ephemeral in
  * the kernel's own transcript; a TUI that promoted it to history would be
- * inventing a record the run does not keep.
+ * inventing a record the turn does not keep.
  */
 
 import { render } from 'ink-testing-library'
@@ -22,6 +22,8 @@ let releaseReply: () => void = () => {}
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},

@@ -5,23 +5,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
-import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
-import { type RunStateScope, loadRunState } from '../run-state.js'
+import { type TurnStateScope, loadTurnState } from '../turn-state.js'
+import { type RecordDraft, heldCheckpointStore, rewriteSession } from './support/session.js'
 
 /**
- * The whole point of #14, end to end: a run parks on a tool approval in
+ * The whole point of #14, end to end: a turn parks on a tool approval in
  * ONE `query()` call, that call returns, and a SECOND `query()` — standing
  * in for a different process — honors the approval a human gave in
  * between.
@@ -60,10 +61,27 @@ function deleteRowTool(calls: string[]): ToolDefinition<{ id: number }> {
 
 interface Harness {
 	dir: string
-	scope: RunStateScope
-	store: DiskCheckpointStore
+	scope: TurnStateScope
+	/** The session's log. A second process opens another instance over the same bytes. */
+	log: InMemorySessionLog
 	calls: string[]
 	tools: ToolRegistry
+}
+
+/** The log as a second process opens it: the same bytes, lease and spills, a new instance. */
+function reopen(log: InMemorySessionLog): InMemorySessionLog {
+	return new InMemorySessionLog({
+		sessionId: log.sessionId,
+		medium: log.medium,
+		leases: log.leaseStore,
+		spills: log.spillStore,
+	})
+}
+
+/** What process 2 reads before it resumes: the turn's state, from the log and its checkpoints. */
+async function stateOf(h: Harness, turnId: TurnStateScope['turnId']) {
+	const log = reopen(h.log)
+	return loadTurnState(log, await heldCheckpointStore(log), { ...h.scope, turnId })
 }
 
 async function harness(): Promise<Harness> {
@@ -71,17 +89,18 @@ async function harness(): Promise<Harness> {
 	const calls: string[] = []
 	const tools = new ToolRegistry()
 	tools.register(deleteRowTool(calls) as unknown as ToolDefinition)
+	const sessionId = '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId
 	return {
 		dir,
 		calls,
 		tools,
-		store: new DiskCheckpointStore({ baseDir: join(dir, 'runs') }),
+		log: new InMemorySessionLog({ sessionId }),
 		scope: {
 			tenantId: '945ca78a-e487-433d-a206-e2b9c64485c9' as TenantId,
 			projectId: 'f4feb4a0-1fe7-447e-a5bb-29988d224bb0' as ProjectId,
-			sessionId: '4867992e-5fe0-44ac-8ad3-84768354abe1' as SessionId,
+			sessionId,
 			topicId: '62a3b800-6711-4be4-9574-b8821f466408' as TopicId,
-			runId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6' as RunId,
+			turnId: 'b69a1e4f-bc7c-4031-9fd8-93be940b8ff6' as TurnId,
 		},
 	}
 }
@@ -91,9 +110,9 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 		provider,
 		tools: h.tools,
 		resumeHandler,
-		checkpointStore: h.store,
-		runId: h.scope.runId,
-		runConfig: {
+		sessionLog: reopen(h.log),
+		turnId: h.scope.turnId,
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
@@ -103,9 +122,6 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 		agentId: 'agent_r',
 		agentName: 'Resumable',
 		workingDirectory: h.dir,
-		// Per test: every test here reuses one scope and run id, and the
-		// default state root is shared by every run in the process.
-		pathBuilder: new DefaultPathBuilder(join(h.dir, '.namzu')),
 		sessionId: h.scope.sessionId,
 		topicId: h.scope.topicId,
 		projectId: h.scope.projectId,
@@ -113,7 +129,7 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 	}
 }
 
-/** Answers the first review by pausing, which ends the run still parked. */
+/** Answers the first review by pausing, which ends the turn still parked. */
 const pauseOnReview: ResumeHandler = (request) =>
 	Promise.resolve(
 		request.type === 'tool_review'
@@ -122,7 +138,7 @@ const pauseOnReview: ResumeHandler = (request) =>
 	)
 
 describe('an approval survives a process boundary', () => {
-	it('parks durably, then a second run applies the recorded decision', async () => {
+	it('parks durably, then a second turn applies the recorded decision', async () => {
 		const h = await harness()
 
 		// --- process 1: run until it parks on the destructive call ---
@@ -137,10 +153,7 @@ describe('an approval survives a process boundary', () => {
 		expect(h.calls).toEqual([])
 
 		// --- the handoff: durable state is all process 2 gets ---
-		const state = await loadRunState(new DiskCheckpointStore({ baseDir: join(h.dir, 'runs') }), {
-			...h.scope,
-			runId: parked.id,
-		})
+		const state = await stateOf(h, parked.id)
 		expect(state?.pending?.request.type).toBe('tool_review')
 		const recalled =
 			state?.pending?.request.type === 'tool_review' ? state.pending.request.toolCalls : []
@@ -150,11 +163,11 @@ describe('an approval survives a process boundary', () => {
 		// Native replay state makes deletion/reconstruction observable. The
 		// resume must carry this exact signed assistant turn forward; a generic
 		// history repair cannot replace it with a synthetic result first.
-		const checkpoint = await findPendingCheckpoint(h.store, { ...h.scope, runId: parked.id })
+		const checkpoint = await findPendingCheckpoint(h.log, { turnId: parked.id })
 		if (!checkpoint) throw new Error('expected the durable park')
-		const parkedAssistant = checkpoint.messages.find(
-			(message): message is AssistantMessage => message.role === 'assistant',
-		)
+		const parkedAssistant = (await readFoldedHistory(h.log))
+			.map((entry) => entry.message)
+			.find((message): message is AssistantMessage => message.role === 'assistant')
 		if (!parkedAssistant) throw new Error('expected the parked assistant turn')
 		const enrichedAssistant: AssistantMessage = {
 			...parkedAssistant,
@@ -167,19 +180,17 @@ describe('an approval survives a process boundary', () => {
 				replayState: { version: 1, opaque: 'resume-exactly' },
 			},
 		}
-		await h.store.writeCheckpoint(
-			{ ...h.scope, runId: parked.id },
-			{
-				...checkpoint,
-				messages: checkpoint.messages.map((message) =>
-					message === parkedAssistant ? enrichedAssistant : message,
-				),
-			},
+		// The log records the enriched turn: what a provider with replay state
+		// would have produced.
+		h.log = await rewriteSession(h.log, [{ ...h.scope, turnId: parked.id }], (draft) =>
+			draft.type === 'message' && draft.role === 'assistant'
+				? ({ ...draft, content: enrichedAssistant } as RecordDraft)
+				: draft,
 		)
 
 		// --- process 2: the human said yes ---
 		const second = new MockLLMProvider({ turns: [{ text: 'row 42 is gone' }] })
-		const resumeEvents: RunEvent[] = []
+		const resumeEvents: SessionEvent[] = []
 		const resumed = await drainQuery(
 			{
 				...baseParams(h, second, pauseOnReview),
@@ -231,7 +242,7 @@ describe('an approval survives a process boundary', () => {
 			messages: [createUserMessage('delete row 7')],
 		})
 
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await stateOf(h, parked.id)
 		const second = new MockLLMProvider({ turns: [{ text: 'understood, leaving it alone' }] })
 		await drainQuery({
 			...baseParams(h, second, pauseOnReview),
@@ -258,27 +269,25 @@ describe('an approval survives a process boundary', () => {
 		})
 
 		// Tamper with the recorded request so it describes a different batch.
-		const cp = await findPendingCheckpoint(h.store, { ...h.scope, runId: parked.id })
-		if (!cp?.pending || cp.pending.request.type !== 'tool_review') throw new Error('no park')
-		await h.store.writeCheckpoint(
-			{ ...h.scope, runId: parked.id },
-			{
-				...cp,
-				pending: {
-					...cp.pending,
-					request: {
-						...cp.pending.request,
-						toolCalls: [{ ...cp.pending.request.toolCalls[0]!, id: 'call_other' }],
-					},
+		const cp = await findPendingCheckpoint(h.log, { turnId: parked.id })
+		if (!cp || cp.pending.request.type !== 'tool_review') throw new Error('no park')
+		h.log = await rewriteSession(h.log, [{ ...h.scope, turnId: parked.id }], (draft) => {
+			if (draft.type !== 'decision_requested') return draft
+			const request = draft.request as unknown as { toolCalls: Record<string, unknown>[] }
+			return {
+				...draft,
+				request: {
+					...request,
+					toolCalls: [{ ...request.toolCalls[0], id: 'call_other' }],
 				},
-			},
-		)
+			} as RecordDraft
+		})
 
 		const second = new MockLLMProvider({ turns: [{ text: 'nothing to do' }] })
 		await drainQuery({
 			...baseParams(h, second, pauseOnReview),
 			messages: [],
-			resumeFromCheckpoint: cp.id,
+			resumeFromCheckpoint: cp.checkpointId,
 			pendingDecision: { action: 'approve_tools' },
 		})
 
@@ -296,11 +305,11 @@ describe('an approval survives a process boundary', () => {
 			...baseParams(h, first, pauseOnReview),
 			messages: [createUserMessage('delete row 1')],
 		})
-		const cp = await findPendingCheckpoint(h.store, { ...h.scope, runId: parked.id })
-		if (!cp?.pending || cp.pending.request.type !== 'tool_review') throw new Error('no park')
-		const assistant = cp.messages.find(
-			(message): message is AssistantMessage => message.role === 'assistant',
-		)
+		const cp = await findPendingCheckpoint(h.log, { turnId: parked.id })
+		if (!cp || cp.pending.request.type !== 'tool_review') throw new Error('no park')
+		const assistant = (await readFoldedHistory(h.log))
+			.map((entry) => entry.message)
+			.find((message): message is AssistantMessage => message.role === 'assistant')
 		const original = assistant?.toolCalls?.[0]
 		if (!assistant || !original) throw new Error('no reviewed call')
 		const duplicateAssistant: AssistantMessage = {
@@ -313,21 +322,17 @@ describe('an approval survives a process boundary', () => {
 				},
 			],
 		}
-		await h.store.writeCheckpoint(
-			{ ...h.scope, runId: parked.id },
-			{
-				...cp,
-				messages: cp.messages.map((message) =>
-					message === assistant ? duplicateAssistant : message,
-				),
-			},
+		h.log = await rewriteSession(h.log, [{ ...h.scope, turnId: parked.id }], (draft) =>
+			draft.type === 'message' && draft.role === 'assistant'
+				? ({ ...draft, content: duplicateAssistant } as RecordDraft)
+				: draft,
 		)
 
 		const second = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
 		const resumed = await drainQuery({
 			...baseParams(h, second, pauseOnReview),
 			messages: [],
-			resumeFromCheckpoint: cp.id,
+			resumeFromCheckpoint: cp.checkpointId,
 			pendingDecision: { action: 'approve_tools' },
 		})
 		expect(resumed.status).toBe('failed')
@@ -345,7 +350,7 @@ describe('an approval survives a process boundary', () => {
 			...baseParams(h, first, pauseOnReview),
 			messages: [createUserMessage('delete row 3')],
 		})
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await stateOf(h, parked.id)
 
 		const second = new MockLLMProvider({ turns: [{ text: 'ok' }] })
 		await drainQuery({
@@ -413,7 +418,7 @@ describe('an approval survives a process boundary', () => {
 		expect(parked.stopReason).toBe('paused')
 		expect(executions).toEqual([])
 
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await stateOf(h, parked.id)
 		if (state?.pending?.request.type !== 'tool_review') throw new Error('expected tool review')
 		expect(state.pending.request.toolCalls).toEqual(
 			expect.arrayContaining([
@@ -483,7 +488,7 @@ describe('an approval survives a process boundary', () => {
 			tools: makeTools(),
 			messages: [createUserMessage('normalize x')],
 		})
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await stateOf(h, parked.id)
 		expect(state?.pending?.request.type).toBe('tool_review')
 
 		const second = new MockLLMProvider({ turns: [{ text: 'done' }] })
@@ -533,7 +538,7 @@ describe('an approval survives a process boundary', () => {
 			tools: makeTools('v1'),
 			messages: [createUserMessage('normalize')],
 		})
-		const state = await loadRunState(h.store, { ...h.scope, runId: parked.id })
+		const state = await stateOf(h, parked.id)
 		if (state?.pending?.request.type !== 'tool_review') throw new Error('expected tool review')
 		expect(state.pending.request.toolCalls[0]?.input).toEqual({ value: 'v1:x' })
 
@@ -571,8 +576,8 @@ describe('park recording stays off the hot path', () => {
 		expect(h.calls).toEqual(['delete:5'])
 		expect(instant).toHaveBeenCalled()
 		// The iteration gate runs every iteration; recording each park
-		// unconditionally would triple a long run's checkpoint writes to
+		// unconditionally would triple a long turn's checkpoint writes to
 		// describe a park that never happened.
-		expect(await findPendingCheckpoint(h.store, { ...h.scope, runId: run.id })).toBeNull()
+		expect(await findPendingCheckpoint(h.log, { turnId: run.id })).toBeNull()
 	})
 })

@@ -49,7 +49,6 @@ const gates: Array<{
 	readonly release: () => void
 }> = []
 const sent: Message[][] = []
-const persisted: Message[][] = []
 let sendCalls = 0
 let clipboard: import('../../integrations/clipboard/image.js').ClipboardRead = {
 	kind: 'empty',
@@ -102,13 +101,11 @@ vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'current',
 	requireWritableConversation: async () => {},
-	appendMessages: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {
-		persisted.push([...messages])
-	},
-	replaceConversation: async () => {},
 	listRecent: async () => recentConversations,
 	loadConversation: async () => [
 		createUserMessage('restored question'),
@@ -190,7 +187,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				} else if (script.outcome === 'paused') {
 					yield {
 						kind: 'paused',
-						runId: 'dc7938d2-47e4-4af8-8f98-db8f2043f6a9',
+						turnId: 'dc7938d2-47e4-4af8-8f98-db8f2043f6a9',
 						checkpointId: '7f6bf1c5-d9f6-4443-be52-d4c01f4f405b',
 						reason: 'request rejected after retries',
 						failure: {
@@ -208,7 +205,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						},
 						explanation: {
 							id: 'provider.rate_limit',
-							message: 'The provider is rate limiting this run.',
+							message: 'The provider is rate limiting this turn.',
 							hint: 'Wait for the quota window to reset before continuing.',
 						},
 					} as AgentEvent
@@ -239,7 +236,6 @@ beforeEach(() => {
 	scripts.length = 0
 	gates.length = 0
 	sent.length = 0
-	persisted.length = 0
 	sendCalls = 0
 	clipboard = { kind: 'empty' }
 	recentConversations = []
@@ -392,7 +388,7 @@ it('explains a resumable pause and holds dependent queued work', async () => {
 	await submit(harness, 'depends on first')
 	gates[0]?.release()
 
-	await frameShows(harness, 'Run paused [provider.rate_limit]: The provider is rate limiting this run.')
+	await frameShows(harness, 'Turn paused [provider.rate_limit]: The provider is rate limiting this turn.')
 	await frameShows(harness, 'Provider retry delay: at least 3 seconds from this failure.')
 	await frameShows(harness, 'Next: Wait for the quota window to reset before continuing.')
 	await frameShows(harness, 'Checkpoint preserved: 7f6bf1c5-d9f6-4443-be52-d4c01f4f405b')
@@ -435,7 +431,11 @@ it('lets a post-error human continuation release the earlier FIFO before finally
 	expect(harness.lastFrame()).not.toContain('paused after a failed turn')
 })
 
-it('pauses a pre-event throw, persists its attachment, and resumes FIFO on explicit input', async () => {
+// The durable half of a failed turn is the kernel's: a turn that began records
+// its user message, attachments included, at `turn_started`, and a throw before
+// the turn began records nothing. What the App owns is the live history the
+// next turn is built from, and that is what this holds.
+it('pauses a pre-event throw, keeps its attachment in the history, and resumes FIFO on explicit input', async () => {
 	const firstImage = { data: 'FIRST', mediaType: 'image/png' as const }
 	clipboard = { kind: 'image', image: firstImage }
 	scripts.push(
@@ -452,7 +452,6 @@ it('pauses a pre-event throw, persists its attachment, and resumes FIFO on expli
 	await submit(harness, 'queued before throw')
 	gates[0]?.release()
 	await frameShows(harness, 'paused after a failed turn')
-	await waitUntil(() => persisted.length === 1)
 
 	expect(sendCalls).toBe(1)
 	expect(requests).toEqual([
@@ -461,9 +460,6 @@ it('pauses a pre-event throw, persists its attachment, and resumes FIFO on expli
 			method: 'osc9',
 		},
 	])
-	const durableUser = persisted[0]?.[0]
-	expect(durableUser?.role === 'user' ? durableUser.attachments : undefined).toEqual([firstImage])
-
 	await submit(harness, 'continue explicitly')
 	await waitUntil(() => sendCalls === 3)
 	expect(sent.map(latestUserText)).toEqual([

@@ -205,7 +205,7 @@ describe('a job dies with its owner', () => {
 		await registry.killOwner(OWNER)
 
 		for (const job of mine) expect(registry.get(job.id).status).toBe('killed')
-		// Scoped. One run tearing down must not reach into another's work.
+		// Scoped. One turn tearing down must not reach into another's work.
 		expect(registry.get(theirs.id).status).toBe('running')
 		await registry.killOwner('fe818a89-6a50-4e51-8a91-5f108ad85280')
 	})
@@ -245,7 +245,7 @@ describe('the bounds refuse rather than adjust', () => {
 		registry.start({ owner: OWNER, command: 'sleep 30', workingDirectory: cwd })
 
 		// Not queued. A queue would accept the call and start the work against
-		// a run that has since ended, having told the model it was running.
+		// a turn that has since ended, having told the model it was running.
 		expect(() =>
 			registry.start({ owner: OWNER, command: 'sleep 30', workingDirectory: cwd }),
 		).toThrow(BackgroundJobLimitError)
@@ -254,7 +254,7 @@ describe('the bounds refuse rather than adjust', () => {
 	})
 
 	it('counts the cap per owner, not globally', async () => {
-		// One run spawning a hundred watchers must not be able to refuse a
+		// One turn spawning a hundred watchers must not be able to refuse a
 		// different run its first.
 		const registry = new BackgroundJobRegistry({ maxJobsPerOwner: 1 })
 		const cwd = await workdir()

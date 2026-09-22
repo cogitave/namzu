@@ -7,6 +7,7 @@ import type {
 	AudioOutput,
 	LiveModel,
 	LiveModelTurn,
+	LiveSessionEvent,
 	SpeechRecognizer,
 	SpeechSynthesizer,
 	TurnDetector,
@@ -63,8 +64,9 @@ class EchoModel implements LiveModel {
 		yield { messageId: 'message', text: `answer:${input}.`, type: 'text_delta' as const }
 		yield {
 			result: `answer:${input}.`,
-			runId: `run-${this.turns.length}`,
+			sessionId: 'model-session',
 			stopReason: 'end_turn' as const,
+			turnId: `model-turn-${this.turns.length}`,
 			type: 'completed' as const,
 		}
 	}
@@ -132,6 +134,32 @@ describe('LiveSession', () => {
 		expect(session.state).toBe('closed')
 	})
 
+	it("carries the model's session and turn ids beside the live turn id", async () => {
+		const session = new LiveSession()
+		const completed: LiveSessionEvent[] = []
+		session.onEvent((event) => {
+			if (event.type === 'turn_completed') completed.push(event)
+		})
+		await session.start(new LiveAgent({ instructions: 'test', model: new EchoModel() }))
+
+		const turn = session.run({ userInput: 'ids' })
+		const result = await turn.wait()
+
+		expect(result).toMatchObject({
+			modelSessionId: 'model-session',
+			modelTurnId: 'model-turn-1',
+			turnId: turn.id,
+		})
+		expect(completed).toEqual([
+			expect.objectContaining({
+				modelSessionId: 'model-session',
+				modelTurnId: 'model-turn-1',
+				turnId: turn.id,
+			}),
+		])
+		await session.close()
+	})
+
 	it('isolates diagnostic listeners from the realtime path', async () => {
 		const session = new LiveSession()
 		session.onEvent(() => {
@@ -158,14 +186,15 @@ describe('LiveSession', () => {
 							turn.signal.addEventListener('abort', () => resolve(), { once: true }),
 						)
 					}
-					yield { runId: 'cancelled', type: 'cancelled' }
+					yield { sessionId: 'model-session', turnId: 'cancelled', type: 'cancelled' }
 					return
 				}
 				yield { messageId: 'second', text: 'complete', type: 'text_delta' }
 				yield {
 					result: 'complete',
-					runId: 'second',
+					sessionId: 'model-session',
 					stopReason: 'end_turn',
+					turnId: 'second',
 					type: 'completed',
 				}
 			},
@@ -451,7 +480,13 @@ describe('LiveSession', () => {
 				yield { messageId: 'early', text: 'early', type: 'text_delta' }
 				await release.promise
 				yield { messageId: 'late', text: 'late', type: 'text_delta' }
-				yield { result: 'late', runId: 'late', stopReason: 'end_turn', type: 'completed' }
+				yield {
+					result: 'late',
+					sessionId: 'model-session',
+					stopReason: 'end_turn',
+					turnId: 'late',
+					type: 'completed',
+				}
 			},
 		}
 		const session = new LiveSession({ closeTimeoutMs: 20 })

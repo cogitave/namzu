@@ -8,8 +8,8 @@ import {
 	ProviderRegistry,
 	type ToolRegistryContract,
 	createUserMessage,
-	generateRunId,
 	generateSessionId,
+	generateTurnId,
 	hashResidentSkill,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -20,7 +20,7 @@ import {
 	type Preferences,
 } from '../../integrations/providers/index.js'
 import { openSessions } from '../../integrations/sessions/store.js'
-import { type AgentSession, type RunScope, createAgentSession } from '../agent.js'
+import { type AgentSession, type SessionScope, createAgentSession } from '../agent.js'
 
 const registries = new Map<string, ToolRegistryContract>()
 vi.mock('@namzu/sdk', async (original) => {
@@ -28,7 +28,7 @@ vi.mock('@namzu/sdk', async (original) => {
 	return {
 		...actual,
 		query: (params: Parameters<typeof actual.query>[0]) => {
-			if (params.runId) registries.set(params.runId, params.tools)
+			if (params.turnId) registries.set(params.turnId, params.tools)
 			return actual.query(params)
 		},
 	}
@@ -97,13 +97,13 @@ it('reaches earlier exact evidence through the real CLI session under plan permi
 		tenantId: sessions.tenantId,
 		agentKey: 'test',
 	}).history((await execution.read())!, admitted.revision)
-	const scope: RunScope = {
+	const scope: SessionScope = {
 		sessionId: generateSessionId(),
 		topicId: sessions.topicId,
 		projectId: sessions.projectId,
 		tenantId: sessions.tenantId,
 	}
-	const runId = generateRunId()
+	const turnId = generateTurnId()
 	let checkedForeign = false
 	const script = new MockLLMProvider({
 		turns: [
@@ -130,12 +130,13 @@ it('reaches earlier exact evidence through the real CLI session under plan permi
 		name: 'History test',
 		async *chatStream(params) {
 			if (!checkedForeign) {
-				const tool = registries.get(runId)?.get('search_resident_history')
+				const tool = registries.get(turnId)?.get('search_resident_history')
 				if (!tool) throw new Error('History tool was not mounted.')
 				const denied = await tool.execute(
 					{ query: 'DELTA' },
 					{
-						runId: generateRunId(),
+						sessionId: generateSessionId(),
+						turnId: generateTurnId(),
 						workingDirectory: cwd,
 						abortSignal: new AbortController().signal,
 						env: {},
@@ -164,7 +165,7 @@ it('reaches earlier exact evidence through the real CLI session under plan permi
 	for await (const event of session.send(
 		[createUserMessage('Report the earlier delivery code and corrected destination.')],
 		{
-			runId,
+			turnId,
 			permissionMode: 'plan',
 			residentContext: {
 				state: (await execution.read())!,
@@ -189,12 +190,13 @@ it('reaches earlier exact evidence through the real CLI session under plan permi
 	expect(JSON.stringify(results)).toContain('TOKEN-ALPHA')
 	expect(JSON.stringify(results)).toContain('new depot')
 	const stale = await registries
-		.get(runId)
+		.get(turnId)
 		?.get('search_resident_history')
 		?.execute(
 			{ query: 'DELTA' },
 			{
-				runId,
+				sessionId: scope.sessionId,
+				turnId,
 				workingDirectory: cwd,
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -219,7 +221,7 @@ it('does not mount resident recall for an ordinary conversation', async () => {
 	expect(session.toolNames()).not.toContain('read_resident_history')
 })
 
-it('loads only requested resident guidance, rejects foreign and settled runs, and leaves the next send clean', async () => {
+it('loads only requested resident guidance, rejects foreign and settled turns, and leaves the next send clean', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-resident-skills-session-'))
 	roots.push(cwd)
 	const sessions = await openSessions(cwd, { stateRoot: join(cwd, 'state') })
@@ -261,7 +263,7 @@ it('loads only requested resident guidance, rejects foreign and settled runs, an
 		],
 		lastChange: evidence,
 	}
-	const runId = generateRunId()
+	const turnId = generateTurnId()
 	const script = new MockLLMProvider({
 		turns: [
 			{
@@ -279,12 +281,13 @@ it('loads only requested resident guidance, rejects foreign and settled runs, an
 		name: 'Learning test',
 		async *chatStream(params) {
 			if (!checkedForeign) {
-				const tool = registries.get(runId)?.get('read_resident_skill')
+				const tool = registries.get(turnId)?.get('read_resident_skill')
 				expect(tool).toBeDefined()
 				const result = await tool!.execute(
 					{ name: candidate.name },
 					{
-						runId: generateRunId(),
+						sessionId: generateSessionId(),
+						turnId: generateTurnId(),
 						workingDirectory: cwd,
 						abortSignal: new AbortController().signal,
 						env: {},
@@ -317,7 +320,7 @@ it('loads only requested resident guidance, rejects foreign and settled runs, an
 	for await (const event of session.send(
 		[createUserMessage('Use receipt-review to inspect the receipt.')],
 		{
-			runId,
+			turnId,
 			permissionMode: 'plan',
 			residentLearningDisclosure: 'on-demand',
 			residentContext: {
@@ -335,12 +338,13 @@ it('loads only requested resident guidance, rejects foreign and settled runs, an
 	expect(script.requests[0]!.tools?.map((t) => t.function.name)).toContain('read_resident_skill')
 	expect(session.toolNames()).not.toContain('read_resident_skill')
 	const stale = await registries
-		.get(runId)!
+		.get(turnId)!
 		.get('read_resident_skill')!
 		.execute(
 			{ name: candidate.name },
 			{
-				runId,
+				sessionId: generateSessionId(),
+				turnId,
 				workingDirectory: cwd,
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -348,9 +352,9 @@ it('loads only requested resident guidance, rejects foreign and settled runs, an
 			},
 		)
 	expect(stale.success).toBe(false)
-	const nextId = generateRunId()
+	const nextId = generateTurnId()
 	for await (const _event of session.send([createUserMessage('Hello.')], {
-		runId: nextId,
+		turnId: nextId,
 		permissionMode: 'plan',
 	})) {
 		/* drain */

@@ -2,16 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 import { fixtureId } from '../../../../test-support/ids.js'
 import { type HITLResumeDecision, autoApproveHandler } from '../../../../types/hitl/index.js'
-import type { CheckpointId, RunId } from '../../../../types/ids/index.js'
+import type { CheckpointId, TurnId } from '../../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
+import { generateSessionId } from '../../../../utils/id.js'
 import { type IterationContext, handleHITLDecision } from './context.js'
 import { runToolReview } from './tool-review.js'
 
+const SESSION_ID = generateSessionId()
+
 async function drainGenerator<TReturn>(
-	gen: AsyncGenerator<RunEvent, TReturn>,
-): Promise<{ events: RunEvent[]; value: TReturn }> {
-	const events: RunEvent[] = []
+	gen: AsyncGenerator<SessionEvent, TReturn>,
+): Promise<{ events: SessionEvent[]; value: TReturn }> {
+	const events: SessionEvent[] = []
 	let next = await gen.next()
 	while (!next.done) {
 		events.push(next.value)
@@ -23,8 +26,9 @@ async function drainGenerator<TReturn>(
 describe('autoApproveHandler user_question case', () => {
 	it('returns the non-fabricating no-answer sentinel with the questionId echoed', async () => {
 		const decision = await autoApproveHandler({
+			sessionId: SESSION_ID,
 			type: 'user_question',
-			runId: 'e89e74c8-b1f2-4caf-89eb-847ade430f35' as RunId,
+			turnId: 'e89e74c8-b1f2-4caf-89eb-847ade430f35' as TurnId,
 			checkpointId: 'd2394164-7c98-46c0-b260-fa0c6a8223c3' as CheckpointId,
 			question: {
 				questionId: 'toolu_1',
@@ -77,7 +81,7 @@ describe('runToolReview answer_question case', () => {
 				create: async () => ({ id: 'aa423def-1800-461a-a359-c9e2b95056db' as CheckpointId }),
 			},
 			emitEvent: async () => {},
-			drainPending: (): Generator<RunEvent> => [][Symbol.iterator]() as Generator<RunEvent>,
+			drainPending: (): Generator<SessionEvent> => [][Symbol.iterator]() as Generator<SessionEvent>,
 			resumeHandler: async () => decision,
 			log: {
 				debug: () => {},
@@ -87,8 +91,8 @@ describe('runToolReview answer_question case', () => {
 				},
 				error: () => {},
 			},
-			runMgr: {
-				id: '439d44df-4e3b-4340-99a8-74d18e18f504' as RunId,
+			recorder: {
+				id: '439d44df-4e3b-4340-99a8-74d18e18f504' as TurnId,
 				pushMessage: (message: unknown) => {
 					pushed.push(message)
 				},

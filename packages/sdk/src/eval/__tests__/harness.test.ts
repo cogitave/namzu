@@ -8,7 +8,7 @@ import {
 	stepBudgetScorer,
 	trajectoryScorer,
 } from '../scorers.js'
-import type { EvalCase, EvalRun } from '../types.js'
+import type { EvalCase, EvalTurn } from '../types.js'
 
 /**
  * There was no evaluation harness of any kind — no dataset, no scorer, no
@@ -20,7 +20,7 @@ import type { EvalCase, EvalRun } from '../types.js'
  * hit it.
  */
 
-function run(overrides: Partial<EvalRun> = {}): EvalRun {
+function run(overrides: Partial<EvalTurn> = {}): EvalTurn {
 	return {
 		output: 'done',
 		steps: [],
@@ -46,7 +46,7 @@ describe('trajectoryScorer', () => {
 	})
 
 	it('distinguishes ORDER — a set-based score could not', async () => {
-		// Reading before editing is not the same run as editing then reading.
+		// Reading before editing is not the same turn as editing then reading.
 		const reversed = await score(['read', 'edit'], ['edit', 'read'])
 		expect(reversed.score).toBeLessThan(1)
 		expect(reversed.score).toBeGreaterThan(0)
@@ -101,7 +101,7 @@ describe('completionScorer', () => {
 		expect(s.reason).toContain('max_iterations')
 	})
 
-	it('reports the error when the run threw', async () => {
+	it('reports the error when the turn threw', async () => {
 		const s = await completionScorer().score(run({ error: 'boom' }), CASE)
 		expect(s.score).toBe(0)
 		expect(s.reason).toContain('boom')
@@ -116,7 +116,7 @@ describe('stepBudgetScorer', () => {
 	})
 
 	it('degrades proportionally past it, rather than snapping to zero', async () => {
-		// A run that took 6 steps against a 5 allowance is worse than one
+		// A turn that took 6 steps against a 5 allowance is worse than one
 		// that took 20; a binary score cannot say so.
 		const slight = (await stepBudgetScorer(5).score(withSteps(6), CASE)).score
 		const severe = (await stepBudgetScorer(5).score(withSteps(20), CASE)).score
@@ -167,7 +167,7 @@ describe('runExperiment', () => {
 		})
 
 		expect(report.cases).toHaveLength(2)
-		expect(report.cases[0]?.run.error).toBe('exploded')
+		expect(report.cases[0]?.turn.error).toBe('exploded')
 		expect(report.cases[1]?.passed).toBe(true)
 	})
 

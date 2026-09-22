@@ -13,14 +13,14 @@ export interface AgentDefinition {
 	 * Build a fresh agent for a single spawn.
 	 *
 	 * `typedAgent` is ONE instance, and an instance refuses a second
-	 * concurrent run because it holds per-run state. So a delegation fan-out
+	 * concurrent run because it holds per-turn state. So a delegation fan-out
 	 * naming the same `agent_id` four times ran one child and lost three to
 	 * `ConcurrentInvocationError` — while `create_task`'s own description tells
 	 * a model that exactly this fan-out is the thing to do.
 	 *
 	 * The manager prefers this over `typedAgent` for every spawn. Supply it
 	 * when your agent needs real construction arguments; agents built on
-	 * `AbstractAgent` already get a working default from `Agent.forRun`, so
+	 * `AbstractAgent` already get a working default from `Agent.forTurn`, so
 	 * most hosts need nothing here.
 	 *
 	 * `configBuilder` is not a substitute: it produces a fresh CONFIG per
@@ -76,9 +76,13 @@ export interface AgentFactoryOptions {
 
 	taskRouter?: TaskRouterConfig
 
-	runId?: string
+	sessionId?: string
 
-	parentRunId?: string
+	turnId?: string
+
+	parentSessionId?: string
+
+	parentTurnId?: string
 
 	depth?: number
 }

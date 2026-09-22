@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { compressShellOutputFull } from '../shell-compress.js'
 
 /**
- * `raw` here is bash stdout, and bash stdout is not something the run
+ * `raw` here is bash stdout, and bash stdout is not something the turn
  * itself typed — a fetched page, a piped response, a file an agent was
  * told to `cat`, all land in it verbatim. The pass-line detector's opening
  * alternative used to hunt for a PASS/ok marker with an unbounded

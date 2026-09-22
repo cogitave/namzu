@@ -21,7 +21,10 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import type { ToolCall } from '../../../types/message/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 const SECRET = 'sk-live-11112222333344445555'
 const REDACTED = 'token: [redacted]'
@@ -72,8 +75,9 @@ async function runWith(
 	const logger = { ...stub, child: () => ({ ...stub, child: () => stub }) }
 	const executor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
-			runId: '99ae284f-e48a-46c5-a4ce-5297f12cd9cc' as never,
+			turnId: '99ae284f-e48a-46c5-a4ce-5297f12cd9cc' as never,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
 			env: {},

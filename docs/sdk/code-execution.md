@@ -10,7 +10,7 @@ status: stable
 # Bounded code execution
 
 `buildRunCodeTool()` creates the opt-in `run_code` tool. A program can call the
-run's tools, filter their results and return a compact answer. Local control flow
+turn's tools, filter their results and return a compact answer. Local control flow
 can avoid repeated model requests. This tool is not in the default builtin set.
 
 ```ts
@@ -24,7 +24,7 @@ const runCode = buildRunCodeTool({
 })
 ```
 
-Register the definition in the run's tool registry. The model supplies an async
+Register the definition in the turn's tool registry. The model supplies an async
 JavaScript body and a list of intended tool names. Inside it, `await call(name,
 input)` invokes a tool, `print(...)` emits bounded text, and `return` supplies the
 result. `Promise.all` supports concurrency subject to runtime and registry limits.
@@ -38,7 +38,7 @@ strings. A program can filter `result.data` without parsing its display summary.
 The tool description tells the model which contract is active. Failed calls
 reject in both modes; partial data is not presented as a successful value.
 
-Every request goes through the run-owned dispatch. Requested names are intersected
+Every request goes through the turn-owned dispatch. Requested names are intersected
 with the turn's allowed tools. Registry authorization, invocation lineage and
 cancellation still apply. The program cannot enlarge its grant. Nested requests
 needing an unresolved human decision fail closed; an executing parent cannot

@@ -1,6 +1,6 @@
-import { lstat } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { lstat } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 import { EVIDENCE_CHUNK_BYTES, digest, mayContain, mayContainToken } from './format.js'
 import {
@@ -18,7 +18,6 @@ import {
 	decode,
 	openEvidence,
 	readBytes,
-	readSmall,
 	stamp,
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
@@ -30,14 +29,14 @@ import {
 } from './selection.js'
 import { createTextSourceReader, readTextPage } from './source-text.js'
 import type {
-	DiskRunEvidenceOptions,
-	RunEvidenceReadOptions,
-	RunEvidenceReadResult,
-	RunEvidenceSource,
-	RunTextEvidenceMatch,
-	RunTextEvidenceReadResult,
-	RunTextEvidenceSearchOptions,
-	RunTextEvidenceSource,
+	SessionEvidenceReadOptions,
+	SessionEvidenceReadResult,
+	SessionEvidenceSource,
+	SessionEvidenceSourceOptions,
+	SessionTextEvidenceMatch,
+	SessionTextEvidenceReadResult,
+	SessionTextEvidenceSearchOptions,
+	SessionTextEvidenceSource,
 } from './types.js'
 
 const integer = z.number().int().nonnegative().safe()
@@ -46,7 +45,7 @@ const scopeSchema = z
 		tenantId: z.string().uuid(),
 		projectId: z.string().uuid(),
 		sessionId: z.string().uuid(),
-		runId: z.string().uuid(),
+		turnId: z.string().uuid().optional(),
 	})
 	.strict()
 const cursorSchema = z.object({
@@ -79,7 +78,7 @@ const pointerSchema = entrySchema.pick({
 })
 const addressSchema = z.object({ kind: z.literal('text'), entry: pointerSchema })
 
-/** Ignore an uncommitted tail in a nonterminal snapshot without repairing the writer's file. */
+/** Ignore an uncommitted tail in a snapshot without repairing the writer's file. */
 async function completePrefix(handle: FileHandle, size: number, budget: EvidenceBudget) {
 	if ((await readBytes(handle, size - 1, 1, budget))[0] === 10) return size
 	const floor = Math.max(0, size - RECORD_BYTES)
@@ -91,23 +90,50 @@ async function completePrefix(handle: FileHandle, size: number, budget: Evidence
 		if (newline >= 0) return start + newline + 1
 		end = start
 	}
-	if (floor === 0) throw new Error('Transcript has no complete recorded evidence.')
-	throw new Error('Incomplete transcript tail exceeds the bounded record size.')
+	if (floor === 0) throw new Error('The session log has no complete recorded evidence.')
+	throw new Error('Incomplete session log tail exceeds the bounded record size.')
 }
+
 /**
- * @experimental Bounded, authenticated disk index over one explicitly authorized run.
- * Closed by default; snapshot mode permits nonterminal metadata without assuming a dead writer.
- * The host owns authorization and the private directories. Stat changes invalidate addresses;
- * individual record/chunk digests detect changed bytes. This is not a hostile filesystem sandbox.
+ * A fixed end of the log a source reads up to: a record the capturing writer
+ * vouches for. Appends after it do not change what the source sees.
  */
-export function createDiskRunTextEvidenceSource(
-	options: DiskRunEvidenceOptions,
-): RunTextEvidenceSource {
+export interface EvidenceAnchor {
+	readonly seq: number
+	readonly offset: number
+	readonly length: number
+	readonly sha256: string
+}
+
+/**
+ * @experimental Bounded, authenticated evidence over one explicitly authorized
+ * session log, or one turn of it. Closed by default (no active turn in scope);
+ * snapshot mode also reads a session whose turn is running, without assuming
+ * its writer is dead. The host owns authorization and the log's directory.
+ * Changes to the log invalidate addresses; record and chunk digests detect
+ * changed bytes. This is not a hostile filesystem sandbox.
+ */
+export function createSessionTextEvidenceSource(
+	options: SessionEvidenceSourceOptions,
+): SessionTextEvidenceSource {
 	return createSource(options, 'text')
 }
 
-/** @experimental Tool-only view of the shared invocation text index. */
-export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): RunEvidenceSource {
+/**
+ * @internal A text source anchored at a record the writer holds: appends
+ * after it neither invalidate its addresses nor become visible to it.
+ */
+export function createAnchoredSessionTextEvidenceSource(
+	options: SessionEvidenceSourceOptions,
+	anchor: EvidenceAnchor,
+): SessionTextEvidenceSource {
+	return createSource(options, 'text', anchor)
+}
+
+/** @experimental Tool-only view of the shared session text index. */
+export function createSessionEvidenceSource(
+	options: SessionEvidenceSourceOptions,
+): SessionEvidenceSource {
 	const source = createSource(options, 'tools')
 	const tool = <T extends { toolName?: string; isError?: boolean }>(value: T) => {
 		if (value.toolName === undefined || value.isError === undefined)
@@ -117,23 +143,76 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 	return Object.freeze({
 		scope: source.scope,
 		supportsTermRefinement: true,
-		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
+		async search(options: SessionTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const result = await source.search(options, signal)
 			return { ...result, matches: result.matches.map(tool) }
 		},
 		async read(
-			options: RunEvidenceReadOptions,
+			options: SessionEvidenceReadOptions,
 			signal?: AbortSignal,
-		): Promise<RunEvidenceReadResult> {
+		): Promise<SessionEvidenceReadResult> {
 			return tool(await source.read(options, signal))
 		},
 	})
 }
 
+/**
+ * The first record of a session log (its `session_started`) and whether the
+ * scope is closed: no turn of the session active, or — for a scope narrowed
+ * to one turn — that turn settled.
+ */
+async function sessionState(
+	handle: FileHandle,
+	size: number,
+	scope: z.infer<typeof scopeSchema>,
+): Promise<{ first: Buffer; closed: boolean }> {
+	const unmetered: EvidenceBudget = { bytes: 0, limit: Number.MAX_SAFE_INTEGER }
+	let first: Buffer | undefined
+	let active: string | undefined
+	let turnClosed = false
+	let buffered = Buffer.alloc(0)
+	let offset = 0
+	while (offset < size || buffered.length > 0) {
+		let newline = buffered.indexOf(10)
+		if (newline < 0) {
+			if (offset >= size) break
+			if (buffered.length >= RECORD_BYTES) throw new Error('Session log record exceeds 4 MiB.')
+			const count = Math.min(1 << 20, size - offset)
+			buffered = Buffer.concat([buffered, await readBytes(handle, offset, count, unmetered)])
+			offset += count
+			continue
+		}
+		const raw = buffered.subarray(0, newline + 1)
+		buffered = buffered.subarray(newline + 1)
+		newline = -1
+		const record = JSON.parse(decode(raw)) as Record<string, unknown>
+		if (!first) {
+			if (
+				record.type !== 'session_started' ||
+				record.sessionId !== scope.sessionId ||
+				record.projectId !== scope.projectId ||
+				(record.tenantId !== undefined && record.tenantId !== scope.tenantId)
+			) {
+				throw new Error('The session log does not belong to the authorized scope.')
+			}
+			first = Buffer.from(raw)
+			continue
+		}
+		if (record.type === 'turn_started') active = record.turnId as string
+		if (record.type === 'turn_completed' || record.type === 'turn_failed') {
+			if (active === record.turnId) active = undefined
+			if (record.turnId === scope.turnId) turnClosed = true
+		}
+	}
+	if (!first) throw new Error('The session log is empty; evidence is incomplete.')
+	return { first, closed: scope.turnId !== undefined ? turnClosed : active === undefined }
+}
+
 function createSource(
-	options: DiskRunEvidenceOptions,
+	options: SessionEvidenceSourceOptions,
 	mode: 'tools' | 'text',
-): RunTextEvidenceSource {
+	anchor?: EvidenceAnchor,
+): SessionTextEvidenceSource {
 	const consistency = z.enum(['closed', 'snapshot']).parse(options.consistency ?? 'closed')
 	const maxReadBytes = z
 		.number()
@@ -142,8 +221,9 @@ function createSource(
 		.max(PAGE_BYTES)
 		.parse(options.maxReadBytes ?? PAGE_BYTES)
 	const scope = Object.freeze(scopeSchema.parse(options.scope))
-	const runDir = resolve(options.runDir)
-	const indexDir = resolve(options.indexDir)
+	const logPath = resolve(options.logPath)
+	if (!logPath.endsWith('.jsonl')) throw new Error('A session log path ends in .jsonl.')
+	const sessionDir = logPath.slice(0, -'.jsonl'.length)
 	const scopeKey = digest(JSON.stringify(scope))
 	async function access<T>(
 		signal: AbortSignal | undefined,
@@ -163,47 +243,40 @@ function createSource(
 			signal,
 		}
 		signal?.throwIfAborted()
-		const metaPath = join(runDir, 'run.json')
-		const metaStamp = stamp(await lstat(metaPath))
-		const metaBytes = await readSmall(metaPath, budget, 512 * 1024)
-		if (metaStamp !== stamp(await lstat(metaPath)))
-			throw new Error('Run metadata changed during retrieval.')
-		const meta = JSON.parse(decode(metaBytes))
-		const terminal = ['completed', 'failed', 'cancelled'].includes(meta.status)
-		const readable =
-			terminal ||
-			(consistency === 'snapshot' && ['idle', 'pending', 'running'].includes(meta.status))
-		if (
-			meta.id !== scope.runId ||
-			!readable ||
-			JSON.stringify(scopeSchema.parse(meta.metadata?.scope)) !== JSON.stringify(scope)
-		)
-			throw new Error(
-				consistency === 'closed'
-					? 'Evidence run is not closed or does not belong to the authorized scope.'
-					: 'Evidence run does not satisfy snapshot consistency or its authorized scope.',
-			)
-		const path = join(runDir, 'transcript.jsonl')
-		const handle = await openEvidence(path)
+		const handle = await openEvidence(logPath)
 		try {
 			const before = await handle.stat()
-			if (before.size === 0) throw new Error('Transcript is empty; evidence is incomplete.')
-			const size =
-				consistency === 'snapshot' && !terminal
-					? await completePrefix(handle, before.size, budget)
-					: before.size
+			if (before.size === 0) throw new Error('The session log is empty; evidence is incomplete.')
+			let size: number
+			if (anchor) {
+				size = anchor.offset + anchor.length
+				if (size > before.size) throw new Error('The session log is shorter than its anchor.')
+			} else {
+				size =
+					consistency === 'snapshot'
+						? await completePrefix(handle, before.size, budget)
+						: before.size
+			}
+			const state = await sessionState(handle, size, scope)
+			if (!state.closed && consistency === 'closed') {
+				throw new Error('Evidence scope has an active turn; it is not closed.')
+			}
+			const anchorKey = anchor ? await verifyAnchor(handle, anchor) : undefined
 			const sourceKey = digest(
-				`${consistency === 'snapshot' ? 'snapshot-v1:' : ''}${mode === 'text' ? 'text-v2:' : ''}${scopeKey}:${stamp(before)}:${digest(metaBytes)}`,
+				`session-v1:${consistency}:${mode}:${scopeKey}:${anchorKey ?? stamp(before)}`,
 			)
-			const seal = await evidenceSeal(indexDir, scopeKey, sourceKey, budget)
-			const value = await action(handle, size, seal, sourceKey, budget, !terminal)
+			const seal = evidenceSeal(state.first, sourceKey)
+			const value = await action(handle, size, seal, sourceKey, budget, !state.closed)
 			signal?.throwIfAborted()
-			if (
+			if (anchor) {
+				if ((await verifyAnchor(handle, anchor)) !== anchorKey)
+					throw new Error('Evidence source changed during retrieval.')
+			} else if (
 				stamp(before) !== stamp(await handle.stat()) ||
-				stamp(before) !== stamp(await lstat(path)) ||
-				metaStamp !== stamp(await lstat(metaPath))
-			)
+				stamp(before) !== stamp(await lstat(logPath))
+			) {
 				throw new Error('Evidence source changed during retrieval.')
+			}
 			return value
 		} finally {
 			await handle.close()
@@ -212,7 +285,7 @@ function createSource(
 	return Object.freeze({
 		scope,
 		supportsTermRefinement: true,
-		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
+		async search(options: SessionTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const input = z
 				.object({
 					maxReadBytes: integer
@@ -256,8 +329,8 @@ function createSource(
 			return access(
 				signal,
 				input.maxReadBytes,
-				async (handle, size, seal, sourceKey, budget, nonterminal) => {
-					const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
+				async (handle, size, seal, _sourceKey, budget, nonterminal) => {
+					const readSource = createTextSourceReader(handle, sessionDir, scope.sessionId, budget)
 					const cursor = input.cursor
 						? cursorSchema.parse(seal.unpack(input.cursor))
 						: {
@@ -290,16 +363,27 @@ function createSource(
 					// Authenticate the original query first, then seal future cursors
 					// with the narrower key at exactly the same archive position.
 					if (refined) cursor.termsKey = refined.termsKey
-					const { page, cacheHit } = await indexPage(
-						handle,
-						size,
-						scope.runId,
-						cursor.position,
-						seal,
-						sourceKey,
-						budget,
-					)
-					const matches: RunTextEvidenceMatch[] = []
+					let indexed: Awaited<ReturnType<typeof indexPage>>
+					try {
+						indexed = await indexPage(handle, size, scope.sessionId, cursor.position, budget)
+					} catch (error) {
+						if (!(error instanceof EvidencePageLimit)) throw error
+						// This operation's allowance cannot index the next page (one
+						// record can be larger than it). Nothing is claimed about the
+						// records there; the same position is offered again.
+						return {
+							scope,
+							matches: [],
+							nextCursor: seal.pack({ ...cursor }),
+							scannedBytes: budget.bytes,
+							indexedRecords: 0,
+							cacheHit: false,
+							incomplete: true,
+							unavailable: [],
+						}
+					}
+					const { page, cacheHit } = indexed
+					const matches: SessionTextEvidenceMatch[] = []
 					const unavailable: string[] = []
 					let partial = false
 					let excludedToolResults = 0
@@ -317,6 +401,7 @@ function createSource(
 						if (!entry) throw new Error('Invalid index entry.')
 						if (
 							(mode === 'tools' && entry.source !== 'tool_completed') ||
+							(scope.turnId !== undefined && entry.turnId !== scope.turnId) ||
 							(input.seq !== undefined && entry.seq !== input.seq) ||
 							(input.part !== undefined && entry.part !== input.part)
 						) {
@@ -434,9 +519,9 @@ function createSource(
 			)
 		},
 		async read(
-			options: RunEvidenceReadOptions,
+			options: SessionEvidenceReadOptions,
 			signal?: AbortSignal,
-		): Promise<RunTextEvidenceReadResult> {
+		): Promise<SessionTextEvidenceReadResult> {
 			const input = z
 				.object({
 					address: z.string().max(8192),
@@ -450,12 +535,31 @@ function createSource(
 				.parse(options)
 			return access(signal, input.maxReadBytes, async (handle, _size, seal, _sourceKey, budget) => {
 				const pointer = addressSchema.parse(seal.unpack(input.address)).entry
-				const source = await createTextSourceReader(handle, runDir, scope.runId, budget)(pointer)
+				const source = await createTextSourceReader(
+					handle,
+					sessionDir,
+					scope.sessionId,
+					budget,
+				)(pointer)
 				const entry = source.entry
 				if (mode === 'tools' && entry.source !== 'tool_completed')
 					throw new Error('Not tool evidence.')
+				if (scope.turnId !== undefined && entry.turnId !== scope.turnId)
+					throw new Error('Evidence is outside the authorized turn.')
 				return readTextPage(source, scope, input.byteOffset ?? 0, budget)
 			})
 		},
 	})
+}
+
+/** The anchor record must still hold the bytes the writer vouched for. */
+async function verifyAnchor(handle: FileHandle, anchor: EvidenceAnchor): Promise<string> {
+	const bytes = await readBytes(handle, anchor.offset, anchor.length, {
+		bytes: 0,
+		limit: Number.MAX_SAFE_INTEGER,
+	})
+	if (digest(bytes) !== anchor.sha256) throw new Error('The session log changed below its anchor.')
+	const record = JSON.parse(decode(bytes)) as { seq?: unknown }
+	if (record.seq !== anchor.seq) throw new Error('The session log changed below its anchor.')
+	return `${anchor.seq}:${anchor.sha256}`
 }

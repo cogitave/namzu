@@ -1,12 +1,12 @@
 import { LOG_SECRET_PATTERNS } from '@namzu/sdk'
-import type { RunEvent } from '@namzu/sdk'
+import type { SessionEvent } from '@namzu/sdk'
 
 /**
  * Exporting a session's CONTENT, which is not what the rest of this package
  * does.
  *
  * `provider.ts` and `metrics.ts` trace the agent's own execution —
- * `namzu.agent.run`, `namzu.tool.execute`, the chat spans — and that is
+ * `namzu.agent.turn`, `namzu.tool.execute`, the chat spans — and that is
  * operational telemetry, deliberately not a mirror of the conversation. An
  * operator who wants to hand a session to support, or replay one while
  * debugging, had no seam at all: they would instrument the store or the
@@ -21,9 +21,9 @@ import type { RunEvent } from '@namzu/sdk'
  *    redactor that THROWS also drops it — the record is never emitted
  *    un-redacted as a fallback, because a redaction stage that fails open
  *    is the exact failure this whole seam exists to prevent.
- *  - **Export cannot stall a run.** `emit` is fire-and-forget from the
+ *  - **Export cannot stall a turn.** `emit` is fire-and-forget from the
  *    listener's point of view; a sink that takes a second to reach its
- *    destination costs the run nothing, and a sink that throws is caught.
+ *    destination costs the turn nothing, and a sink that throws is caught.
  *  - **A host can state what leaves.** {@link describeSessionExport}
  *    returns one sentence naming the destination, the event types, the
  *    installed redactor count, and whether conversation text is included —
@@ -39,16 +39,16 @@ import type { RunEvent } from '@namzu/sdk'
  */
 
 /**
- * One run event on its way out, with the moment the listener saw it.
+ * One session event on its way out, with the moment the listener saw it.
  *
- * Wraps the SDK's own `RunEvent` rather than flattening it into an
+ * Wraps the SDK's own `SessionEvent` rather than flattening it into an
  * export-shaped record. A flattened copy is a second definition of every
  * event in the kernel, and the one that drifted would be the one an
  * operator was reading during an incident.
  */
 export interface SessionExportRecord {
-	/** The event, verbatim as the run emitted it. */
-	readonly event: RunEvent
+	/** The event, verbatim as the turn emitted it. */
+	readonly event: SessionEvent
 	/** Epoch ms at which the listener saw it. */
 	readonly at: number
 }
@@ -94,7 +94,7 @@ export interface SessionExportConfig {
 	 * disagree with this list, and the disclosure would then have to pick
 	 * one of them to believe.
 	 */
-	readonly eventTypes?: readonly RunEvent['type'][]
+	readonly eventTypes?: readonly SessionEvent['type'][]
 	/** Applied in order, before `emit`. */
 	readonly redactors?: readonly SessionExportRedactor[]
 	/** Injectable for tests, the same way the read models take one. */
@@ -107,11 +107,11 @@ export interface SessionExportConfig {
  * A callable with two counters rather than a bare function: a redactor that
  * refuses is a silent event by design, and "nothing was exported" and "every
  * record was dropped" are indistinguishable without them. It is still
- * assignable to the SDK's `RunEventListener`, so it attaches to
+ * assignable to the SDK's `SessionEventListener`, so it attaches to
  * `query({ onEvent })` with no new hook.
  */
 export interface SessionExportListener {
-	(event: RunEvent): void
+	(event: SessionEvent): void
 	/** Records handed to the sink. */
 	readonly exported: number
 	/** Records a redactor refused — by returning `null`, or by throwing. */
@@ -125,7 +125,7 @@ export interface SessionExportListener {
 /**
  * Event types that carry model- or user-authored text.
  *
- * Enumerated from `packages/sdk/src/types/run/events.ts` by the fields each
+ * Enumerated from `packages/sdk/src/types/session/events.ts` by the fields each
  * member declares — `text`, `content`, `result`, `messages`, `question`,
  * `answer`, `summary`, `output`, `systemPrompt`. It is what
  * {@link describeSessionExport} derives its "conversation text is included"
@@ -139,14 +139,14 @@ export interface SessionExportListener {
  * chat message. A disclosure that under-claims is worse than one that
  * over-claims, because only the first is a surprise.
  */
-export const CONTENT_BEARING_EVENT_TYPES: readonly RunEvent['type'][] = [
-	'run_started',
+export const CONTENT_BEARING_EVENT_TYPES: readonly SessionEvent['type'][] = [
+	'turn_started',
 	'request_envelope',
 	'compaction_shed',
 	'compaction_failed',
 	'tool_completed',
 	'user_question_asked',
-	'run_completed',
+	'turn_completed',
 	'activity_updated',
 	'plan_ready',
 	'agent_completed',
@@ -169,7 +169,7 @@ export const CONTENT_BEARING_EVENT_TYPES: readonly RunEvent['type'][] = [
  * word out of an exported record, which is the cost the wide net is worth
  * paying for.
  *
- * Serialise-scan-parse rather than a recursive walk, because a run event's
+ * Serialise-scan-parse rather than a recursive walk, because a session event's
  * text is nested at a different depth in nearly every member of the union
  * and a walk that missed one arm would fail silently in exactly the way this
  * is meant to prevent. The cost is a JSON round trip per record, which is
@@ -194,7 +194,7 @@ export function secretRedactor(): SessionExportRedactor {
 			redacted = redacted.replace(pattern, `[REDACTED:${label}]`)
 		}
 		if (redacted === text) return record
-		return { ...record, event: JSON.parse(redacted) as RunEvent }
+		return { ...record, event: JSON.parse(redacted) as SessionEvent }
 	}
 }
 
@@ -202,7 +202,7 @@ export function secretRedactor(): SessionExportRedactor {
  * Build the listener.
  *
  * Attaches to `query({ onEvent })` unchanged — the return type is callable
- * as a `RunEventListener`.
+ * as a `SessionEventListener`.
  */
 export function createSessionExportListener(config: SessionExportConfig): SessionExportListener {
 	const now = config.now ?? Date.now
@@ -214,7 +214,7 @@ export function createSessionExportListener(config: SessionExportConfig): Sessio
 	let failed = 0
 	let filtered = 0
 
-	const listener = (event: RunEvent): void => {
+	const listener = (event: SessionEvent): void => {
 		if (allowed && !allowed.has(event.type)) {
 			filtered++
 			return
@@ -231,8 +231,8 @@ export function createSessionExportListener(config: SessionExportConfig): Sessio
 				// to be wrong about its input.
 				//
 				// The exception does not escape either: this listener runs inside
-				// the run's event loop, and a throwing exporter must not be able
-				// to end a run.
+				// the turn's event loop, and a throwing exporter must not be able
+				// to end a turn.
 				dropped++
 				return
 			}
@@ -268,7 +268,7 @@ export function createSessionExportListener(config: SessionExportConfig): Sessio
  * The sentence a host shows a user before a session leaves the machine.
  *
  * Takes the config rather than the listener so it can be rendered at boot,
- * before a run exists — and returns a DISTINCT string when export is
+ * before a turn exists — and returns a DISTINCT string when export is
  * unconfigured. A disclosure that read the same in both states would be a
  * check that cannot fail: it would satisfy any test asserting "the
  * disclosure is shown" while telling a user nothing about which of the two
@@ -276,14 +276,14 @@ export function createSessionExportListener(config: SessionExportConfig): Sessio
  */
 export function describeSessionExport(config?: SessionExportConfig): string {
 	if (!config) {
-		return 'Session export is off: no run events, and no conversation text, leave this machine.'
+		return 'Session export is off: no session events, and no conversation text, leave this machine.'
 	}
 
 	const types = config.eventTypes
 	const typeCount = types ? types.length : undefined
 	const typePhrase =
 		types === undefined
-			? 'every run event'
+			? 'every session event'
 			: types.length === 0
 				? 'no event types (nothing will be exported)'
 				: `${typeCount} event type${typeCount === 1 ? '' : 's'} (${[...types].sort().join(', ')})`

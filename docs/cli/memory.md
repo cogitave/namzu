@@ -13,7 +13,7 @@ generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 There are two kinds, and they do different jobs. **Curated memory** is text the
 operator writes, read verbatim into every turn. **Stored memory** is typed
 records, one Markdown file each, that `#note`, `/memory add`, the model's memory
-tools and the end-of-run writers all share; every turn carries its index, and
+tools and the end-of-turn writers all share; every turn carries its index, and
 recall adds matching records. In the prompt the two never share a heading:
 curated sections are `## About the user`, `## Curated memory (all projects)` and
 `## Curated memory (this project)`; stored memory is `## Stored memories (index)`.
@@ -37,9 +37,9 @@ the combined curated memory, without saving anything. Stored memory comes in two
 labelled sections, each with its count and the directory the files are in:
 `Stored memories (N), in every turn's index` — every active memory you or the
 model saved, the lines the prompt's index carries, uncapped — and
-`Recorded by runs (N), not in the index; search_memory finds them` — the active
-records the run promoter or consolidation wrote on their own, newest first. A
-store holding only run records shows the second section alone. `show` and
+`Recorded by turns (N), not in the index; search_memory finds them` — the active
+records the session memory promoter or consolidation wrote on their own, newest
+first. A store holding only such records shows the second section alone. `show` and
 `list` are aliases for this content view.
 
 The terminal report labels each saved section and shows its full file path.
@@ -65,7 +65,7 @@ once, as the user memory, and is not injected a second time under the project
 heading.
 
 Curated files are read at the start of each send or resume. Editing or deleting a
-file affects that next snapshot, including after a new session or restart. A run
+file affects that next snapshot, including after a new session or restart. A turn
 already in progress keeps its curated snapshot through its model steps. Edit the
 file to correct or remove a line; the slash command inspects, and appends only
 with `--user`.
@@ -103,9 +103,9 @@ when a file is under 1 MiB.
 
 ## Stored memory: typed files, an index in every turn, and recall
 
-The CLI keeps stored memory in the project's generated state directory —
-`<NAMZU_HOME>/memory/<project-id>/` for a session with an application home
-(the default), `<cwd>/.namzu/memory/` for an embedded session without one — as a
+The CLI keeps stored memory in the project's directory under the application
+home, `<NAMZU_HOME>/projects/<slug>/memory/` — never under the working
+directory — as a
 [`MarkdownMemoryStore`](../sdk/memory.md#markdown-memory-files): one
 `<name>.md` per memory with frontmatter `name`, `description`, `type`,
 `status`, `createdAt`, `updatedAt` and optional `tags`, then the body, and a
@@ -131,17 +131,18 @@ Every send and resume puts the index in the system prompt under
 saved, `- [name](name.md) — description`, each at most 150 characters (a note's
 name is its first words, at most 32 characters, so the description keeps most
 of the line), at most 200 lines with a final line saying how many more exist and
-to search for them. What the runtime writes after a run by itself — the run
-promoter's record, or consolidation's with `compaction.consolidate` — is kept in
-the same directory and found by recall and `search_memory`, but never listed:
-it is written after almost every run, and a system prompt that changed with it
+to search for them. What the runtime writes after a turn by itself — the session
+memory promoter's record (`metadata.source: 'session-memory'`), or
+consolidation's with `compaction.consolidate` — is kept in the same directory
+and found by recall and `search_memory`, but never listed: it is written after
+almost every turn, and a system prompt that changed with it
 would lose its prompt cache nearly every turn. Your `feedback` and `user`
 memories (notes, `/memory add --type`, hand-written files) come first, then the
 model's, then the rest, by name within each; the order changes only when a
 listed memory does, and the 200-line cap drops `project` and `reference` lines
 before any of yours. The section tells the model to read a memory before relying on it, to
 update rather than duplicate, that memories are point-in-time, and that what
-earlier runs recorded on their own is found with `search_memory`. The index is
+earlier turns recorded on their own is found with `search_memory`. The index is
 rendered from the files at that moment. A memory file the store cannot read
 leaves that turn without the index and shows a notice naming the file; the turn
 still runs.
@@ -215,10 +216,10 @@ same setting applies to new sends and checkpoint resumes; explicit search tools
 remain available in either mode. See [structured memory](../sdk/memory.md) for
 exact matching rules and alias limitations.
 
-The default promoter writes useful extracted claims to this store when a run
-settles. `compaction.consolidate: true` selects consolidation instead, so the CLI
+The default promoter writes useful extracted claims to this store when a turn
+settles, tagged `session:<id>` and `turn:<id>`. `compaction.consolidate: true` selects consolidation instead, so the CLI
 does not run both writers. Writing remains separate from curated file appends
-and from read-only recall; disabling recall does not disable writes. A run whose
+and from read-only recall; disabling recall does not disable writes. A turn whose
 learnings match an earlier consolidation's writes nothing. See
 [structured memory](../sdk/memory.md) for search, promotion and recovery limits.
 

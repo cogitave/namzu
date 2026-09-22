@@ -1,8 +1,9 @@
 import { expect, it } from 'vitest'
+import type { ConversationSearchResult } from '../integrations/sessions/conversation-search.js'
 import { conversationEvidenceView } from './conversation-evidence-view.js'
 
 const page = {
-	runId: 'bcd3d4e0-ea88-4cfa-afb1-ed135da49ea8',
+	turnId: 'bcd3d4e0-ea88-4cfa-afb1-ed135da49ea8',
 	seq: 2,
 	part: 0,
 	source: 'tool_completed',
@@ -90,12 +91,12 @@ it('preserves an incomplete no-match search without inventing a continuation or 
 		JSON.stringify({
 			matches: [],
 			incomplete: true,
-			unavailableRuns: 2,
+			unavailable: 2,
 		}),
 	)!
 	expect(view.content).toContain('0 matches on this page')
 	expect(view.content).toContain('Search incomplete · absence is inconclusive')
-	expect(view.content).toContain('2 run(s) unavailable')
+	expect(view.content).toContain('2 record(s) unavailable')
 	expect(view.content).not.toContain('more to scan')
 })
 
@@ -103,7 +104,7 @@ it('keeps omitted search matches, provenance and exact excerpts available in det
 	const result = {
 		matches: Array.from({ length: 5 }, (_, i) => ({ ...page, seq: i + 1, text: `receipt-${i}` })),
 		incomplete: false,
-		unavailableRuns: 0,
+		unavailable: 0,
 	}
 	const view = conversationEvidenceView('search_conversation', JSON.stringify(result))!
 	expect(view.content).toContain('Traversal finished within selected sources')
@@ -122,4 +123,16 @@ it.each(['not json', 'null', '[]', '{"text":"not an archive page"}'])(
 
 it('does not reinterpret a different tool with the same response shape', () => {
 	expect(conversationEvidenceView('remote_tool', JSON.stringify(page))).toBeUndefined()
+})
+
+it('renders the shape the search producer actually returns', () => {
+	// Typed against the producer, so renaming one of its fields fails this
+	// file at compile time instead of silently dropping the compact view.
+	const result: Pick<ConversationSearchResult, 'matches' | 'incomplete' | 'unavailable'> = {
+		matches: [],
+		incomplete: false,
+		unavailable: 0,
+	}
+	const view = conversationEvidenceView('search_conversation', JSON.stringify(result))
+	expect(view?.content.split('\n')[0]).toBe('Conversation search · 0 matches on this page')
 })

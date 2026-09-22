@@ -1,5 +1,5 @@
-import { asMessageId, asRunId } from '@namzu/sdk'
-import type { RunEvent } from '@namzu/sdk'
+import { asMessageId, asSessionId, asTurnId } from '@namzu/sdk'
+import type { SessionEvent } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -16,22 +16,23 @@ import {
 /**
  * The three properties that make exporting a session's content offerable at
  * all: a redactor can refuse, a refusal never falls open, and export cannot
- * stall the run it is exporting.
+ * stall the turn it is exporting.
  *
  * Each of those is a sentence somebody could write in a comment. They are
  * here instead because the failure mode of every one of them is silent — a
  * record that leaves un-redacted looks exactly like a record that was
- * cleared, and a run stalled by a slow collector looks like a slow model.
+ * cleared, and a turn stalled by a slow collector looks like a slow model.
  */
 
 // Through the checked constructors: the id types are nominal, and a
 // fixture that asserted its way past that would be testing a value the
 // kernel cannot produce.
-const RID = asRunId('401e07b3-5cc0-40f9-bc0e-a47192b85311')
+const SID = asSessionId('401e07b3-5cc0-40f9-bc0e-a47192b85311')
+const TID = asTurnId('0199b3a0-0000-7000-8000-0000000000c7')
 const MID = asMessageId('116b88f1-7300-4be5-a05d-f2a87105f095')
 
-function textDelta(text: string): RunEvent {
-	return { type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text }
+function textDelta(text: string): SessionEvent {
+	return { type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text }
 }
 
 function collecting(): SessionExportSink & { readonly records: SessionExportRecord[] } {
@@ -81,7 +82,7 @@ describe('the redaction chain', () => {
 			(m: string): SessionExportRedactor =>
 			(r) => ({
 				...r,
-				event: { ...r.event, text: `${(r.event as { text: string }).text}${m}` } as RunEvent,
+				event: { ...r.event, text: `${(r.event as { text: string }).text}${m}` } as SessionEvent,
 			})
 		const listener = createSessionExportListener(
 			configFor({ sink, redactors: [mark('-first'), mark('-second')] }),
@@ -107,7 +108,7 @@ describe('the redaction chain', () => {
 			}),
 		)
 
-		// Does not escape into the run: this listener is called from the run's
+		// Does not escape into the turn: this listener is called from the turn's
 		// own event loop.
 		expect(() => listener(textDelta('sk-ant-aaaaaaaaaaaaaaaaaaaaaaaa'))).not.toThrow()
 
@@ -139,7 +140,7 @@ describe('the redaction chain', () => {
 	})
 })
 
-describe('export cannot stall the run', () => {
+describe('export cannot stall the turn', () => {
 	it('returns immediately from a sink whose emit takes 200ms', async () => {
 		let released!: () => void
 		const slow: SessionExportSink = {
@@ -203,11 +204,12 @@ describe('the shipped secret redactor', () => {
 
 		listener({
 			type: 'tool_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 0,
 			toolName: 'read_file',
 			result: `the file said ${KEY}`,
-		} as unknown as RunEvent)
+		} as unknown as SessionEvent)
 
 		const emitted = JSON.stringify(sink.records[0]?.event)
 		expect(emitted).not.toContain(KEY)
@@ -220,11 +222,12 @@ describe('the shipped secret redactor', () => {
 
 		listener({
 			type: 'tool_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 0,
 			toolName: 'read_file',
 			result: `the file said ${KEY}`,
-		} as unknown as RunEvent)
+		} as unknown as SessionEvent)
 
 		// The second half, and the one that carries the weight: without it the
 		// first assertion could be satisfied by a record shape that never
@@ -233,7 +236,11 @@ describe('the shipped secret redactor', () => {
 	})
 
 	it('refuses a record it cannot serialise rather than passing it through', () => {
-		const cyclic = { type: 'text_delta', runId: RID } as unknown as RunEvent & { self?: unknown }
+		const cyclic = {
+			type: 'text_delta',
+			sessionId: SID,
+			turnId: TID,
+		} as unknown as SessionEvent & { self?: unknown }
 		cyclic.self = cyclic
 		const sink = collecting()
 		const listener = createSessionExportListener(configFor({ sink, redactors: [secretRedactor()] }))
@@ -252,7 +259,7 @@ describe('the event-type filter', () => {
 		const sink = collecting()
 		const redactor = vi.fn<SessionExportRedactor>((r) => r)
 		const listener = createSessionExportListener(
-			configFor({ sink, eventTypes: ['run_completed'], redactors: [redactor] }),
+			configFor({ sink, eventTypes: ['turn_completed'], redactors: [redactor] }),
 		)
 
 		listener(textDelta('body'))
@@ -270,13 +277,13 @@ describe('the event-type filter', () => {
 describe('the disclosure', () => {
 	it('names the destination, the event types, the redactor count and whether text is included', () => {
 		const sentence = describeSessionExport(
-			configFor({ eventTypes: ['text_delta', 'run_completed'], redactors: [secretRedactor()] }),
+			configFor({ eventTypes: ['text_delta', 'turn_completed'], redactors: [secretRedactor()] }),
 		)
 
 		expect(sentence).toContain('https://collector.example/api/v1/sessions')
 		expect(sentence).toContain('2 event types')
 		expect(sentence).toContain('text_delta')
-		expect(sentence).toContain('run_completed')
+		expect(sentence).toContain('turn_completed')
 		expect(sentence).toContain('1 redactor')
 		expect(sentence).toContain('conversation text IS included')
 	})
@@ -298,7 +305,7 @@ describe('the disclosure', () => {
 		// A disclosure that read the same in both states would satisfy any test
 		// asserting "the disclosure is shown" while telling a user nothing.
 		expect(off).not.toBe(on)
-		expect(on).toContain('every run event')
+		expect(on).toContain('every session event')
 	})
 
 	it('derives the text claim from the event types rather than a second flag', () => {

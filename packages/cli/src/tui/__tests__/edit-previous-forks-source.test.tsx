@@ -51,15 +51,11 @@ const forkCalls: Array<{ sourceId: string; userOrdinal: number; expected: Messag
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu-edit-test' }),
 	startConversation: async () => INITIAL,
 	requireWritableConversation: async () => {},
-	appendMessages: async (_sessions: unknown, id: string, messages: readonly Message[]) => {
-		durable.set(id, [...(durable.get(id) ?? []), ...messages])
-	},
-	replaceConversation: async (_sessions: unknown, id: string, messages: readonly Message[]) => {
-		durable.set(id, [...messages])
-	},
 	listRecent: async () => [
 		{
 			id: SOURCE,
@@ -104,7 +100,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 	return {
 		...actual,
 		probeAgentSession: async () => ({ preferences: PREFS, needsRepickReason: null, detected: [] }),
-		createAgentSession: async (): Promise<AgentSession> => ({
+		createAgentSession: async (
+			_preferences: unknown,
+			_detected: unknown,
+			options: { readonly scope?: { readonly sessionId: string } },
+		): Promise<AgentSession> => ({
 			hasProvider: true,
 			sandbox: { unconfined: true, enforced: [], required: [] },
 			compact: async () => null,
@@ -131,6 +131,17 @@ vi.mock('../agent.js', async (importOriginal) => {
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
 				yield { kind: 'delta', text: 'BRANCHED ANSWER' } as AgentEvent
+				// The kernel records the turn in the conversation the session's
+				// scope names when the turn begins: its user message, then the answer.
+				const sessionId = options.scope?.sessionId
+				const user = messages.at(-1)
+				if (sessionId && user) {
+					durable.set(sessionId, [
+						...(durable.get(sessionId) ?? []),
+						user,
+						createAssistantMessage('BRANCHED ANSWER'),
+					])
+				}
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			},
 		}),

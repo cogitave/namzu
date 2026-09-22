@@ -1,5 +1,5 @@
 import type { HITLDecisionRequest } from '../../../../types/hitl/index.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import {
 	type IterationContext,
 	type PhaseSignal,
@@ -7,16 +7,18 @@ import {
 	handleHITLDecision,
 } from './context.js'
 
-export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEvent, PhaseSignal> {
+export async function* runPlanGate(
+	ctx: IterationContext,
+): AsyncGenerator<SessionEvent, PhaseSignal> {
 	if (!ctx.planManager.active || ctx.planManager.active.status !== 'ready') {
 		return 'continue'
 	}
 
-	const planCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, 0)
+	const planCheckpoint = await ctx.checkpointMgr.create(ctx.recorder, 0)
 
 	await ctx.emitEvent({
 		type: 'checkpoint_created',
-		runId: ctx.runMgr.id,
+		turnId: ctx.recorder.turnId,
 		checkpointId: planCheckpoint.id,
 		iteration: 0,
 	})
@@ -25,7 +27,8 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	const plan = ctx.planManager.active
 	const request: HITLDecisionRequest = {
 		type: 'plan_approval',
-		runId: ctx.runMgr.id,
+		sessionId: ctx.recorder.sessionId,
+		turnId: ctx.recorder.turnId,
 		checkpointId: planCheckpoint.id,
 		plan: {
 			planId: plan.id,
@@ -51,7 +54,7 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	// on every iteration and the wrong one for a gate that runs once and is
 	// read by a human. Only the AWAIT below is raced.
 	await ctx.checkpointMgr.park(planCheckpoint, request)
-	// Raced against the run's abort signal, like every other park. A bare
+	// Raced against the turn's abort signal, like every other park. A bare
 	// `await ctx.resumeHandler(request)` here meant a Stop did nothing until
 	// the host answered: `runPlanGate` runs in the iteration loop rather than
 	// inside a tool call, so nothing downstream bounded the wait. A Stop now

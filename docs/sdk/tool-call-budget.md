@@ -34,7 +34,7 @@ their bodies start retain their slots. This bounds admissions rather than
 claiming every reservation produced an external side effect. Provider requests,
 argument repair, review hooks and background work after its launch are separate
 resources; a launched background job consumes its tool call, not a slot per
-process action. Delegated runs have independent budgets; this is not a shared
+process action. Child sessions have independent budgets; this is not a shared
 agent-tree allowance.
 
 ## Durable accounting and recovery
@@ -60,19 +60,19 @@ Completed recovery results are not charged again. Unfinished calls retried after
 a crash are new admissions, while their previous reservations remain spent.
 Recovery may therefore refuse an unfinished call even when its earlier body
 never started. This deliberate overcount avoids inventing refunds for uncertain
-execution. Starting a new run starts a new budget.
+execution. Starting a new turn starts a new budget.
 
 Unreadable, foreign, discontinuous or malformed ledger evidence fails closed
-before tool execution. So does enabling a budget on an older run whose existing
+before tool execution. So does enabling a budget on an older turn whose existing
 tool execution predates an admission ledger: its attempt count cannot be
-established honestly. Recovery rejects more than 100,000 returned events; the
-injected RunStore still owns the I/O and allocation cost of reading that log.
+established honestly. Recovery rejects more than 100,000 returned records; the
+session log still owns the I/O and allocation cost of reading them.
 A failed admission write prevents execution and invalidates further admissions
 on that executor. A cancelled call cannot enter a tool body after its reservation.
 Stores must settle their persistence operations; this option does not add a
 separate persistence timeout.
 
-This uses the run's existing ownership/fencing and durability guarantees. It is
+This uses the turn's existing ownership/fencing and durability guarantees. It is
 not a distributed compare-and-swap counter for independently active executors.
 An internal `ToolExecutor` without a replay reader has only instance-local
-accounting; the public query path supplies the run-store reader automatically.
+accounting; the public query path supplies the session-log reader automatically.

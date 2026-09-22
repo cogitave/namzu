@@ -7,7 +7,7 @@ import { applyToolPolicy, diffTools, hasDrift, toolsHash } from '../policy.js'
  * Discovery used to admit whatever the server offered, which puts the
  * REMOTE side in charge of what enters the agent's tool registry — the
  * exact inversion of least privilege. A server could add a tool between
- * two runs and it became callable with nobody having agreed to it.
+ * two turns and it became callable with nobody having agreed to it.
  */
 
 function tool(name: string, extra: Partial<MCPToolDefinition> = {}): MCPToolDefinition {

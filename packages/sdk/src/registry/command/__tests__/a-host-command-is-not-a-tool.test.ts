@@ -4,7 +4,7 @@ import { SessionGoalActivation } from '../../../manager/goal/activation.js'
 import { InMemorySessionGoalStore } from '../../../store/goal/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { generateTenantId, generateTopicId } from '../../../utils/id.js'
 import { ToolRegistry } from '../../tool/execute.js'
 import { HostCommandRegistry } from '../index.js'
@@ -24,12 +24,13 @@ import { kernelHostCommands } from '../kernel-commands.js'
  * discovered something.
  */
 
-const RUN = 'bc6b7912-fe1e-479d-9d8a-af494bd39153' as RunId
+const SESSION = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
+const TURN = 'bc6b7912-fe1e-479d-9d8a-af494bd39153' as TurnId
 
 async function storeWith(subjects: string[]): Promise<InMemoryTaskStore> {
 	const store = new InMemoryTaskStore()
 	for (const subject of subjects) {
-		await store.create({ runId: RUN, subject } as never)
+		await store.create({ sessionId: SESSION, turnId: TURN, subject })
 	}
 	return store
 }
@@ -90,7 +91,7 @@ describe('a host command answers from what the kernel owns', () => {
 	it('reports an empty roster as an empty report, not a refusal', async () => {
 		// The mirror case, and the reason the distinction is not a blanket
 		// rule: "who may I call" with the answer "nobody" is complete and
-		// correct for a run with delegation off.
+		// correct for a turn with delegation off.
 		const outcome = await registryWith(kernelHostCommands({ allowedAgentIds: [] })).dispatch(
 			'/agents',
 		)

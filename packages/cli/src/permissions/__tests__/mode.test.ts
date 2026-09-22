@@ -100,7 +100,7 @@ describe('what each mode does with an undecided call', () => {
 	})
 
 	it('strict refuses it, and says asking again will not help', async () => {
-		// The mode that did not exist: an unattended run could only be `auto`, so
+		// The mode that did not exist: an unattended turn could only be `auto`, so
 		// a CI job either trusted the agent with everything or could not use it.
 		const handler = makeResumeHandler({ all: false }, undefined, 'strict')
 

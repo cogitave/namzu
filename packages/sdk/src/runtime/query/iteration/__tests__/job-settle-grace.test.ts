@@ -22,7 +22,7 @@ import { awaitedJobGraceMs, settleGraceMs } from '../index.js'
  *
  * That file pins what a finishing run pays for a delegated worker; this one
  * pins the same three properties for a background job the model said it was
- * waiting on — it is bounded by the run's own budget, it is never paid for a
+ * waiting on — it is bounded by the turn's own budget, it is never paid for a
  * job nobody awaited, and what it gives up on is named rather than hidden.
  *
  * Every case drives a real `BackgroundJobRegistry`, because the question is
@@ -88,7 +88,7 @@ async function run(options: {
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			maxIterations: options.maxIterations,
 			tokenBudget: 200_000,
@@ -96,16 +96,16 @@ async function run(options: {
 		},
 		backgroundJobs,
 	})
-	// The run owns these jobs, so `drainQuery` has already stopped them; the
+	// The turn owns these jobs, so `drainQuery` has already stopped them; the
 	// elapsed time is measured over that too, which is the honest number.
 	return { result, provider, elapsedMs: Date.now() - startedAt }
 }
 
-describe('a run holds itself open only for a job the model awaited', () => {
-	it('does not wait thirty seconds for it inside a two-second run', async () => {
+describe('a turn holds itself open only for a job the model awaited', () => {
+	it('does not wait thirty seconds for it inside a two-second turn', async () => {
 		// The property `settleGraceMs` exists for, on the job side: the wait is
-		// a share of what this run has left, not a share of how long the job
-		// might take. `sleep 30` outlives the run's whole budget fifteen times
+		// a share of what this turn has left, not a share of how long the job
+		// might take. `sleep 30` outlives the turn's whole budget fifteen times
 		// over, and the hold must not follow it there.
 		const { result, elapsedMs } = await run({
 			turns: [START_LONG, WAIT_BRIEFLY, { text: 'it is still going' }],
@@ -114,11 +114,11 @@ describe('a run holds itself open only for a job the model awaited', () => {
 		})
 
 		expect(result.status).toBe('completed')
-		expect(elapsedMs, 'the hold outlived the run budget that bounds it').toBeLessThan(5_000)
+		expect(elapsedMs, 'the hold outlived the turn budget that bounds it').toBeLessThan(5_000)
 	}, 60_000)
 
 	it('does not hold at all for a job nobody awaited', async () => {
-		// The dev-server case, and the reason wait-intent is explicit. This run
+		// The dev-server case, and the reason wait-intent is explicit. This turn
 		// has twenty seconds left, so a hold that triggered on job EXISTENCE
 		// would park here for about nine of them — at the end of every turn,
 		// for a process that is doing exactly what it was started to do.
@@ -129,14 +129,14 @@ describe('a run holds itself open only for a job the model awaited', () => {
 		})
 
 		expect(result.status).toBe('completed')
-		expect(elapsedMs, 'a job nobody waited for held the run open').toBeLessThan(3_000)
+		expect(elapsedMs, 'a job nobody waited for held the turn open').toBeLessThan(3_000)
 		// And it cost no extra turn either: two scripted turns, two requests.
 		expect(provider.requests.length).toBe(2)
 	}, 60_000)
 
 	it('names the awaited job it walked away from', async () => {
 		// The same statement `abandonedTaskIds` makes about a delegated worker.
-		// A run that gave up waiting must not leave the impression the job
+		// A turn that gave up waiting must not leave the impression the job
 		// reported back — and must not pretend it stopped it either.
 		const { result } = await run({
 			turns: [START_LONG, WAIT_BRIEFLY, { text: 'giving up on it' }],
@@ -159,11 +159,11 @@ describe('a run holds itself open only for a job the model awaited', () => {
 	}, 60_000)
 
 	it('does not park an unlimited run for the delegation hour', async () => {
-		// The configuration the CLI actually ships: `timeoutMs: 0`, no run
+		// The configuration the CLI actually ships: `timeoutMs: 0`, no turn
 		// deadline, so there is no remainder for the grace to take a share of
 		// and `settleGraceMs` returns its ceiling flat. For a delegated task
 		// that hour is the longest the task itself may live; a `sleep 30` —
-		// or a watcher, or `tail -f` — has no such bound, and a run that spent
+		// or a watcher, or `tail -f` — has no such bound, and a turn that spent
 		// the ceiling on one would hold the session silent for an hour.
 		vi.stubEnv('NAMZU_JOB_HOLD_MAX_MS', '400')
 		const { result, elapsedMs } = await run({
@@ -180,7 +180,7 @@ describe('a run holds itself open only for a job the model awaited', () => {
 })
 
 describe('the job half of the grace has a ceiling of its own', () => {
-	it('is the share of the run, wherever that is the smaller number', () => {
+	it('is the share of the turn, wherever that is the smaller number', () => {
 		expect(awaitedJobGraceMs(60_000)).toBe(settleGraceMs(60_000))
 		expect(awaitedJobGraceMs(0)).toBe(0)
 	})
@@ -194,7 +194,7 @@ describe('the job half of the grace has a ceiling of its own', () => {
 		expect(awaitedJobGraceMs(Number.POSITIVE_INFINITY)).toBe(2 * 60 * 1000)
 	})
 
-	it('never waits longer than the run would have for a task', () => {
+	it('never waits longer than the turn would have for a task', () => {
 		for (const remaining of [1, 250, 30_000, 600_000, 3_600_000, Number.POSITIVE_INFINITY]) {
 			expect(awaitedJobGraceMs(remaining)).toBeLessThanOrEqual(settleGraceMs(remaining))
 		}
@@ -205,7 +205,7 @@ describe('the job half of the grace has a ceiling of its own', () => {
 		expect(awaitedJobGraceMs(Number.POSITIVE_INFINITY)).toBe(5_000)
 
 		// A value that is not a positive whole number of milliseconds is not a
-		// ceiling; the default stands rather than a run holding for NaN.
+		// ceiling; the default stands rather than a turn holding for NaN.
 		vi.stubEnv('NAMZU_JOB_HOLD_MAX_MS', 'soon')
 		expect(awaitedJobGraceMs(Number.POSITIVE_INFINITY)).toBe(2 * 60 * 1000)
 	})

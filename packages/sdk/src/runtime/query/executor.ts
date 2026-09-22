@@ -13,7 +13,7 @@ import type { ActivityStore } from '../../store/activity/memory.js'
 import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
-import type { RunId, ToolUseId } from '../../types/ids/index.js'
+import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
 	type Message,
@@ -24,9 +24,9 @@ import {
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
-import type { AuditEventInput } from '../../types/run/audit.js'
-import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
+import type { AuditEventInput } from '../../types/session/audit.js'
+import type { SessionRecord } from '../../types/session/records.js'
 import type {
 	FileReadTracker,
 	PreparedToolExecution,
@@ -68,7 +68,8 @@ import {
 	measureContentBytes,
 } from './tool-output-budget.js'
 
-export type EmitEvent = (event: RunEvent) => Promise<void>
+export type { EmitEvent } from './events.js'
+import type { EmitEvent, SessionEventDraft } from './events.js'
 
 export type PreparedDirectCall =
 	| {
@@ -203,7 +204,7 @@ class ToolProgressPublisher {
 	constructor(
 		private readonly emitEvent: EmitEvent,
 		private readonly base: Omit<
-			Extract<RunEvent, { type: 'tool_progress' }>,
+			Extract<SessionEventDraft, { type: 'tool_progress' }>,
 			'message' | 'fraction'
 		>,
 	) {}
@@ -293,15 +294,16 @@ export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
 export interface ToolExecutorConfig {
 	fileReadTracker?: FileReadTracker
 	tools: ToolRegistryContract
-	runId: RunId
+	sessionId: SessionId
+	turnId: TurnId
 	workingDirectory: string
 	/** See `ToolContext.additionalDirectories`. */
 	additionalDirectories?: readonly string[]
 	/**
-	 * Read LIVE, not frozen at run start.
+	 * Read LIVE, not frozen at turn start.
 	 *
-	 * The mode used to be resolved once per run and copied in here, so
-	 * leaving plan mode meant ending the run — discarding the in-flight step
+	 * The mode used to be resolved once per turn and copied in here, so
+	 * leaving plan mode meant ending the turn — discarding the in-flight step
 	 * and the tool-schema context to change one enum. A function lets an
 	 * approval flip it inside the same conversation.
 	 *
@@ -316,19 +318,19 @@ export interface ToolExecutorConfig {
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	/**
-	 * Where background jobs this run starts are held.
+	 * Where background jobs this turn starts are held.
 	 *
 	 * The registry is host-owned and shared; the executor binds it to THIS
-	 * run's id before a tool ever sees it, so a tool cannot start a job
-	 * billed to another run, nor read or kill one. Absent means the host
+	 * turn's id before a tool ever sees it, so a tool cannot start a job
+	 * billed to another turn, nor read or kill one. Absent means the host
 	 * offers no background mode, and `bash run_in_background` refuses rather
 	 * than falling back to `cmd &` — see `runtime/jobs/registry.ts` for why
 	 * that fallback is a lie rather than a lesser version.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
 	/**
-	 * Which owner the run's jobs are bound to. The run id by default, which
-	 * scopes them to the run; a host that wants jobs to outlive a turn (a
+	 * Which owner the turn's jobs are bound to. The turn id by default, which
+	 * scopes them to the turn; a host that wants jobs to outlive a turn (a
 	 * dev server started in one, read in the next) binds them to its
 	 * session and stops them itself when the session ends.
 	 */
@@ -337,7 +339,7 @@ export interface ToolExecutorConfig {
 	 * Where `wait_for_job` records that the model is waiting on a job.
 	 *
 	 * A callback rather than the recorder itself: the executor's part is to
-	 * hand the tools a bound ref, and what the run does with the intent —
+	 * hand the tools a bound ref, and what the turn does with the intent —
 	 * hold itself open for the job — is the iteration loop's business. Absent
 	 * means the bound ref has no `markAwaited` at all, so a host that wires no
 	 * recorder gets no hold rather than a marking call that goes nowhere.
@@ -351,11 +353,11 @@ export interface ToolExecutorConfig {
 	 * this config is host-facing and a host may hold its skills anywhere.
 	 */
 	skills?: SkillRegistryRef
-	/** How this run reaches the web. See `ToolContext.web`. */
+	/** How this turn reaches the web. See `ToolContext.web`. */
 	web?: ToolContext['web']
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
-	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
+	/** Turn-level default deadline; per-tool `timeoutMs` overrides it. */
 	toolTimeoutMs?: number
 	/**
 	 * Wait between in-loop retries of a failed tool call. Defaults to
@@ -363,21 +365,21 @@ export interface ToolExecutorConfig {
 	 *
 	 * Applies only to a tool that opted into retrying at all
 	 * ({@link ToolDefinition.maxRetries}) or to a `post_tool_use` hook that
-	 * asked for one, so a run whose tools all take the shipped default of
+	 * asked for one, so a turn whose tools all take the shipped default of
 	 * zero retries never sleeps here.
 	 */
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	/** Max concurrently-executing concurrency-safe tools. */
 	maxToolConcurrency?: number
-	/** Per-run cumulative attempt admission limit; unset is unlimited. */
+	/** Per-turn cumulative attempt admission limit; unset is unlimited. */
 	maxToolCalls?: number
-	/** Complete strict event replay for restoring a configured call budget. */
-	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
+	/** Complete strict session-log read for restoring a configured call budget. */
+	readToolCallBudgetRecords?: () => Promise<readonly SessionRecord[]>
 
 	/**
 	 * Builds the durable-pause seam handed to one tool call.
 	 *
-	 * Absent when the run has no route to a human, which is why
+	 * Absent when the turn has no route to a human, which is why
 	 * {@link ToolContext.requestPause} is optional: a tool must be able to
 	 * run in a headless context and decide what to do without one.
 	 */
@@ -420,7 +422,7 @@ export interface ToolExecutorConfig {
 	 * with `read`/`grep`. Absent ⇒ over-budget output is middle-elided and
 	 * the overflow is lost.
 	 */
-	captureRunEvidence?: ToolContext['captureRunEvidence']
+	captureSessionEvidence?: ToolContext['captureSessionEvidence']
 	toolOutputDir?: string | (() => string | undefined)
 	/**
 	 * Last chance to fix a tool call the model got wrong, before the error
@@ -490,7 +492,7 @@ export type ToolCallDenials = ReadonlyMap<string, string>
  *
  * A batch's results reach the history only when the whole batch settles,
  * so a hard kill part-way through loses whatever had already come back and
- * the resumed run re-executes those calls. Supplying them here answers
+ * the resumed turn re-executes those calls. Supplying them here answers
  * those `tool_use` blocks from the record instead of by running the tool
  * again — which for a payment or an email is the difference between
  * resuming and repeating.
@@ -543,9 +545,9 @@ export class ToolExecutor {
 		if (config.maxToolCalls !== undefined) {
 			this.toolCallBudget = new ToolCallBudget(
 				config.maxToolCalls,
-				config.runId,
+				config.turnId,
 				emitEvent,
-				config.readToolCallBudgetEvents,
+				config.readToolCallBudgetRecords,
 			)
 		}
 		this.fileReadTracker = config.fileReadTracker ?? createFileReadTracker()
@@ -565,14 +567,14 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Rebuild this run's observation ledger from history a resume restored.
+	 * Rebuild this turn's observation ledger from history a resume restored.
 	 *
 	 * Once, and only from a history that has already been repaired — the ledger
 	 * has to describe what the model is about to be shown, not what was
 	 * checkpointed before the repair removed an abandoned call. `sandboxed` is
-	 * passed rather than read off this executor's config because a resumed run
+	 * passed rather than read off this executor's config because a resumed turn
 	 * restores its history before it acquires a sandbox, so the config does not
-	 * know yet what the run's tool paths will be keyed on.
+	 * know yet what the turn's tool paths will be keyed on.
 	 *
 	 * Awaited, and the only filesystem work anywhere in this feature: the seed
 	 * has to write its entries under the keys the mutation tools will look them
@@ -590,7 +592,7 @@ export class ToolExecutor {
 			sandboxed,
 		})
 		this.log.info('Rebuilt the file observation ledger from restored history', {
-			[NAMZU.RUN_ID]: this.config.runId,
+			[NAMZU.TURN_ID]: this.config.turnId,
 			'namzu.files.witnessed': report.pathsWitnessed,
 			'namzu.files.seen': report.pathsSeen,
 			'namzu.files.replayed_units': report.unitsReplayed,
@@ -620,10 +622,10 @@ export class ToolExecutor {
 	 * Narrow what this turn may call, or clear the narrowing.
 	 *
 	 * Re-set each turn by the orchestrator for the same reason the parent span
-	 * is: `prepareStep` can hand a different list to every step, and the run's
+	 * is: `prepareStep` can hand a different list to every step, and the turn's
 	 * own `allowedTools` is only the default when a step names none.
 	 *
-	 * Without this the executor could only ever see the RUN-level list, so a
+	 * Without this the executor could only ever see the TURN-level list, so a
 	 * per-step narrowing reached the request that was sent and nothing else —
 	 * the model was shown fewer tools and could still call all of them.
 	 */
@@ -740,7 +742,7 @@ export class ToolExecutor {
 		return typeof configured === 'function' ? configured() : configured
 	}
 
-	/** Evaluate the run's operator policy against one already-prepared value. */
+	/** Evaluate the turn's operator policy against one already-prepared value. */
 	evaluatePreparedAuthorization(toolName: string, input: unknown) {
 		return this.config.authorizationGate?.evaluate({
 			toolName,
@@ -850,7 +852,7 @@ export class ToolExecutor {
 		preparedBatch?: OwnedPreparedToolBatch,
 	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
-			[NAMZU.RUN_ID]: this.config.runId,
+			[NAMZU.TURN_ID]: this.config.turnId,
 			'namzu.runtime.tool_count': toolCalls.length,
 			'namzu.runtime.denied_count': denials?.size ?? 0,
 			'namzu.runtime.recovered_count': prior?.size ?? 0,
@@ -866,12 +868,12 @@ export class ToolExecutor {
 		}
 		const baseContext = this.buildToolContext(recordObservation)
 		// A model response is the ownership boundary for concurrent siblings.
-		// Scope the first call id to its durable run: custom providers are not
+		// Scope the first call id to its durable turn: custom providers are not
 		// required to make call ids globally unique, so the raw id alone could
-		// collide with a later run retained by a host-side activity monitor.
+		// collide with a later turn retained by a host-side activity monitor.
 		const firstToolUseId = toolCalls[0]?.id
 		const toolBatchId = firstToolUseId
-			? JSON.stringify([String(baseContext.runId), firstToolUseId])
+			? JSON.stringify([String(baseContext.turnId), firstToolUseId])
 			: undefined
 
 		// Respect each tool's `concurrencySafe` flag. Read-only tools
@@ -946,7 +948,7 @@ export class ToolExecutor {
 			// side by side needs to know whose progress this is.
 			const progress = new ToolProgressPublisher(this.emitEvent, {
 				type: 'tool_progress',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: toolCall.id as ToolUseId,
 				toolName: toolCall.function.name,
 			})
@@ -1016,7 +1018,7 @@ export class ToolExecutor {
 			}
 			await this.emitEvent({
 				type: 'tool_completed',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: toolCall.id,
 				toolName,
 				result: message,
@@ -1039,7 +1041,7 @@ export class ToolExecutor {
 	 * Run a tool on behalf of another tool, and put it on the record.
 	 *
 	 * These used to go straight to `registry.execute`, so they reached the
-	 * permission gate and reached the event stream not at all — a run whose
+	 * permission gate and reached the event stream not at all — a turn whose
 	 * transcript showed one `run_code` call and nothing about the eleven
 	 * writes it performed is a transcript nobody can audit.
 	 *
@@ -1100,14 +1102,14 @@ export class ToolExecutor {
 			: { kind: 'direct' as const }
 		const progress = new ToolProgressPublisher(this.emitEvent, {
 			type: 'tool_progress',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: nestedId,
 			toolName: name,
 		})
 		if (preparedCall.kind === 'synthetic') {
 			await this.emitEvent({
 				type: 'tool_executing',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: nestedId,
 				toolName: name,
 				input: preparedInput,
@@ -1116,7 +1118,7 @@ export class ToolExecutor {
 			await progress.close()
 			await this.emitEvent({
 				type: 'tool_completed',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: nestedId,
 				toolName: name,
 				result: preparedCall.message,
@@ -1142,7 +1144,7 @@ export class ToolExecutor {
 					: `Blocked by the authorization gate: this nested call requires an explicit allow rule because an operator review cannot be opened from inside another tool. ${gateResult.reason}`
 			const output = deniedToolOutput(name, reason)
 			// Same fail-closed durability rule as a direct gate denial: if the
-			// configured run store cannot record the refusal, do not quietly carry
+			// configured session log cannot record the refusal, do not quietly carry
 			// on with an unaudited execution.
 			if (!this.config.recordAudit) {
 				throw new Error(
@@ -1157,7 +1159,7 @@ export class ToolExecutor {
 			await progress.close()
 			await this.emitEvent({
 				type: 'tool_executing',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: nestedId,
 				toolName: name,
 				input: preparedInput,
@@ -1165,7 +1167,7 @@ export class ToolExecutor {
 			})
 			await this.emitEvent({
 				type: 'tool_completed',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: nestedId,
 				toolName: name,
 				result: output,
@@ -1204,7 +1206,7 @@ export class ToolExecutor {
 
 		await this.emitEvent({
 			type: 'tool_executing',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: nestedId,
 			toolName: name,
 			input: preparedInput,
@@ -1214,13 +1216,14 @@ export class ToolExecutor {
 		const vetoOutcome = this.probes.queryVeto(
 			{
 				type: 'tool_executing',
-				runId: this.config.runId,
+				sessionId: this.config.sessionId,
+				turnId: this.config.turnId,
 				toolUseId: nestedId,
 				toolName: name,
 				input: preparedInput,
 				...(via ? { via } : {}),
 			},
-			buildProbeContext({ runId: this.config.runId }),
+			buildProbeContext({ sessionId: this.config.sessionId, turnId: this.config.turnId }),
 		)
 		if (vetoOutcome.action === 'deny') {
 			const probeName = vetoOutcome.probeName ?? 'unnamed'
@@ -1229,7 +1232,7 @@ export class ToolExecutor {
 			await progress.close()
 			await this.emitEvent({
 				type: 'tool_completed',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: nestedId,
 				toolName: name,
 				result: `Error: ${message}`,
@@ -1268,7 +1271,7 @@ export class ToolExecutor {
 			spillDir: this.outputDirectory(),
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized nested tool output', {
-					[NAMZU.RUN_ID]: this.config.runId,
+					[NAMZU.TURN_ID]: this.config.turnId,
 					[GENAI.TOOL_NAME]: name,
 					'exception.message': message,
 				}),
@@ -1286,7 +1289,7 @@ export class ToolExecutor {
 
 		await this.emitEvent({
 			type: 'tool_completed',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: nestedId,
 			toolName: name,
 			result: budgeted.output,
@@ -1300,7 +1303,8 @@ export class ToolExecutor {
 			...(via ? { via } : {}),
 		})
 		recordObservation({
-			runId: this.config.runId,
+			sessionId: this.config.sessionId,
+			turnId: this.config.turnId,
 			toolUseId: nestedId,
 			toolName: name,
 			input: preparedInput,
@@ -1330,7 +1334,8 @@ export class ToolExecutor {
 		recordObservation: (observation: ToolResultObservation) => void = () => {},
 	): ToolContext {
 		const context: ToolContext = {
-			runId: this.config.runId,
+			sessionId: this.config.sessionId,
+			turnId: this.config.turnId,
 			workingDirectory: this.config.workingDirectory,
 			...(this.config.additionalDirectories?.length
 				? { additionalDirectories: this.config.additionalDirectories }
@@ -1340,13 +1345,14 @@ export class ToolExecutor {
 			log: (level, message) => this.log[level](message),
 			permissionContext: {
 				mode: this.batchMode ?? this.resolvePermissionMode(),
-				runId: this.config.runId,
+				sessionId: this.config.sessionId,
+				turnId: this.config.turnId,
 				workingDirectory: this.config.workingDirectory,
 			},
 			invocationState: this.config.invocationState,
-			captureRunEvidence: this.config.captureRunEvidence,
+			captureSessionEvidence: this.config.captureSessionEvidence,
 			toolRegistry: this.config.tools,
-			// The step's list wins where it has one; the run's is the default.
+			// The step's list wins where it has one; the turn's is the default.
 			// Same precedence the request already uses when it decides which
 			// schemas to send, so the menu and the kitchen agree.
 			allowedTools: this.effectiveAllowedTools(),
@@ -1356,10 +1362,10 @@ export class ToolExecutor {
 				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
 			},
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
-			// The run's screens, defaulted HERE rather than on the registry: a
+			// The turn's screens, defaulted HERE rather than on the registry: a
 			// host builds the registry and hands it over, so a registry-side
 			// default is the host's to write and the shipped one reaches
-			// nobody. `[]` survives the `??` and is how a run says "none".
+			// nobody. `[]` survives the `??` and is how a turn says "none".
 			toolResultGuardrails: this.config.toolResultGuardrails ?? DEFAULT_TOOL_RESULT_GUARDRAILS,
 			...(this.config.skills ? { skills: this.config.skills } : {}),
 			...(this.config.web ? { web: this.config.web } : {}),
@@ -1375,9 +1381,9 @@ export class ToolExecutor {
 				this.dispatchNested(name, input, context, recordObservation, undefined, options),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
-			// Bound to this run, once. Binding here rather than passing the
+			// Bound to this turn, once. Binding here rather than passing the
 			// owner from the tool is what makes the scoping structural: there
-			// is no argument a tool could pass to reach another run's jobs.
+			// is no argument a tool could pass to reach another turn's jobs.
 			//
 			// The registry's process substrate is the HOST. It must not coexist
 			// with a Sandbox in one tool context: handing both to every tool lets
@@ -1394,7 +1400,7 @@ export class ToolExecutor {
 				? {
 						backgroundJobs: bindOwner(
 							this.config.backgroundJobs,
-							this.config.backgroundJobOwner ?? this.config.runId,
+							this.config.backgroundJobOwner ?? this.config.turnId,
 							{
 								workingDirectory: this.config.workingDirectory,
 								env: this.config.env,
@@ -1461,14 +1467,14 @@ export class ToolExecutor {
 				const message = truncatedToolInputMessage(toolName)
 				await this.emitEvent({
 					type: 'tool_executing',
-					runId: this.config.runId,
+					turnId: this.config.turnId,
 					toolUseId: toolCall.id,
 					toolName,
 					input: {},
 				})
 				await this.emitEvent({
 					type: 'tool_completed',
-					runId: this.config.runId,
+					turnId: this.config.turnId,
 					toolUseId: toolCall.id,
 					toolName,
 					result: message,
@@ -1510,14 +1516,14 @@ export class ToolExecutor {
 				const message = resolved.message
 				await this.emitEvent({
 					type: 'tool_executing',
-					runId: this.config.runId,
+					turnId: this.config.turnId,
 					toolUseId: toolCall.id,
 					toolName,
 					input: {},
 				})
 				await this.emitEvent({
 					type: 'tool_completed',
-					runId: this.config.runId,
+					turnId: this.config.turnId,
 					toolUseId: toolCall.id,
 					toolName,
 					result: message,
@@ -1561,7 +1567,7 @@ export class ToolExecutor {
 
 		await this.emitEvent({
 			type: 'tool_executing',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: toolCall.id,
 			toolName,
 			input,
@@ -1570,19 +1576,20 @@ export class ToolExecutor {
 		const vetoOutcome = this.probes.queryVeto(
 			{
 				type: 'tool_executing',
-				runId: this.config.runId,
+				sessionId: this.config.sessionId,
+				turnId: this.config.turnId,
 				toolUseId: toolCall.id,
 				toolName,
 				input,
 			},
-			buildProbeContext({ runId: this.config.runId }),
+			buildProbeContext({ sessionId: this.config.sessionId, turnId: this.config.turnId }),
 		)
 		if (vetoOutcome.action === 'deny') {
 			const probeName = vetoOutcome.probeName ?? 'unnamed'
 			const reason = vetoOutcome.reason ?? 'no reason provided'
 			const veto = new ProbeVetoError(probeName, reason, 'tool_executing')
 			this.log.warn('Tool call denied by probe', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.runtime.probe_name': probeName,
 				'namzu.runtime.reason': reason,
@@ -1594,7 +1601,7 @@ export class ToolExecutor {
 			// Emit the terminal event with isError so UI cards finalize.
 			await this.emitEvent({
 				type: 'tool_completed',
-				runId: this.config.runId,
+				turnId: this.config.turnId,
 				toolUseId: toolCall.id,
 				toolName,
 				result: `Error: ${veto.message}`,
@@ -1614,7 +1621,7 @@ export class ToolExecutor {
 				// model read a SUCCESSFUL result whose body begins "Error: …"
 				// and the failure-recovery path it was trained on never
 				// fired. The persisted step recorded a literal
-				// `isError: false`, so the run record contradicted its own
+				// `isError: false`, so the turn record contradicted its own
 				// event stream. And compaction's guard against clearing error
 				// results silently excluded vetoed ones.
 				isError: true,
@@ -1627,7 +1634,7 @@ export class ToolExecutor {
 
 		const startMs = Date.now()
 		// an unhandled throw from `tools.execute(...)` used to
-		// propagate up to `result.ts` as `run_failed` without emitting a
+		// propagate up to `result.ts` as `turn_failed` without emitting a
 		// terminal `tool_completed`, leaving UI cards stuck in `executing`.
 		// Wrap so any throw materialises as an error result.
 		// Typed as the full ToolResult, not a narrowed literal: the narrow
@@ -1683,7 +1690,7 @@ export class ToolExecutor {
 			const delayMs = backoffWithJitter(attempt - 1, backoff)
 
 			this.log.info('Retrying a failed tool call', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.retry.attempt': attempt,
 				'namzu.runtime.budget': budget,
@@ -1760,7 +1767,7 @@ export class ToolExecutor {
 			spillDir: this.outputDirectory(),
 			onError: (message) =>
 				this.log.warn('Failed to retain original tool output', {
-					[NAMZU.RUN_ID]: this.config.runId,
+					[NAMZU.TURN_ID]: this.config.turnId,
 					[GENAI.TOOL_NAME]: toolName,
 					'exception.message': message,
 				}),
@@ -1771,7 +1778,7 @@ export class ToolExecutor {
 			budgeted.originalLength > maxToolOutputChars
 		) {
 			this.log.warn('Tool output exceeded the model-visible budget', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.runtime.original_length': budgeted.originalLength,
 				'namzu.runtime.spill_path': budgeted.spillPath,
@@ -1798,14 +1805,14 @@ export class ToolExecutor {
 
 		if (result.success) {
 			this.log.debug('Tool executed successfully', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.duration_ms': durationMs,
 				'namzu.runtime.output_length': output.length,
 			})
 		} else {
 			this.log.warn('Tool execution failed', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.duration_ms': durationMs,
 				'exception.message': postOverride ? output : (result.error ?? 'unknown'),
@@ -1827,7 +1834,7 @@ export class ToolExecutor {
 		await settleProgress()
 		await this.emitEvent({
 			type: 'tool_completed',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: toolCall.id,
 			toolName,
 			result: output,
@@ -1844,7 +1851,8 @@ export class ToolExecutor {
 			...(budgeted.spillIntegrity ? { outputSpillIntegrity: budgeted.spillIntegrity } : {}),
 		})
 		recordObservation({
-			runId: this.config.runId,
+			sessionId: this.config.sessionId,
+			turnId: this.config.turnId,
 			toolUseId: toolCall.id,
 			toolName,
 			input,
@@ -1870,7 +1878,7 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Run a tool under a deadline, with the run abort folded in.
+	 * Run a tool under a deadline, with the turn abort folded in.
 	 *
 	 * `ToolContext.abortSignal` existed but was produced and consumed by
 	 * nothing: a Stop tore down the model stream and then parked inside
@@ -1887,7 +1895,7 @@ export class ToolExecutor {
 	 *
 	 * A timeout is reported as a normal failed result, not a throw: the
 	 * model sees "this timed out" as a `tool_result` and can route around
-	 * it. A throw would end the run over one slow tool.
+	 * it. A throw would end the turn over one slow tool.
 	 */
 	private async executeWithDeadline(
 		toolName: string,
@@ -1970,8 +1978,8 @@ export class ToolExecutor {
 				}
 			}
 
-			const inheritedCapture = toolContext.captureRunEvidence
-			const scopedCapture: ToolContext['captureRunEvidence'] = inheritedCapture
+			const inheritedCapture = toolContext.captureSessionEvidence
+			const scopedCapture: ToolContext['captureSessionEvidence'] = inheritedCapture
 				? async (maxReadBytes, signal) => {
 						const combined = signal
 							? AbortSignal.any([controller.signal, signal])
@@ -1983,7 +1991,7 @@ export class ToolExecutor {
 			const context = {
 				...toolContext,
 				abortSignal: controller.signal,
-				...(scopedCapture ? { captureRunEvidence: scopedCapture } : {}),
+				...(scopedCapture ? { captureSessionEvidence: scopedCapture } : {}),
 				...(scopedDispatch ? { dispatchTool: scopedDispatch } : {}),
 			}
 			const execution = prepared
@@ -1999,7 +2007,7 @@ export class ToolExecutor {
 
 			if (outcome === 'timeout') {
 				this.log.warn('Tool timed out', {
-					[NAMZU.RUN_ID]: this.config.runId,
+					[NAMZU.TURN_ID]: this.config.turnId,
 					[GENAI.TOOL_NAME]: toolName,
 					'namzu.runtime.timeout_ms': timeoutMs,
 				})
@@ -2058,7 +2066,7 @@ export class ToolExecutor {
 	 * `setSandbox()` now finishes against the config it STARTED with rather
 	 * than against the new one. Distinguishing the two readings needs
 	 * `setSandbox` to be called from a hook awaited in the middle of one
-	 * admission — its only call site is the run's sandbox acquisition,
+	 * admission — its only call site is the turn's sandbox acquisition,
 	 * before the loop, so nothing in this tree can tell them apart.
 	 */
 	private admissionHost(): ToolAdmissionHost {
@@ -2149,7 +2157,7 @@ export class ToolExecutor {
 	 * One execution attempt, with a throw materialized as an error result.
 	 *
 	 * an unhandled throw from `tools.execute(...)` used to
-	 * propagate up to `result.ts` as `run_failed` without emitting a
+	 * propagate up to `result.ts` as `turn_failed` without emitting a
 	 * terminal `tool_completed`, leaving UI cards stuck in `executing`.
 	 *
 	 * The return is the full `ToolResult`, not a narrowed literal: the
@@ -2168,7 +2176,7 @@ export class ToolExecutor {
 		} catch (err) {
 			const message = toErrorMessage(err)
 			this.log.warn('Tool execution threw', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'exception.message': message,
 			})
@@ -2191,7 +2199,8 @@ export class ToolExecutor {
 			results = await this.config.pluginManager.executeHooks(
 				'post_tool_use',
 				{
-					runId: this.config.runId,
+					sessionId: this.config.sessionId,
+					turnId: this.config.turnId,
 					toolName,
 					toolInput: input,
 					toolResult,
@@ -2280,7 +2289,7 @@ export class ToolExecutor {
 		const output = deniedToolOutput(toolName, reason)
 
 		this.log.info('Tool call denied — synthesizing tool_result', {
-			[NAMZU.RUN_ID]: this.config.runId,
+			[NAMZU.TURN_ID]: this.config.turnId,
 			[GENAI.TOOL_NAME]: toolName,
 			'namzu.runtime.tool_use_id': toolCall.id,
 			'namzu.runtime.reason': reason,
@@ -2300,14 +2309,14 @@ export class ToolExecutor {
 
 		await this.emitEvent({
 			type: 'tool_executing',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: toolCall.id,
 			toolName,
 			input,
 		})
 		await this.emitEvent({
 			type: 'tool_completed',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: toolCall.id,
 			toolName,
 			result: output,
@@ -2325,7 +2334,7 @@ export class ToolExecutor {
 		const reason = abortReasonText(this.config.abortSignal.reason)
 		return this.recordSyntheticHookOutcome(toolCallId, toolName, input, {
 			kind: 'error',
-			output: `Tool "${toolName}" was not started because the run was cancelled${reason ? `: ${reason}` : '.'}`,
+			output: `Tool "${toolName}" was not started because the turn was cancelled${reason ? `: ${reason}` : '.'}`,
 		})
 	}
 
@@ -2352,14 +2361,14 @@ export class ToolExecutor {
 		}
 		await this.emitEvent({
 			type: 'tool_executing',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: toolCallId,
 			toolName,
 			input,
 		})
 		await this.emitEvent({
 			type: 'tool_completed',
-			runId: this.config.runId,
+			turnId: this.config.turnId,
 			toolUseId: toolCallId,
 			toolName,
 			result: outcome.output,
@@ -2399,11 +2408,11 @@ export class ToolExecutor {
 				? content
 				: content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n')
 		const notice = richWithheld
-			? `[rich content withheld: ${size} base64 chars exceeds this run's ${cap} cap] ${describeDroppedContent(content) ?? ''}`
+			? `[rich content withheld: ${size} base64 chars exceeds this turn's ${cap} cap] ${describeDroppedContent(content) ?? ''}`
 			: undefined
 		if (richWithheld) {
 			this.log.warn('Tool result content exceeded the rich-content budget', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.runtime.content_bytes': size,
 				'namzu.runtime.cap': cap,
@@ -2425,14 +2434,14 @@ export class ToolExecutor {
 							: undefined,
 						onError: (message) =>
 							this.log.warn('Failed to spill oversized model tool content', {
-								[NAMZU.RUN_ID]: this.config.runId,
+								[NAMZU.TURN_ID]: this.config.turnId,
 								[GENAI.TOOL_NAME]: toolName,
 								'exception.message': message,
 							}),
 					})
 		if (budgeted.truncated && budgeted !== host.budgeted) {
 			this.log.warn('Model tool text exceeded the model-visible budget', {
-				[NAMZU.RUN_ID]: this.config.runId,
+				[NAMZU.TURN_ID]: this.config.turnId,
 				[GENAI.TOOL_NAME]: toolName,
 				'namzu.runtime.original_length': budgeted.originalLength,
 				'namzu.runtime.spill_path': budgeted.spillPath,

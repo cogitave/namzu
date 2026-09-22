@@ -7,29 +7,28 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { DefaultPathBuilder } from '../../../session/workspace/path-builder.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { DiskTokenBudgetStore } from '../../../store/run/token-budget-disk.js'
+import { InMemorySessionLog, SessionMessageFold } from '../../../store/session-log/index.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type {
 	CheckpointId,
 	HITLDecisionRequest,
 	HITLResumeDecision,
-	IterationCheckpoint,
 } from '../../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolPauseOutcome } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import { type RecordedPark, type RestoredCheckpoint, readParks } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
 import { planPendingResume } from '../resume-pending.js'
-import { resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { resumeSession } from '../resume-session.js'
 import { pauseId } from '../tool-pause.js'
+import type { TurnStateScope } from '../turn-state.js'
+import { heldCheckpointStore, rewriteSession } from './support/session.js'
 
 /**
  * A pause raised through `ToolContext.requestPause` could not be resumed
@@ -59,17 +58,17 @@ import { pauseId } from '../tool-pause.js'
 
 registerMock()
 
-const SCOPE: RunStateScope = {
+const SCOPE: TurnStateScope = {
 	tenantId: '8407b5a4-6bb9-4098-a195-f7e8e1abc066' as TenantId,
 	projectId: '9a7750f2-c71b-43de-b4af-37588af238f4' as ProjectId,
 	sessionId: 'fd81d2e1-e142-47b3-b41a-c1a85cdb64f6' as SessionId,
-	runId: 'f577b249-d7f3-4834-9296-5e1a02fb3cd5' as RunId,
+	turnId: 'f577b249-d7f3-4834-9296-5e1a02fb3cd5' as TurnId,
 	topicId: 'e67d9ab1-1c89-4257-9048-008e2a228b3d' as TopicId,
 }
 
 const PAUSE = {
 	name: 'target_environment',
-	prompt: 'which environment should this run against?',
+	prompt: 'which environment should this turn against?',
 	options: [
 		{ id: 'staging', label: 'Staging' },
 		{ id: 'production', label: 'Production' },
@@ -91,22 +90,6 @@ afterEach(async () => {
 	await removeTempDirs(workdirs)
 	workdirs = []
 })
-
-/**
- * A working directory and a state root inside it. Every test here reuses one
- * scope and run id, so the durable run tree has to be per test: the default
- * root is shared by every run in the process.
- */
-async function isolatedState(): Promise<{
-	workingDirectory: string
-	pathBuilder: DefaultPathBuilder
-}> {
-	const workingDirectory = await mkWorkdir()
-	return {
-		workingDirectory,
-		pathBuilder: new DefaultPathBuilder(join(workingDirectory, '.namzu')),
-	}
-}
 
 async function mkWorkdir(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-tool-pause-resume-'))
@@ -137,15 +120,17 @@ describe('the resume gate, on the id the general seam actually parks under', () 
 		} as Message,
 	]
 
-	const checkpoint = (questionId: string): IterationCheckpoint =>
+	const checkpoint = (questionId: string): RestoredCheckpoint =>
 		({
 			id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 			messages: parkedTurn(),
+			messageIds: new Map(),
 			pending: {
 				parkedAt: 0,
 				request: {
 					type: 'user_question',
-					runId: SCOPE.runId,
+					sessionId: SCOPE.sessionId,
+					turnId: SCOPE.turnId,
 					checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 					question: {
 						questionId,
@@ -156,7 +141,7 @@ describe('the resume gate, on the id the general seam actually parks under', () 
 					},
 				},
 			},
-		}) as unknown as IterationCheckpoint
+		}) as unknown as RestoredCheckpoint
 
 	it('takes over a pause parked under <toolUseId>:<name>', () => {
 		// The whole defect in one assertion. `call_1:target_environment` is
@@ -217,7 +202,7 @@ describe('the resume gate, on the id the general seam actually parks under', () 
 describe('a pause raised from a host-authored tool survives the process', () => {
 	/**
 	 * A tool that parks on its own question, recording what the seam handed
-	 * back so the test can read it from outside the run.
+	 * back so the test can read it from outside the turn.
 	 */
 	function deployTool(seen: { outcome?: ToolPauseOutcome }): ToolRegistry {
 		const tools = new ToolRegistry()
@@ -254,19 +239,11 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		return tools
 	}
 
-	const budgetDirectories = new WeakMap<InMemoryCheckpointStore, string>()
-	async function baseParams(store: InMemoryCheckpointStore) {
-		let budgetDirectory = budgetDirectories.get(store)
-		if (!budgetDirectory) {
-			budgetDirectory = await mkWorkdir()
-			budgetDirectories.set(store, budgetDirectory)
-		}
+	async function baseParams(sessionLog: InMemorySessionLog) {
 		return {
-			checkpointStore: store,
-			// Each resumed runtime has a different cwd and a fresh store instance.
-			// Its durable token ledger travels alongside the checkpoint backend.
-			tokenBudgetStore: new DiskTokenBudgetStore({ baseDir: budgetDirectory }),
-			runConfig: {
+			sessionLog,
+			checkpointStore: await heldCheckpointStore(sessionLog),
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,
@@ -275,7 +252,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			},
 			agentId: 'agent_pause',
 			agentName: 'Pause Agent',
-			...(await isolatedState()),
+			workingDirectory: await mkWorkdir(),
 			sessionId: SCOPE.sessionId,
 			topicId: SCOPE.topicId,
 			projectId: SCOPE.projectId,
@@ -283,28 +260,50 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		}
 	}
 
+	const freshLog = () => new InMemorySessionLog({ sessionId: SCOPE.sessionId })
+
 	/**
-	 * Run the tool once, far enough that its pause is recorded, and leave the
-	 * park outstanding.
-	 *
-	 * The checkpoint is entirely the run's own — its messages, its tool-call
-	 * ids and, the part that matters, the `questionId` `createToolPause`
-	 * actually minted. Only `resolvedAt` is stripped afterwards, which is
-	 * precisely what a process killed between `record` and `resolve` leaves
-	 * behind: the human was still looking at the card. Simulating the kill
-	 * this way rather than by aborting mid-await keeps the test from being
-	 * one that can hang, which is a result that is not a result.
+	 * The log a process killed between recording the question and hearing
+	 * its answer leaves behind: everything up to and including the
+	 * `decision_requested` of the tool's question, nothing after. The turn
+	 * reads as interrupted with its question outstanding — the human was
+	 * still looking at the card. Cutting a copy of a real turn's log, rather
+	 * than aborting mid-await, keeps the test from being one that can hang.
+	 */
+	async function killedAtQuestion(sessionLog: InMemorySessionLog): Promise<{
+		readonly log: InMemorySessionLog
+		readonly park: RecordedPark
+	}> {
+		const isQuestion = (draft: { type: string; request?: unknown }) =>
+			draft.type === 'decision_requested' &&
+			(draft.request as { type?: string } | undefined)?.type === 'user_question'
+		const log = await rewriteSession(sessionLog, [SCOPE], (draft) => draft, {
+			through: isQuestion,
+		})
+		const park = (await readParks(log)).find(
+			(candidate) => candidate.pending.request.type === 'user_question',
+		)
+		if (!park || park.pending.resolvedAt !== undefined) {
+			throw new Error('the pause recorded no outstanding question, so there is nothing to resume')
+		}
+		return { log, park }
+	}
+
+	/**
+	 * Run the tool once, far enough that its pause is recorded, and return
+	 * the log a process killed at that moment would have left.
 	 *
 	 * Nothing here passes `questionParks` or `pendingAnswers`. That is the
 	 * point: neither type is public, so no host can, and before this change
-	 * the store came back empty from this function.
+	 * the log came back without a question from this function.
 	 */
-	async function parkOnce(store: InMemoryCheckpointStore): Promise<IterationCheckpoint> {
+	async function parkOnce(): Promise<{ log: InMemorySessionLog; park: RecordedPark }> {
 		const seen: { outcome?: ToolPauseOutcome } = {}
+		const sessionLog = freshLog()
 
 		await drainQuery({
-			...(await baseParams(store)),
-			runId: SCOPE.runId,
+			...(await baseParams(sessionLog)),
+			turnId: SCOPE.turnId,
 			provider: new MockLLMProvider({
 				turns: [
 					{ toolCalls: [{ id: 'call_1', name: 'deploy', args: {} }], finishReason: 'tool_calls' },
@@ -318,56 +317,44 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
 		})
 
-		const parked = (await store.listCheckpoints(SCOPE)).find(
-			(cp) => cp.pending?.request.type === 'user_question',
-		)
-		if (!parked?.pending) {
-			throw new Error('the pause recorded no checkpoint, so there is nothing to resume from')
-		}
-
-		const { resolvedAt: _neverArrived, ...outstanding } = parked.pending
-		const stillParked = { ...parked, pending: outstanding } as IterationCheckpoint
-		await store.writeCheckpoint(SCOPE, stillParked)
-		return stillParked
+		return killedAtQuestion(sessionLog)
 	}
 
 	it('records a durable park with no host-supplied recorder', async () => {
-		const store = new InMemoryCheckpointStore()
-		const parked = await parkOnce(store)
+		const { park } = await parkOnce()
 
-		// Break 2. Without the run's own binding this wrote nothing at all,
+		// Break 2. Without the turn's own binding this wrote nothing at all,
 		// so a host queue had no question to show and a resume had no
 		// checkpoint to find — the pause was an in-process `await` and
 		// nothing said so.
-		expect(parked.pending?.request.type).toBe('user_question')
+		expect(park.pending.request.type).toBe('user_question')
 	})
 
 	it('parks under the composite id, which is what makes the gate matter', async () => {
-		const store = new InMemoryCheckpointStore()
-		const parked = await parkOnce(store)
-		const request = parked.pending?.request
+		const { park } = await parkOnce()
+		const request = park.pending.request
 
 		// Asserted from the durable record rather than from `pauseId`, so
-		// this stays true about what is ON DISK and not about the helper.
+		// this stays true about what is recorded and not about the helper.
 		expect(request?.type === 'user_question' && request.question.questionId).toBe(
 			'call_1:target_environment',
 		)
 	})
 
 	it('delivers the answer to the re-entered tool in a fresh runtime', async () => {
-		const store = new InMemoryCheckpointStore()
-		const parked = await parkOnce(store)
-		const request = parked.pending?.request
-		const questionId = request?.type === 'user_question' ? request.question.questionId : ''
+		const { log, park } = await parkOnce()
+		const request = park.pending.request
+		const questionId = request.type === 'user_question' ? request.question.questionId : ''
 
 		// A second runtime: new provider, new registry, new tool instance,
-		// nothing carried in memory from the run that parked. The checkpoint
-		// backend, token ledger and decision are the only things that cross.
+		// nothing carried in memory from the turn that parked. The session log,
+		// its checkpoints and ledger, and the decision are the only things
+		// that cross.
 		const seen: { outcome?: ToolPauseOutcome } = {}
 		const asked = vi.fn()
 
-		const outcome = await resumeRun({
-			...(await baseParams(store)),
+		const outcome = await resumeSession({
+			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
 			tools: deployTool(seen),
@@ -389,14 +376,81 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		expect(asked).not.toHaveBeenCalledWith('user_question')
 	})
 
+	it('puts the parked assistant message back under its own record, never a second copy', async () => {
+		const { log, park } = await parkOnce()
+		const request = park.pending.request
+		const questionId = request.type === 'user_question' ? request.question.questionId : ''
+		const isParkedAssistant = (record: { type: string; content?: unknown }) =>
+			record.type === 'message' &&
+			(record.content as { role?: string; toolCalls?: { id: string }[] } | undefined)?.role ===
+				'assistant' &&
+			(record.content as { toolCalls?: { id: string }[] }).toolCalls?.some(
+				(call) => call.id === 'call_1',
+			) === true
+		const before = (await log.readAll()).entries.map((entry) => entry.record)
+		const parked = before.filter(isParkedAssistant)
+		expect(parked).toHaveLength(1)
+		const parkedId = (parked[0] as { messageId: string }).messageId
+
+		const outcome = await resumeSession({
+			...(await baseParams(log)),
+			scope: SCOPE,
+			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
+			tools: deployTool({}),
+			pendingDecision: answerWith(questionId, 'staging'),
+			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
+		})
+		expect(outcome.resumed).toBe(true)
+
+		const after = (await log.readAll()).entries.map((entry) => entry.record)
+		// Each message is stored once (§2.1): the resume re-used the record.
+		expect(after.filter(isParkedAssistant)).toHaveLength(1)
+		// A resume that restored exactly the context the log already folds to
+		// has nothing to re-base: no compaction record appears without a live
+		// compaction event beside it (§4.2).
+		expect(after.filter((record) => record.type === 'compaction')).toEqual([])
+		// The original id still resolves in the fold, so a feedback call or a
+		// `resultMessageId` naming it keeps working.
+		const fold = new SessionMessageFold()
+		for (const record of after) fold.apply(record)
+		expect(fold.entries().some((entry) => entry.messageId === parkedId)).toBe(true)
+	})
+
+	it('tells a resumed turn’s steps when the turn began, not when this process did', async () => {
+		const { log, park } = await parkOnce()
+		const request = park.pending.request
+		const questionId = request.type === 'user_question' ? request.question.questionId : ''
+		const started = (await log.readAll()).entries
+			.map((entry) => entry.record)
+			.find((record) => record.type === 'turn_started' && record.turnId === SCOPE.turnId)
+		expect(started).toBeDefined()
+		const seen: (number | undefined)[] = []
+
+		await resumeSession({
+			...(await baseParams(log)),
+			scope: SCOPE,
+			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
+			tools: deployTool({}),
+			pendingDecision: answerWith(questionId, 'staging'),
+			prepareStep: (context) => {
+				seen.push(context.turnStartedAt)
+				return undefined
+			},
+			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
+		})
+
+		expect(seen.length).toBeGreaterThan(0)
+		expect(seen.every((at) => at === Date.parse(started?.ts ?? ''))).toBe(true)
+	})
+
 	it('delivers an answer through run_code using the durable ancestor call id', async () => {
-		const store = new InMemoryCheckpointStore()
 		const firstSeen: { outcome?: ToolPauseOutcome } = {}
 		const program = 'return await call("deploy", {})'
+		const sessionLog = freshLog()
 
 		await drainQuery({
-			...(await baseParams(store)),
-			runId: SCOPE.runId,
+			...(await baseParams(sessionLog)),
+			turnId: SCOPE.turnId,
 			provider: new MockLLMProvider({
 				turns: [
 					{
@@ -417,25 +471,17 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
 		})
 
-		const parked = (await store.listCheckpoints(SCOPE)).find(
-			(cp) => cp.pending?.request.type === 'user_question',
-		)
-		if (!parked?.pending || parked.pending.request.type !== 'user_question') {
-			throw new Error('the nested pause recorded no checkpoint')
+		const { log, park } = await killedAtQuestion(sessionLog)
+		if (park.pending.request.type !== 'user_question') {
+			throw new Error('the nested pause recorded no question')
 		}
-		const questionId = parked.pending.request.question.questionId
+		const questionId = park.pending.request.question.questionId
 		expect(questionId).toBe(PAUSED_ON_CALL_1)
-
-		const { resolvedAt: _neverArrived, ...outstanding } = parked.pending
-		await store.writeCheckpoint(SCOPE, {
-			...parked,
-			pending: outstanding,
-		} as IterationCheckpoint)
 
 		const resumedSeen: { outcome?: ToolPauseOutcome } = {}
 		const asked = vi.fn()
-		const outcome = await resumeRun({
-			...(await baseParams(store)),
+		const outcome = await resumeSession({
+			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
 			tools: codeDispatchTool(resumedSeen),
@@ -454,22 +500,22 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		expect(asked).not.toHaveBeenCalledWith('user_question')
 	})
 
-	it('binds the recorder the host supplied, and releases it when the run settles', async () => {
-		// The run owning a fallback must not mean the run ignoring the host.
+	it('binds the recorder the host supplied, and releases it when the turn settles', async () => {
+		// The turn owning a fallback must not mean the turn ignoring the host.
 		// `SupervisorAgent`'s built-in question tool closed over THIS object
-		// before the run existed, so a run that quietly bound its own instead
+		// before the turn existed, so a turn that quietly bound its own instead
 		// would stop recording that tool's parks — and every test of that
 		// tool builds the coordinator directly, so none of them would notice.
 		//
-		// Written because the mutation "the run ignores a host-supplied
+		// Written because the mutation "the turn ignores a host-supplied
 		// recorder" survived the whole suite.
 		const parks = new QuestionParkBinding()
 		const bind = vi.spyOn(parks, 'bind')
 		const unbind = vi.spyOn(parks, 'unbind')
 
 		await drainQuery({
-			...(await baseParams(new InMemoryCheckpointStore())),
-			runId: SCOPE.runId,
+			...(await baseParams(freshLog())),
+			turnId: SCOPE.turnId,
 			questionParks: parks,
 			provider: new MockLLMProvider({ turns: [{ text: 'nothing to deploy' }] }),
 			tools: new ToolRegistry(),
@@ -478,14 +524,14 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		})
 
 		expect(bind).toHaveBeenCalledTimes(1)
-		// Released on the way out, so a later run cannot write into a
+		// Released on the way out, so a later turn cannot write into a
 		// finished one through the same object.
 		expect(unbind).toHaveBeenCalledTimes(1)
 	})
 
 	it('reads a carried answer out of the channel the host supplied', async () => {
 		// The other half of the same rule, and the same mutation survived it:
-		// a run that answers only out of its own channel strands every answer
+		// a turn that answers only out of its own channel strands every answer
 		// a host filled in before calling.
 		const answers = new PendingAnswers()
 		answers.set(PAUSED_ON_CALL_1, answerWith(PAUSED_ON_CALL_1, 'production'))
@@ -494,8 +540,8 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 		const asked = vi.fn()
 
 		await drainQuery({
-			...(await baseParams(new InMemoryCheckpointStore())),
-			runId: SCOPE.runId,
+			...(await baseParams(freshLog())),
+			turnId: SCOPE.turnId,
 			pendingAnswers: answers,
 			provider: new MockLLMProvider({
 				turns: [
@@ -516,17 +562,16 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 	})
 
 	it('refuses an answer addressed to a pause this turn never raised', async () => {
-		const store = new InMemoryCheckpointStore()
-		await parkOnce(store)
+		const { log } = await parkOnce()
 
 		const seen: { outcome?: ToolPauseOutcome } = {}
 
-		await resumeRun({
-			...(await baseParams(store)),
+		await resumeSession({
+			...(await baseParams(log)),
 			scope: SCOPE,
 			provider: new MockLLMProvider({ turns: [{ text: 'deployed' }] }),
 			tools: deployTool(seen),
-			// A stale client answering some other run's question. The widened
+			// A stale client answering some other turn's question. The widened
 			// gate must not have widened into accepting this.
 			pendingDecision: answerWith(pauseId('call_7', PAUSE.name), 'production'),
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,

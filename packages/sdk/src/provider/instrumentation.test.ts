@@ -154,18 +154,23 @@ describe('wrapProviderWithProbes — chatStream', () => {
 		expect(wrapped.healthCheck).toBeUndefined()
 	})
 
-	it('uses the configured probe context (runId)', async () => {
+	it('uses the configured probe context (session and turn)', async () => {
 		const reg = createProbeRegistry()
-		const ctx = buildProbeContext({ runId: fixtureId.run('42') })
+		const ctx = buildProbeContext({
+			sessionId: fixtureId.session('42'),
+			turnId: fixtureId.turn('42'),
+		})
 		const seen: AgentBusEvent[] = []
 		reg.onAny((event, c) => {
 			seen.push(event as AgentBusEvent)
-			expect(c.runId).toBe(ctx.runId)
+			expect(c.sessionId).toBe(ctx.sessionId)
+			expect(c.turnId).toBe(ctx.turnId)
 		})
 
 		const wrapped = wrapProviderWithProbes(makeFakeProvider(), {
 			probes: reg,
-			runId: ctx.runId,
+			sessionId: ctx.sessionId,
+			turnId: ctx.turnId,
 		})
 		await drain(wrapped.chatStream(params))
 

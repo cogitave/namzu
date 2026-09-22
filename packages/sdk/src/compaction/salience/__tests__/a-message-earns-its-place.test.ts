@@ -13,7 +13,7 @@ import { tokenize } from '../tokenize.js'
 
 /**
  * The compaction pass chose what to keep by position, so a fact stated in
- * the middle of a long run aged out at the same rate as chatter. Salience
+ * the middle of a long turn aged out at the same rate as chatter. Salience
  * gives every message a number from what the kernel can observe without a
  * model. These are the four things the plan says the scorer must prove.
  */
@@ -51,7 +51,7 @@ const chatter = (i: number): Message[] => [
 
 describe('tokenize', () => {
 	it('opens paths, identifiers and dotted keys so a part can find the whole', () => {
-		const tokens = tokenize('read src/store.mjs and call removeTodo; log namzu.run.id')
+		const tokens = tokenize('read src/store.mjs and call removeTodo; log namzu.turn.id')
 		expect(tokens).toEqual(
 			expect.arrayContaining([
 				'src/store.mjs',
@@ -61,8 +61,8 @@ describe('tokenize', () => {
 				'removetodo',
 				'remove',
 				'todo',
-				'namzu.run.id',
-				'run',
+				'namzu.turn.id',
+				'turn',
 				'id',
 			]),
 		)

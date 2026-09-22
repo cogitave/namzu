@@ -6,7 +6,7 @@ import type {
 	ReactiveAgentResult,
 } from '../types/agent/index.js'
 import type { AssistantMessage } from '../types/message/index.js'
-import type { RunEventListener } from '../types/run/index.js'
+import type { SessionEventListener } from '../types/session/events.js'
 import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
@@ -30,18 +30,18 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 	}
 
 	/**
-	 * One run at a time per instance.
+	 * One turn at a time per instance.
 	 *
-	 * `abortController` and `currentRunId` are instance state, so two
-	 * overlapping runs share one abort controller — cancelling either kills
-	 * both — and the second clobbers the first's run id, so a later
-	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * `abortController` and `currentSessionId` are instance state, so two
+	 * overlapping turns share one abort controller — cancelling either kills
+	 * both — and the second clobbers the first's session, so a later
+	 * `cancel()` cancels the wrong children. Neither failure announces itself.
 	 * A host that wants parallelism constructs a second instance.
 	 */
 	async run(
 		input: AgentInput,
 		config: ReactiveAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<ReactiveAgentResult> {
 		return await this.underIdempotencyKey(config.idempotencyKey, () =>
 			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
@@ -51,19 +51,18 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 	private async runExclusive(
 		input: AgentInput,
 		config: ReactiveAgentConfig,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<ReactiveAgentResult> {
 		const startTime = Date.now()
-		const runId = this.createRunId()
-		this.bindRun(runId, config.logger)
-
 		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 			throw new Error(
 				'ReactiveAgent requires sessionId, topicId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
+		const turnId = this.createTurnId()
+		this.bindTurn(config.sessionId, turnId, config.logger)
 
-		const run = await drainQuery(
+		const turn = await drainQuery(
 			{
 				systemPrompt: config.systemPrompt,
 				persona: config.persona,
@@ -94,7 +93,6 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				// feature that does not exist for them.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				...(config.retry !== undefined ? { retry: config.retry } : {}),
-				...(config.emergencySave !== undefined ? { emergencySave: config.emergencySave } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
 				...(config.toolRetryBackoff !== undefined
 					? { toolRetryBackoff: config.toolRetryBackoff }
@@ -130,12 +128,12 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.inputGuardrails ? { inputGuardrails: config.inputGuardrails } : {}),
 				...(config.outputGuardrails ? { outputGuardrails: config.outputGuardrails } : {}),
 				...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
-				...(config.pathBuilder ? { pathBuilder: config.pathBuilder } : {}),
-				// Forwarded so a run store in memory keeps the whole run there;
-				// dropped here, the run built disk stores under the state root.
-				...(config.runStore ? { runStore: config.runStore } : {}),
+				...(config.paths ? { paths: config.paths } : {}),
+				// Forwarded so a session log in memory keeps the whole session
+				// there; dropped here, the turn would build a disk log instead.
+				...(config.sessionLog ? { sessionLog: config.sessionLog } : {}),
 				...(config.parentSpan ? { parentSpan: config.parentSpan } : {}),
-				runConfig: {
+				turnConfig: {
 					model: config.model,
 					...(config.webSearch ? { webSearch: config.webSearch } : {}),
 					tokenBudget: config.tokenBudget,
@@ -168,8 +166,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				topicId: config.topicId,
 				projectId: config.projectId,
 				tenantId: config.tenantId,
-				runId,
-				parentRunId: config.parentRunId,
+				turnId,
+				...(config.parentSessionId ? { parentSessionId: config.parentSessionId } : {}),
+				...(config.parentTurnId ? { parentTurnId: config.parentTurnId } : {}),
 				depth: config.depth,
 				contextLevel: config.contextLevel,
 				messages: input.messages,
@@ -184,7 +183,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		)
 
 		let toolCallCount = 0
-		for (const msg of run.messages) {
+		for (const msg of turn.messages) {
 			if (msg.role === 'assistant') {
 				const assistantMsg = msg as AssistantMessage
 				if (assistantMsg.toolCalls) {
@@ -194,18 +193,19 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		}
 
 		return {
-			runId: run.id,
-			status: run.status,
-			stopReason: run.stopReason,
-			usage: run.tokenUsage,
-			...(run.budget ? { budget: run.budget } : {}),
-			cost: run.costInfo,
-			iterations: run.currentIteration,
+			sessionId: turn.sessionId,
+			turnId: turn.id,
+			status: turn.status,
+			stopReason: turn.stopReason,
+			usage: turn.tokenUsage,
+			...(turn.budget ? { budget: turn.budget } : {}),
+			cost: turn.costInfo,
+			iterations: turn.currentIteration,
 			durationMs: Date.now() - startTime,
-			messages: run.messages,
-			result: run.result,
-			structuredOutput: run.structuredOutput,
-			lastError: run.lastError,
+			messages: turn.messages,
+			result: turn.result,
+			structuredOutput: turn.structuredOutput,
+			lastError: turn.lastError,
 			toolCallCount,
 		}
 	}

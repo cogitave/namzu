@@ -90,7 +90,7 @@ describe('state command real CLI front door', () => {
 		expect(result.stderr).toBe('')
 		const payload = JSON.parse(result.stdout) as Record<string, unknown>
 		expect(payload).toMatchObject({
-			version: 1,
+			version: 2,
 			readOnly: true,
 			projectConfig: { status: 'present' },
 		})

@@ -43,7 +43,7 @@ export interface ProviderChainCheckOptions {
  * A credential is the obvious one. The other is a capability DISAGREEMENT: a
  * run negotiates tools, vision and documents once, against the primary, and
  * keeps that answer across a swap — so a chain whose members declare different
- * abilities would land a run on a member holding a request shaped for someone
+ * abilities would land a turn on a member holding a request shaped for someone
  * else. `createAgentSession` refuses such a chain outright, which means an
  * operator who has one learns about it by trying to start a session.
  *
@@ -192,7 +192,7 @@ export async function describeProviderChain(
 	}
 	const message = sections.join('\n')
 
-	// Ordered by what stops a run. An unaccepted disagreement and an unusable
+	// Ordered by what stops a turn. An unaccepted disagreement and an unusable
 	// primary both mean no session starts at all; everything else leaves namzu
 	// working with less than the operator declared.
 	if (disagreements.length > 0 && !accepted) {
@@ -200,7 +200,7 @@ export async function describeProviderChain(
 			status: 'fail',
 			message: `provider chain cannot be honoured as written:\n${message}`,
 			remediation:
-				'Drop the member that disagrees, or set "allowCapabilityMismatch": true in your preferences to accept the limitation. namzu will not choose between advertising abilities a fallback lacks and costing your primary a capability on every run.',
+				'Drop the member that disagrees, or set "allowCapabilityMismatch": true in your preferences to accept the limitation. namzu will not choose between advertising abilities a fallback lacks and costing your primary a capability on every turn.',
 		}
 	}
 	if (primaryUnusable || primaryUnreadable) {
@@ -208,8 +208,8 @@ export async function describeProviderChain(
 			status: 'fail',
 			message: `${unusable} of ${members.length} chain member(s) cannot be used:\n${message}`,
 			remediation: primaryUnusable
-				? 'The primary provider has no usable credential, so no run can start. Set its key, or run `namzu` to pick a provider that has one.'
-				: 'The primary provider could not be loaded, so no run can start. Run `namzu` to pick a provider that can.',
+				? 'The primary provider has no usable credential, so no turn can start. Set its key, or run `namzu` to pick a provider that has one.'
+				: 'The primary provider could not be loaded, so no turn can start. Run `namzu` to pick a provider that can.',
 		}
 	}
 	if (unusable > 0 || unreadable.length > 0 || disagreements.length > 0) {

@@ -11,16 +11,16 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import { isEphemeralEvent } from '../../../types/run/events.js'
-import type { PrepareStep, RunEvent } from '../../../types/run/index.js'
+import { isEphemeralEvent } from '../../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { PrepareStep, SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
- * A transcript showed one prompt for a run that had asked several
+ * A transcript showed one prompt for a turn that had asked several
  * questions.
  *
- * `run_started` records a system prompt once, and tool schemas never
+ * `turn_started` records a system prompt once, and tool schemas never
  * reached the transcript at all. Meanwhile `prepareStep` rewrites the
  * system text, narrows the tool list or swaps the model between
  * iterations, and a step's skills ride an ephemeral trailing system
@@ -73,7 +73,7 @@ function tools(extra?: { readonly schemaBody: string }): ToolRegistry {
 	return registry
 }
 
-type Envelope = Extract<RunEvent, { type: 'request_envelope' }>
+type Envelope = Extract<SessionEvent, { type: 'request_envelope' }>
 
 async function run(opts: {
 	readonly turns: number
@@ -82,7 +82,7 @@ async function run(opts: {
 }): Promise<Envelope[]> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-envelope-'))
 	dirs.push(workingDirectory)
-	const seen: RunEvent[] = []
+	const seen: SessionEvent[] = []
 
 	await drainQuery(
 		{
@@ -90,7 +90,7 @@ async function run(opts: {
 				turns: [...Array.from({ length: opts.turns }, (_, i) => call(`c${i}`)), { text: 'done' }],
 			}),
 			tools: opts.registry ?? tools(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
 				tokenBudget: 200_000,
@@ -106,7 +106,7 @@ async function run(opts: {
 			tenantId: 'e16d7f36-5234-4a6a-b880-7e2972f9a59b' as TenantId,
 			...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			seen.push(event)
 		},
 	)
@@ -115,7 +115,7 @@ async function run(opts: {
 }
 
 describe('what the model was asked, recorded when it changed', () => {
-	it('emits exactly one envelope for a run whose request never changes', async () => {
+	it('emits exactly one envelope for a turn whose request never changes', async () => {
 		// Equality, not `toBeGreaterThan`. An implementation that emitted per
 		// iteration satisfies "at least one" and produces a durable log too
 		// large to read — which is the failure this suppression exists to
@@ -179,7 +179,7 @@ describe('what the model was asked, recorded when it changed', () => {
 		expect(
 			isEphemeralEvent({
 				type: 'request_envelope',
-				runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+				turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 				iteration: 1,
 				model: 'm',
 				systemPrompt: '',
@@ -189,8 +189,8 @@ describe('what the model was asked, recorded when it changed', () => {
 		).toBe(false)
 	})
 
-	it('starts fresh for a second run, so one cannot suppress the other', async () => {
-		// The suppression key is per RUNNER. Module-level, a second run in the
+	it('starts fresh for a second turn, so one cannot suppress the other', async () => {
+		// The suppression key is per RUNNER. Module-level, a second turn in the
 		// same process with an identical envelope would record nothing at all
 		// — and its transcript would have no record of what was asked.
 		const first = await run({ turns: 1 })

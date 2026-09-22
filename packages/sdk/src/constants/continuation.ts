@@ -8,7 +8,7 @@
  * The exact string is the marker used by `resolveResult` (in
  * `manager/run/persistence.ts`) to detect auto-continuation
  * boundaries: when walking the message tail it skips user messages
- * that match this constant verbatim, so the run's `result` field
+ * that match this constant verbatim, so the turn's `result` field
  * concatenates the full multi-turn assistant output instead of only
  * surfacing the trailing continuation chunk.
  *

@@ -1,33 +1,35 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
-import type { RunEvent, StepResult } from '../../../types/run/index.js'
-import { hasToolCall, stepCountIs } from '../../../types/run/step.js'
+import type { SessionEvent, StepResult } from '../../../types/session/index.js'
+import { hasToolCall, stepCountIs } from '../../../types/session/step.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
 
+const SESSION_ID = generateSessionId()
+
 /**
  * End-to-end for the loop's new halt seam, driven through the scriptable
  * mock provider — which is exactly what that provider was rebuilt for.
  *
  * Before this the only halt was `GuardCoordinator`: four numeric budgets,
- * never the messages. A terminal `submit_answer` tool could not end a run,
+ * never the messages. A terminal `submit_answer` tool could not end a turn,
  * so a finished task kept iterating until `maxIterations: 200` or the token
  * budget stopped it, burning the whole envelope after the work was done.
  */
 
-const RUN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as RunId
+const TURN_ID = '3272edce-8a11-4314-b326-4c7fb578cc40' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -52,7 +54,7 @@ function harness(opts: {
 
 function buildCtx(opts: {
 	provider: LLMProvider
-	stopWhen?: import('../../../types/run/step.js').StopCondition
+	stopWhen?: import('../../../types/session/step.js').StopCondition
 	maxIterations?: number
 }): Harness {
 	const executedTools: string[] = []
@@ -81,7 +83,7 @@ function buildCtx(opts: {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
@@ -89,8 +91,9 @@ function buildCtx(opts: {
 
 	const toolExecutor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
-			runId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
@@ -101,8 +104,8 @@ function buildCtx(opts: {
 		log,
 	)
 
-	const runMgr = {
-		id: RUN_ID,
+	const recorder = {
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,
@@ -139,19 +142,18 @@ function buildCtx(opts: {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: opts.provider,
-		runConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
+		turnConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
 		tools,
-		runMgr: runMgr as unknown as RunPersistence,
+		recorder: recorder as unknown as TurnRecorder,
 		toolExecutor,
 		activityStore,
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
-			create: async () =>
-				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
+			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as never,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		// No plan gate in these cases; the loop consults it before iterating.
@@ -180,7 +182,7 @@ async function drain(h: Harness) {
 }
 
 describe('stopWhen ends the loop', () => {
-	it('a terminal tool ends the run — and its result is still recorded', async () => {
+	it('a terminal tool ends the turn — and its result is still recorded', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ name: 'read' }] },
@@ -193,7 +195,7 @@ describe('stopWhen ends the loop', () => {
 
 		await drain(h)
 
-		// The terminal tool RAN — the run ends after it, not instead of it.
+		// The terminal tool RAN — the turn ends after it, not instead of it.
 		expect(h.executedTools).toEqual(['read', 'submit_answer'])
 		expect(h.stopReason()).toBe('stop_condition')
 		expect(h.steps).toHaveLength(2)
@@ -223,7 +225,7 @@ describe('stopWhen ends the loop', () => {
 		expect(h.steps.length).toBeGreaterThanOrEqual(4)
 	})
 
-	it('a throwing predicate does not kill an otherwise healthy run', async () => {
+	it('a throwing predicate does not kill an otherwise healthy turn', async () => {
 		const provider = new MockLLMProvider({ turns: [{ toolCalls: [{ name: 'read' }] }] })
 		const h = harness({
 			provider,

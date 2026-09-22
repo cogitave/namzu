@@ -4,7 +4,7 @@ title: Session log
 description: The one append-only, hash-chained JSONL file per session that records everything a session did, its record schema, the turn rules it enforces, and the layout under NAMZU_HOME.
 resource: packages/sdk/src/types/session/records.ts
 tags: [sdk, sessions, turns, persistence, storage, schema]
-status: draft
+status: stable
 generated: { by: process:claude-code, at: 2026-09-21T00:00:00Z }
 ---
 
@@ -24,9 +24,12 @@ logs.
 This page describes the schema and the rules. The schema is code:
 `packages/sdk/src/types/session/records.ts` (records and documents),
 `events.ts` (the live events), `turn.ts` (turns, settlement, the
-one-active-turn error) and `checkpoint.ts`. It is **draft** because the writer,
-reader and index that implement these rules land after the schema; until then
-the SDK still records runs in the older layout.
+one-active-turn error) and `checkpoint.ts`. The writer and reader are
+`SessionLog` (`DiskSessionLog`, `InMemorySessionLog`,
+`packages/sdk/src/store/session-log/`); the index over every log is
+[The session index](sqlite-sessions.md). The per-run layout this replaces is
+described, for hosts with an old tree, in
+[Durable run storage (removed)](run-storage.md).
 
 ## Where the files are
 
@@ -152,7 +155,7 @@ record's type. `failure.code` on `turn_failed` is `interrupted` or
 `abandoned` when the session log itself closed the turn (see below).
 
 The other persisted events are checked for their envelope and type, and must
-not carry `lineage`, `generation`, `schemaVersion` or a run id. Events that can
+not carry `lineage`, `generation` or `schemaVersion`. Events that can
 only happen inside a turn (iterations, messages, tool calls, reviews, plans,
 spawning a child) must carry `turnId`, and the TypeScript view
 (`SessionRecord`, `SessionEventRecord`) types their `turnId` as present; the
@@ -193,11 +196,12 @@ with `kind` `session`, `thread` or `context`. The index's `external_refs` table
 is derived only from these two, never written directly, so it survives a
 rebuild.
 
-An `audit` record holds everything today's audit trail (`AuditEvent`,
-`packages/sdk/src/types/run/audit.ts`) records: `who` becomes `actor` plus
-`persona`, `what` is flattened into `action`, `tool` and `resource`, and the
-envelope's `seq`, `ts` and `turnId` replace the trail's own sequence,
-timestamp and run id. A session-level entry omits `turnId`.
+An `audit` record holds everything an `AuditEvent`
+(`packages/sdk/src/types/session/audit.ts`) records: `who` becomes `actor`
+plus `persona`, `what` is flattened into `action`, `tool` and `resource`, and
+the envelope's `seq`, `ts` and `turnId` stand for the event's own sequence,
+timestamp and turn. A session-level entry omits `turnId`. `replayAudit` reads
+them back as an `AuditSummary`.
 
 ### Children that outlive their turn
 
@@ -275,11 +279,28 @@ Each has `v` and `kind`, and an unknown version is refused, never migrated.
   messages. A restore refuses it when its hash differs from its
   `checkpoint_written` record's `docSha256`, or when the record at
   `throughSeq` does not hash to `throughSha256`. A checkpoint from the older
-  layout is refused by name.
+  layout is refused by name. A child session's checkpoints are in its own
+  directory, `<parent-session-dir>/subagents/<child-id>/checkpoints/`. A
+  checkpoint scope names only the session, so `DiskSessionCheckpointStore`
+  takes the session's place in the tree as its `session` option, and a
+  `DiskSessionLog` reports that place as `locator`: the one
+  `DiskSessionLog.at` was given, or, for a log built from a file path such as
+  the index's `logPath`, the one the path spells out
+  (`…/<parent-id>/subagents/<child-id>.jsonl`). A log whose file is not named
+  `<session-id>.jsonl` has no `locator`. The path does not say which project
+  the file is in, so `resolveSessionStorage` uses a log's `locator` only when
+  its `paths` put that locator's log at this very file. Any other log (no
+  `locator`, or a `<session-id>.jsonl` kept outside the layout) it places like
+  a child named only by `parentSessionId`, with no log: under wherever its
+  parent's log is found.
 - **Child-session meta** (`kind: 'child-session'`): identity, parent, root,
   depth, the spawning tool call, agent type, description and status. A
   convenience; the child's log wins on any disagreement.
 - **Lease** (`kind: 'lease'`): `holder`, `fence`, `expiresAt`.
+- **Token budget** (`kind: 'token-budget'`, version 2,
+  `<root-session-id>/budgets/<root-turn-id>.json`): the ledger of one root
+  turn and every child session it spawned. A version 1 snapshot is refused.
+  See [Token budgets](token-budgets.md).
 - **Project** (`kind: 'project'`): as above.
 
 ## Fixtures

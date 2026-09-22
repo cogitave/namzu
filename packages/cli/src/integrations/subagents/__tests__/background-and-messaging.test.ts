@@ -5,14 +5,14 @@ import {
 	type ChatCompletionParams,
 	type LLMProvider,
 	MockLLMProvider,
-	RunCancelled,
 	type ToolContext,
 	ToolRegistry,
+	TurnCancelled,
 	cancelCauseOf,
 	createUserMessage,
 	defineTool,
 	drainQuery,
-	generateRunId,
+	generateTurnId,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -38,11 +38,11 @@ const CORRECTION = 'CORRECTION: inspect the beta branch and retain the exact ide
 const CHILD_RESULT = 'BACKGROUND_CHILD_EVIDENCE: beta branch identifier 719.'
 
 /** Real parent and child queries, with only the child's first model response held. */
-async function backgroundRun() {
+async function backgroundTurn() {
 	const cwd = mkdtempSync(join(tmpdir(), 'namzu-background-message-'))
 	workdirs.push(cwd)
 	const parent = await subagentParentFixture(cwd)
-	const foreignRunId = generateRunId()
+	const foreignTurnId = generateTurnId()
 	const childStarted = deferred<AbortSignal>()
 	const childRelease = deferred<void>()
 	const childUnwound = deferred<void>()
@@ -61,8 +61,8 @@ async function backgroundRun() {
 		],
 	})
 	const runtime = await createSubagentRuntime({
-		resolveParent: (runId) =>
-			parent.resolveParent(runId === foreignRunId ? parent.scope.runId : runId),
+		resolveParent: (turnId) =>
+			parent.resolveParent(turnId === foreignTurnId ? parent.scope.turnId : turnId),
 		cwd,
 		model: 'mock-model',
 		tokenBudget: 1_000_000,
@@ -110,8 +110,8 @@ async function backgroundRun() {
 			} satisfies LLMProvider
 		},
 	})
-	const gateway = await runtime.gatewayForRun(parent.scope.runId)
-	const completionInbox = await runtime.completionInboxForRun(parent.scope.runId)
+	const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
+	const completionInbox = await runtime.completionInboxForTurn(parent.scope.turnId)
 	const parentScript = new MockLLMProvider({
 		nextTurn: (params, index) => {
 			if (index === 0) {
@@ -191,7 +191,7 @@ async function backgroundRun() {
 		taskScheduler: gateway,
 		completionInbox,
 		// No operator inbox or waiter: background progress must not need input.
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 1_000_000,
@@ -207,7 +207,8 @@ async function backgroundRun() {
 	})
 	pending.catch(() => {})
 	const context: ToolContext = {
-		runId: parent.scope.runId,
+		sessionId: parent.scope.sessionId,
+		turnId: parent.scope.turnId,
 		workingDirectory: cwd,
 		abortSignal: caller.signal,
 		env: {},
@@ -219,7 +220,7 @@ async function backgroundRun() {
 	}
 	return {
 		parent,
-		foreignRunId,
+		foreignTurnId,
 		context,
 		runtime,
 		gateway,
@@ -235,7 +236,7 @@ async function backgroundRun() {
 		independentWhileHeld: () => independentWhileHeld,
 		release,
 		async close() {
-			caller.abort(new RunCancelled('user'))
+			caller.abort(new TurnCancelled('user'))
 			release()
 			await pending.catch(() => {})
 			await runtime.close()
@@ -245,48 +246,50 @@ async function backgroundRun() {
 }
 
 it('does independent work, delivers one correction at the next child boundary, and receives one completion', async () => {
-	const run = await backgroundRun()
+	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(run.parentRequests).toHaveLength(4), { timeout: 2_500 })
-		expect(run.independentWhileHeld()).toBe(true)
-		expect(run.order).toEqual(['child started', 'parent independent work'])
-		expect(run.childCount()).toBe(1)
-		expect(run.childRequests).toHaveLength(1)
-		const taskId = run.taskId()
+		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		expect(turn.independentWhileHeld()).toBe(true)
+		expect(turn.order).toEqual(['child started', 'parent independent work'])
+		expect(turn.childCount()).toBe(1)
+		expect(turn.childRequests).toHaveLength(1)
+		const taskId = turn.taskId()
 		expect(taskId).toBeDefined()
-		const receipt = run.parentRequests[1]?.messages.find(
+		const receipt = turn.parentRequests[1]?.messages.find(
 			(message) => message.role === 'tool' && message.toolCallId === 'launch',
 		)
 		expect(String(receipt?.content)).toContain('Continue independent work')
 		expect(String(receipt?.content)).toContain('has not completed')
-		const acknowledgement = run.parentRequests[3]?.messages.find(
+		const acknowledgement = turn.parentRequests[3]?.messages.find(
 			(message) => message.role === 'tool' && message.toolCallId === 'correction',
 		)
 		expect(acknowledgement).not.toMatchObject({ isError: true })
 		expect(String(acknowledgement?.content)).toContain('Message queued')
-		expect(run.childRequests[0]?.messages.some((message) => message.content === CORRECTION)).toBe(
+		expect(turn.childRequests[0]?.messages.some((message) => message.content === CORRECTION)).toBe(
 			false,
 		)
-		const delivered = run.runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)
+		const delivered = turn.runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)
 		expect(delivered?.transcript).toContainEqual(
 			expect.objectContaining({ kind: 'system', direction: 'to-child', text: CORRECTION }),
 		)
 
-		const foreign = await run.runtime.sendMessageTool.execute(
+		const foreign = await turn.runtime.sendMessageTool.execute(
 			{ task_id: taskId, message: 'FOREIGN_CORRECTION_MUST_NOT_ARRIVE' },
-			{ ...run.context, runId: run.foreignRunId },
+			{ ...turn.context, turnId: turn.foreignTurnId },
 		)
 		expect(foreign.success).toBe(false)
-		expect(foreign.error).toContain('does not belong to this parent run')
-		const afterForeign = run.runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)
+		expect(foreign.error).toContain('does not belong to this parent turn')
+		const afterForeign = turn.runtime.activity
+			.getSnapshot()
+			.find((entry) => entry.taskId === taskId)
 		expect(afterForeign?.transcript).toEqual(delivered?.transcript)
 
-		run.release()
-		const result = await run.pending
+		turn.release()
+		const result = await turn.pending
 		expect(result.status).toBe('completed')
 		expect(result.result).toBe('I have now incorporated the delegated result.')
-		expect(run.childRequests).toHaveLength(3)
-		for (const request of run.childRequests.slice(1)) {
+		expect(turn.childRequests).toHaveLength(3)
+		for (const request of turn.childRequests.slice(1)) {
 			expect(request.messages.filter((message) => message.content === CORRECTION)).toHaveLength(1)
 			expect(
 				request.messages.some((message) =>
@@ -301,37 +304,37 @@ it('does independent work, delivers one correction at the next child boundary, a
 		expect(String(notifications[0]?.content)).toContain(CHILD_RESULT)
 		expect(String(notifications[0]?.content)).toContain(taskId)
 		expect(result.messages.filter((message) => message.role === 'tool')).toHaveLength(3)
-		expect(run.completionInbox.drain()).toEqual([])
-		expect(run.gateway.listTasks()).toHaveLength(1)
-		expect(run.gateway.listTasks()[0]?.state).toBe('completed')
-		const finished = await run.runtime.sendMessageTool.execute(
+		expect(turn.completionInbox.drain()).toEqual([])
+		expect(turn.gateway.listTasks()).toHaveLength(1)
+		expect(turn.gateway.listTasks()[0]?.state).toBe('completed')
+		const finished = await turn.runtime.sendMessageTool.execute(
 			{ task_id: taskId, message: 'Do not restart the finished child.' },
-			run.context,
+			turn.context,
 		)
 		expect(finished.success).toBe(false)
 		expect(finished.error).toContain('finished')
-		expect(run.childCount()).toBe(1)
+		expect(turn.childCount()).toBe(1)
 	} finally {
-		await run.close()
+		await turn.close()
 	}
 })
 
 it('a refused send leaves no transcript row', async () => {
-	const run = await backgroundRun()
+	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(run.parentRequests).toHaveLength(4), { timeout: 2_500 })
-		const taskId = run.taskId()
+		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		const taskId = turn.taskId()
 		expect(taskId).toBeDefined()
-		const before = run.runtime.activity
+		const before = turn.runtime.activity
 			.getSnapshot()
 			.find((entry) => entry.taskId === taskId)?.transcript
 
-		const unowned = await run.runtime.sendMessageTool.execute(
+		const unowned = await turn.runtime.sendMessageTool.execute(
 			{ task_id: taskId, message: 'UNOWNED_REFUSAL_MUST_NOT_RENDER' },
-			{ ...run.context, runId: run.foreignRunId },
+			{ ...turn.context, turnId: turn.foreignTurnId },
 		)
 		expect(unowned.success).toBe(false)
-		const afterUnowned = run.runtime.activity
+		const afterUnowned = turn.runtime.activity
 			.getSnapshot()
 			.find((entry) => entry.taskId === taskId)?.transcript
 		expect(afterUnowned).toEqual(before)
@@ -341,16 +344,16 @@ it('a refused send leaves no transcript row', async () => {
 			),
 		).toBe(false)
 
-		run.release()
-		const result = await run.pending
+		turn.release()
+		const result = await turn.pending
 		expect(result.status).toBe('completed')
 
-		const terminal = await run.runtime.sendMessageTool.execute(
+		const terminal = await turn.runtime.sendMessageTool.execute(
 			{ task_id: taskId, message: 'TERMINAL_REFUSAL_MUST_NOT_RENDER' },
-			run.context,
+			turn.context,
 		)
 		expect(terminal.success).toBe(false)
-		const afterTerminal = run.runtime.activity
+		const afterTerminal = turn.runtime.activity
 			.getSnapshot()
 			.find((entry) => entry.taskId === taskId)?.transcript
 		expect(
@@ -359,17 +362,17 @@ it('a refused send leaves no transcript row', async () => {
 			),
 		).toBe(false)
 	} finally {
-		await run.close()
+		await turn.close()
 	}
 })
 
 it('a correction is rendered once', async () => {
-	const run = await backgroundRun()
+	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(run.parentRequests).toHaveLength(4), { timeout: 2_500 })
-		const taskId = run.taskId()
+		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		const taskId = turn.taskId()
 		const deliveredRows = () =>
-			run.runtime.activity
+			turn.runtime.activity
 				.getSnapshot()
 				.find((entry) => entry.taskId === taskId)
 				?.transcript.filter((row) => row.kind === 'system' && row.direction === 'to-child')
@@ -383,30 +386,32 @@ it('a correction is rendered once', async () => {
 		const second = deliveredRows()
 		expect(second).toEqual(first)
 
-		run.release()
-		await run.pending
+		turn.release()
+		await turn.pending
 	} finally {
-		await run.close()
+		await turn.close()
 	}
 })
 
 it('cancels a background child with its parent after the launch call has already returned', async () => {
-	const run = await backgroundRun()
+	const turn = await backgroundTurn()
 	try {
-		await vi.waitFor(() => expect(run.parentRequests).toHaveLength(4), { timeout: 2_500 })
-		const signal = await run.childStarted.promise
-		expect(run.independentWhileHeld()).toBe(true)
+		await vi.waitFor(() => expect(turn.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		const signal = await turn.childStarted.promise
+		expect(turn.independentWhileHeld()).toBe(true)
 		expect(signal.aborted).toBe(false)
-		run.caller.abort(new RunCancelled('user'))
-		const result = await run.pending.finally(() => run.runtime.releaseRun(run.parent.scope.runId))
+		turn.caller.abort(new TurnCancelled('user'))
+		const result = await turn.pending.finally(() =>
+			turn.runtime.releaseTurn(turn.parent.scope.turnId),
+		)
 		expect(result.status).toBe('cancelled')
 		expect(signal.aborted).toBe(true)
 		expect(cancelCauseOf(signal.reason)).toBe('parent')
-		expect(run.childRequests).toHaveLength(1)
+		expect(turn.childRequests).toHaveLength(1)
 		expect(result.messages.some((message) => String(message.content).includes(CHILD_RESULT))).toBe(
 			false,
 		)
 	} finally {
-		await run.close()
+		await turn.close()
 	}
 })

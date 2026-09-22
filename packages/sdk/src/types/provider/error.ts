@@ -8,7 +8,7 @@ export type ProviderErrorKind =
 	| 'server'
 
 /**
- * Serializable provider-failure metadata carried by failed runs and events.
+ * Serializable provider-failure metadata carried by failed turns and events.
  *
  * No response body, URL, or `cause` belongs here. `detail` is the one thing
  * the provider itself said, and it arrives scrubbed. `providerCode` preserves

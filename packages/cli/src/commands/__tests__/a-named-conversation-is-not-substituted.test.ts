@@ -1,17 +1,14 @@
 /**
  * `run-stream --session <key>` never answers against a different history than
- * the one it was given, and never claims to have saved a turn it did not.
+ * the one it was given.
  *
- * Two failures at opposite ends of the same command, both of which used to be
- * a bare `catch` and an ordinary success.
- *
- * **Before the turn.** Opening the conversation set `cli = null` on any error
- * and fell through to reading prior turns from STDIN — so a caller who named a
- * conversation got a confident answer composed against somebody else's history,
- * or none, reported as exit 0. `run.ts` already refuses the equivalent, and
- * says why in the source: someone who asked for a specific conversation and got
- * a new one that looks the same finds out several turns later, having already
- * acted on it.
+ * Opening the conversation used to set `cli = null` on any error and fall
+ * through to reading prior turns from STDIN — so a caller who named a
+ * conversation got a confident answer composed against somebody else's
+ * history, or none, reported as exit 0. `run.ts` already refuses the
+ * equivalent: someone who asked for a specific conversation and got a new one
+ * that looks the same finds out several turns later, having already acted on
+ * it.
  *
  * It cannot be softened to a warning-and-continue, because the command cannot
  * say what was lost. `resolveConversation` CREATES the key on first use, so a
@@ -19,22 +16,15 @@
  * stopped it finding out which case it is in. "Could not look" is not "there
  * was nothing there."
  *
- * **After the turn.** The append that makes `history --session` correct was
- * wrapped in `catch {}` marked `// non-fatal`. Non-fatal is right; silent is
- * not. It is the one failure here that makes a LATER command wrong — the stream
- * ends `done`, the process exits 0, and `history` then comes back missing a
- * turn the user watched arrive, with nothing connecting the two.
+ * Saving the turn is no longer this command's job: the kernel appends it to
+ * the conversation's session log while it runs, so there is no later write
+ * that could fail silently after the stream ended `done`.
  */
 
 import { type Message, createAssistantMessage } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import {
-	appendMessages,
-	openSessions,
-	replaceConversation,
-	resolveConversation,
-} from '../../integrations/sessions/store.js'
+import { openSessions, resolveConversation } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { runStreamCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
@@ -43,8 +33,7 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: vi.fn(async () => ({}) as never),
 	resolveConversation: vi.fn(async () => 'conv-1' as never),
 	loadConversation: vi.fn(async () => []),
-	appendMessages: vi.fn(async () => undefined),
-	replaceConversation: vi.fn(async () => undefined),
+	closeSessions: vi.fn(),
 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({
@@ -119,12 +108,8 @@ beforeEach(() => {
 	Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true })
 	vi.mocked(openSessions).mockClear()
 	vi.mocked(resolveConversation).mockClear()
-	vi.mocked(appendMessages).mockClear()
-	vi.mocked(replaceConversation).mockClear()
 	vi.mocked(openSessions).mockImplementation(async () => ({}) as never)
 	vi.mocked(resolveConversation).mockImplementation(async () => 'conv-1' as never)
-	vi.mocked(appendMessages).mockImplementation(async () => undefined)
-	vi.mocked(replaceConversation).mockImplementation(async () => undefined)
 })
 
 afterEach(() => {
@@ -160,7 +145,7 @@ describe('when the named conversation cannot be opened', () => {
 	})
 
 	it('still ends the stream, so a host scanning stdout is not left hanging', async () => {
-		// The NDJSON contract is that every run ends with `done`, refusals
+		// The NDJSON contract is that every turn ends with `done`, refusals
 		// included.
 		vi.mocked(openSessions).mockImplementation(async () => {
 			throw new Error('EACCES')
@@ -170,64 +155,12 @@ describe('when the named conversation cannot be opened', () => {
 	})
 })
 
-describe('when the turn cannot be saved', () => {
-	it('says so, rather than ending on an unqualified done', async () => {
-		vi.mocked(appendMessages).mockImplementation(async () => {
-			throw new Error('ENOSPC: no space left on device')
-		})
-
-		const out = await run(['--session', 'nightly-build', 'hello'])
-
-		expect(out, 'the reply did not stream').toContain('an answer')
-		expect(out, 'the failed write was silent').toContain('not saved')
-		expect(out, "did not carry the store's own reason").toContain('ENOSPC')
-	})
-
-	it('names the consequence, not just the fault', async () => {
-		// "Could not persist" does not tell a host that its OWN later reads are
-		// now incomplete, which is the part that costs something.
-		vi.mocked(appendMessages).mockImplementation(async () => {
-			throw new Error('ENOSPC')
-		})
-
-		const out = await run(['--session', 'k', 'hello'])
-
-		expect(out).toContain('history')
-		expect(out).toContain('context')
-	})
-
-	it('is a notice and not an error, because the run did succeed', async () => {
-		// A host that treated this as a failed run would be wrong: the reply is
-		// complete and correct. Only the record of it is missing.
-		vi.mocked(appendMessages).mockImplementation(async () => {
-			throw new Error('ENOSPC')
-		})
-
-		const out = await run(['--session', 'k', 'hello'])
-
-		expect(out).toContain('"kind":"notice"')
-		expect(out, 'a successful run was reported as an error').not.toContain('"kind":"error"')
-	})
-
-	it('says nothing when the save succeeded, so the notice means something', async () => {
-		// The other half. A notice printed either way is noise, and a host would
-		// learn to ignore it.
+describe('when the turn runs', () => {
+	it('keeps opaque assistant state out of NDJSON', async () => {
 		const out = await run(['--session', 'k', 'hello'])
 
 		expect(out).toContain('an answer')
-		expect(out, 'reported a failure on the success path').not.toContain('not saved')
-	})
-
-	it('persists exact opaque assistant state without writing it to NDJSON', async () => {
-		const out = await run(['--session', 'k', 'hello'])
-		const persisted = vi.mocked(appendMessages).mock.calls.at(-1)?.[2]
-
-		expect(persisted?.[1]).toMatchObject({
-			role: 'assistant',
-			content: 'an answer',
-			reasoning: [{ type: 'redacted_thinking', encrypted: 'OPAQUE_RUN_STREAM_STATE' }],
-		})
-		expect(replaceConversation).not.toHaveBeenCalled()
 		expect(out).not.toContain('OPAQUE_RUN_STREAM_STATE')
+		expect(out, 'no persistence notice remains to be printed').not.toContain('not saved')
 	})
 })

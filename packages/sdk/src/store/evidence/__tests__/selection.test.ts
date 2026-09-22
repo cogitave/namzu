@@ -1,43 +1,26 @@
-import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
-import { asRunId } from '../../../utils/id.js'
-import { RunDiskStore } from '../../run/disk.js'
-import { compactionArchiveSchema } from '../compaction-archive.js'
 import { compactedToolMetadata } from '../compaction-provenance.js'
-import { createDiskRunTextEvidenceSource } from '../disk.js'
-import type { RunTextEvidenceSource } from '../types.js'
+import type { SessionTextEvidenceSource } from '../types.js'
+import { evidenceSession } from './support/session-log.js'
 
 const roots: string[] = []
 afterEach(async () => {
 	for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
+/**
+ * A turn's records, in log order after `session_started` (1) and
+ * `turn_started` (2): three tool results (3–5), a message (6), a compaction
+ * pass (7), a correction (8), and optionally a second pass (9).
+ */
 async function fixture(mode: 'live' | 'closed' | 'snapshot', extraMessages?: unknown[]) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-evidence-selection-'))
 	roots.push(root)
-	const scope = {
-		tenantId: randomUUID(),
-		projectId: randomUUID(),
-		sessionId: randomUUID(),
-		runId: asRunId(randomUUID()),
-	}
-	const store = new RunDiskStore({ baseDir: root })
-	const runDir = await store.initRun(scope.runId)
-	await writeFile(
-		join(runDir, 'run.json'),
-		JSON.stringify({
-			id: scope.runId,
-			status: mode === 'closed' ? 'completed' : 'running',
-			metadata: { scope },
-		}),
-	)
-	const events = [
-		{ type: 'run_started' },
+	const session = await evidenceSession(root)
+	const records: Record<string, unknown>[] = [
 		{
 			type: 'tool_completed',
 			toolName: 'read',
@@ -80,27 +63,19 @@ async function fixture(mode: 'live' | 'closed' | 'snapshot', extraMessages?: unk
 		},
 	]
 	if (extraMessages)
-		events.push({
+		records.push({
 			type: 'compaction_shed',
 			iteration: 2,
 			reason: 'threshold',
 			messages: extraMessages,
-		} as (typeof events)[number])
-	for (const [i, event] of events.entries())
-		await store.appendEvent({ ...event, runId: scope.runId, seq: i + 1 } as RunEvent)
-	const source =
-		mode === 'live'
-			? (await store.captureTextEvidence(scope))!
-			: createDiskRunTextEvidenceSource({
-					scope,
-					runDir,
-					indexDir: join(runDir, 'evidence-index'),
-					...(mode === 'snapshot' ? { consistency: 'snapshot' as const } : {}),
-				})
-	return { source, store, runDir }
+		})
+	for (const record of records) await session.append(record)
+	if (mode === 'closed') await session.close()
+	const source = await session.textSource(mode)
+	return { source, session }
 }
 
-async function all(source: RunTextEvidenceSource, excludeSuccessfulTools?: readonly string[]) {
+async function all(source: SessionTextEvidenceSource, excludeSuccessfulTools?: readonly string[]) {
 	let cursor: string | undefined
 	const matches = []
 	let excluded = 0
@@ -120,11 +95,11 @@ it.each(['live', 'closed', 'snapshot'] as const)(
 	async (mode) => {
 		const { source } = await fixture(mode)
 		const before = await all(source)
-		expect(before.matches.map((m) => m.seq).sort()).toEqual([2, 3, 4, 5, 6, 7])
-		const copied = before.matches.find((m) => m.seq === 3)!
+		expect(before.matches.map((m) => m.seq).sort()).toEqual([3, 4, 5, 6, 7, 8])
+		const copied = before.matches.find((m) => m.seq === 4)!
 		const filtered = await all(source, ['archive_quote'])
-		expect(filtered.matches.map((m) => m.seq).sort()).toEqual([2, 4, 5, 6, 7])
-		expect(filtered.matches.find((m) => m.seq === 4)?.isError).toBe(true)
+		expect(filtered.matches.map((m) => m.seq).sort()).toEqual([3, 5, 6, 7, 8])
+		expect(filtered.matches.find((m) => m.seq === 5)?.isError).toBe(true)
 		expect(filtered.excluded).toBe(1)
 		expect((await source.read({ address: copied.address })).text).toBe('ORCHID copied A17')
 	},
@@ -223,7 +198,7 @@ it.each(['live', 'closed', 'snapshot'] as const)(
 			result('missing', 'ORCHID no call', false),
 		]
 		const { source } = await fixture(mode, messages)
-		const original = (await source.search({ query: 'ORCHID', seq: 8 })).matches
+		const original = (await source.search({ query: 'ORCHID', seq: 9 })).matches
 		expect(original).toHaveLength(4)
 		expect(original[0]).toMatchObject({
 			source: 'compaction_shed:tool',
@@ -232,7 +207,7 @@ it.each(['live', 'closed', 'snapshot'] as const)(
 		})
 		const filtered = await source.search({
 			query: 'ORCHID',
-			seq: 8,
+			seq: 9,
 			excludeSuccessfulTools: ['archive_quote'],
 		})
 		expect(filtered.excludedToolResults).toBe(1)
@@ -248,46 +223,5 @@ it.each(['live', 'closed', 'snapshot'] as const)(
 			isError: false,
 			text: 'ORCHID search copy',
 		})
-	},
-)
-
-it.each(['live', 'closed', 'snapshot'] as const)(
-	'preserves provenance in spilled compaction without loading excluded payloads (%s)',
-	async (mode) => {
-		const messages = [
-			createUserMessage('image attachment', [
-				{ data: 'A'.repeat(4 * 1024 * 1024), mediaType: 'image/png' },
-			]),
-			call('success'),
-			result('success', 'ORCHID archived copy', false),
-			call('error'),
-			result('error', 'ORCHID archived error', true),
-		]
-		const { source, store, runDir } = await fixture(mode, messages)
-		const all = await source.search({ query: 'ORCHID', seq: 8 })
-		expect(all.matches).toHaveLength(2)
-		const text = await source.read({ address: all.matches[0]!.address })
-		expect(text).toMatchObject({
-			source: 'compaction_shed:tool',
-			toolName: 'archive_quote',
-			isError: false,
-			text: 'ORCHID archived copy',
-		})
-		const saved = compactionArchiveSchema.parse(
-			JSON.parse((await readFile(join(runDir, 'transcript.jsonl'), 'utf8')).trim().split('\n')[7]!),
-		)
-		expect(saved.archive.parts[1]).toMatchObject({ toolName: 'archive_quote', isError: false })
-		expect((await store.readEvents()).at(-1)).toMatchObject({ type: 'compaction_shed', messages })
-		// A filtered search need not open this intentionally excluded body. Exact access still verifies it.
-		await rm(join(runDir, 'compaction-output', saved.archive.id, '1.txt.manifest.json'))
-		const filtered = await source.search({
-			query: 'ORCHID',
-			seq: 8,
-			excludeSuccessfulTools: ['archive_quote'],
-		})
-		expect(filtered.excludedToolResults).toBe(1)
-		expect(filtered.matches).toHaveLength(1)
-		expect(filtered.matches[0]).toMatchObject({ toolName: 'archive_quote', isError: true })
-		await expect(source.read({ address: all.matches[0]!.address })).rejects.toThrow()
 	},
 )

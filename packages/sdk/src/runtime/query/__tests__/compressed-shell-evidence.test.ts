@@ -8,7 +8,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
-import type { RunEvent } from '../../../types/run/events.js'
+import type { SessionEvent } from '../../../types/session/events.js'
 import { ToolExecutor } from '../executor.js'
 
 const roots: string[] = []
@@ -32,13 +32,14 @@ async function execute(output: string, hook?: PluginHookResult) {
 			content: [{ type: 'text', text: output }, image],
 		}),
 	})
-	const runId = fixtureId.run('shell-evidence')
-	const events: RunEvent[] = []
+	const turnId = fixtureId.turn('shell-evidence')
+	const events: SessionEvent[] = []
 	const stub = { info() {}, warn() {}, error() {}, debug() {} }
 	const executor = new ToolExecutor(
 		{
 			tools,
-			runId,
+			sessionId: fixtureId.session('shell-evidence'),
+			turnId,
 			workingDirectory: root,
 			permissionMode: 'auto',
 			env: {},
@@ -50,9 +51,9 @@ async function execute(output: string, hook?: PluginHookResult) {
 				},
 			} as never,
 		},
-		new ActivityStore(runId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(turnId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (event) => {
-			events.push(event)
+			events.push(event as SessionEvent)
 		},
 		{ ...stub, child: () => stub } as never,
 	)

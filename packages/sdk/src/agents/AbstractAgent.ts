@@ -10,12 +10,12 @@ import type {
 	BaseAgentResult,
 } from '../types/agent/index.js'
 import type { AgentManagerContract } from '../types/agent/manager.js'
-import type { RunId } from '../types/ids/index.js'
-import { type CancelCause, RunCancelled } from '../types/run/cancel-cause.js'
-import type { RunEvent, RunEventListener } from '../types/run/index.js'
+import type { SessionId, TurnId } from '../types/ids/index.js'
+import { type CancelCause, TurnCancelled } from '../types/session/cancel-cause.js'
+import type { SessionEvent, SessionEventListener } from '../types/session/events.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
-import { generateRunId } from '../utils/id.js'
+import { generateSessionId, generateTurnId } from '../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 import { InvocationLock } from './lock.js'
@@ -29,11 +29,11 @@ export abstract class AbstractAgent<
 	readonly metadata: AgentMetadata
 	protected log: Logger
 	/**
-	 * The logger bound at construction, before any run id exists. `this.log`
-	 * is rebound to a CHILD of this on every `bindRun` call — never the other
-	 * way — so `forRun()` (which builds a fresh shell from `this.metadata`)
+	 * The logger bound at construction, before any turn exists. `this.log`
+	 * is rebound to a CHILD of this on every `bindTurn` call — never the other
+	 * way — so `forTurn()` (which builds a fresh shell from `this.metadata`)
 	 * can hand the new instance the same base identity without also handing
-	 * it a stale run id from whichever run happened to be live last.
+	 * it a stale turn id from whichever turn happened to be live last.
 	 */
 	private readonly baseLog: Logger
 	protected abortController: AbortController
@@ -45,14 +45,17 @@ export abstract class AbstractAgent<
 	 * IN-FLIGHT ONLY, and deliberately: a settled entry kept around would
 	 * turn deduplication into caching, and caching an agent's answer is a
 	 * decision about staleness that only the host can make. A retry that
-	 * arrives after the first finished runs again, which is the honest
+	 * arrives after the first finished turns again, which is the honest
 	 * behaviour — the world may have moved.
 	 */
 	private readonly inflightByKey = new Map<string, Promise<unknown>>()
 
 	protected agentManager?: AgentManagerContract
 
-	protected currentRunId?: RunId
+	/** The session this instance is running a turn of, once `bindTurn` recorded it. */
+	protected currentSessionId?: SessionId
+
+	protected currentTurnId?: TurnId
 
 	constructor(metadata: AgentMetadata, log?: Logger) {
 		this.metadata = metadata
@@ -66,28 +69,32 @@ export abstract class AbstractAgent<
 		this.log = this.baseLog
 	}
 
-	abstract run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
+	abstract run(
+		input: AgentInput,
+		config: TConfig,
+		listener?: SessionEventListener,
+	): Promise<TResult>
 
 	/**
-	 * A fresh shell of this agent, for a run that must not share one.
+	 * A fresh shell of this agent, for a turn that must not share one.
 	 *
-	 * See {@link Agent.forRun}. An agent is a shell around metadata — every
-	 * per-run decision arrives in `config` and `input` — so a second instance
-	 * costs one object and gives the run its own abort controller and run id,
+	 * See {@link Agent.forTurn}. An agent is a shell around metadata — every
+	 * per-turn decision arrives in `config` and `input` — so a second instance
+	 * costs one object and gives the turn its own abort controller and turn id,
 	 * which is precisely what the invocation lock is protecting.
 	 *
 	 * Rebuilt from `this.constructor` and `this.metadata`, which covers every
 	 * agent in this package: they all take metadata and nothing else. A
 	 * subclass with a different constructor signature will throw here, and the
 	 * answer to that is `this` — the caller then shares the shell and gets the
-	 * existing refusal on a concurrent run, which is the behaviour before this
+	 * existing refusal on a concurrent turn, which is the behaviour before this
 	 * existed. Losing parallelism is a worse outcome than not having it; losing
-	 * the run is not on the table.
+	 * the turn is not on the table.
 	 *
 	 * A host whose agent needs real construction arguments supplies
 	 * `AgentDefinition.createAgent` instead, which wins over this.
 	 */
-	forRun(): this {
+	forTurn(): this {
 		try {
 			const Ctor = this.constructor as unknown as new (
 				metadata: AgentMetadata,
@@ -96,7 +103,7 @@ export abstract class AbstractAgent<
 			return new Ctor(this.metadata, this.baseLog)
 		} catch (err) {
 			this.log.warn(
-				'Could not build a per-run shell; concurrent runs of this agent will still be refused',
+				'Could not build a per-turn shell; concurrent turns of this agent will still be refused',
 				{
 					[GENAI.AGENT_ID]: this.metadata.id,
 					'exception.message': err instanceof Error ? err.message : String(err),
@@ -133,11 +140,11 @@ export abstract class AbstractAgent<
 	 * invocations of one agent instance were not prevented at all, and the
 	 * error type that announces the refusal could never be thrown.
 	 *
-	 * They genuinely are unsafe. `abortController` and `currentRunId` are
-	 * INSTANCE state: two overlapping runs share one abort controller, so
-	 * cancelling either kills both, and the second clobbers the first's run
-	 * id, so `cancel()` afterwards cancels the wrong run. Neither failure
-	 * announces itself — the first run simply stops, or the wrong one does.
+	 * They genuinely are unsafe. `abortController` and `currentSessionId` are
+	 * INSTANCE state: two overlapping turns share one abort controller, so
+	 * cancelling either kills both, and the second clobbers the first's
+	 * session, so `cancel()` afterwards cancels the wrong children. Neither failure
+	 * announces itself — the first turn simply stops, or the wrong one does.
 	 *
 	 * A host that wants parallelism constructs a second instance, which is
 	 * cheap; sharing one was never the supported shape, it merely was not
@@ -158,7 +165,7 @@ export abstract class AbstractAgent<
 	 *
 	 * The failure this exists for: a caller sends a request, the connection
 	 * drops, the caller retries. Without a key the retry is a second full
-	 * run — a second set of model calls, and a second set of whatever the
+	 * turn — a second set of model calls, and a second set of whatever the
 	 * tools did. The invocation lock alone does not help, because refusing
 	 * the retry with an error is not what the caller wanted either; they
 	 * wanted the answer.
@@ -192,7 +199,7 @@ export abstract class AbstractAgent<
 			return await started
 		} finally {
 			// Cleared on settle, success or failure: keeping it would make the
-			// next retry a cache read rather than a fresh run.
+			// next retry a cache read rather than a fresh turn.
 			this.inflightByKey.delete(key)
 		}
 	}
@@ -203,14 +210,14 @@ export abstract class AbstractAgent<
 	 * operator's behalf is not — and a default would attribute every
 	 * unlabelled cancellation to a person who did not press anything.
 	 *
-	 * Children get `'parent'` regardless of what stopped this run: from a
+	 * Children get `'parent'` regardless of what stopped this turn: from a
 	 * child's side, the fact is that its parent went away.
 	 */
 	async cancel(cause?: CancelCause): Promise<void> {
-		this.abortController.abort(cause ? new RunCancelled(cause) : undefined)
+		this.abortController.abort(cause ? new TurnCancelled(cause) : undefined)
 
-		if (this.agentManager && this.currentRunId) {
-			this.agentManager.cancelAll(this.currentRunId)
+		if (this.agentManager && this.currentSessionId) {
+			this.agentManager.cancelAll(this.currentSessionId)
 		}
 	}
 
@@ -218,41 +225,58 @@ export abstract class AbstractAgent<
 		return this.metadata.capabilities
 	}
 
-	protected createRunId(): RunId {
-		return generateRunId()
+	/** A fresh id for the turn this invocation runs. */
+	protected createTurnId(): TurnId {
+		return generateTurnId()
 	}
 
 	/**
-	 * Rebind this instance's logger to a specific run, so every record
-	 * `this.log` writes for the DURATION of that run carries `namzu.run.id` —
-	 * and every record after the NEXT call carries that run's id, not this
-	 * one.
+	 * The session this invocation's turn belongs to: the config's, or a new
+	 * one when the host named none (a one-shot agent is a one-turn session).
+	 */
+	protected resolveSessionId(configured: SessionId | undefined): SessionId {
+		return configured ?? generateSessionId()
+	}
+
+	/**
+	 * Rebind this instance's logger to a specific turn, so every record
+	 * `this.log` writes for the DURATION of that turn carries `namzu.turn.id`
+	 * and the session id — and every record after the NEXT call carries that
+	 * turn's ids, not this one's.
 	 *
 	 * Constructor-time binding was the bug this exists to fix: an agent
-	 * constructed once and invoked twice (`forRun` aside — a host is free to
-	 * reuse one instance across sequential runs, and every concrete `run()`
+	 * constructed once and invoked twice (`forTurn` aside — a host is free to
+	 * reuse one instance across sequential turns, and every concrete `run()`
 	 * takes fresh `input`/`config` precisely to allow it) held ONE logger for
-	 * its whole lifetime, so a warning from run two carried run one's id, or
+	 * its whole lifetime, so a warning from turn two carried turn one's id, or
 	 * none. Every concrete `run()` implementation calls this before touching
-	 * `this.log`, right after resolving the run's id — see `RouterAgent`,
+	 * `this.log`, right after resolving the turn's id — see `RouterAgent`,
 	 * `PipelineAgent`, `SupervisorAgent` and `ReactiveAgent`.
 	 *
-	 * `log` lets a per-run override (`BaseAgentConfig.logger`, a host setting
+	 * `log` lets a per-turn override (`BaseAgentConfig.logger`, a host setting
 	 * on ONE call to `.run()`) win over the agent's construction-time base,
 	 * without reconstructing the agent to get it.
 	 *
-	 * Also the one place `currentRunId` is actually assigned. It was declared
-	 * and read by `cancel()` but never written — a run could never be
-	 * cancelled by id because nothing ever recorded which run was current.
+	 * Also the one place `currentSessionId` is assigned, which is what
+	 * `cancel()` reads to cancel this session's delegated children.
 	 */
-	protected bindRun(runId: RunId, log?: Logger): void {
-		this.currentRunId = runId
-		this.log = (log ?? this.baseLog).child({ [NAMZU.RUN_ID]: runId })
+	protected bindTurn(sessionId: SessionId, turnId: TurnId, log?: Logger): void {
+		this.currentSessionId = sessionId
+		this.currentTurnId = turnId
+		this.log = (log ?? this.baseLog).child({
+			[GENAI.CONVERSATION_ID]: sessionId,
+			[NAMZU.TURN_ID]: turnId,
+		})
 	}
 
-	protected createEmptyResult(runId: RunId, startTime: number): BaseAgentResult {
+	protected createEmptyResult(
+		sessionId: SessionId,
+		turnId: TurnId,
+		startTime: number,
+	): BaseAgentResult {
 		return {
-			runId,
+			sessionId,
+			turnId,
 			status: 'idle',
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -262,7 +286,7 @@ export abstract class AbstractAgent<
 		}
 	}
 
-	protected async emitEvent(event: RunEvent, listener?: RunEventListener): Promise<void> {
+	protected async emitEvent(event: SessionEvent, listener?: SessionEventListener): Promise<void> {
 		if (!listener) return
 		try {
 			await listener(event)

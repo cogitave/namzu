@@ -15,6 +15,9 @@ import {
 } from './learning-cycle.js'
 import { hashResidentSkill, projectResidentLearning } from './learning.js'
 
+/** Every receipt in this file belongs to one session; the turn is what varies. */
+const RECEIPT_SESSION = randomUUID()
+
 const roots: string[] = []
 afterEach(async () => {
 	await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })))
@@ -56,7 +59,7 @@ function batch(
 							reason: 'Compared the output with the fixture source.',
 						},
 					},
-					run: {
+					turn: {
 						output: passed ? 'supported' : 'unsupported',
 						steps: [],
 						toolCalls: [],
@@ -116,12 +119,22 @@ async function fixture() {
 		},
 		generate: async (context) => {
 			stages.push(context.stage)
-			await context.recordUsage({ runId: randomUUID(), tokens: 5, costUsd: null })
+			await context.recordUsage({
+				sessionId: RECEIPT_SESSION,
+				turnId: randomUUID(),
+				tokens: 5,
+				costUsd: null,
+			})
 			return { candidate: skill, usageComplete: true }
 		},
 		evaluate: async (context) => {
 			stages.push(context.stage)
-			await context.recordUsage({ runId: randomUUID(), tokens: 20, costUsd: null })
+			await context.recordUsage({
+				sessionId: RECEIPT_SESSION,
+				turnId: randomUUID(),
+				tokens: 20,
+				costUsd: null,
+			})
 			return { batch: batch(context), usageComplete: true }
 		},
 	}
@@ -190,7 +203,12 @@ describe('resident learning cycle', () => {
 				expect(context).not.toHaveProperty('protection')
 				expect(context).not.toHaveProperty('candidate')
 				expect(context.stage).toBe('explore')
-				await context.recordUsage({ runId: randomUUID(), tokens: 7, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 7,
+					costUsd: null,
+				})
 				return { observations, usageComplete: true }
 			},
 			generate: async (context) => {
@@ -226,7 +244,8 @@ describe('resident learning cycle', () => {
 				explore: async (context) => {
 					if (kind !== 'missing')
 						await context.recordUsage({
-							runId: randomUUID(),
+							sessionId: RECEIPT_SESSION,
+							turnId: randomUUID(),
 							tokens: kind === 'unknown' ? null : kind === 'exhausted' ? 100 : 5,
 							costUsd: null,
 						})
@@ -249,7 +268,12 @@ describe('resident learning cycle', () => {
 			const result = await runResidentLearningCycle({
 				...f.options,
 				explore: async (context) => {
-					await context.recordUsage({ runId: randomUUID(), tokens: 5, costUsd: null })
+					await context.recordUsage({
+						sessionId: RECEIPT_SESSION,
+						turnId: randomUUID(),
+						tokens: 5,
+						costUsd: null,
+					})
 					return { observations: { evidence, trace }, usageComplete: true }
 				},
 			})
@@ -263,7 +287,12 @@ describe('resident learning cycle', () => {
 			const outcome = await runResidentLearningCycle({
 				...f.options,
 				explore: async (context) => {
-					await context.recordUsage({ runId: randomUUID(), tokens: 5, costUsd: null })
+					await context.recordUsage({
+						sessionId: RECEIPT_SESSION,
+						turnId: randomUUID(),
+						tokens: 5,
+						costUsd: null,
+					})
 					if (cancel) f.controller.abort()
 					return { observations: { evidence, trace: 'Actual output.' }, usageComplete: true }
 				},
@@ -362,7 +391,12 @@ describe('resident learning cycle', () => {
 		const first = await runResidentLearningCycle({
 			...f.options,
 			generate: async (context) => {
-				await context.recordUsage({ runId: randomUUID(), tokens: 1, costUsd: 0 })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 1,
+					costUsd: 0,
+				})
 				return { candidate, usageComplete: true }
 			},
 			evaluate: async (context) => {
@@ -379,7 +413,12 @@ describe('resident learning cycle', () => {
 			...f.options,
 			generate: async (context) => {
 				expect(context.baseline?.sources).toEqual(sources)
-				await context.recordUsage({ runId: randomUUID(), tokens: 1, costUsd: 0 })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 1,
+					costUsd: 0,
+				})
 				return { candidate, usageComplete: true }
 			},
 		})
@@ -438,7 +477,12 @@ describe('resident learning cycle', () => {
 				...f.options,
 				evaluate: async (context) => {
 					f.stages.push(context.stage)
-					await context.recordUsage({ runId: randomUUID(), tokens: 20, costUsd: 0 })
+					await context.recordUsage({
+						sessionId: RECEIPT_SESSION,
+						turnId: randomUUID(),
+						tokens: 20,
+						costUsd: 0,
+					})
 					return { batch: batch(context, mode), usageComplete: true }
 				},
 			})
@@ -453,7 +497,12 @@ describe('resident learning cycle', () => {
 		const outcome = await runResidentLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
-				await context.recordUsage({ runId: randomUUID(), tokens: 20, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 20,
+					costUsd: null,
+				})
 				return {
 					batch: batch(context, context.stage === 'confirmation' ? 'regress' : 'better'),
 					usageComplete: true,
@@ -469,7 +518,12 @@ describe('resident learning cycle', () => {
 		const outcome = await runResidentLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
-				await context.recordUsage({ runId: randomUUID(), tokens: 20, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 20,
+					costUsd: null,
+				})
 				return { batch: batch({ ...context, stage: 'verification' }), usageComplete: true }
 			},
 		})
@@ -486,7 +540,8 @@ describe('resident learning cycle', () => {
 				resources: { unit, maxUnits: 100 },
 				generate: async (context) => {
 					await context.recordUsage({
-						runId: randomUUID(),
+						sessionId: RECEIPT_SESSION,
+						turnId: randomUUID(),
 						tokens: unit === 'tokens' ? null : 5,
 						costUsd: null,
 					})
@@ -514,7 +569,12 @@ describe('resident learning cycle', () => {
 		const outcome = await runResidentLearningCycle({
 			...f.options,
 			evaluate: async (context) => {
-				await context.recordUsage({ runId: randomUUID(), tokens: 8, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 8,
+					costUsd: null,
+				})
 				throw new Error('Provider transport failed during the next call.')
 			},
 		})
@@ -551,11 +611,21 @@ describe('resident learning cycle', () => {
 		const outcome = await runResidentLearningCycle({
 			...f.options,
 			generate: async (context) => {
-				await context.recordUsage({ runId: id, tokens: 5, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: id,
+					tokens: 5,
+					costUsd: null,
+				})
 				return { candidate: skill, usageComplete: true }
 			},
 			evaluate: async (context) => {
-				await context.recordUsage({ runId: id.toUpperCase(), tokens: 5, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: id.toUpperCase(),
+					tokens: 5,
+					costUsd: null,
+				})
 				return { batch: batch(context), usageComplete: true }
 			},
 		})
@@ -570,7 +640,12 @@ describe('resident learning cycle', () => {
 		const outcome = await runResidentLearningCycle({
 			...f.options,
 			generate: async (context) => {
-				await context.recordUsage({ runId: randomUUID(), tokens: 5, costUsd: null })
+				await context.recordUsage({
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 5,
+					costUsd: null,
+				})
 				f.controller.abort()
 				return { candidate: skill, usageComplete: true }
 			},
@@ -653,7 +728,12 @@ describe('resident learning cycle', () => {
 		const outcome = await runResidentLearningCycle({
 			...f.options,
 			generate: async (context) => {
-				const receipt = { runId: randomUUID(), tokens: 5, costUsd: null }
+				const receipt = {
+					sessionId: RECEIPT_SESSION,
+					turnId: randomUUID(),
+					tokens: 5,
+					costUsd: null,
+				}
 				await context.recordUsage(receipt)
 				await context.recordUsage(receipt).catch(() => undefined)
 				return { candidate: skill, usageComplete: true }

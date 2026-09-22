@@ -17,15 +17,16 @@ installing or saving the summary. This includes user-provided details omitted
 from the summary. They remain searchable through `search_conversation` and
 readable through `read_conversation`, including after restart.
 
-The host writes a separate zero-model maintenance record in the conversation's
-`runs/` directory, using the SDK run store and authenticated text index. It has
-`agentId: manual-compaction`, `provider: host`, `model: none`, zero iterations
-and zero model tokens. One `compaction_shed` event with `reason: manual` contains
-the removed messages in input order, matching automatic compaction. The SDK
-offloads large arrays and indexes each textual part. Raw event consumers must
-iterate `messages`; use the returned `seq` and `part` when reading search matches.
-It adds no assistant answer, checkpoint or global run-index
-entry, and does not reopen a completed model invocation. Verifier usage, if any,
+A manual compaction runs between turns, never inside one: the host calls
+`compactSession`, which appends to the conversation's session log a
+`compaction` record with `trigger: 'manual'` and no turn id, beside one
+`compaction_shed` event with `reason: manual` that contains the removed
+messages in input order, matching automatic compaction. No model is called for
+the record itself. The SDK spills large arrays to `tool-results/` and the
+session index covers each textual part. Raw record consumers must iterate
+`messages`; use the returned `seq` and `part` when reading search matches. It
+adds no assistant answer, checkpoint or turn, and is refused while a turn is
+active. Verifier usage, if any,
 remains in the compaction result shown by the UI.
 
 If retention fails or is cancelled, the replacement is not published. The TUI
@@ -65,17 +66,17 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
 | `recallEvidence` | Optional boolean, default `true` in recorded conversations. Retrieve bounded historical passages from this conversation before each model request; see the limits below. Set `false` to disable automatic archive recall and its query-planning inference. Independent of project-memory recall. |
 | `resolveEvidenceQueries` | Optional boolean, default `true` when `recallEvidence` is enabled. Resolve conversational references through a bounded, metered model call per operator input; set `false` for literal retrieval without preparation inference. |
-| `consolidate` | `true` selects one consolidated `learning` entry per run instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
+| `consolidate` | `true` selects one consolidated `learning` entry per turn instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 
-The CLI uses one of these writers per run, including resumed runs. Retrieval is
+The CLI uses one of these writers per turn, including resumed turns. Retrieval is
 separate: [structured memory](../sdk/memory.md) describes the records and tools;
 `memory.recall: false` disables automatic per-step recall while retaining the
 explicit memory tools and the selected writer.
 
-A strategy is a property of a project's runs, which is why the key is file-only, like `hooks`.
+A strategy is a property of a project's sessions, which is why the key is file-only, like `hooks`.
 
 The retained-preview policy applies to new output in ordinary recorded turns
-and resumed runs, including nested tool receipts. It does not rewrite older
+and resumed turns, including nested tool receipts. It does not rewrite older
 history. Stateless sessions and delegated workers keep their previous defaults.
 Failed retention or an undersized recovery-pointer allowance preserves the
 ordinary budget. Exact originals remain available through
@@ -105,7 +106,7 @@ keep their own terms; present-state questions are not expanded with historical
 terms. This interpretation does not prove the final answer or file freshness.
 See the [SDK planning bounds](../sdk/evidence-recall.md#selection-and-limits).
 
-The preparation call shares the run's model/provider chain, effort, token budget
+The preparation call shares the turn's model/provider chain, effort, token budget
 and cancellation, with at most 512 output tokens and a ten-second deadline.
 It is separate from the retrieval deadline below. Repeated iterations reuse the
 plan for that input, but revalidate the evidence. Set
@@ -126,20 +127,19 @@ the right source. The [default-recall experiment](../../research/conversation-ev
 records the natural CLI control, inference usage and its limits.
 
 Each request scans at most four bounded pages, accounting at most 8 MiB of
-source/metadata bytes across those pages, from this conversation only. Each
-closed-history enumeration examines at most 100 run-directory entries. Enumeration is bounded, not
-an exhaustive or chronological search of a large archive. Up to four ranked
+source/metadata bytes across those pages, from this conversation's session log
+only. The read is bounded, not an exhaustive search of a long conversation. Up to four ranked
 passages occupy at most 6,000 added characters. A one-second deadline cancels
 optional retrieval; source or ownership failures expose no cached passage.
-Legacy transcript text is labelled as a preview. Authenticated retained output
-keeps its source tool, error flag and exact event/byte reference.
+Text recorded only as a preview is labelled as one. Authenticated retained
+output keeps its source tool, error flag and exact record/byte reference.
 
 The pass first visits at most two pages from the requesting invocation's live
-writer, then uses the remaining page/read budget for earlier invocations.
+writer, then uses the remaining page/read budget for earlier turns.
 Live search follows authenticated completed records, including originals shed
-by compaction. The current run is excluded from disk enumeration, so a missing
-live owner cannot silently fall back to reading an active transcript as closed
-history. Unsupported capture and incomplete traversal remain incomplete.
+by compaction. The current turn is excluded from the settled-history pass, so a
+missing live owner cannot silently fall back to reading an active turn as
+settled history. Unsupported capture and incomplete traversal remain incomplete.
 When another page remains, recalled context supplies a `search_conversation`
 call with an opaque `cursor` for the unfinished live scan and/or closed-history
 scan. The model can continue directly from that position. Source bytes are
@@ -176,7 +176,7 @@ when needed. Every completed pass also leaves a `⌫` row in the transcript.
 These cleanup counters cover the session, while the context size is the latest
 reported measurement and can fall after cleanup.
 
-`/cost` reports tokens and own model-call cost for the current or latest run.
+`/cost` reports tokens and own model-call cost for the current or latest turn.
 It does not accumulate every conversation turn and does not use token spend
 as a context-fullness gauge. Delegated token usage, when available, is labelled
 separately. `/cost details` shows pricing scope and any context measurement;

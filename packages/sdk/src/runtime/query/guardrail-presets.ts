@@ -11,7 +11,7 @@ import type {
 } from '../../types/guardrail/index.js'
 
 /**
- * Patterns for credentials that must never leave a run.
+ * Patterns for credentials that must never leave a turn.
  *
  * Deliberately narrow and prefix-anchored, unchanged by the move to
  * `constants/secret-patterns.ts`: a loose "looks like a secret" regex over
@@ -61,7 +61,7 @@ export function secretRedactionGuardrail(
 
 			for (const [label, pattern] of patterns) {
 				// Fresh lastIndex: these are module-level /g regexes and are
-				// reused across runs.
+				// reused across turns.
 				pattern.lastIndex = 0
 				if (!pattern.test(output)) continue
 				found.push(label)
@@ -97,7 +97,7 @@ const INJECTION_PATTERNS: readonly RegExp[] = [
 ]
 
 /**
- * Flag likely instruction-override attempts in the run's input.
+ * Flag likely instruction-override attempts in the turn's input.
  *
  * Input-side because it is cheapest there — nothing has been spent — and
  * because the same text reaching the model is the thing you are trying to
@@ -105,7 +105,7 @@ const INJECTION_PATTERNS: readonly RegExp[] = [
  *
  * It cannot see an INDIRECT injection, and that is not a limitation of the
  * patterns: an injection carried in a web page or a connected server's
- * answer never appears in the run's input at all. See
+ * answer never appears in the turn's input at all. See
  * {@link toolResultInjectionGuardrail}, which is the same list at the other
  * boundary.
  */
@@ -136,13 +136,13 @@ export function promptInjectionGuardrail(): NamedGuardrail<
  *
  * The case the input-side screen structurally cannot reach. An indirect
  * injection arrives in a fetched page or a connected server's answer, so it
- * is never in the run's input — by the time it matters the run is
+ * is never in the turn's input — by the time it matters the turn is
  * legitimate and the payload is riding on a result the model asked for.
  *
  * `refuse`, not `halt`: a hostile result is a reason to abandon that call,
- * not the run. The model is told the answer was refused and can choose
+ * not the turn. The model is told the answer was refused and can choose
  * something else, which is the behaviour that keeps the control switched on
- * — a screen that ends a run on a false positive gets removed, and then it
+ * — a screen that ends a turn on a false positive gets removed, and then it
  * protects nothing.
  *
  * **Detection is partial and this says so rather than implying coverage.**
@@ -494,13 +494,13 @@ export function toolResultCorrespondenceGuardrail(
 }
 
 /**
- * The screens a run installs on itself when its host configured none.
+ * The screens a turn installs on itself when its host configured none.
  *
  * A DEFAULT, and the reason it is here rather than on
  * {@link ToolRegistryConfig.resultGuardrails}: a host assembles a registry
  * and hands it to `runAgent`, so a registry-constructor default would be the
- * host's to write and this repository's default would reach nobody. The run
- * is the thing that has to carry it, and a run that wants none says so with
+ * host's to write and this repository's default would reach nobody. The turn
+ * is the thing that has to carry it, and a turn that wants none says so with
  * an empty array — which is the escape hatch, and it exists precisely because
  * the screen below can refuse a result.
  *
@@ -513,14 +513,14 @@ export function toolResultCorrespondenceGuardrail(
  * **A default that refuses a legitimate result is a default that gets turned
  * off, so the exemption has to be reachable from wherever the screen is
  * installed.** `toolResultCorrespondenceGuardrail({ passthroughTools })` is
- * how a host writing SDK code says so; a run's `toolResultGuardrails` array
+ * how a host writing SDK code says so; a turn's `toolResultGuardrails` array
  * is where it substitutes its own configured instance. An application that
  * ships the default without also shipping a way to name an exception has
  * shipped a switch with one position.
  *
  * Frozen, because it is handed to callers who may want to extend it:
  * `[...DEFAULT_TOOL_RESULT_GUARDRAILS, myScreen()]`. A caller that could
- * mutate it would be mutating the default for every other run in the process.
+ * mutate it would be mutating the default for every other turn in the process.
  */
 export const DEFAULT_TOOL_RESULT_GUARDRAILS: readonly ToolResultGuardrailSpec[] = Object.freeze([
 	toolResultCorrespondenceGuardrail(),

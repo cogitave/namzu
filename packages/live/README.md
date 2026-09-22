@@ -46,8 +46,11 @@ turn detection, speech synthesis and a cancellable audio output.
 pnpm add @namzu/sdk @namzu/live
 ```
 
-`@namzu/sdk` is a peer dependency. Install both. This release supports SDK
-33.1.1 through the 33.x line (`>=33.1.1 <34`) and requires Node.js 20 or newer.
+`@namzu/sdk` is a peer dependency. Install both. This release requires
+`@namzu/sdk >=44.0.0` and Node.js 20 or newer.
+
+**Compatibility.** `@namzu/live` before 2.0.0 breaks on `@namzu/sdk >=44`. Use
+`@namzu/live >=2` with `@namzu/sdk` 44.
 
 ## Compose a live session
 
@@ -109,6 +112,13 @@ const result = await session.run({ userInput: 'What changed?' }).wait()
 console.log(result.message?.content)
 await session.close()
 ```
+
+`result.turnId` is the live session's own turn. `result.modelSessionId` and
+`result.modelTurnId` name the SDK session and turn `NamzuModel` ran the reply
+as, when the model reported them before the turn settled; the same pair is on
+the `usage` and `turn_completed` events. A `createQueryParams` callback that
+wants the session kept in memory passes an `InMemorySessionLog` as
+`sessionLog`; without one, the SDK records it under `NAMZU_HOME`.
 
 ## Session-owned handles
 

@@ -5,7 +5,7 @@ import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../../manager/session/turn-recorder.js'
 import type { PromptContributionRegistry } from '../../../../prompt/contributions.js'
 import type { ResolvedProviderCapabilities } from '../../../../provider/capabilities.js'
 import type { ServingMember } from '../../../../provider/fallback.js'
@@ -13,24 +13,20 @@ import type { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskScheduler } from '../../../../types/agent/scheduler.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
-import type {
-	HITLResumeDecision,
-	IterationCheckpoint,
-	ResumeHandler,
-} from '../../../../types/hitl/index.js'
+import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { CheckpointId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../../../types/router/index.js'
-import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
+import type { ReviewAnswer } from '../../../../types/session/answer-review.js'
 import type {
-	AgentRunConfig,
 	BeforeStep,
 	PrepareStepChain,
 	PrepareStepContext,
-	RunEvent,
+	SessionEvent,
 	StepResult,
 	StopCondition,
-} from '../../../../types/run/index.js'
+	TurnConfig,
+} from '../../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../../types/structured-output/index.js'
 import type { TaskStore } from '../../../../types/task/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
@@ -47,7 +43,7 @@ import type { ToolGrantSet } from '../../tool-grants.js'
 
 export interface IterationContext {
 	readonly provider: LLMProvider
-	/** Driver-level request shapes negotiated for this run. */
+	/** Driver-level request shapes negotiated for this turn. */
 	readonly providerCapabilities?: ResolvedProviderCapabilities
 	/** Refuse a capability mismatch instead of emitting a warning and degrading. */
 	readonly strictCapabilities?: boolean
@@ -56,7 +52,7 @@ export interface IterationContext {
 	 *
 	 * `provider` cannot answer this itself: `withProviderFallback` keeps its
 	 * `id` transparently equal to the head's, deliberately, because that is
-	 * what capability negotiation and the run's `gen_ai.system` attribute are
+	 * what capability negotiation and the turn's `gen_ai.system` attribute are
 	 * about. Asking the wrapper who it is gets the declaration; this gets the
 	 * observation.
 	 *
@@ -68,12 +64,12 @@ export interface IterationContext {
 	 */
 	readonly servingMember?: () => ServingMember
 	/**
-	 * The run's `invoke_agent` span, so each iteration can parent itself to
+	 * The turn's `invoke_agent` span, so each iteration can parent itself to
 	 * it. Explicit rather than ambient because this loop is an async
 	 * generator — see `parentContext` in `telemetry/attributes.ts`.
 	 */
 	readonly rootSpan?: import('@opentelemetry/api').Span
-	readonly runConfig: AgentRunConfig
+	readonly turnConfig: TurnConfig
 
 	/**
 	 * Caller-supplied halt predicate, evaluated after each step's tools have
@@ -82,7 +78,7 @@ export interface IterationContext {
 	readonly stopWhen?: StopCondition
 
 	/**
-	 * Host verdict on the answer the run is about to settle with, and how
+	 * Host verdict on the answer the turn is about to settle with, and how
 	 * many rejections it may spend before stopping.
 	 */
 	readonly reviewAnswer?: ReviewAnswer
@@ -95,12 +91,12 @@ export interface IterationContext {
 	readonly structuredOutput?: StructuredOutputConfig
 	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
-	readonly runMgr: RunPersistence
+	readonly recorder: TurnRecorder
 	readonly toolExecutor: ToolExecutor
 	readonly guard: GuardCoordinator
 	readonly activityStore: ActivityStore
 	readonly emitEvent: EmitEvent
-	readonly drainPending: () => Generator<RunEvent>
+	readonly drainPending: () => Generator<SessionEvent>
 	readonly abortController: AbortController
 	readonly log: Logger
 	readonly resumeHandler: ResumeHandler
@@ -111,14 +107,14 @@ export interface IterationContext {
 	 * Read-and-CLEAR: calling this marks the change announced, so the caller
 	 * must be the one that actually puts it in front of the model. Optional
 	 * because a host driving the phases directly may have no policy box, and
-	 * a run with no changes to report behaves identically either way.
+	 * a turn with no changes to report behaves identically either way.
 	 */
 	readonly takeApprovalPolicyChange?: () =>
 		| import('../../../../types/hitl/policy.js').ApprovalPolicyChange
 		| undefined
 
 	/**
-	 * Contributions that report state changing DURING the run.
+	 * Contributions that report state changing DURING the turn.
 	 *
 	 * Rendered once per iteration, never into the system prompt: `turn`
 	 * into the ephemeral trailing system message, `context` into the
@@ -136,7 +132,7 @@ export interface IterationContext {
 	readonly steering?: SteeringChannel
 	/** Records operator intent only after guidance was accepted by a tool result. */
 	readonly onSteeringDelivered?: (text: string) => void
-	/** Exit notices for the run's background jobs, drained into the next tool result. */
+	/** Exit notices for the turn's background jobs, drained into the next tool result. */
 	readonly jobNotices?: SteeringChannel
 	/**
 	 * Background jobs the model said it is waiting on, which is the only kind
@@ -144,7 +140,7 @@ export interface IterationContext {
 	 *
 	 * Absent means the loop behaves exactly as it did before this existed: a
 	 * job's exit still reaches the model as a notice on the next tool result,
-	 * and a run whose model stopped calling tools settles without waiting.
+	 * and a turn whose model stopped calling tools settles without waiting.
 	 */
 	readonly awaitedJobs?: AwaitedJobs
 	readonly checkpointMgr: CheckpointManager
@@ -164,7 +160,7 @@ export interface IterationContext {
 	readonly taskStore?: TaskStore
 
 	/**
-	 * Approvals a human granted earlier in this run, at a scope they chose.
+	 * Approvals a human granted earlier in this turn, at a scope they chose.
 	 *
 	 * Consulted before a tool-review park so an already-approved call is not
 	 * asked about again. Absent on paths that do not review tools.
@@ -187,7 +183,7 @@ export interface IterationContext {
 	 *
 	 * Carried rather than asked for, because both readers are synchronous
 	 * and in the hot loop — turning either into an await would put a network
-	 * round trip on every iteration of every run. `undefined` covers both
+	 * round trip on every iteration of every turn. `undefined` covers both
 	 * "the driver has no such member" and "it asked and does not know",
 	 * which are different facts to the DRIVER and the same fact here: fall
 	 * through to the table.
@@ -200,7 +196,7 @@ export interface IterationContext {
 	readonly resolveModelContextWindow?: (model: string) => Promise<number | undefined>
 
 	/**
-	 * Text queued for this run since its last turn.
+	 * Text queued for this turn since its last turn.
 	 *
 	 * Drained at the iteration boundary — the same seam `completionInbox`
 	 * uses, which is the established place for putting a user message in
@@ -219,7 +215,7 @@ export interface IterationContext {
 
 	/**
 	 * Host-supplied context reduction. Outranks `compactionConfig.strategy`
-	 * and replaces the structured pass for this run.
+	 * and replaces the structured pass for this turn.
 	 */
 	readonly contextReducer?: ContextReducer
 
@@ -241,7 +237,7 @@ export interface IterationContext {
 
 	/** Host hook that shapes each step before the model call. */
 	readonly prepareStep?: PrepareStepChain
-	readonly captureRunEvidence?: PrepareStepContext['captureRunEvidence']
+	readonly captureSessionEvidence?: PrepareStepContext['captureSessionEvidence']
 	readonly beforeStep?: BeforeStep
 }
 
@@ -253,7 +249,7 @@ export type PhaseSignal = 'continue' | 'stop'
  * A park is only worth persisting if a human is actually looking at it. An
  * `autoApproveHandler` — or any programmatic handler — answers in well
  * under a millisecond, and the iteration gate runs on EVERY iteration by
- * default, so recording every one unconditionally would take a long run
+ * default, so recording every one unconditionally would take a long turn
  * from one full-history checkpoint write per iteration to three. This
  * threshold buys the durability where it matters and costs nothing where
  * it does not.
@@ -266,12 +262,12 @@ export const PARK_RECORD_DELAY_MS = 250
  *
  * The park used to exist only as a suspended `await` inside one process:
  * kill the process and the request vanished, so a host could not rebuild
- * an approval queue and a resumed run silently re-asked the model instead
+ * an approval queue and a resumed turn silently re-asked the model instead
  * of honoring an approval a human had already granted.
  */
 export async function awaitDecisionDurably(
 	ctx: IterationContext,
-	checkpoint: IterationCheckpoint,
+	checkpoint: { readonly id: CheckpointId },
 	request: Parameters<ResumeHandler>[0],
 ): Promise<HITLResumeDecision> {
 	const delay = ctx.parkRecordDelayMs ?? PARK_RECORD_DELAY_MS
@@ -285,11 +281,11 @@ export async function awaitDecisionDurably(
 			await ctx.checkpointMgr.park(checkpoint, request)
 			recorded = true
 		} catch (err) {
-			// A store that cannot record the park must not take the run down
+			// A store that cannot record the park must not take the turn down
 			// with it — the in-process await is still perfectly valid, it is
 			// only the cross-process handoff that is lost. Loudly, though.
-			ctx.log.error('Failed to record a HITL park — the run is not resumable across a restart', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+			ctx.log.error('Failed to record a HITL park — the turn is not resumable across a restart', {
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.checkpoint.id': checkpoint.id,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
@@ -301,10 +297,10 @@ export async function awaitDecisionDurably(
 	//
 	// It used to `await sleep(delay)` where `sleep` created its timer and
 	// UNREF'D it, so a pending recorder could never hold a process open after
-	// the run settled. That is a real hazard and the intent was right, but the
-	// scope was wrong: this promise is awaited *during* the run, below, on
+	// the turn settled. That is a real hazard and the intent was right, but the
+	// scope was wrong: this promise is awaited *during* the turn, below, on
 	// every park. An unref'd timer does not keep Node's event loop alive — so
-	// once the decision resolved and the run sat here waiting out the rest of
+	// once the decision resolved and the turn sat here waiting out the rest of
 	// the delay, the loop had nothing ref'd left in it and the process exited.
 	// Mid-turn. Exit code 0. Nothing written, no error, no terminal event.
 	//
@@ -313,9 +309,9 @@ export async function awaitDecisionDurably(
 	// Every test passed because a test runner holds the loop open for the
 	// whole file, which is exactly the kind of prop that hides this.
 	//
-	// Cancelling gets both properties. The timer is ref'd, so the run cannot
+	// Cancelling gets both properties. The timer is ref'd, so the turn cannot
 	// be killed by its own wait; and it is cleared the moment the decision
-	// arrives, so nothing dangles past the run either.
+	// arrives, so nothing dangles past the turn either.
 	let parkTimer: ReturnType<typeof setTimeout> | undefined
 	// Set SYNCHRONOUSLY when the write begins, because `recorded` only turns
 	// true after it finishes — waiting on that instead would skip a write that
@@ -358,7 +354,7 @@ export async function awaitDecisionDurably(
 		if (recorded) {
 			await ctx.checkpointMgr.unpark(checkpoint.id, decision).catch((err: unknown) => {
 				ctx.log.error('Failed to clear a recorded HITL park', {
-					[NAMZU.RUN_ID]: ctx.runMgr.id,
+					[NAMZU.TURN_ID]: ctx.recorder.turnId,
 					'namzu.checkpoint.id': checkpoint.id,
 					'exception.message': err instanceof Error ? err.message : String(err),
 				})
@@ -372,8 +368,8 @@ export async function awaitDecisionDurably(
 }
 
 /**
- * Await a HITL `resumeHandler` decision, but RACE it against the run's abort
- * signal. A Stop that arrives while the run is parked on a tool-review or
+ * Await a HITL `resumeHandler` decision, but RACE it against the turn's abort
+ * signal. A Stop that arrives while the turn is parked on a tool-review or
  * iteration checkpoint used to do nothing until the host eventually answered
  * (the park await was not cancellable). Racing the signal lets a Stop resolve
  * the park immediately as an `abort` decision, which `handleHITLDecision`
@@ -386,7 +382,7 @@ export async function awaitDecisionOrAbort(
 ): Promise<HITLResumeDecision> {
 	const signal = ctx.abortController?.signal
 	// No abort signal wired (e.g. a minimal test harness) → behave exactly as a
-	// direct resumeHandler await, no race. In production RunContextFactory always
+	// direct resumeHandler await, no race. In production TurnContextFactory always
 	// provides the controller, so the race below is live.
 	if (!signal) return ctx.resumeHandler(request)
 	const abortDecision: HITLResumeDecision = {
@@ -426,44 +422,44 @@ export async function* handleHITLDecision(
 	ctx: IterationContext,
 	decision: HITLResumeDecision,
 	// `CheckpointId`, not `string`. Both callers already hold one — they pass
-	// `IterationCheckpoint.id` — so the parameter was widened for nothing and
+	// the created checkpoint's `id` — so the parameter was widened for nothing and
 	// the widening is what forced the `as \`cp_${string}\`` cast below. A
 	// narrower parameter costs no caller anything and makes the cast
 	// unnecessary rather than merely shorter.
 	checkpointId: CheckpointId,
 	context: string,
-): AsyncGenerator<RunEvent, PhaseSignal> {
+): AsyncGenerator<SessionEvent, PhaseSignal> {
 	switch (decision.action) {
 		case 'pause': {
 			await ctx.emitEvent({
-				type: 'run_paused',
-				runId: ctx.runMgr.id,
+				type: 'turn_paused',
+				turnId: ctx.recorder.turnId,
 				checkpointId,
 				reason: decision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.runMgr.setStopReason('paused')
-			ctx.log.info('Run paused', {
-				'namzu.run.phase': context,
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+			ctx.recorder.setStopReason('paused')
+			ctx.log.info('Turn paused', {
+				'namzu.turn.phase': context,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.reason': decision.reason,
 			})
 			return 'stop'
 		}
 		case 'abort': {
-			ctx.runMgr.setStopReason('cancelled')
-			ctx.runMgr.markCancelled()
-			ctx.log.info('Run aborted', {
-				'namzu.run.phase': context,
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+			ctx.recorder.setStopReason('cancelled')
+			ctx.recorder.markCancelled()
+			ctx.log.info('Turn aborted', {
+				'namzu.turn.phase': context,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.reason': decision.reason,
 			})
 			return 'stop'
 		}
 		case 'reject_plan': {
-			ctx.runMgr.setStopReason('plan_rejected')
+			ctx.recorder.setStopReason('plan_rejected')
 			ctx.log.info('Plan rejected by user', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'namzu.runtime.feedback': decision.feedback,
 			})
 			return 'stop'
@@ -473,7 +469,7 @@ export async function* handleHITLDecision(
 				ctx.planManager.approve()
 				ctx.planManager.startExecution()
 			}
-			ctx.log.info('Plan approved by user', { [NAMZU.RUN_ID]: ctx.runMgr.id })
+			ctx.log.info('Plan approved by user', { [NAMZU.TURN_ID]: ctx.recorder.turnId })
 			return 'continue'
 		}
 		case 'continue':

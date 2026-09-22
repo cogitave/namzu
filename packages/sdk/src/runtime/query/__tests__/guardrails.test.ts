@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { promptInjectionGuardrail, secretRedactionGuardrail } from '../guardrail-presets.js'
@@ -10,7 +10,7 @@ import { runInputGuardrails, runOutputGuardrails } from '../guardrails.js'
  * namzu had three good gates on tool calls — probe veto, AuthorizationGate,
  * HITL review — and all three point the same way: they protect the world
  * from the agent. Nothing protected the user from the agent's own output,
- * and nothing looked at the prompt before the run started.
+ * and nothing looked at the prompt before the turn started.
  *
  * The concrete failure: an agent reads a credential file, the read is
  * ALLOWED because it is a legitimate read, the secret enters context, and
@@ -18,7 +18,8 @@ import { runInputGuardrails, runOutputGuardrails } from '../guardrails.js'
  * that moment.
  */
 
-const RUN_ID = '6b594743-d743-4af4-9d00-75b4829048db' as RunId
+const SESSION_ID = '0f1d6f0e-3b0b-4c47-9a57-5f3b0c1e7a21' as SessionId
+const TURN_ID = '6b594743-d743-4af4-9d00-75b4829048db' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -26,8 +27,8 @@ function makeLogger(): Logger {
 }
 
 const messages: Message[] = [{ role: 'user', content: 'hello' }]
-const inputCtx = { runId: RUN_ID, messages }
-const outputCtx = (output: string) => ({ runId: RUN_ID, output, messages })
+const inputCtx = { sessionId: SESSION_ID, turnId: TURN_ID, messages }
+const outputCtx = (output: string) => ({ sessionId: SESSION_ID, turnId: TURN_ID, output, messages })
 
 describe('input guardrails', () => {
 	it('passes when nothing objects', async () => {
@@ -127,7 +128,7 @@ describe('output guardrails', () => {
 
 describe('a throwing guardrail FAILS CLOSED', () => {
 	// Deliberately the opposite of the stop-condition policy. A broken halt
-	// predicate must not kill a healthy run; a broken safety check must not
+	// predicate must not kill a healthy turn; a broken safety check must not
 	// wave content through. If the thing deciding whether output is safe is
 	// itself broken, safety is unknown.
 	it('blocks on input', async () => {

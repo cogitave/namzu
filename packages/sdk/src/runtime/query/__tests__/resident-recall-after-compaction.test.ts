@@ -17,7 +17,7 @@ import {
 	createAssistantMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 const dirs: string[] = []
@@ -31,7 +31,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const directory = await mkdtemp(join(tmpdir(), 'namzu-recall-compaction-'))
 		dirs.push(directory)
 		const tenantId = fixtureId.tenant('recall-compaction')
-		const runId = fixtureId.run('recall-compaction')
+		const turnId = fixtureId.turn('recall-compaction')
 		const agenda = new DiskResidentAgenda(join(directory, 'history'), {
 			tenantId,
 			agentKey: 'delivery',
@@ -61,7 +61,7 @@ it.each(['structured', 'sliding-window'] as const)(
 		const tools = new ToolRegistry()
 		tools.register(
 			buildResidentHistoryTools((context) => {
-				if (context.runId !== runId) throw new Error('Wrong owner.')
+				if (context.turnId !== turnId) throw new Error('Wrong owner.')
 				return source
 			}),
 		)
@@ -98,12 +98,12 @@ it.each(['structured', 'sliding-window'] as const)(
 			messages.push(createAssistantMessage(`Analysis ${index}: ${'older reasoning '.repeat(500)}`))
 		}
 		messages.push(createUserMessage('Recover the exact DELTA receipt from recorded history.'))
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const result = await drainQuery(
 			{
 				provider,
 				tools,
-				runId,
+				turnId,
 				workingDirectory: directory,
 				systemPrompt: 'Follow the authorized resident objective.',
 				promptContributions: contributions,
@@ -115,7 +115,7 @@ it.each(['structured', 'sliding-window'] as const)(
 					clearToolResults: false,
 					llmVerification: false,
 				}),
-				runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 5 },
+				turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 5 },
 				agentId: 'recall-compaction',
 				agentName: 'Recall compaction test',
 				tenantId,

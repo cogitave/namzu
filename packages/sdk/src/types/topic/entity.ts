@@ -4,14 +4,14 @@ import type { ProjectId, TopicId } from '../session/ids.js'
 /**
  * Lifecycle state of a Topic.
  *
- * - `open` — accepts new Sessions and new Runs under existing Sessions.
+ * - `open` — accepts new Sessions and new turns under existing Sessions.
  * - `archived` — read-only tombstone. No new Sessions may be created; existing
  *   Sessions remain navigable. Transitioning `open → archived` requires that
  *   no Session under the Topic is in a non-terminal state (guarded at the
  *   store level by listing + status fan-in).
  *
  * There is no `active` variant — Topic does NOT derive status from its child
- * Sessions the way a Session does from its Runs. Topic is a pure container
+ * Sessions the way a Session does from its turns. Topic is a pure container
  * (Phase 0 decision B.1: Topic is container-only, no message stream, no
  * fan-in). Its status is an explicit owner action.
  */
@@ -20,7 +20,7 @@ export type TopicStatus = 'open' | 'archived'
 /**
  * Topic-level container sitting between {@link ProjectId Project} and
  * {@link import('../session/ids.js').SessionId Session} in the five-layer hierarchy
- * (Project → Topic → Session → SubSession → Run).
+ * (Project → Topic → Session → SubSession → Turn).
  *
  * NZ-TOPIC-01 renamed this entity from `Thread` to `Topic` — its own docstring
  * already called it a "Topic-level container" before the identifier caught up.
@@ -32,7 +32,7 @@ export type TopicStatus = 'open' | 'archived'
  * topic or line-of-work within a Project (e.g. "auth refactor", "billing
  * incident"). Sessions under the same Topic share Project-level shared
  * resources (memory, vaults, knowledge bases) but have independent actor
- * state, handoff history, and Run streams.
+ * state, handoff history, and Turn streams.
  *
  * ## Why Topic is a first-class layer (A2A-connection surface)
  *
@@ -58,7 +58,7 @@ export type TopicStatus = 'open' | 'archived'
  * ## Design reference
  *
  * Session design §4 (ratified in ses_001-hierarchy-redesign):
- *   - Container only. No own message stream, no own Run stream. Messages
+ *   - Container only. No own message stream, no own Turn stream. Messages
  *     live in Sessions (Phase 0 decision B.1).
  *   - `title` is a user-facing label. **Titles are NOT unique within a
  *     Project.** Callers disambiguate by {@link TopicId}; the title is
@@ -71,7 +71,7 @@ export type TopicStatus = 'open' | 'archived'
  *     with `details.topicId`. Mirrors the
  *     {@link import('./entity.js').Session} handoff CAS pattern (§6.1).
  *   - No fan-in `deriveStatus()` helper — status is owner-managed, not
- *     Run-derived. This is the Topic-vs-Session contract boundary.
+ *     Turn-derived. This is the Topic-vs-Session contract boundary.
  */
 export interface Topic {
 	id: TopicId

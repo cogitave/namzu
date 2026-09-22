@@ -63,7 +63,7 @@ for await (const chunk of provider.chatStream({
 ```
 
 `chatStream` is the only model entry point; a non-streaming call is that
-stream collected. In practice the kernel's run loop calls it and hands you
+stream collected. In practice the kernel's turn loop calls it and hands you
 events.
 
 ## Documentation

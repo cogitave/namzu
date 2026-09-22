@@ -19,7 +19,7 @@ import { drainQuery } from '../index.js'
  * run die, while holding a compaction subsystem that could have made room.
  *
  * The threshold path guesses when to compact and can guess low, so this is
- * not a hypothetical: a run carrying images, or a language the
+ * not a hypothetical: a turn carrying images, or a language the
  * chars-per-token ratio does not fit, reaches the real window while still
  * reading as comfortable.
  */
@@ -65,7 +65,7 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 	return drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,
 			tokenBudget: 500_000,
@@ -131,7 +131,7 @@ describe('a context overflow is relieved rather than fatal', () => {
 		expect(provider.seen).toHaveLength(1)
 	})
 
-	it('does not interfere with a run that never overflows', async () => {
+	it('does not interfere with a turn that never overflows', async () => {
 		const provider = new OverflowingProvider(10_000_000)
 		const result = await run(provider, true)
 

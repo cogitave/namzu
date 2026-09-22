@@ -1,0 +1,354 @@
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname, join, normalize, relative, sep } from 'node:path'
+import { posix } from 'node:path'
+import type {
+	SharedSessionWorkspaceAgentRecord,
+	SharedSessionWorkspaceManifest,
+	SharedSessionWorkspacePlan,
+	SharedSessionWorkspaceRefs,
+	SharedSessionWorkspaceSource,
+} from '../../types/workspace/shared-session.js'
+
+export interface SharedSessionWorkspaceConfig {
+	/**
+	 * Host-visible `_work` directory. The runtime creates and mutates files
+	 * here before/while agents execute.
+	 */
+	hostRoot: string
+	/**
+	 * Agent-visible `_work` directory. In container sandboxes this is usually
+	 * `/mnt/user-data/outputs/_work`; in local mode it can be the same
+	 * relative path agents receive in their runtime notes.
+	 */
+	runtimeRoot?: string
+	label?: string
+	now?: Date
+}
+
+export interface RegisterSharedSessionPlanInput {
+	id?: string
+	briefText: string
+	status?: SharedSessionWorkspacePlan['status']
+}
+
+/**
+ * A `_work` directory a turn's agents share — files, a manifest, a plan and
+ * per-agent records — offered to hosts and applied by none of them.
+ *
+ * **Nothing in this SDK calls it, and that is the design, not an omission.**
+ * It was flagged as a primitive exported without a driver, which is a real
+ * defect class and the reason most of this module's siblings were wired up.
+ * This one is the exception, and the distinguishing question is whose decision
+ * the thing encodes.
+ *
+ * Look at what {@link SharedSessionWorkspaceConfig} asks for: `hostRoot`, where
+ * the directory lives on the machine running the kernel, and `runtimeRoot`,
+ * the path an agent will see — `/mnt/user-data/outputs/_work` under one
+ * container layout, the same directory as `hostRoot` in a local turn, a bind
+ * target somewhere else entirely under a third. Those two roots are a
+ * deployment shape. A kernel that picked them would be choosing a filesystem
+ * layout for a host that has already chosen one, and would then have to be
+ * argued back out of it — the same reason `ToolCatalogSurface` was removed
+ * rather than made to work: a host's deployment surfaces are the host's to
+ * name.
+ *
+ * So the contract here is `runtimeRoot` and the paths {@link refs} derives
+ * from it. Those strings are what a host puts in a prompt and what an agent's
+ * `read` and `write` calls resolve against, which makes them an interface
+ * between three parties — and stable for that reason, not incidentally.
+ *
+ * A host wires it by calling {@link create} with both roots, passing
+ * `refs()` into its agents' runtime notes, and reading the manifest back when
+ * the turn ends. If a future default gateway grows an opinion about where
+ * `_work` belongs, this is the thing it should call rather than reimplement.
+ */
+export class SharedSessionWorkspace {
+	readonly hostRoot: string
+	readonly runtimeRoot: string
+	private manifestWriteQueue: Promise<void> = Promise.resolve()
+
+	private constructor(private readonly config: Required<SharedSessionWorkspaceConfig>) {
+		this.hostRoot = config.hostRoot
+		this.runtimeRoot = trimTrailingSlash(config.runtimeRoot)
+	}
+
+	static async create(config: SharedSessionWorkspaceConfig): Promise<SharedSessionWorkspace> {
+		const workspace = new SharedSessionWorkspace({
+			hostRoot: config.hostRoot,
+			runtimeRoot: config.runtimeRoot ?? config.hostRoot,
+			label: config.label ?? '',
+			now: config.now ?? new Date(),
+		})
+		await workspace.ensure()
+		return workspace
+	}
+
+	refs(): SharedSessionWorkspaceRefs {
+		return {
+			rootPath: this.runtimePath(),
+			manifestPath: this.runtimePath('manifest.json'),
+			sharedContextPath: this.runtimePath('02_shared_context.md'),
+			sourceInventoryPath: this.runtimePath('sources', 'inventory.md'),
+			supervisorBriefPath: this.runtimePath('00_supervisor_brief.md'),
+			taskContextPath: this.runtimePath('01_task_context.md'),
+			agentsPath: this.runtimePath('agents'),
+		}
+	}
+
+	hostPath(...segments: string[]): string {
+		return safeJoin(this.hostRoot, segments)
+	}
+
+	runtimePath(...segments: string[]): string {
+		if (segments.length === 0) return this.runtimeRoot
+		return posix.join(this.runtimeRoot, ...segments.map((segment) => segment.split(sep).join('/')))
+	}
+
+	async ensure(): Promise<void> {
+		await Promise.all([
+			mkdir(this.hostPath('sources'), { recursive: true }),
+			mkdir(this.hostPath('plans', 'root'), { recursive: true }),
+			mkdir(this.hostPath('agents'), { recursive: true }),
+		])
+		await this.writeManifest((manifest) => manifest)
+	}
+
+	async readManifest(): Promise<SharedSessionWorkspaceManifest> {
+		const content = await readFile(this.hostPath('manifest.json'), 'utf8').catch(() => '')
+		if (!content.trim()) return this.initialManifest()
+		return JSON.parse(content) as SharedSessionWorkspaceManifest
+	}
+
+	async writeManifest(
+		update: (manifest: SharedSessionWorkspaceManifest) => SharedSessionWorkspaceManifest,
+	): Promise<SharedSessionWorkspaceManifest> {
+		const operation = this.manifestWriteQueue
+			.catch(() => undefined)
+			.then(async () => {
+				const current = await this.readManifest().catch(() => this.initialManifest())
+				const next = update({
+					...current,
+					updatedAt: this.nowIso(),
+				})
+				await writeJsonAtomic(this.hostPath('manifest.json'), next)
+				return next
+			})
+		this.manifestWriteQueue = operation.then(
+			() => undefined,
+			() => undefined,
+		)
+		return operation
+	}
+
+	async writeSourceInventory(sources: readonly SharedSessionWorkspaceSource[]): Promise<string> {
+		const lines = [
+			'# Source Inventory',
+			'',
+			sources.length
+				? 'These are the canonical input references for this turn. Prefer this inventory and targeted source reads over rediscovering uploads in every worker.'
+				: 'No user-uploaded source files were registered for this turn.',
+			'',
+			...sources.map((source) =>
+				[
+					`## ${source.label}`,
+					'',
+					`- id: ${source.id}`,
+					`- path: ${source.path}`,
+					source.kind ? `- kind: ${source.kind}` : null,
+					typeof source.sizeBytes === 'number' ? `- sizeBytes: ${source.sizeBytes}` : null,
+					'',
+				]
+					.filter((line): line is string => line !== null)
+					.join('\n'),
+			),
+		]
+		const content = `${lines.join('\n').trimEnd()}\n`
+		await writeFile(this.hostPath('sources', 'inventory.md'), content, 'utf8')
+		await this.writeManifest((manifest) => ({
+			...manifest,
+			sources: [...sources],
+		}))
+		return this.runtimePath('sources', 'inventory.md')
+	}
+
+	/**
+	 * Write the canonical task-context file (`_work/01_task_context.md`).
+	 * This is the single place the original user request lives in full; child
+	 * workers read this path instead of receiving the request inline in their
+	 * prompts.
+	 */
+	async writeTaskContext(text: string): Promise<string> {
+		const relativePath = ['01_task_context.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(text), 'utf8')
+		return this.runtimePath(...relativePath)
+	}
+
+	/**
+	 * Write the shared coordination packet (`_work/02_shared_context.md`).
+	 * This is intentionally smaller and more operational than the task context:
+	 * workers read it first, then open the full task context or source inventory
+	 * only when their assignment needs raw wording or source-file details.
+	 */
+	async writeSharedContext(text: string): Promise<string> {
+		const relativePath = ['02_shared_context.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(text), 'utf8')
+		return this.runtimePath(...relativePath)
+	}
+
+	/**
+	 * Write a per-worker brief at `agents/<agentId>/<taskId>/00_brief.md`.
+	 * Returns the runtime-visible path. Pair with `registerAgentWork` so the
+	 * agent record and the brief sit under the same scratch directory.
+	 */
+	async writeAgentBrief(input: {
+		agentId: string
+		taskId?: string
+		briefText: string
+	}): Promise<string> {
+		const taskPart = input.taskId ?? 'pending'
+		const relativePath = ['agents', input.agentId, taskPart, '00_brief.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(input.briefText), 'utf8')
+		return this.runtimePath(...relativePath)
+	}
+
+	/**
+	 * Append a section to an existing per-worker brief, creating the file if
+	 * it doesn't yet exist. Use for follow-up turns / continue flows so the
+	 * brief stays authoritative across resumes — workers re-reading the brief
+	 * on every entry will see the latest assignment delta, not just the seed
+	 * text from initial dispatch.
+	 */
+	async appendAgentBrief(input: {
+		agentId: string
+		taskId?: string
+		sectionText: string
+	}): Promise<string> {
+		const taskPart = input.taskId ?? 'pending'
+		const relativePath = ['agents', input.agentId, taskPart, '00_brief.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		const target = this.hostPath(...relativePath)
+		const existing = await readFile(target, 'utf8').catch(() => '')
+		const trimmedExisting = existing.replace(/\n*$/, '')
+		const next = trimmedExisting
+			? `${trimmedExisting}\n\n${ensureTrailingNewline(input.sectionText)}`
+			: ensureTrailingNewline(input.sectionText)
+		await writeFile(target, next, 'utf8')
+		return this.runtimePath(...relativePath)
+	}
+
+	async seedSupervisorBrief(input: RegisterSharedSessionPlanInput): Promise<string> {
+		const id = input.id ?? 'root'
+		const relativePath =
+			id === 'root' ? ['00_supervisor_brief.md'] : ['plans', id, 'supervisor_brief.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(input.briefText), 'utf8')
+		const briefPath = this.runtimePath(...relativePath)
+		const now = this.nowIso()
+		await this.writeManifest((manifest) => ({
+			...manifest,
+			plans: upsertBy(manifest.plans, (plan) => plan.id, {
+				id,
+				briefPath,
+				status: input.status ?? 'seeded',
+				updatedAt: now,
+			}),
+		}))
+		return briefPath
+	}
+
+	async registerAgentWork(input: {
+		agentId: string
+		taskId?: string
+		status?: SharedSessionWorkspaceAgentRecord['status']
+	}): Promise<string> {
+		const taskPart = input.taskId ?? 'pending'
+		const relativePath = ['agents', input.agentId, taskPart]
+		await mkdir(this.hostPath(...relativePath), { recursive: true })
+		const workPath = this.runtimePath(...relativePath)
+		const now = this.nowIso()
+		await this.writeManifest((manifest) => ({
+			...manifest,
+			agents: upsertBy(manifest.agents, (record) => `${record.agentId}:${record.taskId ?? ''}`, {
+				agentId: input.agentId,
+				...(input.taskId ? { taskId: input.taskId } : {}),
+				workPath,
+				status: input.status ?? 'assigned',
+				updatedAt: now,
+			}),
+		}))
+		return workPath
+	}
+
+	private initialManifest(): SharedSessionWorkspaceManifest {
+		const now = this.config.now.toISOString()
+		return {
+			schemaVersion: 1,
+			kind: 'shared-session-workspace',
+			createdAt: now,
+			updatedAt: now,
+			...(this.config.label ? { label: this.config.label } : {}),
+			paths: {
+				root: this.runtimePath(),
+				manifest: this.runtimePath('manifest.json'),
+				sharedContext: this.runtimePath('02_shared_context.md'),
+				sources: this.runtimePath('sources'),
+				plans: this.runtimePath('plans'),
+				agents: this.runtimePath('agents'),
+			},
+			sources: [],
+			plans: [],
+			agents: [],
+		}
+	}
+
+	private nowIso(): string {
+		return new Date().toISOString()
+	}
+}
+
+function safeJoin(root: string, segments: readonly string[]): string {
+	const fullPath = normalize(join(root, ...segments))
+	const rel = relative(root, fullPath)
+	if (rel === '' || (!rel.startsWith('..') && !rel.includes(`..${sep}`))) return fullPath
+	throw new Error(`SharedSessionWorkspace path escapes root: ${segments.join('/')}`)
+}
+
+function trimTrailingSlash(value: string): string {
+	if (value === '/') return value
+	// Manual scan instead of /\/+$/: that pattern is unanchored at the start, so a
+	// backtracking engine retries the trailing-slash run from every prior index
+	// once the terminal `$` fails to match, making it O(n^2) on a long run of
+	// slashes (runtimeRoot is caller-supplied and can be arbitrarily long).
+	let end = value.length
+	while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end--
+	return value.slice(0, end)
+}
+
+function ensureTrailingNewline(value: string): string {
+	return value.endsWith('\n') ? value : `${value}\n`
+}
+
+async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+	await mkdir(dirnameFor(path), { recursive: true })
+	const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`
+	await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+	await rename(tmpPath, path)
+}
+
+function dirnameFor(path: string): string {
+	return dirname(path)
+}
+
+function upsertBy<T>(items: readonly T[], key: (item: T) => string, next: T): T[] {
+	const nextKey = key(next)
+	let replaced = false
+	const updated = items.map((item) => {
+		if (key(item) !== nextKey) return item
+		replaced = true
+		return next
+	})
+	return replaced ? updated : [...updated, next]
+}

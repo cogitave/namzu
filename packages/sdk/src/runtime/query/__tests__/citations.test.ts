@@ -54,7 +54,7 @@ function run(opts: { citations?: Citation[] } = {}) {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'can we terminate early?', attachments: [PDF] }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),

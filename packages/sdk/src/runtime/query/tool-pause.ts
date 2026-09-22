@@ -1,5 +1,5 @@
 import type { HITLResumeDecision, ResumeHandler, UserQuestionData } from '../../types/hitl/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { RequestToolPause, ToolPauseRequest } from '../../types/tool/index.js'
 import { generateCheckpointId } from '../../utils/id.js'
 import type { PendingAnswers, QuestionParkRecorder } from './question-park.js'
@@ -19,7 +19,7 @@ import type { PendingAnswers, QuestionParkRecorder } from './question-park.js'
  *
  * This is that same machinery behind a function on `ToolContext`. Nothing
  * new is invented: the park is a real checkpoint, the answer routes back
- * on resume, and a pause is inert outside a run that supports one.
+ * on resume, and a pause is inert outside a turn that supports one.
  */
 
 /**
@@ -71,7 +71,8 @@ export const isPauseForCall = (pause: string, callId: string): boolean =>
 	pause === callId || pause.startsWith(`${callId}:`)
 
 interface ToolPauseDeps {
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	readonly toolUseId: string
 	readonly parkHandler: ResumeHandler
 	readonly recorder?: QuestionParkRecorder
@@ -106,7 +107,7 @@ export function createToolPause(deps: ToolPauseDeps): RequestToolPause {
 	return async (request) => {
 		const id = pauseId(deps.toolUseId, request.name)
 
-		// An answer carried in from a resumed run, checked BEFORE parking.
+		// An answer carried in from a resumed turn, checked BEFORE parking.
 		// Re-entering the tool is how the answer gets delivered — the batch
 		// re-executes — so without this the resume would ask a human
 		// something they already answered, or headlessly discard it.
@@ -120,7 +121,8 @@ export function createToolPause(deps: ToolPauseDeps): RequestToolPause {
 			carried ??
 			(await deps.parkHandler({
 				type: 'user_question',
-				runId: deps.runId,
+				sessionId: deps.sessionId,
+				turnId: deps.turnId,
 				// The question retains its correlation id; provider ids and pause
 				// names need not be safe components of a checkpoint storage key.
 				checkpointId: parkedAt ?? generateCheckpointId(),
@@ -136,7 +138,7 @@ export function createToolPause(deps: ToolPauseDeps): RequestToolPause {
 			return unanswered('the pause was resolved without an answer')
 		}
 		if (decision.questionId !== undefined && decision.questionId !== id) {
-			// Misdirection guard. Host queues are keyed by run, so a stale
+			// Misdirection guard. Host queues are keyed by turn, so a stale
 			// client can answer pause N after pause N+1 opened under the same
 			// run. Answering the wrong question is worse than not answering.
 			return unanswered('the answer was addressed to a different pause')

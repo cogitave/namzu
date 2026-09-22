@@ -12,26 +12,21 @@
  * which is how each one is shown to fail a deliberately wrong
  * implementation.
  *
- * This barrel exists because the subpath used to point straight at the
- * checkpoint-store file. A second suite would have had to either move that
- * file's export or claim a subpath of its own, and neither is a decision a
- * consumer should absorb.
+ * A custom session log (a database, an object store) is proved against
+ * the session-log suite; a provider driver against the driver suite.
  */
 
 export {
-	CHECKPOINT_STORE_CONTRACT_VERSION,
-	defineCheckpointStoreConformance,
-} from './store/run/conformance.js'
+	SESSION_LOG_CONTRACT_VERSION,
+	defineSessionLogConformance,
+} from './store/session-log/conformance.js'
 export type {
-	CheckpointStoreCapabilities,
-	CheckpointStoreConformanceOptions,
-	CheckpointStoreHandle,
-	ConformanceAssertion,
-	ConformanceDescribe,
-	ConformanceExpect,
-	ConformanceIt,
-	MakeCheckpointStore,
-} from './store/run/conformance.js'
+	MakeSessionLog,
+	SessionLogAssertion,
+	SessionLogConformanceOptions,
+	SessionLogHandle,
+	SessionLogTamper,
+} from './store/session-log/conformance.js'
 
 export {
 	PROVIDER_DRIVER_CONTRACT_VERSION,

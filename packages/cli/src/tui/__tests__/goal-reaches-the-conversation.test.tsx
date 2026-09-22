@@ -9,7 +9,7 @@ import { DiskSessionGoalStore, type SessionGoalStore } from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentSession, RunScope } from '../agent.js'
+import type { AgentSession, SessionScope } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
@@ -19,7 +19,7 @@ const PREFS: Preferences = {
 	subagents: { active: [] },
 }
 
-let scope: RunScope | undefined
+let scope: SessionScope | undefined
 let sends = 0
 
 vi.mock('../../integrations/trust/store.js', () => ({
@@ -46,7 +46,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async (
 			_preferences: Preferences,
 			_detected: readonly unknown[],
-			options: { readonly scope?: RunScope; readonly sessionGoals?: SessionGoalStore },
+			options: { readonly scope?: SessionScope; readonly sessionGoals?: SessionGoalStore },
 		): Promise<AgentSession> => {
 			scope = options.scope
 			return {

@@ -1,7 +1,7 @@
 import type { AuthorizationGate } from '../../../../authorization/index.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
-import type { RunEvent } from '../../../../types/run/index.js'
+import type { SessionEvent } from '../../../../types/session/index.js'
 import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
@@ -50,7 +50,7 @@ export async function* runToolReview(
 	ctx: VerificationAwareContext,
 	response: ChatCompletionResponse,
 	iterationNum: number,
-): AsyncGenerator<RunEvent, ToolReviewOutcome> {
+): AsyncGenerator<SessionEvent, ToolReviewOutcome> {
 	let executed: readonly import('../../executor.js').ToolCallOutcome[] = []
 	let toolMs = 0
 
@@ -157,7 +157,7 @@ export async function* runToolReview(
 			),
 			notices,
 		)) {
-			ctx.runMgr.pushMessage(msg)
+			ctx.recorder.pushMessage(msg)
 		}
 		// The complete tool-result batch is already in history before host policy
 		// may react, so a replacement cannot split provider-required adjacency.
@@ -169,7 +169,7 @@ export async function* runToolReview(
 				const signal = ctx.abortController.signal
 				const snapshot = await awaitProjectInstructionCallback(signal, () =>
 					ctx.projectInstructionContext?.observeToolResult(observation, {
-						messages: [...ctx.runMgr.messages],
+						messages: [...ctx.recorder.messages],
 						signal,
 					}),
 				)
@@ -177,8 +177,8 @@ export async function* runToolReview(
 				// microtasks. Authority may be withdrawn between them.
 				signal.throwIfAborted()
 				if (snapshot !== undefined) {
-					ctx.runMgr.replaceMessages(
-						replaceProjectInstructionSnapshot(ctx.runMgr.messages, snapshot),
+					ctx.recorder.replaceMessages(
+						replaceProjectInstructionSnapshot(ctx.recorder.messages, snapshot),
 					)
 				}
 			}
@@ -238,7 +238,7 @@ export async function* runToolReview(
 				// an absent record (LOG-14, design §5). Written here, once per
 				// denied call, regardless of which path the rest of this function
 				// takes afterwards.
-				await ctx.runMgr.recordAudit({
+				await ctx.recorder.recordAudit({
 					what: { action: 'tool_call', tool: gr.toolCall.name },
 					outcome: 'refused',
 					reason,
@@ -295,11 +295,11 @@ export async function* runToolReview(
 		return finish('executed')
 	}
 
-	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, iterationNum)
+	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.recorder, iterationNum)
 
 	await ctx.emitEvent({
 		type: 'tool_review_requested',
-		runId: ctx.runMgr.id,
+		turnId: ctx.recorder.turnId,
 		toolCalls: toolCallSummaries,
 		iteration: iterationNum,
 	})
@@ -307,7 +307,8 @@ export async function* runToolReview(
 
 	const reviewDecision = await awaitDecisionDurably(ctx, reviewCheckpoint, {
 		type: 'tool_review',
-		runId: ctx.runMgr.id,
+		sessionId: ctx.recorder.sessionId,
+		turnId: ctx.recorder.turnId,
 		checkpointId: reviewCheckpoint.id,
 		toolCalls: toolCallSummaries,
 	})
@@ -316,7 +317,7 @@ export async function* runToolReview(
 		case 'reject_tools': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.runMgr.id,
+				turnId: ctx.recorder.turnId,
 				decision: 'rejected',
 			})
 			yield* ctx.drainPending()
@@ -330,7 +331,7 @@ export async function* runToolReview(
 		case 'modify_tools': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.runMgr.id,
+				turnId: ctx.recorder.turnId,
 				decision: 'modified',
 			})
 			yield* ctx.drainPending()
@@ -380,7 +381,7 @@ export async function* runToolReview(
 							? `Blocked by the authorization gate after the tool input was modified: ${gateResult.reason}`
 							: `Blocked by the authorization gate after the tool input was modified: the prepared value requires a new explicit approval. ${gateResult.reason}`
 					denials.set(summary.id, reason)
-					await ctx.runMgr.recordAudit({
+					await ctx.recorder.recordAudit({
 						what: { action: 'tool_call', tool: summary.name },
 						outcome: 'refused',
 						reason,
@@ -397,29 +398,29 @@ export async function* runToolReview(
 		case 'pause': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.runMgr.id,
+				turnId: ctx.recorder.turnId,
 				decision: 'rejected',
 			})
 			await ctx.emitEvent({
-				type: 'run_paused',
-				runId: ctx.runMgr.id,
+				type: 'turn_paused',
+				turnId: ctx.recorder.turnId,
 				checkpointId: reviewCheckpoint.id,
 				reason: reviewDecision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.runMgr.setStopReason('paused')
+			ctx.recorder.setStopReason('paused')
 			return finish('stop')
 		}
 
 		case 'abort': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.runMgr.id,
+				turnId: ctx.recorder.turnId,
 				decision: 'rejected',
 			})
 			yield* ctx.drainPending()
-			ctx.runMgr.setStopReason('cancelled')
-			ctx.runMgr.markCancelled()
+			ctx.recorder.setStopReason('cancelled')
+			ctx.recorder.markCancelled()
 			return finish('stop')
 		}
 
@@ -435,7 +436,7 @@ export async function* runToolReview(
 
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.runMgr.id,
+				turnId: ctx.recorder.turnId,
 				decision: 'approved',
 			})
 			yield* ctx.drainPending()
@@ -452,7 +453,7 @@ export async function* runToolReview(
 		case 'reject_plan':
 		// 'answer_question' belongs to an ask_user_question park, not a
 		// tool review — like the misdirected plan decisions above, warn
-		// and proceed with execution rather than stalling the run.
+		// and proceed with execution rather than stalling the turn.
 		case 'answer_question': {
 			ctx.log.warn('Unexpected plan decision during tool review', {
 				'namzu.runtime.action': reviewDecision.action,

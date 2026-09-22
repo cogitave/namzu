@@ -10,8 +10,8 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { query } from '../index.js'
 
@@ -19,7 +19,7 @@ import { query } from '../index.js'
  * A job outlives the call that started it, and the model used to learn
  * that it had finished only by asking. Now the exit rides out on the
  * next tool result as a notice, and reaches the host as an event; and a
- * host that binds jobs to its session keeps them past the run's end.
+ * host that binds jobs to its session keeps them past the turn's end.
  */
 
 registerMock()
@@ -73,7 +73,7 @@ function tools(): ToolRegistry {
 async function run(registry: BackgroundJobRegistry, owner?: string, command = 'exit 3') {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-jobs-'))
 	dirs.push(workingDirectory)
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	let messages: readonly import('../../../types/message/index.js').Message[] = []
 	const gen = query({
 		provider: new MockLLMProvider({
@@ -85,7 +85,7 @@ async function run(registry: BackgroundJobRegistry, owner?: string, command = 'e
 			],
 		}),
 		tools: tools(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('start the job and wait')],
@@ -128,7 +128,7 @@ describe('a finished background job is not polled for', () => {
 		).toBe(true)
 	})
 
-	it('stops run-owned jobs when the run ends, and leaves session-owned ones to the host', async () => {
+	it('stops turn-owned jobs when the turn ends, and leaves session-owned ones to the host', async () => {
 		const runOwned = new BackgroundJobRegistry()
 		await run(runOwned, undefined, 'sleep 30')
 		expect(

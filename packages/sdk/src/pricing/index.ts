@@ -1,14 +1,14 @@
 /**
- * Rate lookup for a run's tokens.
+ * Rate lookup for a turn's tokens.
  *
  * The kernel had a cost calculation and no data to feed it: `costInfo` moved
  * only when a host passed `pricing` to `query()`, no shipped surface passed
- * one, and so every run reported a total of zero. `runConfig.costLimitUsd` is
+ * one, and so every turn reported a total of zero. `turnConfig.costLimitUsd` is
  * enforced against that same total, which made a declared budget a budget that
  * could never trigger.
  *
  * This is the data. It is IN-TREE and versioned at build time rather than
- * fetched, so a cost number is reproducible from a commit and an offline run
+ * fetched, so a cost number is reproducible from a commit and an offline turn
  * still prices correctly — a runtime fetch gives neither. See
  * `scripts/generate-model-prices.mjs` for why the source is reviewed rather
  * than refreshed, and `rates.source.json` for the rates themselves.
@@ -42,7 +42,7 @@ export function normaliseModelId(model: string): string {
  * The rate card for a model, or `undefined` when nobody here has one.
  *
  * `undefined` is a real answer and the caller must keep it distinct from a
- * rate of zero. Zero means this run genuinely costs nothing — the local
+ * rate of zero. Zero means this turn genuinely costs nothing — the local
  * drivers, which bill per token exactly never. `undefined` means the total is
  * unknowable, and a caller that flattens the two reproduces the defect this
  * whole module exists to remove, one level down.
@@ -70,7 +70,7 @@ export function resolveModelPricing(
 	// Checked before the model id, deliberately. An unmetered driver bills
 	// nothing whatever it is asked to run, and its models are whatever the
 	// operator has pulled onto the machine — enumerable by nobody. Requiring a
-	// row for each would make every local run unpriced, which would report
+	// row for each would make every local turn unpriced, which would report
 	// "cost unknown" about the one case where the cost is known exactly.
 	if (vendor.unmetered) return UNMETERED
 	if (model === undefined) return undefined

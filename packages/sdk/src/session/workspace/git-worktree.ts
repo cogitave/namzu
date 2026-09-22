@@ -12,6 +12,7 @@
  */
 
 import { execFile } from 'node:child_process'
+import { readFileSync, realpathSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
@@ -21,6 +22,8 @@ import { generateWorkspaceId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import { WorkspaceBackendError } from '../errors.js'
+import { resolveNamzuHome } from '../home.js'
+import { hashedSlugForCwd, slugForCwd } from '../paths.js'
 import type {
 	BranchWorkspaceParams,
 	CreateWorkspaceParams,
@@ -56,7 +59,8 @@ export interface GitWorktreeDriverConfig {
 	repoRoot: string
 	/**
 	 * Directory (absolute) where worktree checkouts live. Defaults to
-	 * `{repoRoot}/.namzu/worktrees` per session-hierarchy.md §7.2.
+	 * `<NAMZU_HOME>/projects/<slug>/worktrees/` for the repo root's project:
+	 * namzu never writes under the working directory.
 	 */
 	worktreesDir?: string
 	logger: Logger
@@ -74,7 +78,7 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 
 	constructor(config: GitWorktreeDriverConfig) {
 		this.repoRoot = resolve(config.repoRoot)
-		this.worktreesDir = resolve(config.worktreesDir ?? join(config.repoRoot, '.namzu', 'worktrees'))
+		this.worktreesDir = resolve(config.worktreesDir ?? defaultWorktreesDir(config.repoRoot))
 		this.log = config.logger.child({ [SCOPE_ATTRIBUTE]: 'session/workspace/git-worktree' })
 		this.exec = config.execFile ?? defaultExecFile
 	}
@@ -408,4 +412,29 @@ export function parseWorktreeList(
 		}
 	}
 	return null
+}
+
+/**
+ * `<NAMZU_HOME>/projects/<slug>/worktrees/` for a repository: the project's
+ * slug, or its hashed form when `project.json` under the plain slug belongs
+ * to a different directory (the rule `ensureProject` applies).
+ */
+export function defaultWorktreesDir(repoRoot: string): string {
+	let cwd: string
+	try {
+		cwd = realpathSync(repoRoot)
+	} catch {
+		cwd = resolve(repoRoot)
+	}
+	const home = resolveNamzuHome()
+	let slug = slugForCwd(cwd)
+	try {
+		const document = JSON.parse(
+			readFileSync(join(home, 'projects', slug, 'project.json'), 'utf8'),
+		) as { cwd?: unknown }
+		if (document.cwd !== cwd) slug = hashedSlugForCwd(cwd)
+	} catch {
+		// No project document yet: the plain slug is the project's.
+	}
+	return join(home, 'projects', slug, 'worktrees')
 }

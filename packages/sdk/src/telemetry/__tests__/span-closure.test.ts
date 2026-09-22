@@ -15,7 +15,7 @@ import { ToolRegistry } from '../../registry/tool/execute.js'
 
 /**
  * A span that never ends is a trace that never closes, and the export is
- * incomplete for exactly the run that failed.
+ * incomplete for exactly the turn that failed.
  *
  * Both sites had the same shape: an `end()` call at every exit the author
  * could see. The iteration loop had seventeen of them and the tool executor
@@ -75,7 +75,8 @@ vi.mock('../runtime-accessors.js', () => ({
 
 function toolContext() {
 	return {
-		runId: '7c6b917d-fc8c-4af1-884b-6522f3ea2346',
+		sessionId: '7c6b917d-fc8c-4af1-884b-6522f3ea2346',
+		turnId: '0199b3a0-0000-7000-8000-0000000000d1',
 		workingDirectory: '.',
 		abortSignal: new AbortController().signal,
 		env: {},

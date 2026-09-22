@@ -13,7 +13,6 @@ export type LiveErrorCode =
 	| 'missing_voice_activity_detector'
 	| 'model_protocol_error'
 	| 'query_failed'
-	| 'run_not_speakable'
 	| 'session_closed'
 	| 'session_already_started'
 	| 'session_not_started'
@@ -21,6 +20,7 @@ export type LiveErrorCode =
 	| 'transcript_timeout'
 	| 'turn_in_progress'
 	| 'turn_interrupted'
+	| 'turn_not_speakable'
 	| 'unsafe_query_config'
 
 export class LiveError extends Error {

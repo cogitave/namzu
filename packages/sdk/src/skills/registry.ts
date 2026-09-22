@@ -128,7 +128,7 @@ export class SkillRegistry {
 	 *
 	 * The cache was permanent: once a body had been read, `existing.body`
 	 * short-circuited every later call, so an edited SKILL.md could not reach
-	 * the model without restarting the process. That is fine for a run and
+	 * the model without restarting the process. That is fine for a turn and
 	 * wrong for a long-lived one — a skill is a file an author is editing
 	 * WHILE the agent is running, which is the whole reason it is a file and
 	 * not a constant.

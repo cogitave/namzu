@@ -1,11 +1,12 @@
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { ProbeEventKind, VetoableEventKind } from './event-kind.js'
 import type { ProbeEventOf } from './event-of.js'
 
 export type Unsubscribe = () => void
 
 export interface ProbeContext {
-	readonly runId?: RunId
+	readonly sessionId?: SessionId
+	readonly turnId?: TurnId
 	readonly isReplay: boolean
 }
 

@@ -6,26 +6,28 @@
  * suppressed by `--quiet`); only the answer hits stdout.
  *
  * Non-interactive, so there's no approval prompt — tools auto-run, but the
- * safety gate still hard-denies catastrophic commands. One-shots use an
- * ephemeral session and are not added to `/resume` history.
+ * safety gate still hard-denies catastrophic commands. A one-shot is a
+ * conversation like any other: its session log is kept under the project in
+ * `NAMZU_HOME`, so `--continue` picks it up and `namzu drain` can finish a
+ * turn it parked.
  *
  * Options are parsed, not spoken: this command joined every argument into the
  * prompt, so the flags its streaming sibling accepts — `--cwd` above all —
- * were read aloud to the model while the run used this directory anyway. Both
+ * were read aloud to the model while the turn used this directory anyway. Both
  * commands now share one parser (`./run-flags.js`), because they are the same
  * one-shot differing only in how they print.
  */
 
 import { relative } from 'node:path'
 
-import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId, generateSessionId } from '@namzu/sdk'
+import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, asSessionId } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 import type { AgentEvent } from '../tui/agent.js'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
-import { openSessions } from '../integrations/sessions/store.js'
+import { closeSessions, openSessions, startConversation } from '../integrations/sessions/store.js'
 import {
 	type AttachedSessionExport,
 	attachSessionExport,
@@ -34,8 +36,8 @@ import { cliLogger, contextLogging, createStderrSink, installCliLogging } from '
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
-import { describeRunInterruption, retryAfterMs } from '../tui/run-interruption.js'
 import { hostCommandNames } from '../tui/slashCommands.js'
+import { describeTurnInterruption, retryAfterMs } from '../tui/turn-interruption.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { duration, pauseWait } from './provider-wait.js'
 import { resolveResume } from './resume.js'
@@ -58,7 +60,7 @@ import type { CommandDef } from './types.js'
  *     cat notes.txt | namzu run "summarise this"
  *
  * sent the model three words and silently dropped the file. Nothing reported
- * it: the run succeeded, and the answer was about nothing. A pipe and a
+ * it: the turn succeeded, and the answer was about nothing. A pipe and a
  * question are the ordinary way to ask about a document, and taking only one
  * of the two is the worst reading of that command.
  *
@@ -121,34 +123,34 @@ export const runCommand: CommandDef = {
 		'  --permission-mode <m> prompt | accept-edits | auto | strict | plan —',
 		'                        what happens to a call no [permissions] rule',
 		'                        decided (default: auto)',
-		'  --trust               Accept this folder for THIS run',
+		'  --trust               Accept this folder for THIS turn',
 		'  --                    End of options; the rest is the prompt verbatim',
 		'',
 		'A folder has to be trusted before namzu will work in it, because namzu',
 		'reads its files, runs commands in it and executes its code. Run `namzu`',
 		'here once and accept the prompt to trust it permanently, or pass --trust',
-		'to accept it for one run. --trust does not remember; that is the point.',
+		'to accept it for one turn. --trust does not remember; that is the point.',
 		'',
 		'--yolo does NOT imply --trust: one is about which tools may run inside a',
 		'folder, the other about the folder.',
 		'',
 		'By default tools run without asking, because there is nobody to ask, and',
 		'the safety gate still refuses catastrophic commands. Use --permission-mode',
-		'strict for an unattended run that must refuse anything no rule allowed.',
+		'strict for an unattended turn that must refuse anything no rule allowed.',
 		'',
 		'A mode only decides calls no rule decided: it can never reopen a deny.',
 		'',
 		'--gate checks proposed answers with operator-supplied commands. Every',
 		'command must complete successfully; a failure returns diagnostics to the',
 		'model for correction. Repeat the flag to check several commands in order.',
-		'Budget exhaustion or cancellation may stop a run before verification.',
+		'Budget exhaustion or cancellation may stop a turn before verification.',
 		'',
 		'A failed gate may skip a retry when its Git change detector is unchanged.',
-		'The attempt still counts. Exhausted review attempts stop the run with',
+		'The attempt still counts. Exhausted review attempts stop the turn with',
 		'answer_rejected and a non-zero exit.',
 		'',
 		"The working directory's AGENTS.md files — that directory and every one up",
-		'to the repository root — are loaded as standing instructions for the run,',
+		'to the repository root — are loaded as standing instructions for the turn,',
 		'and the ones that were loaded are named on stderr.',
 		'',
 		'--continue and --resume refuse when the conversation cannot be reopened,',
@@ -163,18 +165,20 @@ export const runCommand: CommandDef = {
 		"run waits the provider's own delay when it named one (otherwise a minute,",
 		'doubling, at most fifteen) and resumes from the checkpoint in this process,',
 		'until the budget is spent. The `limits.waitForProviderMs` config key sets',
-		'the same budget for every run in the folder.',
+		'the same budget for every turn in the folder.',
 		'',
-		'Exit codes: 0 on a reply, 1 on a failed or unfinished run, 2 when no',
+		'Exit codes: 0 on a reply, 1 on a failed or unfinished turn, 2 when no',
 		'prompt was supplied, 64 when an argument is wrong, 75 when the provider',
-		'paused the run (a rate limit or an outage) and a checkpoint was kept —',
-		'wait, then run again — and 77 when the folder has not been trusted and',
+		'paused the turn (a rate limit or an outage) and a checkpoint was kept —',
+		'wait, then run again — or when the conversation already has an active',
+		'turn (a paused one: finish it with `namzu drain`, or abandon it in the',
+		'TUI with /abandon), and 77 when the folder has not been trusted and',
 		'nothing ran.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
 		let ctx = bootstrapCtx
 		const flags = parseRunFlags(rawArgs)
-		// The run's leash: the config file's limits, with a flag overriding each.
+		// The turn's leash: the config file's limits, with a flag overriding each.
 		const limitsFromFlags = {
 			...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 			...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
@@ -280,8 +284,8 @@ export const runCommand: CommandDef = {
 
 		const gate = buildGate(flags, cwd)
 		// Attached BEFORE the session, and its failure is fatal. An operator who
-		// configured `telemetry.sessionExport` asked for this run to be
-		// recorded; continuing without it means the run happens and the record
+		// configured `telemetry.sessionExport` asked for this turn to be
+		// recorded; continuing without it means the turn happens and the record
 		// they were counting on does not exist, which is a failure they only
 		// discover when they go looking for a session that was never written.
 		let sessionExport: AttachedSessionExport | undefined
@@ -326,20 +330,36 @@ export const runCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
+		// A new one-shot is a new conversation: its log starts here, so the turn
+		// the kernel records has somewhere to go and `--continue` can find it.
+		let sessionId: ReturnType<typeof asSessionId>
+		try {
+			sessionId =
+				resume.kind === 'resumed'
+					? asSessionId(resume.sessionId)
+					: await startConversation(sessions)
+		} catch (error) {
+			closeSessions(sessions)
+			await sessionExport?.shutdown()
+			ctx.formatter.error({
+				message: `could not start a conversation: ${error instanceof Error ? error.message : String(error)}`,
+			})
+			return 1
+		}
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
 			scope: {
-				sessionId: resume.kind === 'resumed' ? asSessionId(resume.sessionId) : generateSessionId(),
+				sessionId,
 				topicId: sessions.topicId,
 				projectId: sessions.projectId,
 				tenantId: sessions.tenantId,
 			},
 			stateRoot: sessions.root,
-			...(resume.kind === 'resumed' ? { conversationSessions: sessions } : {}),
+			conversationSessions: sessions,
 			rules: permissions.rules,
-			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
+			...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the
-			// answer. Spread rather than passed as undefined so a run without
+			// answer. Spread rather than passed as undefined so a turn without
 			// gates is byte-identical to the one that shipped before them.
 			...(gate ?? {}),
 			permissionMode: modeResult.mode,
@@ -361,13 +381,14 @@ export const runCommand: CommandDef = {
 		})
 		if (!session.hasProvider) {
 			await session.close()
+			closeSessions(sessions)
 			await sessionExport?.shutdown()
 			ctx.formatter.error({
 				message: session.errorHint ?? 'agent is not ready',
 			})
 			return 1
 		}
-		// A configured tool server that is not here means the run cannot do what
+		// A configured tool server that is not here means the turn cannot do what
 		// the operator set it up to do, and there is nobody watching to notice.
 		// The TUI reports and carries on, because a person can read the line and
 		// decide; a script has no such reader, so it refuses. Same principle as
@@ -379,6 +400,7 @@ export const runCommand: CommandDef = {
 				})
 			}
 			await session.close()
+			closeSessions(sessions)
 			await sessionExport?.shutdown()
 			return 1
 		}
@@ -444,9 +466,12 @@ export const runCommand: CommandDef = {
 		const stop: {
 			failed: string | null
 			paused: Extract<AgentEvent, { kind: 'paused' }> | null
+			/** The conversation already had an active turn, so none was begun. */
+			busy: boolean
 		} = {
 			failed: null,
 			paused: null,
+			busy: false,
 		}
 		const consume = async (stream: AsyncIterable<AgentEvent>): Promise<void> => {
 			stop.failed = null
@@ -460,7 +485,11 @@ export const runCommand: CommandDef = {
 				else if (event.kind === 'context') ctx.formatter.info(event.text)
 				else if (event.kind === 'error' || event.kind === 'paused') {
 					if (event.budget) measured.budget = event.budget
-					stop.failed = describeRunInterruption(event)
+					stop.failed = describeTurnInterruption(event)
+					if (event.kind === 'error' && event.turnInProgress) {
+						stop.busy = true
+						stop.failed = `conversation ${event.turnInProgress.sessionId} already has a ${event.turnInProgress.state} turn ${event.turnInProgress.activeTurnId}; nothing was started. Finish it with \`namzu drain\`, or abandon it with /abandon in the TUI.`
+					}
 					if (event.kind === 'paused') stop.paused = event
 				} else if (event.kind === 'usage') {
 					measured.usage = event
@@ -488,10 +517,10 @@ export const runCommand: CommandDef = {
 		)
 
 		// A provider pause is answered by waiting, when the caller gave time to
-		// wait with. The kernel kept a checkpoint; the run resumes from it in
+		// wait with. The kernel kept a checkpoint; the turn resumes from it in
 		// this process, with its own context, rather than being re-prompted from
 		// notes by a wrapper that saw exit 75. A pause with no provider behind
-		// it is not waited on: that is a run parked on something else.
+		// it is not waited on: that is a turn parked on something else.
 		const waitBudgetMs = flags.waitForProviderMs ?? ctx.config.limits?.waitForProviderMs ?? 0
 		let waits = 0
 		let waitedMs = 0
@@ -510,27 +539,31 @@ export const runCommand: CommandDef = {
 			}
 			waits += 1
 			ctx.formatter.info(
-				`provider paused the run: waiting ${duration(decision.delayMs)}, then resuming from ${paused.checkpointId} (wait ${waits}, ${duration(waitedMs)} of ${duration(waitBudgetMs)} spent)`,
+				`provider paused the turn: waiting ${duration(decision.delayMs)}, then resuming from ${paused.checkpointId} (wait ${waits}, ${duration(waitedMs)} of ${duration(waitBudgetMs)} spent)`,
 			)
 			await new Promise<void>((resolve) => setTimeout(resolve, decision.delayMs))
 			waitedMs += decision.delayMs
 			await consume(
 				session.resumePaused({
-					runId: paused.runId,
+					turnId: paused.turnId,
 					checkpointId: paused.checkpointId,
 				}),
 			)
 		}
 		const failed = stop.failed
-		const paused = stop.paused !== null
+		// 75 (EX_TEMPFAIL) for both: a provider pause kept a checkpoint, and a
+		// conversation busy with another turn refused to start one. Either way
+		// running again later is the remedy, not a different invocation.
+		const paused = stop.paused !== null || stop.busy
 
 		// Every exit below this point releases the session first. A stdio tool
 		// server is a child process, and a `run` that returns without closing
 		// leaves it behind.
 		await session.close()
+		closeSessions(sessions)
 		// Drained with the session, not at process exit: a buffering sink that
 		// only flushed on `beforeExit` loses its tail whenever the CLI is
-		// interrupted, which is exactly the run somebody wanted the record of.
+		// interrupted, which is exactly the turn somebody wanted the record of.
 		await sessionExport?.shutdown()
 
 		if (measured.budget) {
@@ -560,17 +593,17 @@ export const runCommand: CommandDef = {
 
 		// The text prints either way. Partial output is real output, and a
 		// caller who piped it wants what there is — but `$?` has to be able to
-		// tell them it is partial, which it could not: `run_failed` is emitted
-		// only from the throw path, so a run stopped by its token budget, its
+		// tell them it is partial, which it could not: `turn_failed` is emitted
+		// only from the throw path, so a turn stopped by its token budget, its
 		// timeout, its iteration cap, a cancellation, or a blocking output
-		// guardrail all arrived as `run_completed` and exited 0. Measured: a
+		// guardrail all arrived as `turn_completed` and exited 0. Measured: a
 		// `max_iterations` stop reports `status: 'completed'`. The sharp case is
 		// the guardrail — a REFUSED answer exited 0 with empty text, so
 		// `namzu run … > out.txt && deploy` proceeded on the empty file.
 		ctx.formatter.print(ctx.formatter.name === 'json' ? jsonResult(text.trim()) : text.trim())
 		if (stopReason && stopReason !== 'end_turn') {
 			ctx.formatter.error({
-				message: `run did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,
+				message: `turn did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,
 			})
 			return 1
 		}

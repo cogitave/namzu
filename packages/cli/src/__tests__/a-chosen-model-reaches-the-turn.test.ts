@@ -8,7 +8,7 @@
  * someone who wanted a different model picked a provider and nothing changed.
  *
  * `Preferences` gaining a key proves none of that. The claim is that the value
- * survives to `runConfig.model`, which is what the kernel is handed and what
+ * survives to `turnConfig.model`, which is what the kernel is handed and what
  * the provider is actually called with — so that is what is asserted.
  *
  * What this covers: the store→session→query leg, driven through the real
@@ -98,11 +98,11 @@ async function modelSentFor(prefs: Preferences): Promise<string | undefined> {
 	for await (const _ of session.send([{ role: 'user', content: 'hi', timestamp: 0 }])) {
 		// drain
 	}
-	const runConfig = queryCalls[0]?.runConfig as { model?: string } | undefined
-	return runConfig?.model
+	const turnConfig = queryCalls[0]?.turnConfig as { model?: string } | undefined
+	return turnConfig?.model
 }
 
-describe('the model a run is sent with', () => {
+describe('the model a turn is sent with', () => {
 	it('is the provider default when nothing was chosen', async () => {
 		const model = await modelSentFor({
 			version: 3,

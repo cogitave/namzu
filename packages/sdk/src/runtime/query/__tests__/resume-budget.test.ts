@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import type { SessionId } from '../../../types/ids/index.js'
 import { GuardCoordinator } from '../guard.js'
 
 /**
- * Budgets belong to the RUN, not to the process hosting it.
+ * Budgets belong to the TURN, not to the process hosting it.
  *
- * A run checkpointed at $4.80 of a $5 cap used to come back with a brand-new
+ * A turn checkpointed at $4.80 of a $5 cap used to come back with a brand-new
  * $5 and a brand-new timeout clock, because the resume path replayed messages
  * and nothing else — while the checkpoint had faithfully persisted usage,
  * cost and elapsed time all along. A task that parked five times spent 5x its
@@ -17,12 +19,12 @@ function runMgrAt(opts: {
 	totalTokens?: number
 	totalCost?: number
 	iteration?: number
-}): RunPersistence {
+}): TurnRecorder {
 	return {
 		tokenUsage: { totalTokens: opts.totalTokens ?? 0 },
 		costInfo: { totalCost: opts.totalCost ?? 0 },
 		currentIteration: opts.iteration ?? 0,
-	} as unknown as RunPersistence
+	} as unknown as TurnRecorder
 }
 
 const live = new AbortController().signal
@@ -69,15 +71,15 @@ describe('GuardCoordinator — elapsed time survives a resume', () => {
 		expect(guard.beforeIteration(runMgrAt({}), live).shouldStop).toBe(false)
 	})
 
-	it('a resumed run already over its cost cap stops on its first iteration', () => {
+	it('a resumed turn already over its cost cap stops on its first iteration', () => {
 		const guard = new GuardCoordinator({ tokenBudget: 0, timeoutMs: 600_000, costLimitUsd: 5 })
-		// Post-restore state: the run had already spent $4.90 before the park.
+		// Post-restore state: the turn had already spent $4.90 before the park.
 		const result = guard.beforeIteration(runMgrAt({ totalCost: 5.1 }), live)
 		expect(result.shouldStop).toBe(true)
 		expect(result.stopReason).toBe('cost_limit')
 	})
 
-	it('a resumed run already at its iteration cap stops on its first iteration', () => {
+	it('a resumed turn already at its iteration cap stops on its first iteration', () => {
 		const guard = new GuardCoordinator({
 			tokenBudget: 0,
 			timeoutMs: 600_000,
@@ -89,16 +91,15 @@ describe('GuardCoordinator — elapsed time survives a resume', () => {
 	})
 })
 
-describe('RunPersistence.restoreUsage', () => {
+describe('TurnRecorder.restoreUsage', () => {
 	it('replaces the counters rather than adding to them', async () => {
-		const { RunPersistence } = await import('../../../manager/run/persistence.js')
-		const mgr = new RunPersistence({
-			runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
+		const { TurnRecorder } = await import('../../../manager/session/turn-recorder.js')
+		const mgr = new TurnRecorder({
+			turnId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3',
 			agentId: 'a',
 			agentName: 'A',
-			runConfig: {},
+			turnConfig: { model: 'mock', tokenBudget: 0, timeoutMs: 0 },
 			providerId: 'mock',
-			outputDir: '/tmp',
 			log: {
 				info: vi.fn(),
 				warn: vi.fn(),
@@ -112,10 +113,13 @@ describe('RunPersistence.restoreUsage', () => {
 					child: vi.fn(),
 				})),
 			},
-			sessionId: 's',
+			sessionId: 'c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f',
 			topicId: 't',
 			projectId: 'p',
 			tenantId: 'tn',
+			sessionLog: new InMemorySessionLog({
+				sessionId: 'c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f' as SessionId,
+			}),
 		} as any)
 
 		// `mock` is in no rate card, which is the point here: this case is about
@@ -158,7 +162,7 @@ describe('RunPersistence.restoreUsage', () => {
 		expect(mgr.costInfo.totalCost).toBe(4.8)
 		expect(mgr.currentIteration).toBe(7)
 
-		// And the run keeps accumulating from the restored point.
+		// And the turn keeps accumulating from the restored point.
 		mgr.accumulateUsage(
 			{
 				promptTokens: 1,

@@ -71,10 +71,10 @@ or a claim that publishing gates have run.
   later recall. See [Memory](memory.md) and
   `packages/cli/src/memory/provider-boundary.test.ts`. This is retrieval of
   historical claims, not automatic verification or access to every old message.
-* Durability already includes completed-call recovery, checkpoints and a
-  separately persisted tree budget: `packages/sdk/src/runtime/query/resume-pending.ts`,
-  `packages/sdk/src/runtime/query/checkpoint.ts` and
-  `packages/sdk/src/store/run/token-budget-disk.ts`. Recovery does not guarantee
+* Durability already includes the session log, completed-call recovery,
+  checkpoints and a separately persisted tree budget:
+  `packages/sdk/src/store/session-log/`, `packages/sdk/src/runtime/query/resume-pending.ts`,
+  `packages/sdk/src/store/checkpoint/` and `packages/sdk/src/store/budget/disk.ts`. Recovery does not guarantee
   exactly-once effects in an external service. See [Harness invariants](../sdk/harness-invariants.md).
 * `packages/cli/src/tui/permission-review.ts` presents complete readable inputs
   and falls back to exact input when a known formatter encounters a new shape.
@@ -85,7 +85,7 @@ or a claim that publishing gates have run.
 * Terminal settlement, local bounded retries, structured code-mode results and
   evaluation records already exist in `packages/sdk/src/runtime/query/iteration/index.ts`,
   `packages/sdk/src/runtime/query/executor.ts`, `packages/sdk/src/tools/builtins/run-code.ts`
-  and `packages/sdk/src/eval/from-run.ts`. Reuse these before adding parallel mechanisms.
+  and the turn-to-evaluation adapter in `packages/sdk/src/eval/`. Reuse these before adding parallel mechanisms.
 
 ## Prioritized next work
 

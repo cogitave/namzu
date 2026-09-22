@@ -76,7 +76,7 @@ export function createResidentStepContext(
 		async execute(input, context) {
 			context.abortSignal?.throwIfAborted()
 			try {
-				if (authorize(context) !== true) throw new Error('Run does not own this admission.')
+				if (authorize(context) !== true) throw new Error('Turn does not own this admission.')
 				const projection = project([input.name])
 				if (!projection.includedSkills.includes(input.name))
 					return {
@@ -92,7 +92,7 @@ export function createResidentStepContext(
 				return {
 					success: false,
 					output: '',
-					error: 'Resident skill access is unavailable for this run.',
+					error: 'Resident skill access is unavailable for this turn.',
 				}
 			}
 		},

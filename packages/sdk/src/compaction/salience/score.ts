@@ -3,7 +3,7 @@
  *
  * The compaction pass chose what to keep by position — the floor, the
  * last few turns, the last few tool results — and a fact stated in the
- * middle of a long run aged out at the same rate as chatter. This gives
+ * middle of a long turn aged out at the same rate as chatter. This gives
  * every message a number instead, from four things the kernel can
  * observe without a model:
  *
@@ -19,7 +19,7 @@
  * What no score may cross is stated as `protected`: the leading system
  * run, `retain` markers with the turn they pull in, the most recent
  * turns, and the other half of a tool-call pair. Pure, like `plan.ts`:
- * no run, no logger, no provider, so it can be asked without one.
+ * no turn, no logger, no provider, so it can be asked without one.
  */
 
 import type { AssistantMessage, Message, ToolMessage } from '../../types/message/index.js'
@@ -242,7 +242,7 @@ export function scoreMessages(
 		} else if (message.role === 'tool') {
 			// Used is used: one identifier from this result named by a later
 			// turn is the evidence, and a count would let the recency of
-			// everything after it outvote the one result the run came back
+			// everything after it outvote the one result the turn came back
 			// for. The eval that placed the account id deep in an early dump
 			// and cited it later watched the salience pass clear it under a
 			// thirds rule.

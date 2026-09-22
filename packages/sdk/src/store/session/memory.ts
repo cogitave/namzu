@@ -17,12 +17,10 @@ import {
 	TenantIsolationError,
 } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
-import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
-import type { Message } from '../../types/message/index.js'
+import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, TopicId } from '../../types/session/ids.js'
-import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -36,7 +34,6 @@ import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import {
 	asProjectId,
 	asTenantId,
-	generateMessageId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
@@ -81,7 +78,6 @@ export class InMemorySessionStore implements SessionStore {
 	private readonly projects = new Map<ProjectId, ProjectRecord>()
 	private readonly sessions = new Map<SessionId, SessionRecord>()
 	private readonly subSessions = new Map<SubSessionId, SubSessionRecord>()
-	private readonly messages = new Map<SessionId, SessionMessage[]>()
 	private readonly summaries = new Map<SessionId, SummaryRecord>()
 
 	/** Hydrate existing Project snapshots without minting replacement identities. */
@@ -368,7 +364,6 @@ export class InMemorySessionStore implements SessionStore {
 		}
 
 		this.sessions.delete(sessionId)
-		this.messages.delete(sessionId)
 		this.summaries.delete(sessionId)
 	}
 
@@ -429,78 +424,6 @@ export class InMemorySessionStore implements SessionStore {
 		if (!record) return // Idempotent: missing = no-op.
 		this.assertTenant(record.tenantId, tenantId, `sub-session(${subSessionId})`)
 		this.subSessions.delete(subSessionId)
-	}
-
-	// Messages ----------------------------------------------------------------
-
-	async appendMessage(
-		sessionId: SessionId,
-		message: Message,
-		tenantId: TenantId,
-	): Promise<MessageId> {
-		const record = this.sessions.get(sessionId)
-		if (!record) {
-			throw new Error(`Session ${sessionId} not found`)
-		}
-		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
-
-		const id = generateMessageId()
-		const entry: SessionMessage = {
-			id,
-			sessionId,
-			tenantId,
-			message,
-			at: new Date(),
-		}
-		const existing = this.messages.get(sessionId)
-		if (existing) {
-			existing.push(entry)
-		} else {
-			this.messages.set(sessionId, [entry])
-		}
-		return id
-	}
-
-	async replaceMessages(
-		sessionId: SessionId,
-		messages: readonly Message[],
-		tenantId: TenantId,
-	): Promise<void> {
-		const record = this.sessions.get(sessionId)
-		if (!record) throw new Error(`Session ${sessionId} not found`)
-		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
-
-		const at = new Date()
-		this.messages.set(
-			sessionId,
-			messages.map((message) => ({
-				id: generateMessageId(),
-				sessionId,
-				tenantId,
-				message,
-				at,
-			})),
-		)
-	}
-
-	async loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]> {
-		const record = this.sessions.get(sessionId)
-		if (!record) return []
-		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
-		const entries = this.messages.get(sessionId) ?? []
-		return entries.map((e) => e.message)
-	}
-
-	async loadSessionMessages(
-		sessionId: SessionId,
-		tenantId: TenantId,
-	): Promise<readonly SessionMessage[]> {
-		const record = this.sessions.get(sessionId)
-		if (!record) return []
-		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
-		const entries = this.messages.get(sessionId) ?? []
-		// Return a shallow copy so callers cannot mutate the internal log.
-		return entries.map((e) => ({ ...e }))
 	}
 
 	// Linkage -----------------------------------------------------------------

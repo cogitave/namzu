@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../utils/id.js'
+import { SessionTokenBudget } from '../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 
 import { fixtureId } from '../../test-support/ids.js'
 import type { Agent } from '../../types/agent/core.js'
@@ -11,16 +11,23 @@ import type {
 	AgentTaskState,
 	SendMessageOptions,
 } from '../../types/agent/task.js'
-import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
-import type { RunEventListener } from '../../types/run/events.js'
+import type { AgentId, SessionId, TaskId, TenantId, TurnId } from '../../types/ids/index.js'
+import type { SessionEventListener } from '../../types/session/events.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { LocalTaskScheduler } from '../local.js'
+
+function budgetFor(limit: number): SessionTokenBudget {
+	return SessionTokenBudget.create(limit, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	})
+}
 
 /**
  * A child that spoke before its own spawn resolved killed the launch.
  *
  * The progress tee handed to `sendMessage` read `task.taskId` — the `const`
- * that the very same `await` assigns. So any run event emitted by the child
+ * that the very same `await` assigns. So any turn event emitted by the child
  * before `sendMessage` returned reached that line inside the temporal dead
  * zone and threw `Cannot access 'task' before initialization`, taking the whole
  * `create_task` down with it.
@@ -32,12 +39,13 @@ import { LocalTaskScheduler } from '../local.js'
  * three dead.
  */
 
-const RUN = 'd2f20511-18bd-4774-a2a4-641ccbf9e701' as RunId
+const SESSION = 'd2f20511-18bd-4774-a2a4-641ccbf9e701' as SessionId
+const TURN = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
 
-/** Emits a run event DURING the spawn, before it resolves. */
+/** Emits a session event DURING the spawn, before it resolves. */
 class TalksDuringSpawn implements AgentManagerContract {
 	/** Kept so a test can make the child speak AFTER the spawn resolved too. */
-	private lastListener?: RunEventListener
+	private lastListener?: SessionEventListener
 
 	constructor(private readonly emitsBeforeResolve: number) {}
 
@@ -45,7 +53,8 @@ class TalksDuringSpawn implements AgentManagerContract {
 	speakNow(): void {
 		this.lastListener?.({
 			type: 'iteration_started',
-			runId: RUN,
+			sessionId: SESSION,
+			turnId: TURN,
 			iteration: 99,
 		} as never)
 	}
@@ -53,14 +62,15 @@ class TalksDuringSpawn implements AgentManagerContract {
 	async sendMessage(
 		options: SendMessageOptions,
 		_context: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 	): Promise<AgentTask> {
 		this.lastListener = listener
 		// The child is alive and streaming before the caller holds its handle.
 		for (let i = 0; i < this.emitsBeforeResolve; i += 1) {
 			listener?.({
 				type: 'iteration_started',
-				runId: RUN,
+				sessionId: SESSION,
+				turnId: TURN,
 				iteration: i,
 			} as never)
 		}
@@ -105,11 +115,12 @@ class TalksDuringSpawn implements AgentManagerContract {
 
 function context(): AgentTaskContext {
 	return {
-		parentRunId: RUN,
+		parentSessionId: SESSION,
+		parentTurnId: TURN,
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: budgetFor(100_000),
 		tenantId: '2e7341cb-d8d3-424e-bf70-53ceffaf2557' as TenantId,
 		topicId: 'c0e05744-2c2e-498d-a947-77633d012e7c' as TopicId,
 		sessionId: '6124baf7-07f6-4cf6-93c0-b9d238e322bb' as SessionId,

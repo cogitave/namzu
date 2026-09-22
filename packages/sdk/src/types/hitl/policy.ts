@@ -1,12 +1,12 @@
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { ResumeHandler } from './index.js'
 
 /**
- * Who answers when the run asks a human, as a value rather than a closure.
+ * Who answers when a turn asks a human, as a value rather than a closure.
  *
  * `ResumeHandler` was captured once at `query()` start and never read again
  * from anywhere a host could reach — so switching from "ask me about every
- * write" to "go ahead, I'm stepping out" meant ending the run and starting
+ * write" to "go ahead, I'm stepping out" meant ending the turn and starting
  * another. That is the same defect `permissionMode` had before it became a
  * box the executor reads through, and it has the same cost: the fix
  * discards the in-flight step and the context that step was built from.
@@ -33,7 +33,7 @@ export interface ApprovalPolicy {
  * writes before the record landed would leave a log where the approvals
  * precede the decision that permitted them.
  */
-export interface RunApprovalPolicy {
+export interface SessionApprovalPolicy {
 	readonly current: ApprovalPolicy
 	/**
 	 * Swap the policy, recording who and why.
@@ -49,7 +49,7 @@ export interface RunApprovalPolicy {
 	 * The change the model has not been told about yet — and reading it is
 	 * what marks it told.
 	 *
-	 * The model plans around how closely it is being watched. A run that
+	 * The model plans around how closely it is being watched. A turn that
 	 * silently stops asking a human, or silently starts, leaves the model
 	 * working from a supervision assumption that is no longer true: it will
 	 * keep batching destructive calls it expects to be reviewed, or keep
@@ -76,7 +76,9 @@ export interface ApprovalPolicyChange {
 /** The durable record of a policy change. */
 export interface ApprovalPolicyChangedEvent {
 	readonly type: 'approval_policy_changed'
-	readonly runId: RunId
+	readonly sessionId: SessionId
+	/** Absent when the policy changed between turns. */
+	readonly turnId?: TurnId
 	readonly from: string
 	readonly to: string
 	readonly reason: string

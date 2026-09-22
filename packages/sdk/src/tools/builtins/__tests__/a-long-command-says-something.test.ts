@@ -56,7 +56,8 @@ function streamingSandbox(chunks: Array<{ stream: 'stdout' | 'stderr'; data: str
 
 function contextWith(sandbox: Sandbox, report?: ToolContext['report']): ToolContext {
 	return {
-		runId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b',
+		turnId: '37ddff8e-e13f-4e57-937f-d048fa323f5e',
 		workingDirectory: '/workspace',
 		abortSignal: new AbortController().signal,
 		env: {},

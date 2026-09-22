@@ -5,7 +5,7 @@
  * Rename of the legacy `ConversationMessage` concept, scoped by
  * {@link SessionId} and carrying {@link TenantId} for the Convention #17
  * key tuple (session-hierarchy.md §12.1). The `message` field preserves the
- * full Run-scoped `Message` payload verbatim; the wrapper only adds
+ * full Turn-scoped `Message` payload verbatim; the wrapper only adds
  * addressability + tenant isolation.
  */
 

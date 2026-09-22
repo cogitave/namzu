@@ -88,7 +88,7 @@ export interface WithProviderFallbackOptions {
 	 * case. The chunk reaches whoever is iterating the stream, at the moment
 	 * of the swap — that is the operator. This reaches a party that has to
 	 * know AFTER the request is over and may never have iterated the stream at
-	 * all — that is the run record. Two things follow that the chunk alone
+	 * all — that is the turn record. Two things follow that the chunk alone
 	 * cannot give it:
 	 *
 	 *  - the cursor outlives the request, so a swap on the turn at step 3
@@ -97,7 +97,7 @@ export interface WithProviderFallbackOptions {
 	 *    compaction verifier and the forced-final summary both do — drops the
 	 *    `fallback` chunk on the floor, so a swap inside one is invisible to
 	 *    every chunk consumer. (The advisory executor calls its OWN advisor's
-	 *    provider, not the run's, so it is not one of these.)
+	 *    provider, not the turn's, so it is not one of these.)
 	 *
 	 * ## Fired when the replacement is ASKED, not when the cursor moves
 	 *
@@ -142,7 +142,7 @@ export interface WithProviderFallbackOptions {
  *
  * The three entries, and what each of them being here means:
  *
- * - `context_length_exceeded` — the run's own remedy is compaction, which sheds
+ * - `context_length_exceeded` — the turn's own remedy is compaction, which sheds
  *   history and asks again. Falling over instead would carry the same oversized
  *   prompt to a provider that has not been given the chance to fit it. Note the
  *   limit of that reasoning: a chain MAY pair a small window with a larger one,
@@ -184,7 +184,7 @@ const REQUEST_FAULT_CODES: ReadonlySet<string> = new Set([
  * only on the unclassified path (`codeFromStatus`). A driver that classified
  * its own 404 into a `ProviderRequestError` gets `kind: 'bad_request'` from
  * `classifyProviderHttpStatus`, which `KIND_TO_CODE` maps to
- * `invalid_request` — a request fault, so the run would ABORT on a model the
+ * `invalid_request` — a request fault, so the turn would ABORT on a model the
  * next member may well have. The status survives on both paths; the code does
  * not, so the status is what this reads.
  */
@@ -332,12 +332,12 @@ function commonReasoningEffortLevels(
  *
  * ## Capabilities are the head's
  *
- * The getters below are transparent, so a run negotiates tools, vision and
+ * The getters below are transparent, so a turn negotiates tools, vision and
  * documents ONCE against `members[0]` and keeps that answer after a swap. This
  * is a real limitation and it is why the host is expected to refuse a chain
  * whose members disagree before ever building one (`@namzu/cli` does, and only
  * runs a mismatched chain when the operator has said so explicitly). Taking the
- * intersection here instead would cost the primary a capability on every run to
+ * intersection here instead would cost the primary a capability on every turn to
  * guard against a failure that happens rarely. Reasoning effort is the deliberate
  * exception: the SAME field is replayed unchanged after a swap, so only a common
  * level can be truthfully offered before the request.
@@ -414,7 +414,7 @@ export function withProviderFallback(
 			} catch (err) {
 				// A Stop is control flow, not a provider failure. Without this the
 				// classifier — which has no concept of cancellation — would file an
-				// abort as some ordinary failure and the run would walk the entire
+				// abort as some ordinary failure and the turn would walk the entire
 				// chain re-issuing an already-cancelled request, one member at a
 				// time, instead of settling as `cancelled`. The retry decorator
 				// guards the same way and for the same reason.
@@ -471,7 +471,7 @@ export function withProviderFallback(
 	}
 
 	// Transparent to capability negotiation and identity, like the retry
-	// decorator. The head's declarations are what a run is configured from; see
+	// decorator. The head's declarations are what a turn is configured from; see
 	// the note on capabilities above for the limitation that carries.
 	return {
 		get id() {

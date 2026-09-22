@@ -1,21 +1,7 @@
-/**
- * The lifecycle of one RUN.
- *
- * Named for what it types. Every one of its uses in this package is a
- * run's status, a run's audit outcome, or the status field of a run's
- * result -- none of them describe an `AbstractAgent` or a
- * `ReactiveAgent`, which have no status of their own. The old name sent a
- * reader looking for an agent's lifecycle to the type that governs a run.
- */
-export type RunExecutionStatus =
-	| 'idle'
-	| 'pending'
-	| 'running'
-	| 'completed'
-	| 'failed'
-	| 'cancelled'
+import type { TurnExecutionStatus } from '../session/turn.js'
 
-export function isTerminalStatus(status: RunExecutionStatus): boolean {
+/** Whether a turn's execution status is settled: `completed`, `failed` or `cancelled`. */
+export function isTerminalStatus(status: TurnExecutionStatus): boolean {
 	return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 
@@ -49,7 +35,7 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 		cacheWriteTokens: current.cacheWriteTokens + addition.cacheWriteTokens,
 		// Summed only when at least one side reported it. Coercing absent to
 		// zero would turn 'this driver does not tell us' into 'it spent none',
-		// and a run mixing a reporting driver with a silent one would read as
+		// and a turn mixing a reporting driver with a silent one would read as
 		// though the silent turns did no thinking.
 		...(current.reasoningTokens !== undefined || addition.reasoningTokens !== undefined
 			? { reasoningTokens: (current.reasoningTokens ?? 0) + (addition.reasoningTokens ?? 0) }
@@ -79,7 +65,7 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 		// frame's own total covers only the component that frame carried.
 		// Maxing those two totals returns the larger COMPONENT, not the sum —
 		// 1200 and 350 merge to 1200 instead of 1550, and every completion
-		// token vanishes from the run's budget. Take the max of what was
+		// token vanishes from the turn's budget. Take the max of what was
 		// reported and what the merged components imply, so the result is
 		// monotone and can never under-report.
 		totalTokens: Math.max(current.totalTokens, next.totalTokens, promptTokens + completionTokens),
@@ -97,13 +83,13 @@ export interface CostInfo {
 	 * card describes the whole total.
 	 *
 	 * Absent means "no single rate describes this", not "zero". Three ways to
-	 * get there: nothing has been accumulated yet, the run spanned two
+	 * get there: nothing has been accumulated yet, the turn spanned two
 	 * differently-priced models, or part of it was accumulated at no known rate
 	 * at all. This is the same contract {@link TokenUsage.reasoningTokens} uses
 	 * one field up, for the same reason — a number invented to fill the slot
 	 * would be indistinguishable from a measured one.
 	 *
-	 * The field used to be required, and a run that swapped models reported
+	 * The field used to be required, and a turn that swapped models reported
 	 * whichever card was applied last, which is a claim about the whole total
 	 * that was true of only part of it.
 	 */
@@ -116,19 +102,19 @@ export interface CostInfo {
 	 * Tokens accumulated at no known rate, so `totalCost` does not include what
 	 * they cost.
 	 *
-	 * This exists so a consumer can tell "this run cost nothing" from "nobody
-	 * knows what this run cost". Reporting the second as zero is the defect the
+	 * This exists so a consumer can tell "this turn cost nothing" from "nobody
+	 * knows what this turn cost". Reporting the second as zero is the defect the
 	 * price catalogue was added to fix, one level down: a total that is always
 	 * zero and a total that is zero because it is unknown look identical, and
-	 * `runConfig.costLimitUsd` is enforced against both.
+	 * `turnConfig.costLimitUsd` is enforced against both.
 	 *
-	 * - `totalCost: 0, unpricedTokens: 0` — the run genuinely cost nothing
+	 * - `totalCost: 0, unpricedTokens: 0` — the turn genuinely cost nothing
 	 *   (local inference bills per token exactly never).
 	 * - `totalCost: 0, unpricedTokens: 4210` — nobody knows.
 	 * - `totalCost: 0.12, unpricedTokens: 900` — partly known; the total is a
 	 *   floor, not the answer.
 	 *
-	 * A count rather than a flag because a run mixes turns: a step can name its
+	 * A count rather than a flag because a turn mixes turns: a step can name its
 	 * own model and a provider chain can swap members mid-run.
 	 */
 	unpricedTokens: number

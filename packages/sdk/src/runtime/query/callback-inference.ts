@@ -2,7 +2,10 @@ import { z } from 'zod'
 import { StreamTextAccumulator } from '../../provider/stream-text.js'
 import { type TokenUsage, mergeTokenUsage } from '../../types/common/index.js'
 import { createSystemMessage, createUserMessage } from '../../types/message/index.js'
-import type { PreparationTextRequest, PreparationTextResult } from '../../types/run/prepare-step.js'
+import type {
+	PreparationTextRequest,
+	PreparationTextResult,
+} from '../../types/session/prepare-step.js'
 import type { IterationContext } from './iteration/phases/context.js'
 
 const requestSchema = z
@@ -41,11 +44,11 @@ export function createCallbackInference(
 			used = true
 			// No deadline of our own on the request — see the note on
 			// `PreparationTextRequest.timeoutMs`. The two bounds that remain are
-			// the ones every other model request in the run has: the run's own
+			// the ones every other model request in the turn has: the turn's own
 			// cancellation, and the provider's request timeout. An expired local
 			// deadline here would abort a CONTACTED request, and a request that
 			// ends without its usage receipt leaves the shared ledger unresolved,
-			// which stops the whole run — so a stage that gave up on its own
+			// which stops the whole turn — so a stage that gave up on its own
 			// optional inference would take the operator's turn with it. That is
 			// not hypothetical: it is what a 10s deadline did to every turn
 			// against a reasoning model slower than 10s per auxiliary answer.
@@ -72,7 +75,7 @@ export function createCallbackInference(
 					providerRoute: route(),
 					messages: [createSystemMessage(input.system), createUserMessage(input.prompt)],
 					maxTokens: input.maxTokens,
-					...(ctx.runConfig.effort ? { effort: ctx.runConfig.effort } : {}),
+					...(ctx.turnConfig.effort ? { effort: ctx.turnConfig.effort } : {}),
 					signal,
 				})) {
 					if (chunk.usage) usage = usage ? mergeTokenUsage(usage, chunk.usage) : { ...chunk.usage }
@@ -90,7 +93,7 @@ export function createCallbackInference(
 				if (invalidOutput) throw new Error(invalidOutput)
 				return { text: text.text, usage, servedBy: route() }
 			} finally {
-				if (usage) ctx.runMgr.accumulateUsage(usage, route())
+				if (usage) ctx.recorder.accumulateUsage(usage, route())
 			}
 		},
 	}

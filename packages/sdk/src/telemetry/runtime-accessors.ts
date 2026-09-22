@@ -44,7 +44,7 @@ export function getActiveSpanContext(): SpanContext | undefined {
 	// this touches past the api boundary is a HOST's object. A third-party
 	// `ContextManager` whose `active()` throws would otherwise raise that
 	// exception inside every log call in the kernel — turning a logging
-	// integration bug into a run failure, at a call site nobody reading it
+	// integration bug into a turn failure, at a call site nobody reading it
 	// would suspect of being able to throw.
 	//
 	// Swallowed rather than reported, unlike a dropped record: this cannot

@@ -10,7 +10,6 @@ import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { fixtureId } from '../../test-support/ids.js'
-import type { RunId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 
@@ -63,7 +62,7 @@ vi.mock('../runtime-accessors.js', () => ({
 	// them — so omitting this one does not fall through to the real
 	// implementation, it makes the import undefined. `recordAudit` reads the
 	// active span to stamp an audit event, so a partial mock here surfaces as
-	// a run failure in a file that is not about spans at all.
+	// a turn failure in a file that is not about spans at all.
 	getActiveSpanContext: () => undefined,
 	getTracer: () => ({
 		startSpan: (name: string) => record(name),
@@ -102,7 +101,8 @@ function registerPing(): ToolRegistry {
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
 	return {
-		runId: '618cebea-d93d-4c12-983a-6d9dc775bed4' as RunId,
+		sessionId: fixtureId.session('callid'),
+		turnId: fixtureId.turn('callid'),
 		workingDirectory: tmpdir(),
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -133,7 +133,7 @@ describe('the tool span carries the id of the call it is about', () => {
 
 	it('omits the key entirely when there is no call to correlate to', async () => {
 		// `toolUseId` is optional — a host may call a tool directly, outside
-		// a run. Setting the attribute to `undefined` would reach the
+		// a turn. Setting the attribute to `undefined` would reach the
 		// exporter as a present key with no value, which is worse than an
 		// absent one: a query for "spans missing the id" would not find it.
 		await registerPing().execute('ping', {}, context())
@@ -142,9 +142,9 @@ describe('the tool span carries the id of the call it is about', () => {
 		expect(toolSpans()[0]?.attributes).not.toHaveProperty('gen_ai.tool.call.id')
 	})
 
-	it('carries the id a real run produced, not only one a test handed in', async () => {
+	it('carries the id a real turn produced, not only one a test handed in', async () => {
 		// Reachability is its own property. The two cases above prove the
-		// emit site reads `ToolContext.toolUseId`; neither proves the run
+		// emit site reads `ToolContext.toolUseId`; neither proves the turn
 		// loop puts anything there, and the field's own docstring says not
 		// every executor path provides it. This drives the whole query path
 		// so the id on the span is one the provider actually emitted.
@@ -153,7 +153,7 @@ describe('the tool span carries the id of the call it is about', () => {
 
 		await drainQuery({
 			provider: new MockLLMProvider({
-				// The second turn settles the run. Without it the mock replays
+				// The second model turn settles the query. Without it the mock replays
 				// its LAST turn for every iteration past the end of the script,
 				// so the tool is called once per iteration and the span count
 				// below measures `maxIterations` rather than the script — a
@@ -165,7 +165,7 @@ describe('the tool span carries the id of the call it is about', () => {
 				],
 			}),
 			tools: registerPing(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
 				tokenBudget: 100_000,

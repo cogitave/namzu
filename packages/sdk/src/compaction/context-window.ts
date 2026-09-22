@@ -2,8 +2,8 @@
  * Model context-window resolution for the compaction trigger.
  *
  * Compaction asks "how full is the window?". That question needs a WINDOW,
- * and the runtime previously answered it with `runConfig.tokenBudget` — the
- * run's cumulative spend cap. The two are different quantities, and using
+ * and the runtime previously answered it with `turnConfig.tokenBudget` — the
+ * turn's cumulative spend cap. The two are different quantities, and using
  * the second as the divisor for the first is self-defeating: cumulative
  * spend always exceeds the live window, and the guard force-finalizes at
  * 0.9 x tokenBudget while compaction needs 0.7 x the same number, so the
@@ -34,7 +34,7 @@
  * Conservative default for a model we do not recognise.
  *
  * Under-estimating is the safe direction: it compacts earlier than needed,
- * costing a summarization pass. Over-estimating means the run dies on a
+ * costing a summarization pass. Over-estimating means the turn dies on a
  * provider `context_length_exceeded` with nothing recoverable.
  */
 export const DEFAULT_ASSUMED_CONTEXT_WINDOW = 128_000
@@ -133,7 +133,7 @@ export function resolveContextWindow(
 	 *
 	 * A plain number rather than a promise, because both call sites are
 	 * synchronous and sit in the hot loop. Resolving happens once at the
-	 * start of a run; this parameter is that answer being carried in.
+	 * start of a turn; this parameter is that answer being carried in.
 	 */
 	providerReported?: number,
 ): ResolvedContextWindow {

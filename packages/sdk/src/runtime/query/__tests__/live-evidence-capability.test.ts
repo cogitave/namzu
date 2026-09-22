@@ -1,19 +1,47 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
-import type { PrepareStepContext } from '../../../types/run/prepare-step.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import type { PrepareStepContext } from '../../../types/session/prepare-step.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
+import { EventTranslator } from '../events.js'
 import { drainQuery } from '../index.js'
+
+/** An in-memory session: its log has no retained text to capture. */
+function memorySession() {
+	const sessionId = generateSessionId()
+	return { sessionId, sessionLog: new InMemorySessionLog({ sessionId }) }
+}
+
+afterEach(() => {
+	vi.restoreAllMocks()
+})
+
+/**
+ * Run `hook` inside every evidence capture, after the translator's own
+ * checks passed: where a backend's read of the session log would run.
+ */
+function interceptCapture(
+	hook: (maxReadBytes?: number, signal?: AbortSignal) => Promise<undefined>,
+): void {
+	const real = EventTranslator.prototype.captureSessionEvidence
+	vi.spyOn(EventTranslator.prototype, 'captureSessionEvidence').mockImplementation(async function (
+		this: EventTranslator,
+		maxReadBytes?: number,
+		signal?: AbortSignal,
+	) {
+		await real.call(this, maxReadBytes, signal)
+		return hook(maxReadBytes, signal)
+	})
+}
 
 it('revokes a timed-out tool capture while the next tool can still read evidence', async () => {
 	let release!: () => void
@@ -24,7 +52,7 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 		await gate
 		return undefined
 	})
-	let held: ToolContext['captureRunEvidence']
+	let held: ToolContext['captureSessionEvidence']
 	let lateReturn = false
 	let refused: unknown
 	let nextRead = false
@@ -37,7 +65,7 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 		timeoutMs: 50,
 		maxRetries: 0,
 		execute: async (_input, context) => {
-			held = context.captureRunEvidence
+			held = context.captureSessionEvidence
 			context.abortSignal.addEventListener('abort', release, { once: true })
 			try {
 				await held!()
@@ -59,13 +87,14 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 			} catch {
 				/* the old tool no longer owns capture */
 			}
-			await context.captureRunEvidence!()
+			await context.captureSessionEvidence!()
 			nextRead = true
 			return { success: true, output: 'The next tool still owns its read.' }
 		},
 	})
+	interceptCapture(captureTextEvidence)
 	const run = await drainQuery({
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		provider: new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ id: 'slow', name: 'slow_capture', args: {} }] },
@@ -74,17 +103,15 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 			],
 		}),
 		tools,
-		runStore: Object.assign(new InMemoryRunStore(), { captureTextEvidence }),
-		checkpointStore: new InMemoryCheckpointStore(),
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		...memorySession(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		workingDirectory: process.cwd(),
 		agentId: 'capture-check',
 		agentName: 'Capture check',
 		messages: [{ role: 'user', content: 'Inspect evidence, then continue after the deadline.' }],
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			maxIterations: 4,
 			tokenBudget: 100_000,
@@ -100,35 +127,33 @@ it('revokes a timed-out tool capture while the next tool can still read evidence
 	expect(captureTextEvidence).toHaveBeenCalledTimes(2)
 })
 
-it('local preparation cancellation refuses late capture without cancelling the run', async () => {
+it('local preparation cancellation refuses late capture without cancelling the turn', async () => {
 	const local = new AbortController()
 	const captureTextEvidence = vi.fn(async () => {
 		local.abort(new Error('local deadline'))
 		return undefined
 	})
-	const runStore = Object.assign(new InMemoryRunStore(), { captureTextEvidence })
-	let held: PrepareStepContext['captureRunEvidence']
+	interceptCapture(captureTextEvidence)
+	let held: PrepareStepContext['captureSessionEvidence']
 	const result = await drainQuery({
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
-		runStore,
-		checkpointStore: new InMemoryCheckpointStore(),
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		...memorySession(),
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		workingDirectory: process.cwd(),
 		agentId: 'capture-check',
 		agentName: 'Capture check',
 		messages: [{ role: 'user', content: 'Inspect the recorded boundary.' }],
-		runConfig: { model: 'mock', maxIterations: 2, tokenBudget: 100_000, timeoutMs: 10_000 },
-		prepareStep: async ({ captureRunEvidence }) => {
-			held = captureRunEvidence
-			await expect(captureRunEvidence!(2 * 1024 * 1024, local.signal)).rejects.toThrow(
+		turnConfig: { model: 'mock', maxIterations: 2, tokenBudget: 100_000, timeoutMs: 10_000 },
+		prepareStep: async ({ captureSessionEvidence }) => {
+			held = captureSessionEvidence
+			await expect(captureSessionEvidence!(2 * 1024 * 1024, local.signal)).rejects.toThrow(
 				'local deadline',
 			)
-			await expect(captureRunEvidence!(2 * 1024 * 1024, local.signal)).rejects.toThrow(
+			await expect(captureSessionEvidence!(2 * 1024 * 1024, local.signal)).rejects.toThrow(
 				'local deadline',
 			)
 			return undefined
@@ -147,16 +172,13 @@ it.each(
 	'keeps $entry capture invocation-bound when cancellation during capture is $cancelDuringCapture',
 	async ({ cancelDuringCapture, entry }) => {
 		const caller = new AbortController()
-		const store = new InMemoryRunStore()
-		const runStore = cancelDuringCapture
-			? Object.assign(store, {
-					captureTextEvidence: async () => {
-						caller.abort(new Error('operator cancelled during capture'))
-						return undefined
-					},
-				})
-			: store
-		let capture: ToolContext['captureRunEvidence']
+		if (cancelDuringCapture) {
+			interceptCapture(async () => {
+				caller.abort(new Error('operator cancelled during capture'))
+				return undefined
+			})
+		}
+		let capture: ToolContext['captureSessionEvidence']
 		let returned = false
 		let refused = false
 		const tools = new ToolRegistry()
@@ -165,7 +187,7 @@ it.each(
 			description: 'Read the current invocation boundary.',
 			inputSchema: z.object({}),
 			execute: async (_input, context) => {
-				capture = context.captureRunEvidence
+				capture = context.captureSessionEvidence
 				try {
 					expect(await capture!()).toBeUndefined()
 					returned = true
@@ -176,8 +198,10 @@ it.each(
 				}
 			},
 		})
-		const prepare = async (context: { captureRunEvidence?: ToolContext['captureRunEvidence'] }) => {
-			capture = context.captureRunEvidence
+		const prepare = async (context: {
+			captureSessionEvidence?: ToolContext['captureSessionEvidence']
+		}) => {
+			capture = context.captureSessionEvidence
 			try {
 				expect(await capture!()).toBeUndefined()
 				returned = true
@@ -188,7 +212,7 @@ it.each(
 			return undefined
 		}
 		const run = await drainQuery({
-			runId: generateRunId(),
+			turnId: generateTurnId(),
 			provider: new MockLLMProvider({
 				turns:
 					entry === 'prepare'
@@ -200,10 +224,8 @@ it.each(
 			}),
 			tools,
 			...(entry === 'prepare' ? { prepareStep: prepare } : {}),
-			runStore,
-			checkpointStore: new InMemoryCheckpointStore(),
 			projectId: generateProjectId(),
-			sessionId: generateSessionId(),
+			...memorySession(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			workingDirectory: process.cwd(),
@@ -211,7 +233,7 @@ it.each(
 			agentName: 'Capture check',
 			messages: [{ role: 'user', content: 'Inspect the recorded boundary.' }],
 			signal: caller.signal,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -237,12 +259,12 @@ it.each(['nested', 'local'] as const)(
 	async (mode) => {
 		const local = new AbortController()
 		let receivedSignal: AbortSignal | undefined
-		const captureTextEvidence = vi.fn(async (_scope, _maxReadBytes, signal?: AbortSignal) => {
+		const captureTextEvidence = vi.fn(async (_maxReadBytes?: number, signal?: AbortSignal) => {
 			receivedSignal = signal
 			if (captureTextEvidence.mock.calls.length === 1) local.abort(new Error('only this read'))
 			return undefined
 		})
-		let childCapture: ToolContext['captureRunEvidence']
+		let childCapture: ToolContext['captureSessionEvidence']
 		let childRefused = false
 		let parentRead = false
 		const tools = new ToolRegistry()
@@ -252,7 +274,7 @@ it.each(['nested', 'local'] as const)(
 			inputSchema: z.object({}),
 			maxRetries: 0,
 			execute: async (_input, context) => {
-				childCapture = context.captureRunEvidence
+				childCapture = context.captureSessionEvidence
 				try {
 					await childCapture!()
 				} catch {
@@ -271,38 +293,37 @@ it.each(['nested', 'local'] as const)(
 					await context.dispatchTool!('child', {}, { signal: local.signal })
 					await expect(childCapture!()).rejects.toThrow('only this read')
 				} else {
-					await expect(context.captureRunEvidence!(1024, local.signal)).rejects.toThrow(
+					await expect(context.captureSessionEvidence!(1024, local.signal)).rejects.toThrow(
 						'only this read',
 					)
-					await expect(context.captureRunEvidence!(1024, local.signal)).rejects.toThrow(
+					await expect(context.captureSessionEvidence!(1024, local.signal)).rejects.toThrow(
 						'only this read',
 					)
 				}
 				expect(receivedSignal?.aborted).toBe(true)
 				expect(captureTextEvidence).toHaveBeenCalledTimes(1)
 				expect(context.abortSignal.aborted).toBe(false)
-				await context.captureRunEvidence!()
+				await context.captureSessionEvidence!()
 				parentRead = true
 				return { success: true, output: 'Parent still owns its evidence read.' }
 			},
 		})
+		interceptCapture(captureTextEvidence)
 		const run = await drainQuery({
-			runId: generateRunId(),
+			turnId: generateTurnId(),
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ id: 'parent', name: 'parent', args: {} }] }, { text: 'Done.' }],
 			}),
 			tools,
-			runStore: Object.assign(new InMemoryRunStore(), { captureTextEvidence }),
-			checkpointStore: new InMemoryCheckpointStore(),
 			projectId: generateProjectId(),
-			sessionId: generateSessionId(),
+			...memorySession(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			workingDirectory: process.cwd(),
 			agentId: 'capture-check',
 			agentName: 'Capture check',
 			messages: [{ role: 'user', content: 'Cancel one read, then continue.' }],
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: 3,
 				tokenBudget: 100_000,

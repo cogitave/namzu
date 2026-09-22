@@ -1,6 +1,6 @@
-import { TokenBudget } from '../../../run/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { fixtureUuid } from '../../../test-support/ids.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { generateSessionId } from '../../../utils/id.js'
 /**
  * Shared test fixtures for the Task 10 integration coverage matrix.
  *
@@ -32,7 +32,7 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { AgentId, RunId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { AgentId, SessionId, TenantId, TurnId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session } from '../../../types/session/entity.js'
@@ -44,6 +44,8 @@ import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import type { ExecFile, ExecFileResult } from '../../workspace/git-worktree.js'
 import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
+
+const SESSION_ID = generateSessionId()
 
 export const DEFAULT_TENANT = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 export const OTHER_TENANT = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
@@ -64,7 +66,7 @@ export const OTHER_TENANT = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
  *
  * `Logger` needs no import from the test framework and drops the mocks out of
  * the emitted declaration entirely. Nothing here asserts on these mocks; they
- * exist to keep a run quiet.
+ * exist to keep a turn quiet.
  */
 export function stubLogger(): Logger {
 	return {
@@ -118,7 +120,8 @@ export function buildAgent(
 			capabilities: BASE_CAPABILITIES,
 		},
 		run: async (_input: AgentInput, _config: BaseAgentConfig): Promise<BaseAgentResult> => ({
-			runId: fixtureUuid(`run_${id}_result`) as RunId,
+			sessionId: SESSION_ID,
+			turnId: fixtureUuid(`run_${id}_result`) as TurnId,
 			status: 'completed',
 			usage: { ...EMPTY_TOKEN_USAGE },
 			cost: { ...ZERO_COST },
@@ -301,14 +304,19 @@ export function buildTaskContext(params: {
 	parentActor: ActorRef
 	depth?: number
 	budget?: number
-	parentRunId?: RunId
+	parentTurnId?: TurnId
 }): AgentTaskContext {
+	const parentTurnId = params.parentTurnId ?? ('c0250b29-330b-445f-b11d-2926ffd9059c' as TurnId)
 	return {
-		parentRunId: params.parentRunId ?? ('c0250b29-330b-445f-b11d-2926ffd9059c' as RunId),
+		parentSessionId: params.sessionId,
+		parentTurnId,
 		parentAgentId: 'supervisor',
 		parentAbortController: new AbortController(),
 		depth: params.depth ?? 0,
-		budget: TokenBudget.create(params.budget ?? 100_000, params.parentRunId ?? budgetRunId()),
+		budget: SessionTokenBudget.create(params.budget ?? 100_000, {
+			rootSessionId: params.sessionId,
+			rootTurnId: parentTurnId,
+		}),
 		tenantId: params.tenantId,
 		topicId: params.topicId,
 		sessionId: params.sessionId,

@@ -240,7 +240,7 @@ The existing SDK supplies useful integration seams:
   Other termination paths also mean it is not a universal completion gate.
 
 The reviewer now receives isolated candidate-request context and the retained
-latest operator input, and can make one run-metered auxiliary inference. The
+latest operator input, and can make one turn-metered auxiliary inference. The
 [task-conditioned CLI probe](../../research/conversation-evidence/task-review-results.md)
 checks source copying, requested transformations and unavailable current facts.
 These supply and evaluate review inputs; they do not turn one recent message

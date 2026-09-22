@@ -3,23 +3,27 @@ import { describe, expect, it, vi } from 'vitest'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createCommandGate } from '../../../run/command-gate.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import type { AnswerReview, ReviewAnswer } from '../../../types/run/answer-review.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { createCommandGate } from '../../../turn/command-gate.js'
+import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
+import type { AnswerReview, ReviewAnswer } from '../../../types/session/answer-review.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+import { TEST_SCOPE, heldCheckpointStore, sessionWithCheckpoint } from './support/session.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The halt predicate is only consulted after tools have run, so there was
- * no seam at the point the model stops calling them: the run finalized
+ * no seam at the point the model stops calling them: the turn finalized
  * with whatever it had produced. Verify-then-fix — run the build, feed the
- * failure back, let it try again — meant starting a whole new run and
+ * failure back, let it try again — meant starting a whole new turn and
  * re-supplying the context the first one had already assembled.
  */
 
@@ -43,6 +47,7 @@ function scriptedRun(
 		return original(params)
 	}) as typeof provider.chatStream
 
+	const sessionId = generateSessionId()
 	const params = {
 		provider,
 		tools: new ToolRegistry(),
@@ -50,13 +55,13 @@ function scriptedRun(
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
 		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
+		sessionId,
 		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-		runId: generateRunId(),
-		checkpointStore: new InMemoryCheckpointStore(),
+		turnId: generateTurnId(),
+		sessionLog: new InMemorySessionLog({ sessionId }),
 		reviewAnswer,
 		...(signal ? { signal } : {}),
 		...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
@@ -68,8 +73,8 @@ function scriptedRun(
 	}
 }
 
-describe('judging the answer a run is about to settle with', () => {
-	it('passes cancellation into command verification and preserves the cancelled run', async () => {
+describe('judging the answer a turn is about to settle with', () => {
+	it('passes cancellation into command verification and preserves the cancelled turn', async () => {
 		const controller = new AbortController()
 		const gate = createCommandGate({
 			commands: ['verify'],
@@ -105,7 +110,8 @@ describe('judging the answer a run is about to settle with', () => {
 			['Everything passed.'],
 			(answer) =>
 				gate(answer, {
-					runId: generateRunId(),
+					sessionId: SESSION_ID,
+					turnId: generateTurnId(),
 					iteration: 1,
 					messages: [],
 				}),
@@ -127,7 +133,7 @@ describe('judging the answer a run is about to settle with', () => {
 
 	it('hands a rejected answer back and runs another turn', async () => {
 		// The whole point: the model gets another go WITH the context it
-		// already has, instead of the host starting a fresh run.
+		// already has, instead of the host starting a fresh turn.
 		let calls = 0
 		const scripted = scriptedRun(['first', 'second'], () => {
 			calls++
@@ -157,7 +163,7 @@ describe('judging the answer a run is about to settle with', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
@@ -191,7 +197,7 @@ describe('judging the answer a run is about to settle with', () => {
 		await scripted.run()
 
 		// Two rejections, then the third call is the one that exceeds the
-		// limit and stops the run.
+		// limit and stops the turn.
 		expect(review).toHaveBeenCalledTimes(3)
 	})
 
@@ -276,29 +282,44 @@ describe('judging the answer a run is about to settle with', () => {
 		},
 	)
 
-	it('preserves exhaustion through checkpoint restore after feedback compaction', async () => {
+	/**
+	 * A turn interrupted after one rejected answer: its checkpoint says one
+	 * correction was spent. Resuming it continues the same turn.
+	 */
+	async function resumeAfterOneRejection(maxAnswerReviews: number) {
 		const scripted = scriptedRun(
 			['unaccepted'],
-			() => ({ accept: false, feedback: 'Source does not match' }),
-			0,
+			() => ({ accept: false, feedback: 'Mismatch' }),
+			maxAnswerReviews,
 		)
-		expect((await scripted.run()).stopReason).toBe('answer_rejected')
-		const store = scripted.params.checkpointStore
-		const checkpoint = (await store.listCheckpoints(scripted.params)).find(
-			(cp) => cp.answerReviewAttempts === 1,
-		)
-		if (!checkpoint) throw new Error('rejection checkpoint missing')
-		expect(checkpoint.messages.at(-1)).toMatchObject({
-			content: 'Source does not match',
-			source: { type: 'runtime-context', kind: 'answer-review' },
+		const session = await sessionWithCheckpoint({
+			messages: [
+				createUserMessage('go'),
+				createAssistantMessage('unaccepted'),
+				createUserMessage('Mismatch'),
+			],
+			document: {
+				review: { structuredAttempts: 0, answerAttempts: 1, nativeStructuredAttempts: 0 },
+			},
+			release: true,
 		})
-		await store.writeCheckpoint(scripted.params, {
-			...checkpoint,
-			messages: [{ role: 'user', content: 'Compacted history' }],
+		const run = await drainQuery({
+			...scripted.params,
+			...TEST_SCOPE,
+			sessionId: session.sessionId,
+			sessionLog: session.log,
+			checkpointStore: session.store,
+			turnId: session.turnId,
+			resumeFromCheckpoint: session.checkpointId,
 		})
-		const restored = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
-		expect(restored.stopReason).toBe('answer_rejected')
-		expect(scripted.turns()).toBe(1)
+		return { run, turns: scripted.turns() }
+	}
+
+	it('preserves exhaustion through a resume of the same turn', async () => {
+		const { run, turns } = await resumeAfterOneRejection(0)
+		expect(run.stopReason).toBe('answer_rejected')
+		// The allowance was spent before the interruption: no new request.
+		expect(turns).toBe(0)
 	})
 
 	it('keeps cancellation when it arrives during rejection persistence', async () => {
@@ -309,11 +330,12 @@ describe('judging the answer a run is about to settle with', () => {
 			0,
 			controller.signal,
 		)
-		const store = scripted.params.checkpointStore
-		const save = store.writeCheckpoint.bind(store)
-		vi.spyOn(store, 'writeCheckpoint').mockImplementation(async (scope, checkpoint, fence) => {
-			await save(scope, checkpoint, fence)
-			if (checkpoint.answerReviewAttempts === 1) controller.abort()
+		const store = await heldCheckpointStore(scripted.params.sessionLog)
+		const save = store.write.bind(store)
+		vi.spyOn(store, 'write').mockImplementation(async (scope, checkpoint) => {
+			const receipt = await save(scope, checkpoint)
+			if (checkpoint.review.answerAttempts === 1) controller.abort()
+			return receipt
 		})
 		const run = await scripted.run()
 		expect(run.status).toBe('cancelled')
@@ -321,37 +343,25 @@ describe('judging the answer a run is about to settle with', () => {
 	})
 
 	it('resumes only the unspent correction allowance', async () => {
-		const scripted = scriptedRun(['unaccepted'], () => ({ accept: false, feedback: 'Mismatch' }), 2)
-		await scripted.run()
-		const checkpoint = (
-			await scripted.params.checkpointStore.listCheckpoints(scripted.params)
-		).find((cp) => cp.answerReviewAttempts === 1)
-		if (!checkpoint) throw new Error('rejection checkpoint missing')
-		const before = scripted.turns()
-		const run = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
+		const { run, turns } = await resumeAfterOneRejection(2)
 		expect(run.stopReason).toBe('answer_rejected')
-		expect(scripted.turns() - before).toBe(2)
+		expect(turns).toBe(2)
 	})
 
 	it.each([-1, Number.POSITIVE_INFINITY, 0.5, Number.MAX_SAFE_INTEGER + 1])(
-		'rejects a corrupt checkpoint review counter %s before a model request',
-		async (answerReviewAttempts) => {
-			const scripted = scriptedRun(
-				['unaccepted'],
-				() => ({ accept: false, feedback: 'Mismatch' }),
-				0,
-			)
-			await scripted.run()
-			const store = scripted.params.checkpointStore
-			const checkpoint = (await store.listCheckpoints(scripted.params)).find(
-				(cp) => cp.answerReviewAttempts === 1,
-			)
-			if (!checkpoint) throw new Error('rejection checkpoint missing')
-			await store.writeCheckpoint(scripted.params, { ...checkpoint, answerReviewAttempts })
-			const run = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
-			expect(run.status).toBe('failed')
-			expect(run.lastError).toContain('answerReviewAttempts')
-			expect(scripted.turns()).toBe(1)
+		'refuses a checkpoint with a corrupt review counter %s',
+		async (answerAttempts) => {
+			// The document is validated where it is written and where it is
+			// read, so a corrupt counter never reaches a resumed turn.
+			const session = await sessionWithCheckpoint()
+			const checkpoint = await session.store.read(session.scope, session.checkpointId)
+			if (!checkpoint) throw new Error('checkpoint missing')
+			await expect(
+				session.store.write(session.scope, {
+					...checkpoint,
+					review: { ...checkpoint.review, answerAttempts },
+				}),
+			).rejects.toThrow(/answerAttempts/)
 		},
 	)
 
@@ -364,7 +374,7 @@ describe('judging the answer a run is about to settle with', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'go' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),

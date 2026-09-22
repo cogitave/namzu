@@ -1,7 +1,7 @@
 import { type BaseEvent, EventType, type Message, MessageSchema } from '@ag-ui/core'
 import jsonPatch, { type Operation } from 'fast-json-patch'
 
-export interface AGUIRunUIOptions {
+export interface AGUITurnUIOptions {
 	/** Maximum queued application events. Defaults to 128. */
 	readonly maxPendingEvents?: number
 	/** Maximum encoded bytes in one state or application event. Defaults to 1 MiB. */
@@ -9,7 +9,7 @@ export interface AGUIRunUIOptions {
 }
 
 /** Request-scoped application state; never kernel configuration or model instructions. */
-export class AGUIRunUI {
+export class AGUITurnUI {
 	private current: unknown
 	private readonly events: BaseEvent[] = []
 	private notifyListener?: () => void
@@ -18,7 +18,7 @@ export class AGUIRunUI {
 	private readonly maxPending: number
 	private readonly maxBytes: number
 
-	constructor(initialState: unknown, options: AGUIRunUIOptions = {}) {
+	constructor(initialState: unknown, options: AGUITurnUIOptions = {}) {
 		this.maxPending = positiveLimit(options.maxPendingEvents, 128, 'maxPendingEvents')
 		this.maxBytes = positiveLimit(options.maxEventBytes, 1_048_576, 'maxEventBytes')
 		this.current = this.copy(initialState ?? null)

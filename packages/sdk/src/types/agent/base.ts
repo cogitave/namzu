@@ -1,17 +1,18 @@
-import type { TokenBudget } from '../../run/token-budget.js'
 import type { ProjectInstructionContext } from '../../runtime/query/project-instructions.js'
-import type { PathBuilder } from '../../session/workspace/path-builder.js'
+import type { SessionPaths } from '../../session/paths.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
+import type { SessionCheckpointStore } from '../../store/checkpoint/index.js'
+import type { SessionLog } from '../../store/session-log/index.js'
 import type { Logger } from '../../utils/logger.js'
-import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
+import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
-import type { RunId, SessionId, TenantId } from '../ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
-import type { CheckpointStore } from '../run/checkpoint-store.js'
-import type { StopReason } from '../run/stop-reason.js'
-import type { RunStore } from '../run/store.js'
 import type { ProjectId, TopicId } from '../session/ids.js'
+import type { StopReason } from '../session/stop-reason.js'
+import type { TurnExecutionStatus } from '../session/turn.js'
 import type { TaskStore } from '../task/index.js'
 import type { ToolAvailability } from '../tool/index.js'
 
@@ -23,11 +24,11 @@ export interface BaseAgentConfig {
 	model: string
 	tokenBudget: number
 	/** Aggregate authority inherited by descendants; supplied independently of the numeric local cap. */
-	budget?: TokenBudget
+	budget?: SessionTokenBudget
 	timeoutMs: number
-	/** See {@link import('../run/config.js').AgentRunConfig.streamIdleTimeoutMs}. */
+	/** See {@link import('../session/config.js').TurnConfig.streamIdleTimeoutMs}. */
 	streamIdleTimeoutMs?: number
-	/** See {@link import('../run/config.js').AgentRunConfig.maxRequestRichContentBytes}. */
+	/** See {@link import('../session/config.js').TurnConfig.maxRequestRichContentBytes}. */
 	maxRequestRichContentBytes?: number
 	/** Maximum stored-attachment materialization time; defaults to one minute. `0` disables. */
 	attachmentResolveTimeoutMs?: number
@@ -37,52 +38,48 @@ export interface BaseAgentConfig {
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
 	/**
-	 * Checkpoint retention for this agent's run. See
-	 * {@link import('../run/config.js').AgentRunConfig.pruneKeepLast}; absent
+	 * Checkpoint retention for this agent's turn. See
+	 * {@link import('../session/config.js').TurnConfig.pruneKeepLast}; absent
 	 * keeps every checkpoint, as before.
 	 */
 	pruneKeepLast?: number
 
 	/**
-	 * Durable run/checkpoint layout for this agent invocation.
+	 * The durable layout for this agent invocation: where its session log,
+	 * checkpoints, ledgers and tasks live (`~/.namzu/projects/<slug>/…`).
 	 *
-	 * Absent: the kernel default rooted at `defaultStateRoot()`, unless
-	 * {@link BaseAgentConfig.runStore} is an `InMemoryRunStore`, in which case
-	 * the run writes nothing to disk. Hosts with a central application home
-	 * pass one builder here; every concrete agent forwards it to the same
-	 * `query()` boundary.
+	 * Absent: `SessionPaths` under `resolveNamzuHome()`, unless
+	 * {@link BaseAgentConfig.sessionLog} is an `InMemorySessionLog`, in which
+	 * case the session writes nothing to disk.
 	 */
-	pathBuilder?: PathBuilder
+	paths?: SessionPaths
 
 	/**
-	 * Where this agent's run keeps its evidence. See `QueryParams.runStore`.
+	 * The session log this agent's turns append to. See `QueryParams.sessionLog`.
 	 *
-	 * An `InMemoryRunStore` with no `pathBuilder` keeps the whole run in
-	 * memory: its checkpoints and its token ledger too, and every child it
-	 * delegates to (`AgentTaskContext.childStorage`). A run store is bound to
-	 * one run at a time, so a host that runs agents concurrently gives each
-	 * run its own.
+	 * An `InMemorySessionLog` with no `paths` keeps the whole session in
+	 * memory: its checkpoints and its token ledger too, and every child
+	 * session it delegates to (`AgentTaskContext.childStorage`).
 	 */
-	runStore?: RunStore
+	sessionLog?: SessionLog
 
 	/**
-	 * Where this agent's run keeps its checkpoints. See
-	 * `QueryParams.checkpointStore`. With an `InMemoryCheckpointStore` the
-	 * run's token ledger is kept in it too, unless a ledger store is named.
+	 * Where this agent's turns keep their checkpoints. See
+	 * `QueryParams.checkpointStore`.
 	 */
-	checkpointStore?: CheckpointStore
+	checkpointStore?: SessionCheckpointStore
 
 	/**
-	 * Run-level sandbox limits and workspace ownership.
+	 * Turn-level sandbox limits and workspace ownership.
 	 *
 	 * A provider alone only says HOW commands are confined. This field says
 	 * WHAT it is rooted at; `working-directory` makes sandbox-aware tools act
-	 * on the run's declared workspace instead of a disposable empty tree.
+	 * on the turn's declared workspace instead of a disposable empty tree.
 	 */
-	sandbox?: import('../run/config.js').AgentRunConfig['sandbox']
+	sandbox?: import('../session/config.js').TurnConfig['sandbox']
 
 	/**
-	 * The tools this run may use, narrowing whatever its registry holds.
+	 * The tools this turn may use, narrowing whatever its registry holds.
 	 *
 	 * `allowedTools` existed on `QueryParams` and on `ToolContext` and
 	 * nowhere on the path a delegation takes — so a supervisor handing a
@@ -96,12 +93,12 @@ export interface BaseAgentConfig {
 	 * tools and let it call any of them by name.
 	 */
 	/**
-	 * Text queued for this run since its last turn, drained at the boundary.
+	 * Text queued for this turn since its last turn, drained at the boundary.
 	 *
 	 * A callback rather than an array, because the queue is owned by
 	 * whoever accepts the messages — `AgentManager` for a delegated child, a
-	 * host for a top-level run — and an array captured at config time would
-	 * be whatever was queued before the run started.
+	 * host for a top-level turn — and an array captured at config time would
+	 * be whatever was queued before the turn started.
 	 *
 	 * It exists because two public APIs could accept text and silently never
 	 * deliver it. `AgentManager.continueTask` and `queueMessage` pushed onto
@@ -110,7 +107,7 @@ export interface BaseAgentConfig {
 	 * unmounted from the coordinator tools because of it. The steering
 	 * channel had the mirror-image hole: it can only ride on a tool result,
 	 * so guidance queued during a turn that called no tools stayed pending
-	 * until the run ended.
+	 * until the turn ended.
 	 */
 	inboundMessages?: () => import('../message/index.js').Message[]
 
@@ -125,7 +122,7 @@ export interface BaseAgentConfig {
 	 *
 	 * See {@link import('../../runtime/query/index.js').QueryParams.toolResultGuardrails}.
 	 * On the BASE config rather than one agent's, because a delegated child is
-	 * a fresh run with its own executor: a switch that reached this agent and
+	 * a fresh turn with its own executor: a switch that reached this agent and
 	 * not its children would leave the default on in exactly the half a host
 	 * would be trying to change. Absent installs the shipped default; an empty
 	 * array installs none.
@@ -137,14 +134,14 @@ export interface BaseAgentConfig {
 	 * shape as `parentSpan`, `resumeHandler` and `env`. The value it stamps is
 	 * the spawning context's (`AgentTaskContext.toolResultGuardrails`), which
 	 * `SupervisorAgent` fills from this field and the delegation tools fill
-	 * from the run's own `ToolContext`; a spawn that supplies
+	 * from the turn's own `ToolContext`; a spawn that supplies
 	 * `configOverrides.toolResultGuardrails` replaces it rather than merging,
 	 * so a host can still hand one child a different set — including none.
 	 */
 	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
 
 	/**
-	 * Tools this run may NOT use, subtracted from whatever it would
+	 * Tools this turn may NOT use, subtracted from whatever it would
 	 * otherwise have.
 	 *
 	 * Separate from `allowedTools` because they answer different
@@ -156,15 +153,15 @@ export interface BaseAgentConfig {
 	 */
 	deniedTools?: readonly string[]
 
-	/** Persona for this run, overriding what the agent's definition supplies. */
+	/** Persona for this turn, overriding what the agent's definition supplies. */
 	persona?: import('../persona/index.js').AgentPersona
 
 	/**
-	 * Override the logger this run's `AbstractAgent.bindRun` uses instead of
-	 * the logger the agent was CONSTRUCTED with. Same reason `thinking` and
-	 * `effort` are declared here rather than per-config: every concrete agent
-	 * builds its `runConfig` by hand-listing fields, and a field absent from a
-	 * hand-listed literal is dropped in silence. A host that wants one run's
+	 * Override the logger this turn uses instead of the logger the agent was
+	 * CONSTRUCTED with. Same reason `thinking` and `effort` are declared here
+	 * rather than per-config: every concrete agent builds its `turnConfig` by
+	 * hand-listing fields, and a field absent from a hand-listed literal is
+	 * dropped in silence. A host that wants one turn's
 	 * output routed differently — without reconstructing the agent — sets this.
 	 */
 	logger?: Logger
@@ -177,7 +174,7 @@ export interface BaseAgentConfig {
 	 * **Configuration, not credentials** — and that is a property of the
 	 * CHANNEL rather than a judgement about any particular value. This map is
 	 * copied into every child, is readable by any tool that can run a command,
-	 * and enters a model's context and the run transcript the moment something
+	 * and enters a model's context and the turn transcript the moment something
 	 * echoes it. Nothing here is scoped, redacted, or revocable.
 	 *
 	 * A value that authenticates to a host belongs on the brokered credential
@@ -195,11 +192,11 @@ export interface BaseAgentConfig {
 
 	/**
 	 * Thinking mode and response-effort level for every model call this agent
-	 * makes. See {@link import('../run/config.js').AgentRunConfig} for what
+	 * makes. See {@link import('../session/config.js').TurnConfig} for what
 	 * each one controls and why they are siblings.
 	 *
 	 * They are declared HERE, on the shared base, rather than on each agent
-	 * config that happens to want them. Every agent builds its `AgentRunConfig`
+	 * config that happens to want them. Every agent builds its `TurnConfig`
 	 * by hand-listing fields, and a field absent from a hand-listed literal is
 	 * dropped in silence — which is exactly how `thinking` came to be settable
 	 * only through the raw kernel entry point while every ergonomic one quietly
@@ -228,7 +225,7 @@ export interface BaseAgentConfig {
 	idempotencyKey?: string
 
 	/**
-	 * Long-lived goal scope for the run. Required at runtime — agents reject
+	 * Long-lived goal scope for the turn. Required at runtime — agents reject
 	 * configs missing this (`'X requires sessionId, projectId, and tenantId
 	 * in config'`).
 	 *
@@ -240,7 +237,7 @@ export interface BaseAgentConfig {
 	projectId?: ProjectId
 
 	/**
-	 * Topic the run belongs to. Optional at the TYPE level for the same
+	 * Topic the turn belongs to. Optional at the TYPE level for the same
 	 * reason as `projectId` — {@link AgentManager} stamps this field after
 	 * `configBuilder` returns so `configBuilder` implementations do not
 	 * need to be updated before this tightens. Tightening to required
@@ -248,13 +245,17 @@ export interface BaseAgentConfig {
 	 */
 	topicId?: TopicId
 
-	/** Session under which the run executes. See `projectId` for the tightening plan. */
+	/** Session under which the turn executes. See `projectId` for the tightening plan. */
 	sessionId?: SessionId
 
 	/** Isolation boundary (Convention #17). See `projectId` for the tightening plan. */
 	tenantId?: TenantId
 
-	parentRunId?: RunId
+	/** Present on a child session: the session that delegated it. */
+	parentSessionId?: SessionId
+
+	/** Present on a child session: the parent turn whose tool call spawned it. */
+	parentTurnId?: TurnId
 
 	depth?: number
 
@@ -263,7 +264,7 @@ export interface BaseAgentConfig {
 	/** Shared invocation state passed through agent hierarchies */
 	invocationState?: InvocationState
 
-	/** Span a delegated run hangs off. Absent for a top-level run. */
+	/** Span a delegated session hangs off. Absent for a top-level turn. */
 	parentSpan?: import('@opentelemetry/api').Span
 
 	/**
@@ -327,10 +328,11 @@ export interface AgentInput {
 
 export interface BaseAgentResult {
 	/** Aggregate tree accounting, separate from this invocation's own usage. */
-	budget?: ReturnType<TokenBudget['summary']>
+	budget?: ReturnType<SessionTokenBudget['summary']>
 
-	runId: RunId
-	status: RunExecutionStatus
+	sessionId: SessionId
+	turnId: TurnId
+	status: TurnExecutionStatus
 	stopReason?: StopReason
 	usage: TokenUsage
 	cost: CostInfo
@@ -339,9 +341,9 @@ export interface BaseAgentResult {
 	messages: Message[]
 	result?: string
 	/**
-	 * The schema-validated answer, when the run was configured to produce one.
+	 * The schema-validated answer, when the turn was configured to produce one.
 	 *
-	 * `Run.structuredOutput` has carried this all along and every ergonomic
+	 * `Turn.structuredOutput` has carried this all along and every ergonomic
 	 * boundary above it dropped the value three lines from its caller: an
 	 * archetype's result literal did not copy it, `runAgent` did not even
 	 * forward the config that produces it, and both delegation tools handed a
@@ -350,7 +352,7 @@ export interface BaseAgentResult {
 	 * model re-parse what it had just caused to be serialized.
 	 *
 	 * `unknown` rather than a generic, deliberately. The schema lives on the
-	 * run's config and a result type parameter would have to be threaded
+	 * turn's config and a result type parameter would have to be threaded
 	 * through every archetype, both delegation tools and the task record to
 	 * reach here — and at the delegation boundary the parent does not hold the
 	 * child's schema anyway, so the parameter would be `unknown` again at the

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Harness invariants
-description: Ownership, budget conservation, result recovery and evidence from bounded live runs.
+description: Ownership, budget conservation, result recovery and evidence from bounded live turns.
 resource: packages/sdk/src/runtime/query/iteration/index.ts
 tags: [sdk, runtime, budgets, engineering]
 status: stable
@@ -30,14 +30,14 @@ channel receives its own bounded preview. Model-content spills use the
 artifact. Withholding rich blocks preserves bounded text and its recovery path
 when the configured text cap can contain it.
 
-Fresh disk-backed runs resolve spill storage after store initialization. Retained
+A turn resolves its session's spill storage when a tool executes. Retained
 host-output spills carry chunk manifests, and `tool_completed.outputSpillIntegrity`
 binds paged reads to those retained bytes. Invocation metadata records its own
 owner scope. The [retained tool evidence source](retained-tool-evidence.md) uses
-these records for bounded recovery across explicitly authorized settled runs.
+these records for bounded recovery across explicitly authorized settled turns.
 
 `QueryParams.retainedToolPreviewChars` optionally separates the spill threshold
-from the size of its retained preview. It is also accepted by `resumeRun` and
+from the size of its retained preview. It is also accepted by `resumeSession` and
 `ReactiveAgentConfig`. The ordinary `maxToolOutputChars` cap (default 40,000)
 still decides whether text overflows; results below it pass through unchanged.
 After the full host output and its integrity manifest are saved, a positive
@@ -54,7 +54,7 @@ A missing store, failed spill or failed manifest preserves the ordinary
 preview budget. A requested preview too small to contain its spill pointer
 also falls back to that budget. This is retention-time policy, not later
 eviction: it does not rewrite previously recorded output or infer what the
-model has understood. Re-supply it when resuming a run. It applies to direct
+model has understood. Re-supply it when resuming a turn. It applies to direct
 and nested tool host output after the existing output-selection rules.
 
 When model text equals host text, it reuses the bounded host preview; adjacent
@@ -124,7 +124,7 @@ quota must enforce that separately. Depth limits still apply to ancestry.
 
 `AgentManager` defaults to `capacityBehavior: 'reject'`, which refuses a full
 live width immediately. With `capacityBehavior: 'queue'`, excess work receives
-a stable pending task handle and waits in FIFO order across parent runs sharing
+a stable pending task handle and waits in FIFO order across parent turns sharing
 the same parent Session. `maxPendingTasks` bounds queued work across the manager
 (default 128). Queued tasks do not reserve tokens, construct providers or create
 child workspaces until admitted. `CreateTaskOptions.beforeStart` revalidates
@@ -146,19 +146,19 @@ operator input. Budgets still bound the complete delegation tree.
 
 Interactive delegation can release its wait when operator input arrives. The
 tool returns a receipt naming the running task; its child stays owned by the
-same parent run. The parent receives input after every outstanding tool call
+same parent turn. The parent receives input after every outstanding tool call
 has a matching result, preserving the provider's tool-call ordering. Other
 tools continue to observe their normal completion and cancellation contracts.
 
-The CLI and query loop share one `CompletionInbox` per parent run. Results
+The CLI and query loop share one `CompletionInbox` per parent turn. Results
 delivered inline are claimed; results from released waits arrive once as
 completion notifications. A finishing parent can wait for outstanding children
 without blocking new operator input. Cancellation still stops parent-owned
 children. A released tool wait does not cancel its child or mark it completed.
 The CLI's `wait_for_task` reads the complete result of a task owned by the same
-parent run, including text truncated in notifications; it does not launch a
+parent turn, including text truncated in notifications; it does not launch a
 replacement. Results retained in that parent's task ledger remain readable
-after the manager evicts terminal task records. Another parent run cannot read
+after the manager evicts terminal task records. Another parent turn cannot read
 them. Budget stops remain visible beside any retained partial output.
 
 `query()` accepts an optional `waitForInbound(signal)` callback alongside
@@ -197,9 +197,9 @@ than charging that usage a second time.
 The canonical ledger is persisted independently of message checkpoints. Resuming
 an older checkpoint retains the latest known spend and outstanding reservations.
 A lost provider receipt prevents further admission; it is not treated as zero
-usage. `Run.tokenUsage` describes the run itself, while `Run.budget.treeTokens`
+usage. `Turn.tokenUsage` describes the turn itself, while `Turn.budget.treeTokens`
 includes descendants. The ledger records tokens; dollar limits remain local to
-the run and its priced usage.
+the turn and its priced usage.
 
 ## Advisory signal boundaries
 

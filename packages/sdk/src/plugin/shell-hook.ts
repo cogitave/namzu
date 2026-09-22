@@ -2,7 +2,7 @@
  * A shell command as a plugin hook.
  *
  * The lifecycle manager carries a hook system — `pre_tool_use`,
- * `post_tool_use`, `run_start`, `run_end` and the rest — and `registerHook`
+ * `post_tool_use`, `turn_start`, `turn_end` and the rest — and `registerHook`
  * lets a host attach a handler without a plugin on disk. What every host then
  * writes for itself is the same adapter: run a command, hand it the event,
  * read its exit code. This file is that adapter, once, so an operator
@@ -12,16 +12,24 @@
  * ## The contract
  *
  * The command runs with `sh -c` in `cwd`. It receives one JSON object on
- * stdin — `event`, `cwd`, `run_id`, and for tool events `tool_name`,
- * `tool_input` and (after the call) `tool_result` — and the same facts as
- * `NAMZU_HOOK_EVENT`, `NAMZU_RUN_ID`, `NAMZU_TOOL_NAME` and, when the input
- * names a file, `NAMZU_TOOL_PATH`. Its exit code is its answer:
+ * stdin — `event`, `cwd`, `session_id`, `turn_id` inside a turn, and for
+ * tool events `tool_name`, `tool_input` and (after the call) `tool_result`;
+ * `subagent_stop` adds `parent_session_id` and `parent_turn_id` — and the
+ * same facts as `NAMZU_HOOK_EVENT`, `NAMZU_SESSION_ID`, `NAMZU_TURN_ID`,
+ * `NAMZU_TOOL_NAME` and, when the input names a file, `NAMZU_TOOL_PATH`.
+ *
+ * `session_start` and `session_end` run outside any turn, so they carry no
+ * `turn_id` on stdin and no `NAMZU_TURN_ID` in the environment — not even
+ * one inherited from the host's own environment. A hook that needs "which
+ * turn" has it exactly when there is one.
+ *
+ * Its exit code is its answer:
  *
  * - `0` — carry on.
  * - `2` — **block.** Before a tool (`pre_tool_use`) the call is skipped and the
  *   model is told why, with the hook's stderr as the reason. On any other
- *   event a 2 is reported and the run carries on: there is nothing left to
- *   block once the tool has run or the run has started.
+ *   event a 2 is reported and the turn carries on: there is nothing left to
+ *   block once the tool has run or the turn has started.
  * - anything else — the hook's own failure. Reported through the logger,
  *   never blocking. A formatter that crashed must not stop the agent editing,
  *   and a script missing its interpreter (127) must not read as "forbidden".
@@ -38,6 +46,13 @@
  *
  * ## Bounds
  *
+ * ## Renamed events
+ *
+ * `run_start`, `run_end` and `run_interrupt` became `turn_start`, `turn_end`
+ * and `turn_interrupt`. A config that still names an old event is refused by
+ * {@link attachShellHooks}, and the refusal names the new one: a hook that
+ * silently stopped firing is worse than a config that fails to load.
+ *
  * Each hook has a deadline (`timeoutMs`, default 30 s, capped at ten minutes)
  * and its output is captured to a bound. A hook that times out is reported
  * and does not block: one that could not answer in time has not answered no.
@@ -53,6 +68,7 @@ import type {
 	PluginHookEvent,
 	PluginHookResult,
 } from '../types/plugin/index.js'
+import { RENAMED_PLUGIN_HOOK_EVENTS } from '../types/plugin/index.js'
 import { asPluginId } from '../utils/id.js'
 import { NOOP_LOGGER } from '../utils/log/create-logger.js'
 import type { Logger } from '../utils/logger.js'
@@ -73,8 +89,8 @@ export type ShellHookEvent = Extract<
 	| 'pre_compact'
 	| 'post_compact'
 	| 'subagent_stop'
-	| 'run_start'
-	| 'run_end'
+	| 'turn_start'
+	| 'turn_end'
 >
 
 export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
@@ -86,8 +102,8 @@ export const SHELL_HOOK_EVENTS: readonly ShellHookEvent[] = [
 	'pre_compact',
 	'post_compact',
 	'subagent_stop',
-	'run_start',
-	'run_end',
+	'turn_start',
+	'turn_end',
 ]
 
 /** One shell command at one event. */
@@ -114,7 +130,7 @@ const MAX_CAPTURE_BYTES = 64 * 1024
 /**
  * `matcher` against a tool name: `*`, or a `|`-separated list of names, each
  * of which may end in `*`. Case-sensitive, because tool names are. A matcher
- * on an event with no tool (`run_start`) matches nothing unless it is `*`.
+ * on an event with no tool (`turn_start`) matches nothing unless it is `*`.
  */
 export function shellHookMatches(
 	matcher: string | undefined,
@@ -144,9 +160,14 @@ export interface ShellHookOutcome {
 export interface ShellHookInput {
 	readonly event: ShellHookEvent
 	readonly cwd: string
-	readonly runId: string
-	readonly sessionId?: string
-	readonly parentRunId?: string
+	/** Always present: every hook fires in a session. */
+	readonly sessionId: string
+	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */
+	readonly turnId?: string
+	/** The delegating session, on `subagent_stop`. */
+	readonly parentSessionId?: string
+	/** The parent turn whose tool call spawned the child, on `subagent_stop`. */
+	readonly parentTurnId?: string
 	readonly prompt?: string
 	readonly compaction?: PluginCompactionInfo
 	readonly toolName?: string
@@ -171,9 +192,10 @@ export function runShellHook(
 	const payload = JSON.stringify({
 		event: input.event,
 		cwd: input.cwd,
-		run_id: input.runId,
-		...(input.sessionId !== undefined ? { session_id: input.sessionId } : {}),
-		...(input.parentRunId !== undefined ? { parent_run_id: input.parentRunId } : {}),
+		session_id: input.sessionId,
+		...(input.turnId !== undefined ? { turn_id: input.turnId } : {}),
+		...(input.parentSessionId !== undefined ? { parent_session_id: input.parentSessionId } : {}),
+		...(input.parentTurnId !== undefined ? { parent_turn_id: input.parentTurnId } : {}),
 		...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
 		...(input.compaction !== undefined ? { compaction: input.compaction } : {}),
 		...(input.toolName !== undefined ? { tool_name: input.toolName } : {}),
@@ -181,16 +203,19 @@ export function runShellHook(
 		...(input.toolResult !== undefined ? { tool_result: input.toolResult } : {}),
 	})
 	const toolPath = pathOf(input.toolInput)
+	// A hook outside a turn must not see a turn id, including one the host
+	// inherited from an enclosing hook's environment.
+	const { NAMZU_TURN_ID: _inheritedTurnId, ...inherited } = process.env
 	return new Promise((resolve) => {
 		let child: ReturnType<typeof spawn>
 		try {
 			child = spawn('sh', ['-c', entry.command], {
 				cwd: input.cwd,
 				env: {
-					...process.env,
+					...inherited,
 					NAMZU_HOOK_EVENT: input.event,
-					NAMZU_RUN_ID: input.runId,
-					...(input.sessionId !== undefined ? { NAMZU_SESSION_ID: input.sessionId } : {}),
+					NAMZU_SESSION_ID: input.sessionId,
+					...(input.turnId !== undefined ? { NAMZU_TURN_ID: input.turnId } : {}),
 					...(input.toolName !== undefined ? { NAMZU_TOOL_NAME: input.toolName } : {}),
 					...(toolPath !== undefined ? { NAMZU_TOOL_PATH: toolPath } : {}),
 				},
@@ -352,10 +377,13 @@ export function createShellHook(
 				{
 					event,
 					cwd: options.cwd,
-					runId: String(context.runId),
-					...(context.sessionId !== undefined ? { sessionId: String(context.sessionId) } : {}),
-					...(context.parentRunId !== undefined
-						? { parentRunId: String(context.parentRunId) }
+					sessionId: String(context.sessionId),
+					...(context.turnId !== undefined ? { turnId: String(context.turnId) } : {}),
+					...(context.parentSessionId !== undefined
+						? { parentSessionId: String(context.parentSessionId) }
+						: {}),
+					...(context.parentTurnId !== undefined
+						? { parentTurnId: String(context.parentTurnId) }
 						: {}),
 					...(context.prompt !== undefined ? { prompt: context.prompt } : {}),
 					...(context.compaction !== undefined ? { compaction: context.compaction } : {}),
@@ -385,12 +413,23 @@ export function createShellHook(
  * manager runs `post_*` hooks in reverse, as it does for plugins, so a
  * formatter registered last runs first after a write. Returns how many were
  * attached.
+ *
+ * Throws, before registering anything, when the config names a renamed event
+ * (`run_start` and the rest); the message names the event that replaced it.
  */
 export function attachShellHooks(
 	manager: Pick<PluginLifecycleManager, 'registerHook'>,
 	hooks: ShellHooksConfig,
 	options: ShellHookOptions & { readonly pluginId?: PluginId },
 ): number {
+	for (const key of Object.keys(hooks)) {
+		const renamed = RENAMED_PLUGIN_HOOK_EVENTS[key]
+		if (renamed !== undefined) {
+			throw new Error(
+				`Shell hook event '${key}' was renamed to '${renamed}'. Rename it in the hooks config.`,
+			)
+		}
+	}
 	const pluginId = options.pluginId ?? SHELL_HOOKS_PLUGIN_ID
 	let count = 0
 	for (const event of SHELL_HOOK_EVENTS) {

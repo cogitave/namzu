@@ -1,10 +1,10 @@
 import { EventType } from '@ag-ui/core'
 import { describe, expect, it, vi } from 'vitest'
-import { AGUIRunUI } from '../ui.js'
+import { AGUITurnUI } from '../ui.js'
 
 describe('request-scoped application events', () => {
 	it('publishes detached initial history and seals it before native streaming', () => {
-		const ui = new AGUIRunUI({})
+		const ui = new AGUITurnUI({})
 		const messages = [{ id: 'user-1', role: 'user' as const, content: 'Authorized history' }]
 		ui.setInitialMessages(messages)
 		messages[0]!.content = 'Changed after admission'
@@ -21,7 +21,7 @@ describe('request-scoped application events', () => {
 		expect(ui.drain()).toHaveLength(1)
 	})
 	it('validates snapshot identity and shape before publishing anything', () => {
-		const ui = new AGUIRunUI({})
+		const ui = new AGUITurnUI({})
 		for (const messages of [
 			[{ id: 'x', role: 'bad', content: 'no' }],
 			[{ id: '', role: 'user', content: 'no' }],
@@ -37,7 +37,7 @@ describe('request-scoped application events', () => {
 		expect(ui.drain()).toEqual([{ type: EventType.MESSAGES_SNAPSHOT, messages: [] }])
 	})
 	it('applies event byte, queue and request lifetime limits to initial history', () => {
-		const ui = new AGUIRunUI({}, { maxPendingEvents: 1, maxEventBytes: 120 })
+		const ui = new AGUITurnUI({}, { maxPendingEvents: 1, maxEventBytes: 120 })
 		expect(() =>
 			ui.setInitialMessages([{ id: 'x', role: 'user', content: 'x'.repeat(120) }]),
 		).toThrow('maxEventBytes')
@@ -50,7 +50,7 @@ describe('request-scoped application events', () => {
 
 	it('owns detached JSON state and snapshots', () => {
 		const initial = { nested: { value: 1 } }
-		const ui = new AGUIRunUI(initial)
+		const ui = new AGUITurnUI(initial)
 		initial.nested.value = 9
 		expect(ui.state).toEqual({ nested: { value: 1 } })
 		const replacement = { nested: { value: 2 } }
@@ -65,7 +65,7 @@ describe('request-scoped application events', () => {
 	})
 
 	it('applies valid patches atomically and refuses invalid or prototype-mutating patches', () => {
-		const ui = new AGUIRunUI({ count: 1, items: [] })
+		const ui = new AGUITurnUI({ count: 1, items: [] })
 		ui.patchState([
 			{ op: 'replace', path: '/count', value: 2 },
 			{ op: 'add', path: '/items/-', value: 'x' },
@@ -85,7 +85,7 @@ describe('request-scoped application events', () => {
 	})
 
 	it('bounds events and state without partial mutation, and wakes only its owning adapter', () => {
-		const ui = new AGUIRunUI({}, { maxPendingEvents: 1, maxEventBytes: 120 })
+		const ui = new AGUITurnUI({}, { maxPendingEvents: 1, maxEventBytes: 120 })
 		const observer = vi.fn()
 		const detach = ui.onEvent(observer)
 		ui.custom('progress', { step: 1 })
@@ -107,7 +107,7 @@ describe('request-scoped application events', () => {
 	it.each([Number.NaN, Number.POSITIVE_INFINITY, undefined, () => {}, { missing: undefined }])(
 		'refuses non-JSON state: %s',
 		(value) => {
-			const ui = new AGUIRunUI({})
+			const ui = new AGUITurnUI({})
 			expect(() => ui.setState(value)).toThrow()
 			expect(ui.drain()).toEqual([])
 		},

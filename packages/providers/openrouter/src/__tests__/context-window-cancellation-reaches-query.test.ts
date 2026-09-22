@@ -4,13 +4,13 @@ import { join } from 'node:path'
 import {
 	CompactionConfigSchema,
 	type ProjectId,
-	type Run,
-	RunCancelled,
-	type RunEvent,
+	type SessionEvent,
 	type SessionId,
 	type TenantId,
 	ToolRegistry,
 	type TopicId,
+	type Turn,
+	TurnCancelled,
 	createUserMessage,
 	drainQuery,
 } from '@namzu/sdk'
@@ -83,12 +83,12 @@ describe('context-window cancellation reaches the query transport', () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-openrouter-preflight-'))
 		workdirs.push(workingDirectory)
 		const caller = new AbortController()
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const running = drainQuery(
 			{
 				provider,
 				tools: new ToolRegistry(),
-				runConfig: {
+				turnConfig: {
 					model: 'vendor/model',
 					timeoutMs: 5_000,
 					streamIdleTimeoutMs: 100,
@@ -110,10 +110,10 @@ describe('context-window cancellation reaches the query transport', () => {
 				events.push(event)
 			},
 		)
-		let outcome: { run: Run } | { error: unknown } | undefined
+		let outcome: { turn: Turn } | { error: unknown } | undefined
 		void running.then(
-			(run) => {
-				outcome = { run }
+			(turn) => {
+				outcome = { turn }
 			},
 			(error: unknown) => {
 				outcome = { error }
@@ -121,7 +121,7 @@ describe('context-window cancellation reaches the query transport', () => {
 		)
 
 		await fetchStarted.promise
-		const stop = new RunCancelled('user')
+		const stop = new TurnCancelled('user')
 		caller.abort(stop)
 
 		let waitFailure: unknown
@@ -145,14 +145,14 @@ describe('context-window cancellation reaches the query transport', () => {
 			releaseFetch.resolve(modelListing())
 		}
 
-		const run = await running
+		const turn = await running
 		if (waitFailure) throw waitFailure
 		if (outcome && 'error' in outcome) throw outcome.error
-		expect(run.status).toBe('cancelled')
-		expect(run.stopReason).toBe('cancelled')
+		expect(turn.status).toBe('cancelled')
+		expect(turn.stopReason).toBe('cancelled')
 		expect(chatStream).not.toHaveBeenCalled()
-		expect([...events].reverse().find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
+		expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+			type: 'turn_completed',
 			stopReason: 'cancelled',
 			cancelCause: 'user',
 		})
@@ -202,12 +202,12 @@ describe('context-window cancellation reaches the query transport', () => {
 		workdirs.push(workingDirectory)
 
 		const start = (suffix: 'a' | 'b', caller: AbortController) => {
-			const events: RunEvent[] = []
+			const events: SessionEvent[] = []
 			const running = drainQuery(
 				{
 					provider,
 					tools: new ToolRegistry(),
-					runConfig: {
+					turnConfig: {
 						model: 'vendor/model',
 						timeoutMs: 5_000,
 						streamIdleTimeoutMs: 100,
@@ -255,7 +255,7 @@ describe('context-window cancellation reaches the query transport', () => {
 			admissionFailure = err
 		}
 
-		const stop = new RunCancelled('user')
+		const stop = new TurnCancelled('user')
 		callerA.abort(stop)
 		for (const [index, request] of requests.entries()) {
 			request.release.resolve(
@@ -263,16 +263,16 @@ describe('context-window cancellation reaches the query transport', () => {
 			)
 		}
 
-		const [runA, runB] = await Promise.all([a.running, b.running])
+		const [turnA, turnB] = await Promise.all([a.running, b.running])
 		if (admissionFailure) throw admissionFailure
 		expect(requests[0]?.signal?.aborted).toBe(true)
 		expect(requests[0]?.signal?.reason).toBe(stop)
 		expect(requests[1]?.signal?.aborted).toBe(false)
-		expect(runA.status).toBe('cancelled')
-		expect(runB.status).toBe('completed')
+		expect(turnA.status).toBe('cancelled')
+		expect(turnB.status).toBe('completed')
 		expect(chatStream).toHaveBeenCalledTimes(1)
 		const usage = b.events.filter(
-			(event): event is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+			(event): event is Extract<SessionEvent, { type: 'token_usage_updated' }> =>
 				event.type === 'token_usage_updated',
 		)
 		expect(usage).toContainEqual(

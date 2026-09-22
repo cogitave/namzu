@@ -37,15 +37,15 @@ describe('it reaches the prompt through the registry', () => {
 		expect(prompt).toContain('## Using the web')
 	})
 
-	it('is absent from a run that never registered it', () => {
-		// Guidance about tools a run does not have is worse than absent: it
+	it('is absent from a turn that never registered it', () => {
+		// Guidance about tools a turn does not have is worse than absent: it
 		// spends the cached prefix telling the model to cite results from a
 		// search it cannot run.
 		expect(builder().build()).not.toContain('## Using the web')
 	})
 
 	it('is static, so it rides the cached prefix', () => {
-		// It depends on nothing that can change inside a run — the two tool
+		// It depends on nothing that can change inside a turn — the two tool
 		// names are constants and the rules are the same every turn. Marking
 		// it `dynamic` would re-send it on every request for no reason;
 		// marking it `turn` would put it in the ephemeral slot, where it would

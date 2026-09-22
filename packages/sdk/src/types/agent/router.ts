@@ -14,7 +14,7 @@ export interface RoutingDecision {
 	 * Tokens the routing call itself spent, summed over any retries.
 	 *
 	 * Routing runs before the delegate's run exists, so it has no
-	 * `RunPersistence` to accumulate into. Reporting it here lets the
+	 * `TurnRecorder` to accumulate into. Reporting it here lets the
 	 * router report its own model usage. The separate budget summary includes
 	 * both routing and every delegated descendant.
 	 */

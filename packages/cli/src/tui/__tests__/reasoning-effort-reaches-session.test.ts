@@ -109,8 +109,8 @@ describe('the TUI reasoning-effort hop', () => {
 			await session.close()
 		}
 
-		expect(queryCalls[0]?.runConfig).toMatchObject({ effort: 'high' })
-		expect(queryCalls[1]?.runConfig).not.toHaveProperty('effort')
+		expect(queryCalls[0]?.turnConfig).toMatchObject({ effort: 'high' })
+		expect(queryCalls[1]?.turnConfig).not.toHaveProperty('effort')
 	})
 
 	it('publishes the exact common menu for every usable fallback member', async () => {

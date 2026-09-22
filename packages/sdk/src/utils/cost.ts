@@ -106,17 +106,16 @@ export function calculateCost(usage: TokenUsage, pricing: ModelPricing): CostInf
 /**
  * Whether `current` is a total nothing has been added to yet.
  *
- * All three conditions, not one. A run whose only turn so far was unpriced has
+ * All three conditions, not one. A turn whose only turn so far was unpriced has
  * a zero total and no rate fields too, and adopting the next turn's rate card
  * as though it described the whole total would be exactly the wrong claim.
  *
  * This predicate is only sound while every writer of a `CostInfo` goes through
- * this module or states the truth in its vocabulary. One did not:
- * `projectEmergencyToCheckpoint` wrote `ZERO_COST` beside a real, non-zero
- * `tokenUsage`, which is byte-identical to a fresh total — so a run resumed
- * from an emergency dump would have adopted its next turn's rate card as
- * covering spend that happened before the crash. That projection now records
- * the pre-crash tokens as unpriced, which is both true and, usefully, not
+ * this module or states the truth in its vocabulary. A writer that put
+ * `ZERO_COST` beside a real, non-zero `tokenUsage` would be byte-identical to a
+ * fresh total, and a resumed turn would adopt its next rate card as covering
+ * spend that happened before the resume. Spend whose price is unknown is
+ * recorded as unpriced instead, which is both true and, usefully, not
  * fresh-shaped.
  */
 function isFresh(current: CostInfo): boolean {
@@ -133,13 +132,13 @@ function isFresh(current: CostInfo): boolean {
  *
  * Kept when one card still covers the whole total; dropped when it does not.
  * Dropping rather than overwriting is the change: the previous version wrote
- * the incoming card over whatever was there, so a run that swapped models
+ * the incoming card over whatever was there, so a turn that swapped models
  * reported the last card applied as though it had priced every token.
  *
  * Equal-but-distinct cards are treated as one, deliberately. Two models at the
  * same published rate produce a total that a single rate card DOES describe,
  * which is the only claim these two fields make — they name a rate, not a
- * model, and `Run.steps[].servedBy` carries which model served each turn.
+ * model, and `Turn.steps[].servedBy` carries which model served each turn.
  */
 function ratesFor(
 	current: CostInfo,
@@ -178,11 +177,11 @@ export function accumulateCost(
  * Record tokens that were consumed at a rate nobody has.
  *
  * The alternative was to add nothing and leave the total alone, which is how
- * every run came to report `$0.00` for work that cost real money. Counting the
+ * every turn came to report `$0.00` for work that cost real money. Counting the
  * tokens instead makes the gap a fact the caller can read and the budget guard
  * can refuse on, rather than an absence that looks like an answer.
  *
- * The rate fields go, if they were there: a total that omits part of a run is
+ * The rate fields go, if they were there: a total that omits part of a turn is
  * not described by any single card.
  */
 export function accumulateUnpricedCost(current: CostInfo, additionalUsage: TokenUsage): CostInfo {
@@ -204,7 +203,7 @@ export function formatCost(usd: number): string {
  *
  * Exists so that no surface has to re-derive the free/unknown distinction from
  * two fields and get it subtly wrong. `@namzu/cli` printed
- * `'$0.0000 (this provider reported no price)'` for every run, because every
+ * `'$0.0000 (this provider reported no price)'` for every turn, because every
  * run was unpriced; now the two cases really are different and the string has
  * to follow.
  */

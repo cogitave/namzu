@@ -43,6 +43,7 @@ vi.mock('../../tui/agent.js', () => ({
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
+	closeSessions: vi.fn(),
 	openSessions: vi.fn(async () => ({
 		root: '/state',
 		backend: 'central',
@@ -205,7 +206,7 @@ describe('run-stream stateless history admission', () => {
 })
 
 describe('run-stream and a pipe that never closes', () => {
-	it('starts the run after the first-byte deadline instead of waiting for end-of-input', async () => {
+	it('starts the turn after the first-byte deadline instead of waiting for end-of-input', async () => {
 		const silent = new PassThrough()
 		try {
 			const { code, events } = await run(silent)

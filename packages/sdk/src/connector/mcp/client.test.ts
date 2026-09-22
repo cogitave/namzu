@@ -9,10 +9,10 @@ import { MCPClient } from './client.js'
 import { createMcpEraCache } from './era.js'
 
 /**
- * `client.ts` had zero test coverage, and three ways to hang a run:
+ * `client.ts` had zero test coverage, and three ways to hang a turn:
  *
  * - `request()` armed no timer, so a wedged stdio server left every caller
- *   pending forever — no error, no `run_failed`, just a process that stopped.
+ *   pending forever — no error, no `turn_failed`, just a process that stopped.
  * - Pending requests were only rejected by `disconnect()`, so a transport
  *   that dropped on its own leaked them.
  * - A frame carrying BOTH an id and a method (a server-initiated request:
@@ -100,7 +100,7 @@ function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } =
 	}
 }
 
-describe('MCPClient — a wedged server cannot hang the run', () => {
+describe('MCPClient — a wedged server cannot hang the turn', () => {
 	it('times out a request that is never answered', async () => {
 		const h = harness({ requestTimeoutMs: 25 })
 		await h.client.connect()

@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import type { RepairToolCall } from '../../../types/tool/repair.js'
@@ -19,7 +19,8 @@ import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
  * also had to decide on its own that retrying was worth it.
  */
 
-const RUN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as RunId
+const SESSION_ID = '9d3c4b2a-1e0f-4a8b-9c7d-6e5f4a3b2c1d' as SessionId
+const TURN_ID = '62bc1c2f-2254-48d5-b3df-572ccb1102e0' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -53,7 +54,7 @@ function makeExecutor(
 	const executor = new ToolExecutor(
 		{
 			tools: registry,
-			runId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
 			env: {},
@@ -65,8 +66,9 @@ function makeExecutor(
 			// suite's runtime re-proving it slowly.
 			toolRetryBackoff: { initialDelayMs: 0, maxDelayMs: 0 },
 			...extra,
+			sessionId: extra.sessionId ?? SESSION_ID,
 		},
-		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+		new ActivityStore(TURN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		() => Promise.resolve(),
 		makeLogger(),
 	)
@@ -205,7 +207,7 @@ describe('repairToolCall', () => {
 		expect(batch.results[0]?.isError).toBe(true)
 	})
 
-	it('a throwing repairer does not take the run down', async () => {
+	it('a throwing repairer does not take the turn down', async () => {
 		const { executor } = makeExecutor(registry, {
 			repairToolCall: () => {
 				throw new Error('repair model unavailable')

@@ -70,7 +70,7 @@ export class MockLLMProvider implements LLMProvider {
 	}
 
 	/**
-	 * The turn to play. A script shorter than the run repeats its last
+	 * The turn to play. A script shorter than the turn repeats its last
 	 * entry, so a test that only cares about the first two turns does not
 	 * have to pad the rest — and a loop bug shows up as repetition rather
 	 * than an exhausted-script crash.

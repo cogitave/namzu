@@ -41,7 +41,7 @@ export function describeRule(rule: AuthorizationRule): string {
 		case 'allow_by_name':
 			return `allowed by name (${rule.toolNames.join(', ')})`
 		case 'deny_by_name':
-			return `denied by name (${rule.toolNames.join(', ')}) — this tool is refused for this run, so a different input will not change it`
+			return `denied by name (${rule.toolNames.join(', ')}) — this tool is refused for this turn, so a different input will not change it`
 		case 'allow_by_category':
 			return `allowed by category (${rule.categories.join(', ')})`
 		case 'allow_by_tier':

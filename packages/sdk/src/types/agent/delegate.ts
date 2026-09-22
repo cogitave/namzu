@@ -34,7 +34,7 @@ export interface DelegateRequest {
 	 *
 	 * Forwarded for the reason the `Agent` tool gives for forwarding it to a
 	 * local child: a delegate that cannot see it runs against different
-	 * services than the run that launched it, silently. A remote delegate
+	 * services than the turn that launched it, silently. A remote delegate
 	 * may well ignore it, which is its business.
 	 */
 	readonly env?: Readonly<Record<string, string>>
@@ -45,7 +45,7 @@ export interface DelegateRequest {
  *
  * `status` is the delegate's own answer and is the only authority a foreign
  * delegate has — there is no second layer to cross-check it against the way
- * a local run's `TaskHandle.state` and `BaseAgentResult.status` check each
+ * a local turn's `TaskHandle.state` and `BaseAgentResult.status` check each
  * other. `DelegatingTaskScheduler` maps this onto BOTH so that
  * `taskSucceeded` and `taskFailed` keep working unchanged; that mapping is
  * the whole reason this type is this small.

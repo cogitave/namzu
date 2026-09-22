@@ -8,6 +8,7 @@ import {
 	type DiskResidentAgenda,
 	EVENT_NAME_ATTRIBUTE,
 	type JsonClaimReceipt,
+	type Origin,
 	type ResidentContextualStep,
 	type ResidentDecision,
 	type ResidentHistoryScope,
@@ -15,8 +16,8 @@ import {
 	type ResidentStepContext,
 	type ReviewAnswer,
 	createResidentEvidenceRecallStep,
-	generateRunId,
 	generateSessionId,
+	generateTurnId,
 	projectResidentLearning,
 } from '@namzu/sdk'
 
@@ -32,7 +33,7 @@ import { cliLogger } from '../../logging.js'
 import { resolvePermissionMode } from '../../permissions/mode.js'
 import { compilePermissions } from '../../permissions/rules.js'
 import type { AgentEvent, AgentSession } from '../../tui/agent.js'
-import { describeRunInterruption } from '../../tui/run-interruption.js'
+import { describeTurnInterruption } from '../../tui/turn-interruption.js'
 import type { DetectedProvider, Preferences } from '../providers/index.js'
 import type { CliSessions } from '../sessions/store.js'
 import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
@@ -80,6 +81,8 @@ export interface ResidentSessionStepOptions {
 	readonly verification?: ResidentVerificationSpec
 	/** Private, host-owned directory for per-claim receipts. */
 	readonly artifactsRoot: string
+	/** The project's directory name under `<root>/projects/`: where each step's session log is filed. */
+	readonly projectSlug: string
 }
 
 function parseDecision(answer: string, verification = false): ModelDecision {
@@ -229,8 +232,10 @@ export function createResidentSessionStep(
 		ensurePrivateStateDirectory(dirname(root), basename(root))
 		const artifacts = ensurePrivateStateDirectory(root, claimId)
 		const sessionId = generateSessionId()
-		const runId = generateRunId()
-		const identity = { pursuitId: pursuit.id, claimId, sessionId, runId }
+		// Minted here rather than by the kernel so the receipts below can name the
+		// turn before it starts; the kernel's `beginTurn` opens it under this id.
+		const turnId = generateTurnId()
+		const identity = { pursuitId: pursuit.id, claimId, sessionId, turnId }
 		const verificationScope = JSON.stringify({
 			tenantId: sessions.tenantId,
 			projectId: sessions.projectId,
@@ -238,7 +243,7 @@ export function createResidentSessionStep(
 			revision: pursuit.state.revision,
 		})
 		const verifier = verificationSpec
-			? residentClaimVerifier(verificationSpec, cwd, verificationScope, runId)
+			? residentClaimVerifier(verificationSpec, cwd, verificationScope, turnId)
 			: undefined
 		const outputInstructions = verificationSpec
 			? DECISION_CONTRACT.replace('Do not include other fields.', '') +
@@ -246,7 +251,9 @@ export function createResidentSessionStep(
 			: DECISION_CONTRACT
 		let verification: { answerSha256: string; receipt: JsonClaimReceipt } | undefined
 		const history = options.agenda?.history(pursuit.state, context.agendaRevision)
-		const toolEvidence = history ? residentToolEvidence(history, sessions, root) : undefined
+		const toolEvidence = history
+			? residentToolEvidence(history, sessions, options.projectSlug, root)
+			: undefined
 		const startedAt = Date.now()
 		let session: AgentSession | undefined
 		let sessionExport: AttachedSessionExport | undefined
@@ -329,9 +336,6 @@ export function createResidentSessionStep(
 			session = await createAgentSession(prefs, probe.detected, {
 				cwd,
 				toolLoading: options.toolLoading,
-				// Foreground and managed resident hosts already own signal cancellation
-				// and must confirm drainage before releasing durable ownership.
-				emergencySave: false,
 				scope: {
 					sessionId,
 					topicId: sessions.topicId,
@@ -350,7 +354,7 @@ export function createResidentSessionStep(
 									tenantId: sessions.tenantId,
 									projectId: sessions.projectId,
 									sessionId,
-									runId,
+									turnId,
 								},
 								excludeSuccessfulTools: [
 									'search_resident_tools',
@@ -365,7 +369,7 @@ export function createResidentSessionStep(
 				permissionMode: mode.mode,
 				reviewAnswer,
 				maxAnswerReviews: gate?.maxAnswerReviews ?? 3,
-				...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
+				...(sessionExport ? { onSessionEvent: sessionExport.listener } : {}),
 				...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 				...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 				...(ctx.config.web ? { web: ctx.config.web } : {}),
@@ -423,7 +427,8 @@ export function createResidentSessionStep(
 				],
 				{
 					signal,
-					runId,
+					turnId,
+					origin: { protocol: 'resident', kind: 'resident-step' } satisfies Origin,
 					permissionMode: mode.mode,
 					...(options.contextProfile === 'interactive'
 						? {
@@ -455,7 +460,7 @@ export function createResidentSessionStep(
 					if (done) errors.push(new Error('Resident session emitted more than one settled result.'))
 					done = event
 				} else if (event.kind === 'error' || event.kind === 'paused') {
-					errors.push(new Error(describeRunInterruption(event)))
+					errors.push(new Error(describeTurnInterruption(event)))
 				} else if (event.kind === 'usage') usage = event
 				else if (event.kind === 'context') ctx.formatter.info(event.text)
 				else if (event.kind === 'tool-start')

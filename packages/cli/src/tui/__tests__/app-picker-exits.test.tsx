@@ -131,7 +131,7 @@ function sessionFixture(providerSummary = 'a-provider', close = vi.fn()): AgentS
 		mcpFailed: [],
 		agentIds: [],
 		configNotices: [],
-		// The TUI never resumes a durable run; a stub that answered would
+		// The TUI never resumes a durable turn; a stub that answered would
 		// make a resume look reachable from here.
 		resumeDurable: async () => {
 			throw new Error('not used by the TUI')
@@ -157,6 +157,8 @@ vi.mock('../../integrations/updates.js', () => ({
 	checkUpdates: async () => [],
 }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => {
 		startConversationCalls += 1
@@ -760,7 +762,7 @@ describe('publishing a picker selection', () => {
 		await submit(harness, '/memory show')
 		await frameShows(harness.lastFrame, 'Stored memories (1)')
 		expect(harness.lastFrame() ?? '').toContain('[staging-is-read-only](staging-is-read-only.md)')
-		await frameShows(harness.lastFrame, 'Recorded by runs (1)')
+		await frameShows(harness.lastFrame, 'Recorded by turns (1)')
 		expect(harness.lastFrame() ?? '').toContain('RUN_RECORDED')
 	})
 

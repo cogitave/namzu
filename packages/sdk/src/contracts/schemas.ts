@@ -2,53 +2,20 @@ import { z } from 'zod'
 
 import { entityIdPattern } from '../utils/id-format.js'
 
-/** Shared with constructors and stores: opaque UUIDs. */
+/**
+ * Shared with constructors and stores: opaque UUIDs. The session and turn
+ * schemas (`SessionIdSchema`, `TurnIdSchema`, `TurnConfigSchema`,
+ * `CreateTurnSchema`, `CreateEphemeralSessionSchema`) live in
+ * `./session/schemas.ts`.
+ */
 export const ProjectIdSchema = z.string().regex(entityIdPattern(), 'Invalid project ID format')
-export const RunIdSchema = z.string().regex(entityIdPattern(), 'Invalid run ID format')
 export const MessageIdSchema = z.string().regex(entityIdPattern(), 'Invalid message ID format')
-
-export const RunConfigSchema = z
-	.object({
-		model: z.string().min(1).optional(),
-		temperature: z.number().min(0).max(2).optional(),
-		tokenBudget: z.number().int().nonnegative().optional(),
-		maxResponseTokens: z.number().int().positive().optional(),
-		timeoutMs: z.number().int().nonnegative().max(3_600_000).optional(),
-		streamIdleTimeoutMs: z.number().int().nonnegative().max(3_600_000).optional(),
-		maxRequestRichContentBytes: z
-			.number()
-			.int()
-			.nonnegative()
-			.max(Number.MAX_SAFE_INTEGER)
-			.optional(),
-		permissionMode: z.enum(['plan', 'auto']).optional(),
-		systemPrompt: z.string().min(1).max(100_000).optional(),
-	})
-	.strict()
 
 export const CreateMessageSchema = z
 	.object({
 		role: z.literal('user'),
 		content: z.string().min(1, 'Message content cannot be empty'),
 		metadata: z.record(z.unknown()).optional(),
-	})
-	.strict()
-
-export const CreateRunSchema = z
-	.object({
-		agent_id: z.string().min(1, 'agent_id is required'),
-		config: RunConfigSchema,
-		env: z.record(z.string()).optional(),
-		stream: z.boolean().optional(),
-	})
-	.strict()
-
-export const CreateStatelessRunSchema = z
-	.object({
-		agent_id: z.string().min(1, 'agent_id is required'),
-		message: z.string().min(1, 'message is required'),
-		config: RunConfigSchema,
-		env: z.record(z.string()).optional(),
 	})
 	.strict()
 

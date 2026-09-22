@@ -1,4 +1,9 @@
-import { type RunEvent, type TaskHandle, genericLabel, isTerminalAgentTaskState } from '@namzu/sdk'
+import {
+	type SessionEvent,
+	type TaskHandle,
+	genericLabel,
+	isTerminalAgentTaskState,
+} from '@namzu/sdk'
 
 const MAX_RETAINED_AGENTS = 80
 const MAX_TRANSCRIPT_ROWS = 120
@@ -26,7 +31,7 @@ export const MAX_RETAINED_NARRATION = 3
 
 /**
  * Appended to a replayed transcript whose saved records could not all be
- * read, so a short transcript is never mistaken for a short run. Said in the
+ * read, so a short transcript is never mistaken for a short session. Said in the
  * transcript itself rather than only in a header, because the rows are what
  * an operator reads as the whole of what happened.
  */
@@ -71,7 +76,7 @@ export type SubagentTranscriptRow =
 			readonly text: string
 			/**
 			 * Set only for a delivered `send_message`; absent for every other
-			 * system row (agent_failed, run_failed, the settle fallback), which
+			 * system row (agent_failed, turn_failed, the settle fallback), which
 			 * render as before.
 			 */
 			readonly direction?: SubagentMessageDirection
@@ -81,7 +86,8 @@ export interface SubagentActivity {
 	/** Stable for this screen even before the scheduler returns a task id. */
 	readonly viewId: string
 	readonly taskId?: string
-	readonly runId?: string
+	/** The child session this row projects, once its first turn has started. */
+	readonly sessionId?: string
 	readonly agentId: string
 	/** The resolved child model, when a host supplied one at launch. */
 	readonly model?: string
@@ -100,9 +106,9 @@ export interface SubagentActivity {
 	readonly batchId: string
 	/** Exact parent Agent tool call, used to suppress only its generic row. */
 	readonly toolUseId?: string
-	/** Parent run identity; display labels never serve as orchestration identity. */
+	/** Parent turn identity; display labels never serve as orchestration identity. */
 	readonly workflowId: string
-	/** Display group scoped to a parent run and explicit workflow, or an unlabelled batch. */
+	/** Display group scoped to a parent turn and explicit workflow, or an unlabelled batch. */
 	readonly workflowGroupId: string
 	/** Monitor-owned phase identity, stable even when display labels collide. */
 	readonly phaseId: string
@@ -135,7 +141,7 @@ export interface SubagentActivity {
  * One line of commentary the PARENT wrote about the work it is coordinating.
  *
  * Parent-authored is the whole design, not an implementation detail. A line a
- * child emitted and this host rendered as the run's own voice would be
+ * child emitted and this host rendered as the turn's own voice would be
  * untrusted text presented as trusted narration — the injection shape the
  * coordinator's untrusted-output wrapping exists to prevent. Nothing here
  * takes a line from a child: the tool that writes these is registered on the
@@ -145,7 +151,7 @@ export interface SubagentActivity {
  * attributed to the child by name.
  *
  * Commentary carries no status meaning. Nothing reads it back, no surface
- * derives state from it, and a run with none looks exactly as it did before
+ * derives state from it, and a turn with none looks exactly as it did before
  * this existed.
  */
 export interface SubagentNarrationLine {
@@ -170,7 +176,7 @@ export type SubagentNarrationOutcome =
 	| { readonly kind: 'empty' }
 	| { readonly kind: 'closed' }
 
-/** Read-only side of the current CLI session's child-run monitor. */
+/** Read-only side of the current CLI session's child-session monitor. */
 export interface SubagentActivitySource {
 	getSnapshot(): readonly SubagentActivity[]
 	subscribe(listener: () => void): () => void
@@ -221,30 +227,34 @@ export interface BeginSubagentInput {
 }
 
 /**
- * What a child's saved `run.json` supplies to
- * {@link SubagentActivityMonitor.replay}, beside its transcript.
+ * What the parent's log records about a child — its `child_session_spawned`
+ * and `child_session_ended` records, as the session index reports them — and
+ * what the child's own log names about itself, supplied to
+ * {@link SubagentActivityMonitor.replay} beside its transcript.
  *
  * Every field except `agentId` and `description` is optional, because
- * `run.json` is written on a run's terminal path: a child killed before it
- * got there leaves a transcript worth opening and a record that never
- * recorded an ending. Absent is "the file did not say", and the projection
- * keeps whatever the events established rather than substituting a zero.
+ * `child_session_ended` is written on a child's terminal path: a child killed
+ * before it got there leaves a transcript worth opening and a parent log that
+ * never recorded an ending. Absent is "the log did not say", and the
+ * projection keeps whatever the events established rather than substituting
+ * a zero.
  */
 export interface ReplaySubagentInput {
 	readonly agentId: string
 	readonly model?: string
 	readonly description: string
 	/**
-	 * The child's instructions, when the caller has them.
-	 *
-	 * Defaults to empty rather than to invented text. A child's prompt is in
-	 * its message snapshot, not in its durable event log, and reading a whole
-	 * `messages.json` to recover one line is a cost this view does not pay.
+	 * The child's instructions, when the caller has them: the prompt message
+	 * its log opens with. Defaults to empty rather than to invented text.
 	 */
 	readonly prompt?: string
-	readonly runId?: string
+	/** The child session's id; the replayed row's screen identity derives from it. */
+	readonly sessionId?: string
 	readonly batchId?: string
 	readonly workflowId?: string
+	/** The display labels the parent recorded for this child, when it recorded any. */
+	readonly workflow?: string
+	readonly phase?: string
 	readonly status?: SubagentActivityStatus
 	readonly tokens?: number
 	readonly startedAt?: number
@@ -254,7 +264,7 @@ export interface ReplaySubagentInput {
 }
 
 export interface SubagentActivityTracker {
-	readonly onEvent: (event: RunEvent) => void
+	readonly onEvent: (event: SessionEvent) => void
 	settle(handle: TaskHandle): void
 	fail(error: unknown): void
 }
@@ -264,7 +274,7 @@ interface MutableActivity {
 	readonly order: number
 	readonly viewId: string
 	taskId?: string
-	runId?: string
+	sessionId?: string
 	agentId: string
 	model?: string
 	tokens?: number
@@ -293,7 +303,7 @@ interface MutableActivity {
 
 /**
  * Projects each child stream immediately and retains only bounded display
- * state. Raw RunEvents never accumulate here: images, tool inputs and token
+ * state. Raw session events never accumulate here: images, tool inputs and token
  * deltas can be arbitrarily large and the parent TUI must not inherit them.
  */
 export class SubagentActivityMonitor implements SubagentActivitySource {
@@ -337,8 +347,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	 * `begin()`, plus the record it opened.
 	 *
 	 * Split out for {@link SubagentActivityMonitor.replay}, which has to reach
-	 * the record after the events are in to write the facts `run.json` holds
-	 * and the transcript does not. Nothing else needs it, and nothing outside
+	 * the record after the events are in to write the facts the parent's log
+	 * holds and the child's transcript does not. Nothing else needs it, and nothing outside
 	 * this class gets it: a caller holding a `MutableActivity` could edit
 	 * around every bound this file enforces.
 	 */
@@ -355,7 +365,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		// beside a live monitor's. An `agent-1` from each would be two
 		// different children answering to one id, and every surface here looks
 		// a child up by this string. `replay()` supplies an id derived from the
-		// child's run instead: unique against the live path by construction,
+		// child's session instead: unique against the live path by construction,
 		// and identical across re-reads, so re-opening the cockpit does not
 		// move the operator's selection off the row they were reading.
 		const viewId = suppliedViewId ?? `agent-${order}`
@@ -460,18 +470,18 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	 * cannot drift from a replay. There is no second projection to keep in
 	 * step, and a field added to the live path appears here for free.
 	 *
-	 * What the events cannot supply, the caller passes from `run.json`, and it
-	 * is written AFTER the loop because the file is the authority on the two
-	 * facts a child's own transcript never records: a child's delegation
-	 * outcome and its final totals are reported on the PARENT's event stream,
-	 * which does not enter the child's log. Without this the replay would end
+	 * What the events cannot supply, the caller passes from the parent's log,
+	 * and it is written AFTER the loop because that log is the authority on
+	 * the two facts a child's own transcript never records: a child's
+	 * delegation outcome and its final totals are recorded by the PARENT
+	 * (`child_session_ended`), which does not enter the child's log. Without this the replay would end
 	 * on whatever the last durable event said and show a finished child as
 	 * still working.
 	 *
 	 * Only meaningful on a monitor constructed with `replay: true`; on a live
 	 * one it would publish a saved row as though a child were attached to it.
 	 */
-	replay(input: ReplaySubagentInput, events: Iterable<RunEvent>): SubagentActivity {
+	replay(input: ReplaySubagentInput, events: Iterable<SessionEvent>): SubagentActivity {
 		const { record, tracker } = this.open(
 			{
 				agentId: input.agentId,
@@ -480,12 +490,16 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				prompt: input.prompt ?? '',
 				...(input.batchId ? { batchId: input.batchId } : {}),
 				...(input.workflowId ? { workflowId: input.workflowId } : {}),
+				...(input.workflow ? { workflow: input.workflow } : {}),
+				...(input.phase ? { phase: input.phase } : {}),
 			},
-			input.runId ? bounded(`saved-${input.runId}`, MAX_IDENTITY_LABEL_CODE_UNITS) : undefined,
+			input.sessionId
+				? bounded(`saved-${input.sessionId}`, MAX_IDENTITY_LABEL_CODE_UNITS)
+				: undefined,
 		)
 		for (const event of events) tracker.onEvent(event)
-		if (!record.runId && input.runId) {
-			record.runId = bounded(input.runId, MAX_IDENTITY_LABEL_CODE_UNITS)
+		if (!record.sessionId && input.sessionId) {
+			record.sessionId = bounded(input.sessionId, MAX_IDENTITY_LABEL_CODE_UNITS)
 		}
 		if (input.tokens !== undefined) record.tokens = input.tokens
 		if (input.status) record.status = input.status
@@ -577,7 +591,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		return Object.freeze({
 			viewId: record.viewId,
 			...(record.taskId ? { taskId: record.taskId } : {}),
-			...(record.runId ? { runId: record.runId } : {}),
+			...(record.sessionId ? { sessionId: record.sessionId } : {}),
 			agentId: record.agentId,
 			...(record.model ? { model: record.model } : {}),
 			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
@@ -674,7 +688,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			MAX_IDENTITY_LABEL_CODE_UNITS,
 		)
 		// A tool batch is a concurrency boundary, not a workflow phase. Explicit
-		// workflow annotations may span several batches within their parent run;
+		// workflow annotations may span several batches within their parent turn;
 		// unrelated unlabelled batches have no evidence of a shared workflow.
 		const workflowGroupId = JSON.stringify(
 			labels.workflow?.trim()
@@ -825,7 +839,7 @@ function displayLabels(input: SubagentDisplayLabels): SubagentDisplayLabels {
 	}
 }
 
-function projectEvent(record: MutableActivity, event: RunEvent): void {
+function projectEvent(record: MutableActivity, event: SessionEvent): void {
 	switch (event.type) {
 		case 'agent_pending':
 			record.taskId = String(event.taskId)
@@ -833,13 +847,13 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 			record.status = 'queued'
 			record.latestActivity = 'Queued'
 			return
-		case 'run_started':
-			record.runId = String(event.runId)
+		case 'turn_started':
+			record.sessionId = String(event.sessionId)
 			record.status = 'working'
 			record.latestActivity = 'Working'
 			return
 		case 'token_usage_updated':
-			// `usage` is cumulative spend across the run; `contextTokens` beside
+			// `usage` is cumulative spend across the turn; `contextTokens` beside
 			// it is the current conversation size and shrinks on compaction —
 			// a different question this row never asks. See the event's own
 			// doc comment for why conflating the two was a shipped defect.
@@ -856,7 +870,7 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 			return
 		case 'text_delta': {
 			record.status = 'working'
-			const id = `${record.viewId}:assistant:${event.messageId ?? event.runId}`
+			const id = `${record.viewId}:assistant:${event.messageId}`
 			const current = record.rows.at(-1)
 			if (current?.kind === 'assistant' && current.id === id) {
 				record.rows[record.rows.length - 1] = {
@@ -947,10 +961,10 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 			record.completedAt = Date.now()
 			record.latestActivity = 'Cancelled'
 			return
-		case 'run_failed':
+		case 'turn_failed':
 			record.latestActivity = 'Failed'
 			pushRow(record, {
-				id: `${record.viewId}:run-failed`,
+				id: `${record.viewId}:turn-failed`,
 				kind: 'system',
 				text: bounded(event.error, MAX_ROW_CODE_UNITS),
 			})
@@ -1052,5 +1066,5 @@ function errorMessage(error: unknown): string {
 }
 
 function cancellationLike(error: unknown): boolean {
-	return error instanceof Error && (error.name === 'AbortError' || error.name === 'RunCancelled')
+	return error instanceof Error && (error.name === 'AbortError' || error.name === 'TurnCancelled')
 }

@@ -4,7 +4,7 @@ import type { SlashContext } from '../slashCommands.js'
 import { renderStatus } from '../slashCommands.js'
 
 /**
- * What a run may do is decided by two mechanisms that do not imply each other,
+ * What a turn may do is decided by two mechanisms that do not imply each other,
  * and this page exists because they were only readable apart.
  *
  * The sandbox arrived as a boot notice that scrolls away; the approval settings
@@ -101,7 +101,7 @@ describe('/status puts both axes on one page', () => {
 		)
 
 		expect(persistent).toMatch(/real project files.*edits persist/i)
-		expect(disposable).toMatch(/temporary files.*removed when the run ends/i)
+		expect(disposable).toMatch(/temporary files.*removed when the turn ends/i)
 	})
 
 	it('says plainly that an unconfined run is unconfined', () => {

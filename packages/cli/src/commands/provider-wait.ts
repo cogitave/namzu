@@ -3,12 +3,12 @@
  *
  * A pause is a rate limit or an outage: the kernel kept a checkpoint and the
  * right response is to wait and resume, not to fail and not to re-prompt from
- * whatever notes the run left behind. This module decides HOW LONG, and it is
+ * whatever notes the turn left behind. This module decides HOW LONG, and it is
  * pure so the decision can be tested without a clock.
  *
  * The provider's own delay wins when it gave one. Without one, the wait backs
  * off — a minute, two, four — because a limit that did not name its window is
- * not helped by polling it, and is capped so a run never sleeps longer than it
+ * not helped by polling it, and is capped so a turn never sleeps longer than it
  * would take a person to notice it is asleep.
  */
 
@@ -17,13 +17,13 @@ export const MAX_WAIT_MS = 15 * 60_000
 export const MIN_WAIT_MS = 1_000
 
 export interface PauseWaitInput {
-	/** How many pauses this run has already waited through. 0 for the first. */
+	/** How many pauses this turn has already waited through. 0 for the first. */
 	readonly waited: number
 	/** Delay the provider asked for, when it gave one. */
 	readonly retryAfterMs?: number
-	/** Wall-clock milliseconds this run has spent waiting so far. */
+	/** Wall-clock milliseconds this turn has spent waiting so far. */
 	readonly waitedMs: number
-	/** The most this run may spend waiting in total. */
+	/** The most this turn may spend waiting in total. */
 	readonly budgetMs: number
 }
 

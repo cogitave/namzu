@@ -473,7 +473,7 @@ describe('refreshAgentOAuthToken', () => {
 				}) as unknown as Response) as typeof fetch,
 		)
 		const controller = new AbortController()
-		const cause = new Error('body no longer belongs to a run')
+		const cause = new Error('body no longer belongs to a turn')
 		const pending = refreshAgentOAuthToken('rt', controller.signal)
 		await vi.waitFor(() => expect(bodyStarted).toBe(true))
 

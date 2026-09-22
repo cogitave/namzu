@@ -67,8 +67,8 @@ const call = (command: string): MockTurn => ({
 })
 
 /**
- * One run, two tool-calling turns. The grant has to be LIVE for the
- * second call — a `ToolGrantSet` is per-run, so approving in one run and
+ * One turn, two tool-calling turns. The grant has to be LIVE for the
+ * second call — a `ToolGrantSet` is per-turn, so approving in one turn and
  * calling in another proves nothing about whether a grant can overrule
  * the gate.
  */
@@ -83,7 +83,7 @@ async function run(commands: readonly string[]) {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 5 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 5 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),
@@ -98,7 +98,7 @@ async function run(commands: readonly string[]) {
 }
 
 describe('a call the operator denies', () => {
-	it('does not run just because the same run approved this tool earlier', async () => {
+	it('does not run just because the same turn approved this tool earlier', async () => {
 		// Turn one is harmless and earns a tool-wide grant. Turn two is the
 		// call the gate exists to stop, and the grant covers it by name.
 		expect(await run(['git status', 'rm -rf /'])).toEqual(['git status'])

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { TenantIsolationError } from '../../../session/errors.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
-import { createSystemMessage, createUserMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { TopicId } from '../../../types/session/ids.js'
 import type { SessionStore } from '../../../types/session/store.js'
@@ -115,49 +114,6 @@ export function sessionStoreContract(name: string, factory: () => Required<Sessi
 			const childView = await store.drill(child.id, tenantA)
 			expect(childView?.ancestry).toEqual([root.id, child.id])
 			expect(childView?.children).toEqual([])
-		})
-
-		it('loadMessages returns [] before any append and persists in insertion order', async () => {
-			const store = factory()
-			const { session } = await seed(store, tenantA)
-
-			expect(await store.loadMessages(session.id, tenantA)).toEqual([])
-
-			const id1 = await store.appendMessage(session.id, createUserMessage('first'), tenantA)
-			const id2 = await store.appendMessage(session.id, createUserMessage('second'), tenantA)
-			expect(id1).not.toBe(id2)
-
-			const loaded = await store.loadMessages(session.id, tenantA)
-			expect(loaded.map((m) => m.content)).toEqual(['first', 'second'])
-		})
-
-		it('replaces the projected history and keeps later appends', async () => {
-			const store = factory()
-			const { session } = await seed(store, tenantA)
-			await store.appendMessage(session.id, createUserMessage('old'), tenantA)
-
-			await store.replaceMessages(
-				session.id,
-				[createSystemMessage('summary'), createUserMessage('recent')],
-				tenantA,
-			)
-			await store.appendMessage(session.id, createUserMessage('after'), tenantA)
-
-			expect(
-				(await store.loadMessages(session.id, tenantA)).map((message) => message.content),
-			).toEqual(['summary', 'recent', 'after'])
-		})
-
-		it('rejects cross-tenant appendMessage / loadMessages', async () => {
-			const store = factory()
-			const { session } = await seed(store, tenantA)
-
-			await expect(
-				store.appendMessage(session.id, createUserMessage('x'), tenantB),
-			).rejects.toBeInstanceOf(TenantIsolationError)
-			await expect(store.loadMessages(session.id, tenantB)).rejects.toBeInstanceOf(
-				TenantIsolationError,
-			)
 		})
 
 		it('getChildren / getAncestry ignore other-tenant sub-sessions', async () => {
@@ -280,14 +236,13 @@ export function sessionStoreContract(name: string, factory: () => Required<Sessi
 			await expect(store.deleteSession(root.id, tenantA)).rejects.toThrow(/attached sub-sessions/)
 		})
 
-		it('deleteSession removes session + messages + summary (after children deleted)', async () => {
+		it('deleteSession removes the session and its summary (after children deleted)', async () => {
 			const store = factory()
 			const { session } = await seed(store, tenantA)
-			await store.appendMessage(session.id, createUserMessage('x'), tenantA)
 
 			await store.deleteSession(session.id, tenantA)
 			expect(await store.getSession(session.id, tenantA)).toBeNull()
-			expect(await store.loadMessages(session.id, tenantA)).toEqual([])
+			expect(await store.getSummary(session.id, tenantA)).toBeNull()
 		})
 
 		it('deleteSubSession is idempotent and rejects cross-tenant', async () => {

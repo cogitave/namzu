@@ -6,11 +6,11 @@ import { ToolRegistry } from '../../../registry/index.js'
 import { untrustedEnvelopeBody } from '../../../tools/untrusted-envelope.js'
 import type { ToolDefinition, ToolRegistryConfig } from '../../../types/tool/index.js'
 import { createMockBidiProvider } from '../mock.js'
-import { startBidiRun } from '../session.js'
+import { startBidiTurn } from '../session.js'
 
 /**
  * A duplex session builds its OWN tool context — it has no executor, no
- * iteration and no `buildToolContext` — so the run-level default reaches it
+ * iteration and no `buildToolContext` — so the turn-level default reaches it
  * only because it is installed here too. Without that, a session's tool
  * results would be the one path in the kernel that reaches a model unscreened,
  * and the gap would be invisible: both paths look like "a tool ran".
@@ -69,7 +69,7 @@ async function delivered(
 			},
 		],
 	})
-	const run = await startBidiRun({
+	const run = await startBidiTurn({
 		provider,
 		tools: registry,
 		connect: { model: 'mock' },

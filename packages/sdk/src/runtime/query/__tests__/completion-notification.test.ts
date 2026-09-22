@@ -19,7 +19,7 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import { RunCancelled } from '../../../types/run/cancel-cause.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
@@ -188,7 +188,7 @@ async function runWith(inbox: CompletionInbox | undefined): Promise<{
 		agentName: 'Test Agent',
 		messages: [createUserMessage('delegate and report')],
 		workingDirectory,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
@@ -214,7 +214,7 @@ async function runWith(inbox: CompletionInbox | undefined): Promise<{
 function inboxHolding(taskId: string, result: string): CompletionInbox {
 	const inbox = new CompletionInbox()
 	// Said before the announcement because `create_task` says it on every
-	// launch: an inbox only hears about tasks its own run started, so a
+	// launch: an inbox only hears about tasks its own turn started, so a
 	// gateway shared between two supervisors cannot cross-deliver.
 	inbox.launched(taskId as TaskId)
 	inbox.attach(
@@ -303,17 +303,17 @@ describe('an unclaimed completion reaches the transcript', () => {
  * The exits that are not the ordinary final answer.
  *
  * The inbox was consulted at exactly one site, inside the no-tool-calls branch.
- * The loop leaves by eight other routes, and three of them are ways a run
+ * The loop leaves by eight other routes, and three of them are ways a turn
  * legitimately ENDS: a tool the author declared terminal, a captured structured
  * output, and the host's `stopWhen`. A worker that finished while any of those
  * was deciding had its output dropped on the floor — the gateway held the
- * result, the run closed, and nothing ever read it.
+ * result, the turn closed, and nothing ever read it.
  *
  * These drive `drainQuery` rather than the helper directly, and that is the
  * point: the delivery happens in the loop, so a unit test on the inbox proves
  * nothing about whether the loop reaches it.
  */
-describe('a run that ends some other way still hands over what finished', () => {
+describe('a turn that ends some other way still hands over what finished', () => {
 	async function runEndingWith(options: {
 		terminal?: boolean
 		stopWhen?: boolean
@@ -367,7 +367,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			messages: [createUserMessage('delegate and report')],
 			workingDirectory,
 			...(options.stopWhen ? { stopWhen: () => true } : {}),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -388,7 +388,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		}
 	}
 
-	it('a terminal tool settles the run without discarding the worker', async () => {
+	it('a terminal tool settles the turn without discarding the worker', async () => {
 		const { userMessages } = await runEndingWith({ terminal: true })
 
 		expect(
@@ -397,7 +397,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		).toBe(true)
 	})
 
-	it("the host's stopWhen ends the run without discarding it either", async () => {
+	it("the host's stopWhen ends the turn without discarding it either", async () => {
 		const { userMessages } = await runEndingWith({ stopWhen: true })
 
 		expect(
@@ -438,14 +438,14 @@ describe('a run that ends some other way still hands over what finished', () => 
 				waitForInbound: async (signal) => {
 					held = true
 					expect(inbox.outstandingTaskIds).toContain('tsk_still_running')
-					caller.abort(new RunCancelled('user'))
+					caller.abort(new TurnCancelled('user'))
 					expect(signal.aborted).toBe(true)
 				},
 				agentId: 'agent_test',
 				agentName: 'Test Agent',
 				messages: [createUserMessage('delegate and report')],
 				workingDirectory,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -522,7 +522,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			messages: [createUserMessage('go')],
 			workingDirectory,
 			stopWhen: () => true,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -546,17 +546,17 @@ describe('a run that ends some other way still hands over what finished', () => 
 		// The extra turn is the point: the model was asked again, once.
 		expect(provider.calls, 'the model never got a turn to use the result').toBe(2)
 
-		// And the run says WHY it is over. The extra turn is prose, and
+		// And the turn says WHY it is over. The extra turn is prose, and
 		// `stopWhen` is consulted only after a tool batch — deliberately, so a
 		// predicate can see what the tools returned — so the predicate is never
-		// asked again and the run leaves by the ordinary route. Reporting
+		// asked again and the turn leaves by the ordinary route. Reporting
 		// `end_turn` there would name the shape of the last message rather than
 		// the host's decision, and this repo carries thirteen `StopReason`
-		// values precisely so a run that ends for a nameable reason names it.
+		// values precisely so a turn that ends for a nameable reason names it.
 		expect(run.stopReason).toBe('stop_condition')
 	}, 60_000)
 
-	it('forgets the deferral if the extra turn did not end the run', async () => {
+	it('forgets the deferral if the extra turn did not end the turn', async () => {
 		// The lifetime is the whole safety of the flag. It is set at the end of
 		// one iteration and read by the next, and the next clears it whether or
 		// not anything read it — so a deferral cannot colour a stop reason two
@@ -639,7 +639,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			messages: [createUserMessage('go')],
 			workingDirectory,
 			stopWhen: () => ++asked === 1,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -668,14 +668,14 @@ describe('a run that ends some other way still hands over what finished', () => 
 
 		const inbox = new CompletionInbox()
 		inbox.attach(stubTaskScheduler({ onTaskCompleted: () => () => {}, getTask: () => undefined }))
-		// Launched, never settles, and the terminal tool ends the run over it.
+		// Launched, never settles, and the terminal tool ends the turn over it.
 		inbox.expect('tsk_still_running' as TaskId)
 
 		const tools = new ToolRegistry()
 		tools.register(
 			defineTool({
 				name: 'finisher',
-				description: 'ends the run',
+				description: 'ends the turn',
 				inputSchema: z.object({}),
 				category: 'analysis',
 				permissions: [],
@@ -697,7 +697,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			agentName: 'Test Agent',
 			messages: [createUserMessage('go')],
 			workingDirectory,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,
 				tokenBudget: 100_000,
@@ -710,7 +710,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			tenantId: 'a11660b4-4fce-4579-9606-0794222c11c2' as TenantId,
 		})
 
-		expect(run.abandonedTaskIds, 'the run said nothing about the worker it left running').toEqual([
+		expect(run.abandonedTaskIds, 'the turn said nothing about the worker it left running').toEqual([
 			'tsk_still_running',
 		])
 		// Named, not stopped: the inbox still counts it as outstanding, and
@@ -718,7 +718,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		expect(inbox.outstandingTaskIds).toEqual(['tsk_still_running'])
 	})
 
-	it('leaves the field absent when the run walked away from nothing', async () => {
+	it('leaves the field absent when the turn walked away from nothing', async () => {
 		// A field that is always present says nothing; one that appears only
 		// when there is something to report is a signal a host can branch on.
 		const { run } = await runEndingWith({ terminal: true })

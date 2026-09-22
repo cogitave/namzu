@@ -903,7 +903,7 @@ export class MCPClient {
 	 * and on `http_sse` (whose reply arrives on a separate channel) a
 	 * server that wedged left the promise pending forever. Combined with
 	 * an executor that awaited tools unbounded, one unresponsive MCP
-	 * server hung the whole run with no error and no `run_failed`: not a
+	 * server hung the whole turn with no error and no `turn_failed`: not a
 	 * crash, just a process that stopped.
 	 */
 	private request(

@@ -48,7 +48,7 @@ export interface LLMProvider {
 	 * `collectChatCompletion(provider.chatStream(params))` from
 	 * `@namzu/sdk/provider/collect-chat-completion`. The kernel's iteration
 	 * orchestrator consumes the stream directly so it can emit
-	 * per-delta `RunEvent`s.
+	 * per-delta `SessionEvent`s.
 	 *
 	 * Phase 2 of ses_001-tool-stream-events removed the previous
 	 * non-streaming `chat()` method from this interface.
@@ -132,7 +132,7 @@ export interface LLMProvider {
 	 *
 	 * Asked rather than assumed because effort is **refused, not clamped**:
 	 * a level a model does not have makes the vendor reject the request, so a
-	 * caller offering a choice it cannot honour produces a run that fails at
+	 * caller offering a choice it cannot honour produces a turn that fails at
 	 * the start rather than a quieter one. Building that choice needs the
 	 * answer BEFORE the request exists.
 	 *
@@ -202,7 +202,7 @@ export interface LLMProvider {
 	 * The kernel's only source below an explicit host config is a
 	 * hand-maintained prefix table, and its own header records what that
 	 * costs: one vendor family's entries all carried 200k including the
-	 * models whose window is 1M, so those runs compacted at roughly 14% full
+	 * models whose window is 1M, so those turns compacted at roughly 14% full
 	 * and threw away the prompt-cache prefix to do it. Every model release drifts the table
 	 * again until somebody edits it. Meanwhile at least one driver already
 	 * parses a real per-model `context_length` off the vendor listing and
@@ -216,9 +216,9 @@ export interface LLMProvider {
 	 * "I do not know" into a confident wrong number, which is the failure
 	 * the table already made once.
 	 *
-	 * Resolved ONCE per run, not per iteration — the two consumers are
+	 * Resolved ONCE per turn, not per iteration — the two consumers are
 	 * synchronous and in the hot loop, so this must never become an await
-	 * inside it. A rejection or a hang here is not a run failure: the table
+	 * inside it. A rejection or a hang here is not a turn failure: the table
 	 * is still there, and a driver that cannot answer must not take down a
 	 * run that would otherwise work.
 	 */

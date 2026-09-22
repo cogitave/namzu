@@ -234,7 +234,7 @@ function operationBoundary(options: {
  * and a protocol version this kernel does not implement means every
  * subsequent request is a guess. Both are found once, at wiring time, which
  * is the only moment a human is looking; degrade here and the failure moves
- * to the middle of a delegation with a run waiting on it.
+ * to the middle of a delegation with a turn waiting on it.
  *
  * The version comparison is on major.minor, not the patch. A2A is
  * pre-1.0, where the minor carries breaking changes — matching on the full
@@ -414,7 +414,7 @@ export class A2ADelegate implements Delegate {
 			// Refused at construction. `supportedInterfaces` is what the card
 			// exists to tell us, and a peer offering only gRPC is a peer this
 			// client cannot talk to — discovering that mid-delegation would
-			// waste a run's time on a wiring mistake.
+			// waste a turn's time on a wiring mistake.
 			throw new InvalidAgentCardError({
 				url: config.card.supportedInterfaces[0]?.url ?? '(no interface)',
 				reason: 'no jsonrpc interface; this client speaks jsonrpc only',

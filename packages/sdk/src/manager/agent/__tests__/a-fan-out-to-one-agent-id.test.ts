@@ -9,7 +9,7 @@ import type { AgentDefinition } from '../../../types/agent/factory.js'
  *
  * `AgentRegistry` hands out ONE `typedAgent` per registered id, and an instance
  * refuses a second concurrent `run` — correctly, because its abort controller
- * and run id are instance state and two overlapping runs would cancel each
+ * and turn id are instance state and two overlapping turns would cancel each
  * other. So four `create_task` calls at one specialist produced one result and
  * three `ConcurrentInvocationError`s.
  *
@@ -20,7 +20,7 @@ import type { AgentDefinition } from '../../../types/agent/factory.js'
  *
  * These cover the shell itself. That the manager USES it per spawn is covered
  * where the manager is driven; what has to hold here is that asking for a
- * per-run shell gives you a genuinely separate one.
+ * per-turn shell gives you a genuinely separate one.
  */
 
 const metadata = {
@@ -31,16 +31,16 @@ const metadata = {
 	description: 'a worker',
 }
 
-describe('an agent can hand out a shell a single run has to itself', () => {
+describe('an agent can hand out a shell a single turn has to itself', () => {
 	it('returns a different instance', () => {
 		const agent = new ReactiveAgent(metadata)
 
-		expect(agent.forRun()).not.toBe(agent)
+		expect(agent.forTurn()).not.toBe(agent)
 	})
 
 	it('keeps the identity, because it is the same agent', () => {
 		const agent = new ReactiveAgent(metadata)
-		const shell = agent.forRun()
+		const shell = agent.forTurn()
 
 		expect(shell.metadata.id).toBe('worker')
 		expect(shell.type).toBe(agent.type)
@@ -49,15 +49,15 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 
 	it('gives each shell its own invocation lock, which is the whole point', async () => {
 		// Locking one must not lock the other. Asserted through the public
-		// surface: a run that never settles holds the lock, and a second run on
+		// surface: a turn that never settles holds the lock, and a second turn on
 		// a SEPARATE shell must still be admitted.
 		// ONE registered agent, two shells — the registry's shape, and the
 		// shape the fan-out actually hits.
 		const registered = new ReactiveAgent(metadata)
-		const first = registered.forRun()
-		const second = registered.forRun()
+		const first = registered.forTurn()
+		const second = registered.forTurn()
 
-		// A provider that starts and never finishes, so each run holds its
+		// A provider that starts and never finishes, so each turn holds its
 		// shell's lock for the duration of the assertion.
 		const provider = {
 			// biome-ignore lint/correctness/useYield: it never produces anything, on purpose
@@ -79,10 +79,15 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 			tenantId: 'c8c2d788-3684-4a87-aa3a-30df4e97d5cb' as never,
 		}
 
-		// Start one run on each shell; neither resolves, and neither should
-		// refuse. A shared shell would reject the second synchronously.
+		// Start one turn on each shell; neither resolves, and neither should
+		// refuse. A shared shell would reject the second synchronously. Each
+		// run gets its own session: a session admits one writer at a time, and
+		// the lock under test is the shell's, not the session's.
 		const a = first.run({ messages: [], workingDirectory: '/tmp' } as never, config as never)
-		const b = second.run({ messages: [], workingDirectory: '/tmp' } as never, config as never)
+		const b = second.run(
+			{ messages: [], workingDirectory: '/tmp' } as never,
+			{ ...config, sessionId: '0199a7c0-5b1e-7c2d-8e3f-4a5b6c7d8e9f' } as never,
+		)
 
 		await expect(
 			Promise.race([
@@ -97,7 +102,7 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 
 	it('a definition may override the shell with its own factory', () => {
 		// The escape hatch for an agent that needs real construction
-		// arguments, which `forRun`'s metadata-only rebuild cannot supply.
+		// arguments, which `forTurn`'s metadata-only rebuild cannot supply.
 		let built = 0
 		const definition: AgentDefinition = {
 			info: { ...metadata, tools: [], defaults: {} } as never,

@@ -59,9 +59,9 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 
 vi.mock('../../integrations/subagents/runtime.js', () => ({
 	createSubagentRuntime: async () => ({
-		gatewayForRun: async () => ({}) as never,
-		completionInboxForRun: async () => new (await import('@namzu/sdk')).CompletionInbox(),
-		releaseRun: async () => {},
+		gatewayForTurn: async () => ({}) as never,
+		completionInboxForTurn: async () => new (await import('@namzu/sdk')).CompletionInbox(),
+		releaseTurn: async () => {},
 		agentTool: {
 			name: 'Agent',
 			description: 'stub',

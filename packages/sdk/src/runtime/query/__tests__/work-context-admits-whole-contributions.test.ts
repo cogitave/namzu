@@ -64,7 +64,7 @@ async function run(
 			agentId: 'test',
 			agentName: 'test',
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: 'mock',
 				maxIterations: hops + 3,
 				maxResponseTokens: 100,

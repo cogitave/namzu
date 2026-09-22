@@ -10,13 +10,15 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Message } from '@namzu/sdk'
+import { type Message, createAssistantMessage } from '@namzu/sdk'
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { recordTurn } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import type { CliSessions } from '../../integrations/sessions/store.js'
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession, RunScope } from '../agent.js'
+import type { AgentEvent, AgentSession, SessionScope } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = {
@@ -25,13 +27,13 @@ const PREFS: Preferences = {
 	subagents: { active: [] },
 }
 
-let holdFirstEvidenceStart = false
+let holdFirstAdmission = false
 let failFreshStart = false
-let evidenceStarts = 0
-let evidenceReached: Promise<void>
-let markEvidenceReached: () => void = () => {}
-let evidenceRelease: Promise<void>
-let releaseEvidence: () => void = () => {}
+let admissions = 0
+let admissionReached: Promise<void>
+let markAdmissionReached: () => void = () => {}
+let admissionRelease: Promise<void>
+let releaseAdmission: () => void = () => {}
 
 let runningRelease: Promise<void>
 let releaseRunning: () => void = () => {}
@@ -41,14 +43,14 @@ const sends: Array<{
 	sessionId: string | null
 	signal: AbortSignal | undefined
 }> = []
-let sharedScope: RunScope | undefined
+let sharedScope: SessionScope | undefined
 
 function resetGates(): void {
-	evidenceReached = new Promise<void>((resolve) => {
-		markEvidenceReached = resolve
+	admissionReached = new Promise<void>((resolve) => {
+		markAdmissionReached = resolve
 	})
-	evidenceRelease = new Promise<void>((resolve) => {
-		releaseEvidence = resolve
+	admissionRelease = new Promise<void>((resolve) => {
+		releaseAdmission = resolve
 	})
 	runningRelease = new Promise<void>((resolve) => {
 		releaseRunning = resolve
@@ -75,28 +77,19 @@ vi.mock('../../integrations/sessions/store.js', async (importOriginal) => {
 			}
 			return await actual.startConversation(sessions)
 		},
-		openSessions: async (cwd: string) => {
-			const sessions = await actual.openSessions(cwd)
-			const evidence = sessions.turnEvidence
-			if (!evidence) return sessions
-			const wrapped = new Proxy(evidence, {
-				get(target, property, receiver) {
-					if (property === 'recordTurnStarted') {
-						return async (input: Parameters<typeof evidence.recordTurnStarted>[0]) => {
-							const record = await evidence.recordTurnStarted(input)
-							evidenceStarts += 1
-							if (holdFirstEvidenceStart && evidenceStarts === 1) {
-								markEvidenceReached()
-								await evidenceRelease
-							}
-							return record
-						}
-					}
-					const value = Reflect.get(target, property, receiver)
-					return typeof value === 'function' ? value.bind(target) : value
-				},
-			})
-			return { ...sessions, turnEvidence: wrapped }
+		// The turn-boundary check App awaits right before it hands the turn to
+		// the session: holding it opens the window a conversation switch can
+		// land in.
+		requireWritableConversation: async (
+			...args: Parameters<typeof actual.requireWritableConversation>
+		) => {
+			await actual.requireWritableConversation(...args)
+			if (args[2] !== 'start conversation turn') return
+			admissions += 1
+			if (holdFirstAdmission && admissions === 1) {
+				markAdmissionReached()
+				await admissionRelease
+			}
 		},
 	}
 })
@@ -117,9 +110,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 		createAgentSession: async (
 			_preferences: Preferences,
 			_detected: readonly unknown[],
-			options: { readonly scope?: RunScope },
+			options: { readonly scope?: SessionScope; readonly conversationSessions?: unknown },
 		): Promise<AgentSession> => {
 			sharedScope = options.scope
+			const conversations = options.conversationSessions as CliSessions | undefined
 			return {
 				hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
@@ -145,6 +139,8 @@ vi.mock('../agent.js', async (importOriginal) => {
 				approvalLatched: () => false,
 				promptExemptTools: () => [],
 				send: async function* (messages, sendOptions): AsyncIterable<AgentEvent> {
+					// Captured at the start, as the real session copies its scope
+					// when a turn begins: the kernel records the turn there.
 					const sessionId = sharedScope?.sessionId ?? null
 					sends.push({
 						messages: [...messages],
@@ -153,10 +149,19 @@ vi.mock('../agent.js', async (importOriginal) => {
 					})
 					const prompt = messages.at(-1)?.content
 					const text = typeof prompt === 'string' ? prompt : JSON.stringify(prompt)
-					yield { kind: 'delta', text: `answer:${text}` } as AgentEvent
+					let reply = `answer:${text}`
+					yield { kind: 'delta', text: reply } as AgentEvent
 					if (text.includes('HOLD_RUNNING')) {
 						await runningRelease
+						reply += ' LATE_OLD_REPLY'
 						yield { kind: 'delta', text: ' LATE_OLD_REPLY' } as AgentEvent
+					}
+					const user = messages.at(-1)
+					if (conversations && sessionId && user) {
+						await recordTurn(conversations, sessionId as never, [
+							user,
+							createAssistantMessage(reply),
+						])
 					}
 					yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 				},
@@ -169,23 +174,22 @@ const { App } = await import('../App.js')
 const { listRecent, loadConversation, openSessions } = await import(
 	'../../integrations/sessions/store.js'
 )
-const { conversationMarkdown } = await import('../../integrations/sessions/transcript-export.js')
 
 const roots: string[] = []
 const mounted: Array<{ unmount: () => void }> = []
 const tick = (ms = 30) => new Promise((resolve) => setTimeout(resolve, ms))
 
 beforeEach(() => {
-	holdFirstEvidenceStart = false
+	holdFirstAdmission = false
 	failFreshStart = false
-	evidenceStarts = 0
+	admissions = 0
 	sends.length = 0
 	sharedScope = undefined
 	resetGates()
 })
 
 afterEach(() => {
-	releaseEvidence()
+	releaseAdmission()
 	releaseRunning()
 	for (const harness of mounted.splice(0)) harness.unmount()
 	for (const root of roots.splice(0)) removeTempDir(root)
@@ -339,13 +343,13 @@ it('leaves the current context and running turn intact when the durable target c
 	expect(textOf(sends[1]?.messages ?? [])).toContain('AFTER_FAILED_CLEAR')
 })
 
-it('does not admit an old turn to session.send after clear crosses its durable-start await', async () => {
-	holdFirstEvidenceStart = true
+it('does not admit an old turn to session.send after clear crosses its turn-boundary await', async () => {
+	holdFirstAdmission = true
 	const root = await cwd()
 	const harness = await renderApp(root)
 
 	await submit(harness, 'HELD_BEFORE_PROVIDER')
-	await evidenceReached
+	await admissionReached
 	const sourceSession = sharedScope?.sessionId
 	if (!sourceSession) throw new Error('fixture requires a durable source conversation')
 	expect(sends).toHaveLength(0)
@@ -355,27 +359,24 @@ it('does not admit an old turn to session.send after clear crosses its durable-s
 		() =>
 			sharedScope?.sessionId !== sourceSession &&
 			(harness.lastFrame() ?? '').includes('Started a fresh conversation'),
-		'the conversation did not switch while turn evidence was held',
+		'the conversation did not switch while the turn boundary was held',
 	)
 	await submit(harness, 'NEW_AFTER_HELD')
 	await until(() => sends.length === 1, 'the new conversation turn never reached the provider')
 	expect(textOf(sends[0]?.messages ?? [])).toContain('NEW_AFTER_HELD')
 	expect(textOf(sends[0]?.messages ?? [])).not.toContain('HELD_BEFORE_PROVIDER')
 
-	releaseEvidence()
+	releaseAdmission()
 	await until(
-		asyncFlag(async () =>
-			(await durableConversations(root)).some((messages) =>
-				textOf(messages).includes('HELD_BEFORE_PROVIDER'),
-			),
-		),
-		'the cancelled pre-provider turn was not saved to its source conversation',
+		asyncFlag(async () => (await durableConversations(root)).length === 1),
+		'the new conversation turn was not recorded',
 	)
-	expect(sends, 'the abandoned turn entered the provider after its ledger await').toHaveLength(1)
-	const sessions = await openSessions(root)
-	const exportedSource = await conversationMarkdown(sessions, sourceSession)
-	expect(exportedSource.markdown).toContain('HELD_BEFORE_PROVIDER')
-	expect(exportedSource.markdown).toContain('cancelled before model execution began')
+	await tick(120)
+	expect(sends, 'the abandoned turn entered the provider after its boundary await').toHaveLength(1)
+	// A turn that never began has nothing in any log: only turns the kernel ran
+	// are recorded.
+	const durable = await durableConversations(root)
+	expect(durable.some((messages) => textOf(messages).includes('HELD_BEFORE_PROVIDER'))).toBe(false)
 })
 
 it('fences late events and persistence from a running turn after /clear', async () => {

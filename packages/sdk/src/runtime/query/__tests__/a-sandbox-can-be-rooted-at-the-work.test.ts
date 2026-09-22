@@ -18,12 +18,12 @@ import { drainQuery } from '../index.js'
  *
  * `SandboxCreateConfig.workingDirectory` existed, the local provider ignored
  * it, and the kernel never set it: `drainQuery` built the sandbox from three
- * timeout/limit fields and dropped the run's own `cwd`. So a consumer
- * configuring a sandbox through `runConfig.sandbox` always got a temp
- * directory, whatever the run was working on.
+ * timeout/limit fields and dropped the turn's own `cwd`. So a consumer
+ * configuring a sandbox through `turnConfig.sandbox` always got a temp
+ * directory, whatever the turn was working on.
  *
  * The direct SDK default stays ephemeral. Changing that would be a major and
- * would quietly point every existing embedded sandboxed run at real files.
+ * would quietly point every existing embedded sandboxed turn at real files.
  */
 
 const dirs: string[] = []
@@ -71,7 +71,7 @@ async function run(opts: {
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
 		sandboxProvider: provider,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 20_000,
 			tokenBudget: 100_000,
@@ -93,7 +93,7 @@ async function run(opts: {
 
 describe('what a sandbox is rooted at', () => {
 	it('names no directory when a raw config omits the key', async () => {
-		// The direct-SDK path: `drainQuery` reads `runConfig.sandbox` as the
+		// The direct-SDK path: `drainQuery` reads `turnConfig.sandbox` as the
 		// caller passed it, so an absent key is ephemeral by the comparison,
 		// not by the schema. Flipping the schema default does NOT change this
 		// — checked, and it is why the next test exists rather than this one
@@ -109,7 +109,7 @@ describe('what a sandbox is rooted at', () => {
 		// default to 'working-directory' fails here — which is the assertion
 		// the previous test looked like it was making and was not: it would
 		// be a major, and it would silently point every already-configured
-		// sandboxed run at the caller's real files.
+		// sandboxed turn at the caller's real files.
 		const resolved = SandboxConfigSchema.parse({ enabled: true })
 		expect(resolved.workspace).toBe('ephemeral')
 
@@ -118,7 +118,7 @@ describe('what a sandbox is rooted at', () => {
 		expect(seen[0]?.workingDirectory).toBeUndefined()
 	})
 
-	it("passes the run's own cwd when the caller asks for it", async () => {
+	it("passes the turn's own cwd when the caller asks for it", async () => {
 		// The whole defect: this argument was never populated. Reverting the
 		// `create()` call site fails only this.
 		const { seen } = await run({ workspace: 'working-directory', withWorkingDirectory: true })
@@ -134,7 +134,7 @@ describe('what a sandbox is rooted at', () => {
 		// asked to confine. Falling back to ephemeral is the other wrong
 		// answer: it reports success while confining nothing the caller meant.
 		// `drainQuery` settles a thrown run rather than rejecting, so the
-		// refusal shows up as a failed Run carrying the message — asserted
+		// refusal shows up as a failed turn carrying the message — asserted
 		// against the actual contract rather than the one that felt natural.
 		const { run: failed } = await run({
 			workspace: 'working-directory',
@@ -156,7 +156,7 @@ describe('what a sandbox is rooted at', () => {
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools: new ToolRegistry(),
 			sandboxProvider: provider,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,
@@ -185,7 +185,7 @@ describe('what a sandbox is rooted at', () => {
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 			tools: new ToolRegistry(),
 			sandboxProvider: provider,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 20_000,
 				tokenBudget: 100_000,

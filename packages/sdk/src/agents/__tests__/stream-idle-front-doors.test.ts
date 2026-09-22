@@ -84,8 +84,8 @@ describe('agent front doors preserve the provider idle override', () => {
 			}),
 		)
 
-		expect(result.run.status).toBe('failed')
-		expect(result.run.lastProviderError?.kind).toBe('network')
+		expect(result.turn.status).toBe('failed')
+		expect(result.turn.lastProviderError?.kind).toBe('network')
 		expect(provider.calls).toBe(1)
 		expect(caller.signal.aborted).toBe(false)
 	})

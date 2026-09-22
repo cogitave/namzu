@@ -22,7 +22,7 @@ import { StreamTextAccumulator } from './stream-text.js'
  * - reasoning blocks are bucketed by `index` the same way, because the
  *   assembled message is the thing a caller replays and
  *   {@link ReasoningBlock} is documented as replayed verbatim. This was
- *   missing: `delta.reasoning` was dropped on the floor, so a run collected
+ *   missing: `delta.reasoning` was dropped on the floor, so a response collected
  *   through this helper came back with no reasoning even when the driver had
  *   streamed it — and a vendor that requires the blocks back on the next turn
  *   would then be sent a message that had lost them;
@@ -31,7 +31,7 @@ import { StreamTextAccumulator } from './stream-text.js'
  *   where `message_stop` is occasionally dropped on connection close).
  *
  * The orchestrator does NOT call this helper — it consumes the stream
- * directly so it can emit per-delta `RunEvent`s.
+ * directly so it can emit per-delta `SessionEvent`s.
  */
 export async function collectChatCompletion(
 	stream: AsyncIterable<StreamChunk>,
@@ -50,7 +50,7 @@ export async function collectChatCompletion(
 	}
 
 	const toolBuckets = new Map<number, { id: string; name: string; argsBuf: string }>()
-	// Same bucketing rule the run loop uses (`runtime/query/iteration/
+	// Same bucketing rule the turn loop uses (`runtime/query/iteration/
 	// stream-turn.ts`), so a message assembled here and a message assembled
 	// there carry the same blocks in the same order.
 	const reasoningBuckets = new Map<

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { type ResidentLearningState, hashResidentSkill } from '../../manager/resident/learning.js'
 import type { ResidentState } from '../../manager/resident/store.js'
 import type { ToolContext } from '../../types/tool/index.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { createResidentStepContext } from '../resident-learning.js'
 
 function state(overrides: Partial<ResidentState> = {}): ResidentState {
@@ -53,9 +53,10 @@ function learning(): ResidentLearningState {
 	}
 }
 
-const owner = generateRunId()
+const owner = generateTurnId()
 const context: ToolContext = {
-	runId: owner,
+	sessionId: generateSessionId(),
+	turnId: owner,
 	workingDirectory: '/tmp',
 	abortSignal: new AbortController().signal,
 	env: {},
@@ -65,7 +66,7 @@ const options = () => ({
 	state: state(),
 	learning: learning(),
 	outputInstructions: 'Report the verified result.',
-	authorizeLearningRead: (ctx: ToolContext) => ctx.runId === owner,
+	authorizeLearningRead: (ctx: ToolContext) => ctx.turnId === owner,
 })
 const rendered = (bundle: ReturnType<typeof createResidentStepContext>, placement: string) =>
 	bundle.contributions
@@ -122,11 +123,11 @@ describe('resident guidance disclosure', () => {
 		expect(rendered(bundle, 'dynamic')).not.toContain(body)
 		expect(rendered(createResidentStepContext(options()), 'turn')).toBe('')
 	})
-	it('rejects foreign runs and unavailable names without selecting or leaking a body', async () => {
+	it('rejects foreign turns and unavailable names without selecting or leaking a body', async () => {
 		const bundle = createResidentStepContext(options())
 		const denied = await bundle.tools[0]!.execute(
 			{ name: 'checked-identifiers' },
-			{ ...context, runId: generateRunId() },
+			{ ...context, turnId: generateTurnId() },
 		)
 		expect(denied.success).toBe(false)
 		expect(denied.output).toBe('')

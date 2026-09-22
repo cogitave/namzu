@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The seam between what a tool RETURNS and what reaches the provider.
@@ -18,7 +21,7 @@ import { ToolExecutor } from '../executor.js'
  * arrived — the mapper tests passed because they set the fields by hand.
  */
 
-const RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as RunId
+const TURN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -57,15 +60,16 @@ function executorReturning(result: ToolResult, maxToolOutputChars?: number): Too
 
 	return new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
-			runId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 			...(maxToolOutputChars !== undefined ? { maxToolOutputChars } : {}),
 		},
-		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+		new ActivityStore(TURN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		async () => {},
 		makeLogger(),
 	)

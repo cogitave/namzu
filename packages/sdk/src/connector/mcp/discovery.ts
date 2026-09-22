@@ -32,7 +32,7 @@ export interface MCPToolDiscoveryOptions {
 	 * Called when a server's tool set differs from the previous discovery.
 	 *
 	 * Drift is reported rather than blocked because the right response is a
-	 * host decision: a dev server legitimately changes between runs, while
+	 * host decision: a dev server legitimately changes between turns, while
 	 * a production one changing mid-session is the "rug pull" — advertise
 	 * something benign at approval time, swap it afterwards. Only the host
 	 * knows which it is looking at.
@@ -116,7 +116,7 @@ export class MCPToolDiscovery {
 
 		// The boundary. Without it the REMOTE side decides what enters the
 		// agent's registry, which inverts least privilege: a server could
-		// add a tool between two runs and it became callable with nobody
+		// add a tool between two turns and it became callable with nobody
 		// having agreed to it.
 		const policy = this.options.policies?.[state.serverName] ?? this.options.policies?.['*']
 		const { admitted, refused } = applyToolPolicy(advertised, policy)

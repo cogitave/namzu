@@ -14,8 +14,8 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, ProviderCapabilities } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -105,7 +105,7 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 	return {
 		provider,
 		tools,
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -160,7 +160,7 @@ describe('query() capability negotiation', () => {
 		const provider = capturingProvider(NO_TOOLS_CAPABILITIES)
 		const tools = new ToolRegistry()
 		registerEchoTool(tools)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -186,7 +186,7 @@ describe('query() capability negotiation', () => {
 
 		// The host got the machine-readable warning.
 		const warning = events.find(
-			(e): e is Extract<RunEvent, { type: 'capability_warning' }> =>
+			(e): e is Extract<SessionEvent, { type: 'capability_warning' }> =>
 				e.type === 'capability_warning',
 		)
 		expect(warning?.capability).toBe('tools')
@@ -210,7 +210,7 @@ describe('query() capability negotiation', () => {
 
 	it('emits a vision capability_warning when attachments hit a no-vision provider', async () => {
 		const provider = capturingProvider(NO_VISION_CAPABILITIES)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -228,7 +228,7 @@ describe('query() capability negotiation', () => {
 
 		expect(run.status).toBe('completed')
 		const warning = events.find(
-			(e): e is Extract<RunEvent, { type: 'capability_warning' }> =>
+			(e): e is Extract<SessionEvent, { type: 'capability_warning' }> =>
 				e.type === 'capability_warning',
 		)
 		expect(warning?.capability).toBe('vision')
@@ -237,7 +237,7 @@ describe('query() capability negotiation', () => {
 
 	it('does not warn when no attachments are present on a no-vision provider', async () => {
 		const provider = capturingProvider(NO_VISION_CAPABILITIES)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		await drainQuery(
 			{
@@ -267,13 +267,13 @@ describe('query() capability negotiation', () => {
 		const tools = new ToolRegistry()
 		registerScreenshotTool(tools)
 		registerEchoTool(tools)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const base = baseParams(provider, tools, await mkWorkdir())
 		const run = await drainQuery(
 			{
 				...base,
-				runConfig: { ...base.runConfig, maxIterations: 3 },
+				turnConfig: { ...base.turnConfig, maxIterations: 3 },
 				messages: [createUserMessage('inspect the screen')],
 			},
 			(event) => {
@@ -332,13 +332,13 @@ describe('query() capability negotiation', () => {
 			})
 			const tools = new ToolRegistry()
 			testCase.register(tools)
-			const events: RunEvent[] = []
+			const events: SessionEvent[] = []
 			const base = baseParams(provider, tools, await mkWorkdir())
 			await drainQuery(
 				{
 					...base,
-					runConfig: {
-						...base.runConfig,
+					turnConfig: {
+						...base.turnConfig,
 						maxIterations: 2,
 						...(testCase.maxRequestRichContentBytes !== undefined
 							? { maxRequestRichContentBytes: testCase.maxRequestRichContentBytes }
@@ -374,7 +374,7 @@ describe('query() capability negotiation', () => {
 
 		const run = await drainQuery({
 			...base,
-			runConfig: { ...base.runConfig, maxIterations: 2 },
+			turnConfig: { ...base.turnConfig, maxIterations: 2 },
 			messages: [createUserMessage('inspect')],
 			strictCapabilities: true,
 		})

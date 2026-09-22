@@ -1,4 +1,4 @@
-import type { ActivityId, RunId } from '../ids/index.js'
+import type { ActivityId, TurnId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
 
 export type ActivityType = 'tool_call' | 'llm_turn' | 'sub_agent' | 'shell'
@@ -25,7 +25,7 @@ export interface ActivityProgress {
 
 export interface Activity<TInput = unknown, TOutput = unknown> {
 	id: ActivityId
-	runId: RunId
+	turnId: TurnId
 	type: ActivityType
 	status: ActivityStatus
 	description: string

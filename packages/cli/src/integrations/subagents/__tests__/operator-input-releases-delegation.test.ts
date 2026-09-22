@@ -6,12 +6,12 @@ import {
 	type LLMProvider,
 	type Message,
 	MockLLMProvider,
-	RunCancelled,
 	type StreamChunk,
 	ToolRegistry,
+	TurnCancelled,
 	createUserMessage,
 	drainQuery,
-	generateRunId,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -88,7 +88,7 @@ describe('operator input releases delegation waits without cancelling children',
 	})
 
 	it.each([false, true])(
-		'keeps one parent run responsive through a repeated steer (cancel=%s)',
+		'keeps one parent turn responsive through a repeated steer (cancel=%s)',
 		async (cancel) => {
 			const cwd = mkdtempSync(join(tmpdir(), 'namzu-delegation-input-'))
 			workdirs.push(cwd)
@@ -100,7 +100,8 @@ describe('operator input releases delegation waits without cancelling children',
 			let childIndex = 0
 			const runtime = await createSubagentRuntime({
 				resolveParent: parent.resolveParent,
-				resolveWaitForInbound: (runId) => (runId === parent.scope.runId ? inbox.wait : undefined),
+				resolveWaitForInbound: (turnId) =>
+					turnId === parent.scope.turnId ? inbox.wait : undefined,
 				cwd,
 				model: 'mock-model',
 				tokenBudget: 1_000_000,
@@ -123,8 +124,8 @@ describe('operator input releases delegation waits without cancelling children',
 					} satisfies LLMProvider
 				},
 			})
-			const gateway = await runtime.gatewayForRun(parent.scope.runId)
-			const completionInbox = await runtime.completionInboxForRun(parent.scope.runId)
+			const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
+			const completionInbox = await runtime.completionInboxForTurn(parent.scope.turnId)
 			const parentScript = new MockLLMProvider({
 				turns: [
 					{
@@ -165,7 +166,7 @@ describe('operator input releases delegation waits without cancelling children',
 				completionInbox,
 				inboundMessages: inbox.drain,
 				waitForInbound: inbox.wait,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 30_000,
 					tokenBudget: 1_000_000,
@@ -178,7 +179,7 @@ describe('operator input releases delegation waits without cancelling children',
 				workingDirectory: cwd,
 				...parent.scope,
 				signal: caller.signal,
-			}).finally(() => runtime.releaseRun(parent.scope.runId))
+			}).finally(() => runtime.releaseTurn(parent.scope.turnId))
 			try {
 				const signals = await Promise.all(started.map((entry) => entry.promise))
 				await inbox.waiting(3)
@@ -201,7 +202,8 @@ describe('operator input releases delegation waits without cancelling children',
 				const listing = await runtime.agentTaskListTool.execute(
 					{},
 					{
-						runId: parent.scope.runId,
+						sessionId: parent.scope.sessionId,
+						turnId: parent.scope.turnId,
 						workingDirectory: cwd,
 						abortSignal: caller.signal,
 						env: {},
@@ -228,24 +230,24 @@ describe('operator input releases delegation waits without cancelling children',
 				expect(childIndex).toBe(3)
 				expect(signals.every((signal) => !signal.aborted)).toBe(true)
 				await inbox.waiting(1)
-				if (cancel) caller.abort(new RunCancelled('user'))
+				if (cancel) caller.abort(new TurnCancelled('user'))
 				else for (const release of releases) release.resolve()
-				const run = await pending
-				expect(run.status).toBe(cancel ? 'cancelled' : 'completed')
+				const turn = await pending
+				expect(turn.status).toBe(cancel ? 'cancelled' : 'completed')
 				expect(inbox.pendingWaiters).toBe(0)
 				if (cancel) {
 					expect(signals.every((signal) => signal.aborted)).toBe(true)
 				} else {
 					for (let index = 0; index < 3; index++) {
-						const containing = run.messages.filter((message) =>
+						const containing = turn.messages.filter((message) =>
 							String(message.content).includes(`child-result-${index}`),
 						)
 						expect(containing).toHaveLength(1)
 					}
-					expect(run.messages.filter((message) => message.role === 'tool')).toHaveLength(3)
+					expect(turn.messages.filter((message) => message.role === 'tool')).toHaveLength(3)
 				}
 			} finally {
-				caller.abort(new RunCancelled('user'))
+				caller.abort(new TurnCancelled('user'))
 				for (const release of releases) release.resolve()
 				await pending.catch(() => {})
 				await runtime.close()
@@ -270,9 +272,9 @@ describe('operator input releases delegation waits without cancelling children',
 			let scopeReads = 0
 			const parentResponseRelease = deferred<void>()
 			const runtime = await createSubagentRuntime({
-				resolveParent: async (runId) => {
+				resolveParent: async (turnId) => {
 					scopeReads++
-					return parent.resolveParent(runId)
+					return parent.resolveParent(turnId)
 				},
 				resolveWaitForInbound: () => inbox.wait,
 				cwd,
@@ -319,8 +321,8 @@ describe('operator input releases delegation waits without cancelling children',
 					} satisfies LLMProvider
 				},
 			})
-			const gateway = await runtime.gatewayForRun(parent.scope.runId)
-			const completionInbox = await runtime.completionInboxForRun(parent.scope.runId)
+			const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
+			const completionInbox = await runtime.completionInboxForTurn(parent.scope.turnId)
 			const requests = Array.from({ length: 20 }, () => deferred<ChatCompletionParams>())
 			const script = new MockLLMProvider({
 				nextTurn: (_params, index) =>
@@ -363,7 +365,7 @@ describe('operator input releases delegation waits without cancelling children',
 				completionInbox,
 				inboundMessages: inbox.drain,
 				waitForInbound: inbox.wait,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 30_000,
 					tokenBudget: 1_000_000,
@@ -376,7 +378,7 @@ describe('operator input releases delegation waits without cancelling children',
 				workingDirectory: cwd,
 				...parent.scope,
 				signal: caller.signal,
-			}).finally(() => runtime.releaseRun(parent.scope.runId))
+			}).finally(() => runtime.releaseTurn(parent.scope.turnId))
 			try {
 				const signals = await Promise.all(started.slice(0, 8).map((entry) => entry.promise))
 				// The generic tool batch also has eight workers. The remaining two
@@ -418,7 +420,7 @@ describe('operator input releases delegation waits without cancelling children',
 				expect(gateway.listTasks().filter((task) => task.state === 'pending')).toHaveLength(2)
 				expect(gateway.listTasks().filter((task) => task.state === 'failed')).toHaveLength(0)
 				expect(signals.every((signal) => !signal.aborted)).toBe(true)
-				if (cancel) caller.abort(new RunCancelled('user'))
+				if (cancel) caller.abort(new TurnCancelled('user'))
 				else {
 					parentResponseRelease.resolve()
 					await started[8]!.promise
@@ -428,9 +430,9 @@ describe('operator input releases delegation waits without cancelling children',
 					expect(childCount).toBe(10)
 					for (const release of releases) release.resolve()
 				}
-				const run = await pending
-				expect(run.status).toBe(cancel ? 'cancelled' : 'completed')
-				expect(run.stopReason).not.toBe('token_budget')
+				const turn = await pending
+				expect(turn.status).toBe(cancel ? 'cancelled' : 'completed')
+				expect(turn.stopReason).not.toBe('token_budget')
 				expect(peak).toBeLessThanOrEqual(8)
 				expect(inbox.pendingWaiters).toBe(0)
 				if (cancel) {
@@ -439,14 +441,14 @@ describe('operator input releases delegation waits without cancelling children',
 				} else {
 					for (let i = 0; i < 10; i++)
 						expect(
-							run.messages.filter((message) =>
+							turn.messages.filter((message) =>
 								String(message.content).includes(`child-result-${i}`),
 							),
 						).toHaveLength(1)
 				}
 			} finally {
 				parentResponseRelease.resolve()
-				caller.abort(new RunCancelled('user'))
+				caller.abort(new TurnCancelled('user'))
 				for (const release of releases) release.resolve()
 				await pending.catch(() => {})
 				await runtime.close()
@@ -464,11 +466,11 @@ describe('operator input releases delegation waits without cancelling children',
 		const release = deferred<void>()
 		const started = deferred<void>()
 		const completeOutput = `Task 1: 596ec65e-b063-401c-b1f7-a2b6cc4ce35a\nbegin:${'x'.repeat(5_000)}:complete-tail`
-		const otherRunId = generateRunId()
+		const otherTurnId = generateTurnId()
 		let requests = 0
 		const runtime = await createSubagentRuntime({
-			resolveParent: (runId) =>
-				parent.resolveParent(runId === otherRunId ? parent.scope.runId : runId),
+			resolveParent: (turnId) =>
+				parent.resolveParent(turnId === otherTurnId ? parent.scope.turnId : turnId),
 			resolveWaitForInbound: () => inbox.wait,
 			cwd,
 			model: 'mock-model',
@@ -487,7 +489,8 @@ describe('operator input releases delegation waits without cancelling children',
 			}),
 		})
 		const context = {
-			runId: parent.scope.runId,
+			sessionId: parent.scope.sessionId,
+			turnId: parent.scope.turnId,
 			workingDirectory: cwd,
 			abortSignal: new AbortController().signal,
 			env: {},
@@ -516,20 +519,23 @@ describe('operator input releases delegation waits without cancelling children',
 				`task_id: ${taskId}\nstatus: completed\n\nAgent result:\n${completeOutput}`,
 			)
 			expect(requests).toBe(1)
-			expect((await runtime.completionInboxForRun(parent.scope.runId)).drain()).toEqual([])
+			expect((await runtime.completionInboxForTurn(parent.scope.turnId)).drain()).toEqual([])
 			const refused = await runtime.waitForTaskTool.execute(
 				{ task_id: '596ec65e-b063-401c-b1f7-a2b6cc4ce35a' },
 				context,
 			)
 			expect(refused.success).toBe(false)
-			expect(refused.error).toContain('does not belong to this parent run')
+			expect(refused.error).toContain('does not belong to this parent turn')
 			const foreign = await runtime.waitForTaskTool.execute(
 				{ task_id: taskId },
-				{ ...context, runId: otherRunId },
+				{ ...context, turnId: otherTurnId },
 			)
 			expect(foreign.success).toBe(false)
-			expect(foreign.error).toContain('does not belong to this parent run')
-			const invalid = await runtime.waitForTaskTool.execute({ task_id: '../../other-run' }, context)
+			expect(foreign.error).toContain('does not belong to this parent turn')
+			const invalid = await runtime.waitForTaskTool.execute(
+				{ task_id: '../../other-turn' },
+				context,
+			)
 			expect(invalid.success).toBe(false)
 			expect(invalid.error).toContain('task UUID')
 		} finally {
@@ -565,7 +571,8 @@ describe('operator input releases delegation waits without cancelling children',
 			const result = await runtime.agentTool.execute(
 				{ description: 'partial task', prompt: 'keep working' },
 				{
-					runId: parent.scope.runId,
+					sessionId: parent.scope.sessionId,
+					turnId: parent.scope.turnId,
 					workingDirectory: cwd,
 					abortSignal: new AbortController().signal,
 					env: {},
@@ -583,7 +590,8 @@ describe('operator input releases delegation waits without cancelling children',
 			const listing = await runtime.agentTaskListTool.execute(
 				{},
 				{
-					runId: parent.scope.runId,
+					sessionId: parent.scope.sessionId,
+					turnId: parent.scope.turnId,
 					workingDirectory: cwd,
 					abortSignal: new AbortController().signal,
 					env: {},

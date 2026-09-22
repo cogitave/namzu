@@ -8,8 +8,8 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { PrepareStepChain } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { PrepareStepChain } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -35,7 +35,7 @@ async function run(prepareStep: PrepareStepChain) {
 	await drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'base-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,

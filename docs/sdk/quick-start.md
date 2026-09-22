@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Run the kernel
-description: Start an offline SDK run, execute a tool, and retain the identity and messages needed for another turn.
+description: Start an offline SDK turn, execute a tool, and retain the identity and messages needed for the next turn.
 resource: packages/sdk/src/agents/runAgent.ts
 tags: [sdk, agent-kernel, getting-started]
 status: stable
@@ -25,28 +25,28 @@ Save this as `agent.ts`, then run `pnpm exec tsx agent.ts`:
 import { ProviderRegistry, runAgent } from '@namzu/sdk'
 
 const { provider } = ProviderRegistry.create({ type: 'mock', responseText: 'Paris.' })
-const { output, run, identity } = await runAgent({
+const { output, turn, identity } = await runAgent({
   provider,
   model: 'mock-model',
   prompt: 'What is the capital of France?',
 })
 
 console.log(output)
-console.log(run.stopReason)
+console.log(turn.stopReason)
 console.log(identity)
 ```
 
 The mock supplies the scripted answer `Paris.` without a key, network request
-or inference charge. The kernel still executes its normal run lifecycle,
+or inference charge. The kernel still executes its normal turn lifecycle,
 including budgets and persistence. The [SDK README](../../packages/sdk/README.md#run-a-tool)
 also contains a complete example that executes a local tool through this loop.
 
 `runAgent` fills in missing identity and returns all four fields as
 `identity`. `tenantId`, `topicId` and `sessionId` are generated per call.
-`projectId` is derived from `workingDirectory` by `projectIdForDirectory`, so
-every run in one directory is filed under one Project and the durable layout
-(`projects/<projectId>/…`) gains one tree per directory rather than one per
-call. None of this creates Project, Topic or Session records in a session
+`projectId` is the project of `workingDirectory`: minted once into
+`<NAMZU_HOME>/projects/<slug>/project.json` by `ensureProject` and adopted by
+every later call there, so every session in one directory is filed under one
+Project, in one tree. None of this creates Project, Topic or Session records in a session
 store. A host using store-backed delegation supplies the identity from its
 actual records.
 
@@ -56,7 +56,7 @@ disable those guards explicitly. Usage and cancellation remain active; see
 [Token budgets](token-budgets.md) for descendant accounting and receipt handling.
 
 To continue a conversation, spread the returned `identity` into the next
-`runAgent` call and pass the prior `run.messages` plus a new user message as
+`runAgent` call and pass the prior `turn.messages` plus a new user message as
 `prompt`. Reusing identity alone does not load history. Omitting identity starts
 a new session in the working directory's Project.
 
@@ -65,38 +65,44 @@ For more runtime configuration, use `ReactiveAgent` or `query`. Unlike
 `runAgent`, those entry points take the four identity fields explicitly and
 do not generate missing identity.
 
-## Keep execution state outside working files
+## Where the session is recorded
 
-`workingDirectory` controls where tools execute. It does not have to be the
-storage root. Pass a `pathBuilder` to keep checkpoints, run evidence and other
-runtime files outside the workspace a model searches:
+`workingDirectory` controls where tools execute; it is never where generated
+state goes. Each call is one turn of a session, recorded in one append-only
+log under `NAMZU_HOME` (default `~/.namzu`):
+`projects/<slug>/<session-id>.jsonl`, where the slug is the working
+directory's canonical path with every character outside `[A-Za-z0-9]` replaced
+by `-`. Checkpoints, the token ledger, tasks and tool-result spills sit beside
+it in `projects/<slug>/<session-id>/`. See [Session log](session-log.md) for
+the layout and the record schema.
+
+To put that state somewhere else, set `NAMZU_HOME`, or pass `paths`, a
+`SessionPaths` rooted where you choose:
 
 ```ts
-import { DefaultPathBuilder, MockLLMProvider, runAgent } from '@namzu/sdk'
+import { ensureProject, MockLLMProvider, runAgent, SessionPaths } from '@namzu/sdk'
+
+const home = '/absolute/path/private-runtime-state'
+const workingDirectory = '/absolute/path/workspace'
+const project = await ensureProject({ home, cwd: workingDirectory })
 
 const result = await runAgent({
   provider: new MockLLMProvider({ responseText: 'ready' }),
   model: 'mock-model',
   prompt: 'Say ready.',
-  workingDirectory: '/absolute/path/workspace',
-  pathBuilder: new DefaultPathBuilder('/absolute/path/private-runtime-state'),
+  workingDirectory,
+  projectId: project.projectId,
+  paths: new SessionPaths({ home, slug: project.slug }),
 })
 ```
 
-The host owns those paths and their permissions. An omitted builder puts
-generated state under `defaultStateRoot()`: `NAMZU_STATE_DIR` when set, else the
-per-user state directory (`$XDG_STATE_HOME/namzu` or `~/.local/state/namzu` on
-Linux, `~/Library/Application Support/namzu/state` on macOS,
-`%LOCALAPPDATA%\namzu\state` on Windows). It is never the working directory
-and never the CLI's `~/.namzu`; before 2026-09-21 it was
-`{workingDirectory}/.namzu`. The CLI supplies its separate application layout. The SDK also accepts the existing `runStore` and
-`checkpointStore` contracts for custom evidence and checkpoint persistence.
-Set both when both kinds of records must use another backend. Injecting a store
-does not replace every other runtime path; use a builder as well when the
-workspace must remain free of generated state. In-memory stores are deliberately
-not durable. Advanced leased recovery and fencing still use the lower-level
-query/recovery APIs.
+To keep a session entirely in memory — tests, evaluation, a host with its own
+persistence — pass an `InMemorySessionLog` as `sessionLog` and no `paths`: its
+checkpoints, ledger and child sessions stay in memory with it, and nothing is
+written anywhere. A custom backend implements `SessionLog` and is checked with
+`defineSessionLogConformance` from `@namzu/sdk/testing`. Advanced leased
+recovery and fencing use `claimSession`, `resumeSession` and `abandonTurn`.
 
-For evaluation, use fresh histories and keep generated runtime files outside
-searched fixtures. Otherwise later cases can encounter earlier transcripts even
-when their message history is empty.
+For evaluation, use a fresh session per case and keep generated state outside
+searched fixtures. Otherwise later cases can encounter earlier sessions' files
+even when their message history is empty.

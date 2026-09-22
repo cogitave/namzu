@@ -18,7 +18,7 @@ import { killTree } from './kill-tree.js'
  * failures are silent-until-they-are-not: a child that never spawned has no
  * pid, and `process.kill(-undefined)` throws; a group that already exited
  * throws ESRCH. Either one, unguarded, aborts the teardown loop that was
- * killing the REST of a run's jobs — so one dead job would strand every
+ * killing the REST of a turn's jobs — so one dead job would strand every
  * live sibling.
  */
 
@@ -53,7 +53,7 @@ describe('killTree refuses to signal what it cannot name', () => {
 
 describe('a group that is already gone is not an error', () => {
 	it('swallows the throw rather than aborting its caller', () => {
-		// The caller is a teardown loop over a run's jobs. One job that exited
+		// The caller is a teardown loop over a turn's jobs. One job that exited
 		// on its own between the list and the signal must not strand every
 		// live sibling behind an ESRCH.
 		if (process.platform === 'win32') return

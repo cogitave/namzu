@@ -149,7 +149,7 @@ function suiteId(root: string, file: string): string {
  * report.
  *
  * The `run` callback stays caller-owned by design — the harness is
- * deliberately independent of how a run is constructed — so a suite
+ * deliberately independent of how a turn is constructed — so a suite
  * module owns everything about its own execution and hands back only the
  * structured result.
  */
@@ -227,7 +227,7 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 		// report — there is a harness to fix.
 		if (report === TIMED_OUT) {
 			ctx.formatter.error({
-				message: `Eval suite "${suite.id}" did not finish within ${options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS}ms. A suite that hangs judges nothing; raise --timeout-ms if it is genuinely slow, and look for a run parked on an approval nobody is there to give if it is not.`,
+				message: `Eval suite "${suite.id}" did not finish within ${options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS}ms. A suite that hangs judges nothing; raise --timeout-ms if it is genuinely slow, and look for a turn parked on an approval nobody is there to give if it is not.`,
 			})
 			return EVAL_EXIT.inconclusive
 		}

@@ -2,8 +2,8 @@
 type: Reference
 title: "@namzu/sandbox"
 description: >-
-  Container and process isolation for Namzu runs. Two isolation tiers over
-  four backends, a bounded filesystem view, and an egress boundary the run
+  Container and process isolation for Namzu agents. Two isolation tiers over
+  four backends, a bounded filesystem view, and an egress boundary the agent
   cannot talk its way past.
 tags: [readme, package, sandbox, isolation]
 status: stable
@@ -14,7 +14,7 @@ generated: { by: human:bahadirarda, at: 2026-08-30T00:00:00Z }
 
 <h1>@namzu/sandbox</h1>
 
-**Container and process isolation for Namzu runs.**
+**Container and process isolation for Namzu agents.**
 
 [![npm](https://img.shields.io/npm/v/@namzu/sandbox.svg)](https://www.npmjs.com/package/@namzu/sandbox)
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
@@ -28,7 +28,7 @@ generated: { by: human:bahadirarda, at: 2026-08-30T00:00:00Z }
 
 Runs a tool call somewhere that is not your process. Two isolation tiers
 over four backends, a bounded filesystem view, and an egress boundary the
-run cannot talk its way past.
+agent cannot talk its way past.
 
 ## Install
 
@@ -98,7 +98,7 @@ off nothing else: `--cap-drop=ALL`, `--security-opt=no-new-privileges` and
 Because those four paths are tmpfs, they are RAM, not the container's writable
 layer: scratch larger than half the host's RAM (or than `--memory`, the tighter
 of the two when the host sets one) fails with `ENOSPC` rather than spilling onto
-the host's disk. A run that writes temp files bigger than its memory budget does
+the host's disk. A workload that writes temp files bigger than its memory budget does
 not have to give up the baseline over it: `layout.scratch` is a bind to a host
 directory and stays disk-backed, so a host with room on disk mounts one there
 and points the workload at it — `TMPDIR` set to that container path through the

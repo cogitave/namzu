@@ -1,8 +1,8 @@
 // The allowlist for a hand-built attribute bag. `LogContext` on
 // `../logger.ts` stays exactly what it is — `Record<string, unknown>` —
 // because `Logger.child(context: LogContext)` is in INPUT position on the
-// public surface (`logger?: Logger` on `RunConfig` and tool config:
-// `types/run/config.ts:156`, `types/tool/index.ts:396`): narrowing it would
+// public surface (`logger?: Logger` on `TurnConfig` and tool config:
+// `types/session/config.ts:162`, `types/tool/index.ts:861`): narrowing it would
 // break every host that already implemented `Logger` correctly, for a type
 // change with no payoff to them. `LogAttributes` is instead a type a caller
 // builds TOWARD — construct the variable half of a log call with this type

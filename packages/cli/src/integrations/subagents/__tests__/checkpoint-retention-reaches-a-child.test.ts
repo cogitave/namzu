@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DefaultPathBuilder, MockLLMProvider, ToolRegistry, mcpJsonSchemaToZod } from '@namzu/sdk'
+import { MockLLMProvider, SessionPaths, ToolRegistry, mcpJsonSchemaToZod } from '@namzu/sdk'
 import { afterEach, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
@@ -12,9 +12,9 @@ import { createSubagentRuntime } from '../runtime.js'
 /**
  * A delegated child keeps only the CLI's retention of checkpoints.
  *
- * The child runs through `ReactiveAgent`, whose run config was a hand-listed
+ * The child sessions through `ReactiveAgent`, whose turn config was a hand-listed
  * literal with no retention in it, so a long child kept every checkpoint
- * whatever the parent kept. Asserted on disk, after a real child run through
+ * whatever the parent kept. Asserted on disk, after a real child turn through
  * the real stores, because the files left behind are what the bound is for.
  */
 
@@ -75,17 +75,18 @@ it('bounds the checkpoints a delegated child leaves', async () => {
 		resolveParent: parent.resolveParent,
 		buildTools,
 		buildProvider: () => child,
-		// Nobody is at the terminal: approve every tool review so the child runs.
+		// Nobody is at the terminal: approve every tool review so the child sessions.
 		resolveResumeHandler: () => async (request) =>
 			request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
-		pathBuilder: new DefaultPathBuilder(stateRoot),
+		paths: new SessionPaths({ home: stateRoot, slug: '-work-child-retention' }),
 		maxIterations: iterations + 4,
 	})
 	try {
 		const result = await runtime.agentTool.execute(
 			{ description: 'probe', prompt: 'probe until done' },
 			{
-				runId: parent.scope.runId,
+				sessionId: parent.scope.sessionId,
+				turnId: parent.scope.turnId,
 				workingDirectory: cwd,
 				abortSignal: new AbortController().signal,
 				env: {},

@@ -8,7 +8,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type { LLMProvider, MockTurn } from '../../../types/provider/index.js'
-import type { PrepareStepChain, PrepareStepContext } from '../../../types/run/prepare-step.js'
+import type { PrepareStepChain, PrepareStepContext } from '../../../types/session/prepare-step.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -49,7 +49,7 @@ async function run(
 		agentName: 'Preparation',
 		workingDirectory,
 		messages: [createUserMessage('PRIVATE operator context, not an auxiliary input')],
-		runConfig: {
+		turnConfig: {
 			model: 'main-model',
 			effort: 'low',
 			tokenBudget: extras.budget ?? 1000,

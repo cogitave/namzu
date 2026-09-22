@@ -5,22 +5,22 @@ import { WorkerCodeRuntime } from '../../execution/code-runtime/worker.js'
 import { defineTool } from '../defineTool.js'
 
 /**
- * A program the model wrote, calling the run's own tools.
+ * A program the model wrote, calling the turn's own tools.
  *
  * Twenty tool calls to filter a list is twenty model turns, each at full
  * context size with the whole conversation resent. The same work is one
  * loop. That is the entire argument for this tool, and it only holds if the
  * loop cannot reach further than the twenty calls could have.
  *
- * **The program's reach is the RUN's reach, and nothing wider.** Every
- * capability it can call is a tool already in this run's registry and
+ * **The program's reach is the TURN's reach, and nothing wider.** Every
+ * capability it can call is a tool already in this turn's registry and
  * narrowed by the turn's `allowedTools`. The host dispatch records every
- * child in the run and applies the run's operator authorization gate. An
+ * child in the turn and applies the turn's operator authorization gate. An
  * explicit allow proceeds; a denial or an undecided child fails closed and
  * leaves a durable refusal, because an already-executing parent cannot open
  * a second durable human-review turn on the program's behalf.
  *
- * Opt-in, and not in the default builtin set. A run that does not need
+ * Opt-in, and not in the default builtin set. A turn that does not need
  * model-authored control flow should not have a way to execute
  * model-authored text, and "the tool was there so it got used" is not a
  * threat model.
@@ -40,7 +40,7 @@ const inputSchema = z.object({
 		),
 })
 
-type RunCodeInput = z.infer<typeof inputSchema>
+type CodeToolInput = z.infer<typeof inputSchema>
 
 export const RUN_CODE_TOOL_NAME = 'run_code'
 
@@ -65,7 +65,7 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 
 	return defineTool({
 		name: RUN_CODE_TOOL_NAME,
-		description: `Runs a short JavaScript program that can call this run's own tools in a loop. Use it when the same tool would otherwise be called many times in a row — filtering, retrying, fanning out — and not for a single call. ${
+		description: `Runs a short JavaScript program that can call this turn's own tools in a loop. Use it when the same tool would otherwise be called many times in a row — filtering, retrying, fanning out — and not for a single call. ${
 			options.toolResultMode === 'structured'
 				? 'Each successful call() returns { output: string, data?: JSON value }. Filter data locally and return only the needed result. Failed calls reject.'
 				: 'Each successful call() returns the tool output string. Failed calls reject.'
@@ -82,13 +82,13 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 		destructive: true,
 		concurrencySafe: false,
 
-		async execute(input: RunCodeInput, context) {
+		async execute(input: CodeToolInput, context) {
 			const dispatch = context.dispatchTool
 			if (!dispatch) {
 				return {
 					success: false,
 					output: '',
-					error: 'This run provides no way to dispatch a tool, so a program has nothing to call.',
+					error: 'This turn provides no way to dispatch a tool, so a program has nothing to call.',
 				}
 			}
 
@@ -109,7 +109,7 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 				maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT,
 				...(context.abortSignal ? { signal: context.abortSignal } : {}),
 				onHostCall: async (request, operation) => {
-					// Through the run-owned nested dispatch: registry narrowing,
+					// Through the turn-owned nested dispatch: registry narrowing,
 					// operator authorization, audit/event lineage and invocation
 					// cancellation remain host-owned rather than worker-owned.
 					try {
@@ -141,7 +141,7 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 
 			const notes = [
 				refused.length > 0
-					? `[not granted, and refused to the program: ${refused.join(', ')} — this turn allows only ${turnAllows?.join(', ') ?? 'the run default'}]`
+					? `[not granted, and refused to the program: ${refused.join(', ')} — this turn allows only ${turnAllows?.join(', ') ?? 'the turn default'}]`
 					: '',
 				result.outputTruncated
 					? '[the program printed more than the output limit and was cut here]'

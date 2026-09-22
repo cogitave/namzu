@@ -1,41 +1,60 @@
-import { sessionStore } from '../integrations/sessions/database.js'
 /**
- * `namzu drain` — one pass over a queue of durable runs.
+ * `namzu drain` — one pass over a session's parked turn.
  *
- * namzu could park a run in one process and continue it in another, and no
- * shipped surface ever did: `claimRun`, `listDurableRuns` and `resumeRun`
- * all existed, and the only caller of any of them was a test. This is the
- * caller. It lists the runs nobody holds under a scope, takes each one,
- * continues it under that claim, and gives it back.
+ * namzu can park a turn in one process and continue it in another: the turn
+ * stops with `turn_paused`, a decision it waits on is a `decision_requested`
+ * record, and whoever works on a session holds its `lease.json`. This is the
+ * caller that picks such a turn up. It finds the session's active turn, takes
+ * the session's lease, continues the turn under that lease, and gives the
+ * lease back.
  *
  * **It is not a daemon, and `namzu serve` still says namzu has no daemon.**
  * That refusal is not weakened by this command, it is the reason for its
  * shape: one bounded pass, exit code says what happened, and whatever the
- * operator already uses to run things periodically runs it again. A run is
- * a process; a drain is a process that picks up processes somebody else's
- * machine dropped.
+ * operator already uses to run things periodically runs it again. A turn is
+ * work a process does; a drain is a process that picks up work somebody
+ * else's machine dropped.
  *
+ * A session has at most one active turn, so one pass continues at most one.
  */
 
+import { existsSync, lstatSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
 import {
-	DiskCheckpointStore,
+	DiskSessionLog,
 	InvalidIdError,
+	type ProjectId,
+	type ResumeOutcome,
+	type SessionId,
+	type SessionLease,
+	type SessionLog,
+	SessionPaths,
+	type TenantId,
+	type TopicId,
+	type TurnId,
 	asProjectId,
 	asSessionId,
 	asTenantId,
-	drainRuns,
+	claimSession,
+	openSessionIndex,
+	releaseSession,
 } from '@namzu/sdk'
-import type { DurableRunEntry, ProjectId, Session, SessionId, TenantId } from '@namzu/sdk'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
-import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { EXIT_FAIL, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
-import { resolveNamzuHome } from '../integrations/state/home.js'
+import { readSessionStart } from '../integrations/resident/session-log-reads.js'
 import { contextLogging, createStderrSink, installCliLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { compilePermissions } from '../permissions/rules.js'
 import { applyProviderFlags, resolveWorkingDirectory } from './run-flags.js'
 import type { CommandDef } from './types.js'
+
+/** The drain flags name a scope the store does not hold: an argument error, exit 64. */
+class DrainScopeError extends Error {
+	override readonly name = 'DrainScopeError'
+}
 
 /** Lease length when the operator names none. Long enough for a real turn. */
 const DEFAULT_TTL_MS = 600_000
@@ -121,14 +140,14 @@ export function parseDrainFlags(rawArgs: readonly string[]): DrainFlags {
 		}
 		// Anything unrecognised is refused rather than ignored, positional
 		// arguments included — this command takes none. It acts on other
-		// people's runs; a typo'd `--tenant` that fell through would drain a
+		// people's turns; a typo'd `--tenant` that fell through would drain a
 		// scope nobody asked for.
 		out.unknown.push(a.split('=')[0] as string)
 	}
 	return out
 }
 
-/** The scope refusal, or the scope. Contiguous prefix — see the store contract. */
+/** The scope refusal, or the scope: the full tenant → project → session prefix. */
 export function resolveDrainScope(flags: Pick<DrainFlags, 'tenant' | 'project' | 'session'>):
 	| { readonly error: string }
 	| {
@@ -141,16 +160,16 @@ export function resolveDrainScope(flags: Pick<DrainFlags, 'tenant' | 'project' |
 	if (!flags.tenant) {
 		return {
 			error:
-				'--tenant is required. A run listing with no tenant is a cross-tenant read with a friendly name, so there is no default to fall back to.',
+				'--tenant is required. A drain with no tenant is a cross-tenant read with a friendly name, so there is no default to fall back to.',
 		}
 	}
-	// The disk store keys checkpoints by directory and needs the project and
-	// session to attribute what it finds, so this command asks for the full
-	// prefix rather than the contract's minimum.
+	// A parked turn belongs to one session, and the session to one project;
+	// the pass checks both against the session's own log before it claims
+	// anything, so it asks for the full prefix.
 	if (!flags.project || !flags.session) {
 		return {
 			error:
-				'--project and --session are both required for a disk store: its layout carries no attribution, so it cannot say which project and session the runs it finds belong to.',
+				'--project and --session are both required: a turn is drained within one session, and the pass checks that the session belongs to that project before it claims anything.',
 		}
 	}
 	// Prefix-checked, and refused in THIS function's shape rather than by
@@ -158,7 +177,7 @@ export function resolveDrainScope(flags: Pick<DrainFlags, 'tenant' | 'project' |
 	// sentence; an `InvalidIdError` escaping to the top level would be the one
 	// that arrives as a stack trace. A typo'd `--tenant prj_x` previously
 	// reached the store as a TenantId and listed nothing, which reads as "no
-	// runs" rather than "wrong flag".
+	// turns" rather than "wrong flag".
 	try {
 		return {
 			tenantId: asTenantId(flags.tenant),
@@ -180,9 +199,114 @@ export function defaultHolder(): string {
 	return `namzu-drain-${process.pid}-${Date.now().toString(36)}`
 }
 
-function describe(entry: DurableRunEntry): string {
-	const park = entry.park ? `${entry.park.state} ${entry.park.requestType}` : 'not parked'
-	return `${entry.runId} · ${entry.checkpointCount} checkpoints · ${park}`
+/** What one pass over a session did with its active turn. */
+export interface DrainPassResult {
+	/** Turns the pass found to work on: the session's active turn, if any. */
+	readonly listed: number
+	readonly resumed: readonly TurnId[]
+	/** Parked on a human decision: reported, never resumed past. */
+	readonly awaitingDecision: readonly TurnId[]
+	/** Nothing to continue from. */
+	readonly noCheckpoint: readonly TurnId[]
+	/** Another process holds the session's lease. */
+	readonly heldByOthers: readonly TurnId[]
+	/** Settled or replaced between the listing and the claim. */
+	readonly alreadyHandled: readonly TurnId[]
+	readonly failed: readonly { readonly turnId: TurnId; readonly error: string }[]
+	/** The work landed but the lease could not be given back. */
+	readonly unreleased: readonly { readonly turnId: TurnId; readonly error: string }[]
+}
+
+/** What {@link drainSessionPass} composes. Each is one SDK call in the command. */
+export interface DrainPassDeps {
+	/** The session's log: where its active turn is read from. */
+	readonly log: Pick<SessionLog, 'activeTurn'>
+	/** Turns with an unresolved `decision_requested` (`SessionIndex.listPendingDecisions`). */
+	readonly pendingDecisionTurns: ReadonlySet<TurnId>
+	/** `claimSession`: the lease, or `null` when another process holds it. */
+	claim(): Promise<SessionLease | null>
+	/** `releaseSession`, in a `finally`. */
+	release(lease: SessionLease): Promise<void>
+	/** Continue the turn under the lease (`resumeSession` with this host's half attached). */
+	resume(turnId: TurnId, lease: SessionLease): Promise<ResumeOutcome>
+	readonly info: (message: string) => void
+}
+
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * One pass: find the session's active turn, report it if a human owes it an
+ * answer, otherwise take the session's lease, check the turn is still the
+ * active one under that lease, continue it, and give the lease back.
+ *
+ * A turn waiting on a decision is reported before any claim. The answer
+ * belongs to a person; a drainer that continued without it would discard
+ * the question the turn stopped to ask, and claiming the session to find
+ * that out would only block the person's own resolver.
+ */
+export async function drainSessionPass(deps: DrainPassDeps): Promise<DrainPassResult> {
+	const result = {
+		listed: 0,
+		resumed: [] as TurnId[],
+		awaitingDecision: [] as TurnId[],
+		noCheckpoint: [] as TurnId[],
+		heldByOthers: [] as TurnId[],
+		alreadyHandled: [] as TurnId[],
+		failed: [] as { turnId: TurnId; error: string }[],
+		unreleased: [] as { turnId: TurnId; error: string }[],
+	}
+	const active = await deps.log.activeTurn()
+	if (!active) return result
+	result.listed = 1
+	const { turnId } = active
+	if (deps.pendingDecisionTurns.has(turnId)) {
+		result.awaitingDecision.push(turnId)
+		deps.info(`⏸ ${turnId} · waiting on a human decision`)
+		return result
+	}
+	const lease = await deps.claim()
+	if (!lease) {
+		result.heldByOthers.push(turnId)
+		deps.info(`⋯ ${turnId} · another process holds the session`)
+		return result
+	}
+	try {
+		deps.info(`⏵ ${turnId} · ${active.state} · fence ${lease.fence}`)
+		// Re-read under the lease: between the listing and the claim, the
+		// previous holder may have settled the turn, or a new one begun.
+		const current = await deps.log.activeTurn({ lease })
+		if (current?.turnId !== turnId) {
+			result.alreadyHandled.push(turnId)
+			deps.info(`↷ ${turnId} · settled before this pass took it`)
+			return result
+		}
+		const outcome = await deps.resume(turnId, lease)
+		if (outcome.resumed) {
+			if (outcome.turn.status === 'failed' || outcome.turn.status === 'cancelled') {
+				throw new Error(`Resumed turn ended with status "${outcome.turn.status}".`)
+			}
+			result.resumed.push(turnId)
+			deps.info(`✔ ${turnId} · ${outcome.turn.status}`)
+		} else if (outcome.reason === 'awaiting-decision') {
+			// The index had not yet seen the decision; the log had.
+			result.awaitingDecision.push(turnId)
+			deps.info(`⏸ ${turnId} · waiting on a human decision`)
+		} else {
+			result.noCheckpoint.push(turnId)
+			deps.info(`∅ ${turnId} · no checkpoint to continue from`)
+		}
+	} catch (error) {
+		result.failed.push({ turnId, error: errorText(error) })
+	} finally {
+		try {
+			await deps.release(lease)
+		} catch (error) {
+			result.unreleased.push({ turnId, error: errorText(error) })
+		}
+	}
+	return result
 }
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
@@ -196,35 +320,45 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 		: null
 }
 
+/** `--store` must already be a namzu home: a drain never creates state where it looks. */
+function isNamzuHome(home: string): boolean {
+	const projects = join(home, 'projects')
+	if (!existsSync(projects)) return false
+	const entry = lstatSync(projects)
+	return entry.isDirectory() && !entry.isSymbolicLink()
+}
+
 export const drainCommand: CommandDef = {
 	name: 'drain',
-	description: 'Continue runs another process left behind (one pass, then exit)',
+	description: 'Continue a turn another process left behind (one pass, then exit)',
 	passThrough: true,
 	help: [
 		'Usage: namzu drain --store <dir> --tenant <id> --project <id> --session <id>',
 		'',
-		'Take every run under that scope that no worker currently holds, continue',
-		'it from its last checkpoint, and release it. One pass, then exit — namzu',
-		'has no daemon, and this is a command your scheduler runs, not a service.',
+		"Take the session's parked or interrupted turn if no worker holds the",
+		'session, continue it from its last checkpoint under the session lease, and',
+		'release the lease. One pass, then exit — namzu has no daemon, and this is a',
+		'command your scheduler runs, not a service.',
 		'',
 		'Options:',
-		'  --store <dir>         The runs/ directory a checkpoint store writes to',
+		'  --store <dir>         The namzu home whose sessions to drain (NAMZU_HOME)',
 		'  --tenant <id>         Isolation boundary. Required; there is no default',
-		'  --project <id>        Required — the disk layout carries no attribution',
-		'  --session <id>        Required, same reason',
-		'  --holder <id>         Who is taking the runs. Must be unique PER PROCESS',
+		'  --project <id>        Required — checked against the session log',
+		'  --session <id>        Required: the session whose turn to continue',
+		'  --holder <id>         Who is taking the session. Must be unique PER PROCESS',
 		'  --ttl <ms>            Lease length (default 600000)',
-		'  --max-concurrent <n>  Runs in flight at once (default 1)',
-		'  --cwd <path>          Directory the resumed runs work in',
+		'  --max-concurrent <n>  Turns in flight at once (default 1). A session has',
+		'                        one active turn, so a pass continues at most one',
+		'  --cwd <path>          Directory the resumed turn works in',
 		'  --provider <id>       Provider to continue with',
 		'  --model <id>          Model to continue with',
 		'  --trust               Accept this folder for this pass',
 		'',
-		'A run that is parked on a human decision is REPORTED, never resumed past.',
+		'A turn that is parked on a human decision is REPORTED, never resumed past.',
 		'The answer belongs to a person; a drainer that continued without it would',
-		'discard the question the run stopped to ask.',
+		'discard the question the turn stopped to ask.',
 		'',
-		'Exit codes: 0 when every run it took was continued, 1 when any run failed,',
+		'Exit codes: 0 when every turn it took was continued, 1 when any turn failed,',
 		'64 when an argument is wrong, 77 when the folder has not been trusted.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrapCtx, rawArgs }) => {
@@ -239,7 +373,7 @@ export const drainCommand: CommandDef = {
 		if (!flags.store) {
 			ctx.formatter.error({
 				message:
-					'--store is required: name the runs/ directory the checkpoint store writes to. There is no default, because an empty queue and a directory nobody writes to would report the same thing.',
+					'--store is required: name the namzu home whose sessions to drain. There is no default, because an empty queue and a directory nobody writes to would report the same thing.',
 			})
 			return EXIT_USAGE
 		}
@@ -252,6 +386,15 @@ export const drainCommand: CommandDef = {
 		if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
 			ctx.formatter.error({
 				message: `--ttl must be a positive number of ms, got ${flags.ttlMs}`,
+			})
+			return EXIT_USAGE
+		}
+		if (
+			flags.maxConcurrent !== null &&
+			(!Number.isSafeInteger(flags.maxConcurrent) || flags.maxConcurrent < 1)
+		) {
+			ctx.formatter.error({
+				message: `--max-concurrent must be a whole number above zero, got ${flags.maxConcurrent}`,
 			})
 			return EXIT_USAGE
 		}
@@ -297,58 +440,78 @@ export const drainCommand: CommandDef = {
 				: `permissions.${diagnostic.tool}`
 			ctx.formatter.error({ message: `${where}: ${diagnostic.message}` })
 		}
-		let stateRoot: string
-		try {
-			stateRoot = resolveNamzuHome()
-		} catch (error) {
-			ctx.formatter.error({
-				message: `application state is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-			})
-			return 1
-		}
 
-		let conversationStore: ReturnType<typeof sessionStore>
-		let owningSession: Session | null
+		const home = resolve(flags.store)
+		let log: SessionLog
+		let topicId: TopicId
+		let pendingDecisionTurns: Set<TurnId>
 		try {
-			conversationStore = sessionStore(stateRoot, true)
-			owningSession = await conversationStore.getSession(scope.sessionId, scope.tenantId)
-			if (
-				!owningSession ||
-				owningSession.id !== scope.sessionId ||
-				owningSession.tenantId !== scope.tenantId ||
-				owningSession.projectId !== scope.projectId
-			) {
-				throw new Error(
-					`Session ${scope.sessionId} is not persisted under Project ${scope.projectId}`,
+			if (!isNamzuHome(home)) throw new DrainScopeError(`${home} holds no projects/ directory`)
+			// The index is derived from the logs; opening it brings it up to date.
+			const index = await openSessionIndex({ home })
+			try {
+				const indexed = await index.getSession(scope.sessionId)
+				if (!indexed || indexed.projectId !== scope.projectId) {
+					throw new DrainScopeError(
+						`Session ${scope.sessionId} is not persisted under Project ${scope.projectId}`,
+					)
+				}
+				if (indexed.depth > 0) {
+					throw new DrainScopeError(
+						`Session ${scope.sessionId} is a child session; drain its root session ${indexed.rootId}`,
+					)
+				}
+				const paths = new SessionPaths({ home, slug: indexed.slug })
+				const opened = await readSessionStart(
+					home,
+					paths.sessionLog({ sessionId: scope.sessionId }),
 				)
+				if (
+					!opened ||
+					opened.sessionId !== scope.sessionId ||
+					opened.projectId !== scope.projectId ||
+					opened.tenantId !== scope.tenantId
+				) {
+					throw new DrainScopeError(
+						`Session ${scope.sessionId} was not opened under Tenant ${scope.tenantId} and Project ${scope.projectId}`,
+					)
+				}
+				if (!opened.topicId) {
+					throw new DrainScopeError(`Session ${scope.sessionId} records no topic to continue under`)
+				}
+				topicId = opened.topicId
+				log = DiskSessionLog.at(paths, { sessionId: scope.sessionId })
+				pendingDecisionTurns = new Set(
+					(await index.listPendingDecisions({ sessionId: scope.sessionId })).map(
+						(decision) => decision.turnId,
+					),
+				)
+			} finally {
+				index.close()
 			}
 		} catch (error) {
 			ctx.formatter.error({
-				message: `cannot resolve the drain session's topic: ${error instanceof Error ? error.message : String(error)}`,
+				message: `cannot resolve the drain session: ${errorText(error)}`,
 			})
-			return EXIT_USAGE
+			// The flags named something that is not there (no namzu home, an
+			// unknown or child session, a scope mismatch): the caller's to fix.
+			// Anything else is state that could not be read, which is exit 1.
+			return error instanceof DrainScopeError ? EXIT_USAGE : EXIT_FAIL
 		}
 
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
 			scope: {
-				// The checkpoint queue is already exactly scoped by the required
-				// flags below. Constructing the provider under a random CLI Project
-				// and Session would create generated state for a scope the operator
-				// never named, then resume the run under a different one.
+				// The session is exactly the one the required flags named.
+				// Constructing the provider under a random CLI Project and
+				// Session would create generated state for a scope the operator
+				// never named, then resume the turn under a different one.
 				sessionId: scope.sessionId,
-				topicId: owningSession.topicId,
+				topicId,
 				projectId: scope.projectId,
 				tenantId: scope.tenantId,
 			},
-			stateRoot,
-			conversationSessions: {
-				store: conversationStore,
-				root: stateRoot,
-				projectId: scope.projectId,
-				tenantId: scope.tenantId,
-				topicId: owningSession.topicId,
-			},
+			stateRoot: home,
 			rules: permissions.rules,
 			permissionMode: 'auto',
 			...(ctx.config.limits ? { limits: ctx.config.limits } : {}),
@@ -372,90 +535,57 @@ export const drainCommand: CommandDef = {
 			return 1
 		}
 
-		// `resolveDrainScope` refuses a partial prefix above, so all three are
-		// present here; the store's attribution has no optional fields because
-		// a listing that guessed one would file runs under a project nobody
-		// named.
-		const store = new DiskCheckpointStore(
-			{ baseDir: flags.store },
-			{
-				tenantId: scope.tenantId,
-				projectId: scope.projectId,
-				sessionId: scope.sessionId,
-			},
-		)
 		const holder = flags.holder ?? defaultHolder()
-		const awaiting: string[] = []
-		const empty: string[] = []
-
 		try {
-			const result = await drainRuns({
-				store,
-				scope,
-				holder,
-				ttlMs,
-				...(flags.maxConcurrent !== null ? { maxConcurrent: flags.maxConcurrent } : {}),
-				onRun: async (entry, claim) => {
-					ctx.formatter.info(`⏵ ${describe(entry)} · fence ${claim.fence}`)
-					const outcome = await session.resumeDurable({
-						entry,
-						checkpointStore: store,
-						// The reason the claim is handed over at all: every durable
-						// write this run makes carries it, so a drainer that stalled
-						// past its lease cannot overwrite whoever took over.
-						claimFence: claim.fence,
-					})
-					if (outcome.resumed) {
-						if (outcome.run.status === 'failed' || outcome.run.status === 'cancelled') {
-							throw new Error(`Resumed run ended with status "${outcome.run.status}".`)
-						}
-						ctx.formatter.info(`✔ ${entry.runId} · ${outcome.run.status}`)
-						return
-					}
-					// Reported, not resumed past. The two non-resumed outcomes mean
-					// opposite things and an operator has to be able to tell them
-					// apart: one is a question waiting on a person, the other is a
-					// run with nothing to continue.
-					if (outcome.reason === 'awaiting-decision') {
-						awaiting.push(entry.runId)
-						ctx.formatter.info(`⏸ ${entry.runId} · waiting on a human decision`)
-					} else {
-						empty.push(entry.runId)
-						ctx.formatter.info(`∅ ${entry.runId} · no checkpoint to continue from`)
-					}
-				},
+			const result = await drainSessionPass({
+				log,
+				pendingDecisionTurns,
+				claim: () => claimSession(scope.sessionId, { holder, ttlMs, log }),
+				release: (lease) => releaseSession(scope.sessionId, lease, { log }),
+				resume: (turnId, lease) =>
+					session.resumeDurable({
+						entry: {
+							tenantId: scope.tenantId,
+							projectId: scope.projectId,
+							sessionId: scope.sessionId,
+							turnId,
+						},
+						sessionLog: log,
+						// The reason the lease is handed over at all: every record
+						// the resumed turn appends carries its fence, so a drainer
+						// that stalled past its lease cannot write over whoever
+						// took the session over.
+						lease,
+					}),
+				info: (message) => ctx.formatter.info(message),
 			})
 
 			ctx.formatter.print({
 				listed: result.listed,
-				resumed: result.drained.filter((id) => !awaiting.includes(id) && !empty.includes(id))
-					.length,
-				awaitingDecision: awaiting,
-				noCheckpoint: empty,
-				heldByOthers: result.skipped,
-				alreadyHandled: result.stale,
+				resumed: result.resumed.length,
+				awaitingDecision: result.awaitingDecision,
+				noCheckpoint: result.noCheckpoint,
+				heldByOthers: result.heldByOthers,
+				alreadyHandled: result.alreadyHandled,
 				failed: result.failed,
 				unreleased: result.unreleased,
 			})
 			for (const f of result.failed) {
-				ctx.formatter.error({ message: `${f.runId}: ${f.error}` })
+				ctx.formatter.error({ message: `${f.turnId}: ${f.error}` })
 			}
 			// A drain that could not give a lease back is reported too. The work
-			// landed, but the run is unavailable to the next reader until the
+			// landed, but the session is unavailable to the next reader until the
 			// lease lapses, and an operator watching throughput needs to know.
 			for (const u of result.unreleased) {
 				ctx.formatter.error({
-					message: `${u.runId}: lease not released — ${u.error}`,
+					message: `${u.turnId}: lease not released — ${u.error}`,
 				})
 			}
 			return result.failed.length > 0 ? 1 : 0
 		} catch (err) {
-			// The refusals from `drainRuns` land here: a store that cannot claim,
-			// a lease that cannot mean what it says. Reported rather than
-			// swallowed into an empty pass that reads as "nothing was parked".
-			ctx.formatter.error({
-				message: err instanceof Error ? err.message : String(err),
-			})
+			// A refusal from the log or the lease lands here. Reported rather
+			// than swallowed into an empty pass that reads as "nothing was parked".
+			ctx.formatter.error({ message: errorText(err) })
 			return 1
 		} finally {
 			await session.close()

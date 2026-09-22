@@ -95,7 +95,7 @@ describe('the provider chain check', () => {
 		expect(r.remediation ?? '').toMatch(/not a fallback/)
 	})
 
-	it('FAILS when the primary is unusable — no run can start', async () => {
+	it('FAILS when the primary is unusable — no turn can start', async () => {
 		writePrefs({ version: 3, providers: [{ id: 'anthropic' }, { id: 'openai' }] })
 		const r = await check({ OPENAI_API_KEY: 'y' })
 		expect(r.status).toBe('fail')

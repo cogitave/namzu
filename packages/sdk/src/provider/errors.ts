@@ -25,7 +25,7 @@
  *    Schema draft 2020-12` the entire time. Scrubbing what looks like a
  *    credential keeps the safety and returns the sentence.
  *  - `retryAfterMs` is DATA. Nothing in this module sleeps, backs off or
- *    retries. A retry loop inside a driver burns the run's wall clock and hides
+ *    retries. A retry loop inside a driver burns the turn's wall clock and hides
  *    the failure from the layer that should decide.
  */
 
@@ -243,7 +243,7 @@ function buildProviderErrorMessage(init: ProviderRequestErrorInit): string {
  *
  * A 400 is otherwise `bad_request`: an overflow is the one 400 a caller can act
  * on automatically (compact and retry), and mistaking a genuine schema error for
- * an overflow would send the run into a pointless compaction loop.
+ * an overflow would send the turn into a pointless compaction loop.
  */
 const OVERFLOW_BODY_PATTERNS: readonly RegExp[] = [
 	/prompt is too long/i,

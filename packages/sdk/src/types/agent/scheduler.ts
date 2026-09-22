@@ -1,8 +1,8 @@
-import type { TokenBudget } from '../../run/token-budget.js'
+import type { SessionTokenBudget } from '../../store/budget/index.js'
 import type { TaskId } from '../ids/index.js'
 import type { AgentPersona } from '../persona/index.js'
-import type { CancelCause } from '../run/cancel-cause.js'
-import type { RunEventListener } from '../run/events.js'
+import type { CancelCause } from '../session/cancel-cause.js'
+import type { ChildSessionLifecycleEvent, SessionEventListener } from '../session/events.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
@@ -36,16 +36,16 @@ export interface CreateTaskOptions {
 	readonly beforeStart?: () => Promise<void>
 
 	/**
-	 * Observe events from this one delegated run when the scheduler can expose
+	 * Observe events from this one delegated session when the scheduler can expose
 	 * them.
 	 *
 	 * The built-in local scheduler supports this without replacing its
 	 * scheduler-wide listener. Delivery is observational and must not
-	 * backpressure or decide the child run; a remote/custom scheduler may omit
+	 * backpressure or decide the child session; a remote/custom scheduler may omit
 	 * it when that transport has no event stream. Callers must therefore settle
 	 * their task view from the returned {@link TaskHandle} as well.
 	 */
-	readonly onEvent?: RunEventListener
+	readonly onEvent?: SessionEventListener
 
 	/**
 	 * Span the spawned run should hang off — normally the executing tool's
@@ -62,9 +62,9 @@ export interface CreateTaskOptions {
 	 * Display grouping for the delegated child, carried onto its
 	 * `agent_pending` event so a consumer watching from outside this process
 	 * can group the child the way this caller meant. Reach, not durability:
-	 * that event goes straight to a host's listener and enters no run's log,
+	 * that event goes straight to a host's listener and enters no session log,
 	 * so nothing here is persisted by the kernel. See the `agent_pending`
-	 * variant in `types/run/events.ts` for the full contract.
+	 * variant in `types/session/events.ts` for the full contract.
 	 *
 	 * These fields are display annotations only; they do not create
 	 * dependencies, barriers, or serial execution. The kernel reads none of
@@ -119,7 +119,7 @@ export interface CreateTaskOptions {
 	 *
 	 * **This was accepted and dropped.** `LocalTaskScheduler.createTask` built
 	 * its own `configOverrides` object out of `parentSpan` alone and never
-	 * read this field, so a caller pinning a delegated run to a cheaper model
+	 * read this field, so a caller pinning a delegated session to a cheaper model
 	 * got the agent's default model and no indication otherwise. It is
 	 * forwarded now, with the dedicated {@link parentSpan} option winning if
 	 * both name a span, since that one is the specific field for the job.
@@ -134,7 +134,7 @@ export interface CreateTaskOptions {
 
 export interface TaskScheduler {
 	/** Authority under which this scheduler reserves and meters child execution. */
-	readonly budget?: TokenBudget
+	readonly budget?: SessionTokenBudget
 
 	createTask(options: CreateTaskOptions): Promise<TaskHandle>
 
@@ -144,7 +144,7 @@ export interface TaskScheduler {
 
 	/**
 	 * Stop one task. A cause is relative to the child: a blocking delegation
-	 * abandoned by the run that launched it is cancelled by its `parent`.
+	 * abandoned by the turn that launched it is cancelled by its `parent`.
 	 *
 	 * Optional so existing host schedulers remain structurally compatible. A
 	 * scheduler that can preserve the cause should carry it to the task's abort
@@ -199,4 +199,21 @@ export interface TaskScheduler {
 	 * about it is not the child speaking.
 	 */
 	onTaskProgress?(callback: (taskId: TaskId) => void): () => void
+
+	/**
+	 * Tell me when a child session this gateway launched starts, messages or
+	 * goes idle, as the `child_session_*` events its manager emits.
+	 *
+	 * The parent turn records these into its own session log — the
+	 * `child_session_spawned` record, and `child_session_ended` when the
+	 * child goes idle — so a finished delegation can be listed and replayed
+	 * from the parent's log after the process is gone. A host listener given
+	 * to the gateway sees the same events for display; this is the channel
+	 * the kernel reads them on.
+	 *
+	 * OPTIONAL for the same reason as {@link onTaskProgress}: a host gateway
+	 * that cannot observe its children still works, and its parent log simply
+	 * names no children.
+	 */
+	onChildSessionEvent?(callback: (event: ChildSessionLifecycleEvent) => void): () => void
 }

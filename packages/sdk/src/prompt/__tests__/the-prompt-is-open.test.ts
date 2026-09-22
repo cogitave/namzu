@@ -99,7 +99,7 @@ describe('a contribution reaches the prompt', () => {
 		expect(prompt.indexOf('AAA')).toBeLessThan(prompt.indexOf('BBB'))
 	})
 
-	it('is given the working directory and the run context', () => {
+	it('is given the working directory and the turn context', () => {
 		const seen: unknown[] = []
 		const contributions = new PromptContributionRegistry()
 		contributions.register({
@@ -144,7 +144,7 @@ describe('placement decides which half of the prompt it lands in', () => {
 
 	it('asks the same question whether or not the prompt cache is used', () => {
 		// `build` and `buildSegmented` are two paths to one prompt, and the
-		// rejoin upstream is `${static}\n\n---\n\n${dynamic}`. A run that hits
+		// rejoin upstream is `${static}\n\n---\n\n${dynamic}`. A turn that hits
 		// the cache must not be asking something different from one that
 		// misses it.
 		const contributions = new PromptContributionRegistry()
@@ -363,7 +363,7 @@ describe('a caller that never heard of the registry is unaffected', () => {
 describe('a turn contribution never reaches the system prompt', () => {
 	it('is absent from both segments', () => {
 		// The refusal that makes the placement mean something. In `static` it
-		// is cached for the run; in `dynamic` it is read as a standing
+		// is cached for the turn; in `dynamic` it is read as a standing
 		// instruction. Either way the state it reports goes stale silently.
 		const contributions = new PromptContributionRegistry()
 		contributions.register(contribution('turnly', 'TURN TEXT', 'turn'))
@@ -411,7 +411,7 @@ describe('the prompt cache notices when the contributors change', () => {
 
 	it('rebuilds when a contribution is added', () => {
 		// The cache would otherwise serve a prompt assembled before the
-		// contributor existed, for the rest of the run, with nothing saying
+		// contributor existed, for the rest of the turn, with nothing saying
 		// so — which is the whole class of bug a hash exists to prevent.
 		const c = cache()
 		const before = c.getSystemPrompt(cacheInput())

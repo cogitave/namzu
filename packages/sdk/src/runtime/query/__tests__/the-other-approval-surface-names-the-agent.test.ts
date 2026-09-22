@@ -26,7 +26,7 @@ import { drainQuery } from '../index.js'
  * field by field. So the busier surface kept showing `toolName: 'create_task'`
  * and nothing else — the precise behaviour the change was supposed to end.
  *
- * A live run did not catch it either: the run observes `plan_ready`, which
+ * A live turn did not catch it either: the turn observes `plan_ready`, which
  * carries whole `PlanStep`s and therefore always had `agentId`. Watching the
  * event stream confirmed the field existed somewhere, which is not the same
  * question as whether the approver gets it.
@@ -44,7 +44,7 @@ async function agentIdSeenByResumeHandler(): Promise<PlanApprovalData['steps']> 
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],
 		workingDirectory: process.cwd(),
-		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
+		turnConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
 		topicId: generateTopicId(),

@@ -148,7 +148,7 @@ describe('collectChatCompletion()', () => {
  *
  * `StreamChunk.delta.reasoning` has existed since the thinking work landed,
  * `AssistantMessage.reasoning` is documented as "replayed verbatim and ahead
- * of the text/tool blocks", and the run loop
+ * of the text/tool blocks", and the turn loop
  * (`runtime/query/iteration/stream-turn.ts`) assembles it correctly. This
  * helper — the path every non-streaming caller takes — threw it away, so the
  * same stream produced a message with reasoning through one route and without

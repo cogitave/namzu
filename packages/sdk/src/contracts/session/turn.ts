@@ -9,7 +9,7 @@ import type { WireTurnStatus } from './turn-status.js'
  * The domain stop reason under a wire name, so the HTTP field stays decoupled
  * from the internal type's identifier.
  */
-export type TurnStopReason = NonNullable<Turn['stopReason']>
+export type WireStopReason = NonNullable<Turn['stopReason']>
 
 /** The per-turn configuration a client may set. Every field is optional; the agent's defaults fill the rest. */
 export interface WireTurnConfig {
@@ -25,7 +25,7 @@ export interface WireTurnConfig {
 }
 
 /** What one turn spent. Usage of this turn only; child sessions report their own. */
-export interface WireTurnUsage {
+export interface WireUsage {
 	input_tokens: number
 	output_tokens: number
 	total_tokens: number
@@ -46,14 +46,14 @@ export interface WireTurn {
 	agent_id: string
 	agent_name?: string
 	status: WireTurnStatus
-	stop_reason?: TurnStopReason
+	stop_reason?: WireStopReason
 	created_at: ISOTimestamp
 	started_at?: ISOTimestamp
 	completed_at?: ISOTimestamp
 	duration_ms?: number
 	model?: string
 	config: WireTurnConfig
-	usage?: WireTurnUsage
+	usage?: WireUsage
 	iterations?: number
 	/** The authoritative answer, after guardrail, review and structured-output overrides. */
 	result?: string

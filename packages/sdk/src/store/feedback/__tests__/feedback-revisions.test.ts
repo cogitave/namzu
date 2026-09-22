@@ -4,15 +4,16 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { SessionPaths, slugForCwd } from '../../../session/paths.js'
 import { unchecked } from '../../../test-support/ids.js'
-import type { MessageId, RunId } from '../../../types/ids/index.js'
-import { InvalidIdError, asMessageId, asRunId } from '../../../utils/id.js'
+import type { MessageId, SessionId } from '../../../types/ids/index.js'
+import { InvalidIdError, asMessageId, asSessionId } from '../../../utils/id.js'
 import { DiskRecordStore } from '../../kv/record-store.js'
 import { revisionFileSegment } from '../../kv/revision-record-store.js'
 import { DiskMessageFeedbackStore } from '../disk.js'
 import type { MessageFeedback } from '../types.js'
 
-const RUN = asRunId('d88d8c70-ef52-4939-8900-ddbf3db56c24')
+const SESSION = asSessionId('d88d8c70-ef52-4939-8900-ddbf3db56c24')
 const MESSAGE = asMessageId('d426df02-d98e-4071-804e-1fd14087299c')
 const roots: string[] = []
 
@@ -25,34 +26,23 @@ afterEach(async () => {
 async function fixture(messageIds = [MESSAGE]) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-revisions-'))
 	roots.push(root)
-	const runsDir = join(root, 'runs')
-	const feedbackDir = join(root, 'feedback')
-	const runDir = join(runsDir, RUN)
-	await mkdir(runDir, { recursive: true })
-	await writeFile(
-		join(runDir, 'transcript.jsonl'),
-		`${messageIds
-			.map((messageId, index) =>
-				JSON.stringify({
-					seq: index + 1,
-					type: 'text_delta',
-					runId: RUN,
-					messageId,
-				}),
-			)
-			.join('\n')}\n`,
-	)
+	const paths = new SessionPaths({ home: root, slug: slugForCwd('/work/feedback') })
+	const known = new Set<string>(messageIds)
+	// The session log check has its own suite (both-stores-agree); here the
+	// question is only what the revision directory does with an accepted id.
+	const exists = async (sessionId: SessionId, messageId: MessageId) =>
+		sessionId === SESSION && known.has(messageId)
 	return {
 		root,
-		runsDir,
-		feedbackDir,
-		store: new DiskMessageFeedbackStore({ rootDir: feedbackDir, runsDir }, undefined, () => 7),
+		paths,
+		feedbackDir: paths.feedback({ sessionId: SESSION }),
+		store: new DiskMessageFeedbackStore({ paths }, exists, () => 7),
 	}
 }
 
 function legacyRecord(overrides: Partial<MessageFeedback> = {}): MessageFeedback {
 	return {
-		runId: RUN,
+		sessionId: SESSION,
 		messageId: MESSAGE,
 		rating: 'good',
 		ownerVersion: 1,
@@ -65,12 +55,11 @@ function legacyRecord(overrides: Partial<MessageFeedback> = {}): MessageFeedback
 describe('feedback revision commits', () => {
 	it('reads a previous single-file record forward and commits its next owner version', async () => {
 		const { feedbackDir, store } = await fixture()
-		const runDir = join(feedbackDir, RUN)
-		await mkdir(runDir, { recursive: true })
-		await writeFile(join(runDir, `${MESSAGE}.json`), JSON.stringify(legacyRecord()), 'utf8')
+		await mkdir(feedbackDir, { recursive: true })
+		await writeFile(join(feedbackDir, `${MESSAGE}.json`), JSON.stringify(legacyRecord()), 'utf8')
 
 		const updated = await store.putMessageFeedback({
-			runId: RUN,
+			sessionId: SESSION,
 			messageId: MESSAGE,
 			rating: 'bad',
 			note: 'new writer',
@@ -83,10 +72,13 @@ describe('feedback revision commits', () => {
 			note: 'new writer',
 		})
 		const immutable = JSON.parse(
-			await readFile(join(runDir, '.revisions', revisionFileSegment(MESSAGE), '2.json'), 'utf8'),
+			await readFile(
+				join(feedbackDir, '.revisions', revisionFileSegment(MESSAGE), '2.json'),
+				'utf8',
+			),
 		)
 		expect(immutable).toMatchObject({
-			runId: RUN,
+			sessionId: SESSION,
 			messageId: MESSAGE,
 			ownerVersion: 2,
 			rating: 'bad',
@@ -97,31 +89,32 @@ describe('feedback revision commits', () => {
 	it('refuses an unsafe legacy message id without rewriting its existing feedback', async () => {
 		const legacyMessage = unchecked<MessageId>('1e2fbbcb-d241-4d76-a6b8-98ab03f68a06.legacy ü')
 		const { feedbackDir, store } = await fixture([legacyMessage])
-		const runDir = join(feedbackDir, RUN)
 		const oldName = `${legacyMessage.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`
-		const oldPath = join(runDir, oldName)
-		await mkdir(runDir, { recursive: true })
+		const oldPath = join(feedbackDir, oldName)
+		await mkdir(feedbackDir, { recursive: true })
 		const original = JSON.stringify(legacyRecord({ messageId: legacyMessage }))
 		await writeFile(oldPath, original, 'utf8')
 
 		await expect(
 			store.putMessageFeedback({
-				runId: RUN,
+				sessionId: SESSION,
 				messageId: legacyMessage,
 				rating: 'bad',
 				expectedVersion: 1,
 			}),
 		).rejects.toBeInstanceOf(InvalidIdError)
-		await expect(store.listMessageFeedback({ runId: RUN })).rejects.toBeInstanceOf(InvalidIdError)
+		await expect(store.listMessageFeedback({ sessionId: SESSION })).rejects.toBeInstanceOf(
+			InvalidIdError,
+		)
 		expect(await readFile(oldPath, 'utf8')).toBe(original)
-		await expect(access(join(runDir, '.revisions'))).rejects.toMatchObject({
+		await expect(access(join(feedbackDir, '.revisions'))).rejects.toMatchObject({
 			code: 'ENOENT',
 		})
 	})
 
 	it('lists a committed first rating even when its projection publication fails', async () => {
 		const { feedbackDir, store } = await fixture()
-		const projection = join(feedbackDir, RUN, `${MESSAGE}.json`)
+		const projection = join(feedbackDir, `${MESSAGE}.json`)
 		const originalWrite = DiskRecordStore.prototype.write
 		vi.spyOn(DiskRecordStore.prototype, 'write').mockImplementation(async function (
 			this: DiskRecordStore<unknown>,
@@ -134,14 +127,14 @@ describe('feedback revision commits', () => {
 
 		await expect(
 			store.putMessageFeedback({
-				runId: RUN,
+				sessionId: SESSION,
 				messageId: MESSAGE,
 				rating: 'bad',
 				expectedVersion: 0,
 			}),
 		).resolves.toMatchObject({ ownerVersion: 1, rating: 'bad' })
 		await expect(access(projection)).rejects.toMatchObject({ code: 'ENOENT' })
-		await expect(store.listMessageFeedback({ runId: RUN })).resolves.toEqual([
+		await expect(store.listMessageFeedback({ sessionId: SESSION })).resolves.toEqual([
 			expect.objectContaining({
 				messageId: MESSAGE,
 				ownerVersion: 1,
@@ -153,24 +146,20 @@ describe('feedback revision commits', () => {
 	it('uses the immutable head when the compatibility projection is behind', async () => {
 		const { feedbackDir, store } = await fixture()
 		await store.putMessageFeedback({
-			runId: RUN,
+			sessionId: SESSION,
 			messageId: MESSAGE,
 			rating: 'good',
 			expectedVersion: 0,
 		})
 		await store.putMessageFeedback({
-			runId: RUN,
+			sessionId: SESSION,
 			messageId: MESSAGE,
 			rating: 'bad',
 			expectedVersion: 1,
 		})
-		await writeFile(
-			join(feedbackDir, RUN, `${MESSAGE}.json`),
-			JSON.stringify(legacyRecord()),
-			'utf8',
-		)
+		await writeFile(join(feedbackDir, `${MESSAGE}.json`), JSON.stringify(legacyRecord()), 'utf8')
 
-		await expect(store.listMessageFeedback({ runId: RUN })).resolves.toEqual([
+		await expect(store.listMessageFeedback({ sessionId: SESSION })).resolves.toEqual([
 			expect.objectContaining({ ownerVersion: 2, rating: 'bad' }),
 		])
 	})
@@ -178,18 +167,18 @@ describe('feedback revision commits', () => {
 	it('refuses equal-version projection and immutable values that disagree', async () => {
 		const { feedbackDir, store } = await fixture()
 		await store.putMessageFeedback({
-			runId: RUN,
+			sessionId: SESSION,
 			messageId: MESSAGE,
 			rating: 'good',
 			expectedVersion: 0,
 		})
 		await writeFile(
-			join(feedbackDir, RUN, `${MESSAGE}.json`),
+			join(feedbackDir, `${MESSAGE}.json`),
 			JSON.stringify(legacyRecord({ rating: 'bad' })),
 			'utf8',
 		)
 
-		await expect(store.listMessageFeedback({ runId: RUN })).rejects.toThrow(
+		await expect(store.listMessageFeedback({ sessionId: SESSION })).rejects.toThrow(
 			/different values at one revision/,
 		)
 	})
@@ -197,13 +186,13 @@ describe('feedback revision commits', () => {
 	it('refuses an immutable body filed under another message key', async () => {
 		const { feedbackDir, store } = await fixture()
 		await store.putMessageFeedback({
-			runId: RUN,
+			sessionId: SESSION,
 			messageId: MESSAGE,
 			rating: 'good',
 			expectedVersion: 0,
 		})
-		const projection = join(feedbackDir, RUN, `${MESSAGE}.json`)
-		const immutable = join(feedbackDir, RUN, '.revisions', revisionFileSegment(MESSAGE), '1.json')
+		const projection = join(feedbackDir, `${MESSAGE}.json`)
+		const immutable = join(feedbackDir, '.revisions', revisionFileSegment(MESSAGE), '1.json')
 		const body = JSON.parse(await readFile(immutable, 'utf8')) as Record<string, unknown>
 		await unlink(projection)
 		await writeFile(
@@ -212,7 +201,9 @@ describe('feedback revision commits', () => {
 			'utf8',
 		)
 
-		await expect(store.listMessageFeedback({ runId: RUN })).rejects.toThrow(/record key mismatch/)
+		await expect(store.listMessageFeedback({ sessionId: SESSION })).rejects.toThrow(
+			/record key mismatch/,
+		)
 	})
 
 	it('deduplicates projection and commit discovery in message-id order', async () => {
@@ -224,31 +215,32 @@ describe('feedback revision commits', () => {
 		const { store } = await fixture(messages)
 		for (const messageId of messages) {
 			await store.putMessageFeedback({
-				runId: RUN,
+				sessionId: SESSION,
 				messageId,
 				rating: 'good',
 				expectedVersion: 0,
 			})
 		}
 
-		expect((await store.listMessageFeedback({ runId: RUN })).map((item) => item.messageId)).toEqual(
-			[...messages].sort(),
-		)
+		expect(
+			(await store.listMessageFeedback({ sessionId: SESSION })).map((item) => item.messageId),
+		).toEqual([...messages].sort())
 	})
 
 	it('rejects message ids that would collide under legacy filename replacement', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-message-collision-'))
 		roots.push(root)
-		const feedbackDir = join(root, 'feedback')
+		const paths = new SessionPaths({ home: root, slug: slugForCwd('/work/feedback') })
+		const feedbackDir = paths.feedback({ sessionId: SESSION })
 		const first = unchecked<MessageId>('e2ce3042-11d1-413b-a923-0008dd52b71b/a')
 		const second = unchecked<MessageId>('e2ce3042-11d1-413b-a923-0008dd52b71b?a')
 		const exists = vi.fn(async () => true)
-		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, exists)
+		const store = new DiskMessageFeedbackStore({ paths }, exists)
 
 		for (const messageId of [first, second]) {
 			await expect(
 				store.putMessageFeedback({
-					runId: RUN,
+					sessionId: SESSION,
 					messageId,
 					rating: 'good',
 					expectedVersion: 0,
@@ -262,19 +254,18 @@ describe('feedback revision commits', () => {
 		})
 	})
 
-	it('validates and confines run ids before an accepting callback or filesystem write', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-run-id-'))
+	it('validates and confines session ids before an accepting callback or filesystem write', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-session-id-'))
 		roots.push(root)
-		const feedbackDir = join(root, 'feedback')
+		const paths = new SessionPaths({ home: root, slug: slugForCwd('/work/feedback') })
 		const exists = vi.fn(async () => true)
-		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir }, exists, () => 1)
-		const missingPrefix = '../../outside' as typeof RUN
-		const traversal = unchecked<RunId>('f4e0af37-43f7-48fd-82b0-f1b1c68881d3/../../outside')
-		const escapedTarget = join(feedbackDir, traversal)
+		const store = new DiskMessageFeedbackStore({ paths }, exists, () => 1)
+		const missingPrefix = '../../outside' as typeof SESSION
+		const traversal = unchecked<SessionId>('f4e0af37-43f7-48fd-82b0-f1b1c68881d3/../../outside')
 
 		await expect(
 			store.putMessageFeedback({
-				runId: missingPrefix,
+				sessionId: missingPrefix,
 				messageId: MESSAGE,
 				rating: 'good',
 				expectedVersion: 0,
@@ -284,47 +275,34 @@ describe('feedback revision commits', () => {
 
 		await expect(
 			store.putMessageFeedback({
-				runId: traversal,
+				sessionId: traversal,
 				messageId: MESSAGE,
 				rating: 'good',
 				expectedVersion: 0,
 			}),
 		).rejects.toBeInstanceOf(InvalidIdError)
 		expect(exists).not.toHaveBeenCalled()
-		await expect(access(escapedTarget)).rejects.toMatchObject({
-			code: 'ENOENT',
-		})
-		await expect(access(feedbackDir)).rejects.toMatchObject({ code: 'ENOENT' })
+		await expect(access(paths.projectDir())).rejects.toMatchObject({ code: 'ENOENT' })
 	})
 
-	it('does not use a traversal-shaped run id to select another transcript', async () => {
-		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-run-check-'))
+	it('does not use a traversal-shaped session id to select another log', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-feedback-session-check-'))
 		roots.push(root)
-		const runsDir = join(root, 'runs')
-		const feedbackDir = join(root, 'feedback')
-		const traversal = unchecked<RunId>('f4e0af37-43f7-48fd-82b0-f1b1c68881d3/../../outside')
-		const escapedRunDir = join(runsDir, traversal)
-		await mkdir(escapedRunDir, { recursive: true })
-		await writeFile(
-			join(escapedRunDir, 'transcript.jsonl'),
-			`${JSON.stringify({
-				seq: 1,
-				type: 'text_delta',
-				runId: traversal,
-				messageId: MESSAGE,
-			})}\n`,
-		)
-		const store = new DiskMessageFeedbackStore({ rootDir: feedbackDir, runsDir })
+		const paths = new SessionPaths({ home: root, slug: slugForCwd('/work/feedback') })
+		const traversal = unchecked<SessionId>('f4e0af37-43f7-48fd-82b0-f1b1c68881d3/../../outside')
+		// The default check reads the session's log; the id must be refused
+		// before it becomes a path.
+		const store = new DiskMessageFeedbackStore({ paths })
 
 		await expect(
 			store.putMessageFeedback({
-				runId: traversal,
+				sessionId: traversal,
 				messageId: MESSAGE,
 				rating: 'good',
 				expectedVersion: 0,
 			}),
 		).rejects.toBeInstanceOf(InvalidIdError)
-		await expect(store.listMessageFeedback({ runId: traversal })).rejects.toBeInstanceOf(
+		await expect(store.listMessageFeedback({ sessionId: traversal })).rejects.toBeInstanceOf(
 			InvalidIdError,
 		)
 	})

@@ -11,7 +11,7 @@
  *
  * Every piece of this existed already and none of it was reachable. The picker
  * could take a credential; the probe could see there was none; the phase
- * machine could route. Only a mounted app decides which of those runs, so a
+ * machine could route. Only a mounted app decides which of those turns, so a
  * unit test on any one of them stays green with the operator still stranded —
  * see "mutation check every test" on a helper test not
  * proving its caller.
@@ -102,6 +102,8 @@ vi.mock('ink', async (importOriginal) => {
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},

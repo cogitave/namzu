@@ -394,7 +394,7 @@ describe('withProviderFallback', () => {
 		 * `not_found`, and the swap happens whether or not `shouldFallOver` reads
 		 * the status at all — so a test written that way passes under the bug. A
 		 * driver that classified its OWN 404 produces `kind: 'bad_request'`, which
-		 * maps to `invalid_request`: a request fault, and the run would abort
+		 * maps to `invalid_request`: a request fault, and the turn would abort
 		 * holding a model the next member has. Only the status survives that path.
 		 */
 		it('...but a classified 404 is not a request fault, and DOES fall over', async () => {
@@ -507,7 +507,7 @@ describe('withProviderFallback', () => {
 		 * nothing.
 		 *
 		 * Announcing at cursor-move passes every other case in this file and
-		 * fails only this one, which is why it is here: a run record built on
+		 * fails only this one, which is why it is here: a turn record built on
 		 * that announcement would say a provider served a turn it never
 		 * received.
 		 */

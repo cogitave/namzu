@@ -13,7 +13,7 @@ import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
 /**
- * Every run started its OWN root trace, including a spawned sub-agent's.
+ * Every turn started its OWN root trace, including a spawned sub-agent's.
  * A supervisor delegating to three children produced four disconnected
  * traces rather than one tree — the same defect that made a 20-turn run
  * appear as 21 roots before iterations were parented, except across the
@@ -76,7 +76,7 @@ async function runOnce(parentSpan?: Span) {
 	await drainQuery({
 		provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 10_000,
 			tokenBudget: 100_000,
@@ -97,26 +97,26 @@ async function runOnce(parentSpan?: Span) {
 	return started
 }
 
-describe('a delegated run joins the trace it belongs to', () => {
+describe('a delegated session joins the trace it belongs to', () => {
 	it('parents its root span to the supplied span', async () => {
 		const caller = fakeSpan('delegating-tool')
 		const started = await runOnce(caller)
 
-		// The run span is the first thing the run starts.
+		// The turn span is the first thing the turn starts.
 		const runSpan = started[0]
 		expect(runSpan).toBeDefined()
 		expect(runSpan?.parent).toBe(caller)
 	})
 
-	it('a top-level run still starts its own root', async () => {
-		// Absent a parent, a run IS the root. Forcing one would be wrong.
+	it('a top-level turn still starts its own root', async () => {
+		// Absent a parent, a turn IS the root. Forcing one would be wrong.
 		const started = await runOnce()
 
 		expect(started[0]).toBeDefined()
 		expect(started[0]?.parent).toBeUndefined()
 	})
 
-	it('iterations still parent to the run, not to the caller', async () => {
+	it('iterations still parent to the turn, not to the caller', async () => {
 		// The cross-run fix must not disturb the within-run hierarchy.
 		const caller = fakeSpan('delegating-tool')
 		const started = await runOnce(caller)

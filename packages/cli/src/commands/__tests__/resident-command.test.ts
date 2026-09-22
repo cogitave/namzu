@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -10,7 +11,6 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { ResidentContextualStep, ResidentDecision } from '@namzu/sdk'
-import { generateRunId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -153,7 +153,7 @@ describe('resident commands reach durable project state', () => {
 		const claim = await resident.agenda.execution(pursuit.id).claim(pursuit.state, Date.now())
 		expect((await command(['release', owner.instanceId, '--executor-stopped'])).code).toBe(1)
 		await resident.agenda.setPaused((await resident.agenda.read()) ?? agenda, true)
-		expect((await command(['release', generateRunId(), '--executor-stopped'])).code).toBe(1)
+		expect((await command(['release', randomUUID(), '--executor-stopped'])).code).toBe(1)
 		expect(readRunner(resident)?.instanceId).toBe(owner.instanceId)
 		expect((await command(['release', owner.instanceId, '--executor-stopped'])).code).toBe(0)
 		expect(readRunner(resident)?.phase).toBe('released')
@@ -351,7 +351,7 @@ describe('resident commands reach durable project state', () => {
 		expect((await command(['resume'])).code).toBe(1)
 		expect((await command(reconcile)).code).toBe(EXIT_USAGE)
 		const wrongClaim = [...reconcile, '--executor-stopped']
-		wrongClaim[4] = generateRunId()
+		wrongClaim[4] = randomUUID()
 		expect((await command(wrongClaim)).errors.join('')).toContain('Claim or revision')
 		const wrongRevision = [...reconcile, '--executor-stopped']
 		wrongRevision[6] = String(claim.revision + 1)
@@ -396,6 +396,7 @@ describe('resident commands reach durable project state', () => {
 			cwd: nested,
 			sessions: { projectId: resident.projectId, tenantId: resident.tenantId },
 			artifactsRoot: resident.artifactsRoot,
+			projectSlug: resident.slug,
 		})
 	})
 

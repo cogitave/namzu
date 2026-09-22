@@ -18,6 +18,8 @@ const observed = vi.hoisted(() => ({ admissions: 0, sends: 0, appends: 0 }))
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => '4c06bfd5-dcde-40ee-ace4-2aa98801e50e',
 	requireWritableConversation: async () => {

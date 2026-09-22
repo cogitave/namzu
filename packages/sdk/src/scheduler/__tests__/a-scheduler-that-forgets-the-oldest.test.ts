@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../utils/id.js'
+import { SessionTokenBudget } from '../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 
 import type { AgentManagerContract } from '../../types/agent/manager.js'
 import type { AgentTask, AgentTaskContext } from '../../types/agent/task.js'
 import type { AgentId, TaskId } from '../../types/ids/index.js'
 import { LocalTaskScheduler } from '../local.js'
 
+function budgetFor(limit: number): SessionTokenBudget {
+	return SessionTokenBudget.create(limit, {
+		rootSessionId: generateSessionId(),
+		rootTurnId: generateTurnId(),
+	})
+}
+
 /**
  * The gateway's two ledgers — `trackedTaskIds` and `settledHandles` — had `add`
  * and `set` and no removal anywhere. The doc called them "bounded by the number
  * the gateway itself launched", which is true and is not a bound: a gateway
- * built per run is bounded by that run, but `SupervisorAgentConfig.gateway`
+ * built per turn is bounded by that run, but `SupervisorAgentConfig.gateway`
  * lets a host supply its own, and a long-lived host reusing one accumulates an
  * id and a settled handle for every task it ever launched.
  *
@@ -39,11 +46,12 @@ class CountingManager {
 
 function context(): AgentTaskContext {
 	return {
-		parentRunId: '5eba9421-a64b-4bf1-94b0-b0c3985daf28' as never,
+		parentSessionId: '5eba9421-a64b-4bf1-94b0-b0c3985daf28' as never,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(1_000_000, budgetRunId()),
+		budget: budgetFor(1_000_000),
 		tenantId: '0655203a-fe49-4e68-bb77-0f3889421e4c' as never,
 		sessionId: '314d67db-e2b9-420a-9f10-cee9b361a899' as never,
 		projectId: '8e77b3c0-cb1f-4ed2-b6d4-fd16fff77c89' as never,
@@ -68,10 +76,10 @@ async function launch(gateway: LocalTaskScheduler, count: number): Promise<void>
 	}
 }
 
-describe('a gateway that outlives its run forgets the oldest', () => {
-	it('keeps every task of a run that never reaches the cap', async () => {
+describe('a gateway that outlives its turn forgets the oldest', () => {
+	it('keeps every task of a turn that never reaches the cap', async () => {
 		// The control, and the case that must not change: a supervisor reading
-		// its listing at the end of a run sees everything it launched.
+		// its listing at the end of a turn sees everything it launched.
 		const gateway = new LocalTaskScheduler(
 			new CountingManager() as unknown as AgentManagerContract,
 			context(),

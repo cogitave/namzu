@@ -6,7 +6,7 @@ import { entityIdPattern } from '../../utils/id-format.js'
 import { isEntityId } from '../../utils/id.js'
 import { uuidv7 } from '../../utils/uuidv7.js'
 
-/** Version of the token-budget document. Version 1 (keyed by run) is refused, never migrated. */
+/** Version of the token-budget document. Version 1 (keyed by turn) is refused, never migrated. */
 export const SESSION_TOKEN_BUDGET_VERSION = 2 as const
 
 /**
@@ -188,7 +188,7 @@ function checkVersion(source: Record<string, unknown>): void {
 	if (source.v === SESSION_TOKEN_BUDGET_VERSION && source.kind === 'token-budget') return
 	if (source.version === 1) {
 		throw new SessionTokenBudgetVersionError(
-			'Token budget snapshot version 1 (keyed by run) is not read by this release. Ledgers are now keyed by (rootSessionId, rootTurnId), snapshot version 2. Settle or abandon the parked run with the release that wrote it before upgrading; a new turn opens a new ledger.',
+			'Token budget snapshot version 1 (keyed by turn) is not read by this release. Ledgers are now keyed by (rootSessionId, rootTurnId), snapshot version 2. Settle or abandon the parked turn with the release that wrote it before upgrading; a new turn opens a new ledger.',
 		)
 	}
 	if (source.kind !== 'token-budget') {

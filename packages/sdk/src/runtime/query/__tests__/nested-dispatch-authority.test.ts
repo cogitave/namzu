@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { probe } from '../../../probe/registry.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
@@ -24,7 +25,7 @@ import { drainQuery } from '../index.js'
  *
  * The executor used to hand that callback to a tool for the lifetime of the
  * run. A plugin could retain it, let its visible call settle, and dispatch a
- * second tool after the call — or even after `run_completed`. The same nested
+ * second tool after the call — or even after `turn_completed`. The same nested
  * path also skipped the operator authorization gate entirely, so an allowed
  * `run_code` parent could invoke a child the operator explicitly denied.
  *
@@ -47,7 +48,7 @@ function params(provider: MockLLMProvider, tools: ToolRegistry) {
 		agentName: 'Nested Authority Agent',
 		messages: [{ role: 'user' as const, content: 'run the requested tool' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,
@@ -146,7 +147,7 @@ describe('nested dispatch authority', () => {
 	it('cannot be retained and used after a successful parent call settles', async () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -175,13 +176,13 @@ describe('nested dispatch authority', () => {
 		await expect(dispatch?.('late_effect', {})).rejects.toThrow(/invocation.*settled/i)
 		expect(effects).toBe(0)
 		expect(events).toHaveLength(eventCount)
-		expect(events.at(-1)?.type).toBe('run_completed')
+		expect(events.at(-1)?.type).toBe('turn_completed')
 	})
 
 	it('cannot be retained and used after the parent is abandoned on timeout', async () => {
 		let retained: ToolContext['dispatchTool']
 		let effects = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -221,7 +222,7 @@ describe('nested dispatch authority', () => {
 		const childRelease = new Promise<void>((resolve) => {
 			releaseChild = resolve
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -302,8 +303,8 @@ describe('nested dispatch authority', () => {
 
 	it('cannot use an allowed parent to execute a child the operator denied', async () => {
 		let shellExecutions = 0
-		const events: RunEvent[] = []
-		const runStore = new InMemoryRunStore()
+		const events: SessionEvent[] = []
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
 		const tools = new ToolRegistry()
 		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
 		tools.register(
@@ -350,7 +351,8 @@ describe('nested dispatch authority', () => {
 			{
 				...params(provider, tools),
 				authorizationGate: gate,
-				runStore,
+				sessionLog,
+				sessionId: sessionLog.sessionId,
 			},
 			(event) => {
 				events.push(event)
@@ -367,7 +369,7 @@ describe('nested dispatch authority', () => {
 				result: expect.stringMatching(/authorization gate/i),
 			}),
 		)
-		const audit = await runStore.readAuditEvents()
+		const audit = await readAuditTrail(sessionLog)
 		expect(audit).toContainEqual(
 			expect.objectContaining({
 				what: { action: 'tool_call', tool: 'shell' },
@@ -379,7 +381,7 @@ describe('nested dispatch authority', () => {
 
 	it('fails an undecided nested call closed instead of bypassing durable review', async () => {
 		let effects = 0
-		const runStore = new InMemoryRunStore()
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
 		const tools = new ToolRegistry()
 		tools.register(
 			parentTool(
@@ -401,7 +403,8 @@ describe('nested dispatch authority', () => {
 
 		await drainQuery({
 			...params(provider, tools),
-			runStore,
+			sessionLog,
+			sessionId: sessionLog.sessionId,
 			authorizationGate: {
 				enabled: true,
 				rules: [{ type: 'allow_by_name', toolNames: ['nested_parent'] }],
@@ -412,7 +415,7 @@ describe('nested dispatch authority', () => {
 		})
 
 		expect(effects).toBe(0)
-		expect(await runStore.readAuditEvents()).toContainEqual(
+		expect(await readAuditTrail(sessionLog)).toContainEqual(
 			expect.objectContaining({
 				what: { action: 'tool_call', tool: 'late_effect' },
 				outcome: 'refused',
@@ -423,7 +426,7 @@ describe('nested dispatch authority', () => {
 
 	it('applies pre-tool rewrites before authorizing a nested call', async () => {
 		let shellExecutions = 0
-		const runStore = new InMemoryRunStore()
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
 		const tools = new ToolRegistry()
 		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
 		tools.register(
@@ -464,7 +467,8 @@ describe('nested dispatch authority', () => {
 
 		await drainQuery({
 			...params(provider, tools),
-			runStore,
+			sessionLog,
+			sessionId: sessionLog.sessionId,
 			pluginManager,
 			authorizationGate: {
 				enabled: true,
@@ -484,7 +488,7 @@ describe('nested dispatch authority', () => {
 		})
 
 		expect(shellExecutions).toBe(0)
-		expect(await runStore.readAuditEvents()).toContainEqual(
+		expect(await readAuditTrail(sessionLog)).toContainEqual(
 			expect.objectContaining({
 				what: { action: 'tool_call', tool: 'shell' },
 				outcome: 'refused',
@@ -559,7 +563,7 @@ describe('nested dispatch authority', () => {
 
 	it('applies the probe veto to nested calls too', async () => {
 		let effects = 0
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const tools = new ToolRegistry()
 		tools.register(buildRunCodeTool({ timeoutMs: 2_000 }))
 		tools.register(

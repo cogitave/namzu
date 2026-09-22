@@ -8,7 +8,7 @@ import { estimateMessageTokens, estimateMessagesTokens } from './token-estimate.
 import { clearStaleToolResults } from './tool-result-editing.js'
 
 /**
- * The compaction decision, with no run attached.
+ * The compaction decision, with no turn attached.
  *
  * The whole algorithm — the leading-system floor scan, the tool-result
  * pre-pass, the boundary search, the guards — lived inside
@@ -20,13 +20,13 @@ import { clearStaleToolResults } from './tool-result-editing.js'
  *
  * This file therefore holds NO reference to that context, and a test greps
  * for one: reintroducing a single field read would quietly re-couple the
- * arithmetic to a run and nothing else would fail.
+ * arithmetic to a turn and nothing else would fail.
  *
  * What stayed behind is everything with an effect: the model call, the
  * working-memory re-pin, the array install, the logging, every
  * `emitEvent`. What moved here is the arithmetic. The split is the
  * question "what should happen" separated from "make it happen", and only
- * the first half can be asked without a run.
+ * the first half can be asked without a turn.
  */
 
 /** Why a pass decided to do nothing. */
@@ -70,7 +70,7 @@ export interface CompactionPlanInput {
 	 * Let a host-created pass establish its own retained summary floor.
 	 *
 	 * This is deliberately separate from `force`: a provider overflow can
-	 * force the threshold decision without changing the live run's prompt
+	 * force the threshold decision without changing the live turn's prompt
 	 * invariant, while a host may own a durable user/assistant-only history
 	 * that has no system floor yet.
 	 */
@@ -101,7 +101,7 @@ export interface CompactionPlanInput {
  *
  * Floored at one message. A single final message larger than the whole
  * budget still has to be kept: it is the live turn, and dropping it to
- * satisfy a size preference would delete the thing the run is answering.
+ * satisfy a size preference would delete the thing the turn is answering.
  *
  * Exported for its own tests. There used to be a second copy of this in the
  * phase file with a `__forTests` export beside it; two implementations of
@@ -115,7 +115,7 @@ export function naiveKeepStartByTokens(messages: readonly Message[], budgetToken
 		const cost = estimateMessageTokens(messages[index] as Message)
 		// Checked BEFORE adding, so the boundary never includes a message
 		// that pushes the tail over. Adding first and trimming after would
-		// admit one oversized message on every run.
+		// admit one oversized message on every turn.
 		if (start < messages.length && tokens + cost > budgetTokens) break
 		tokens += cost
 		start = index
@@ -214,7 +214,7 @@ export function planCompaction(input: CompactionPlanInput): CompactionPlan {
 	// needs one older and one recent message before the token walk and safe
 	// boundary search can make the real decision.
 	//
-	// Preserve the old short-history ordering for a run with no floor: until
+	// Preserve the old short-history ordering for a turn with no floor: until
 	// a host explicitly allows a floorless pass, one notional system message
 	// remains part of the admission minimum and `no_system_floor` follows it.
 	const floorForAdmission =
@@ -236,7 +236,7 @@ export function planCompaction(input: CompactionPlanInput): CompactionPlan {
 	// `tool` results (kept in `recent`), leaving orphaned `tool_result`
 	// blocks at the head of the recent window. The provider then emits a
 	// `tool_result` with no matching `tool_use` and the API rejects the next
-	// turn — so compaction, whose whole job is to keep a long run alive,
+	// turn — so compaction, whose whole job is to keep a long turn alive,
 	// kills it instead. Snap the boundary backward to a safe point.
 	const naiveKeepStart =
 		config.keepRecentTokens === undefined

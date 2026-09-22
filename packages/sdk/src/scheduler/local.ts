@@ -11,8 +11,8 @@ import type {
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
-import type { CancelCause } from '../types/run/cancel-cause.js'
-import type { RunEventListener } from '../types/run/events.js'
+import type { CancelCause } from '../types/session/cancel-cause.js'
+import type { ChildSessionLifecycleEvent, SessionEventListener } from '../types/session/events.js'
 import { toErrorMessage } from '../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -20,10 +20,10 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
 /**
  * How many launched tasks a gateway remembers.
  *
- * High enough that no realistic single run reaches it — a fan-out is eight,
- * a long supervisory run is dozens — so the listing a supervisor reads at the
- * end of its run is always complete. It exists for the host that reuses one
- * gateway across runs, where the alternative is a set and a map that grow for
+ * High enough that no realistic single turn reaches it — a fan-out is eight,
+ * a long supervisory turn is dozens — so the listing a supervisor reads at the
+ * end of its turn is always complete. It exists for the host that reuses one
+ * gateway across turns, where the alternative is a set and a map that grow for
  * the life of the process.
  */
 const GATEWAY_TASK_LEDGER_CAP = 1_000
@@ -31,7 +31,7 @@ const GATEWAY_TASK_LEDGER_CAP = 1_000
 interface ObserverDelivery {
 	busy: boolean
 	readonly queue: Array<{
-		readonly event: Parameters<RunEventListener>[0]
+		readonly event: Parameters<SessionEventListener>[0]
 		readonly observer: 'scheduler' | 'task'
 	}>
 }
@@ -39,7 +39,7 @@ interface ObserverDelivery {
 export class LocalTaskScheduler implements TaskScheduler {
 	private agentManager: AgentManagerContract
 	private taskContext: AgentTaskContext
-	private listener: RunEventListener | undefined
+	private listener: SessionEventListener | undefined
 	private trackedTaskIds: Set<TaskId> = new Set()
 
 	private parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>
@@ -52,7 +52,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * Terminal tasks leave the manager 30 seconds after they finish, and
 	 * `listTasks` rebuilt itself by looking every tracked id back up — so a
 	 * task that finished a minute ago simply vanished from the tool whose
-	 * whole job is the end-of-run check. A supervisor could not tell an
+	 * whole job is the end-of-turn check. A supervisor could not tell an
 	 * evicted task from one that never launched; both read as absence.
 	 *
 	 * Eviction is there to release the heavy state — messages, controllers,
@@ -64,6 +64,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
 	/** See {@link onTaskProgress}. */
 	private readonly progressListeners = new Set<(taskId: TaskId) => void>()
+	private readonly childSessionListeners = new Set<(event: ChildSessionLifecycleEvent) => void>()
 	/**
 	 * One non-blocking delivery chain per observer.
 	 *
@@ -72,7 +73,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * slow exporter cannot hold up a task-specific screen (or another task's
 	 * screen) that uses a different callback.
 	 */
-	private readonly observerDeliveries = new WeakMap<RunEventListener, ObserverDelivery>()
+	private readonly observerDeliveries = new WeakMap<SessionEventListener, ObserverDelivery>()
 	/** Raw, unresolved — kept as the caller handed it so each of the two log
 	 * sites below resolves it independently via `resolveLogger`, rather than
 	 * this constructor baking in ONE `.child()` binding both would then share
@@ -83,7 +84,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	constructor(
 		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
-		listener?: RunEventListener,
+		listener?: SessionEventListener,
 		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>,
 		options?: { siblingFailurePolicy?: SiblingFailurePolicy; log?: Logger },
 	) {
@@ -136,7 +137,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 				projectId: this.taskContext.projectId,
 				parentActor: this.taskContext.parentActor,
 				// The caller's overrides, plus the span the caller supplied so a
-				// delegated run joins the trace it belongs to instead of
+				// delegated session joins the trace it belongs to instead of
 				// starting its own root.
 				//
 				// `options.configOverrides` used to be dropped here: this built
@@ -178,12 +179,32 @@ export class LocalTaskScheduler implements TaskScheduler {
 			(event) => {
 				// A scheduler-wide observer and this task's observer are independent.
 				// Either may throw or reject: observation is not authority over the
-				// child, and one broken screen/export must neither stop the run nor
+				// child, and one broken screen/export must neither stop the turn nor
 				// suppress the other observer. Async listeners are deliberately not
 				// awaited, so a slow renderer cannot backpressure model streaming.
 				this.deliverEvent(this.listener, event, 'scheduler')
 				if (options.onEvent !== this.listener) {
 					this.deliverEvent(options.onEvent, event, 'task')
+				}
+				// The parent turn's own record of its children. Synchronous and
+				// before anything else can settle, so `child_session_ended` is
+				// queued ahead of the parent's next record.
+				if (
+					event.type === 'child_session_spawned' ||
+					event.type === 'child_session_messaged' ||
+					event.type === 'child_session_idled'
+				) {
+					for (const notify of this.childSessionListeners) {
+						try {
+							notify(event)
+						} catch (err) {
+							resolveLogger(this.log)
+								.child({ [SCOPE_ATTRIBUTE]: 'scheduler/local' })
+								.warn('Child session observer failed', {
+									'exception.message': toErrorMessage(err),
+								})
+						}
+					}
 				}
 				// No id yet means nothing is waiting on this task: the caller
 				// does not hold the handle, so an idle bound cannot be running
@@ -225,13 +246,13 @@ export class LocalTaskScheduler implements TaskScheduler {
 	}
 
 	private deliverEvent(
-		listener: RunEventListener | undefined,
-		event: Parameters<RunEventListener>[0],
+		listener: SessionEventListener | undefined,
+		event: Parameters<SessionEventListener>[0],
 		observer: 'scheduler' | 'task',
 	): void {
 		if (!listener) return
 
-		// Each observer receives its own value graph. RunEvent is readonly at the
+		// Each observer receives its own value graph. SessionEvent is readonly at the
 		// type boundary, but a JavaScript consumer can still mutate an object it
 		// was handed; that must not forge what the next independent observer sees.
 		const snapshot = structuredClone(event)
@@ -244,7 +265,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 		this.drainObserver(listener, delivery)
 	}
 
-	private drainObserver(listener: RunEventListener, delivery: ObserverDelivery): void {
+	private drainObserver(listener: SessionEventListener, delivery: ObserverDelivery): void {
 		if (delivery.busy) return
 		while (delivery.queue.length > 0) {
 			const next = delivery.queue.shift()
@@ -272,7 +293,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	}
 
 	private reportObserverFailure(
-		eventType: Parameters<RunEventListener>[0]['type'],
+		eventType: Parameters<SessionEventListener>[0]['type'],
 		observer: 'scheduler' | 'task',
 		error: unknown,
 	): void {
@@ -362,12 +383,12 @@ export class LocalTaskScheduler implements TaskScheduler {
 	/**
 	 * Drop the oldest tasks once the ledger passes {@link GATEWAY_TASK_LEDGER_CAP}.
 	 *
-	 * A gateway constructed per run is bounded by that run and this never
+	 * A gateway constructed per turn is bounded by that turn and this never
 	 * fires. But `SupervisorAgentConfig.gateway` lets a host supply its own,
 	 * and a long-lived host reusing one accumulates an id and a settled handle
 	 * per task it ever launched, for the life of the process — the doc above
 	 * says "bounded by the number the gateway itself launched", which is true
-	 * and is not a bound when the gateway outlives the run.
+	 * and is not a bound when the gateway outlives the turn.
 	 *
 	 * Both collections are evicted **together and in insertion order**. Losing
 	 * a tracked id while keeping its handle, or the reverse, would make a task
@@ -403,7 +424,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 	 * Every event a child emits, reduced to "this one is still alive".
 	 *
 	 * Deliberately just the id. A caller that wanted the event itself has
-	 * the run listener; what an idle clock needs is the fact, and passing
+	 * the turn listener; what an idle clock needs is the fact, and passing
 	 * the payload here would make this a second way to read a worker's
 	 * output — one nobody documented and nothing frames as untrusted.
 	 */
@@ -418,6 +439,13 @@ export class LocalTaskScheduler implements TaskScheduler {
 		this.completionListeners.add(callback)
 		return () => {
 			this.completionListeners.delete(callback)
+		}
+	}
+
+	onChildSessionEvent(callback: (event: ChildSessionLifecycleEvent) => void): () => void {
+		this.childSessionListeners.add(callback)
+		return () => {
+			this.childSessionListeners.delete(callback)
 		}
 	}
 }

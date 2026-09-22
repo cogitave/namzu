@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { type BaseEvent, EventType, HttpAgent, type RunAgentInput } from '@ag-ui/client'
 import {
 	type ChatCompletionParams,
-	InMemoryRunStore,
+	InMemorySessionLog,
 	MockLLMProvider,
 	type QueryParams,
 	type StreamChunk,
@@ -18,7 +18,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { AGUIAdapter, type AGUIRunUI, toNamzuMessages } from '../index.js'
+import { AGUIAdapter, type AGUITurnUI, toNamzuMessages } from '../index.js'
 
 const directories: string[] = []
 
@@ -36,6 +36,7 @@ async function queryParams(
 	signal: AbortSignal,
 	provider: MockLLMProvider,
 	tools = new ToolRegistry(),
+	sessionLog?: InMemorySessionLog,
 ): Promise<QueryParams> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-ag-ui-client-'))
 	directories.push(workingDirectory)
@@ -47,11 +48,12 @@ async function queryParams(
 		workingDirectory,
 		agentId: 'ag-ui-test',
 		agentName: 'AG-UI interoperability test',
-		sessionId: generateSessionId(),
+		sessionId: sessionLog?.sessionId ?? generateSessionId(),
+		...(sessionLog ? { sessionLog } : {}),
 		topicId: generateTopicId(),
 		projectId: generateProjectId(),
 		tenantId: generateTenantId(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			maxIterations: 3,
 			timeoutMs: 10_000,
@@ -61,6 +63,17 @@ async function queryParams(
 		resumeHandler: async () => ({ action: 'continue' }),
 		retry: false,
 	}
+}
+
+/** How the session's last turn settled, read from its log: `undefined` while no turn has. */
+async function settledStatus(log: InMemorySessionLog): Promise<string | undefined> {
+	const { entries } = await log.readAll()
+	for (const { record } of [...entries].reverse()) {
+		if (record.type === 'turn_completed' || record.type === 'turn_failed') {
+			return record.settlement.status
+		}
+	}
+	return undefined
 }
 
 function httpClient(adapter: AGUIAdapter, threadId = 'thread-1'): HttpAgent {
@@ -84,7 +97,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 	it('replaces stale browser history before streaming and keeps model admission explicit', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'Fresh answer', chunkSize: 2 }] })
-		let retainedUI: AGUIRunUI | undefined
+		let retainedUI: AGUITurnUI | undefined
 		const display = [
 			{ id: 'authorized-user', role: 'user' as const, content: 'Host-approved display history' },
 		]
@@ -498,47 +511,39 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		expect(onRunFailed).not.toHaveBeenCalled()
 		expect(events.at(-1)).toMatchObject({
 			type: EventType.RUN_ERROR,
-			message: 'Namzu run failed.',
-			code: 'NAMZU_RUN_ERROR',
+			message: 'Namzu turn failed.',
+			code: 'NAMZU_TURN_ERROR',
 		})
 		expect(events.some((event) => event.type === EventType.RUN_FINISHED)).toBe(false)
 		expect(client.isRunning).toBe(false)
 	})
 
-	it('publishes completion only after the final run and message snapshot are persisted', async () => {
-		const runStore = new InMemoryRunStore()
+	it('publishes completion only after the settled turn and its answer are in the session log', async () => {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
 		const provider = new MockLLMProvider({ turns: [{ text: 'This answer is persisted.' }] })
 		const adapter = new AGUIAdapter({
-			createQuery: async ({ input, signal }) => ({
-				...(await queryParams(input, signal, provider)),
-				runStore,
-			}),
+			createQuery: async ({ input, signal }) =>
+				queryParams(input, signal, provider, new ToolRegistry(), sessionLog),
 		})
 		const client = httpClient(adapter)
-		const atFinish: { kind: string; status: string | undefined }[] = []
+		const atFinish: { answered: boolean; status: string | undefined }[] = []
 		await client.runAgent(
 			{ runId: 'persisted-run' },
 			{
 				onRunFinishedEvent: async () => {
 					atFinish.push({
-						kind: (await runStore.readMessages()).kind,
-						status: runStore.snapshot().meta?.status,
+						answered: (await sessionLog.messages()).some(
+							(message) =>
+								message.role === 'assistant' && message.content === 'This answer is persisted.',
+						),
+						status: await settledStatus(sessionLog),
 					})
 				},
 			},
 		)
 
-		expect(atFinish).toEqual([{ kind: 'available', status: 'completed' }])
-		expect(runStore.snapshot().meta?.status).toBe('completed')
-		expect(await runStore.readMessages()).toMatchObject({
-			kind: 'available',
-			messages: expect.arrayContaining([
-				expect.objectContaining({
-					role: 'assistant',
-					content: 'This answer is persisted.',
-				}),
-			]),
-		})
+		expect(atFinish).toEqual([{ answered: true, status: 'completed' }])
+		expect(await settledStatus(sessionLog)).toBe('completed')
 	})
 
 	it('reports an oversized final result once after delivering individually bounded text frames', async () => {
@@ -577,7 +582,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 		expect(events.every((event) => Buffer.byteLength(JSON.stringify(event)) <= 256)).toBe(true)
 		expect(events.filter((event) => event.type === EventType.RUN_ERROR)).toHaveLength(1)
 		expect(events.some((event) => event.type === EventType.RUN_FINISHED)).toBe(false)
-		expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'NAMZU_RUN_ERROR' })
+		expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'NAMZU_TURN_ERROR' })
 		expect(onRunErrorEvent).toHaveBeenCalledOnce()
 		expect(onRunFailed).not.toHaveBeenCalled()
 		expect(streamClosed).toBe(true)
@@ -649,7 +654,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 			)
 
 			expect(events.filter((event) => event.type === EventType.RUN_ERROR)).toHaveLength(1)
-			expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'NAMZU_RUN_ERROR' })
+			expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR, code: 'NAMZU_TURN_ERROR' })
 			expect(events.some((event) => event.type === EventType.RUN_FINISHED)).toBe(false)
 			expect(events.some((event) => event.type === EventType.TOOL_CALL_START)).toBe(false)
 			expect(events.some((event) => event.type === EventType.TOOL_CALL_END)).toBe(false)
@@ -710,7 +715,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 	it('revokes the UI handle when an unread response request is aborted', async () => {
 		const caller = new AbortController()
 		const provider = new MockLLMProvider({ turns: [{ text: 'must not start' }] })
-		let runUI: AGUIRunUI | undefined
+		let runUI: AGUITurnUI | undefined
 		const adapter = new AGUIAdapter({
 			createQuery: ({ input, signal, ui }) => {
 				runUI = ui
@@ -749,7 +754,7 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 	it('cancels an active provider when only the response reader disconnects', async () => {
 		const release = deferred()
 		const providerHeld = deferred()
-		const runStore = new InMemoryRunStore()
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
 		let providerSignal: AbortSignal | undefined
 		let streamClosed = false
 		class HeldProvider extends MockLLMProvider {
@@ -768,10 +773,8 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 			}
 		}
 		const adapter = new AGUIAdapter({
-			createQuery: async ({ input, signal }) => ({
-				...(await queryParams(input, signal, new HeldProvider())),
-				runStore,
-			}),
+			createQuery: async ({ input, signal }) =>
+				queryParams(input, signal, new HeldProvider(), new ToolRegistry(), sessionLog),
 		})
 		const request = new Request('http://namzu.test/agent', {
 			method: 'POST',
@@ -803,13 +806,122 @@ describe('the official AG-UI HttpAgent consumes a real Namzu query', () => {
 			expect(request.signal.aborted).toBe(false)
 			expect(providerSignal?.aborted).toBe(true)
 			expect(streamClosed).toBe(true)
-			expect(runStore.snapshot().meta?.status).toBe('cancelled')
-			expect(await runStore.readMessages()).toMatchObject({ kind: 'available' })
+			expect(await settledStatus(sessionLog)).toBe('cancelled')
 		} finally {
 			release.resolve()
 			await reader.cancel()
 			await consuming
 			reader.releaseLock()
 		}
+	})
+})
+
+describe('an AG-UI thread is a namzu session, a run one turn of it (golden stream)', () => {
+	it('echoes the client ids verbatim and records the run as the turn’s origin', async () => {
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const provider = new MockLLMProvider({ turns: [{ text: 'Golden answer', chunkSize: 4 }] })
+		const adapter = new AGUIAdapter({
+			createQuery: async ({ input, signal }) =>
+				queryParams(input, signal, provider, new ToolRegistry(), sessionLog),
+		})
+		const client = httpClient(adapter, 'golden-thread: any string')
+		const events: BaseEvent[] = []
+		await client.runAgent(
+			{ runId: 'golden-run: not a namzu id' },
+			{ onEvent: ({ event }) => void events.push(event) },
+		)
+
+		expect(events[0]).toMatchObject({
+			type: EventType.RUN_STARTED,
+			threadId: 'golden-thread: any string',
+			runId: 'golden-run: not a namzu id',
+		})
+		expect(events.at(-1)).toMatchObject({
+			type: EventType.RUN_FINISHED,
+			threadId: 'golden-thread: any string',
+			runId: 'golden-run: not a namzu id',
+			result: 'Golden answer',
+		})
+		const { entries } = await sessionLog.readAll()
+		const started = entries
+			.map(({ record }) => record)
+			.find((record) => record.type === 'turn_started')
+		expect(started).toMatchObject({
+			origin: {
+				protocol: 'ag-ui',
+				externalSessionId: 'golden-thread: any string',
+				externalTurnId: 'golden-run: not a namzu id',
+			},
+		})
+		// The turn id is the kernel's own, never the client's run id.
+		expect(started?.turnId).not.toBe('golden-run: not a namzu id')
+	})
+
+	it('answers a second run on a thread whose turn is still active with NAMZU_TURN_IN_PROGRESS', async () => {
+		const release = deferred()
+		const held = deferred()
+		class HeldProvider extends MockLLMProvider {
+			override async *chatStream(params: ChatCompletionParams): AsyncGenerator<StreamChunk> {
+				yield { id: 'held', delta: { content: 'Working' } }
+				held.resolve()
+				const onAbort = () => release.resolve()
+				params.signal?.addEventListener('abort', onAbort, { once: true })
+				try {
+					await release.promise
+				} finally {
+					params.signal?.removeEventListener('abort', onAbort)
+				}
+			}
+		}
+		const sessionLog = new InMemorySessionLog({ sessionId: generateSessionId() })
+		const onError = vi.fn()
+		const adapter = new AGUIAdapter({
+			createQuery: async ({ input, signal }) =>
+				queryParams(input, signal, new HeldProvider(), new ToolRegistry(), sessionLog),
+			onError,
+		})
+		const first = new AbortController()
+		const running = (async () => {
+			try {
+				for await (const _ of adapter.run(
+					{
+						threadId: 'busy-thread',
+						runId: 'first',
+						messages: [{ id: 'u1', role: 'user', content: 'Take your time' }],
+						tools: [],
+						context: [],
+						state: {},
+						forwardedProps: {},
+					},
+					{ signal: first.signal },
+				)) {
+					/* drain */
+				}
+			} catch {
+				/* canceled below */
+			}
+		})()
+		await held.promise
+
+		const second: BaseEvent[] = []
+		for await (const event of adapter.run({
+			threadId: 'busy-thread',
+			runId: 'second',
+			messages: [{ id: 'u2', role: 'user', content: 'And now this' }],
+			tools: [],
+			context: [],
+			state: {},
+			forwardedProps: {},
+		}))
+			second.push(event)
+
+		expect(second.at(-1)).toMatchObject({
+			type: EventType.RUN_ERROR,
+			code: 'NAMZU_TURN_IN_PROGRESS',
+		})
+		expect(onError).not.toHaveBeenCalled()
+		first.abort()
+		release.resolve()
+		await running
 	})
 })

@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fixtureUuid } from '../../../test-support/ids.js'
 
-import type { RunId } from '../../../types/ids/index.js'
-import type { MessageId } from '../../../types/ids/index.js'
+import type { MessageId, SessionId } from '../../../types/ids/index.js'
 import { InMemoryMessageFeedbackStore, acceptAnyMessage } from '../memory.js'
 import type { FeedbackRating } from '../types.js'
 
@@ -32,11 +31,11 @@ describe('a rating is a closed union', () => {
 
 	it('accepts the two that exist', async () => {
 		const store = new InMemoryMessageFeedbackStore(acceptAnyMessage)
-		const runId = 'c4129c0d-298a-43a3-b2dd-c30bd3eb104f' as RunId
+		const sessionId = 'c4129c0d-298a-43a3-b2dd-c30bd3eb104f' as SessionId
 
 		for (const [i, rating] of (['good', 'bad'] as const).entries()) {
 			const record = await store.putMessageFeedback({
-				runId,
+				sessionId,
 				messageId: fixtureUuid(`msg_${i}`) as MessageId,
 				rating,
 				expectedVersion: 0,

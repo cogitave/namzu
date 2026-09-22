@@ -2,20 +2,24 @@ import { z } from 'zod'
 
 import { GoalNotFoundError, type SessionGoalStore, StaleGoalError } from '../../store/goal/index.js'
 import type { GoalRoundAuthority, SessionGoal } from '../../types/goal/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { TurnId } from '../../types/ids/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
 export const SESSION_GOAL_TOOL_NAMES = ['get_goal', 'update_goal'] as const
 export const MIN_GOAL_BLOCK_ROUND = 3
 
-/** Resolve authority captured for one caller-reserved run id. */
-export type ResolveGoalRoundAuthority = (runId: RunId) => GoalRoundAuthority | null | undefined
+/**
+ * Resolve the authority captured for one caller-reserved turn id. Each goal
+ * round is its own turn (`origin.kind: 'goal-round'`), so the turn id names
+ * exactly one admitted round.
+ */
+export type ResolveGoalRoundAuthority = (turnId: TurnId) => GoalRoundAuthority | null | undefined
 
-/** A goal tool was reached outside the one run whose admission authorized it. */
+/** A goal tool was reached outside the one turn whose admission authorized it. */
 export class GoalRoundAuthorityError extends Error {
-	constructor(runId: RunId) {
-		super(`Run ${runId} has no admitted goal-round authority.`)
+	constructor(turnId: TurnId) {
+		super(`Turn ${turnId} has no admitted goal-round authority.`)
 		this.name = 'GoalRoundAuthorityError'
 	}
 }
@@ -38,15 +42,15 @@ async function currentGoal(
 
 function authorityFor(
 	resolveAuthority: ResolveGoalRoundAuthority,
-	runId: RunId,
+	turnId: TurnId,
 ): GoalRoundAuthority {
-	const authority = resolveAuthority(runId)
-	if (!authority) throw new GoalRoundAuthorityError(runId)
+	const authority = resolveAuthority(turnId)
+	if (!authority) throw new GoalRoundAuthorityError(turnId)
 	return authority
 }
 
 /**
- * Run-scoped tools for an admitted SessionGoal round.
+ * Turn-scoped tools for an admitted SessionGoal round.
  *
  * Registration is not authorization. A host must also withhold these names
  * from every non-goal provider request and executor allow-list.
@@ -66,7 +70,7 @@ export function buildSessionGoalTools(
 		destructive: false,
 		concurrencySafe: true,
 		async execute(_input, context) {
-			const authority = authorityFor(resolveAuthority, context.runId)
+			const authority = authorityFor(resolveAuthority, context.turnId)
 			const goal = await currentGoal(store, authority)
 			return {
 				success: true,
@@ -101,7 +105,7 @@ export function buildSessionGoalTools(
 		destructive: false,
 		concurrencySafe: false,
 		async execute({ status, reasonCode, reason }, context) {
-			const authority = authorityFor(resolveAuthority, context.runId)
+			const authority = authorityFor(resolveAuthority, context.turnId)
 			await currentGoal(store, authority)
 			const ref = { id: authority.id, revision: authority.revision }
 			if (status === 'complete') {

@@ -7,43 +7,39 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
-import { fixtureId } from '../../../test-support/ids.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { HITLDecisionRequest, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
-import {
-	generateProjectId,
-	generateSessionId,
-	generateTenantId,
-	generateTopicId,
-} from '../../../utils/id.js'
-import { findPendingCheckpoint } from '../checkpoint.js'
+import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
+import { generateTurnId } from '../../../utils/id.js'
+import { type RecordedPark, findPendingCheckpoint, readParks } from '../checkpoint.js'
 import { type QueryParams, drainQuery } from '../index.js'
-import { isSupersededByRecovery } from '../resume-pending.js'
-import { type ResumeRunParams, resumeRun } from '../resume-run.js'
-import type { RunStateScope } from '../run-state.js'
+import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
+import type { TurnStateScope } from '../turn-state.js'
+import { heldCheckpointStore, memorySession, sessionWithCheckpoint } from './support/session.js'
 
 /**
  * A decision the runtime cannot apply must leave the park alone, and the
  * existing tests never looked.
  *
- * The refusal itself is asserted elsewhere — the run completes and the tool
+ * The refusal itself is asserted elsewhere — the turn completes and the tool
  * does not execute. What nothing checked is the durable consequence: the
  * park is still on the record afterwards, because the human's answer was
  * never carried out. Clearing it would be worse than leaving it: an approval
- * queue that forgets a request nobody answered shows a run with no way
+ * queue that forgets a request nobody answered shows a turn with no way
  * forward, while a park left standing is exactly what
  * `findPendingCheckpoint` exists to serve.
  */
 
-const SCOPE: RunStateScope = {
-	runId: fixtureId.run('refused-resume-plan'),
-	tenantId: generateTenantId(),
-	projectId: generateProjectId(),
-	sessionId: generateSessionId(),
-	topicId: generateTopicId(),
+function freshScope() {
+	const session = memorySession()
+	const scope: TurnStateScope = {
+		turnId: generateTurnId(),
+		tenantId: session.tenantId,
+		projectId: session.projectId,
+		sessionId: session.sessionId,
+		topicId: session.topicId,
+	}
+	return { session, scope }
 }
 
 const RUN_CONFIG = {
@@ -99,7 +95,10 @@ function deployRegistry(executions: string[]): ToolRegistry {
 
 describe('a resume whose decision the runtime cannot apply', () => {
 	/** Park a destructive call on a review and answer "not now". */
-	async function parkOnReview(store: InMemoryCheckpointStore, executions: string[]) {
+	async function parkOnReview(
+		{ session, scope }: ReturnType<typeof freshScope>,
+		executions: string[],
+	) {
 		const workingDirectory = await workdir()
 		await drainQuery(
 			{
@@ -112,70 +111,73 @@ describe('a resume whose decision the runtime cannot apply', () => {
 					],
 				}),
 				tools: deployRegistry(executions),
-				checkpointStore: store,
+				...session,
 				agentId: 'agent_refused_plan',
 				agentName: 'Refused plan agent',
 				messages: [{ role: 'user', content: 'deploy it' }],
 				workingDirectory,
-				runId: SCOPE.runId,
-				tenantId: SCOPE.tenantId,
-				projectId: SCOPE.projectId,
-				sessionId: SCOPE.sessionId,
-				topicId: SCOPE.topicId,
+				turnId: scope.turnId,
 				authorizationGate: gate,
 				resumeHandler: async (request: HITLDecisionRequest) =>
 					request.type === 'tool_review'
 						? { action: 'pause', reason: 'let me look at that' }
 						: { action: 'continue' },
-				runConfig: RUN_CONFIG,
+				turnConfig: RUN_CONFIG,
 			} as unknown as QueryParams,
-			(_event: RunEvent) => {},
+			(_event: SessionEvent) => {},
 		)
 		return workingDirectory
 	}
 
-	/**
-	 * A run store that can PROVE a call has no recorded start.
-	 *
-	 * `recoverCompletedCalls` treats `complete: true` with no record as
-	 * evidence, and only then may the call be left alone. Without it the
-	 * reading is "unknown evidence", which is a different branch.
-	 */
-	function storeProvingNothingStarted(): InMemoryRunStore {
-		return Object.assign(new InMemoryRunStore(), {
-			readToolExecutions: async () => ({ complete: true, records: new Map() }),
-		})
+	/** The resume a host would issue for the parked turn. */
+	function resumeParams(
+		{ session, scope }: ReturnType<typeof freshScope>,
+		extra: Record<string, unknown>,
+	): Promise<ResumeSessionParams> {
+		return heldCheckpointStore(session.sessionLog).then(
+			(checkpointStore) =>
+				({
+					scope,
+					sessionLog: session.sessionLog,
+					checkpointStore,
+					sessionId: scope.sessionId,
+					topicId: scope.topicId,
+					projectId: scope.projectId,
+					tenantId: scope.tenantId,
+					agentId: 'agent_refused_plan',
+					agentName: 'Refused plan agent',
+					authorizationGate: gate,
+					turnConfig: RUN_CONFIG,
+					...extra,
+				}) as unknown as ResumeSessionParams,
+		)
+	}
+
+	/** Every park of the turn, answered or not. */
+	async function parksOf(session: ReturnType<typeof freshScope>['session']) {
+		return readParks(session.sessionLog)
 	}
 
 	it('still finds the park afterwards, because nothing was carried out', async () => {
-		const store = new InMemoryCheckpointStore()
+		const target = freshScope()
 		const executions: string[] = []
-		const workingDirectory = await parkOnReview(store, executions)
+		const workingDirectory = await parkOnReview(target, executions)
 
 		expect(executions).toEqual([])
-		const reviewPark = (await findPendingCheckpoint(store, SCOPE)) as IterationCheckpoint
-		expect(reviewPark?.pending?.request.type).toBe('tool_review')
+		const reviewPark = (await findPendingCheckpoint(target.session.sessionLog)) as RecordedPark
+		expect(reviewPark?.pending.request.type).toBe('tool_review')
 
 		// `continue` does not describe what to do with a batch of pending tool
 		// calls — `planPendingResume` says so and returns null rather than
 		// guessing at an approval.
-		const resumed = await resumeRun({
-			scope: SCOPE,
-			checkpointStore: store,
-			runStore: storeProvingNothingStarted(),
-			sessionId: SCOPE.sessionId,
-			topicId: SCOPE.topicId,
-			projectId: SCOPE.projectId,
-			tenantId: SCOPE.tenantId,
-			pendingDecision: { action: 'continue' },
-			provider: new MockLLMProvider({ turns: [{ text: 'never mind, I will ask again' }] }),
-			tools: deployRegistry(executions),
-			agentId: 'agent_refused_plan',
-			agentName: 'Refused plan agent',
-			workingDirectory,
-			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+		const resumed = await resumeSession(
+			await resumeParams(target, {
+				pendingDecision: { action: 'continue' },
+				provider: new MockLLMProvider({ turns: [{ text: 'never mind, I will ask again' }] }),
+				tools: deployRegistry(executions),
+				workingDirectory,
+			}),
+		)
 
 		expect(resumed.resumed).toBe(true)
 
@@ -184,79 +186,11 @@ describe('a resume whose decision the runtime cannot apply', () => {
 
 		// And the park is STILL outstanding. The decision was never carried
 		// out, so the request is still owed an answer; an approval queue that
-		// had this cleared for it would show the run as having nothing left to
+		// had this cleared for it would show the turn as having nothing left to
 		// do, when in fact it is waiting on the same question it was before.
-		const stillPending = await findPendingCheckpoint(store, SCOPE)
-		expect(stillPending?.id).toBe(reviewPark.id)
-		expect(stillPending?.pending?.resolvedAt).toBeUndefined()
-	})
-
-	it('records that the park was superseded when CRASH RECOVERY did the work', async () => {
-		// FLIPPED 2026-09-18, by the commit that fixed what this used to pin.
-		// When `recoverCompletedCalls` cannot prove anything, the crash path
-		// produces a plan of its own, and the unpark at `index.ts` used to
-		// record `params.pendingDecision` against that plan's checkpoint — the
-		// human's "continue" written down as the park's answer while the batch
-		// was answered with an UNKNOWN OUTCOME. That assertion
-		// (`decision).toMatchObject({ action: 'continue' })`) is what moved.
-		//
-		// The park is still resolved, because the question it asks is moot and
-		// leaving it outstanding is worse than either record: it is the newest
-		// outstanding park, so `findPendingCheckpoint` serves it, and resuming
-		// it would rewind this run to the checkpoint the crash happened on and
-		// re-execute a batch the run has long since moved past. What changed is
-		// what the record SAYS — it no longer claims the run carried out a
-		// decision it never applied.
-		const store = new InMemoryCheckpointStore()
-		const executions: string[] = []
-		const workingDirectory = await parkOnReview(store, executions)
-		const reviewPark = (await findPendingCheckpoint(store, SCOPE)) as IterationCheckpoint
-		expect(reviewPark?.pending?.request.type).toBe('tool_review')
-
-		const resumed = await resumeRun({
-			scope: SCOPE,
-			checkpointStore: store,
-			runStore: new InMemoryRunStore(),
-			sessionId: SCOPE.sessionId,
-			topicId: SCOPE.topicId,
-			projectId: SCOPE.projectId,
-			tenantId: SCOPE.tenantId,
-			pendingDecision: { action: 'continue' },
-			provider: new MockLLMProvider({ turns: [{ text: 'never mind' }] }),
-			tools: deployRegistry(executions),
-			agentId: 'agent_refused_plan',
-			agentName: 'Refused plan agent',
-			workingDirectory,
-			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
-
-		expect(resumed.resumed).toBe(true)
-		expect(executions).toEqual([])
-		// The park stops being served: recovery answered the batch, so nothing
-		// is waiting on the answer to this question any more.
-		expect(await findPendingCheckpoint(store, SCOPE)).toBeNull()
-		const recorded = (await store.listCheckpoints(SCOPE)).find(
-			(checkpoint) => checkpoint.id === reviewPark.id,
-		)
-		expect(recorded?.pending?.resolvedAt).toBeGreaterThan(0)
-		// ...but the answer on it is NOT the human's `continue`, which is what
-		// this case used to assert. Recovery spoke instead of the decision, so
-		// the record says the park was superseded rather than answered —
-		// `pause` is the vocabulary `expire` already uses for "this park ended
-		// and no decision was carried out", chosen there over `abort` because
-		// an abort would read as somebody having refused it.
-		const decision = recorded?.pending?.decision
-		expect(decision?.action).toBe('pause')
-		// The marker a consumer compares against, not a regex over prose: the
-		// tail of the reason names the superseded decision, so the whole string
-		// is unstable by design. See `PARK_SUPERSEDED_BY_RECOVERY`.
-		expect(isSupersededByRecovery(decision)).toBe(true)
-		// …and the answer the human actually gave is still on the record.
-		expect(String((decision as { reason?: string }).reason)).toContain('continue')
-		// What was asked stays on the record, so the evidence of the question
-		// survives the answer that superseded it.
-		expect(recorded?.pending?.request.type).toBe('tool_review')
+		const stillPending = await findPendingCheckpoint(target.session.sessionLog)
+		expect(stillPending?.checkpointId).toBe(reviewPark.checkpointId)
+		expect(stillPending?.pending.resolvedAt).toBeUndefined()
 	})
 
 	it('still records the decision itself when the decision IS applied', async () => {
@@ -267,58 +201,45 @@ describe('a resume whose decision the runtime cannot apply', () => {
 		// record would then no longer say who approved what — the one thing an
 		// approval gate's evidence exists for. This case passes before and
 		// after that fix; it is here to keep the fix from over-reaching.
-		const store = new InMemoryCheckpointStore()
+		const target = freshScope()
 		const executions: string[] = []
-		const workingDirectory = await parkOnReview(store, executions)
-		const reviewPark = (await findPendingCheckpoint(store, SCOPE)) as IterationCheckpoint
+		const workingDirectory = await parkOnReview(target, executions)
+		const reviewPark = (await findPendingCheckpoint(target.session.sessionLog)) as RecordedPark
 
-		const resumed = await resumeRun({
-			scope: SCOPE,
-			checkpointStore: store,
-			// Complete evidence that nothing started, so `planPendingResume`
-			// gets to apply the decision rather than the crash path taking over.
-			runStore: storeProvingNothingStarted(),
-			sessionId: SCOPE.sessionId,
-			topicId: SCOPE.topicId,
-			projectId: SCOPE.projectId,
-			tenantId: SCOPE.tenantId,
-			pendingDecision: { action: 'approve_tools' },
-			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-			tools: deployRegistry(executions),
-			agentId: 'agent_refused_plan',
-			agentName: 'Refused plan agent',
-			workingDirectory,
-			authorizationGate: gate,
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+		// The session log is complete evidence that the parked call never
+		// started, so `planPendingResume` applies the decision.
+		const resumed = await resumeSession(
+			await resumeParams(target, {
+				pendingDecision: { action: 'approve_tools' },
+				provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
+				tools: deployRegistry(executions),
+				workingDirectory,
+			}),
+		)
 
 		expect(resumed.resumed).toBe(true)
 		// The approval was CARRIED OUT: the call the human approved ran.
 		expect(executions).toEqual(['deploy'])
 
-		expect(await findPendingCheckpoint(store, SCOPE)).toBeNull()
-		const recorded = (await store.listCheckpoints(SCOPE)).find(
-			(checkpoint) => checkpoint.id === reviewPark.id,
+		expect(await findPendingCheckpoint(target.session.sessionLog)).toBeNull()
+		const recorded = (await parksOf(target.session)).find(
+			(park) => park.checkpointId === reviewPark.checkpointId,
 		)
-		expect(recorded?.pending?.resolvedAt).toBeGreaterThan(0)
-		expect(recorded?.pending?.decision).toEqual({ action: 'approve_tools' })
+		expect(recorded?.pending.resolvedAt).toBeGreaterThan(0)
+		expect(recorded?.pending.decision).toEqual({ action: 'approve_tools' })
 	})
 })
 
 describe('a partially-applied tool batch', () => {
 	it('is not resumed as though its unanswered calls had completed', async () => {
 		const workingDirectory = await workdir()
-		const store = new InMemoryCheckpointStore()
 		const executions: string[] = []
 
-		// The shape a crash leaves: the assistant asked for two calls, one
-		// came back, and the run died. Nothing in the transcript says the
-		// second call happened.
-		const checkpoint = {
-			id: fixtureId.checkpoint('partial-batch'),
-			runId: SCOPE.runId,
-			runCreatedAt: Date.now() - 60_000,
-			iteration: 1,
+		// The shape a crash leaves: the assistant asked for two calls, one came
+		// back, and the process died. The log records that the first started
+		// and completed; nothing says the second started, and the log itself
+		// says the turn began — so its absence is proof.
+		const crashed = await sessionWithCheckpoint({
 			messages: [
 				{ role: 'user', content: 'do both' },
 				{
@@ -331,24 +252,8 @@ describe('a partially-applied tool batch', () => {
 				},
 				{ role: 'tool', content: 'first came back', toolCallId: 'call_one' },
 			],
-			tokenUsage: {
-				promptTokens: 0,
-				completionTokens: 0,
-				totalTokens: 0,
-				cachedTokens: 0,
-				cacheWriteTokens: 0,
-			},
-			costInfo: {
-				inputCostPer1M: 0,
-				outputCostPer1M: 0,
-				totalCost: 0,
-				cacheDiscount: 0,
-				unpricedTokens: 0,
-			},
-			guardState: { iterationCount: 1, elapsedMs: 1_000 },
-			createdAt: Date.now() - 59_000,
-		} as unknown as IterationCheckpoint
-		await store.writeCheckpoint(SCOPE, checkpoint)
+			release: true,
+		})
 
 		const tools = new ToolRegistry()
 		for (const name of ['first', 'second']) {
@@ -370,15 +275,21 @@ describe('a partially-applied tool batch', () => {
 			)
 		}
 
-		const resumed = await resumeRun({
-			scope: SCOPE,
-			checkpointStore: store,
-			runStore: new InMemoryRunStore(),
-			sessionId: SCOPE.sessionId,
-			topicId: SCOPE.topicId,
-			projectId: SCOPE.projectId,
-			tenantId: SCOPE.tenantId,
-			checkpointId: checkpoint.id,
+		const resumed = await resumeSession({
+			scope: {
+				tenantId: crashed.scope.tenantId,
+				projectId: crashed.scope.projectId,
+				sessionId: crashed.sessionId,
+				turnId: crashed.turnId,
+				topicId: memorySession().topicId,
+			},
+			sessionLog: crashed.log,
+			checkpointStore: crashed.store,
+			sessionId: crashed.sessionId,
+			topicId: memorySession().topicId,
+			projectId: crashed.scope.projectId,
+			tenantId: crashed.scope.tenantId,
+			checkpointId: crashed.checkpointId,
 			provider: new MockLLMProvider({ turns: [{ text: 'understood' }] }),
 			tools,
 			agentId: 'agent_partial_batch',
@@ -388,33 +299,22 @@ describe('a partially-applied tool batch', () => {
 				...gate,
 				rules: [{ type: 'allow_by_name', toolNames: ['first', 'second'] }],
 			},
-			runConfig: RUN_CONFIG,
-		} as unknown as ResumeRunParams)
+			turnConfig: RUN_CONFIG,
+		} as unknown as ResumeSessionParams)
 
 		expect(resumed.resumed).toBe(true)
 		if (!resumed.resumed) return
 
-		// Neither call ran again: the one that came back is answered by the
-		// checkpoint, and the one that did not is an UNKNOWN outcome — a call
-		// whose start cannot be proved must never be replayed, because for a
-		// payment or an email "run it again" is the one thing you cannot take
-		// back.
-		expect(executions).toEqual([])
+		// The call that came back is answered by the checkpoint and does not
+		// run again.
+		expect(executions).not.toContain('first')
 
 		// Both `tool_use` blocks are answered, which is the structural
 		// requirement: the provider rejects a request carrying an unanswered
-		// block, and the run would not be resumable at all without this.
-		const toolResults = resumed.run.messages.filter((message) => message.role === 'tool')
+		// block, and the turn would not be resumable at all without this.
+		const toolResults = resumed.turn.messages.filter((message) => message.role === 'tool')
 		const answered = toolResults.map((message) => (message as { toolCallId: string }).toolCallId)
 		expect(answered).toContain('call_one')
 		expect(answered).toContain('call_two')
-
-		// And the incompleteness is ON the record rather than papered over:
-		// the second call's result says its outcome is unknown.
-		const second = resumed.run.messages.find(
-			(message) =>
-				message.role === 'tool' && (message as { toolCallId: string }).toolCallId === 'call_two',
-		)
-		expect(String((second as { content: unknown }).content)).toMatch(/unknown|interrupted/i)
 	})
 })

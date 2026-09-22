@@ -104,7 +104,8 @@ These are deterministic synthetic retrieval checks, not model benchmark gains.
 
 A separate real TUI session using `gpt-5.6-luna` at low effort recovered a
 previously unseen UUID at event 13 of a synthetic 12 MiB archive in two tool
-calls, without tool errors. The initial live attempt exposed redundant `runId`
-rejection during continuation; matching single-run scope is now accepted and
+calls, without tool errors. The initial live attempt exposed a continuation that
+rejected a redundant repeat of its own scope id; a matching single-scope
+continuation is now accepted and
 covered by a regression assertion. The TUI check tests model/tool integration;
 it does not establish general long-horizon reasoning performance.

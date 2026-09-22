@@ -24,7 +24,9 @@ import { ResidentConflictError } from './store.js'
 export type ResidentLearningStage = 'explore' | 'generate' | 'verification' | 'confirmation'
 
 const receiptSchema = z.object({
-	runId: z.string().uuid(),
+	/** The session and turn of the execution this usage belongs to; one receipt per turn. */
+	sessionId: z.string().uuid(),
+	turnId: z.string().uuid(),
 	tokens: z.number().int().nonnegative().safe().nullable(),
 	costUsd: z.number().nonnegative().finite().nullable(),
 })
@@ -60,7 +62,7 @@ export interface ResidentLearningCycleEvent {
 	readonly data: Readonly<Record<string, unknown>>
 }
 
-/** @experimental Use this stage's signal for every owned run; await every usage append. */
+/** @experimental Use this stage's signal for every owned execution; await every usage append. */
 export interface ResidentLearningCycleContext {
 	readonly cycleId: string
 	readonly stage: ResidentLearningStage
@@ -306,7 +308,7 @@ export async function runResidentLearningCycle(
 						try {
 							if (!open) throw new Error('A closed learning stage cannot record new usage.')
 							const receipt = Object.freeze(receiptSchema.parse(input))
-							const id = receipt.runId.toLowerCase()
+							const id = receipt.turnId.toLowerCase()
 							if (receipts.has(id)) throw new Error('Duplicate learning execution receipt.')
 							if (receipts.size >= 1024) throw new Error('Learning cycle receipt bound exceeded.')
 							const totals = usage()

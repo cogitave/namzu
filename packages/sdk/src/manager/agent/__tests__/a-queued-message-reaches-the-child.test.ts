@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -62,7 +62,8 @@ function recordingAgent(
 			seen.running?.()
 			if (hold) await hold
 			return {
-				runId: fixtureId.run('child'),
+				sessionId: fixtureId.session('child'),
+				turnId: fixtureId.turn('child'),
 				status: 'completed',
 				result: 'ok',
 				usage: { ...EMPTY_TOKEN_USAGE },
@@ -144,11 +145,15 @@ async function harness(opts: { hold?: boolean } = {}) {
 	})
 
 	const context: AgentTaskContext = {
-		parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		parentSessionId: 'c0250b29-330b-445f-b11d-2926ffd9059c' as never,
+		parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		parentAgentId: 'sup',
 		parentAbortController: new AbortController(),
 		depth: 0,
-		budget: TokenBudget.create(100_000, budgetRunId()),
+		budget: SessionTokenBudget.create(100_000, {
+			rootSessionId: generateSessionId(),
+			rootTurnId: generateTurnId(),
+		}),
 		tenantId: TENANT,
 		topicId: topic.id,
 		sessionId: parentSession.id,
@@ -199,7 +204,7 @@ describe('a message queued for a child reaches it', () => {
 
 		expect(drain().map((m) => m.content)).toEqual(['switch to Y'])
 		// Drained, not read. A peek would re-deliver on every boundary for
-		// the rest of the run.
+		// the rest of the turn.
 		expect(drain()).toEqual([])
 		release()
 		await manager.waitForCompletion(task.taskId)

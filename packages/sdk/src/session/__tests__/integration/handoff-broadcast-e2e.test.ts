@@ -57,11 +57,11 @@ function buildDeps(
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
 			events: sink,
-			// Supplied deliberately: this suite does not exercise Run fan-in, and
+			// Supplied deliberately: this suite does not exercise turn fan-in, and
 			// the default that used to stand in here answered `null` for every
 			// session — a check that could not fail.
-			runStatus: {
-				async blockingRun() {
+			turnStatus: {
+				async blockingTurn() {
 					return null
 				},
 			},

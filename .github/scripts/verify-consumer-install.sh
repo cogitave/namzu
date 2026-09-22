@@ -16,7 +16,7 @@
 #      suites exactly as their README documents.
 #   2. The packed @namzu/live entry point drives a complete LiveSession →
 #      NamzuModel → SDK query() turn. The fixture checks the provider request,
-#      live events, returned text and terminal run-store state.
+#      live events, returned text and the terminal record of the SDK session log.
 #
 # @namzu/telemetry then carries two additional assertions:
 #   1. require.resolve('@opentelemetry/api') computed from
@@ -209,16 +209,21 @@ trap cleanup EXIT
 
 # Generated state never reaches the operator's own state directory.
 #
-# An SDK entry point with no path builder writes under `defaultStateRoot()`:
-# `NAMZU_STATE_DIR` when set, else `$XDG_STATE_HOME/namzu` on Linux. Both are
-# pointed into the consumer directory, which `cleanup` removes, so whatever a
-# fixture here does write — the eval run, a fixture against an older SDK —
-# lands in scratch rather than in `~/.local/state/namzu`, one tree per CI run
-# with no retention. The packed live fixture goes further and asserts it wrote
-# nothing at all; see `run_live_fixture`.
+# Every SDK entry point that writes a session puts it under `NAMZU_HOME`
+# (default `~/.namzu`), in `projects/<slug>/`, and never under the working
+# directory. `NAMZU_HOME` is pointed into the consumer directory, which
+# `cleanup` removes, so whatever a fixture here does write — the eval run, a
+# fixture against an older SDK — lands in scratch rather than in the
+# operator's `~/.namzu`. `XDG_STATE_HOME` is pointed there too: no current SDK
+# reads it, and the live fixture asserts nothing appeared under it. The packed
+# live fixture goes further and asserts it wrote nothing at all; see
+# `run_live_fixture`.
 STATE_SCRATCH="$CONSUMER_DIR/generated-state"
 export XDG_STATE_HOME="$STATE_SCRATCH/xdg"
-export NAMZU_STATE_DIR="$STATE_SCRATCH/namzu"
+export NAMZU_HOME="$STATE_SCRATCH/namzu-home"
+# An explicit `NAMZU_HOME` must already be a real directory: the resolver
+# refuses one it cannot read rather than creating a home somewhere unexpected.
+mkdir -p "$XDG_STATE_HOME" "$NAMZU_HOME"
 
 # ---------------------------------------------------------------------------
 # A refusal has to be readable.
@@ -605,7 +610,7 @@ run_install "$SDK_TARBALL" "$LIVE_TARBALL"
 cat > assert-live-runtime.mjs <<'EOF'
 import { LiveAgent, LiveSession, NamzuModel } from '@namzu/live'
 import {
-  InMemoryRunStore, MockLLMProvider, ToolRegistry,
+  InMemorySessionLog, MockLLMProvider, ToolRegistry,
   generateProjectId, generateSessionId, generateTenantId, generateTopicId,
 } from '@namzu/sdk'
 
@@ -613,7 +618,8 @@ const expectedText = 'PACKED_LIVE_BRIDGE_OK'
 const instructions = 'PACKED_LIVE_INSTRUCTIONS'
 const userInput = 'Exercise the packed live bridge.'
 const provider = new MockLLMProvider({ responseText: expectedText })
-const runStore = new InMemoryRunStore()
+const sessionId = generateSessionId()
+const sessionLog = new InMemorySessionLog({ sessionId })
 const events = []
 const session = new LiveSession()
 session.onEvent((event) => events.push(event))
@@ -628,15 +634,15 @@ await session.start(
         projectId: generateProjectId(),
         provider,
         resumeHandler: async () => ({ action: 'continue' }),
-        runConfig: {
+        turnConfig: {
           maxIterations: 4,
           maxResponseTokens: 512,
           model: 'packed-fixture-model',
           timeoutMs: 30_000,
           tokenBudget: 100_000,
         },
-        runStore,
-        sessionId: generateSessionId(),
+        sessionLog,
+        sessionId,
         tenantId: generateTenantId(),
         tools: new ToolRegistry(),
         topicId: generateTopicId(),
@@ -656,8 +662,11 @@ if (result.status !== 'completed') {
 if (result.message?.content !== expectedText) {
   failures.push(`assistant text = ${JSON.stringify(result.message?.content)}, expected ${JSON.stringify(expectedText)}`)
 }
-if (!result.runId) {
-  failures.push('completed turn omitted its SDK run id')
+if (!result.modelTurnId) {
+  failures.push('completed turn omitted its SDK turn id')
+}
+if (result.modelSessionId !== sessionId) {
+  failures.push(`completed turn named SDK session ${JSON.stringify(result.modelSessionId)}, expected ${JSON.stringify(sessionId)}`)
 }
 
 if (provider.requests.length !== 1) {
@@ -680,8 +689,20 @@ for (const requiredType of ['turn_started', 'assistant_text_delta', 'turn_comple
   }
 }
 
-if (runStore.snapshot().meta.status !== 'completed') {
-  failures.push(`SDK run-store status = ${JSON.stringify(runStore.snapshot().meta.status)}, expected "completed"`)
+const log = await sessionLog.readAll()
+const types = log.entries.map((entry) => entry.record.type)
+if (!log.intact) {
+  failures.push('SDK session log is not intact after one turn')
+}
+if (types[0] !== 'session_started') {
+  failures.push(`SDK session log starts with ${JSON.stringify(types[0])}, expected "session_started"`)
+}
+if (types.at(-1) !== 'turn_completed') {
+  failures.push(`SDK session log ends with ${JSON.stringify(types.at(-1))}, expected "turn_completed"`)
+}
+const turnStarted = log.entries.find((entry) => entry.record.type === 'turn_started')
+if (!turnStarted || turnStarted.record.turnId !== result.modelTurnId) {
+  failures.push('SDK session log does not record the reported turn id on turn_started')
 }
 
 if (failures.length > 0) {
@@ -690,23 +711,22 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log('✅ packed @namzu/live completed one SDK-backed turn with public exports, events and run-store state intact')
+console.log('✅ packed @namzu/live completed one SDK-backed turn with public exports, events and session-log state intact')
 EOF
 
-# The fixture keeps its run in an `InMemoryRunStore` and names no path builder,
-# so the run's token ledger and checkpoints are held in memory with it. It runs
-# twice, once for each way the state root resolves — through `XDG_STATE_HOME`
-# with `NAMZU_STATE_DIR` unset, and through `NAMZU_STATE_DIR` — and each root is
-# required to be empty afterwards. Before this, every run of the gate left a
-# `projects/<id>/sessions/<id>/runs/<id>/token-budget.json` in the operator's
-# `~/.local/state/namzu`.
+# The fixture keeps its session in an `InMemorySessionLog` and names no
+# `paths`, so the session's checkpoints and token ledger are held in memory
+# with it. `NAMZU_HOME` and `XDG_STATE_HOME` are each required to be empty
+# afterwards, and the working directory to have no `.namzu`: an SDK that wrote
+# a session there, or fell back to an XDG or working-directory default, fails
+# here rather than leaving a tree in the operator's home on every run of the
+# gate.
 run_live_fixture() {
   local root leftover
-  rm -rf "$STATE_SCRATCH"
-  mkdir -p "$XDG_STATE_HOME" "$NAMZU_STATE_DIR"
-  env -u NAMZU_STATE_DIR node assert-live-runtime.mjs
+  rm -rf "$STATE_SCRATCH" .namzu
+  mkdir -p "$XDG_STATE_HOME" "$NAMZU_HOME"
   node assert-live-runtime.mjs
-  for root in "$XDG_STATE_HOME" "$NAMZU_STATE_DIR"; do
+  for root in "$XDG_STATE_HOME" "$NAMZU_HOME"; do
     leftover=$(find "$root" -mindepth 1 -print -quit)
     if [ -n "$leftover" ]; then
       echo "    ✗ The in-memory live fixture wrote generated state under $root:"
@@ -714,7 +734,12 @@ run_live_fixture() {
       exit 1
     fi
   done
-  echo "    ✓ no generated state under XDG_STATE_HOME or NAMZU_STATE_DIR"
+  if [ -e .namzu ]; then
+    echo "    ✗ The in-memory live fixture created .namzu in the working directory:"
+    find .namzu | sed 's/^/      /'
+    exit 1
+  fi
+  echo "    ✓ no generated state under NAMZU_HOME, XDG_STATE_HOME or the working directory"
 }
 
 echo "    → packed live + shipping SDK"

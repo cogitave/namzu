@@ -14,9 +14,9 @@ import { BashTool, SANDBOX_CANNOT_DETACH } from '../../../tools/builtins/bash.js
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -72,7 +72,7 @@ function params(input: {
 	return {
 		provider: input.provider,
 		tools: input.tools,
-		runConfig: {
+		turnConfig: {
 			model: 'mock',
 			env: input.env,
 			timeoutMs: 10_000,
@@ -116,7 +116,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 		const boundary: Sandbox = { ...sandbox(), spawnDetached }
 		const tools = new ToolRegistry()
 		tools.register(BashTool)
-		const seen: RunEvent[] = []
+		const seen: SessionEvent[] = []
 		vi.mocked(spawn).mockClear()
 
 		try {
@@ -162,7 +162,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 			})
 			expect(jobs.list(owner)).toHaveLength(1)
 			const job = jobs.list(owner)[0]
-			if (!job) throw new Error('Expected the run to register a sandbox-owned job')
+			if (!job) throw new Error('Expected the turn to register a sandbox-owned job')
 			expect(job).toMatchObject({ owner, command, status: 'running' })
 			output.write('sandbox-output')
 			expect(jobs.read(job.id).chunk).toBe('sandbox-output')
@@ -220,7 +220,7 @@ describe('a sandbox and a host background registry are not one capability', () =
 		const tools = new ToolRegistry()
 		tools.register(BashTool)
 		const boundary = sandbox()
-		const seen: RunEvent[] = []
+		const seen: SessionEvent[] = []
 
 		await drainQuery(
 			params({

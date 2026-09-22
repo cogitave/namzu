@@ -8,7 +8,7 @@ import {
 	ProviderError,
 	ToolRegistry,
 	defineTool,
-	generateRunId,
+	generateTurnId,
 	isTerminalAgentTaskState,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
@@ -22,7 +22,7 @@ it.each(['tool', 'provider'])(
 	async (boundary) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-mixed-agents-'))
 		const parent = await subagentParentFixture(cwd)
-		const foreign = generateRunId()
+		const foreign = generateTurnId()
 		const releases: Array<() => void> = []
 		const requests: ChatCompletionParams[][] = [[], [], []]
 		let created = 0
@@ -30,8 +30,8 @@ it.each(['tool', 'provider'])(
 		const runtime = await createSubagentRuntime({
 			cwd,
 			model: 'mock',
-			resolveParent: (runId) =>
-				parent.resolveParent(runId === foreign ? parent.scope.runId : runId),
+			resolveParent: (turnId) =>
+				parent.resolveParent(turnId === foreign ? parent.scope.turnId : turnId),
 			buildTools: () => {
 				const tools = new ToolRegistry()
 				tools.register(
@@ -88,7 +88,8 @@ it.each(['tool', 'provider'])(
 			},
 		})
 		const context = {
-			runId: parent.scope.runId,
+			sessionId: parent.scope.sessionId,
+			turnId: parent.scope.turnId,
 			workingDirectory: cwd,
 			abortSignal: new AbortController().signal,
 			env: {},
@@ -114,7 +115,7 @@ it.each(['tool', 'provider'])(
 			await vi.waitFor(() => expect(holding).toBe(true))
 			const foreignCancel = await runtime.cancelAgentTool.execute(
 				{ task_id: cancelled },
-				{ ...context, runId: foreign },
+				{ ...context, turnId: foreign },
 			)
 			expect(foreignCancel.success).toBe(false)
 			expect(requests[0]?.[0]?.signal?.aborted).toBe(false)
@@ -129,7 +130,7 @@ it.each(['tool', 'provider'])(
 			expect(requests[1]?.[0]?.signal?.aborted).toBe(false)
 			expect(requests[2]?.[0]?.signal?.aborted).toBe(false)
 			for (const release of releases) release()
-			const gateway = await runtime.gatewayForRun(parent.scope.runId)
+			const gateway = await runtime.gatewayForTurn(parent.scope.turnId)
 			await vi.waitFor(
 				() =>
 					expect(gateway.listTasks().every((task) => isTerminalAgentTaskState(task.state))).toBe(
@@ -142,7 +143,7 @@ it.each(['tool', 'provider'])(
 			expect(tasks.find((task) => task.task_id === cancelled)?.status).toBe('canceled')
 			expect(tasks.find((task) => task.task_id === ids[1])?.status).toBe('completed')
 			expect(tasks.find((task) => task.task_id === ids[2])?.status).toBe('failed')
-			const inbox = await runtime.completionInboxForRun(parent.scope.runId)
+			const inbox = await runtime.completionInboxForTurn(parent.scope.turnId)
 			expect(inbox.drain()).toHaveLength(3)
 			expect(inbox.drain()).toHaveLength(0)
 			const repeated = await runtime.cancelAgentTool.execute({ task_id: cancelled }, context)

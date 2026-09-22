@@ -128,7 +128,7 @@ describe('the supervisor has a tool for every move it needs', () => {
 	})
 
 	it('gives the launching tool a deadline a real worker can meet', () => {
-		// The run default is two minutes; a delegated worker doing real work
+		// The turn default is two minutes; a delegated worker doing real work
 		// takes longer, and every expiry past that point produced the state
 		// this whole change exists to repair. Not firing at all beats
 		// recovering well.
@@ -137,7 +137,7 @@ describe('the supervisor has a tool for every move it needs', () => {
 
 	it('gives the waiting tool a deadline longer than the executor default', () => {
 		// A tool whose entire job is to wait must not be killed for waiting.
-		// `ToolExecutor` reads `timeoutMs` before falling back to the run
+		// `ToolExecutor` reads `timeoutMs` before falling back to the turn
 		// default, so declaring one here is the supported way to say so.
 		expect(toolNamed(harness().tools, 'wait_for_task').timeoutMs).toBe(DELEGATION_TIMEOUT_MS)
 	})
@@ -298,8 +298,8 @@ describe('waiting explicitly beats listing in a loop', () => {
 describe('the task listing carries the output it always had', () => {
 	async function listWith(result: string): Promise<string> {
 		const h = harness()
-		// Launch it first. The listing is scoped to what this run launched, so
-		// settling a task the tools never created describes a sibling run's
+		// Launch it first. The listing is scoped to what this turn launched, so
+		// settling a task the tools never created describes a sibling session's
 		// work — which the listing now declines to show, correctly.
 		await toolNamed(h.tools, 'create_task').execute(
 			{ agent_id: 'reviewer', prompt: 'go', description: 'review', background: true },
@@ -359,7 +359,7 @@ describe('the task listing carries the output it always had', () => {
  *
  * `background: true` hands back a task id and says the result arrives "later,
  * as a task notification". The inbox is the only thing that delivers one — it
- * holds the run open for the outstanding worker and puts the completion into
+ * holds the turn open for the outstanding worker and puts the completion into
  * the transcript. Without one the tool told the model to expect a message on a
  * channel that did not exist, and nothing failed loudly, because the launch
  * itself succeeded.

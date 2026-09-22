@@ -92,7 +92,7 @@ describe('building the reviewer', () => {
 
 	it('gives the run a rejection budget that matches the gate', () => {
 		const built = buildGate({ gates: ['pnpm test'], gateRetries: 2 }, '/w')
-		// The two have to agree. A run whose budget outlasts its gate spends
+		// The two have to agree. A turn whose budget outlasts its gate spends
 		// its remaining turns being told the gate has given up.
 		expect(built?.maxAnswerReviews).toBe(2)
 		expect(typeof built?.reviewAnswer).toBe('function')
@@ -105,11 +105,11 @@ describe('building the reviewer', () => {
 	})
 })
 
-describe('the gate reaches the run', () => {
+describe('the gate reaches the turn', () => {
 	it('is handed to the session by `run`', async () => {
 		const options = await sessionOptionsFor(runCommand, ['--gate', 'pnpm test', 'fix the tests'])
 		// Deleting the spread in `run.ts` leaves the flag parsed and ignored —
-		// an operator gets a run that accepted `--gate` and settled on a red
+		// an operator gets a turn that accepted `--gate` and settled on a red
 		// build, with nothing to read that says why.
 		expect(typeof options.reviewAnswer).toBe('function')
 		expect(options.maxAnswerReviews).toBe(3)
@@ -132,7 +132,7 @@ describe('the gate reaches the run', () => {
 		expect(options.maxAnswerReviews).toBe(1)
 	})
 
-	it('leaves a run without gates byte-identical to one before gates existed', async () => {
+	it('leaves a turn without gates byte-identical to one before gates existed', async () => {
 		const options = await sessionOptionsFor(runCommand, ['fix the tests'])
 		// Absent, not `undefined`: the kernel branches on presence, and a key
 		// that is always there is a key a future reader has to reason about.

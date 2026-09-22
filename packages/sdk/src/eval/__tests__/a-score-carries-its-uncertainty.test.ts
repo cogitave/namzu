@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { describeUncertainty, uncertaintyOf } from '../uncertainty.js'
 
 /**
- * A suite reported a mean and nothing else, so two runs three points apart
+ * A suite reported a mean and nothing else, so two experiments three points apart
  * read as a difference. At the n a hand-built suite has, that is usually
- * the same run twice.
+ * the same experiment twice.
  *
  * The risk in fixing it is producing a number that looks precise and is
  * not — a too-narrow interval is worse than no interval, because it turns

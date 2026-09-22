@@ -12,13 +12,13 @@
 
 export { InMemoryTopicStore } from './memory.js'
 
-// Where a conversation's mutable state lives between runs — its own record
+// Where a conversation's mutable state lives between turns — its own record
 // beside the Topic, because the Topic is identity and this is session state
 // that changes several times inside one conversation.
 export { DiskTopicStateStore, InMemoryTopicStateStore } from './state.js'
 export type { DiskTopicStateStoreConfig, TopicStateStore } from './state.js'
 
-// Work that outlives one run: the objective, its round cap and the
+// Work that outlives one turn: the objective, its round cap and the
 // compare-and-set that makes the cap durable.
 export {
 	DiskTopicObjectiveStore,

@@ -21,7 +21,7 @@ import {
  * implies: the bytes land in the durable transcript, in every checkpoint,
  * in every compaction pass that walks the history, and — because a
  * conversation resends its history — on the wire once per turn. A 4 MB PDF
- * attached once is 4 MB per request for the rest of the run.
+ * attached once is 4 MB per request for the rest of the turn.
  *
  * Every failure here REFUSES. A message that quietly lost its image is a
  * model answering about a picture it never saw, confidently, with nothing

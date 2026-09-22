@@ -42,6 +42,6 @@ it.each([-1, 1.5, null, 'unlimited', Number.MAX_SAFE_INTEGER + 1])(
 	},
 )
 
-it('rejects run deadlines that overflow platform timers instead of timing out immediately', () => {
+it('rejects turn deadlines that overflow platform timers instead of timing out immediately', () => {
 	expect(() => loadConfig(fixture({ timeoutMs: 2_147_483_648 }))).toThrow('limits.timeoutMs')
 })

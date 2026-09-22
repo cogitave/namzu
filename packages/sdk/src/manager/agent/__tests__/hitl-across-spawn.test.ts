@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { TokenBudget } from '../../../run/token-budget.js'
-import { generateRunId as budgetRunId } from '../../../utils/id.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
+import { generateSessionId, generateTurnId } from '../../../utils/id.js'
 
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
@@ -63,7 +63,8 @@ function recordingAgent(seen: BaseAgentConfig[]): Agent<BaseAgentConfig, BaseAge
 		async run(_input: unknown, config: BaseAgentConfig) {
 			seen.push(config)
 			return {
-				runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as never,
+				sessionId: '4721e070-5ba2-425a-bf5a-8cc927907e9a' as never,
+				turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 				status: 'completed',
 				usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
 				cost: { totalCost: 0 },
@@ -142,11 +143,15 @@ async function harness() {
 
 	const context = (over: Partial<AgentTaskContext> = {}): AgentTaskContext =>
 		({
-			parentRunId: 'c0250b29-330b-445f-b11d-2926ffd9059c',
+			parentSessionId: parent.id,
+			parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e',
 			parentAgentId: 'supervisor',
 			parentAbortController: new AbortController(),
 			depth: 0,
-			budget: TokenBudget.create(100_000, budgetRunId()),
+			budget: SessionTokenBudget.create(100_000, {
+				rootSessionId: generateSessionId(),
+				rootTurnId: generateTurnId(),
+			}),
 			tenantId: tenant,
 			topicId: thread.id,
 			sessionId: parent.id,
@@ -168,11 +173,11 @@ async function harness() {
 
 	const spawn = async (ctx: AgentTaskContext, opts?: Partial<SendMessageOptions>) => {
 		await manager.sendMessage(options(opts), ctx)
-		// The child runs detached; give it a tick to reach `agent.run`.
+		// The child sessions detached; give it a tick to reach `agent.run`.
 		await new Promise((r) => setTimeout(r, 20))
 	}
 
-	return { seen, context, spawn }
+	return { seen, context, spawn, parentSessionId: parent.id }
 }
 
 describe('a child is reviewed by the same person as its parent', () => {
@@ -267,15 +272,17 @@ describe('a child built by a configBuilder inherits it too', () => {
 		await h.spawn(h.context(), {
 			agentId: 'built-worker',
 			// These are configuration hints, not authority. A child cannot turn
-			// itself back into the root or attach to an unrelated parent run.
+			// itself back into the root or attach to an unrelated parent session.
 			configOverrides: {
 				depth: 0,
-				parentRunId: 'cdde1da5-4639-4efc-803c-cfa923f6a714' as never,
+				parentSessionId: 'cdde1da5-4639-4efc-803c-cfa923f6a714' as never,
+				parentTurnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 			},
 		})
 
 		expect(h.seen[0]?.depth).toBe(1)
-		expect(h.seen[0]?.parentRunId).toBe('c0250b29-330b-445f-b11d-2926ffd9059c')
+		expect(h.seen[0]?.parentSessionId).toBe(h.parentSessionId)
+		expect(h.seen[0]?.parentTurnId).toBe('0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e')
 	})
 
 	it('is left without one when the parent has none', async () => {

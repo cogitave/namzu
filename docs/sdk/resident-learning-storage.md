@@ -31,11 +31,13 @@ or qualify its candidate under the new gate.
 | Cycle identity, declared parent, ordered events, receipt totals and final result | SQLite | The summary and event commit together; list queries do not scan artifacts. |
 | Complete evaluation batches and optional host traces | Immutable JSON files, referenced by SHA-256 from SQLite | Verify size and digest before using their content. |
 | Accepted skill, its evidence and agenda revision | Existing resident agenda | This is the activation authority, even if the final experiment event is missing. |
-| Provider run and tool transcripts | Existing host RunStore | A learning receipt references execution; it does not replace its original transcript. |
+| Provider calls and tool results | The host's session log | A learning receipt references the session and turn it measured; it does not replace that log. |
 
-The CLI uses one `state/learning.sqlite` per application home and
-`learning/artifacts/<sha256>.json` for complete content. SQL ownership includes
-installation tenant, Project and resident key. A parent cycle must already exist
+The CLI uses one `learning.sqlite` per resident, under
+`<NAMZU_HOME>/projects/<slug>/residents/<agent-key>/`, and `artifacts/<sha256>.json`
+beside it for complete content. SQL ownership includes installation tenant,
+Project and resident key. A database written by an earlier version (its
+`PRAGMA user_version` differs) is refused rather than migrated. A parent cycle must already exist
 in that same scope. There is no folder or JSON registry per experiment.
 
 The SQLite event journal is authoritative, rather than a disposable index. JSONL

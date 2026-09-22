@@ -19,7 +19,8 @@ import { buildCoordinatorTools } from '../index.js'
 
 function makeContext(): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
+		sessionId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -32,7 +33,7 @@ function makeContext(): ToolContext {
  *
  * The listing is scoped to what this tool set launched, so a fixture that
  * only stuffed `listTasks()` would now list nothing — and a gateway holding
- * tasks these tools never launched is precisely the sibling-run case the
+ * tasks these tools never launched is precisely the sibling session case the
  * scope exists to refuse. So the tests launch through the front door and the
  * fixture plays along.
  */
@@ -79,7 +80,8 @@ function handle(input: {
 		completedAt: input.completedAt,
 		result: input.lastError
 			? ({
-					runId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
+					sessionId: 'f4e0af37-43f7-48fd-82b0-f1b1c68881d3' as never,
+					turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 					status: input.state === 'failed' ? 'failed' : 'completed',
 					usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 					cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,
@@ -97,7 +99,7 @@ function handle(input: {
  * Build the coordinator surface, launch each seeded handle through
  * `create_task`, and return `agent_task_list`.
  *
- * Launching is what puts the tasks in this run's scope. Reaching past it to
+ * Launching is what puts the tasks in this turn's scope. Reaching past it to
  * seed the gateway directly would test a listing nobody can produce.
  */
 async function agentTaskListOver(seeded: TaskHandle[]) {

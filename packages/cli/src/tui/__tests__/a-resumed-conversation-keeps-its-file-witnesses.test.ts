@@ -42,7 +42,7 @@ import {
 	PROVIDER_REGISTRY,
 	type Preferences,
 } from '../../integrations/providers/index.js'
-import { type RunScope, createAgentSession } from '../agent.js'
+import { type SessionScope, createAgentSession } from '../agent.js'
 
 const preferences: Preferences = {
 	version: 3,
@@ -91,7 +91,7 @@ function wrote(callId: string, path: string, content: string): Message[] {
 	]
 }
 
-async function open(scope: RunScope) {
+async function open(scope: SessionScope) {
 	const session = await createAgentSession(preferences, detected, {
 		cwd,
 		scope,
@@ -148,7 +148,7 @@ afterEach(() => {
 
 describe('a conversation picked back up keeps the witnesses it earned', () => {
 	it('offers the restored body on the very first turn after a resume', async () => {
-		const scope: RunScope = {
+		const scope: SessionScope = {
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
@@ -178,7 +178,7 @@ describe('a conversation picked back up keeps the witnesses it earned', () => {
 		// a ledger rebuilt from it every turn would adopt that call's body as
 		// the runtime's own observation, then refuse the next real mutation for
 		// drift against a file nothing wrote.
-		const scope: RunScope = {
+		const scope: SessionScope = {
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
@@ -204,7 +204,7 @@ describe('a conversation picked back up keeps the witnesses it earned', () => {
 		// `/resume` mutates the session id on the scope object the session
 		// closed over, so both conversations are served by one map — and the
 		// second must be seeded from its own messages, never the first's.
-		const scope: RunScope = {
+		const scope: SessionScope = {
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),

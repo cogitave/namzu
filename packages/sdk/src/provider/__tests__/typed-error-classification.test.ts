@@ -11,7 +11,7 @@ import { withProviderRetry } from '../retry.js'
  *
  * `classifyProviderError` never read `kind`. A `ProviderRequestError` fell
  * through to the status heuristics, where a carefully-diagnosed
- * `context_overflow` carrying a 400 became `invalid_request` — so the run
+ * `context_overflow` carrying a 400 became `invalid_request` — so the turn
  * loop's overflow branch, which tests for `context_length_exceeded`, could
  * never fire for a first-party driver, and compaction relief was unreachable
  * for exactly the drivers that had diagnosed the problem correctly.
@@ -105,7 +105,7 @@ describe('a classified failure still goes through the retry loop', () => {
 
 	it('does not retry a typed context overflow', async () => {
 		// Correctly non-retryable — an identical prompt overflows identically.
-		// The remedy is compaction, which the run loop reaches for once the
+		// The remedy is compaction, which the turn loop reaches for once the
 		// code is `context_length_exceeded`.
 		const { provider, calls } = providerThatFails(typed('context_overflow', 400))
 		const wrapped = withProviderRetry(provider, {

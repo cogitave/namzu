@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import type { RunId } from '../../../types/ids/index.js'
+import { SessionPaths } from '../../../session/paths.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { TaskEvent, TaskStore } from '../../../types/task/index.js'
 import { DiskTaskStore } from '../disk.js'
 import { InMemoryTaskStore } from '../memory.js'
@@ -28,7 +29,8 @@ import { InMemoryTaskStore } from '../memory.js'
  * disagreement is invisible until a host swaps stores in production.
  */
 
-const RUN = '8240c48a-1635-4cd9-80cd-a75964d63808' as RunId
+const SESSION = '8240c48a-1635-4cd9-80cd-a75964d63808' as SessionId
+const TURN = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
 
 const dirs: string[] = []
 afterEach(async () => {
@@ -39,7 +41,10 @@ afterEach(async () => {
 async function diskStore(): Promise<TaskStore> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-edge-'))
 	dirs.push(dir)
-	return new DiskTaskStore({ baseDir: dir, defaultRunId: RUN })
+	return new DiskTaskStore({
+		paths: new SessionPaths({ home: dir, slug: '-work' }),
+		session: { sessionId: SESSION },
+	})
 }
 
 const IMPLEMENTATIONS: ReadonlyArray<readonly [string, () => Promise<TaskStore>]> = [
@@ -49,8 +54,8 @@ const IMPLEMENTATIONS: ReadonlyArray<readonly [string, () => Promise<TaskStore>]
 
 describe.each(IMPLEMENTATIONS)('an edge that already exists is not news (%s)', (_n, build) => {
 	async function twoTasks(store: TaskStore) {
-		const blocker = await store.create({ runId: RUN, subject: 'blocker' })
-		const blocked = await store.create({ runId: RUN, subject: 'blocked' })
+		const blocker = await store.create({ sessionId: SESSION, turnId: TURN, subject: 'blocker' })
+		const blocked = await store.create({ sessionId: SESSION, turnId: TURN, subject: 'blocked' })
 		return { blocker, blocked }
 	}
 

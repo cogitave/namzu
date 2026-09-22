@@ -79,7 +79,7 @@ describe('a profile is not applied until it is selected', () => {
 		expect(load(l, { env: { NAMZU_PROFILE: 'ci' } }).config.quiet).toBe(true)
 	})
 
-	it('prefers the flag over the variable, because a flag is this run', () => {
+	it('prefers the flag over the variable, because a flag is this turn', () => {
 		const l = layout({ project: { profiles: { a: { format: 'json' }, b: { format: 'yaml' } } } })
 
 		expect(load(l, { profile: 'a', env: { NAMZU_PROFILE: 'b' } }).config.format).toBe('json')

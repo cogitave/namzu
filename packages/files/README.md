@@ -14,7 +14,7 @@ generated: { by: human:bahadirarda, at: 2026-08-17T00:00:00Z }
 
 <h1>@namzu/files</h1>
 
-**File registry and blob storage for Namzu runs.**
+**File registry and blob storage for Namzu sessions.**
 
 [![npm](https://img.shields.io/npm/v/@namzu/files.svg)](https://www.npmjs.com/package/@namzu/files)
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)

@@ -10,7 +10,7 @@ import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from '../parse.js'
  * advisory phase folds decisions into working state and renders warnings
  * back to the executing agent, and the advisory tool renders both — and no
  * producer at all. The parser returned `{ advice }` and a comment saying
- * structure came later. Every consumer branch was dead in a real run, and
+ * structure came later. Every consumer branch was dead in a real turn, and
  * their tests passed because they built the result by hand.
  */
 

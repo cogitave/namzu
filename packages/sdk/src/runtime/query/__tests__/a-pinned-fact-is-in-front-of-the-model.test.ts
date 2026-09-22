@@ -9,9 +9,8 @@ import { CompactionConfigSchema } from '../../../config/runtime.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { HITLDecisionRequest } from '../../../types/hitl/index.js'
 import type { Message } from '../../../types/message/index.js'
 import {
 	createAssistantMessage,
@@ -20,19 +19,22 @@ import {
 } from '../../../types/message/index.js'
 import type { PluginHookContext, PluginHookEvent } from '../../../types/plugin/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
+import { restoreCheckpointContext } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
 import {
 	WORKING_MEMORY_HEADER,
 	isWorkingMemoryMessage,
 } from '../iteration/phases/working-memory.js'
+import { resumeSession } from '../resume-session.js'
+import { heldCheckpointStore, memorySession, turnScope } from './support/session.js'
 
 /**
  * A pin exists to be seen. After a tool pins a fact, the next request the
@@ -87,7 +89,7 @@ describe('a fact a tool pinned', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'probe it' }],
 			workingDirectory: process.cwd(),
-			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
+			turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 			compactionConfig: CompactionConfigSchema.parse({}),
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
@@ -138,7 +140,7 @@ function pinnedSlots(messages: readonly Message[]): string[] {
 	})
 }
 
-/** The slot as the RUN's history keeps it: in the leading system run. */
+/** The slot as the TURN's history keeps it: in the leading system run. */
 function historySlots(messages: readonly Message[]): string[] {
 	return messages.flatMap((message) =>
 		message.role === 'system' && isWorkingMemoryMessage(message.content)
@@ -147,7 +149,19 @@ function historySlots(messages: readonly Message[]): string[] {
 	)
 }
 
-it('replaces then removes the last pin after checkpoint restoration and compaction', async () => {
+/** Pause at the `nth` cadence checkpoint this handler is asked about, continue at every other. */
+function pauseAtCheckpoint(nth: number) {
+	let seen = 0
+	return async (request: HITLDecisionRequest) => {
+		if (request.type !== 'iteration_checkpoint') return { action: 'continue' } as const
+		seen++
+		return seen === nth
+			? ({ action: 'pause', reason: 'look at the pins' } as const)
+			: ({ action: 'continue' } as const)
+	}
+}
+
+it('replaces then removes the last pin across a resume from a checkpoint and a compaction', async () => {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-pin-lifecycle-'))
 	dirs.push(dir)
 	const tools = new ToolRegistry()
@@ -161,22 +175,16 @@ it('replaces then removes the last pin after checkpoint restoration and compacti
 			workingState: [{ key: 'region', text }],
 		}),
 	})
-	const checkpointStore = new InMemoryCheckpointStore()
-	const scope = {
-		runId: generateRunId(),
-		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
-		topicId: generateTopicId(),
-		tenantId: generateTenantId(),
-	}
+	const session = memorySession()
+	const turnId = generateTurnId()
 	const params = {
-		...scope,
+		...session,
+		turnId,
 		tools,
-		checkpointStore,
 		agentId: 'pin-lifecycle',
 		agentName: 'Pin lifecycle',
 		workingDirectory: dir,
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 8 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 8 },
 		compactionConfig: CompactionConfigSchema.parse({
 			strategy: 'structured',
 			llmVerification: false,
@@ -189,13 +197,14 @@ it('replaces then removes the last pin after checkpoint restoration and compacti
 		turns: [
 			{ toolCalls: [{ name: 'set_pin', args: { text: 'REGION_OLD' } }] },
 			{ toolCalls: [{ name: 'set_pin', args: { text: 'REGION_NEW' } }] },
-			{ text: 'Current state recorded.' },
 		],
 	})
+	// The turn pauses at the checkpoint after the pin was replaced, so a
+	// later process can resume it from there.
 	await drainQuery({
 		...params,
 		provider,
-		runStore: new InMemoryRunStore(),
+		resumeHandler: pauseAtCheckpoint(2),
 		messages: [
 			createUserMessage(`Earlier investigation: ${'background '.repeat(800)}`),
 			createAssistantMessage('The investigation is recorded.'),
@@ -203,66 +212,50 @@ it('replaces then removes the last pin after checkpoint restoration and compacti
 		],
 	})
 	expect(pinnedSlots(provider.requests[1]?.messages ?? []).join('')).toContain('REGION_OLD')
-	const updated = pinnedSlots(provider.requests[2]?.messages ?? []).join('')
-	expect(updated).toContain('REGION_NEW')
-	expect(updated).not.toContain('REGION_OLD')
-	const checkpoint = (await checkpointStore.listCheckpoints(scope)).at(-1)
+	const scope = turnScope(session.sessionId, turnId)
+	const store = await heldCheckpointStore(session.sessionLog)
+	const checkpoint = (await store.list(scope)).at(-1)
 	expect(checkpoint?.workingState?.pins?.[0]?.text).toBe('REGION_NEW')
 	if (!checkpoint) throw new Error('The pin update was not checkpointed')
 
-	// Round-trip JSON into a fresh store: the ownership needed for deletion
-	// cannot depend on the first query's object identities or closures.
-	// The ledger the checkpoint references lives beside it, so it is copied
-	// too, as a restart that moves the checkpoint store would.
-	const restoredStore = new InMemoryCheckpointStore()
-	await restoredStore.writeCheckpoint(scope, JSON.parse(JSON.stringify(checkpoint)))
-	const ledger = await checkpointStore.tokenBudgets.load(scope)
-	if (!ledger) throw new Error('Expected the ledger beside the checkpoints')
-	await restoredStore.tokenBudgets.save(scope, JSON.parse(JSON.stringify(ledger)))
+	const resumeScope = { ...scope, topicId: session.topicId }
 	const resumed = new MockLLMProvider({
 		turns: [
 			{ error: { message: 'context_length_exceeded: force a compacted resume', status: 400 } },
 			{ toolCalls: [{ name: 'set_pin', args: { text: '' } }] },
-			{ text: 'Pin removed.' },
 		],
 	})
-	const events: RunEvent[] = []
-	await drainQuery(
-		{
-			...params,
-			provider: resumed,
-			checkpointStore: restoredStore,
-			runStore: new InMemoryRunStore(),
-			messages: [],
-			resumeFromCheckpoint: checkpoint.id,
-		},
-		(event) => {
+	const events: SessionEvent[] = []
+	await resumeSession({
+		...params,
+		scope: resumeScope,
+		checkpointStore: store,
+		provider: resumed,
+		pendingDecision: { action: 'continue' },
+		resumeHandler: pauseAtCheckpoint(1),
+		listener: (event) => {
 			events.push(event)
 		},
-	)
+	})
 
 	expect(events.some((event) => event.type === 'compaction_shed')).toBe(true)
 	expect(pinnedSlots(resumed.requests[1]?.messages ?? []).join('')).toContain('REGION_NEW')
-	expect(pinnedSlots(resumed.requests.at(-1)?.messages ?? [])).toEqual([])
-	const deletionCheckpoint = (await restoredStore.listCheckpoints(scope)).at(-1)
+	const deletionCheckpoint = (await store.list(scope)).at(-1)
 	expect(deletionCheckpoint?.workingState?.pins).toEqual([])
 	if (!deletionCheckpoint) throw new Error('The pin deletion was not checkpointed')
-	// The checkpoint is taken before the next refresh. It still carries the
-	// previous slot but no pins, so deletion must also work on a fresh resume.
-	expect(historySlots(deletionCheckpoint.messages).join('')).toContain('REGION_NEW')
-	const afterDeletionStore = new InMemoryCheckpointStore()
-	await afterDeletionStore.writeCheckpoint(scope, JSON.parse(JSON.stringify(deletionCheckpoint)))
-	const afterDeletionLedger = await restoredStore.tokenBudgets.load(scope)
-	if (!afterDeletionLedger) throw new Error('Expected the ledger beside the checkpoints')
-	await afterDeletionStore.tokenBudgets.save(scope, JSON.parse(JSON.stringify(afterDeletionLedger)))
+	// The checkpoint is taken before the next refresh. Its context still
+	// carries the previous slot but no pins, so deletion must also work on a
+	// fresh resume.
+	const context = await restoreCheckpointContext(session.sessionLog, deletionCheckpoint)
+	expect(historySlots(context.messages).join('')).toContain('REGION_NEW')
 	const afterDeletion = new MockLLMProvider({ turns: [{ text: 'Resumed without pins.' }] })
-	await drainQuery({
+	await resumeSession({
 		...params,
+		scope: resumeScope,
+		checkpointStore: store,
 		provider: afterDeletion,
-		checkpointStore: afterDeletionStore,
-		runStore: new InMemoryRunStore(),
-		messages: [],
-		resumeFromCheckpoint: deletionCheckpoint.id,
+		pendingDecision: { action: 'continue' },
+		resumeHandler: async () => ({ action: 'continue' as const }),
 	})
 	expect(pinnedSlots(afterDeletion.requests[0]?.messages ?? [])).toEqual([])
 })
@@ -275,15 +268,11 @@ it('preserves an opaque inherited host ledger when no live provider or tool pins
 	await drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runStore: new InMemoryRunStore(),
+		...memorySession(),
 		agentId: 'opaque-ledger',
 		agentName: 'Opaque ledger',
 		workingDirectory: dir,
-		projectId: generateProjectId(),
-		sessionId: generateSessionId(),
-		topicId: generateTopicId(),
-		tenantId: generateTenantId(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 2 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 100_000, maxIterations: 2 },
 		compactionConfig: CompactionConfigSchema.parse({ llmVerification: false }),
 		messages: [createSystemMessage(ledger), createUserMessage('Continue')],
 	})

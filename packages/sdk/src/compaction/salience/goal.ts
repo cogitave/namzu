@@ -2,12 +2,12 @@
  * The goal vector: what "relevant" is measured against.
  *
  * Not the whole history — that would make every message relevant to
- * itself — but the four things that say what the run is for right now:
+ * itself — but the four things that say what the turn is for right now:
  * the first user message (the task), the most recent user turns (the
  * requirements as they were refined), the open items of the task list
- * when the run keeps one, and the latest assistant text (its stated
+ * when the turn keeps one, and the latest assistant text (its stated
  * intent). Weighted by repetition rather than a coefficient: the task
- * statement is included twice so a run that has drifted into detail is
+ * statement is included twice so a turn that has drifted into detail is
  * still scored against what it was asked to do.
  */
 

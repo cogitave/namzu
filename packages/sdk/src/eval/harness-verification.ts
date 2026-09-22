@@ -94,7 +94,7 @@ function measured(trial: HarnessTrial): boolean {
 	const { result } = trial
 	const scores = Object.values(result.scores)
 	return (
-		!result.run.error &&
+		!result.turn.error &&
 		(result.status === 'passed' || result.status === 'failed') &&
 		scores.length > 0 &&
 		scores.every((s) => !s.unavailable && Number.isFinite(s.score) && s.score >= 0 && s.score <= 1)
@@ -176,15 +176,15 @@ export function compareHarnessTrials(batch: HarnessVerificationBatch): HarnessCo
 	const usage = { rollouts: baseline.size * 2, tokens: 0, costUsd: 0, durationMs: 0 }
 	for (const trial of [...batch.baseline, ...batch.candidate]) {
 		const values = [
-			trial.result.run.totalTokens,
-			trial.result.run.totalCostUsd,
-			trial.result.run.durationMs,
+			trial.result.turn.totalTokens,
+			trial.result.turn.totalCostUsd,
+			trial.result.turn.durationMs,
 		]
 		if (values.some((n) => !Number.isFinite(n) || n < 0))
 			throw new Error('Invalid recorded harness usage.')
-		usage.tokens += trial.result.run.totalTokens
-		usage.costUsd += trial.result.run.totalCostUsd
-		usage.durationMs += trial.result.run.durationMs
+		usage.tokens += trial.result.turn.totalTokens
+		usage.costUsd += trial.result.turn.totalCostUsd
+		usage.durationMs += trial.result.turn.durationMs
 	}
 	return {
 		tasks,

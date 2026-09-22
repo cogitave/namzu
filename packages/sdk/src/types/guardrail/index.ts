@@ -1,14 +1,14 @@
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ToolProvenance } from '../tool/index.js'
 
 /**
- * Guardrails inspect what goes INTO a run and what comes OUT of it.
+ * Guardrails inspect what goes INTO a turn and what comes OUT of it.
  *
  * namzu had three good gates on tool calls — probe veto, `AuthorizationGate`,
  * HITL review — and they all point the same way: they protect the world
  * from the agent. Nothing protected the user from the agent's own output,
- * and nothing looked at the prompt before the run started.
+ * and nothing looked at the prompt before the turn started.
  *
  * The concrete failure: an agent reads a credential file, the read is
  * allowed (it is a legitimate file), the secret enters context, and it is
@@ -17,16 +17,18 @@ import type { ToolProvenance } from '../tool/index.js'
  */
 
 export interface InputGuardrailContext {
-	readonly runId: RunId
-	/** The messages the run is about to start with. */
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
+	/** The messages the turn is about to start with. */
 	readonly messages: readonly Message[]
 	/** The assembled system prompt, when there is one. */
 	readonly systemPrompt?: string
 }
 
 export interface OutputGuardrailContext {
-	readonly runId: RunId
-	/** The run's final assistant text. */
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
+	/** The turn's final assistant text. */
 	readonly output: string
 	/** Full message history, for a guardrail that needs the conversation. */
 	readonly messages: readonly Message[]
@@ -62,7 +64,7 @@ export interface NamedGuardrail<T> {
 /**
  * What a guardrail sees when a tool has produced a result.
  *
- * The two above bracket the RUN. This one sits at the tool boundary, which
+ * The two above bracket the TURN. This one sits at the tool boundary, which
  * is the only place a result can be examined before the model reads it:
  * the registry returns to the executor, the executor applies the output
  * budget and spills what is over it, and compaction summarises later still.
@@ -93,8 +95,8 @@ export interface ToolResultGuardrailContext {
 /**
  * What a guardrail decided about a tool result.
  *
- * Deliberately NOT {@link GuardrailVerdict}. There, `block` ends the run —
- * it is the only thing it can mean when the subject is the run's input or
+ * Deliberately NOT {@link GuardrailVerdict}. There, `block` ends the turn —
+ * it is the only thing it can mean when the subject is the turn's input or
  * its final answer. At a tool boundary the useful refusal is usually the
  * other one: fail this call, tell the model why, and let it choose
  * something else. Reusing the word would give one spelling two meanings

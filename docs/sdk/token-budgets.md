@@ -1,17 +1,21 @@
 ---
 type: Reference
 title: Token budgets
-description: Shared token accounting for parent runs, delegated descendants and durable recovery.
-resource: packages/sdk/src/run/token-budget.ts
+description: Shared token accounting for a root turn, the child sessions it delegates to, and durable recovery — one ledger per (rootSessionId, rootTurnId).
+resource: packages/sdk/src/store/budget/ledger.ts
 tags: [sdk, runtime, budgets, persistence]
 status: stable
 ---
 
 # Token budgets
 
-`TokenBudget` is the token authority for a run and its descendants. `query`
-opens a durable root account by default. A delegated run receives its reserved
-account through `QueryParams.budget` or `BaseAgentConfig.budget`; a scheduler
+`SessionTokenBudget` is the token authority for one root turn and every child
+session it delegates to. Its ledger is keyed by `(rootSessionId, rootTurnId)`:
+each new turn of a root session opens a ledger of its own, with its own limit,
+so a limit changed between turns is never a conflict. `query` opens a durable
+root account by default. A child session receives its reserved account through
+`QueryParams.budget` or `BaseAgentConfig.budget`, and binds it to its own turn
+with `bindTurn(sessionId, turnId)`; a scheduler
 exposes the same account as `TaskScheduler.budget`. `AgentTaskContext.budget`
 replaces the mutable `{total, remaining}` tracker. An injected scheduler without
 an account is refused instead of creating a second independent allowance.
@@ -38,7 +42,7 @@ Canceling a task signals it; its pending execution still owns its reservation.
 An invocation that throws without returning its usage keeps its unspent grant
 reserved. A failed task is not evidence that its provider spent zero tokens.
 
-At the run's warning threshold, the kernel may request closing prose while
+At the turn's warning threshold, the kernel may request closing prose while
 allowance remains. That response preserves the triggering guard's stop reason,
 such as `token_budget`, instead of reporting normal completion. The text remains
 available, but prose answer review is bypassed on this path; it is not a verified
@@ -53,11 +57,11 @@ is request-local, so it does not become a permanent instruction on resume.
 `finishRequest(id, usage)` records the response and resolves the request together.
 Usage frames within one response merge by their component high-water marks;
 separate responses accumulate. Repeating a completed receipt does not charge
-again. `recordUsage` reconciles an own-run cumulative counter, while
+again. `recordUsage` reconciles the turn's own cumulative counter, while
 `settle(ownTotalTokens)` closes an account without charging the result twice.
 
 `query` borrows its supplied account and does not settle it when the query
-returns. The reservation owner decides whether the same run will resume from a
+returns. The reservation owner decides whether the same turn will resume from a
 checkpoint. Agent managers and composite agents settle their child executions;
 a host invoking `query` directly must call `settle()` once it decides that
 execution is over, then await `flush()` for durable settlement. A pause or an
@@ -68,7 +72,7 @@ attempt. Retry and fallback consult the same admission policy before scheduling
 another attempt; they cannot clear unresolved spend. Hosts composing provider
 wrappers can supply `WithProviderRetryOptions.canRetry` and
 `WithProviderFallbackOptions.canFallback` for additional live admission checks.
-Model-requested consultations serialize within the run, sharing its allowance
+Model-requested consultations serialize within the turn, sharing its allowance
 and consultation quota. Custom agents and pipeline callbacks must use the
 supplied account/provider and reserve a child account before invoking another agent. Calls to an unrelated
 provider client cannot be intercepted by the kernel. Foreign delegation without
@@ -78,7 +82,7 @@ the metering contract is refused when a budget is bound.
 
 The CLI uses the manager's `capacityBehavior: 'queue'` policy. Queue entries
 hold no child token account until a live slot is available.
-`TokenBudget.hasInFlightRequest` reports an outstanding request owned by that
+`SessionTokenBudget.hasInFlightRequest` reports an outstanding request owned by that
 account, independently of descendant requests. If the parent is responding,
 queued admission waits for its receipt before reserving another child grant;
 it does not turn that temporary contention into a failed task. At admission, the
@@ -98,16 +102,16 @@ command hint, instead of leaving the operator with an unexplained idle screen.
 
 ## Own usage and tree usage
 
-`Run.tokenUsage`, agent-result `usage`, and `token_usage_updated.usage` describe
-the run itself. Router consumers that previously read combined usage must use
+`Turn.tokenUsage`, agent-result `usage`, and `token_usage_updated.usage` describe
+the turn itself. Router consumers that read combined usage use
 `budget.treeTokens`; the delegated result retains the child's usage and cost.
-`Run.budget`, agent-result `budget`, and usage-event `budget` carry the aggregate
-snapshot:
+`Turn.budget`, agent-result `budget`, and usage-event `budget` carry the aggregate
+snapshot (`SessionTokenBudgetSummary`):
 
 | Field | Meaning |
 | --- | --- |
 | `limit` | This account's cap; `0` is unlimited. |
-| `ownTokens` | Tokens attributed to this run's requests. |
+| `ownTokens` | Tokens attributed to this turn's requests. |
 | `treeTokens` | Own usage plus every descendant's measured usage. |
 | `reservedTokens` | Unspent allowance held by unfinished child subtrees. |
 | `remainingTokens` | Available admission allowance; `null` is unlimited. |
@@ -124,30 +128,31 @@ later total.
 
 ## Persistence and resume
 
-The default record is `token-budget.json` beside the root run under the root
-session's `runs` directory. It contains the full tenant, project, session and run
-scope, accounts, measured usage and request receipts. Child sessions share that
-record rather than creating new roots. `TokenBudgetStore` permits another
-backend; `openTokenBudget` validates scope and cap when opening an existing root.
-A host restoring in another directory or process must supply the same
-`tokenBudgetStore` as well as its `checkpointStore`, or resolve both through the
-same `PathBuilder`. Moving only the message checkpoint does not move the ledger.
+The default record is `<root-session-id>/budgets/<root-turn-id>.json` under the
+project's directory in `NAMZU_HOME` (`DiskSessionTokenBudgetStore`, snapshot
+version 2, `SESSION_TOKEN_BUDGET_VERSION`). It holds the scope, accounts,
+measured usage and request receipts. Child sessions share their root turn's
+record rather than creating new roots, and a resumed paused turn reuses its
+own. A version 1 snapshot is refused with `SessionTokenBudgetVersionError`.
+`SessionTokenBudgetStore` permits another backend; `openSessionTokenBudget`
+validates the scope and refuses a different limit when opening an existing
+ledger, since a new limit belongs to a new root turn. A host restoring in
+another directory or process must supply the same `tokenBudgetStore` as well as
+its `checkpointStore`, or resolve both through the same `SessionPaths`. Moving
+only the checkpoint does not move the ledger.
 
-With no `tokenBudgetStore`, the ledger lives where the run's checkpoints live
-(`resolveRunStorage` in `packages/sdk/src/runtime/query/stores-held-in-memory.ts`,
-used by `query()` and by the composite agents' `resolveAgentBudget`). If the
-checkpoints are in an `InMemoryCheckpointStore`, the ledger is in that store's
-`tokenBudgets`, an `InMemoryTokenBudgetStore`. That covers both a store the host
-passed and the one an `InMemoryRunStore` with no `pathBuilder` holds for its
-current run. Otherwise the ledger is on disk beside the checkpoints. A resume
-with the same checkpoint store finds the ledger with the checkpoint. A restart
-that moves an in-memory checkpoint store to a new one moves `tokenBudgets` too.
-`InMemoryTokenBudgetStore` is exported for a host that wants to name one
-explicitly; it refuses the same regressions the disk store refuses.
+With no `tokenBudgetStore`, the ledger lives where the session's checkpoints
+live. A session whose `sessionLog` is an `InMemorySessionLog` with no `paths`
+keeps both in memory, with the log. A host that passes an
+`InMemorySessionCheckpointStore` and later copies its checkpoints into a new
+one to resume passes the same `InMemorySessionTokenBudgetStore` to both.
+Otherwise the ledger is on disk beside the checkpoints. A resume with the same
+stores finds the ledger with the checkpoint. `InMemorySessionTokenBudgetStore`
+refuses the same regressions the disk store refuses.
 
-Checkpoint schema 2 and run-state version 4 carry `budgetBinding` and
-`budgetAccountId`. The binding selects the canonical ledger and account; it does
-not carry a replacement balance. Reading an older message checkpoint therefore
+A checkpoint and a turn state carry the budget binding
+(`TurnBudgetBinding`) and the account id. The binding selects the canonical
+ledger and account; it does not carry a replacement balance. Reading an older message checkpoint therefore
 cannot undo later spending or recreate a settled reservation. Missing or
 mismatched authority is refused. An account created in memory requires its live
 authoritative handle when resuming; a checkpoint alone cannot reconstruct work
@@ -177,22 +182,23 @@ block every account, regardless of its limit.
 
 The built-in disk store atomically replaces private files and rejects regressing
 usage, grants and receipts. The store contract assumes one active writer for the
-root and all its descendants. Atomic replacement is not a distributed lease;
-hosts must establish exclusive root ownership before moving it to another
-process. Checkpoint claims alone do not fence an independent ledger backend.
+root turn and all its descendants. Atomic replacement is not a distributed lease;
+hosts must hold the root session's lease (`claimSession`) before moving it to
+another process. The session lease fences the session log, not an independent
+ledger backend.
 
 ## Limits of the guarantee
 
-`AgentRunConfig.maxIterations: 0` disables the iteration guard, and `timeoutMs: 0`
-disables the total run deadline. These do not disable token accounting or change
+`TurnConfig.maxIterations: 0` disables the iteration guard, and `timeoutMs: 0`
+disables the total turn deadline. These do not disable token accounting or change
 omitted defaults: `query` still defaults to 200 iterations, and `runAgent` to 16
 iterations, 200,000 tokens and five minutes. To run `runAgent` without those three
 caps, explicitly set `tokenBudget`, `maxIterations` and `timeoutMs` to `0`.
 Cancellation, per-tool deadlines, provider stream-silence detection and any
-configured cost limit remain independent. A resumed unlimited run retains its
+configured cost limit remain independent. A resumed unlimited turn retains its
 usage and elapsed time without interpreting zero as an immediate timeout.
 Optional provider context-window discovery falls back after five seconds when
-the run has no deadline; sandbox acquisition remains cancellable without a run
+the turn has no deadline; sandbox acquisition remains cancellable without a turn
 timer.
 
 Migration: zero iteration/time values previously stopped progress. Hosts using
@@ -206,7 +212,7 @@ allowance is exhausted. Driver-internal retries are limited by the driver's
 reported usage; an unreported vendor charge cannot be inferred from a transcript.
 
 Token accounting does not establish dollar prices. `costInfo` and dollar limits
-remain local to a run. When the ledger has measured usage newer than the restored
+remain local to a turn. When the ledger has measured usage newer than the restored
 message checkpoint, the missing price attribution is reported as unpriced tokens.
 
 ## Unlimited child accounts

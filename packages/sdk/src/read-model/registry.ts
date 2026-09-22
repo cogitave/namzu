@@ -1,13 +1,13 @@
-import type { PersistedRunEvent } from '../types/run/index.js'
+import type { SessionRecord } from '../types/session/index.js'
 
 /**
- * A derived value maintained incrementally from the run's event log.
+ * A derived value maintained incrementally from the turn's event log.
  *
- * Everything derived from a run was computed by scanning what was in hand
- * at the moment somebody asked — `deriveRunStatus` takes a status and a
- * park and answers about that instant. That works while the whole run fits
+ * Everything derived from a turn was computed by scanning what was in hand
+ * at the moment somebody asked — `deriveTurnStatus` takes a status and a
+ * park and answers about that instant. That works while the whole turn fits
  * in memory and stops working the moment it does not: a caller wanting the
- * status of a run whose history has been compacted, or of a run in another
+ * status of a turn whose history has been compacted, or of a turn in another
  * process, has to load the log and fold it, and every caller folds it
  * slightly differently.
  *
@@ -31,7 +31,7 @@ export interface ReadModel<TState> {
 	 * and cheap; the registry does not compare, and a model that allocated
 	 * a fresh state per event would still be correct, only wasteful.
 	 */
-	apply(state: TState, event: PersistedRunEvent): TState
+	apply(state: TState, event: SessionRecord): TState
 }
 
 /** An event the registry has already folded in. */
@@ -81,9 +81,9 @@ export class ReadModelCollisionError extends Error {
 }
 
 /**
- * Every projection of one run, advanced together.
+ * Every projection of one turn, advanced together.
  *
- * Together, and that is the design: a registry per run rather than per
+ * Together, and that is the design: a registry per turn rather than per
  * model, so `lastSeq` is one number and a caller reading two projections
  * cannot be handed states derived from different prefixes of the same log.
  */
@@ -113,7 +113,7 @@ export class ReadModelRegistry {
 	 * rebuilds with {@link replay} instead, which is honest about starting
 	 * over.
 	 */
-	apply(event: PersistedRunEvent): void {
+	apply(event: SessionRecord): void {
 		if (event.seq <= this.seq) {
 			throw new DuplicateEventError({ seq: event.seq, lastSeq: this.seq })
 		}
@@ -134,7 +134,7 @@ export class ReadModelRegistry {
 	 * correct answer by paying for the whole log rather than a plausible one
 	 * by pretending it did not miss anything.
 	 */
-	replay(events: readonly PersistedRunEvent[]): void {
+	replay(events: readonly SessionRecord[]): void {
 		for (const [id, model] of this.models) this.states.set(id, model.initial())
 		this.seq = 0
 		for (const event of events) this.apply(event)

@@ -9,7 +9,7 @@ import { runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
 
 /**
- * The compaction summary is the only model call a run makes that nobody
+ * The compaction summary is the only model call a turn makes that nobody
  * asked for, and it was hardwired to the primary model. `taskRouter` had been
  * accepted, schema-validated and threaded through four types since it was
  * added, with `resolveTaskModel` exported and never called — so a host who
@@ -43,9 +43,9 @@ function harness(taskRouter?: TaskRouterConfig): {
 	const ctx = {
 		compactionConfig: config,
 		workingStateManager: new WorkingStateManager(config),
-		runConfig: { model: 'primary-model' },
+		turnConfig: { model: 'primary-model' },
 		...(taskRouter ? { taskRouter } : {}),
-		runMgr: {
+		recorder: {
 			id: '0b69064f-36a8-4ec0-87c8-5ec601789313',
 			messages,
 			accumulateUsage: vi.fn(),

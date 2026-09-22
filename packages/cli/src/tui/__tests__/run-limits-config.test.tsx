@@ -13,6 +13,8 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -95,12 +97,12 @@ async function command(harness: ReturnType<typeof render>, text: string) {
 	await tick(80)
 }
 
-it('opens limits from /config, edits a field, and forwards the next run without recreating its session', async () => {
+it('opens limits from /config, edits a field, and forwards the next turn without recreating its session', async () => {
 	const harness = render(<App ctx={{ cwd: '/w', version: '0.0.0-test', limits: { tokenBudget: 2000, maxIterations: 3, timeoutMs: 1000 } }} />)
 	mounted = harness
 	await waitFor(harness, '› Type a message')
 	await command(harness, '/config')
-	await waitFor(harness, 'Run limits')
+	await waitFor(harness, 'Turn limits')
 	// Model, effort, permissions, then run limits.
 	harness.stdin.write('\u001b[B\u001b[B\u001b[B')
 	await tick()
@@ -140,7 +142,7 @@ it('opens with unlimited values when no file sets limits and leaves them unchang
 	harness.stdin.write('\u001b')
 	await tick()
 	await command(harness, '/config limits time')
-	await vi.waitFor(() => expect(harness.lastFrame()).toContain('Run duration (ms; 0 = unlimited)'))
+	await vi.waitFor(() => expect(harness.lastFrame()).toContain('Turn duration (ms; 0 = unlimited)'))
 	harness.stdin.write('\u0015')
 	await tick()
 	harness.stdin.write('2h')

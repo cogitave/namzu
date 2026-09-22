@@ -24,7 +24,8 @@ import { EditTool } from '../edit.js'
 
 function makeContext(workingDirectory: string): ToolContext {
 	return {
-		runId: 'b2f2f7b0-6a51-4f8b-9b9f-2a7e6f9c9f21' as ToolContext['runId'],
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as ToolContext['sessionId'],
+		turnId: 'b2f2f7b0-6a51-4f8b-9b9f-2a7e6f9c9f21' as ToolContext['turnId'],
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},

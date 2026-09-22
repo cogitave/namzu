@@ -1,10 +1,10 @@
-import type { EvalCase, EvalRun, Score, Scorer } from './types.js'
+import type { EvalCase, EvalTurn, Score, Scorer } from './types.js'
 
 /**
  * Longest common subsequence length between two tool sequences.
  *
  * Subsequence, not set intersection: order carries meaning in a
- * trajectory. Reading a file before editing it is not the same run as
+ * trajectory. Reading a file before editing it is not the same turn as
  * editing then reading, and a set-based score cannot tell them apart.
  */
 function lcsLength(a: readonly string[], b: readonly string[]): number {
@@ -24,7 +24,7 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
 }
 
 /**
- * How closely the run's tool sequence matched the expected one, as F1 over
+ * How closely the turn's tool sequence matched the expected one, as F1 over
  * the longest common subsequence.
  *
  * Trajectory, not final answer. Namzu's most load-bearing behavior is
@@ -35,16 +35,16 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
  * tool calls where it took one. Final-answer scoring cannot see that;
  * this can.
  *
- * Extra calls cut precision, missing calls cut recall, so a run that does
- * the right thing wastefully and a run that skips a step score
+ * Extra calls cut precision, missing calls cut recall, so a turn that does
+ * the right thing wastefully and a turn that skips a step score
  * differently — which is the distinction a final-answer score collapses.
  */
 export function trajectoryScorer(): Scorer {
 	return {
 		name: 'trajectory',
-		score(run: EvalRun, evalCase: EvalCase): Score {
+		score(turn: EvalTurn, evalCase: EvalCase): Score {
 			const expected = evalCase.expectedTools ?? []
-			const actual = run.toolCalls
+			const actual = turn.toolCalls
 
 			if (expected.length === 0 && actual.length === 0) {
 				return { score: 1, reason: 'no tools expected and none called' }
@@ -81,34 +81,34 @@ export function trajectoryScorer(): Scorer {
 	}
 }
 
-/** The run settled cleanly rather than erroring or being cut off. */
+/** The turn settled cleanly rather than erroring or being cut off. */
 export function completionScorer(
 	acceptable: readonly string[] = ['end_turn', 'stop_condition'],
 ): Scorer {
 	return {
 		name: 'completion',
-		// Binary by construction: the run either settled cleanly or it did
+		// Binary by construction: the turn either settled cleanly or it did
 		// not, so there is no score between 0 and 1 for a mean to soften.
 		// Averaged in, a hard 0 here is carried by three good fuzzy scores.
 		severity: 'gate',
-		score(run: EvalRun): Score {
-			if (run.error) {
-				return { score: 0, reason: `run failed: ${run.error}` }
+		score(turn: EvalTurn): Score {
+			if (turn.error) {
+				return { score: 0, reason: `turn failed: ${turn.error}` }
 			}
-			const ok = run.stopReason !== undefined && acceptable.includes(run.stopReason)
+			const ok = turn.stopReason !== undefined && acceptable.includes(turn.stopReason)
 			return {
 				score: ok ? 1 : 0,
 				reason: ok
-					? `settled as ${run.stopReason}`
-					: `settled as ${run.stopReason ?? 'unknown'}, expected one of ${acceptable.join(', ')}`,
-				details: { stopReason: run.stopReason },
+					? `settled as ${turn.stopReason}`
+					: `settled as ${turn.stopReason ?? 'unknown'}, expected one of ${acceptable.join(', ')}`,
+				details: { stopReason: turn.stopReason },
 			}
 		},
 	}
 }
 
 /**
- * The run stayed within a step budget.
+ * The turn stayed within a step budget.
  *
  * A regression that makes the agent take four turns where it took one is
  * invisible to correctness scoring and very visible on the bill.
@@ -116,8 +116,8 @@ export function completionScorer(
 export function stepBudgetScorer(maxSteps: number): Scorer {
 	return {
 		name: 'step-budget',
-		score(run: EvalRun): Score {
-			const used = run.steps.length
+		score(turn: EvalTurn): Score {
+			const used = turn.steps.length
 			return {
 				score: used <= maxSteps ? 1 : Math.max(0, maxSteps / used),
 				reason:
@@ -137,8 +137,8 @@ export function containsScorer(...required: string[]): Scorer {
 		// A required fragment is required. Partial credit here reads as
 		// "most of the answer was there", which is not what was asked.
 		severity: 'gate',
-		score(run: EvalRun): Score {
-			const text = run.output ?? ''
+		score(turn: EvalTurn): Score {
+			const text = turn.output ?? ''
 			const missing = required.filter((r) => !text.includes(r))
 			return {
 				score: required.length === 0 ? 1 : (required.length - missing.length) / required.length,
@@ -153,7 +153,7 @@ export function containsScorer(...required: string[]): Scorer {
 }
 
 /**
- * Judge the run with a caller-supplied predicate.
+ * Judge the turn with a caller-supplied predicate.
  *
  * The escape hatch for anything the built-in scorers do not cover. For
  * a model-graded judge, reach for `judgeScorer` first: it handles the
@@ -163,7 +163,7 @@ export function containsScorer(...required: string[]): Scorer {
  */
 export function customScorer(
 	name: string,
-	fn: (run: EvalRun, evalCase: EvalCase) => Score | Promise<Score>,
+	fn: (turn: EvalTurn, evalCase: EvalCase) => Score | Promise<Score>,
 ): Scorer {
 	return { name, score: fn }
 }

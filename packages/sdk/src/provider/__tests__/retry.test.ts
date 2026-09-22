@@ -318,7 +318,7 @@ describe('withProviderRetry', () => {
 		expect(slept).toEqual([500, 1000])
 	})
 
-	it('propagates an abort untouched so the run still settles as cancelled', async () => {
+	it('propagates an abort untouched so the turn still settles as cancelled', async () => {
 		const controller = new AbortController()
 		controller.abort()
 		const abortErr = Object.assign(new Error('aborted'), {

@@ -20,7 +20,7 @@ import type { SubSessionDelegationStatus, SubSessionStatus } from '../sub-sessio
 
 describe('the delegation union says what the kernel writes', () => {
 	it('is exactly the five values a code path produces', () => {
-		// Enforced by `tsc`, not by this run: `expectTypeOf` erases. Adding a
+		// Enforced by `tsc`, not by this turn: `expectTypeOf` erases. Adding a
 		// member to `SubSessionDelegationStatus` fails the Type check step,
 		// which is where this assertion lives.
 		expectTypeOf<SubSessionDelegationStatus>().toEqualTypeOf<

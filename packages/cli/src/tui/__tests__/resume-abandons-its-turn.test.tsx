@@ -9,9 +9,13 @@
  *   1. the running turn was never aborted at all;
  *   2. its later events appended into the RESUMED transcript, dated as though
  *      they belonged there;
- *   3. its `appendMessages` wrote into the RESUMED conversation's durable
- *      record, because `sessionId` was mutated on a `RunScope` the running loop
- *      held the same object of. That one outlived the process.
+ *   3. its record landed in the RESUMED conversation's durable log, because
+ *      `sessionId` was mutated on a `SessionScope` the running loop held the
+ *      same object of. That one outlived the process.
+ *
+ * The kernel's turn recorder writes a turn, not App: the fake session below
+ * records into the conversation it read from its scope when the turn began,
+ * as the real session does, so half 3 is the session keeping that copy.
  *
  * The fake session keeps yielding after the abort, and it is worth being exact
  * about what that models. `abort()` returns immediately and the `for await`
@@ -35,7 +39,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cancelCauseOf } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
-import type { AgentEvent, AgentSession } from '../agent.js'
+import type { AgentEvent, AgentSession, SessionScope } from '../agent.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
@@ -44,11 +48,11 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 const STARTED_IN = 'conv-started-in'
 const RESUMED = 'conv-resumed'
 
-/** Every `appendMessages` call, with the conversation it named. */
+/** Every turn the fake kernel recorded, with the conversation it recorded into. */
 const appended: Array<{ sessionId: string; contents: string[] }> = []
-const evidenceStarted: Array<{ sessionId: string; runId: string; turnId: string }> = []
-const evidenceSettled: Array<{ sessionId: string; runId: string; turnId: string }> = []
-/** Number of durable appends visible each time `/fork` takes its snapshot. */
+/** The scope App handed the session; the fake copies its id when a turn begins. */
+let sessionScope: SessionScope | undefined
+/** Number of recorded turns visible each time `/fork` takes its snapshot. */
 const forkedAfterAppends: number[] = []
 /** Compaction model calls — none may start against an unsettled snapshot. */
 let compactCalls = 0
@@ -79,9 +83,7 @@ let abortSeenAtRelease = false
 
 /** Set by a test that wants the conversation read to fail. */
 let loadShouldFail = false
-/** Set by a test that wants the write of the abandoned turn to fail. */
-let appendShouldFail = false
-/** Held by a test that needs the write attached to the tail but not yet landed. */
+/** Held by a test that needs the turn's record started but not yet landed. */
 let appendHeld: Promise<void> | null = null
 let releaseTheAppend: () => void = () => {}
 function holdTheAppend(): void {
@@ -115,35 +117,14 @@ vi.mock('../../integrations/updates.js', () => ({
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({
 		tenantId: 't',
 		root: '/tmp/.namzu',
-		turnEvidence: {
-			recordTurnStarted: async (input: { sessionId: string; runId: string }) => {
-				const record = { ...input, turnId: `turn_${evidenceStarted.length + 1}` }
-				evidenceStarted.push(record)
-				return record
-			},
-			recordTurnSettled: async (input: {
-				sessionId: string
-				runId: string
-				turnId: string
-			}) => {
-				evidenceSettled.push(input)
-				return input
-			},
-		},
 	}),
 	startConversation: async () => STARTED_IN,
 	requireWritableConversation: async () => {},
-	appendMessages: async (_s: unknown, sessionId: string, messages: readonly { content: unknown }[]) => {
-		appended.push({
-			sessionId,
-			contents: messages.map((m) => (typeof m.content === 'string' ? m.content : '')),
-		})
-		if (appendHeld) await appendHeld
-		if (appendShouldFail) throw new Error('ENOSPC: no space left on device')
-	},
 	listRecent: async () => [
 		{ id: RESUMED, title: 'An earlier conversation', updatedAt: new Date().toISOString(), count: 2 },
 	],
@@ -170,7 +151,13 @@ vi.mock('../agent.js', async (importOriginal) => {
 	return {
 		...actual,
 		probeAgentSession: async () => ({ preferences: PREFS, needsRepickReason: null, detected: [] }),
-		createAgentSession: async (): Promise<AgentSession> => ({
+		createAgentSession: async (
+			_preferences: unknown,
+			_detected: unknown,
+			options: { readonly scope?: SessionScope },
+		): Promise<AgentSession> => {
+			sessionScope = options.scope
+			return {
 			hasProvider: true,
 				sandbox: { unconfined: true, enforced: [], required: [] },
 				compact: async () => {
@@ -192,7 +179,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			mcpFailed: [],
 			agentIds: [],
 			configNotices: [],
-			// The TUI never resumes a durable run; a stub that answered would make
+			// The TUI never resumes a durable turn; a stub that answered would make
 			// a resume look reachable from here.
 			resumeDurable: async () => {
 				throw new Error('not used by the TUI')
@@ -214,12 +201,39 @@ vi.mock('../agent.js', async (importOriginal) => {
 				const turn = signals.length
 				signals.push(opts?.signal)
 				const gate = nextGate()
+				// Copied when the turn begins, as the real session copies its scope:
+				// the turn is recorded there however the scope moves afterwards.
+				const recordInto = sessionScope?.sessionId ?? 'no-scope'
+				const said: string[] = []
+				try {
+					yield* turnEvents(turn, gate, opts, said)
+				} finally {
+					// The recorder settles every turn — completed, cancelled or failed.
+					appended.push({ sessionId: recordInto, contents: said })
+					if (appendHeld) await appendHeld
+				}
+			},
+			}
+		},
+	}
+})
+
+async function* turnEvents(
+	turn: number,
+	gate: { wait: Promise<void> },
+	opts: Parameters<AgentSession['send']>[1],
+	said: string[],
+): AsyncIterable<AgentEvent> {
+				const yielded = (event: AgentEvent): AgentEvent => {
+					if (event.kind === 'delta') said.push(event.text)
+					return event
+				}
 				// A delta BEFORE the wait, so the turn owns a streaming assistant row
 				// in the transcript that `/resume` then throws away. That is the shape
 				// where a late `appendToMessage` would target an id belonging to the
 				// discarded array and no-op in silence — invisible to a turn whose
 				// first event is a tool call.
-				yield { kind: 'delta', text: `EARLY${turn} ` } as AgentEvent
+				yield yielded({ kind: 'delta', text: `EARLY${turn} ` } as AgentEvent)
 				yield {
 					kind: 'tool-start',
 					toolUseId: 'c1',
@@ -249,13 +263,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 					summary: `LEAKEDTOOL${turn}`,
 					isError: false,
 				} as AgentEvent
-				yield { kind: 'delta', text: `LEAKEDREPLY${turn}` } as AgentEvent
+				yield yielded({ kind: 'delta', text: `LEAKEDREPLY${turn}` } as AgentEvent)
 				if (throwAtEnd && turn === 0) throw new Error('TURNBLEWUP')
 				yield { kind: 'done' } as AgentEvent
-			},
-		}),
-	}
-})
+}
 
 const { App } = await import('../App.js')
 
@@ -265,15 +276,12 @@ const mounted: { unmount: () => void }[] = []
 
 beforeEach(() => {
 	appended.length = 0
-	evidenceStarted.length = 0
-	evidenceSettled.length = 0
 	forkedAfterAppends.length = 0
 	compactCalls = 0
 	gates.length = 0
 	signals.length = 0
 	abortSeenAtRelease = false
 	loadShouldFail = false
-	appendShouldFail = false
 	appendHeld = null
 	readHeld = null
 	throwAtEnd = false
@@ -430,9 +438,6 @@ describe('/resume while a turn is running', () => {
 		// 3 — the durable half. It must be written to the conversation it was
 		// started in, and to no other.
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
-		expect(evidenceStarted.map((record) => record.sessionId)).toEqual([STARTED_IN])
-		expect(evidenceSettled.map((record) => record.sessionId)).toEqual([STARTED_IN])
-		expect(evidenceSettled[0]?.runId).toBe(evidenceStarted[0]?.runId)
 		// And whole: the events after the switch are consumed even though they are
 		// not rendered, so the saved reply is not truncated at the moment the
 		// operator happened to leave.
@@ -450,26 +455,6 @@ describe('/resume while a turn is running', () => {
 		expect(everything, 'the abandoned turn was dropped in silence').toContain(
 			'being saved to the conversation it started in',
 		)
-	})
-
-	it('says so when the abandoned turn could not be saved after all', async () => {
-		// The notice above says the reply is BEING saved, present tense, because
-		// the write has not happened when it is printed. It runs later, detached,
-		// and its rejection used to be swallowed whole — so a resume could promise
-		// a turn was going somewhere and nothing would ever say it did not arrive.
-		// That is the same defect as the one being fixed, one step further on.
-		appendShouldFail = true
-		const harness = await pickerOpenMidTurn()
-
-		harness.stdin.write('\r')
-		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
-		gates[0]?.release()
-		await untilFrame(harness, 'was not saved', 'the failed write was silent')
-
-		const everything = said(harness)
-		// Named, so it does not read as a fault of the conversation on screen.
-		expect(everything, 'did not say which conversation lost the turn').toContain(STARTED_IN)
-		expect(everything, 'named the fault without naming the consequence').toContain('context')
 	})
 
 	it('keeps the picker until the conversation is actually read', async () => {
@@ -686,11 +671,10 @@ describe('/resume while a turn is running', () => {
 })
 
 describe('/fork after an interrupted turn', () => {
-	it('waits until the old iterator has attached and finished its durable write', async () => {
+	it('waits until the old iterator has finished and its turn is recorded', async () => {
 		// `Esc` hands the screen back immediately. The provider iterator is still
-		// parked on `gate.wait`, so its `finally` has not attached this turn to the
-		// persistence tail yet. Awaiting the current tail in this window would await
-		// an already-resolved promise and fork stale history.
+		// parked on `gate.wait`, so the kernel has not recorded this turn yet.
+		// Forking in this window would copy history without it.
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 		await tick(60)
@@ -714,19 +698,21 @@ describe('/fork after an interrupted turn', () => {
 			'still settling after it was interrupted',
 		)
 
-		// Once the old iterator unwinds, the append is first CHAINED and then
-		// awaited by `/fork`. The store therefore cannot observe a snapshot from
-		// before the turn the operator just watched.
+		// While the old turn is still being recorded its iterator has not
+		// finished, so `/fork` still refuses: the store cannot observe a snapshot
+		// from before the turn the operator just watched.
 		holdTheAppend()
 		gates[0]?.release()
 		await appendsReach(1)
 		await submit(harness, '/fork')
 		expect(
 			forkedAfterAppends,
-			'fork did not await the attached persistence tail before taking its snapshot',
+			'fork took its snapshot while the interrupted turn was still being recorded',
 		).toEqual([])
 
 		releaseTheAppend()
+		await tick(120)
+		await submit(harness, '/fork')
 		const started = performance.now()
 		while (forkedAfterAppends.length === 0 && performance.now() - started < 3_000) {
 			await tick(20)

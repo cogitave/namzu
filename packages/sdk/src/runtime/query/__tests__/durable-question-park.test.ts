@@ -1,22 +1,19 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { buildCoordinatorTools } from '../../../tools/coordinator/index.js'
-import type {
-	CheckpointId,
-	HITLResumeDecision,
-	IterationCheckpoint,
-} from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { CheckpointId, HITLResumeDecision } from '../../../types/hitl/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { RestoredCheckpoint } from '../checkpoint.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
 import { planPendingResume } from '../resume-pending.js'
 
 /**
  * `ask_user_question` parked through the raw handler under a synthetic
  * `cp_question_<toolUseId>` id that was never written. The checkpoint
- * therefore did not exist: nothing on disk said a human owed this run an
+ * therefore did not exist: nothing on disk said a human owed this turn an
  * answer, and a remote host could not even OBSERVE the question except
  * through the in-process callback.
  *
@@ -30,7 +27,8 @@ import { planPendingResume } from '../resume-pending.js'
  * recorded answer is handed to it instead of a second question.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
+const SESSION = 'a4d7c2e1-9b3f-4e6a-8c5d-1f2e3a4b5c6d' as SessionId
 
 function makeLogger(): Logger {
 	const self = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger
@@ -57,7 +55,8 @@ function askTool(opts: {
 		gateway: {} as never,
 		workingDirectory: '/tmp',
 		allowedAgentIds: [],
-		runId: RID,
+		sessionId: SESSION,
+		turnId: RID,
 		resumeHandler: opts.resumeHandler as never,
 		...(opts.questionParks ? { questionParks: opts.questionParks } : {}),
 		...(opts.pendingAnswers ? { pendingAnswers: opts.pendingAnswers } : {}),
@@ -133,8 +132,8 @@ describe('recording the park', () => {
 	})
 
 	it('is inert when nothing has bound it', async () => {
-		// The tool outlives the run that binds it, so an unbound channel is
-		// the normal state outside a run — and must behave exactly as it
+		// The tool outlives the turn that binds it, so an unbound channel is
+		// the normal state outside a turn — and must behave exactly as it
 		// did before any of this existed.
 		const parks = new QuestionParkBinding()
 		expect(await parks.record({ questionId: 't1' } as never)).toBeNull()
@@ -143,7 +142,7 @@ describe('recording the park', () => {
 		).resolves.toBeUndefined()
 	})
 
-	it('stops writing into a run that has settled', async () => {
+	it('stops writing into a turn that has settled', async () => {
 		const parks = new QuestionParkBinding()
 		parks.bind({
 			record: async () => '1987ac99-6017-40a3-8e0a-2de666031408' as CheckpointId,
@@ -198,7 +197,7 @@ describe('re-entering the tool with the answer', () => {
 	})
 
 	it('consumes an answer once', async () => {
-		// A tool that asks the same question twice in one resumed run is
+		// A tool that asks the same question twice in one resumed turn is
 		// asking something genuinely new the second time; answering it from
 		// a stale record would fabricate consent.
 		const pending = new PendingAnswers()
@@ -250,7 +249,7 @@ describe('planning the resume', () => {
 		} as Message,
 	]
 
-	const checkpoint = (questionId: string, messages = parkedTurn()): IterationCheckpoint =>
+	const checkpoint = (questionId: string, messages = parkedTurn()): RestoredCheckpoint =>
 		({
 			id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 			messages,
@@ -258,7 +257,7 @@ describe('planning the resume', () => {
 				parkedAt: 0,
 				request: {
 					type: 'user_question',
-					runId: RID,
+					turnId: RID,
 					checkpointId: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' as CheckpointId,
 					question: {
 						questionId,
@@ -269,7 +268,7 @@ describe('planning the resume', () => {
 					},
 				},
 			},
-		}) as unknown as IterationCheckpoint
+		}) as unknown as RestoredCheckpoint
 
 	it('takes over a question park instead of declining it', async () => {
 		// This used to return null with "out of scope", so the restore path

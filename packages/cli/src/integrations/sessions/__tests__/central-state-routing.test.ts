@@ -1,15 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DiskSessionStore, asSessionId, createUserMessage } from '@namzu/sdk'
+import { asSessionId, createUserMessage } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { recordTurn } from '../../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
-import { loadIdentity } from '../../state/identity.js'
-import { inspectNamzuState } from '../../state/report.js'
 import {
-	appendMessages,
+	conversationLogPath,
 	findMappedConversation,
 	loadConversation,
 	loadResumableConversation,
@@ -30,32 +36,47 @@ async function temp(prefix: string): Promise<string> {
 	return path
 }
 
-describe('central CLI state routing', () => {
-	it('reopens one central Project without generating state inside the workspace', async () => {
+describe('the conversation layout under NAMZU_HOME', () => {
+	it('files a conversation as projects/<slug>/<session-id>.jsonl, never inside the workspace', async () => {
 		const cwd = await temp('namzu-central-workspace-')
 		const stateRoot = await temp('namzu-central-home-')
 
 		const first = await openSessions(cwd, { stateRoot })
+		const id = await startConversation(first)
 		const later = await openSessions(cwd, { stateRoot })
 
 		expect(later.projectId).toBe(first.projectId)
 		expect(first.root).toBe(stateRoot)
-		expect(first.projectStateRoot).toBe(stateRoot)
-		expect(existsSync(join(stateRoot, 'projects'))).toBe(false)
-		expect(first.controlRoot).toBe(join(first.projectStateRoot, 'cli'))
+		expect(first.slug.startsWith('-') || /^[A-Za-z]-/.test(first.slug)).toBe(true)
+		const projectFile = join(stateRoot, 'projects', first.slug, 'project.json')
+		expect(JSON.parse(readFileSync(projectFile, 'utf8'))).toMatchObject({
+			v: 1,
+			kind: 'project',
+			projectId: first.projectId,
+		})
+		expect(conversationLogPath(first, id)).toBe(
+			join(stateRoot, 'projects', first.slug, `${id}.jsonl`),
+		)
+		expect(existsSync(conversationLogPath(first, id))).toBe(true)
 		expect(existsSync(join(cwd, '.namzu'))).toBe(false)
+		for (const legacy of ['sessions', 'state', 'goals', 'cli']) {
+			expect(existsSync(join(stateRoot, legacy)), legacy).toBe(false)
+		}
 	})
 
-	it('keeps two working directories in distinct Projects below one application home', async () => {
+	it('keeps two working directories in distinct projects below one home', async () => {
 		const stateRoot = await temp('namzu-shared-home-')
 		const first = await openSessions(await temp('namzu-workspace-a-'), { stateRoot })
 		const second = await openSessions(await temp('namzu-workspace-b-'), { stateRoot })
 
 		expect(first.projectId).not.toBe(second.projectId)
-		expect(first.projectStateRoot).toBe(second.projectStateRoot)
+		expect(first.slug).not.toBe(second.slug)
+		expect(readdirSync(join(stateRoot, 'projects')).sort()).toEqual(
+			[first.slug, second.slug].sort(),
+		)
 	})
 
-	it('shares one checkout Project, topic and conversation from a package or symlink', async () => {
+	it('shares one checkout project and conversation from a package or symlink', async () => {
 		const root = await temp('namzu-checkout-')
 		const stateRoot = await temp('namzu-checkout-home-')
 		const nested = join(root, 'packages', 'cli')
@@ -67,50 +88,19 @@ describe('central CLI state routing', () => {
 		const fromPackage = await openSessions(nested, { stateRoot })
 		const conversation = await startConversation(fromPackage)
 		const message = createUserMessage('Keep this checkout history together')
-		await appendMessages(fromPackage, conversation, [message])
+		await recordTurn(fromPackage, conversation, [message])
 		const fromRoot = await openSessions(root, { stateRoot })
 		const fromAlias = await openSessions(alias, { stateRoot })
 
 		expect(fromRoot.projectId).toBe(fromPackage.projectId)
 		expect(fromAlias.projectId).toBe(fromPackage.projectId)
 		expect(fromRoot.topicId).toBe(fromPackage.topicId)
+		expect(fromRoot.projectRoot).toBe(root)
 		expect(await loadConversation(fromRoot, conversation)).toEqual([message])
-		expect(await fromRoot.store.getProject(fromRoot.projectId, fromRoot.tenantId)).toMatchObject({
-			rootPath: root,
-			name: root.split(/[\\/]/).at(-1),
-		})
-		const report = await inspectNamzuState({ cwd: nested, env: { NAMZU_HOME: stateRoot } })
-		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId: fromRoot.projectId })
 		expect(existsSync(join(nested, '.namzu'))).toBe(false)
 	})
 
-	it('uses only the checkout root even when an older directory binding exists', async () => {
-		const root = await temp('namzu-existing-checkout-')
-		const stateRoot = await temp('namzu-existing-home-')
-		const nested = join(root, 'packages', 'cli')
-		mkdirSync(join(root, '.git'))
-		mkdirSync(nested, { recursive: true })
-		const tenantId = loadIdentity(stateRoot).tenantId
-		const oldProject = await new DiskSessionStore({ rootDir: stateRoot }).createProject(
-			{ tenantId, name: 'old package binding', rootPath: nested },
-			tenantId,
-		)
-		const original = await openSessions(nested, { stateRoot })
-		const id = await startConversation(original)
-		const message = createUserMessage('Existing package conversation')
-		await appendMessages(original, id, [message])
-		const fromRoot = await openSessions(root, { stateRoot })
-		const reopened = await openSessions(nested, { stateRoot })
-
-		expect(reopened.projectId).not.toBe(oldProject.id)
-		expect(reopened.projectId).toBe(fromRoot.projectId)
-		expect(reopened.topicId).toBe(original.topicId)
-		expect(await loadConversation(reopened, id)).toEqual([message])
-		const report = await inspectNamzuState({ cwd: nested, env: { NAMZU_HOME: stateRoot } })
-		expect(report.projectBinding).toMatchObject({ status: 'bound', projectId: fromRoot.projectId })
-	})
-
-	it('keeps nested repositories and worktrees in separate Projects', async () => {
+	it('keeps nested repositories and worktrees in separate projects', async () => {
 		const root = await temp('namzu-checkout-boundaries-')
 		const stateRoot = await temp('namzu-boundaries-home-')
 		mkdirSync(join(root, '.git'))
@@ -123,63 +113,41 @@ describe('central CLI state routing', () => {
 			else writeFileSync(join(child, '.git'), 'gitdir: ../.git/worktrees/child\n')
 			const sessions = await openSessions(nested, { stateRoot })
 			expect(sessions.projectId).not.toBe(parent.projectId)
-			expect(await sessions.store.getProject(sessions.projectId, sessions.tenantId)).toMatchObject({
-				rootPath: child,
-			})
+			expect(sessions.projectRoot).toBe(child)
 		}
 	})
+})
 
-	it.each([
-		'{broken',
-		JSON.stringify({ window: 'ses_retired-format' }),
-		JSON.stringify({ window: 'ses_../escape' }),
-		JSON.stringify({ window: 'ses_' }),
-		JSON.stringify({ window: '8b48f83e-8461-48b2-a0f5-95f4cb' }),
-	])('refuses a corrupt desktop map without minting an orphan: %s', async (contents) => {
-		const sessions = await openSessions(await temp('namzu-desktop-corrupt-workspace-'), {
-			stateRoot: await temp('namzu-desktop-corrupt-home-'),
-		})
-		const mapPath = join(sessions.controlRoot, 'desktop-sessions.json')
-		writeFileSync(mapPath, contents)
-		const before = await sessions.store.listSessionsByTopic(sessions.topicId, sessions.tenantId)
-
-		await expect(resolveConversation(sessions, 'window-a')).rejects.toThrow(
-			/refusing to replace.*map/i,
-		)
-
-		const after = await sessions.store.listSessionsByTopic(sessions.topicId, sessions.tenantId)
-		expect(after).toHaveLength(before.length)
-		expect(readFileSync(mapPath, 'utf8')).toBe(contents)
-	})
-
-	it('reopens desktop mappings and resumes transcripts for generated and legacy session ids', async () => {
-		const workspace = await temp('namzu-desktop-mixed-workspace-')
-		const stateRoot = await temp('namzu-desktop-mixed-home-')
+describe('desktop session keys', () => {
+	it('reopens a desktop key through the index, including after a rebuild', async () => {
+		const workspace = await temp('namzu-desktop-workspace-')
+		const stateRoot = await temp('namzu-desktop-home-')
 		const sessions = await openSessions(workspace, { stateRoot })
-		const generated = await startConversation(sessions)
-		const legacy = await startConversation(
-			sessions,
-			asSessionId('c9e2190e-7298-4132-a0d7-f7d1ebc2341b'),
-		)
+		const id = await resolveConversation(sessions, 'window-a')
 		const message = createUserMessage('Keep the exact conversation binding')
-		for (const id of [generated, legacy]) await appendMessages(sessions, id, [message])
-		const mappings = Object.fromEntries(
-			Object.entries({ generated, legacy }).map(([key, id]) => [
-				JSON.stringify([sessions.projectId, key]),
-				id,
-			]),
-		)
-		writeFileSync(join(sessions.controlRoot, 'desktop-sessions.json'), JSON.stringify(mappings))
+		await recordTurn(sessions, id, [message])
+		sessions.index.close()
 
-		const reopened = await openSessions(workspace, { stateRoot })
-		for (const [key, id] of Object.entries({ generated, legacy })) {
-			expect(await findMappedConversation(reopened, key)).toBe(id)
-			expect(await resolveConversation(reopened, key)).toBe(id)
-			expect(await loadResumableConversation(reopened, id)).toEqual([message])
-		}
-		expect(
-			await reopened.store.listSessionsByTopic(reopened.topicId, reopened.tenantId),
-		).toHaveLength(2)
+		const reopened = await openSessions(workspace, { stateRoot, indexBackend: 'scan' })
+		expect(await findMappedConversation(reopened, 'window-a')).toBe(id)
+		expect(await resolveConversation(reopened, 'window-a')).toBe(id)
+		expect(await loadResumableConversation(reopened, id)).toEqual([message])
+		expect(await reopened.index.listExternalRefs(id)).toEqual([
+			expect.objectContaining({ protocol: 'desktop', kind: 'session', sessionId: id }),
+		])
+	})
+
+	it('scopes a desktop key to its project', async () => {
+		const stateRoot = await temp('namzu-desktop-scope-home-')
+		const first = await openSessions(await temp('namzu-desktop-a-'), { stateRoot })
+		const second = await openSessions(await temp('namzu-desktop-b-'), { stateRoot })
+
+		const a = await resolveConversation(first, 'window')
+		const b = await resolveConversation(second, 'window')
+
+		expect(a).not.toBe(b)
+		expect(await findMappedConversation(first, 'window')).toBe(a)
+		expect(await findMappedConversation(second, 'window')).toBe(b)
 	})
 
 	it('keeps every desktop binding when independent callers publish concurrently', async () => {
@@ -193,6 +161,15 @@ describe('central CLI state routing', () => {
 
 		expect(new Set(ids).size).toBe(keys.length)
 		expect(reopened).toEqual(ids)
-		expect(existsSync(join(sessions.controlRoot, 'desktop-sessions.json.lock'))).toBe(false)
+	})
+
+	it('refuses a second conversation under an id that already has a log', async () => {
+		const sessions = await openSessions(await temp('namzu-duplicate-workspace-'), {
+			stateRoot: await temp('namzu-duplicate-home-'),
+		})
+		const id = asSessionId('c9e2190e-7298-4132-a0d7-f7d1ebc2341b')
+		await startConversation(sessions, id)
+
+		await expect(startConversation(sessions, id)).rejects.toThrow(/already exists/i)
 	})
 })

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { SessionEvidenceScope } from '../../store/evidence/types.js'
 import {
 	type EvidenceRecallRequest,
 	type ScopedEvidenceRecallBatch,
@@ -6,20 +7,19 @@ import {
 	createScopedEvidenceRecallStep,
 	evidenceRecallQueryTokens,
 	refineEvidenceRecallTerms,
-} from '../../run/evidence-recall.js'
-import type { RunEvidenceScope } from '../../store/evidence/types.js'
-import type { PrepareStep } from '../../types/run/prepare-step.js'
+} from '../../turn/evidence-recall.js'
+import type { PrepareStep } from '../../types/session/prepare-step.js'
 import { evidenceTokenKey } from '../../utils/evidence-tokens.js'
 import { type ResidentState, residentStateSchema } from './store.js'
 import type { ResidentToolEvidenceSource } from './tool-evidence.js'
 
-/** @experimental Automatic original-tool recall for exactly one admitted resident run. */
+/** @experimental Automatic original-tool recall for exactly one admitted resident turn. */
 export interface ResidentEvidenceRecallOptions {
 	readonly source: ResidentToolEvidenceSource
 	/** Already admitted state; summaries supply search words, never new observations. */
 	readonly state: ResidentState
-	/** The current executor, distinct from historical Session/run addresses. */
-	readonly scope: RunEvidenceScope
+	/** The current executor's turn, distinct from historical session/turn addresses. */
+	readonly scope: SessionEvidenceScope
 	readonly maxChars?: number
 	readonly maxPassages?: number
 	readonly timeoutMs?: number
@@ -31,9 +31,9 @@ const ownerSchema = z.object({
 	tenantId: z.string().uuid(),
 	projectId: z.string().uuid(),
 	sessionId: z.string().uuid(),
-	runId: z.string().uuid(),
+	turnId: z.string().uuid(),
 })
-const historicalScopeSchema = ownerSchema.omit({ sessionId: true, runId: true }).extend({
+const historicalScopeSchema = ownerSchema.omit({ sessionId: true, turnId: true }).extend({
 	agentKey: z.string().min(1).max(200),
 	pursuitId: z.string().uuid(),
 	throughRevision: z.number().int().positive().safe(),
@@ -178,8 +178,8 @@ export function createResidentEvidenceRecallStep(
 	const addresses = new WeakMap<ScopedEvidenceRecallCandidate, Readonly<Record<string, unknown>>>()
 	const search = source.search.bind(source)
 	const retrieve = async (request: EvidenceRecallRequest): Promise<ScopedEvidenceRecallBatch> => {
-		if (request.runId !== owner.runId)
-			throw new Error('Resident recall called from a different run.')
+		if (request.turnId !== owner.turnId)
+			throw new Error('Resident recall called from a different turn.')
 		assertSource()
 		const candidates: ScopedEvidenceRecallCandidate[] = []
 		let scannedBytes = 0
@@ -247,7 +247,7 @@ export function createResidentEvidenceRecallStep(
 				if (
 					original.tenantId !== owner.tenantId ||
 					original.projectId !== owner.projectId ||
-					original.runId === owner.runId ||
+					original.turnId === owner.turnId ||
 					!Number.isSafeInteger(page.revision) ||
 					(page.revision ?? 0) < 1 ||
 					(page.revision ?? Number.POSITIVE_INFINITY) > historicalScope.throughRevision ||
@@ -284,7 +284,7 @@ export function createResidentEvidenceRecallStep(
 					}
 					addresses.set(candidate, {
 						sessionId: original.sessionId,
-						runId: original.runId,
+						turnId: original.turnId,
 						seq: match.seq,
 						pursuitId: historicalScope.pursuitId,
 						revision: page.revision,
@@ -355,8 +355,8 @@ export function createResidentEvidenceRecallStep(
 		},
 	)
 	return async (context) => {
-		if (context.runId !== owner.runId)
-			throw new Error('Resident recall called from a different run.')
+		if (context.turnId !== owner.turnId)
+			throw new Error('Resident recall called from a different turn.')
 		assertSource()
 		return step(context)
 	}

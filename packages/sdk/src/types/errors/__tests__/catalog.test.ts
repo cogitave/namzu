@@ -108,7 +108,7 @@ describe('a hint attached where the failure was raised', () => {
 		// Baking remediation into the message is what made it impossible to
 		// separate again — a surface could not render one without the other.
 		const original = new NamzuError({ code: 'storage_error', message: 'write failed' })
-		const hinted = withHint(original, 'the run directory is not writable')
+		const hinted = withHint(original, 'the turn directory is not writable')
 
 		expect(hinted).toBe(original)
 		expect(hinted.message).toBe('write failed')

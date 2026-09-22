@@ -12,9 +12,9 @@ import type {
 	RequestContextChange,
 	RequestContextSnapshot,
 } from '../../runtime/query/request-context.js'
-import type { PluginId, RunId, SessionId } from '../ids/index.js'
+import type { PluginId, SessionId, TurnId } from '../ids/index.js'
 import type { Message, ToolResultContent } from '../message/index.js'
-import type { CancelCause } from '../run/cancel-cause.js'
+import type { CancelCause } from '../session/cancel-cause.js'
 import type { ToolResult } from '../tool/index.js'
 
 // ---------------------------------------------------------------------------
@@ -90,21 +90,21 @@ export function assertPluginContributionType(type: PluginContributionType): void
 export type PluginHookEvent =
 	/**
 	 * The operator's prompt, before the model sees it. Carries `prompt`.
-	 * The one event that can BLOCK a run (`skip`) and the one that can add
+	 * The one event that can BLOCK a turn (`skip`) and the one that can add
 	 * to what the model is told (`annotate`).
 	 */
 	| 'user_prompt_submit'
-	/** A host's session opened or closed. Carries `sessionId`; `runId` is minted for the session's own hooks. */
+	/** A host's session opened or closed. Carries `sessionId` and no `turnId`: these hooks run outside any turn. */
 	| 'session_start'
 	| 'session_end'
 	/** A compaction pass is about to run / has run. Carries `compaction`. */
 	| 'pre_compact'
 	| 'post_compact'
-	/** A delegated run ended. Fired after its own `run_end`; carries `parentRunId`. */
+	/** A child session's turn ended. Fired after its own `turn_end`; carries `parentSessionId` and `parentTurnId`. */
 	| 'subagent_stop'
-	| 'run_start'
-	| 'run_end'
-	| 'run_interrupt'
+	| 'turn_start'
+	| 'turn_end'
+	| 'turn_interrupt'
 	| 'pre_tool_use'
 	| 'post_tool_use'
 	| 'pre_llm_call'
@@ -112,7 +112,21 @@ export type PluginHookEvent =
 	| 'iteration_start'
 	| 'iteration_end'
 
+/**
+ * Hook event names that were renamed when turns replaced runs. A config that
+ * still names one is refused, and the refusal names the replacement.
+ */
+export const RENAMED_PLUGIN_HOOK_EVENTS: Readonly<Record<string, PluginHookEvent>> = {
+	run_start: 'turn_start',
+	run_end: 'turn_end',
+	run_interrupt: 'turn_interrupt',
+}
+
 export function assertPluginHookEvent(event: PluginHookEvent): void {
+	const renamed = RENAMED_PLUGIN_HOOK_EVENTS[event as string]
+	if (renamed !== undefined) {
+		throw new Error(`Hook event '${event as string}' was renamed to '${renamed}'.`)
+	}
 	switch (event) {
 		case 'user_prompt_submit':
 		case 'session_start':
@@ -120,9 +134,9 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 		case 'pre_compact':
 		case 'post_compact':
 		case 'subagent_stop':
-		case 'run_start':
-		case 'run_end':
-		case 'run_interrupt':
+		case 'turn_start':
+		case 'turn_end':
+		case 'turn_interrupt':
 		case 'pre_tool_use':
 		case 'post_tool_use':
 		case 'pre_llm_call':
@@ -149,7 +163,7 @@ export interface PluginModelRequest {
 	/** SDK provider-input content inventory; excludes adapter/server-private transformations. */
 	readonly context?: {
 		readonly snapshot: RequestContextSnapshot
-		/** Compared with the preceding pre_llm_call in this run; absent on the first. */
+		/** Compared with the preceding pre_llm_call in this turn; absent on the first. */
 		readonly change?: RequestContextChange
 	}
 	readonly model: string
@@ -183,13 +197,16 @@ export interface PluginCompactionInfo {
 }
 
 export interface PluginHookContext {
-	readonly runId: RunId
+	/** The turn the hook fired in. Absent on `session_start` and `session_end`. */
+	readonly turnId?: TurnId
 	readonly pluginId: PluginId
 	readonly event: PluginHookEvent
-	/** The host's session, on `session_*` and `user_prompt_submit`. */
-	readonly sessionId?: SessionId
-	/** The run that delegated, on `subagent_stop`. */
-	readonly parentRunId?: RunId
+	/** The host's session. Always present. */
+	readonly sessionId: SessionId
+	/** The session that delegated, on `subagent_stop`. */
+	readonly parentSessionId?: SessionId
+	/** The turn whose tool call spawned the child, on `subagent_stop`. */
+	readonly parentTurnId?: TurnId
 	/** The operator's prompt, on `user_prompt_submit`. */
 	readonly prompt?: string
 	/** The pass, on `pre_compact` and `post_compact`. */
@@ -199,9 +216,9 @@ export interface PluginHookContext {
 	readonly toolResult?: ToolResult
 	readonly iteration?: number
 	/**
-	 * Why the run was stopped, on `run_interrupt`.
+	 * Why the turn was stopped, on `turn_interrupt`.
 	 *
-	 * That hook is emitted only for a root run carrying the explicit `user`
+	 * That hook is emitted only for a root session's turn carrying the explicit `user`
 	 * cause. Keeping the field typed as the complete cause vocabulary lets a
 	 * host narrow normally and leaves room for a future, deliberate expansion
 	 * without overloading `event` or an error sentence.
@@ -212,7 +229,7 @@ export interface PluginHookContext {
 	 * The request about to be sent, on `pre_llm_call`.
 	 *
 	 * Both model-call hooks fired directly beside this data and were handed
-	 * none of it — only a run id and an iteration number — so an extension
+	 * none of it — only a turn id and an iteration number — so an extension
 	 * could observe THAT a call was happening and nothing about what it
 	 * was. A redaction pass, a prompt audit, a per-tenant token ledger: all
 	 * of them needed the one thing the hook did not carry.
@@ -225,8 +242,8 @@ export interface PluginHookContext {
 	 * accident of registration order.
 	 *
 	 * The freeze is one level deep, as elsewhere: each message is a frozen
-	 * copy, so writing to one is inert and cannot reach the run's history,
-	 * but a nested array inside a message is still the run's own.
+	 * copy, so writing to one is inert and cannot reach the turn's history,
+	 * but a nested array inside a message is still the turn's own.
 	 */
 	readonly request?: Readonly<PluginModelRequest>
 
@@ -236,14 +253,14 @@ export interface PluginHookContext {
 	readonly response?: Readonly<PluginModelResponse>
 	/**
 	 * Aborts when this hook's run is cancelled or its deadline expires.
-	 * `run_interrupt` is the exception: the run is already cancelled, so its
+	 * `turn_interrupt` is the exception: the turn is already cancelled, so its
 	 * handler receives a fresh signal that represents only the bounded cleanup
 	 * deadline. The original verdict is available as `cancelCause`.
 	 *
 	 * The runtime stops waiting on a slow hook either way, but in-process
 	 * JavaScript cannot be forcibly stopped. Without a signal the hook itself
 	 * never learns it was abandoned: an HTTP request inside it keeps a socket
-	 * open and its eventual side effects can happen after the run moved on. A
+	 * open and its eventual side effects can happen after the turn moved on. A
 	 * hook doing I/O must forward this signal and stop publishing when it
 	 * aborts.
 	 */

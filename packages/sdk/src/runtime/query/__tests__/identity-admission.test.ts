@@ -34,7 +34,7 @@ describe.each(['query', 'drainQuery'] as const)('%s identity admission', (entryP
 			const params: Parameters<typeof query>[0] = {
 				provider,
 				tools: new ToolRegistry(),
-				runConfig: { model: 'mock-model', tokenBudget: 2_000, timeoutMs: 2_000, maxIterations: 1 },
+				turnConfig: { model: 'mock-model', tokenBudget: 2_000, timeoutMs: 2_000, maxIterations: 1 },
 				agentId: 'identity-admission',
 				agentName: 'Identity admission',
 				messages: [createUserMessage('No inference without complete identity.')],

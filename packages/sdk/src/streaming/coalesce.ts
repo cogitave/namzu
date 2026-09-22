@@ -1,5 +1,5 @@
 import type { ToolUseId } from '../types/ids/index.js'
-import type { RunEvent } from '../types/run/events.js'
+import type { SessionEvent } from '../types/session/events.js'
 
 export interface CoalesceOptions {
 	/**
@@ -31,7 +31,7 @@ export interface CoalesceOptions {
  *
  * `streaming/` owns coalescing and nothing else. SSE mapping lives in
  * `bridge/sse/`, provider chunk assembly in the provider drivers, and the
- * run event stream in `runtime/query/` — none of them belong here, and a
+ * session event stream in `runtime/query/` — none of them belong here, and a
  * second occupant of this directory should be another rate policy or
  * nothing.
  *
@@ -41,17 +41,18 @@ export interface CoalesceOptions {
  * accept queue growth.
  */
 export async function* coalesce(
-	stream: AsyncIterable<RunEvent>,
+	stream: AsyncIterable<SessionEvent>,
 	options: CoalesceOptions = { windowMs: 16 },
-): AsyncGenerator<RunEvent, void, unknown> {
+): AsyncGenerator<SessionEvent, void, unknown> {
 	const { windowMs } = options
-	let textBuf: { event: Extract<RunEvent, { type: 'text_delta' }>; deadline: number } | null = null
+	let textBuf: { event: Extract<SessionEvent, { type: 'text_delta' }>; deadline: number } | null =
+		null
 	const toolBufs = new Map<
 		ToolUseId,
-		{ event: Extract<RunEvent, { type: 'tool_input_delta' }>; deadline: number }
+		{ event: Extract<SessionEvent, { type: 'tool_input_delta' }>; deadline: number }
 	>()
 
-	function* flushAll(): Generator<RunEvent> {
+	function* flushAll(): Generator<SessionEvent> {
 		if (textBuf) {
 			yield textBuf.event
 			textBuf = null

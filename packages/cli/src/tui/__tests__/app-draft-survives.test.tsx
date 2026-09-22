@@ -35,6 +35,8 @@ let askPermission = true
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: 't' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
@@ -68,7 +70,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			mcpFailed: [],
 			agentIds: [],
 			configNotices: [],
-			// The TUI never resumes a durable run; a stub that answered would
+			// The TUI never resumes a durable turn; a stub that answered would
 			// make a resume look reachable from here.
 			resumeDurable: async () => {
 				throw new Error('not used by the TUI')
@@ -189,7 +191,7 @@ function said(harness: { readonly frames: readonly string[] }): string {
  * Wait for `read()` to say `text`, and FAIL the test if it never does.
  *
  * Polling rather than one fixed sleep, for a reason this suite has already paid
- * for twice: the run transforms TypeScript on the way in, so under the full
+ * for twice: the turn transforms TypeScript on the way in, so under the full
  * parallel suite a step that takes 40ms alone can take several hundred. A fixed
  * wait turns that into a red assertion with nothing about the code changed.
  * Absence still needs a fixed wait — a thing that must never appear cannot be

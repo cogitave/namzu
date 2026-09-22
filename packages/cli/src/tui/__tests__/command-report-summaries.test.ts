@@ -65,7 +65,7 @@ describe('command summaries and details', () => {
 		expect(renderStatus(context())).toContain('Spend (current or latest run, own calls): $0.1250')
 		expect(renderStatus(context())).not.toContain('Spend: Tokens:')
 		const details = report('/cost details')
-		expect(details).toContain('excluding delegated calls and earlier runs')
+		expect(details).toContain('excluding delegated calls and earlier turns')
 		expect(details).toContain('not conversation totals')
 		expect(details).not.toContain('only ever grows')
 	})
@@ -82,6 +82,7 @@ describe('command summaries and details', () => {
 					reservedTokens: 0,
 					remainingTokens: 600,
 					inFlightRequests: 1,
+					unresolvedRequests: 0,
 					unsettledChildren: 0,
 					poisoned: true,
 				},

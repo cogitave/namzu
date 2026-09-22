@@ -4,7 +4,7 @@ import { type ConfigOverrideStore, InMemoryConfigOverrideStore } from '../store/
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 /**
- * Configuration a plugin declares and an operator retunes while a run is
+ * Configuration a plugin declares and an operator retunes while a turn is
  * live.
  *
  * `config/runtime.ts` is one Zod schema parsed once into `RUNTIME_DEFAULTS`
@@ -68,7 +68,7 @@ export interface ConfigRegistryOptions {
 	/**
 	 * Prefix for this registry's store keys. Set by {@link ConfigRegistry.scope}.
 	 *
-	 * Two concurrent runs share a process and a store; without a prefix the
+	 * Two concurrent turns share a process and a store; without a prefix the
 	 * second would read the first's overrides and retune it.
 	 */
 	readonly scopeId?: string
@@ -110,9 +110,9 @@ export class ConfigRegistry {
 	}
 
 	/**
-	 * A registry for one run, sharing this one's store.
+	 * A registry for one turn, sharing this one's store.
 	 *
-	 * Namespaces and watchers are per scope — two concurrent runs cannot see
+	 * Namespaces and watchers are per scope — two concurrent turns cannot see
 	 * or retune each other — while the store is shared so an operator's
 	 * override written under one scope is not lost when it ends. The same
 	 * arrangement `ScopedConnectorRegistry` uses, keyed the same way.

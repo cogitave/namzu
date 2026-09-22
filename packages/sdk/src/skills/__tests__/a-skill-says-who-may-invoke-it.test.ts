@@ -148,7 +148,7 @@ describe('the operator’s menu carries only what an operator may invoke', () =>
 		expect(JSON.stringify(result)).toContain('both')
 	})
 
-	it('refuses when the run has no skills registry at all', async () => {
+	it('refuses when the turn has no skills registry at all', async () => {
 		// "No skills" and "no registry" are different answers, and showing the
 		// first for the second gives an operator a confident zero nobody
 		// computed.

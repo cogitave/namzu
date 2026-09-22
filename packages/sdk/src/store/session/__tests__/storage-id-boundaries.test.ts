@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { fixtureUuid, unchecked } from '../../../test-support/ids.js'
 import type { ProjectId, SessionId, SubSessionId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
 import {
 	InvalidIdError,
 	asProjectId,
@@ -84,7 +83,7 @@ describe('DiskSessionStore id boundaries', () => {
 		await expect(store.deleteSubSession(subSession, TENANT)).rejects.toBeInstanceOf(InvalidIdError)
 	})
 
-	it('preserves a safe caller-chosen id and its messages across a cold reopen', async () => {
+	it('preserves a safe caller-chosen id across a cold reopen', async () => {
 		const { rootDir, store, project } = await fixture()
 		const id = asSessionId('0a0e4339-bdee-431d-ae33-b379bce18a26')
 		const params = {
@@ -94,7 +93,6 @@ describe('DiskSessionStore id boundaries', () => {
 			currentActor: null,
 		}
 		expect((await store.createSession(params, TENANT)).id).toBe(id)
-		await store.appendMessage(id, createUserMessage('keep this conversation'), TENANT)
 
 		const reopened = new DiskSessionStore({ rootDir })
 		expect(await reopened.getSession(id, TENANT)).toMatchObject({
@@ -103,9 +101,6 @@ describe('DiskSessionStore id boundaries', () => {
 		})
 		expect((await reopened.listSessionsByProject(project.id, TENANT)).map((s) => s.id)).toEqual([
 			id,
-		])
-		expect((await reopened.loadMessages(id, TENANT)).map((message) => message.content)).toEqual([
-			'keep this conversation',
 		])
 		await expect(reopened.createSession(params, TENANT)).rejects.toThrow('already exists')
 	})
@@ -160,7 +155,6 @@ describe('DiskSessionStore id boundaries', () => {
 					JSON.stringify({ ...raw, id: subId }),
 				)
 			}
-			await store.appendMessage(parent.id, createUserMessage(`history ${index}`), TENANT)
 			pairs.push({ parent, child, subId, projectId })
 		}
 
@@ -173,16 +167,13 @@ describe('DiskSessionStore id boundaries', () => {
 		expect(
 			new Set((await cold().listSessionsByTopic(topicId, TENANT)).map((row) => row.id)),
 		).toEqual(new Set(pairs.flatMap(({ parent, child }) => [parent.id, child.id])))
-		for (const [index, { parent, child, subId, projectId }] of pairs.entries()) {
+		for (const { parent, child, subId, projectId } of pairs) {
 			expect(await cold().getSession(parent.id, TENANT)).toMatchObject({ id: parent.id, projectId })
 			expect(await cold().getSession(child.id, TENANT)).toMatchObject({ id: child.id, projectId })
 			expect(await cold().getSubSession(subId, TENANT)).toMatchObject({ id: subId })
 			expect(
 				new Set((await cold().listSessionsByProject(projectId, TENANT)).map((row) => row.id)),
 			).toEqual(new Set([parent.id, child.id]))
-			expect(
-				(await cold().loadMessages(parent.id, TENANT)).map((message) => message.content),
-			).toEqual([`history ${index}`])
 			expect((await cold().getChildren(parent.id, TENANT)).map((row) => row.id)).toEqual([subId])
 			expect(await cold().getAncestry(child.id, TENANT)).toEqual([parent.id, child.id])
 			await expect(cold().deleteSession(parent.id, TENANT)).rejects.toThrow('attached sub-sessions')

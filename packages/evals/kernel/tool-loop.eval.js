@@ -19,18 +19,19 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	DefaultPathBuilder,
 	MockLLMProvider,
+	SessionPaths,
 	ToolRegistry,
 	autoApproveHandler,
 	completionScorer,
 	drainQuery,
-	evalRunFromRun,
+	evalTurnFromTurn,
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 	runExperiment,
+	slugForCwd,
 	stepBudgetScorer,
 	trajectoryScorer,
 } from "@namzu/sdk";
@@ -77,10 +78,10 @@ async function runCase(input) {
 	const scratch = await mkdtemp(join(tmpdir(), "namzu-eval-"));
 	try {
 		const provider = new MockLLMProvider({ turns: input.turns });
-		const run = await drainQuery({
+		const turn = await drainQuery({
 			provider,
 			tools: registry(input.failing),
-			runConfig: {
+			turnConfig: {
 				model: "mock-model",
 				timeoutMs: 30_000,
 				tokenBudget: 1_000_000,
@@ -96,7 +97,10 @@ async function runCase(input) {
 			workingDirectory: scratch,
 			// State under the scratch directory, not the default root: the
 			// directory is removed below, and with it everything the run wrote.
-			pathBuilder: new DefaultPathBuilder(join(scratch, ".namzu")),
+			paths: new SessionPaths({
+				home: join(scratch, ".namzu"),
+				slug: slugForCwd(scratch),
+			}),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			projectId: generateProjectId(),
@@ -110,7 +114,7 @@ async function runCase(input) {
 			...(input.prepareStep ? { prepareStep: input.prepareStep } : {}),
 		});
 
-		return evalRunFromRun(run);
+		return evalTurnFromTurn(turn);
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}

@@ -10,8 +10,8 @@ import type { CommandContext } from '../types.js'
  * run from its checkpoint in this process.
  *
  * Before this, a rate limit ended a headless run with the same code as a
- * failure, and the only way on was a wrapper re-prompting a fresh run from
- * whatever notes the first had left — the run's own context was gone. The
+ * failure, and the only way on was a wrapper re-prompting a fresh turn from
+ * whatever notes the first had left — the turn's own context was gone. The
  * kernel had kept a checkpoint the whole time; nothing headless could reach it.
  */
 
@@ -59,7 +59,7 @@ function stream(events: unknown[]): AsyncIterable<AgentEvent> {
 
 const PAUSE = {
 	kind: 'paused',
-	runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+	turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 	checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 	reason: 'slow down',
 	// A millisecond, so the test waits for real rather than faking a clock:
@@ -73,7 +73,7 @@ const PAUSE = {
 	},
 	explanation: {
 		id: 'provider.rate_limit',
-		message: 'The provider is rate limiting this run.',
+		message: 'The provider is rate limiting this turn.',
 		hint: 'Wait before continuing.',
 	},
 }
@@ -85,11 +85,11 @@ async function run(rawArgs: string[], config: Record<string, unknown> = {}) {
 	return { code, ...captured }
 }
 
-describe('a paused run, given time to wait', () => {
+describe('a paused turn, given time to wait', () => {
 	it('waits the provider delay, resumes from the checkpoint, and finishes with 0', async () => {
 		sessionStub.send = (() =>
 			stream([{ kind: 'delta', text: 'first half, ' }, PAUSE])) as AgentSession['send']
-		const resumed = vi.fn((params: { runId: string; checkpointId: string }) =>
+		const resumed = vi.fn((params: { turnId: string; checkpointId?: string }) =>
 			stream([
 				{ kind: 'delta', text: `second half from ${params.checkpointId}` },
 				{ kind: 'done', stopReason: 'end_turn' },
@@ -101,7 +101,7 @@ describe('a paused run, given time to wait', () => {
 
 		expect(code).toBe(0)
 		expect(resumed).toHaveBeenCalledWith({
-			runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+			turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 			checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 		})
 		expect(printed.join('')).toBe(
@@ -150,13 +150,13 @@ describe('a paused run, given time to wait', () => {
 	})
 
 	it('does not wait on a pause with no provider behind it', async () => {
-		// A run parked on something other than the provider is not a rate limit;
+		// A turn parked on something other than the provider is not a rate limit;
 		// waiting would resume it into the same park.
 		sessionStub.send = (() =>
 			stream([
 				{
 					kind: 'paused',
-					runId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
+					turnId: '060ef1b7-e8bb-474c-b405-c2d11930d39c',
 					checkpointId: '227436b6-3082-4bdc-a441-7e828e479876',
 					reason: 'parked',
 				},

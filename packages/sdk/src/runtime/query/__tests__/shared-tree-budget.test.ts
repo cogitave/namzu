@@ -6,15 +6,15 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { TokenBudget } from '../../../run/token-budget.js'
+import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { Run, RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -32,14 +32,17 @@ describe('query shares one allowance with descendant model work', () => {
 	it('stops the parent on total tree spend while preserving its own usage separately', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-tree-budget-'))
 		dirs.push(workingDirectory)
-		const runId = generateRunId()
-		const budget = TokenBudget.create(1_000, runId)
+		const turnId = generateTurnId()
 		const scope = {
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
 			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 		}
+		const budget = SessionTokenBudget.create(1_000, {
+			rootSessionId: scope.sessionId,
+			rootTurnId: turnId,
+		})
 		const childProvider = new MockLLMProvider({
 			turns: [{ text: 'child done', usage: usage(200) }],
 		})
@@ -49,7 +52,7 @@ describe('query shares one allowance with descendant model work', () => {
 				{ text: 'must not make this request', usage: usage(50) },
 			],
 		})
-		let child: Run | undefined
+		let child: Turn | undefined
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'delegate',
@@ -62,8 +65,9 @@ describe('query shares one allowance with descendant model work', () => {
 				child = await drainQuery({
 					...scope,
 					sessionId: generateSessionId(),
-					runId: generateRunId(),
-					parentRunId: runId,
+					turnId: generateTurnId(),
+					parentSessionId: scope.sessionId,
+					parentTurnId: turnId,
 					budget: childBudget,
 					provider: childProvider,
 					tools: new ToolRegistry(),
@@ -71,18 +75,18 @@ describe('query shares one allowance with descendant model work', () => {
 					agentId: 'child',
 					agentName: 'Child',
 					workingDirectory,
-					runConfig: { model: 'mock', tokenBudget: 100, timeoutMs: 30_000, maxIterations: 2 },
+					turnConfig: { model: 'mock', tokenBudget: 100, timeoutMs: 30_000, maxIterations: 2 },
 					messages: [createUserMessage('Do the child work.')],
 				})
 				childBudget.settle(child.tokenUsage.totalTokens)
 				return { success: true, output: child.result ?? 'child completed' }
 			},
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const parent = await drainQuery(
 			{
 				...scope,
-				runId,
+				turnId,
 				budget,
 				provider: parentProvider,
 				tools,
@@ -90,7 +94,7 @@ describe('query shares one allowance with descendant model work', () => {
 				agentId: 'parent',
 				agentName: 'Parent',
 				workingDirectory,
-				runConfig: { model: 'mock', tokenBudget: 1_000, timeoutMs: 30_000, maxIterations: 3 },
+				turnConfig: { model: 'mock', tokenBudget: 1_000, timeoutMs: 30_000, maxIterations: 3 },
 				messages: [createUserMessage('Delegate work, then report.')],
 			},
 			(event) => {
@@ -109,31 +113,35 @@ describe('query shares one allowance with descendant model work', () => {
 			reservedTokens: 0,
 		})
 		expect(events).toContainEqual(
-			expect.objectContaining({ type: 'run_completed', stopReason: 'token_budget' }),
+			expect.objectContaining({ type: 'turn_completed', stopReason: 'token_budget' }),
 		)
 	})
 
 	it('accounts for completed usage even when the event consumer throws', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-tree-budget-failure-'))
 		dirs.push(workingDirectory)
-		const runId = generateRunId()
-		const budget = TokenBudget.create(1_000, runId)
+		const turnId = generateTurnId()
+		const sessionId = generateSessionId()
+		const budget = SessionTokenBudget.create(1_000, {
+			rootSessionId: sessionId,
+			rootTurnId: turnId,
+		})
 		const provider = new MockLLMProvider({ turns: [{ text: 'done', usage: usage(300) }] })
 		const result = drainQuery(
 			{
-				runId,
+				turnId,
 				budget,
 				provider,
 				tools: new ToolRegistry(),
 				retry: false,
 				workingDirectory,
 				projectId: generateProjectId(),
-				sessionId: generateSessionId(),
+				sessionId,
 				topicId: generateTopicId(),
 				tenantId: generateTenantId(),
 				agentId: 'one',
 				agentName: 'One',
-				runConfig: { model: 'mock', tokenBudget: 1_000, timeoutMs: 30_000, maxIterations: 2 },
+				turnConfig: { model: 'mock', tokenBudget: 1_000, timeoutMs: 30_000, maxIterations: 2 },
 				messages: [createUserMessage('Finish.')],
 			},
 			(event) => {

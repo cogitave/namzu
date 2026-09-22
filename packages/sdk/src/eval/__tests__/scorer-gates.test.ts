@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { formatReport, runExperiment } from '../experiment.js'
-import type { EvalRun, Score, Scorer } from '../types.js'
+import type { EvalTurn, Score, Scorer } from '../types.js'
 
 /**
  * A case's verdict was one unweighted mean over every scorer against one
@@ -21,7 +21,7 @@ import type { EvalRun, Score, Scorer } from '../types.js'
  * two reports.
  */
 
-const run = (): EvalRun => ({
+const run = (): EvalTurn => ({
 	output: 'answer',
 	steps: [],
 	toolCalls: [],
@@ -89,7 +89,7 @@ describe('a gate scorer', () => {
 	})
 
 	it('does not fail the case when it could not judge at all', async () => {
-		// Unavailable is not zero. A gate that threw did not judge the run
+		// Unavailable is not zero. A gate that threw did not judge the turn
 		// badly, it failed to judge it — the inconclusive path, not a
 		// failure, and the two demand opposite responses.
 		const report = await runExperiment({

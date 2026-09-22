@@ -151,7 +151,7 @@ describe('a tool batch that needs a human', () => {
 
 	it('carries the grant keys on approve_all, which ARE the latch', () => {
 		// The bridge's own latch stops it asking the CLIENT again. `remember` is
-		// the other half: it is what stops the KERNEL asking within a run, and
+		// the other half: it is what stops the KERNEL asking within a turn, and
 		// `approve_tools` with nothing remembered is indistinguishable from a
 		// plain approve. Dropping the keys is how an "approve all" that never
 		// takes gets shipped — mutation-checked, because nothing else here
@@ -668,7 +668,7 @@ describe('the client answering after the connection closed', () => {
 		await settle()
 
 		// A promise nobody will ever settle keeps whatever awaited it alive —
-		// here, a whole run parked on a question with no one left to answer.
+		// here, a whole turn parked on a question with no one left to answer.
 		expect((failure as Error)?.message).toContain('closed before it answered')
 	})
 })

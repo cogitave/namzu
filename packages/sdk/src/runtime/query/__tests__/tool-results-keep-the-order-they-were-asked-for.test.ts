@@ -8,13 +8,12 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
@@ -25,6 +24,8 @@ import {
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 import { type QueryParams, drainQuery } from '../index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The invariant is POSITIONAL, not temporal: a batch's `results[i]` and
@@ -39,7 +40,7 @@ import { type QueryParams, drainQuery } from '../index.js'
  * the answers the model reads back.
  */
 
-const mockRunId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
+const mockTurnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -86,23 +87,24 @@ function batchOf(calls: ReadonlyArray<{ id: string; name: string }>): ChatComple
 
 interface ExecutorFixture {
 	executor: ToolExecutor
-	events: RunEvent[]
+	events: SessionEvent[]
 }
 
 function executorOver(tools: ToolRegistry): ExecutorFixture {
-	const events: RunEvent[] = []
+	const events: SessionEvent[] = []
 	const executor = new ToolExecutor(
 		{
+			sessionId: SESSION_ID,
 			tools,
-			runId: mockRunId,
+			turnId: mockTurnId,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 		},
-		new ActivityStore(mockRunId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
+		new ActivityStore(mockTurnId, { enabled: true, trackToolCalls: true, trackLlmTurns: true }),
 		async (event) => {
-			events.push(event)
+			events.push(event as SessionEvent)
 		},
 		makeLogger(),
 	)
@@ -126,12 +128,12 @@ function toolResultIds(messages: readonly Message[]): string[] {
 }
 
 /** Every `tool_executing` / `tool_completed` as `[type, toolUseId]`. */
-const toolEventPairs = (events: readonly RunEvent[]) =>
+const toolEventPairs = (events: readonly SessionEvent[]) =>
 	events
 		.filter((event) => event.type === 'tool_executing' || event.type === 'tool_completed')
 		.map((event) => [
 			event.type,
-			(event as Extract<RunEvent, { type: 'tool_executing' }>).toolUseId,
+			(event as Extract<SessionEvent, { type: 'tool_executing' }>).toolUseId,
 		])
 
 describe('a batch whose calls finish in the opposite order to the one they were asked in', () => {
@@ -418,7 +420,7 @@ describe('a tool that must not run beside anything else', () => {
 	})
 })
 
-describe('a real run that asked for two tools at once', () => {
+describe('a real turn that asked for two tools at once', () => {
 	function concurrentRegistry() {
 		const finished: string[] = []
 		const secondFinished = latch()
@@ -461,7 +463,7 @@ describe('a real run that asked for two tools at once', () => {
 	}
 
 	async function runBoth(): Promise<{
-		events: RunEvent[]
+		events: SessionEvent[]
 		run: Awaited<ReturnType<typeof drainQuery>>
 	}> {
 		const { tools } = concurrentRegistry()
@@ -477,17 +479,16 @@ describe('a real run that asked for two tools at once', () => {
 				{ text: 'both came back' },
 			],
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 		const run = await drainQuery(
 			{
 				provider,
 				tools,
-				runStore: new InMemoryRunStore(),
 				agentId: 'agent_tool_order',
 				agentName: 'Tool order agent',
 				messages: [{ role: 'user', content: 'go' }],
 				workingDirectory: await workdir(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
 					tokenBudget: 100_000,
@@ -501,7 +502,7 @@ describe('a real run that asked for two tools at once', () => {
 				resumeHandler: autoApproveHandler,
 			} as unknown as QueryParams,
 			(event) => {
-				events.push(event)
+				events.push(event as SessionEvent)
 			},
 		)
 		return { events, run }
@@ -522,26 +523,26 @@ describe('a real run that asked for two tools at once', () => {
 		expect(roles.slice(assistantAt)).toEqual(['assistant', 'tool', 'tool', 'assistant'])
 	})
 
-	it('numbers every durable event with no gap while the batch interleaves', async () => {
-		// `EventTranslator` holds the sequence under a lock, and the docblock
-		// on the lock names "a batch of parallel tools" as one of the
-		// interleavers it exists for. The existing test for that drives
-		// twenty synthetic `iteration_started` emits; this one drives the
-		// production interleaver through a real run.
+	it('numbers every durable event in log order while the batch interleaves', async () => {
+		// `EventTranslator` appends under a lock, and the docblock on the lock
+		// names "a batch of parallel tools" as one of the interleavers it
+		// exists for. This drives the production interleaver through a real
+		// run. An event's number is its record's `seq` in the session log,
+		// which also holds message records, so the numbers climb with gaps.
 		const { events } = await runBoth()
 
 		const numbered = events.filter((event) => event.seq !== undefined).map((e) => e.seq as number)
 		expect(numbered.length).toBeGreaterThan(10)
-		expect(numbered).toEqual(numbered.map((_, i) => i + 1))
+		expect(numbered).toEqual([...numbered].sort((a, b) => a - b))
 		// A duplicated number is worse than a missing one — a consumer asking
-		// for everything above N is handed part of the run it already had.
+		// for everything above N is handed part of the turn it already had.
 		expect(new Set(numbered).size).toBe(numbered.length)
 	})
 
 	it('announces both tool starts before the first completion', async () => {
 		const { events } = await runBoth()
 
-		// The same interleaving the executor produces, but seen from the run:
+		// The same interleaving the executor produces, but seen from the turn:
 		// `tool_executing` for both, then the completions in the order they
 		// really came back. Only the starts were ever asserted anywhere.
 		expect(toolEventPairs(events)).toEqual([
@@ -589,8 +590,8 @@ describe('the ordering a nested dispatch sees', () => {
 		// preparation pass that reordered the calls would split one batch's
 		// cards across two groups.
 		expect(batchIds).toEqual([
-			JSON.stringify([String(mockRunId), 'call_one']),
-			JSON.stringify([String(mockRunId), 'call_one']),
+			JSON.stringify([String(mockTurnId), 'call_one']),
+			JSON.stringify([String(mockTurnId), 'call_one']),
 		])
 	})
 })

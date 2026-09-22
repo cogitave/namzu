@@ -2,7 +2,7 @@ import path from 'node:path'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 
 import type { AgentBusEvent, FileOwnership, OwnershipClaimResult } from '../types/bus/index.js'
-import type { RunId } from '../types/ids/index.js'
+import type { SessionId } from '../types/ids/index.js'
 import type { Logger } from '../utils/logger.js'
 
 export class EditOwnershipTracker {
@@ -19,7 +19,7 @@ export class EditOwnershipTracker {
 		return path.resolve(filePath)
 	}
 
-	claim(filePath: string, owner: RunId): OwnershipClaimResult {
+	claim(filePath: string, owner: SessionId): OwnershipClaimResult {
 		const normalized = this.normalizePath(filePath)
 		const existing = this.ownerships.get(normalized)
 
@@ -54,7 +54,7 @@ export class EditOwnershipTracker {
 		return { claimed: true, ownership }
 	}
 
-	release(filePath: string, owner: RunId): boolean {
+	release(filePath: string, owner: SessionId): boolean {
 		const normalized = this.normalizePath(filePath)
 		const existing = this.ownerships.get(normalized)
 
@@ -71,7 +71,7 @@ export class EditOwnershipTracker {
 		return true
 	}
 
-	transfer(filePath: string, from: RunId, to: RunId): boolean {
+	transfer(filePath: string, from: SessionId, to: SessionId): boolean {
 		const normalized = this.normalizePath(filePath)
 		const existing = this.ownerships.get(normalized)
 
@@ -95,7 +95,7 @@ export class EditOwnershipTracker {
 		return true
 	}
 
-	releaseAll(owner: RunId): number {
+	releaseAll(owner: SessionId): number {
 		let released = 0
 		for (const [normalized, ownership] of this.ownerships) {
 			if (ownership.owner === owner) {
@@ -115,12 +115,12 @@ export class EditOwnershipTracker {
 		return released
 	}
 
-	getOwner(filePath: string): RunId | undefined {
+	getOwner(filePath: string): SessionId | undefined {
 		const normalized = this.normalizePath(filePath)
 		return this.ownerships.get(normalized)?.owner
 	}
 
-	listByOwner(owner: RunId): FileOwnership[] {
+	listByOwner(owner: SessionId): FileOwnership[] {
 		const result: FileOwnership[] = []
 		for (const ownership of this.ownerships.values()) {
 			if (ownership.owner === owner) {
@@ -130,7 +130,7 @@ export class EditOwnershipTracker {
 		return result
 	}
 
-	checkConflict(filePath: string, requester: RunId): RunId | undefined {
+	checkConflict(filePath: string, requester: SessionId): SessionId | undefined {
 		const normalized = this.normalizePath(filePath)
 		const existing = this.ownerships.get(normalized)
 		if (existing && existing.owner !== requester) {

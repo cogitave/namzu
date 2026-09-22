@@ -60,7 +60,7 @@
  * cut. Cutting matters because this text is re-sent every turn: an
  * instructions file is normally a few kilobytes, and nothing stops one from
  * being a megabyte. Saying so matters more — a silent truncation is the
- * failure this repository keeps finding, where the run succeeds while quietly
+ * failure this repository keeps finding, where the turn succeeds while quietly
  * not doing what was asked, and here it would show up as the agent ignoring
  * the second half of a policy nobody could see was missing.
  */

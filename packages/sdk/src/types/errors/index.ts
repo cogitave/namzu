@@ -7,7 +7,7 @@ import { ProviderError, classifyProviderError } from '../provider/errors.js'
  * `PlatformError` was declared and never constructed — a shape nothing
  * produced and nothing consumed. Meanwhile the runtime threw bare `Error`
  * everywhere, so a caller catching a failure from `query()` could not tell
- * "the model rate-limited us" from "the run was configured wrong" from
+ * "the model rate-limited us" from "the turn was configured wrong" from
  * "that checkpoint does not exist". The only recourse was matching on
  * message text, which is not an interface.
  *
@@ -18,19 +18,19 @@ import { ProviderError, classifyProviderError } from '../provider/errors.js'
  * host's.
  */
 export type NamzuErrorCode =
-	/** The run was set up wrong — missing model, contradictory options. Retrying cannot help. */
+	/** The turn was set up wrong — missing model, contradictory options. Retrying cannot help. */
 	| 'invalid_config'
 	/** The upstream model call failed. `details.providerCode` narrows it. */
 	| 'provider_error'
 	/** A tool could not be executed or resolved. */
 	| 'tool_error'
-	/** A referenced checkpoint, run or emergency dump does not exist. */
+	/** A referenced checkpoint, session or turn does not exist. */
 	| 'not_found'
 	/** A plugin hook failed or refused. */
 	| 'plugin_error'
-	/** The provider or environment cannot do what the run requires. */
+	/** The provider or environment cannot do what the turn requires. */
 	| 'capability_unavailable'
-	/** Persistence (checkpoint store, run store, workspace) failed. */
+	/** Persistence (checkpoint store, session log, workspace) failed. */
 	| 'storage_error'
 	/** Unclassified. Treated as non-retryable. */
 	| 'unknown'

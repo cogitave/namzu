@@ -24,7 +24,7 @@ import { drainQuery } from '../index.js'
  *
  * This is the regression test for the incident `wait_for_job` exists to
  * fix: research/resident/results/2026-09-14-exploration-policy-terra-tui.json
- * records a live run that launched one background job, then spent six
+ * records a live turn that launched one background job, then spent six
  * `job read` polls, three `job list` polls and an improvised `sleep 30`
  * waiting on it — more tokens on the wait than the work it was waiting for
  * cost. `provider.requests.length` is the same unit that incident was
@@ -72,13 +72,13 @@ async function run(turns: MockTurn[]) {
 		sessionId: generateSessionId(),
 		tenantId: generateTenantId(),
 		topicId: generateTopicId(),
-		runConfig: { model: 'mock', maxIterations: 8, tokenBudget: 200_000, timeoutMs: 20_000 },
+		turnConfig: { model: 'mock', maxIterations: 8, tokenBudget: 200_000, timeoutMs: 20_000 },
 		backgroundJobs: new BackgroundJobRegistry(),
 	})
 	return { result, provider }
 }
 
-// A fresh registry per run always hands out `job_1` first, so the scripted
+// A fresh registry per turn always hands out `job_1` first, so the scripted
 // model can name the id before the tool call that creates it returns.
 const START = { toolCalls: [{ id: 'c1', name: 'start', args: { command: 'true' } }] }
 const DONE = { text: 'done' }

@@ -2,7 +2,7 @@
  * `ask_user_question` is mounted where somebody can answer, and the answer
  * the operator gives is the answer the model gets.
  *
- * The SDK tool parks the run through the handler it was BUILT with; the CLI
+ * The SDK tool parks the turn through the handler it was BUILT with; the CLI
  * builds it once per session and routes the park to the turn's `onQuestion`.
  * So the hop that can silently break is the routing: a tool that exists,
  * parks, and returns "the user did not answer" because the holder was never
@@ -16,7 +16,13 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import { type Message, type ToolContext, type ToolDefinition, asRunId } from '@namzu/sdk'
+import {
+	type Message,
+	type ToolContext,
+	type ToolDefinition,
+	asSessionId,
+	asTurnId,
+} from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import type { QuestionFn, UserQuestion } from '../tui/agent.js'
@@ -102,7 +108,8 @@ const askInput = {
 
 function toolContext(): ToolContext {
 	return {
-		runId: asRunId('6d7d3240-86b4-4140-9955-c21a15f3d5ae'),
+		sessionId: asSessionId('019a0000-0000-7000-8000-0000000000c2'),
+		turnId: asTurnId('6d7d3240-86b4-4140-9955-c21a15f3d5ae'),
 		toolUseId: 'toolu_ask_1',
 		abortSignal: new AbortController().signal,
 	} as unknown as ToolContext

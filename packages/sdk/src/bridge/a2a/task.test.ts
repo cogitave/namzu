@@ -3,24 +3,26 @@
  *
  *   - `isTerminalState(state)` returns true iff state ∈ {completed,
  *     failed, canceled, rejected}.
- *   - `runStatusToA2AState(status)` is a table lookup:
- *     queued → pending; running → running; completed → completed;
- *     failed → failed; cancelled → canceled; cancelling → running;
- *     expired → failed.
- *   - `runToA2ATask(run, messages?)`:
- *     - `id` comes from `run.id`; `contextId` comes from
- *       `run.project_id ?? undefined`.
+ *   - `turnStatusToA2AState(status)` is a table lookup:
+ *     queued → pending; running → running; awaiting_input → input-required;
+ *     completed → completed; failed → failed; cancelled → canceled;
+ *     cancelling → running; expired → failed.
+ *   - `mapTurnToA2ATask(turn, messages?, options?)`:
+ *     - `id` comes from `turn.turn_id`; `contextId` is `options.contextId`
+ *       when given, otherwise `turn.session_id`. Never the project.
  *     - `status.timestamp` picks the first defined of
  *       `completed_at`, `started_at`, `created_at` (in that order).
- *     - `status.message` is agent-text of `run.result` if present,
- *       else of `run.last_error` if present, else undefined.
- *     - `artifacts` is present iff `run.result` is present; the single
+ *     - `status.message` is agent-text of `turn.result` if present,
+ *       else of `turn.last_error` if present, else undefined.
+ *     - `artifacts` is present iff `turn.result` is present; the single
  *       artifact carries a subset of usage + timing metadata.
  *     - `history` is mapped through `messageToA2A` only when `messages`
  *       is supplied.
  *     - Top-level `metadata` carries agent_id, agent_name, stop_reason
  *       (even if undefined).
- *   - `a2aMessageToCreateRun(agentId, params)` only sets a metadata
+ *   - `a2aMessageToCreateTurn(agentId, params)` carries the peer's
+ *     `contextId` verbatim with its `a2a`/`context` ref and an `origin`
+ *     naming it, and only sets a metadata
  *     field on `config` when the source value has the expected type
  *     (string for model/systemPrompt; number for numeric fields;
  *     'plan' | 'auto' for permissionMode). Everything else is omitted.
@@ -28,24 +30,25 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { ISOTimestamp, RunConfig, WireRun } from '../../contracts/index.js'
+import type { ISOTimestamp, WireTurn } from '../../contracts/index.js'
 import type { A2AMessage, A2AMessageSendParams, A2ATaskState } from '../../types/a2a/index.js'
-import type { ProjectId, RunId } from '../../types/ids/index.js'
+import type { ProjectId, SessionId, TurnId } from '../../types/ids/index.js'
 
 import {
-	a2aMessageToCreateRun,
+	a2aMessageToCreateTurn,
 	isTerminalState,
-	runStatusToA2AState,
-	runToA2ATask,
+	mapTurnToA2ATask,
+	turnStatusToA2AState,
 } from './task.js'
 
-const baseRun: WireRun = {
-	id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+const baseTurn: WireTurn = {
+	turn_id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
+	session_id: '0199b3a0-0000-7000-8000-0000000000b1' as SessionId,
 	project_id: null,
 	agent_id: 'coder',
 	status: 'running',
 	created_at: '2026-04-21T12:00:00Z' as ISOTimestamp,
-	config: {} as RunConfig,
+	config: {},
 }
 
 describe('isTerminalState', () => {
@@ -61,30 +64,34 @@ describe('isTerminalState', () => {
 	})
 })
 
-describe('runStatusToA2AState', () => {
+describe('turnStatusToA2AState', () => {
 	it.each([
 		['queued', 'pending'],
 		['running', 'running'],
+		['awaiting_input', 'input-required'],
 		['completed', 'completed'],
 		['failed', 'failed'],
 		['cancelled', 'canceled'],
 		['cancelling', 'running'],
 		['expired', 'failed'],
 	] as const)('%s → %s', (wire, a2a) => {
-		expect(runStatusToA2AState(wire)).toBe(a2a)
+		expect(turnStatusToA2AState(wire)).toBe(a2a)
 	})
 })
 
-describe('runToA2ATask', () => {
-	it('sets id + contextId from run.id + run.project_id', () => {
-		const task = runToA2ATask({ ...baseRun, project_id: 'proj_9' as ProjectId })
+describe('mapTurnToA2ATask', () => {
+	it('sets id + contextId from turn.turn_id + turn.session_id, never the project', () => {
+		const task = mapTurnToA2ATask({
+			...baseTurn,
+			project_id: 'b27ca023-39ba-4362-b823-1fc8f4460876' as ProjectId,
+		})
 		expect(task.id).toBe('37ddff8e-e13f-4e57-937f-d048fa323f5e')
-		expect(task.contextId).toBe('proj_9')
+		expect(task.contextId).toBe('0199b3a0-0000-7000-8000-0000000000b1')
 	})
 
-	it('contextId is undefined when project_id is null', () => {
-		const task = runToA2ATask(baseRun)
-		expect(task.contextId).toBeUndefined()
+	it('echoes the peer’s own context id when the host passes it', () => {
+		const task = mapTurnToA2ATask(baseTurn, undefined, { contextId: 'ctx: not a uuid' })
+		expect(task.contextId).toBe('ctx: not a uuid')
 	})
 
 	it('timestamp prefers completed_at > started_at > created_at', () => {
@@ -93,40 +100,40 @@ describe('runToA2ATask', () => {
 		const completed = '2026-04-21T10:10:00Z' as ISOTimestamp
 
 		expect(
-			runToA2ATask({
-				...baseRun,
+			mapTurnToA2ATask({
+				...baseTurn,
 				created_at: created,
 				started_at: started,
 				completed_at: completed,
 			}).status.timestamp,
 		).toBe(completed)
 		expect(
-			runToA2ATask({ ...baseRun, created_at: created, started_at: started }).status.timestamp,
+			mapTurnToA2ATask({ ...baseTurn, created_at: created, started_at: started }).status.timestamp,
 		).toBe(started)
-		expect(runToA2ATask({ ...baseRun, created_at: created }).status.timestamp).toBe(created)
+		expect(mapTurnToA2ATask({ ...baseTurn, created_at: created }).status.timestamp).toBe(created)
 	})
 
 	it('status.message is the result text when result is present', () => {
-		const task = runToA2ATask({ ...baseRun, status: 'completed', result: 'all done' })
+		const task = mapTurnToA2ATask({ ...baseTurn, status: 'completed', result: 'all done' })
 		expect(task.status.message?.parts).toEqual([{ kind: 'text', text: 'all done' }])
 		expect(task.status.message?.role).toBe('agent')
 	})
 
 	it('status.message falls back to last_error when result is absent', () => {
-		const task = runToA2ATask({ ...baseRun, status: 'failed', last_error: 'boom' })
+		const task = mapTurnToA2ATask({ ...baseTurn, status: 'failed', last_error: 'boom' })
 		expect(task.status.message?.parts).toEqual([{ kind: 'text', text: 'boom' }])
 	})
 
 	it('status.message is undefined when neither result nor last_error is set', () => {
-		const task = runToA2ATask(baseRun)
+		const task = mapTurnToA2ATask(baseTurn)
 		expect(task.status.message).toBeUndefined()
 	})
 
 	it('attaches an artifact iff result is present', () => {
-		expect(runToA2ATask(baseRun).artifacts).toBeUndefined()
+		expect(mapTurnToA2ATask(baseTurn).artifacts).toBeUndefined()
 
-		const withResult = runToA2ATask({
-			...baseRun,
+		const withResult = mapTurnToA2ATask({
+			...baseTurn,
 			status: 'completed',
 			result: 'done',
 			model: 'claude-opus-4-7',
@@ -136,7 +143,7 @@ describe('runToA2ATask', () => {
 		})
 		expect(withResult.artifacts).toHaveLength(1)
 		const artifact = withResult.artifacts?.[0]
-		expect(artifact?.artifactId).toBe(`${baseRun.id}-result`)
+		expect(artifact?.artifactId).toBe(`${baseTurn.turn_id}-result`)
 		expect(artifact?.name).toBe('Agent Response')
 		expect(artifact?.parts).toEqual([{ kind: 'text', text: 'done' }])
 		expect(artifact?.metadata).toMatchObject({
@@ -150,11 +157,11 @@ describe('runToA2ATask', () => {
 	})
 
 	it('history is undefined when messages are not supplied', () => {
-		expect(runToA2ATask(baseRun).history).toBeUndefined()
+		expect(mapTurnToA2ATask(baseTurn).history).toBeUndefined()
 	})
 
 	it('history maps through messageToA2A for every message', () => {
-		const task = runToA2ATask(baseRun, [
+		const task = mapTurnToA2ATask(baseTurn, [
 			{ role: 'user', content: 'hi' },
 			{ role: 'assistant', content: 'ack' },
 		])
@@ -164,7 +171,7 @@ describe('runToA2ATask', () => {
 	})
 
 	it('top-level metadata carries agent_id + stop_reason', () => {
-		const task = runToA2ATask({ ...baseRun, agent_name: 'Coder', stop_reason: 'end_turn' })
+		const task = mapTurnToA2ATask({ ...baseTurn, agent_name: 'Coder', stop_reason: 'end_turn' })
 		expect(task.metadata).toMatchObject({
 			agent_id: 'coder',
 			agent_name: 'Coder',
@@ -173,20 +180,31 @@ describe('runToA2ATask', () => {
 	})
 })
 
-describe('a2aMessageToCreateRun', () => {
+describe('a2aMessageToCreateTurn', () => {
 	const baseMsg: A2AMessage = { role: 'user', parts: [{ kind: 'text', text: 'do a thing' }] }
 
 	it('extracts input text from the message', () => {
 		const params: A2AMessageSendParams = { message: baseMsg }
-		const result = a2aMessageToCreateRun('agent_1', params)
+		const result = a2aMessageToCreateTurn('agent_1', params)
 		expect(result.agentId).toBe('agent_1')
 		expect(result.input).toBe('do a thing')
 		expect(result.config).toEqual({})
 	})
 
-	it('threads contextId from params into projectId', () => {
-		const params: A2AMessageSendParams = { message: baseMsg, contextId: 'proj_2' }
-		expect(a2aMessageToCreateRun('agent_1', params).projectId).toBe('proj_2')
+	it('carries the peer’s contextId verbatim, as a ref and on the origin', () => {
+		const params: A2AMessageSendParams = { message: baseMsg, contextId: 'ctx_2' }
+		const request = a2aMessageToCreateTurn('agent_1', params)
+		expect(request.contextId).toBe('ctx_2')
+		expect(request.externalRef).toEqual({ protocol: 'a2a', kind: 'context', externalId: 'ctx_2' })
+		expect(request.origin).toEqual({ protocol: 'a2a', kind: 'prompt', externalSessionId: 'ctx_2' })
+		expect(request).not.toHaveProperty('projectId')
+	})
+
+	it('names no context when the peer sent none', () => {
+		const request = a2aMessageToCreateTurn('agent_1', { message: baseMsg })
+		expect(request).not.toHaveProperty('contextId')
+		expect(request).not.toHaveProperty('externalRef')
+		expect(request.origin).toEqual({ protocol: 'a2a', kind: 'prompt' })
 	})
 
 	it('only includes typed metadata fields in config', () => {
@@ -202,7 +220,7 @@ describe('a2aMessageToCreateRun', () => {
 				systemPrompt: 'be terse',
 			},
 		}
-		const config = a2aMessageToCreateRun('a', params).config
+		const config = a2aMessageToCreateTurn('a', params).config
 		expect(config).toEqual({
 			model: 'opus',
 			tokenBudget: 1000,
@@ -223,13 +241,13 @@ describe('a2aMessageToCreateRun', () => {
 				permissionMode: 'invalid', // not 'plan'|'auto' → dropped
 			},
 		}
-		expect(a2aMessageToCreateRun('a', params).config).toEqual({})
+		expect(a2aMessageToCreateTurn('a', params).config).toEqual({})
 	})
 
 	it('accepts permissionMode only for "plan" or "auto"', () => {
 		for (const mode of ['plan', 'auto'] as const) {
 			const params: A2AMessageSendParams = { message: baseMsg, metadata: { permissionMode: mode } }
-			expect(a2aMessageToCreateRun('a', params).config.permissionMode).toBe(mode)
+			expect(a2aMessageToCreateTurn('a', params).config.permissionMode).toBe(mode)
 		}
 	})
 })

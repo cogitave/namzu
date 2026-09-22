@@ -1,14 +1,18 @@
 import { z } from 'zod'
-import type { RunId } from '../../types/ids/index.js'
+import { selectTaskContext } from '../../store/task/context.js'
 import { type TaskStore, isTerminalTaskStatus } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import type { TaskToolScope } from './index.js'
 
-export function buildTaskListTool(taskStore: TaskStore, runId: RunId): ToolDefinition {
+export function buildTaskListTool(
+	taskStore: TaskStore,
+	scope: TaskToolScope & { readonly turnStartedAt: number },
+): ToolDefinition {
 	return defineTool({
 		name: 'task_list',
 		description:
-			'List planning items for the current run, not delegated agent invocations. Use agent_task_list, when available, to inspect agent execution. Shows subject, status, owner, and unresolved blockers. Use this to review your plan and decide what to work on next.',
+			'List planning items for this session: every open one, and those closed during the current turn. Not delegated agent invocations. Use agent_task_list, when available, to inspect agent execution. Shows subject, status, owner, and unresolved blockers. Use this to review your plan and decide what to work on next.',
 		inputSchema: z.object({}),
 		category: 'custom',
 		permissions: [],
@@ -16,11 +20,13 @@ export function buildTaskListTool(taskStore: TaskStore, runId: RunId): ToolDefin
 		destructive: false,
 		concurrencySafe: true,
 		async execute() {
-			const tasks = await taskStore.list({ runId })
-
+			const all = await taskStore.list({ sessionId: scope.sessionId })
+			// Blockers resolve against every task of the session, shown or not: a
+			// blocker closed in an earlier turn is resolved, not unknown.
 			const completedIds = new Set(
-				tasks.filter((t) => isTerminalTaskStatus(t.status)).map((t) => t.id),
+				all.filter((t) => isTerminalTaskStatus(t.status)).map((t) => t.id),
 			)
+			const tasks = selectTaskContext(all, scope)
 
 			const summary = tasks.map((task) => {
 				const unresolvedBlockers = task.blockedBy.filter((bid) => !completedIds.has(bid))

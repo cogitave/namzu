@@ -8,10 +8,13 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SearchToolsTool } from '../../../tools/builtins/search-tools.js'
-import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { generateSessionId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * The scriptable mock captures every request it receives, which is all
@@ -56,7 +59,7 @@ describe('query deferred tool discovery', () => {
 		const run = await drainQuery({
 			provider,
 			tools,
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -108,7 +111,7 @@ describe('query deferred tool discovery', () => {
 			provider,
 			tools,
 			allowedTools: ['generate_document'],
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 5_000,
 				tokenBudget: 100_000,
@@ -153,7 +156,8 @@ describe('query deferred tool discovery', () => {
 		const result = await SearchToolsTool.execute(
 			{ query: 'dangerous' },
 			{
-				runId: '3be09a61-8dda-40c4-b92e-7557b0abd9ad' as RunId,
+				sessionId: SESSION_ID,
+				turnId: '3be09a61-8dda-40c4-b92e-7557b0abd9ad' as TurnId,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},
@@ -190,7 +194,8 @@ describe('query deferred tool discovery', () => {
 		const result = await SearchToolsTool.execute(
 			{ query: 'invoice' },
 			{
-				runId: '38f6525d-0bbb-45cb-9f48-710f6a4a3898' as RunId,
+				sessionId: SESSION_ID,
+				turnId: '38f6525d-0bbb-45cb-9f48-710f6a4a3898' as TurnId,
 				workingDirectory: '/tmp',
 				abortSignal: new AbortController().signal,
 				env: {},

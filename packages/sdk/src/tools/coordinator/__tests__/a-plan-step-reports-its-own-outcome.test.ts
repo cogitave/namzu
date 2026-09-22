@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
-import type { RunId, TaskId } from '../../../types/ids/index.js'
+import type { SessionId, TaskId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
 
@@ -21,7 +21,8 @@ import { buildCoordinatorTools } from '../index.js'
  * however well it went.
  */
 
-const RUN = '74bb77c4-03c5-4671-ad46-313baf1b7f67' as RunId
+const SESSION = '74bb77c4-03c5-4671-ad46-313baf1b7f67' as SessionId
+const TURN = '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as TurnId
 
 function gatewayReturning(outcome: 'ok' | 'failed'): TaskScheduler {
 	const handle = (taskId: TaskId): TaskHandle => ({
@@ -57,7 +58,8 @@ function gatewayReturning(outcome: 'ok' | 'failed'): TaskScheduler {
 
 function ctx(): ToolContext {
 	return {
-		runId: RUN,
+		sessionId: SESSION,
+		turnId: TURN,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -67,7 +69,7 @@ function ctx(): ToolContext {
 
 /** An approved two-step plan: one delegated, one the orchestrator's own. */
 function approvedPlan(): PlanManager {
-	const pm = new PlanManager(RUN, async () => ({ approved: true }))
+	const pm = new PlanManager(TURN as never, async () => ({ approved: true }))
 	pm.startGenerating('do the work')
 	pm.addStep({
 		id: 'step_1',
@@ -135,7 +137,7 @@ describe('a delegated step reports through the launch that carries it out', () =
 	it('fails the step when the worker failed, from both authorities', async () => {
 		// The handle is `state: 'completed'` with `result.status: 'failed'` —
 		// the split that made a failed worker read as an answer. The step must
-		// follow the run status, not the gateway state.
+		// follow the turn status, not the gateway state.
 		const pm = approvedPlan()
 		const named = toolsOver(pm, gatewayReturning('failed'))
 
@@ -220,7 +222,7 @@ describe('the two bindings together let a plan settle', () => {
 	it('leaves the plan unsettled while a step is still silent', async () => {
 		// The state the kernel reads before deciding whether to settle. An
 		// unreported step means the caller and the plan disagree about whether
-		// the work is over, and the run must not resolve that by guessing.
+		// the work is over, and the turn must not resolve that by guessing.
 		const pm = approvedPlan()
 		const named = toolsOver(pm, gatewayReturning('ok'))
 

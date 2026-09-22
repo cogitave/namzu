@@ -18,33 +18,48 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { MessageId, RunId, ToolUseId } from '../types/ids/index.js'
-import type { RunEvent } from '../types/run/events.js'
+import type { MessageId, SessionId, ToolUseId, TurnId } from '../types/ids/index.js'
+import type { SessionEvent } from '../types/session/events.js'
 
 import { coalesce } from './coalesce.js'
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const SID = '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId
+const TID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId
 const MID = '116b88f1-7300-4be5-a05d-f2a87105f095' as MessageId
 const MID2 = 'efe8f849-85cf-4b94-8bc7-cad64f257419' as MessageId
 const TUID: ToolUseId = 'toolu_a'
 const TUID2: ToolUseId = 'toolu_b'
 
-async function* fromArray(events: RunEvent[]): AsyncIterable<RunEvent> {
+async function* fromArray(events: SessionEvent[]): AsyncIterable<SessionEvent> {
 	for (const e of events) yield e
 }
 
-async function drain(stream: AsyncIterable<RunEvent>): Promise<RunEvent[]> {
-	const out: RunEvent[] = []
+async function drain(stream: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
+	const out: SessionEvent[] = []
 	for await (const e of stream) out.push(e)
 	return out
 }
 
 describe('coalesce()', () => {
 	it('merges consecutive text_delta events with same messageId within window', async () => {
-		const events: RunEvent[] = [
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'hel' },
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'lo' },
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: ' world' },
+		const events: SessionEvent[] = [
+			{
+				type: 'text_delta',
+				sessionId: SID,
+				turnId: TID,
+				iteration: 0,
+				messageId: MID,
+				text: 'hel',
+			},
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'lo' },
+			{
+				type: 'text_delta',
+				sessionId: SID,
+				turnId: TID,
+				iteration: 0,
+				messageId: MID,
+				text: ' world',
+			},
 		]
 		const result = await drain(coalesce(fromArray(events), { windowMs: 1000 }))
 		expect(result).toHaveLength(1)
@@ -56,10 +71,22 @@ describe('coalesce()', () => {
 	})
 
 	it('merges consecutive tool_input_delta events with same toolUseId', async () => {
-		const events: RunEvent[] = [
-			{ type: 'tool_input_delta', runId: RID, toolUseId: TUID, partialJson: '{"file":' },
-			{ type: 'tool_input_delta', runId: RID, toolUseId: TUID, partialJson: '"/a"' },
-			{ type: 'tool_input_delta', runId: RID, toolUseId: TUID, partialJson: '}' },
+		const events: SessionEvent[] = [
+			{
+				type: 'tool_input_delta',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: TUID,
+				partialJson: '{"file":',
+			},
+			{
+				type: 'tool_input_delta',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: TUID,
+				partialJson: '"/a"',
+			},
+			{ type: 'tool_input_delta', sessionId: SID, turnId: TID, toolUseId: TUID, partialJson: '}' },
 		]
 		const result = await drain(coalesce(fromArray(events), { windowMs: 1000 }))
 		expect(result).toHaveLength(1)
@@ -71,36 +98,37 @@ describe('coalesce()', () => {
 	})
 
 	it('does not merge across different messageIds', async () => {
-		const events: RunEvent[] = [
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'a' },
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID2, text: 'b' },
+		const events: SessionEvent[] = [
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'a' },
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID2, text: 'b' },
 		]
 		const result = await drain(coalesce(fromArray(events), { windowMs: 1000 }))
 		expect(result).toHaveLength(2)
 	})
 
 	it('does not merge across different toolUseIds', async () => {
-		const events: RunEvent[] = [
-			{ type: 'tool_input_delta', runId: RID, toolUseId: TUID, partialJson: 'x' },
-			{ type: 'tool_input_delta', runId: RID, toolUseId: TUID2, partialJson: 'y' },
+		const events: SessionEvent[] = [
+			{ type: 'tool_input_delta', sessionId: SID, turnId: TID, toolUseId: TUID, partialJson: 'x' },
+			{ type: 'tool_input_delta', sessionId: SID, turnId: TID, toolUseId: TUID2, partialJson: 'y' },
 		]
 		const result = await drain(coalesce(fromArray(events), { windowMs: 1000 }))
 		expect(result).toHaveLength(2)
 	})
 
 	it('flushes pending buffers when a non-coalescable event arrives', async () => {
-		const events: RunEvent[] = [
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'a' },
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'b' },
+		const events: SessionEvent[] = [
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'a' },
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'b' },
 			{
 				type: 'tool_input_started',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				iteration: 0,
 				messageId: MID,
 				toolUseId: TUID,
 				toolName: 'read',
 			},
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'c' },
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'c' },
 		]
 		const result = await drain(coalesce(fromArray(events), { windowMs: 1000 }))
 		expect(result.map((e) => e.type)).toEqual(['text_delta', 'tool_input_started', 'text_delta'])
@@ -109,19 +137,26 @@ describe('coalesce()', () => {
 	})
 
 	it('flushes residual buffers at end of stream', async () => {
-		const events: RunEvent[] = [
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'tail' },
+		const events: SessionEvent[] = [
+			{
+				type: 'text_delta',
+				sessionId: SID,
+				turnId: TID,
+				iteration: 0,
+				messageId: MID,
+				text: 'tail',
+			},
 		]
 		const result = await drain(coalesce(fromArray(events), { windowMs: 1000 }))
 		expect(result).toHaveLength(1)
 	})
 
 	it('emits new event after window expires', async () => {
-		const events: [RunEvent, RunEvent] = [
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'a' },
-			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'b' },
+		const events: [SessionEvent, SessionEvent] = [
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'a' },
+			{ type: 'text_delta', sessionId: SID, turnId: TID, iteration: 0, messageId: MID, text: 'b' },
 		]
-		const stream: AsyncIterable<RunEvent> = (async function* () {
+		const stream: AsyncIterable<SessionEvent> = (async function* () {
 			yield events[0]
 			await new Promise((r) => setTimeout(r, 30))
 			yield events[1]

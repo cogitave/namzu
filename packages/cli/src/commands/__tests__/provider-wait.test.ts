@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { FIRST_WAIT_MS, MAX_WAIT_MS, MIN_WAIT_MS, durationMs, pauseWait } from '../provider-wait.js'
 
-describe('how long a paused run waits', () => {
+describe('how long a paused turn waits', () => {
 	it('takes the delay the provider asked for', () => {
 		expect(pauseWait({ waited: 0, retryAfterMs: 30_000, waitedMs: 0, budgetMs: 600_000 })).toEqual({
 			kind: 'wait',

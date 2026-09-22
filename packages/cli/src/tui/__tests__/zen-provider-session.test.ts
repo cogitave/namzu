@@ -3,21 +3,20 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	InMemoryCheckpointStore,
 	type LLMProvider,
 	MockLLMProvider,
 	ProviderRegistry,
 	type QueryParams,
-	type ResumeRunParams,
+	type ResumeSessionParams,
 	createUserMessage,
-	generateCheckpointId,
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '@namzu/sdk'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { emptySessionLog } from '../../__fixtures__/session-log.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { applyProviderFlags } from '../../commands/run-flags.js'
 import {
@@ -28,7 +27,7 @@ import {
 } from '../../integrations/providers/index.js'
 
 const queryCalls: QueryParams[] = []
-const resumeCalls: ResumeRunParams[] = []
+const resumeCalls: ResumeSessionParams[] = []
 const compactionCalls: Parameters<typeof import('@namzu/sdk')['compactNow']>[0][] = []
 const providerConfigurations = new WeakMap<LLMProvider, unknown>()
 
@@ -40,7 +39,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 			queryCalls.push(params)
 			return (async function* () {})()
 		},
-		resumeRun: async (params: ResumeRunParams) => {
+		resumeSession: async (params: ResumeSessionParams) => {
 			resumeCalls.push(params)
 			return { resumed: false, reason: 'no-checkpoint' }
 		},
@@ -119,7 +118,7 @@ it.each(['zen', 'zen-go'] as const)(
 			}
 			expect(queryCalls).toHaveLength(1)
 			const request = queryCalls[0]
-			expect(request?.runConfig?.model).toBe('kimi-k2.6')
+			expect(request?.turnConfig?.model).toBe('kimi-k2.6')
 			expect(request?.provider && providerConfigurations.get(request.provider)).toEqual({
 				type: id,
 				apiKey: `${id}-test-credential`,
@@ -162,7 +161,7 @@ it('admits headless --provider zen with only public discovery and no account key
 			if (event.kind === 'error') throw new Error(event.message)
 		}
 		const request = queryCalls[0]
-		expect(request?.runConfig?.model).toBe('muse-spark-1.3-contributor-free')
+		expect(request?.turnConfig?.model).toBe('muse-spark-1.3-contributor-free')
 		expect(request && providerConfigurations.get(request.provider)).toEqual({
 			type: 'zen',
 			model: 'muse-spark-1.3-contributor-free',
@@ -270,14 +269,12 @@ it('binds primary, fallback, compaction and durable resume to their conversation
 		})
 		await session.resumeDurable({
 			entry: {
-				...currentScope,
+				tenantId: currentScope.tenantId,
+				projectId: currentScope.projectId,
 				sessionId: originalSessionId,
-				runId: generateRunId(),
-				checkpointCount: 1,
-				latestCheckpointId: generateCheckpointId(),
-				latestCheckpointAt: 0,
+				turnId: generateTurnId(),
 			},
-			checkpointStore: new InMemoryCheckpointStore(),
+			sessionLog: emptySessionLog(originalSessionId),
 		})
 		expect(resumeCalls).toHaveLength(1)
 		const resumed = resumeCalls[0]

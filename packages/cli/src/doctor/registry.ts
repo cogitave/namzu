@@ -104,7 +104,7 @@ export class DoctorRegistry {
 			// resolving, or signal-abort racing the same id. First record wins.
 			if (completed.has(record.id)) return
 			completed.set(record.id, record)
-			// Fire onCheckComplete exactly once per id, isolated from the run.
+			// Fire onCheckComplete exactly once per id, isolated from the turn.
 			this.invokeCallback('onCheckComplete', () => opts.onCheckComplete?.(record))
 		}
 
@@ -274,7 +274,7 @@ function buildReport(records: readonly DoctorCheckRecord[], version: string): Do
 	 *
 	 * - `fail` outranks `inconclusive`. A definite failure is the actionable
 	 *   fact, and `1` does not claim health, so nothing is lost by reporting it
-	 *   even when part of the run is also unknown.
+	 *   even when part of the turn is also unknown.
 	 * - `2` stays above `inconclusive` because an empty run has no checks to be
 	 *   inconclusive about; the two cannot both be true.
 	 * - `skipped` never moves this off `0`. A skipped check is an ordinary state

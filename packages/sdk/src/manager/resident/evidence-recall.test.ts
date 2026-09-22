@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { PrepareStepContext } from '../../types/run/prepare-step.js'
+import type { PrepareStepContext } from '../../types/session/prepare-step.js'
 import {
 	generateProjectId,
-	generateRunId,
 	generateSessionId,
 	generateTenantId,
+	generateTurnId,
 } from '../../utils/id.js'
 import { createResidentEvidenceRecallStep } from './evidence-recall.js'
 import type { ResidentState } from './store.js'
@@ -19,14 +20,14 @@ function fixture() {
 		tenantId: generateTenantId(),
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		runId: generateRunId(),
+		turnId: generateTurnId(),
 	}
-	const pursuitId = generateRunId()
+	const pursuitId = randomUUID()
 	const state: ResidentState = {
 		tenantId: owner.tenantId,
 		agentKey: 'reviewer',
 		pursuitId,
-		claimId: generateRunId(),
+		claimId: randomUUID(),
 		identity: 'Inspector',
 		objective: 'DELTA receipt',
 		revision: 5,
@@ -47,11 +48,11 @@ function fixture() {
 		pursuitId,
 		throughRevision: 8,
 	}
-	const original = { ...owner, sessionId: generateSessionId(), runId: generateRunId() }
+	const original = { ...owner, sessionId: generateSessionId(), turnId: generateTurnId() }
 	const page: ResidentToolEvidenceSearchResult = {
 		scope,
 		revision: 4,
-		claimId: generateRunId(),
+		claimId: randomUUID(),
 		nextCursor: null,
 		incomplete: false,
 		unavailableRevisions: [],
@@ -82,7 +83,8 @@ function fixture() {
 	const search = vi.fn(async () => page)
 	const source: ResidentToolEvidenceSource = { scope, search, read: vi.fn() }
 	const context: PrepareStepContext = {
-		runId: owner.runId,
+		sessionId: owner.sessionId,
+		turnId: owner.turnId,
 		stepNumber: 1,
 		messages: [],
 		steps: [],
@@ -123,7 +125,7 @@ it('uses objective, committed wakes and derived summary words without forging a 
 	})
 	expect(passage).toMatchObject({
 		sessionId: f.original.sessionId,
-		runId: f.original.runId,
+		turnId: f.original.turnId,
 		revision: 4,
 		claimId: f.page.claimId,
 		address: 'opaque:original',
@@ -168,7 +170,7 @@ it.each(['tenantId', 'projectId', 'agentKey', 'pursuitId', 'throughRevision'] as
 		const f = fixture()
 		f.search.mockResolvedValue({
 			...f.page,
-			scope: { ...f.scope, [field]: field === 'throughRevision' ? 9 : generateRunId() },
+			scope: { ...f.scope, [field]: field === 'throughRevision' ? 9 : randomUUID() },
 		})
 		await expect(f.create()(f.context)).rejects.toThrow()
 	},
@@ -177,7 +179,7 @@ it.each(['tenantId', 'projectId', 'agentKey', 'pursuitId', 'throughRevision'] as
 it('refuses another executor and never advances a mutated source boundary', async () => {
 	const f = fixture()
 	const recall = f.create()
-	await expect(recall({ ...f.context, runId: generateRunId() })).rejects.toThrow('different run')
+	await expect(recall({ ...f.context, turnId: generateTurnId() })).rejects.toThrow('different turn')
 	f.scope.throughRevision++
 	await expect(recall(f.context)).rejects.toThrow('boundary')
 	expect(f.search).not.toHaveBeenCalled()
@@ -185,7 +187,7 @@ it('refuses another executor and never advances a mutated source boundary', asyn
 
 it.each([
 	'project',
-	'current_run',
+	'current_turn',
 	'current_claim',
 	'future_revision',
 	'invalid_bytes',
@@ -202,7 +204,7 @@ it.each([
 		},
 	}
 	if (fault === 'project') page.evidence.scope.projectId = generateProjectId()
-	if (fault === 'current_run') page.evidence.scope.runId = f.owner.runId
+	if (fault === 'current_turn') page.evidence.scope.turnId = f.owner.turnId
 	if (fault === 'current_claim') page.claimId = f.state.claimId
 	if (fault === 'future_revision') page.revision = 9
 	if (fault === 'invalid_bytes') page.chargedBytes = 8 * 1024 * 1024 + 1

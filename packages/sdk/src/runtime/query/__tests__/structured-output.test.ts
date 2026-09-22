@@ -2,25 +2,27 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import {
 	STRUCTURED_OUTPUT_TOOL_NAME,
 	createStructuredOutputTool,
 } from '../../../tools/builtins/structuredOutput.js'
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
+
+const SESSION_ID = generateSessionId()
 
 /**
  * Both leaf pieces shipped and neither was reachable.
@@ -29,10 +31,10 @@ import { IterationOrchestrator } from '../iteration/index.js'
  * the barrel re-export. A host needing `{verdict, findings}` from an agent
  * that also uses tools had to register the tool by hand and hope: nothing
  * forced the call, nothing stopped the loop when it came, and a schema
- * mismatch surfaced as a ZodError AFTER the run had paid for itself.
+ * mismatch surfaced as a ZodError AFTER the turn had paid for itself.
  */
 
-const RUN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as RunId
+const TURN_ID = '070b6782-57c9-48a7-9237-79bdc514c060' as TurnId
 
 const SCHEMA = z.object({
 	verdict: z.enum(['pass', 'fail']),
@@ -90,7 +92,7 @@ function harness(opts: {
 		unregister: vi.fn(),
 	} as unknown as ToolRegistryContract
 
-	const activityStore = new ActivityStore(RUN_ID, {
+	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
 		trackToolCalls: false,
 		trackLlmTurns: false,
@@ -98,8 +100,8 @@ function harness(opts: {
 
 	const maxIterations = opts.maxIterations ?? 8
 
-	const runMgr = {
-		id: RUN_ID,
+	const recorder = {
+		id: TURN_ID,
 		messages,
 		tokenUsage: {
 			promptTokens: 0,
@@ -137,13 +139,14 @@ function harness(opts: {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: opts.provider,
-		runConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
+		turnConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
 		tools,
-		runMgr: runMgr as unknown as RunPersistence,
+		recorder: recorder as unknown as TurnRecorder,
 		toolExecutor: new ToolExecutor(
 			{
+				sessionId: SESSION_ID,
 				tools,
-				runId: RUN_ID,
+				turnId: TURN_ID,
 				workingDirectory: '/tmp',
 				permissionMode: 'auto',
 				env: {},
@@ -157,11 +160,10 @@ function harness(opts: {
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
-		drainPending: function* (): Generator<RunEvent> {},
+		drainPending: function* (): Generator<SessionEvent> {},
 		checkpointMgr: {
 			setLatestUserMessageSource: () => {},
-			create: async () =>
-				({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as unknown as IterationCheckpoint,
+			create: async () => ({ id: '62d8ff8a-122d-4369-8274-e1f1dc479c1c' }) as never,
 		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		planManager: { active: null } as unknown as PlanManager,
@@ -193,7 +195,7 @@ async function drain(o: IterationOrchestrator) {
 }
 
 describe('structured final output', () => {
-	it('lands the validated value on the run and ends there', async () => {
+	it('lands the validated value on the turn and ends there', async () => {
 		const provider = new MockLLMProvider({
 			turns: [
 				{ toolCalls: [{ name: 'read' }] },
@@ -205,7 +207,7 @@ describe('structured final output', () => {
 						},
 					],
 				},
-				// Would keep going if the run did not end on the output.
+				// Would keep going if the turn did not end on the output.
 				{ text: 'should never be reached' },
 			],
 		})
@@ -285,7 +287,7 @@ describe('structured final output', () => {
 	 * turn, because "a model that asked for other work meant to see those
 	 * results". `captureStructuredOutput` had no such guard, and the batch
 	 * executes BEFORE either is consulted — so a shared turn ran the other
-	 * tools, side effects and all, and then ended the run before any model
+	 * tools, side effects and all, and then ended the turn before any model
 	 * turn could read what came back.
 	 */
 	describe('when it shared its turn with other calls', () => {
@@ -325,7 +327,7 @@ describe('structured final output', () => {
 			// next request to the model, which is the only thing that makes
 			// having run them worth anything.
 			const secondRequest = provider.requests[1]
-			expect(secondRequest, 'the run settled instead of taking another turn').toBeDefined()
+			expect(secondRequest, 'the turn settled instead of taking another turn').toBeDefined()
 			const relayed = (secondRequest?.messages ?? []).filter((m) => m.role === 'tool')
 			expect(JSON.stringify(relayed)).toContain('inspect_build ok')
 
@@ -338,7 +340,7 @@ describe('structured final output', () => {
 
 		it('does not spend a schema retry on a turn that produced a valid answer', async () => {
 			// `maxRetries: 1` allows one re-prompt. Charging these relays to
-			// that budget would kill the run on the second one, reported as
+			// that budget would kill the turn on the second one, reported as
 			// `structured_output_failed` — a schema failure that did not
 			// happen, on a model that is visibly making progress.
 			const provider = new MockLLMProvider({

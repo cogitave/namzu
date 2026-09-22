@@ -81,10 +81,10 @@ describe('the search path', () => {
 	 * code, because the walk goes to the filesystem root and `/tmp` is shared
 	 * and writable. One of these failed here exactly once, with an array diff
 	 * showing `/tmp` at the head of the chain, and the cause was a `.git` that
-	 * another process created in `/tmp` and removed again during the run.
+	 * another process created in `/tmp` and removed again during the turn.
 	 *
 	 * Diagnosing that from the diff took far longer than it should have. This
-	 * does not weaken either assertion — it fails the same runs — it just makes
+	 * does not weaken either assertion — it fails the same turns — it just makes
 	 * the one failure mode that is not a code defect say which one it is.
 	 */
 	function assertNoRepositoryAbove(dir: string): void {
@@ -102,7 +102,7 @@ describe('the search path', () => {
 
 	it('does not walk at all when there is no repository above the directory', () => {
 		// The walk that would otherwise happen reaches the DRIVE ROOT: on
-		// Windows a run in a temp directory would read %TEMP%\AGENTS.md,
+		// Windows a turn in a temp directory would read %TEMP%\AGENTS.md,
 		// C:\Users\<user>\AGENTS.md and C:\AGENTS.md, and %TEMP% is writable by
 		// anything on the machine. A boundary that only exists when a `.git`
 		// happens to be present is not a boundary — it is the case it was meant
@@ -173,7 +173,7 @@ describe('what is loaded', () => {
  * Can this process create a symlink at all?
  *
  * Unprivileged Windows cannot, and the two tests below would then assert
- * nothing while reporting green. They call `skip()` instead, so a local run
+ * nothing while reporting green. They call `skip()` instead, so a local turn
  * says out loud that the symlink defence was NOT exercised here — CI runs on a
  * platform where it is.
  */

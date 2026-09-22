@@ -1,0 +1,581 @@
+import type {
+	ActivityId,
+	CheckpointId,
+	MessageId,
+	PlanId,
+	PluginId,
+	SandboxId,
+	SessionId,
+	TaskId,
+	ToolUseId,
+	TurnId,
+} from '../../types/ids/index.js'
+import type { SessionEvent } from '../../types/session/events.js'
+import type { TurnSettlement } from '../../types/session/turn.js'
+
+/**
+ * One fixture per `SessionEvent` member, shared by every wire test.
+ *
+ * The load-bearing part is NOT any individual fixture. It is the type of
+ * this map: `Record<SessionEvent['type'], () => SessionEvent>` means adding a
+ * member to the union stops every wire test compiling until a fixture
+ * exists — so a new event can neither reach a wire unexamined nor be left
+ * off one silently.
+ *
+ * Shared rather than copied per wire. Two lists of sixty-two fixtures
+ * drift, and the drift is invisible: each file still compiles, each still
+ * passes, and the two wires are quietly tested against different events.
+ *
+ * Minimal by construction — required fields at their least interesting
+ * values, with a fixed `new Date(0)`. An optional field appears only where
+ * the exhaustive pass in a wire's `wire-snapshot.test.ts` is meant to pin
+ * the key it produces: `background_job_exited`'s `exitCode` and, on
+ * `agent_pending`, the plan edge and the display labels. One fixture can
+ * only exercise one side of a conditional spread, so the absent direction
+ * is pinned by hand in the tests beside it. Either way nothing here
+ * carries interesting data: a payload is a SHAPE, and filling it with
+ * plausible prose would make reviewing a wire change a review of the
+ * fixtures instead.
+ */
+
+export const FIXTURE_SESSION_ID = '0199b3a0-0000-7000-8000-000000000001' as SessionId
+export const FIXTURE_TURN_ID = '0199b3a0-0000-7000-8000-000000000002' as TurnId
+/** The session every `child_session_*` fixture names as its child. */
+const CHILD_SESSION_ID = '0199b3a0-0000-7000-8000-000000000003' as SessionId
+/** Zeroed, for the same reason the date is fixed: a shape, not a reading. */
+const USAGE = {
+	promptTokens: 0,
+	completionTokens: 0,
+	totalTokens: 0,
+	cachedTokens: 0,
+	cacheWriteTokens: 0,
+}
+const COST = {
+	inputCostPer1M: 0,
+	outputCostPer1M: 0,
+	totalCost: 0,
+	cacheDiscount: 0,
+	unpricedTokens: 0,
+}
+const SETTLEMENT: TurnSettlement = {
+	status: 'completed',
+	iterations: 1,
+	usage: USAGE,
+	cost: COST,
+	durationMs: 0,
+	resultSource: 'model',
+	abandonedTaskIds: [],
+	abandonedJobIds: [],
+}
+
+const AGENT_RESULT = {
+	sessionId: FIXTURE_SESSION_ID,
+	turnId: FIXTURE_TURN_ID,
+	status: 'completed' as const,
+	usage: USAGE,
+	cost: COST,
+	iterations: 1,
+	durationMs: 0,
+	messages: [],
+}
+
+export const SESSION_EVENT_FIXTURES: Record<SessionEvent['type'], () => SessionEvent> = {
+	hosted_tool: () => ({
+		type: 'hosted_tool',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		tool: { id: 'search-1', name: 'web_search', status: 'completed' },
+	}),
+	tool_calls_admitted: () => ({
+		type: 'tool_calls_admitted',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		kind: 'batch',
+		count: 1,
+		used: 1,
+		limit: 5,
+	}),
+	turn_started: () => ({
+		type: 'turn_started',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		userMessageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		config: { model: 'x', tokenBudget: 1, timeoutMs: 1 },
+	}),
+	iteration_started: () => ({
+		type: 'iteration_started',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+	}),
+	approval_policy_changed: () => ({
+		type: 'approval_policy_changed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		from: 'operator-tui',
+		to: 'auto-approve',
+		reason: 'operator stepped away',
+	}),
+	request_envelope: () => ({
+		type: 'request_envelope',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		model: 'x',
+		systemPrompt: 'x',
+		toolNames: [],
+		toolSchemaDigest: 'x',
+	}),
+	iteration_completed: () => ({
+		type: 'iteration_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		hasToolCalls: true,
+	}),
+	compaction_shed: () => ({
+		type: 'compaction_shed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messages: [],
+		reason: 'threshold',
+	}),
+	compaction_completed: () => ({
+		type: 'compaction_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messagesBefore: 1,
+		messagesAfter: 1,
+		tokensBefore: 1,
+		tokensAfter: 1,
+		measuredBy: 'provider',
+		contextWindowTokens: 1,
+		windowSource: 'config',
+	}),
+	background_job_exited: () => ({
+		type: 'background_job_exited',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		jobId: 'job_1',
+		command: 'npm test',
+		status: 'exited',
+		exitCode: 0,
+	}),
+	memory_consolidated: () => ({
+		type: 'memory_consolidated',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		memoryId: 'aaca7ad3-d28c-4d6b-b455-53b07ebfb807',
+		title: 'Learned: a fixture',
+		decisions: 1,
+		discoveries: 0,
+		failures: 0,
+	}),
+	compaction_tool_results_cleared: () => ({
+		type: 'compaction_tool_results_cleared',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		clearedCount: 1,
+		charsReclaimed: 1,
+		reclaimedTokens: 1,
+		reliefWasEnough: true,
+	}),
+	compaction_failed: () => ({
+		type: 'compaction_failed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		cause: 'reducer_threw',
+		messages: 1,
+	}),
+	tool_executing: () => ({
+		type: 'tool_executing',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		toolUseId: 'tu_wire' as ToolUseId,
+		toolName: 'x',
+		input: {},
+	}),
+	tool_progress: () => ({
+		type: 'tool_progress',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		toolUseId: 'tu_wire' as ToolUseId,
+		toolName: 'x',
+		message: 'x',
+	}),
+	provider_retry: () => ({
+		type: 'provider_retry',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		attempt: 1,
+		maxRetries: 1,
+		delayMs: 1,
+		code: 'x',
+		serverDirected: true,
+	}),
+	provider_fallback: () => ({
+		type: 'provider_fallback',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		fromIndex: 1,
+		fromProviderId: 'x',
+		toIndex: 1,
+		toProviderId: 'x',
+		code: 'x',
+		reason: 'x',
+	}),
+	tool_completed: () => ({
+		type: 'tool_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		toolUseId: 'tu_wire' as ToolUseId,
+		toolName: 'x',
+		result: 'x',
+		isError: true,
+	}),
+	user_question_asked: () => ({
+		type: 'user_question_asked',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
+		questionId: 'x',
+		question: 'x',
+	}),
+	user_question_answered: () => ({
+		type: 'user_question_answered',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
+		answered: true,
+	}),
+	tool_review_requested: () => ({
+		type: 'tool_review_requested',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		toolCalls: [],
+		iteration: 1,
+	}),
+	tool_review_completed: () => ({
+		type: 'tool_review_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		decision: 'approved',
+	}),
+	checkpoint_created: () => ({
+		type: 'checkpoint_created',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
+		iteration: 1,
+	}),
+	turn_paused: () => ({
+		type: 'turn_paused',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		checkpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
+		reason: 'x',
+	}),
+	turn_resuming: () => ({
+		type: 'turn_resuming',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		fromCheckpointId: '027e45d5-59a6-49ea-a81c-97d8cea3be4c' as CheckpointId,
+	}),
+	guardrail_triggered: () => ({
+		type: 'guardrail_triggered',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		stage: 'input',
+		action: 'block',
+	}),
+	turn_completed: () => ({
+		type: 'turn_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		result: 'x',
+		settlement: SETTLEMENT,
+	}),
+	turn_failed: () => ({
+		type: 'turn_failed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		error: 'x',
+		settlement: { ...SETTLEMENT, status: 'failed' },
+	}),
+	capability_warning: () => ({
+		type: 'capability_warning',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		capability: 'tools',
+		providerId: 'x',
+		message: 'x',
+	}),
+	message_history_repaired: () => ({
+		type: 'message_history_repaired',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		source: 'fresh-history',
+		duplicateToolResultsRemoved: 1,
+		orphanedToolResultsRemoved: 2,
+		syntheticToolResultsInserted: 3,
+	}),
+	token_usage_updated: () => ({
+		type: 'token_usage_updated',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		usage: USAGE,
+		cost: COST,
+	}),
+	activity_created: () => ({
+		type: 'activity_created',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		activityId: 'ca1aedb3-1a59-4e4a-80c1-596a9bc9609e' as ActivityId,
+		activityType: 'tool_call',
+		description: 'x',
+	}),
+	activity_updated: () => ({
+		type: 'activity_updated',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		activityId: 'ca1aedb3-1a59-4e4a-80c1-596a9bc9609e' as ActivityId,
+		status: 'running',
+	}),
+	plan_ready: () => ({
+		type: 'plan_ready',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		planId: 'pln_wire' as PlanId,
+		title: 'x',
+		steps: [],
+	}),
+	plan_approved: () => ({
+		type: 'plan_approved',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		planId: 'pln_wire' as PlanId,
+	}),
+	plan_rejected: () => ({
+		type: 'plan_rejected',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		planId: 'pln_wire' as PlanId,
+	}),
+	plan_step_updated: () => ({
+		type: 'plan_step_updated',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		planId: 'pln_wire' as PlanId,
+		stepId: 'x',
+		status: 'completed',
+	}),
+	plan_completed: () => ({
+		type: 'plan_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		planId: 'pln_wire' as PlanId,
+	}),
+	plan_failed: () => ({
+		type: 'plan_failed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		planId: 'pln_wire' as PlanId,
+	}),
+	agent_pending: () => ({
+		type: 'agent_pending',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		taskId: 'tsk_wire' as TaskId,
+		parentAgentId: 'x',
+		childAgentId: 'x',
+		depth: 1,
+		// This event's optional half, so a wire snapshot records every key a
+		// fully annotated delegation produces rather than half of them: the
+		// plan edge a consumer may act on, and the display labels it may only
+		// caption with. Each mapper still decides whether they travel.
+		planId: 'x',
+		planStepId: 'x',
+		workflow: 'x',
+		phase: 'x',
+		phaseDetail: 'x',
+		phaseOrder: 0,
+	}),
+	agent_completed: () => ({
+		type: 'agent_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		taskId: 'tsk_wire' as TaskId,
+		result: AGENT_RESULT,
+	}),
+	agent_failed: () => ({
+		type: 'agent_failed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		taskId: 'tsk_wire' as TaskId,
+		error: 'x',
+	}),
+	agent_canceled: () => ({
+		type: 'agent_canceled',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		taskId: 'tsk_wire' as TaskId,
+	}),
+	task_created: () => ({
+		type: 'task_created',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		taskId: 'tsk_wire' as TaskId,
+		subject: 'x',
+		status: 'pending',
+	}),
+	task_updated: () => ({
+		type: 'task_updated',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		taskId: 'tsk_wire' as TaskId,
+		subject: 'x',
+		status: 'pending',
+	}),
+	plugin_hook_executing: () => ({
+		type: 'plugin_hook_executing',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		pluginId: '2b413dac-730d-4158-b1fd-3623065bfd85' as PluginId,
+		hookEvent: 'turn_start',
+	}),
+	plugin_hook_completed: () => ({
+		type: 'plugin_hook_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		pluginId: '2b413dac-730d-4158-b1fd-3623065bfd85' as PluginId,
+		hookEvent: 'turn_start',
+		result: { action: 'continue' },
+	}),
+	sandbox_created: () => ({
+		type: 'sandbox_created',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		sandboxId: '4c9dcaf9-303f-448b-87fc-55db01d0d284' as SandboxId,
+		environment: 'x',
+	}),
+	sandbox_exec: () => ({
+		type: 'sandbox_exec',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		sandboxId: '4c9dcaf9-303f-448b-87fc-55db01d0d284' as SandboxId,
+		command: 'x',
+		exitCode: 1,
+		durationMs: 1,
+	}),
+	sandbox_destroyed: () => ({
+		type: 'sandbox_destroyed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		sandboxId: '4c9dcaf9-303f-448b-87fc-55db01d0d284' as SandboxId,
+	}),
+	message_started: () => ({
+		type: 'message_started',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+	}),
+	reasoning_started: () => ({
+		type: 'reasoning_started',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		blockIndex: 1,
+		reasoningType: 'thinking',
+	}),
+	reasoning_delta: () => ({
+		type: 'reasoning_delta',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		blockIndex: 1,
+		text: 'x',
+	}),
+	reasoning_completed: () => ({
+		type: 'reasoning_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		blockIndex: 1,
+		signed: true,
+	}),
+	text_delta: () => ({
+		type: 'text_delta',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		text: 'x',
+	}),
+	message_completed: () => ({
+		type: 'message_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		stopReason: 'end_turn',
+	}),
+	tool_input_started: () => ({
+		type: 'tool_input_started',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		iteration: 1,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+		toolUseId: 'tu_wire' as ToolUseId,
+		toolName: 'x',
+	}),
+	tool_input_delta: () => ({
+		type: 'tool_input_delta',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		toolUseId: 'tu_wire' as ToolUseId,
+		partialJson: 'x',
+	}),
+	tool_input_completed: () => ({
+		type: 'tool_input_completed',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		toolUseId: 'tu_wire' as ToolUseId,
+		input: {},
+	}),
+	// The three delegation-lifecycle events. They are declared apart from the
+	// core union, and the parent log records them inside the spawning turn.
+	child_session_spawned: () => ({
+		type: 'child_session_spawned',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		childSessionId: CHILD_SESSION_ID,
+		toolCallId: 'tu_wire' as ToolUseId,
+		kind: 'agent_spawn',
+		description: 'x',
+		path: 'subagents/x.jsonl',
+	}),
+	child_session_messaged: () => ({
+		type: 'child_session_messaged',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		childSessionId: CHILD_SESSION_ID,
+		messageId: '39ae8e96-8dfb-45f1-a24e-3d61b152497b' as MessageId,
+	}),
+	child_session_idled: () => ({
+		type: 'child_session_idled',
+		sessionId: FIXTURE_SESSION_ID,
+		turnId: FIXTURE_TURN_ID,
+		childSessionId: CHILD_SESSION_ID,
+	}),
+}

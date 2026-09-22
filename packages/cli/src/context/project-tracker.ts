@@ -80,7 +80,7 @@ function composeLivePrompt(root: string, files: readonly ProjectInstructionFile[
 }
 
 /**
- * Session-owned live instruction state. Each run gets its own drain cursor;
+ * Session-owned live instruction state. Each turn gets its own drain cursor;
  * children share discovery without being able to consume the parent's update.
  */
 export class ProjectInstructionTracker {
@@ -114,8 +114,8 @@ export class ProjectInstructionTracker {
 		return this.snapshot()
 	}
 
-	/** Each run's durable messages are its cursor over the shared discovered state. */
-	createRunContext(): ProjectInstructionContext {
+	/** Each turn's durable messages are its cursor over the shared discovered state. */
+	createTurnContext(): ProjectInstructionContext {
 		return {
 			prepareInitialSnapshot: ({ messages }) => this.prepareSnapshot(messages),
 			observeToolResult: (observation, { messages }) => {

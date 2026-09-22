@@ -9,7 +9,7 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
  * How many unclaimed announcements may wait for an owner at once.
  *
  * Derived from what it has to survive rather than picked. An entry lives here
- * only between a gateway announcing a task and this run saying whether the
+ * only between a gateway announcing a task and this turn saying whether the
  * task is its own — one microtask, for a launch made through `create_task`.
  * The number that has to fit is therefore the largest batch of launches that
  * can be in flight together before any of them is claimed: one assistant turn
@@ -19,10 +19,10 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
  * bigger than it is announced rather than silently truncated.
  *
  * The ceiling is what stops this being the retention half of the leak it
- * exists beside: on a gateway shared with other runs, every foreign completion
+ * exists beside: on a gateway shared with other turns, every foreign completion
  * lands here and is never claimed, and each one holds a whole worker result —
  * kilobytes at least. Bounded, the cost is 32 handles; unbounded, it is every
- * result every other run on that gateway ever produced.
+ * result every other turn on that gateway ever produced.
  */
 const UNOWNED_BUFFER_LIMIT = 32
 
@@ -57,7 +57,7 @@ const OWNED_WORK_DISPLAY_LIMIT = 16
  *    call waiting on it by design.
  *
  * In both cases the completion exists, the gateway remembers it, and the
- * model is never told. That is the gap this closes: the run subscribes once,
+ * model is never told. That is the gap this closes: the turn subscribes once,
  * every settled task lands here, and anything a tool did NOT hand over
  * inline is drained into the transcript as a notification the next turn can
  * read.
@@ -80,14 +80,14 @@ export class CompletionInbox {
 	/** Launched with nothing waiting on it, and not settled yet. */
 	private readonly outstanding = new Set<TaskId>()
 	/**
-	 * Tasks THIS run launched.
+	 * Tasks THIS turn launched.
 	 *
-	 * `onTaskCompleted` is a broadcast and `TaskHandle` carries no run id, so
+	 * `onTaskCompleted` is a broadcast and `TaskHandle` carries no turn id, so
 	 * a gateway shared between two supervisors hands every completion to both
-	 * of their inboxes. Measured: with two inboxes on one gateway, the run
-	 * that launched nothing drained the other run's task and would have been
+	 * of their inboxes. Measured: with two inboxes on one gateway, the turn
+	 * that launched nothing drained the other turn's task and would have been
 	 * told "a task you launched has finished" — a claim that was false, over
-	 * another run's worker output, in a transcript whose model then has to
+	 * another turn's worker output, in a transcript whose model then has to
 	 * account for it.
 	 *
 	 * A shared gateway is not an abuse of the API: `SupervisorAgentConfig`
@@ -105,7 +105,7 @@ export class CompletionInbox {
 	 * that finds the task already terminal. It is never evicted for any other
 	 * reason, so a long-running task stays in here — and therefore visible —
 	 * for exactly as long as it is actually running, regardless of how many
-	 * other tasks this run launches meanwhile.
+	 * other tasks this turn launches meanwhile.
 	 */
 	private readonly runningOwned = new Set<TaskId>()
 	/**
@@ -131,7 +131,7 @@ export class CompletionInbox {
 	 *
 	 * So they wait here, and ownership may be claimed retroactively. What
 	 * makes that safe rather than a second leak is the bound: on a gateway
-	 * shared with other runs this fills with completions that will never be
+	 * shared with other turns this fills with completions that will never be
 	 * claimed, each holding a whole worker result.
 	 */
 	private readonly unowned = new Map<TaskId, TaskHandle>()
@@ -158,7 +158,7 @@ export class CompletionInbox {
 		if (this.detach) return this.detach
 		this.gateway = gateway
 		this.detach = gateway.onTaskCompleted((handle) => {
-			// Not known to be ours — either another run's worker on a shared
+			// Not known to be ours — either another turn's worker on a shared
 			// gateway, or ours announced before the launch could be recorded.
 			// The two are indistinguishable here, so it waits rather than
 			// being delivered or dropped. See {@link unowned}.
@@ -197,7 +197,7 @@ export class CompletionInbox {
 				resolveLogger(this.log)
 					.child({ [SCOPE_ATTRIBUTE]: 'scheduler/completion-inbox' })
 					.warn(
-						"Unclaimed completion buffer is full — dropped the oldest. If that task was this run's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",
+						"Unclaimed completion buffer is full — dropped the oldest. If that task was this turn's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",
 						{
 							'namzu.scheduler.dropped': oldest.value,
 							'namzu.scheduler.limit': UNOWNED_BUFFER_LIMIT,
@@ -209,7 +209,7 @@ export class CompletionInbox {
 	}
 
 	/**
-	 * Say that this run launched the task.
+	 * Say that this turn launched the task.
 	 *
 	 * Required before anything about the task can reach this inbox — see
 	 * {@link ours}. Every launch says it, whether or not something is waiting
@@ -282,10 +282,10 @@ export class CompletionInbox {
 	 *
 	 * {@link launched} plus the statement that no call will deliver the
 	 * result. Without the second half the inbox can only see completions that
-	 * have already happened, and a run whose supervisor launched a background
+	 * have already happened, and a turn whose supervisor launched a background
 	 * worker and then answered would settle while the worker was still going —
 	 * throwing away the very result the launch existed to produce. Knowing a
-	 * task is outstanding is what lets the loop hold the run open for it.
+	 * task is outstanding is what lets the loop hold the turn open for it.
 	 */
 	expect(taskId: TaskId): void {
 		this.launched(taskId)
@@ -302,9 +302,9 @@ export class CompletionInbox {
 	 * Wait for the next completion, deadline or abort, whichever comes first.
 	 * Aborting releases only this waiter; work and undelivered results remain owned.
 	 *
-	 * Bounded on purpose. A worker that never finishes must not hold a run
+	 * Bounded on purpose. A worker that never finishes must not hold a turn
 	 * open forever, and the caller decides how long "long enough" is — the
-	 * run's own budget is the only thing that knows.
+	 * turn's own budget is the only thing that knows.
 	 */
 	waitForArrival(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 		if (signal?.aborted) return Promise.resolve()
@@ -361,7 +361,7 @@ export class CompletionInbox {
 	 * rest of this projection has always used — fill the {@link
 	 * OWNED_WORK_DISPLAY_LIMIT} slots first, so a task still going is named
 	 * here for as long as it keeps running, no matter how many other tasks
-	 * this run has since launched. The most recently SETTLED tasks fill
+	 * this turn has since launched. The most recently SETTLED tasks fill
 	 * whatever slots running tasks leave over. A settled task bumped out
 	 * entirely is not reported missing — its own result already reached the
 	 * model once — but a RUNNING task that does not fit is: the preamble
@@ -386,7 +386,7 @@ export class CompletionInbox {
 			return {
 				taskId,
 				state: handle?.state ?? 'unknown',
-				...(handle?.result?.status ? { runStatus: handle.result.status } : {}),
+				...(handle?.result?.status ? { turnStatus: handle.result.status } : {}),
 				...(handle?.result?.stopReason ? { stopReason: handle.result.stopReason } : {}),
 				resultDelivery: this.claimed.has(taskId) ? 'delivered-to-history' : 'not-delivered',
 			}
@@ -399,9 +399,9 @@ export class CompletionInbox {
 	}
 
 	/**
-	 * Tasks this run launched that are still running.
+	 * Tasks this turn launched that are still running.
 	 *
-	 * Read when a run ends, so it can say which work it walked away from.
+	 * Read when a turn ends, so it can say which work it walked away from.
 	 * Nothing here is cancelled by being read — the ids are a statement, and
 	 * what to do about them is the host's call.
 	 */
@@ -429,7 +429,7 @@ export class CompletionInbox {
 			// callback can win that race for a task that finished fast. Then
 			// `expect` re-adds an id the listener had nothing to remove, and
 			// nothing else ever takes it off — so `hasPendingWork` stayed true
-			// for the rest of the run and every attempt to settle paid the
+			// for the rest of the turn and every attempt to settle paid the
 			// full grace period waiting for a result already in the transcript.
 			//
 			// Symmetric with `claim`, which clears it for the same reason.
@@ -443,7 +443,7 @@ export class CompletionInbox {
 	 *
 	 * Cancelling is the case this exists for. `expect` puts a task on the
 	 * outstanding list and only a COMPLETION takes it off, so a cancelled
-	 * worker left `hasPendingWork` true for the rest of the run — and every
+	 * worker left `hasPendingWork` true for the rest of the turn — and every
 	 * attempt to settle then paid the full grace period waiting for a result
 	 * that had been called off.
 	 */
@@ -460,7 +460,7 @@ export class CompletionInbox {
 		// The window is small and entirely reachable: nothing has told the
 		// model the worker finished, and `cancel_task` says it cancels a
 		// running task, so cancelling one that has just completed is the
-		// obvious move rather than a mistake. The run then reports "cancelled"
+		// obvious move rather than a mistake. The turn then reports "cancelled"
 		// over work that was done and output that no longer exists anywhere.
 		//
 		// Note the asymmetry with `claim`, which does clear `unheard` — and is
@@ -472,11 +472,11 @@ export class CompletionInbox {
 	/**
 	 * Stop listening. Safe to call more than once.
 	 *
-	 * A run that ends without this leaves its listener on the gateway
+	 * A turn that ends without this leaves its listener on the gateway
 	 * forever. On a gateway the host reuses that is measurable — three
-	 * sequential runs left three live subscriptions, each still holding its
-	 * run's handles — and the listener set only grows. Ownership stops a
-	 * retained listener from DELIVERING another run's work; closing is what
+	 * sequential turns left three live subscriptions, each still holding its
+	 * turn's handles — and the listener set only grows. Ownership stops a
+	 * retained listener from DELIVERING another turn's work; closing is what
 	 * stops it existing.
 	 */
 	close(): void {
@@ -540,12 +540,12 @@ function neutralizeNotificationDelimiter(content: string): string {
 export function formatCompletionNotification(handles: readonly TaskHandle[]): string {
 	const blocks = handles.map((handle) => {
 		const durationMs = handle.completedAt ? handle.completedAt - handle.createdAt : undefined
-		const run = handle.result
-		let output = run?.result || run?.lastError || ''
+		const turn = handle.result
+		let output = turn?.result || turn?.lastError || ''
 		// A hard guard can stop immediately after a tool round, before the result
 		// assembler has a final answer. Preserve visible partial prose, never reasoning.
-		if (!output && run?.stopReason && run.stopReason !== 'end_turn') {
-			const partial = [...(run.messages ?? [])]
+		if (!output && turn?.stopReason && turn.stopReason !== 'end_turn') {
+			const partial = [...(turn.messages ?? [])]
 				.reverse()
 				.find(
 					(message) =>
@@ -553,7 +553,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 						typeof message.content === 'string' &&
 						message.content.length > 0,
 				)
-			if (partial) output = `Partial output before ${run.stopReason}:\n${partial.content}`
+			if (partial) output = `Partial output before ${turn.stopReason}:\n${partial.content}`
 		}
 		const overLimit = output.length > NOTIFICATION_OUTPUT_LIMIT
 		const shown = overLimit ? output.slice(0, NOTIFICATION_OUTPUT_LIMIT) : output
@@ -561,7 +561,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 		// Framed for the same reason the blocking `create_task` frames its
 		// return value, and this path is the one that had nothing. A delegated
 		// worker is the component most likely to have consumed material nobody
-		// in this run authored — it was told to read and report, and it ran
+		// in this turn authored — it was told to read and report, and it ran
 		// `read`, `grep`, `fetch` over whatever it found — and its text lands
 		// in a parent that typically holds the broader tool grant. The same
 		// bytes were being wrapped on one path and pasted bare on this one.
@@ -586,7 +586,7 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 			`task_id: ${handle.taskId}`,
 			`agent: ${handle.agentId}`,
 			`state: ${handle.state}`,
-			...(handle.state === 'completed' && run?.stopReason && run.stopReason !== 'end_turn'
+			...(handle.state === 'completed' && turn?.stopReason && turn.stopReason !== 'end_turn'
 				? ['outcome: incomplete — execution stopped; this does not establish task completion.']
 				: []),
 			...(handle.result?.stopReason ? [`stop_reason: ${handle.result.stopReason}`] : []),

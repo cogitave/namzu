@@ -43,13 +43,13 @@ function workingMemoryIndex(msgs: readonly Message[]): number {
 /**
  * Split the pinned slot out of a request's history.
  *
- * The slot keeps its place in the RUN's history, where compaction preserves
+ * The slot keeps its place in the TURN's history, where compaction preserves
  * it. The REQUEST carries it as request-only context instead: a runtime
  * context message of kind `step-context`, after the history, holding the
  * slot's content verbatim under the same "runtime-generated; not a new user
  * request" label every other step-context message carries — so the header
  * begins the message's second line, not its first. The slot changes whenever a pin does, and a
- * driver that hoists system messages ahead of the conversation (Anthropic
+ * driver that hoists system messages ahead of the conversation (one that
  * renders tools, then system, then messages) would otherwise invalidate the
  * cached conversation prefix on every such change. Every driver keeps
  * request-only context after history, and a caching driver ends its
@@ -78,7 +78,7 @@ export function splitWorkingMemoryForRequest(messages: readonly Message[]): {
  * The slot is an EPHEMERAL system message placed as the LAST leading system
  * message (after the cached static + dynamic system messages), so it rides
  * inside the compaction-preserved leading-system run. That is its place in
- * the run's HISTORY only: a request carries it as request-only context after
+ * the turn's HISTORY only: a request carries it as request-only context after
  * the history ({@link splitWorkingMemoryForRequest}), so a changed pin never
  * busts the cached conversation prefix.
  *
@@ -99,12 +99,12 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 		try {
 			block =
 				(await provider({
-					runId: ctx.runMgr.id,
-					iteration: ctx.runMgr.currentIteration,
+					turnId: ctx.recorder.turnId,
+					iteration: ctx.recorder.currentIteration,
 				})) ?? ''
 		} catch (err) {
 			ctx.log.warn('workingMemoryProvider failed; keeping prior slot', {
-				[NAMZU.RUN_ID]: ctx.runMgr.id,
+				[NAMZU.TURN_ID]: ctx.recorder.turnId,
 				'exception.message': err instanceof Error ? err.message : String(err),
 			})
 			return
@@ -112,7 +112,7 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 	}
 	if (pinned) block = block.trim() ? `${block.trim()}\n\n${pinned}` : pinned
 
-	const msgs = ctx.runMgr.messages
+	const msgs = ctx.recorder.messages
 
 	let leadEnd = 0
 	while (leadEnd < msgs.length && msgs[leadEnd]?.role === 'system') leadEnd++
@@ -128,7 +128,7 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 		// Empty block ⇒ remove the slot (byte-identical-when-empty).
 		if (idx >= 0) {
 			msgs.splice(idx, 1)
-			ctx.runMgr.clearLastPromptTokens?.()
+			ctx.recorder.clearLastPromptTokens?.()
 		}
 		return
 	}
@@ -145,5 +145,5 @@ export async function refreshWorkingMemory(ctx: IterationContext): Promise<void>
 	}
 	// The old provider reading measured a different prefix, and an insertion
 	// also moves its tail watermark. Re-estimate until the next request reports.
-	ctx.runMgr.clearLastPromptTokens?.()
+	ctx.recorder.clearLastPromptTokens?.()
 }

@@ -35,7 +35,7 @@ export interface ResidentStepContext {
 	readonly learning?: ResidentLearningState
 }
 
-/** @experimental A developer callback may bind a different SDK run for each pursuit. */
+/** @experimental A developer callback may bind a different SDK turn for each pursuit. */
 export type ResidentPursuitStep = (
 	pursuit: ResidentPursuit,
 	signal: AbortSignal,
@@ -137,7 +137,7 @@ export class ResidentHost {
 
 	/**
 	 * Signal current work and durably close future admission. Resolving this method
-	 * is NOT quiescence: await the run promise before claiming the callback stopped.
+	 * is NOT quiescence: await the turn promise before claiming the callback stopped.
 	 * An interrupted admitted pursuit remains unresolved until reconciled explicitly.
 	 */
 	async pause(): Promise<void> {

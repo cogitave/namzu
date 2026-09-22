@@ -27,7 +27,7 @@ refused — and `toolResultScreens` is how an operator says otherwise.
 | `["correspondence"]`, `["injection"]`, both | Exactly those screens, in the order written. |
 
 Absent and `[]` are different answers on purpose. A screen can refuse a result,
-so an unconfigured run and a run whose operator turned screening off must not
+so an unconfigured session and one whose operator turned screening off must not
 mean the same thing — collapsing them would make the key's absence silently mean
 the opposite of what a reader of the file expects.
 
@@ -81,7 +81,7 @@ they were trying to stop comes back with nothing to explain it.
 
 ## Where it takes effect
 
-Every registry this CLI builds for a run: the interactive session and its
+Every registry this CLI builds for a session: the interactive session and its
 sub-agents, headless `run` and `run-stream`, ACP, and the resident step. It is
 configured at registry construction rather than per turn, so all of them get it
 from one place — and the interactive session reaches it the same way the others
@@ -89,7 +89,7 @@ do, through the `TuiContext` the App holds.
 
 A registry the CLI built with a screen list is authoritative for its own
 results. The kernel's default applies where nothing was configured, which is
-what an absent key leaves in place. A sub-agent is a fresh run with its own
+what an absent key leaves in place. A sub-agent is a fresh child session with its own
 registry, and this CLI builds that registry with the same screens.
 
 ## What the default refuses, and what it does not

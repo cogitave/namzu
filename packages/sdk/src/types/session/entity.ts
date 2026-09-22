@@ -42,7 +42,7 @@ export type SessionStatus =
  *   - `workspaceId` is nullable for sessions whose workspace has not yet
  *     been provisioned (or has been torn down during archival).
  *
- * The pure `deriveStatus(session, runs)` fan-in helper lives at
+ * The pure `deriveStatus(session, turns)` fan-in helper lives at
  * `session/status/derive.ts` — it is runtime, not a shape, so it is not
  * colocated with this interface.
  */

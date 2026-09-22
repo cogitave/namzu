@@ -17,7 +17,8 @@ const second = admission(3)
 const receipt = (
 	overrides: Partial<ResidentConsumptionReceipt> = {},
 ): ResidentConsumptionReceipt => ({
-	runId: randomUUID(),
+	sessionId: randomUUID(),
+	turnId: randomUUID(),
 	ownTokens: 120,
 	treeTokens: 200,
 	ownCostUsd: 0.03,
@@ -106,22 +107,22 @@ it('a copied run receipt invalidates both claims instead of double-counting or c
 		resolve: async () => copied,
 	})
 	expect(report.recorded.ownTokens).toBe(0)
-	expect(report.attempts.map((a) => a.receiptStatus)).toEqual(['duplicate-run', 'duplicate-run'])
+	expect(report.attempts.map((a) => a.receiptStatus)).toEqual(['duplicate-turn', 'duplicate-turn'])
 	expect(report.unknown.ownUsageAttempts).toBe(2)
 })
 
-it('does not count different hexadecimal spellings of the same run UUID twice', async () => {
-	const lower = receipt({ runId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa' })
+it('does not count different hexadecimal spellings of the same turn UUID twice', async () => {
+	const lower = receipt({ turnId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa' })
 	const resolve = vi
 		.fn()
 		.mockResolvedValueOnce(lower)
-		.mockResolvedValueOnce({ ...lower, runId: lower.runId.toUpperCase() })
+		.mockResolvedValueOnce({ ...lower, turnId: lower.turnId.toUpperCase() })
 	const report = await inspectResidentConsumption(source(), {
 		maxReadBytes: 100,
 		resolve,
 	})
 	expect(report.recorded.ownTokens).toBe(0)
-	expect(report.attempts.map((a) => a.receiptStatus)).toEqual(['duplicate-run', 'duplicate-run'])
+	expect(report.attempts.map((a) => a.receiptStatus)).toEqual(['duplicate-turn', 'duplicate-turn'])
 })
 
 it('joins UUID aliases without rewriting host lookup identifiers or accepting duplicate admissions', async () => {

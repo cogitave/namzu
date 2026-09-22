@@ -145,7 +145,7 @@ async function run(
 }
 
 describe('headless reasoning effort', () => {
-	it('forwards low to the run instead of adding it to the prompt', async () => {
+	it('forwards low to the turn instead of adding it to the prompt', async () => {
 		const { code } = await run(['--effort', 'low', 'hello'])
 		expect(code).toBe(0)
 		expect(seen.effort).toBe('low')
@@ -221,7 +221,7 @@ describe('namzu run reads its options instead of reciting them', () => {
 describe('a pipe and a question are both the prompt', () => {
 	// `cat notes.txt | namzu run "summarise this"` read the three words and
 	// silently dropped the file: piped input was consulted only when there was
-	// no argument prompt. The run succeeded and answered about nothing.
+	// no argument prompt. The turn succeeded and answered about nothing.
 	it('keeps piped material alongside the question', () => {
 		const prompt = composePrompt('summarise this', 'line one\nline two\n')
 

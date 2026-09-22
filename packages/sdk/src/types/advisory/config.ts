@@ -30,22 +30,22 @@ export interface AdvisorDefinition {
 }
 
 /**
- * Bounds on what a run may spend on advice.
+ * Bounds on what a turn may spend on advice.
  *
  * Every cap here is enforced. Per-SESSION caps used to be declared beside
- * these and were not: the advisory stack is built once per run, so there was
+ * these and were not: the advisory stack is built once per turn, so there was
  * no accumulator that outlived one, and the field could only ever read as a
  * promise. A host that wants a session bound holds it where sessions live.
  */
 export interface AdvisoryBudget {
-	/** Advisory calls allowed in one run. Checked before each call. */
-	readonly maxCallsPerRun?: number
+	/** Advisory calls allowed in one turn. Checked before each call. */
+	readonly maxCallsPerTurn?: number
 	/**
-	 * Total advisory spend allowed in one run, in the same units as
+	 * Total advisory spend allowed in one turn, in the same units as
 	 * {@link ModelPricing}. Requires every advisor to carry `pricing`;
-	 * a run configured otherwise is refused rather than left uncapped.
+	 * a turn configured otherwise is refused rather than left uncapped.
 	 */
-	readonly maxCostPerRun?: number
+	readonly maxCostPerTurn?: number
 	/** Response-token ceiling applied to each call, clamping the advisor's own. */
 	readonly maxTokensPerCall?: number
 }

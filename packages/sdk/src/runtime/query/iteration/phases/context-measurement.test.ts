@@ -22,7 +22,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -81,13 +81,13 @@ function makeCtx(opts: {
 	const log = makeLogger()
 
 	const ctx = {
-		runConfig: { tokenBudget: 0 },
+		turnConfig: { tokenBudget: 0 },
 		compactionConfig: config,
 		workingStateManager: manager,
 		log,
 		tools: { toLLMTools: () => opts.tools ?? [] },
-		runMgr: {
-			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+		recorder: {
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 			currentIteration: 3,
 			messages: opts.messages,
 			lastPromptTokens: opts.lastPromptTokens,
@@ -174,7 +174,7 @@ describe('the tail appended after the measurement', () => {
 	})
 
 	it('falls back to the measurement verbatim when no watermark was recorded', async () => {
-		// A resumed run, or a persistence layer that predates the watermark.
+		// A resumed turn, or a persistence layer that predates the watermark.
 		// Adding an unbounded tail there would double-count the whole
 		// history, which is a worse error than the staleness.
 		const messages: Message[] = [createUserMessage('go'), createAssistantMessage(bulk(5_000))]
@@ -220,7 +220,7 @@ describe('the tool catalogue', () => {
 
 	it('survives a registry that cannot render its catalogue', async () => {
 		// The catalogue sharpens the estimate; it is not a precondition for
-		// compacting. Throwing here would take down a run for a reason the
+		// compacting. Throwing here would take down a turn for a reason the
 		// model call reports far better.
 		const { ctx, log } = makeCtx({ messages: [createUserMessage(bulk(2_000))] })
 		;(ctx as { tools: unknown }).tools = {

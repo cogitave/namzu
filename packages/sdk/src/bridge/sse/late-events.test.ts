@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { fixtureId } from '../../test-support/ids.js'
-import type { RunId } from '../../types/ids/index.js'
-import type { RunEvent } from '../../types/run/events.js'
-import { mapRunToStreamEvent } from './mapper.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
+import type { SessionEvent } from '../../types/session/events.js'
+import { mapSessionEventToStreamEvent } from './mapper.js'
 
 /**
  * The nine event kinds added after this mapper's original test was
@@ -15,59 +15,70 @@ import { mapRunToStreamEvent } from './mapper.js'
  * return type is `Record<string, unknown>`.
  */
 
-const RID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId
+const SID = '37ddff8e-e13f-4e57-937f-d048fa323f5e' as SessionId
+const TID = '0199b3a0-0000-7000-8000-00000000000a' as TurnId
 
-const map = (event: RunEvent) => mapRunToStreamEvent(event, RID)
+const map = (event: SessionEvent) => mapSessionEventToStreamEvent(event)
 
 describe('the events the original mapper test predates', () => {
 	it('carries a reasoning block through its whole lifecycle', () => {
 		const started = map({
 			type: 'reasoning_started',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 1,
 			messageId: fixtureId.message('1'),
 			blockIndex: 0,
 			reasoningType: 'thinking',
-		} as RunEvent)
+		} as SessionEvent)
 		const delta = map({
 			type: 'reasoning_delta',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 1,
 			messageId: fixtureId.message('1'),
 			blockIndex: 0,
 			text: 'weighing it up',
-		} as RunEvent)
+		} as SessionEvent)
 		const completed = map({
 			type: 'reasoning_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 1,
 			messageId: fixtureId.message('1'),
 			blockIndex: 0,
 			signed: true,
-		} as RunEvent)
+		} as SessionEvent)
 
 		expect(started?.wire).toBe('reasoning.started')
 		expect(delta?.wire).toBe('reasoning.delta')
 		expect(completed?.wire).toBe('reasoning.completed')
 		// The index is what groups fragments into one block on the far side.
-		expect(delta?.data).toMatchObject({ run_id: RID, block_index: 0, text: 'weighing it up' })
+		expect(delta?.data).toMatchObject({
+			session_id: SID,
+			turn_id: TID,
+			block_index: 0,
+			text: 'weighing it up',
+		})
 	})
 
 	it('says which guardrail fired and what it did', () => {
 		const mapped = map({
 			type: 'guardrail_triggered',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			guardrail: 'secret-redaction',
 			stage: 'output',
 			action: 'rewrite',
 			reason: 'a credential was present',
-		} as RunEvent)
+		} as SessionEvent)
 
 		expect(mapped?.wire).toBe('guardrail.triggered')
 		// A consumer showing "blocked" versus "rewritten" needs the action,
 		// not only that something happened.
 		expect(mapped?.data).toMatchObject({
-			run_id: RID,
+			session_id: SID,
+			turn_id: TID,
 			guardrail: 'secret-redaction',
 			action: 'rewrite',
 		})
@@ -76,12 +87,13 @@ describe('the events the original mapper test predates', () => {
 	it('reports what compaction actually reclaimed', () => {
 		const mapped = map({
 			type: 'compaction_completed',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			messagesBefore: 40,
 			messagesAfter: 12,
 			tokensBefore: 90_000,
 			tokensAfter: 30_000,
-		} as RunEvent)
+		} as SessionEvent)
 
 		expect(mapped?.wire).toBe('compaction.completed')
 		expect(mapped?.data).toMatchObject({
@@ -97,12 +109,13 @@ describe('the events the original mapper test predates', () => {
 		// progress a host cannot render.
 		const mapped = map({
 			type: 'tool_progress',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			toolUseId: 'call_1',
 			toolName: 'build',
 			message: 'compiling',
 			fraction: 0.4,
-		} as RunEvent)
+		} as SessionEvent)
 
 		expect(mapped?.wire).toBe('tool.progress')
 		expect(mapped?.data).toMatchObject({
@@ -116,7 +129,8 @@ describe('the events the original mapper test predates', () => {
 	it('tells a waiting client that a retry is why nothing is arriving', () => {
 		const mapped = map({
 			type: 'provider_retry',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			iteration: 2,
 			attempt: 1,
 			maxRetries: 3,
@@ -124,11 +138,11 @@ describe('the events the original mapper test predates', () => {
 			code: 'rate_limit',
 			status: 429,
 			serverDirected: true,
-		} as RunEvent)
+		} as SessionEvent)
 
 		expect(mapped?.wire).toBe('provider.retry')
-		// Without the delay the client has no way to tell a run that is
-		// waiting from a run that has hung.
+		// Without the delay the client has no way to tell a turn that is
+		// waiting from a turn that has hung.
 		expect(mapped?.data).toMatchObject({
 			attempt: 1,
 			max_retries: 3,
@@ -141,18 +155,20 @@ describe('the events the original mapper test predates', () => {
 	it('carries a question and the answer that resolves it', () => {
 		const asked = map({
 			type: 'user_question_asked',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			checkpointId: fixtureId.checkpoint('1'),
 			questionId: 'call_1:env',
 			question: 'which environment?',
-		} as RunEvent)
+		} as SessionEvent)
 		const answered = map({
 			type: 'user_question_answered',
-			runId: RID,
+			sessionId: SID,
+			turnId: TID,
 			checkpointId: fixtureId.checkpoint('1'),
 			questionId: 'call_1:env',
 			answered: true,
-		} as RunEvent)
+		} as SessionEvent)
 
 		expect(asked?.wire).toBe('question.asked')
 		expect(answered?.wire).toBe('question.answered')
@@ -162,22 +178,37 @@ describe('the events the original mapper test predates', () => {
 		expect(answered?.data).toMatchObject({ question_id: 'call_1:env', answered: true })
 	})
 
-	it('always stamps the run id it was given', () => {
-		const events: RunEvent[] = [
+	it('always stamps the session and turn the event names', () => {
+		const events: SessionEvent[] = [
 			{
 				type: 'reasoning_delta',
-				runId: RID,
+				sessionId: SID,
+				turnId: TID,
 				iteration: 1,
 				messageId: 'm',
 				blockIndex: 0,
 				text: 'x',
 			},
-			{ type: 'guardrail_triggered', runId: RID, guardrail: 'g', stage: 'input', action: 'block' },
-			{ type: 'tool_progress', runId: RID, toolUseId: 'c', toolName: 't', message: 'm' },
-		] as RunEvent[]
+			{
+				type: 'guardrail_triggered',
+				sessionId: SID,
+				turnId: TID,
+				guardrail: 'g',
+				stage: 'input',
+				action: 'block',
+			},
+			{
+				type: 'tool_progress',
+				sessionId: SID,
+				turnId: TID,
+				toolUseId: 'c',
+				toolName: 't',
+				message: 'm',
+			},
+		] as SessionEvent[]
 
 		for (const event of events) {
-			expect(map(event)?.data.run_id).toBe(RID)
+			expect(map(event)?.data).toMatchObject({ session_id: SID, turn_id: TID })
 		}
 	})
 })

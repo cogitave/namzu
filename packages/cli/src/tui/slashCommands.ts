@@ -1,6 +1,6 @@
 import { installationRows } from '../installation.js'
-import { type RunLimitsAction, runLimitsAction } from './run-limits-settings.js'
 import { statusCard } from './status-card.js'
+import { type TurnLimitsAction, turnLimitsAction } from './turn-limits-settings.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
  *
@@ -33,7 +33,7 @@ import {
 	type MemoryType,
 	type ReasoningEffort,
 	type SerializableHostCommand,
-	type TokenBudgetSummary,
+	type SessionTokenBudgetSummary,
 	isMemoryType,
 	kernelHostCommands,
 } from '@namzu/sdk'
@@ -41,7 +41,6 @@ import {
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
-import type { OrchestrationRun } from '../integrations/subagents/runs.js'
 import {
 	type PermissionMode,
 	effectivePermissionMode,
@@ -70,12 +69,13 @@ export type SlashAction =
 	  }
 	/** Choose and dispatch one exact command from the session's live vocabulary. */
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
-	/** Observe child runs retained by this TUI conversation. */
-	| { kind: 'agent-cockpit' }
-	/** List past and running orchestration runs; App reads live state and saved evidence. */
-	| { kind: 'agent-runs' }
+	/**
+	 * `/agents [running|available|batches]`, answered by the delegation UI's
+	 * `agentsSlashCommand` — App supplies the live monitor and saved batches.
+	 */
+	| { kind: 'agents'; args: readonly string[] }
 	| { kind: 'settings-picker' }
-	| RunLimitsAction
+	| TurnLimitsAction
 	| { kind: 'provider-setup' }
 	| { kind: 'goal-picker' }
 	| { kind: 'goal-editor'; edit: boolean }
@@ -122,6 +122,11 @@ export type SlashAction =
 	| { kind: 'skill-picker' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
+	/**
+	 * Close this conversation's paused or interrupted turn without resuming it,
+	 * so the next prompt can begin one. `reason` is recorded on the turn.
+	 */
+	| { kind: 'abandon'; reason: string }
 	/**
 	 * Name this conversation, open its name editor, or take the name away.
 	 *
@@ -184,7 +189,7 @@ export type SlashAction =
 	 */
 	| { kind: 'host-command'; name: string; args: readonly string[] }
 	/**
-	 * Record a judgment on the run's last assistant message.
+	 * Record a judgment on the turn's last assistant message.
 	 *
 	 * Carries the id rather than leaving App to re-derive it: the command
 	 * has already decided there IS one, and re-deriving would open a window
@@ -309,13 +314,13 @@ export interface SlashContext {
 	 * a question someone asked on purpose.
 	 */
 	readonly usage: {
-		readonly budget?: TokenBudgetSummary
+		readonly budget?: SessionTokenBudgetSummary
 		readonly totalTokens: number
 		readonly cost: CostInfo
 		/**
-		 * How full the context is, when the run knows: the numerator and the
+		 * How full the context is, when the turn knows: the numerator and the
 		 * window with their provenance, from the `usage` event. Absent when
-		 * the run resolved no window. Printed here, on request, rather than in
+		 * the turn resolved no window. Printed here, on request, rather than in
 		 * the footer — the persistent gauge was removed on purpose for a
 		 * quieter frame, and `/cost` is where a person asks.
 		 */
@@ -387,7 +392,7 @@ export interface SlashContext {
 	 */
 	readonly builtins?: readonly SlashCommand[]
 	/**
-	 * The last assistant message this run produced, or `null` before there
+	 * The last assistant message this turn produced, or `null` before there
 	 * is one.
 	 *
 	 * A function, like every other field here that moves while namzu runs —
@@ -678,7 +683,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'config',
-		description: 'View configuration and change model, reasoning, permissions and run limits.',
+		description: 'View configuration and change model, reasoning, permissions and turn limits.',
 		help: {
 			usage: [
 				'/config',
@@ -691,7 +696,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			args.length === 0
 				? { kind: 'settings-picker' }
 				: args[0] === 'limits'
-					? runLimitsAction(args.slice(1))
+					? turnLimitsAction(args.slice(1))
 					: {
 							kind: 'message',
 							role: 'system',
@@ -709,20 +714,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'agents',
 		description:
-			'Inspect delegated agents; /agents available lists configured agents, /agents runs lists past and running orchestration runs.',
-		help: { usage: ['/agents [running|available|runs]'] },
-		action: (_ctx, args) =>
-			args.length === 0 || (args.length === 1 && args[0] === 'running')
-				? { kind: 'agent-cockpit' }
-				: args.length === 1 && args[0] === 'available'
-					? { kind: 'host-command', name: 'agents', args: [] }
-					: args.length === 1 && args[0] === 'runs'
-						? { kind: 'agent-runs' }
-						: {
-								kind: 'message',
-								role: 'system',
-								content: 'Usage: /agents [running|available|runs]',
-							},
+			'Inspect delegated agents; /agents available lists configured agents, /agents batches lists past and running batches of delegated work.',
+		help: { usage: ['/agents [running|available|batches]'] },
+		// The subcommands are the delegation UI's (`agentsSlashCommand`): App hands
+		// it the arguments and renders what it answers, usage line included.
+		action: (_ctx, args) => ({ kind: 'agents', args }),
 	},
 	{
 		name: 'goal',
@@ -801,7 +797,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					: {
 							kind: 'message',
 							role: 'system',
-							content: 'Nothing to rate yet — /feedback applies to the last answer in this run.',
+							content: 'Nothing to rate yet — /feedback applies to the last answer in this turn.',
 						}
 			}
 			const [rating, ...rest] = args
@@ -822,7 +818,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				return {
 					kind: 'message',
 					role: 'system',
-					content: 'Nothing to rate yet — /feedback applies to the last answer in this run.',
+					content: 'Nothing to rate yet — /feedback applies to the last answer in this turn.',
 				}
 			}
 
@@ -918,7 +914,7 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				'/memory import-notes',
 			],
 			details: [
-				'Show and list read stored and curated memory, with what runs recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
+				'Show and list read stored and curated memory, with what turns recorded on their own in a section of its own. Add saves a typed memory file for this project (type project unless --type says otherwise); --user appends a note to the curated file for all projects.',
 				'Direct /memory <text> also saves a project note. To save a reserved word as a note, use /memory add show.',
 				"import-notes copies every top-level bullet of the project's curated MEMORY.md, where #note used to append, into typed memory files, skipping any already stored. The curated file is never changed; delete bullets from it yourself.",
 			],
@@ -1015,8 +1011,19 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'resume',
-		description: 'Resume a past conversation in this folder.',
+		description:
+			'Continue this conversation’s paused turn, or, when it has none, resume a past conversation in this folder.',
 		action: () => ({ kind: 'resume' }),
+	},
+	{
+		name: 'abandon',
+		description:
+			'Close this conversation’s paused or interrupted turn without resuming it, so the next prompt starts a new one.',
+		help: { usage: ['/abandon [reason]'] },
+		action: (_ctx, args) => ({
+			kind: 'abandon',
+			reason: args.join(' ').trim() || 'Abandoned by the operator with /abandon.',
+		}),
 	},
 	{
 		name: 'model',
@@ -1392,7 +1399,7 @@ export function initPrompt(instructionFiles: readonly string[]): string {
 		'  - anything that would let someone break the project without noticing',
 		'',
 		'Keep it short enough to be read in full. Every line costs context on every',
-		'future run, so a sentence that says nothing is not free.',
+		'future turn, so a sentence that says nothing is not free.',
 	].join('\n')
 }
 
@@ -1435,47 +1442,6 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		'',
 		'The agent reads one with the job tool; ask it to stop one, or /exit stops them all.',
 	].join('\n')
-}
-
-/**
- * Runs shown newest first, bounded the way {@link DelegationHistory}'s own
- * reads are: a page an operator can actually read, plus an honest count of
- * what did not fit rather than a listing that quietly grows with the whole
- * estate.
- */
-export const MAX_LISTED_ORCHESTRATION_RUNS = 20
-
-export interface OrchestrationRunsListing {
-	readonly runs: readonly OrchestrationRun[]
-	readonly omitted: number
-}
-
-/**
- * Merges a conversation's still-running runs with its finished ones into the
- * one list `/agents runs` shows.
- *
- * A run id named by both sources keeps its LIVE row and drops the disk one:
- * the live monitor is the fresher account of a run this process can still
- * watch directly, and the disk copy of that same id can only be a run.json
- * still being written to — never authority over a run its own process is
- * still reporting on live.
- */
-export function combineOrchestrationRuns(
-	live: readonly OrchestrationRun[],
-	finished: readonly OrchestrationRun[],
-): OrchestrationRunsListing {
-	const liveIds = new Set(live.map((run) => run.id))
-	const all = [...live, ...finished.filter((run) => !liveIds.has(run.id))].sort(
-		(left, right) => right.startedAt - left.startedAt,
-	)
-	const runs = all.slice(0, MAX_LISTED_ORCHESTRATION_RUNS)
-	return { runs, omitted: Math.max(0, all.length - runs.length) }
-}
-
-/** The honest empty answer for `/agents runs`; a non-empty listing opens the picker instead. */
-export function renderAgentRuns(listing: OrchestrationRunsListing): string | undefined {
-	if (listing.runs.length > 0) return undefined
-	return 'No orchestration runs yet. This conversation has not delegated any work, or none of it is still on disk.'
 }
 
 /** Reports validate their subcommand instead of silently ignoring mistyped arguments. */
@@ -1578,7 +1544,7 @@ export function renderCost(
 	}
 	if (details) {
 		lines.push(
-			'Cost covers this run’s own model calls, excluding delegated calls and earlier runs. These are not conversation totals.',
+			'Cost covers this turn’s own model calls, excluding delegated calls and earlier turns. These are not conversation totals.',
 		)
 		if (usage.cost.unpricedTokens > 0) {
 			lines.push('Missing prices do not mean those tokens were free.')
@@ -1599,7 +1565,7 @@ export function renderCost(
 
 /** What decides a tool call, in the order it actually decides it. */
 /**
- * One page holding both halves of what a run may do.
+ * One page holding both halves of what a turn may do.
  *
  * They are separate mechanisms and they answer separate questions — where a
  * write may land, and whether anyone is asked first — and neither implies the
@@ -1739,7 +1705,7 @@ export function statusRows(ctx: SlashContext): [string, string][] {
 		rows.push([
 			'Workspace',
 			ctx.sandbox.workspace === 'ephemeral'
-				? 'temporary files; removed when the run ends'
+				? 'temporary files; removed when the turn ends'
 				: 'real project files; edits persist',
 		])
 	if (ctx.sessionId) rows.push(['Session', ctx.sessionId])
@@ -1777,7 +1743,7 @@ export function renderStatus(ctx: SlashContext, details = false): string {
 		)
 	}
 	if (sandbox?.workspace === 'ephemeral') {
-		lines.push('Workspace: temporary files; removed when the run ends.')
+		lines.push('Workspace: temporary files; removed when the turn ends.')
 	} else if (sandbox?.workspace === 'working-directory' || sandbox?.workspace === 'host') {
 		lines.push('Workspace: real project files; edits persist.')
 	}

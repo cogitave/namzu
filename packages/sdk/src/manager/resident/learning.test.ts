@@ -26,7 +26,7 @@ function result(task: string, passed: boolean): CaseResult {
 		passed,
 		mean: Number(passed),
 		scores: { exact: { score: Number(passed), reason: 'Observed deterministic fixture outcome.' } },
-		run: {
+		turn: {
 			output: passed ? 'Verified' : 'Missing evidence',
 			steps: [],
 			toolCalls: [],

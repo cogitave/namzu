@@ -5,7 +5,7 @@
  * reuse `needsRepickReason`, and it would have been a silent regression for
  * every scripted run. `run`, `run-stream` and `drain` all do
  * `probe.preferences ?? defaultPrefs(probe.detected)` — so a null there does not
- * refuse, it FALLS BACK, and a run pinned to a provider whose key had lapsed
+ * refuse, it FALLS BACK, and a turn pinned to a provider whose key had lapsed
  * would quietly have moved onto whatever else the machine happened to have.
  *
  * That is the failure the headless refusal exists to prevent, so the gap is a

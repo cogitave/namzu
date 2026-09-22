@@ -65,7 +65,7 @@ function params(
 		provider,
 		tools: new ToolRegistry(),
 		compactionConfig,
-		runConfig: {
+		turnConfig: {
 			model: 'compaction-model',
 			timeoutMs: 5_000,
 			streamIdleTimeoutMs,
@@ -103,7 +103,7 @@ function completed(content: string): StreamChunk[] {
 	]
 }
 
-describe('query-owned compaction verification stays inside the run boundary', () => {
+describe('query-owned compaction verification stays inside the turn boundary', () => {
 	let workdirs: string[] = []
 
 	afterEach(async () => {

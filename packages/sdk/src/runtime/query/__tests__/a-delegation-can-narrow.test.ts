@@ -83,7 +83,7 @@ async function run(opts: {
 	const result = await drainQuery({
 		provider,
 		tools: registry(),
-		runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 3 },
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 3 },
 		agentId: 'a',
 		agentName: 'A',
 		messages: [createUserMessage('go')],
@@ -138,7 +138,7 @@ describe('a delegation can narrow what a child may use', () => {
 		expect(requests[0]).toEqual(['read'])
 	})
 
-	it('treats a name the run never had as a no-op', async () => {
+	it('treats a name the turn never had as a no-op', async () => {
 		// The result is still narrower, and refusing would make a caller's
 		// deny list depend on which agent it happened to be talking to.
 		const { requests } = await run({ deniedTools: ['a_tool_that_does_not_exist'] })
@@ -146,7 +146,7 @@ describe('a delegation can narrow what a child may use', () => {
 		expect(requests[0]).toEqual(['bash', 'read', 'write'])
 	})
 
-	it('changes nothing for a run that denies nothing', async () => {
+	it('changes nothing for a turn that denies nothing', async () => {
 		// The absent case must behave exactly as it did before this existed.
 		//
 		// The implementation additionally short-circuits so it does not

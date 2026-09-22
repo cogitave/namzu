@@ -1,16 +1,16 @@
 import { REVIEW_MODES, type ReviewMode, isReviewMode } from '@namzu/sdk'
 
 /**
- * How a run resolves the calls no rule decided.
+ * How a turn resolves the calls no rule decided.
  *
  * The `[permissions]` table says what a tool may do. The kernel's review
  * policy (`createReviewHandler` in `@namzu/sdk`) says what happens to
  * everything it did not cover; the modes and their words live there, and
- * this file resolves which one a run gets from the flag and the terminal.
+ * this file resolves which one a turn gets from the flag and the terminal.
  *
  * The two axes are separate on purpose: a rule is
  * a durable statement an operator reviewed, and a mode is a property of ONE
- * invocation — the difference between "we never force-push" and "this run is
+ * invocation — the difference between "we never force-push" and "this turn is
  * unattended".
  *
  * ## Precedence between a flag and the config file
@@ -75,7 +75,7 @@ export function permissionModeDescription(mode: PermissionMode): string {
 }
 
 /**
- * The mode for a run, from the flag, the bypass alias, and whether anyone is
+ * The mode for a turn, from the flag, the bypass alias, and whether anyone is
  * there to answer.
  *
  * `--yolo` / `--dangerously-skip-permissions` map to `auto`. They were accepted

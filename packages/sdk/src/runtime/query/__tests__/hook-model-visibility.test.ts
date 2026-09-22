@@ -16,7 +16,7 @@ import { drainQuery } from '../index.js'
 
 /**
  * Both model-call hooks fired directly beside the request and the reply and
- * were handed neither — only a run id and an iteration number. An extension
+ * were handed neither — only a turn id and an iteration number. An extension
  * could observe THAT a call happened and nothing about what it was, so a
  * prompt audit, a redaction pass, or a per-tenant token ledger had no way to
  * do its job from a hook.
@@ -57,7 +57,7 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'what is the answer' }],
 		workingDirectory: process.cwd(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 30_000,
@@ -76,7 +76,7 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 const pick = (seen: Seen[], event: PluginHookEvent) => seen.find((s) => s.event === event)?.ctx
 
 describe('what an extension is shown about a model call', () => {
-	it('shows the request the run is about to send', async () => {
+	it('shows the request the turn is about to send', async () => {
 		const seen: Seen[] = []
 		await runWithHooks(seen)
 
@@ -110,7 +110,7 @@ describe('what an extension is shown about a model call', () => {
 		expect(response?.usage).toMatchObject({ promptTokens: 11, completionTokens: 4 })
 	})
 
-	it('threads one run-owned cancellation signal through every lifecycle hook', async () => {
+	it('threads one turn-owned cancellation signal through every lifecycle hook', async () => {
 		const seen: Seen[] = []
 		const tools = new ToolRegistry()
 		tools.register({
@@ -128,7 +128,7 @@ describe('what an extension is shown about a model call', () => {
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'look it up' }],
 			workingDirectory: process.cwd(),
-			runConfig: {
+			turnConfig: {
 				model: 'mock-model',
 				tokenBudget: 100_000,
 				timeoutMs: 30_000,
@@ -143,14 +143,14 @@ describe('what an extension is shown about a model call', () => {
 		})
 
 		const expected = [
-			'run_start',
+			'turn_start',
 			'iteration_start',
 			'pre_llm_call',
 			'post_llm_call',
 			'pre_tool_use',
 			'post_tool_use',
 			'iteration_end',
-			'run_end',
+			'turn_end',
 		] satisfies PluginHookEvent[]
 		const firstSignal = seen[0]?.ctx.signal
 		expect(firstSignal).toBeInstanceOf(AbortSignal)
@@ -179,7 +179,7 @@ describe('what an extension is shown about a model call', () => {
 		expect(request?.model).toBe('mock-model')
 	})
 
-	it('hands over copies, so a write cannot reach the run history', async () => {
+	it('hands over copies, so a write cannot reach the turn history', async () => {
 		const seen: Seen[] = []
 		const run = await runWithHooks(seen)
 

@@ -6,7 +6,7 @@ import { defineTool } from './defineTool.js'
 /**
  * @experimental
  * Read-only tools over an explicitly authorized historical source. The host
- * resolves and checks the executing run's scope; models choose no paths,
+ * resolves and checks the executing turn's scope; models choose no paths,
  * tenant, resident, pursuit or upper-history boundary.
  */
 export function buildResidentHistoryTools(

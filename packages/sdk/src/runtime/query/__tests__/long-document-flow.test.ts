@@ -11,8 +11,8 @@ import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 const ZERO_USAGE = {
@@ -134,20 +134,20 @@ describe('query long-document tool flow', () => {
 		const tools = new ToolRegistry()
 		tools.register(WriteFileTool)
 		tools.register(EditTool)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
 				provider,
 				tools,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					// The RUN's own deadline, not the test's. This test asserts a
 					// flow, never a latency, so the deadline must sit far above
 					// the work: six model turns and five file edits take ~3s
 					// alone and longer under a parallel suite. The outer vitest
 					// timeout was raised for exactly that reason and this one was
-					// missed, so the run kept aborting itself at 5s and the
+					// missed, so the turn kept aborting itself at 5s and the
 					// failure read as a broken flow rather than a slow machine.
 					timeoutMs: 120_000,
 					tokenBudget: 100_000,
@@ -171,7 +171,7 @@ describe('query long-document tool flow', () => {
 		const final = await readFile(join(workingDirectory, 'outputs/long-document-flow.md'), 'utf-8')
 		const executingTools = events
 			.filter(
-				(event): event is Extract<RunEvent, { type: 'tool_executing' }> =>
+				(event): event is Extract<SessionEvent, { type: 'tool_executing' }> =>
 					event.type === 'tool_executing',
 			)
 			.map((event) => event.toolName)

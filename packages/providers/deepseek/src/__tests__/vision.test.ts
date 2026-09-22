@@ -285,7 +285,7 @@ describe('the query loop reaches tool-result images', () => {
 		await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 	})
 
-	it('puts the rich tool result on the second wire request without editing Run.messages', async () => {
+	it('puts the rich tool result on the second wire request without editing Turn.messages', async () => {
 		const { provider, requests } = providerWith([
 			[
 				{
@@ -350,14 +350,14 @@ describe('the query loop reaches tool-result images', () => {
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-deepseek-vision-'))
 		dirs.push(cwd)
 
-		const run = await drainQuery({
+		const turn = await drainQuery({
 			provider,
 			tools,
 			agentId: 'deepseek-vision-agent',
 			agentName: 'DeepSeek vision agent',
 			messages: [{ role: 'user', content: 'capture one image' }],
 			workingDirectory: cwd,
-			runConfig: {
+			turnConfig: {
 				model: VISION_MODEL,
 				tokenBudget: 100_000,
 				timeoutMs: 5_000,
@@ -369,9 +369,9 @@ describe('the query loop reaches tool-result images', () => {
 			tenantId: generateTenantId(),
 		})
 
-		expect(run.status).toBe('completed')
-		expect(run.stopReason).toBe('end_turn')
-		expect(run.tokenUsage.totalTokens).toBe(40)
+		expect(turn.status).toBe('completed')
+		expect(turn.stopReason).toBe('end_turn')
+		expect(turn.tokenUsage.totalTokens).toBe(40)
 		expect(requests).toHaveLength(2)
 		const second = requests[1] as { messages: Array<{ role: string; content: unknown }> }
 		const toolAt = second.messages.findIndex((message) => message.role === 'tool')
@@ -383,7 +383,7 @@ describe('the query loop reaches tool-result images', () => {
 				{ type: 'image_url', image_url: { url: `data:image/png;base64,${PNG}` } },
 			],
 		})
-		const durableTool = run.messages.find((message) => message.role === 'tool')
+		const durableTool = turn.messages.find((message) => message.role === 'tool')
 		expect(durableTool?.content).toEqual([
 			{ type: 'text', text: 'captured' },
 			{ type: 'image', mediaType: 'image/png', data: PNG },

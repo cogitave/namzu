@@ -2,14 +2,14 @@ import { NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	BidiConnectParams,
 	BidiProvider,
-	BidiRunEvent,
 	BidiSession,
+	BidiTurnEvent,
 } from '../../types/bidi/index.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateSessionId, generateTurnId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DEFAULT_TOOL_RESULT_GUARDRAILS } from '../query/guardrail-presets.js'
@@ -20,7 +20,7 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 export class BidiSessionCloseTimeoutError extends Error {
 	constructor(readonly timeoutMs: number) {
 		super(
-			`Duplex provider session close did not settle within ${timeoutMs}ms. The local run is fenced and its tool authority was revoked, but provider cleanup is still unconfirmed.`,
+			`Duplex provider session close did not settle within ${timeoutMs}ms. The local turn is fenced and its tool authority was revoked, but provider cleanup is still unconfirmed.`,
 		)
 		this.name = 'BidiSessionCloseTimeoutError'
 	}
@@ -60,7 +60,7 @@ async function waitForProviderClose(pending: Promise<void>, timeoutMs: number): 
  * the interruption arrived is abandoned rather than delivered.
  */
 
-export interface BidiRunParams {
+export interface BidiTurnParams {
 	readonly provider: BidiProvider
 	readonly tools: ToolRegistryContract
 	readonly connect: BidiConnectParams
@@ -78,8 +78,10 @@ export interface BidiRunParams {
 	 */
 	readonly closeTimeoutMs?: number
 	readonly log?: Logger
-	/** Overrides the generated id, so a host can correlate its own. */
-	readonly runId?: RunId
+	/** The session this duplex turn belongs to. Absent: a new session id is generated. */
+	readonly sessionId?: SessionId
+	/** Overrides the generated turn id, so a host can correlate its own. */
+	readonly turnId?: TurnId
 	/**
 	 * Screens for the results this session's tools produce. Absent installs
 	 * {@link DEFAULT_TOOL_RESULT_GUARDRAILS}; an empty array installs none.
@@ -92,21 +94,22 @@ export interface BidiRunParams {
 	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 }
 
-export interface BidiRun {
-	readonly runId: RunId
+export interface BidiTurn {
+	readonly sessionId: SessionId
+	readonly turnId: TurnId
 	/** What the loop reports, in order. Ends when the session closes. */
-	events(): AsyncIterable<BidiRunEvent>
+	events(): AsyncIterable<BidiTurnEvent>
 	/** Push input from the human. */
 	send(input: Parameters<BidiSession['send']>[0]): Promise<void>
 	/**
-	 * Fence the local run immediately, abort tool contexts and close the
+	 * Fence the local turn immediately, abort tool contexts and close the
 	 * provider once. It does not wait for tool code that ignores cancellation;
-	 * provider cleanup is observed for `BidiRunParams.closeTimeoutMs`.
+	 * provider cleanup is observed for `BidiTurnParams.closeTimeoutMs`.
 	 */
 	close(): Promise<void>
 }
 
-export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
+export async function startBidiTurn(params: BidiTurnParams): Promise<BidiTurn> {
 	params.signal?.throwIfAborted()
 	const closeTimeoutMs = params.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS
 	if (
@@ -115,16 +118,18 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 		closeTimeoutMs > MAX_TIMER_DELAY_MS
 	) {
 		throw new RangeError(
-			`BidiRunParams.closeTimeoutMs must be an integer from 0 through ${MAX_TIMER_DELAY_MS}`,
+			`BidiTurnParams.closeTimeoutMs must be an integer from 0 through ${MAX_TIMER_DELAY_MS}`,
 		)
 	}
-	const runId = params.runId ?? generateRunId()
+	const sessionId = params.sessionId ?? generateSessionId()
+	const turnId = params.turnId ?? generateTurnId()
 	const log = resolveLogger(params.log).child({
 		[SCOPE_ATTRIBUTE]: 'runtime/bidi/session',
-		[NAMZU.RUN_ID]: runId,
+		[NAMZU.SESSION_ID]: sessionId,
+		[NAMZU.TURN_ID]: turnId,
 	})
 	const lifetime = new AbortController()
-	const queue: BidiRunEvent[] = []
+	const queue: BidiTurnEvent[] = []
 	let wake: (() => void) | undefined
 	let closed = false
 	let session: BidiSession | undefined
@@ -213,7 +218,7 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 	let generation = 0
 	const executionIds = new Set<string>()
 
-	const emit = (event: BidiRunEvent): boolean => {
+	const emit = (event: BidiTurnEvent): boolean => {
 		if (closed) return false
 		queue.push(event)
 		wake?.()
@@ -222,7 +227,9 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 
 	const executeCall = async (call: { id: string; name: string; arguments: string }) => {
 		const startedUnder = generation
-		if (!emit({ type: 'tool_started', runId, toolUseId: call.id, toolName: call.name })) {
+		if (
+			!emit({ type: 'tool_started', sessionId, turnId, toolUseId: call.id, toolName: call.name })
+		) {
 			return
 		}
 
@@ -236,7 +243,8 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 				input = {}
 			}
 			const context: ToolContext = {
-				runId,
+				sessionId,
+				turnId,
 				workingDirectory: params.workingDirectory,
 				abortSignal: lifetime.signal,
 				env: params.env ?? {},
@@ -256,19 +264,20 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 		if (startedUnder !== generation) {
 			// The human spoke over the model while this ran. Delivering the
 			// answer now would put it in a conversation that has moved on.
-			emit({ type: 'tool_abandoned', runId, toolUseId: call.id, toolName: call.name })
+			emit({ type: 'tool_abandoned', sessionId, turnId, toolUseId: call.id, toolName: call.name })
 			return
 		}
 
 		// Entering the provider send is the publication commit point. A later
 		// conversational interruption cannot recall a write already handed to
-		// the provider, but closing the run still closes the whole session and
+		// the provider, but closing the turn still closes the whole session and
 		// fences the local terminal event.
 		await activeSession.sendToolResult(call.id, output, isError)
 		if (closed) return
 		emit({
 			type: 'tool_completed',
-			runId,
+			sessionId,
+			turnId,
 			toolUseId: call.id,
 			toolName: call.name,
 			output,
@@ -282,17 +291,17 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 				if (closed) break
 				switch (event.type) {
 					case 'text':
-						emit({ type: 'text', runId, text: event.text })
+						emit({ type: 'text', sessionId, turnId, text: event.text })
 						break
 					case 'audio':
-						emit({ type: 'audio', runId, data: event.data, mediaType: event.mediaType })
+						emit({ type: 'audio', sessionId, turnId, data: event.data, mediaType: event.mediaType })
 						break
 					case 'tool_call': {
 						if (executionIds.has(event.id)) {
 							const error = new Error(
 								`Duplex provider repeated tool-call id "${event.id}". Re-executing it could repeat a side effect, so the session was closed.`,
 							)
-							emit({ type: 'error', runId, message: error.message })
+							emit({ type: 'error', sessionId, turnId, message: error.message })
 							beginClose(error, true)
 							break
 						}
@@ -300,24 +309,25 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 						// Started, not awaited: awaiting here would stall the very
 						// stream an interruption arrives on.
 						void executeCall(event).catch((err: unknown) => {
-							emit({ type: 'error', runId, message: toErrorMessage(err) })
+							emit({ type: 'error', sessionId, turnId, message: toErrorMessage(err) })
 						})
 						break
 					}
 					case 'turn_complete':
-						emit({ type: 'turn_complete', runId })
+						emit({ type: 'turn_complete', sessionId, turnId })
 						break
 					case 'interrupted':
 						generation++
-						emit({ type: 'interrupted', runId })
+						emit({ type: 'interrupted', sessionId, turnId })
 						break
 					case 'error':
-						emit({ type: 'error', runId, message: event.message })
+						emit({ type: 'error', sessionId, turnId, message: event.message })
 						break
 					case 'closed':
 						emit({
 							type: 'closed',
-							runId,
+							sessionId,
+							turnId,
 							...(event.reason !== undefined ? { reason: event.reason } : {}),
 						})
 						beginClose(new Error(event.reason ?? 'the duplex provider session closed'), false)
@@ -331,7 +341,7 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 			}
 		} catch (err) {
 			if (!closed) {
-				emit({ type: 'error', runId, message: toErrorMessage(err) })
+				emit({ type: 'error', sessionId, turnId, message: toErrorMessage(err) })
 				beginClose(err, true)
 			}
 		} finally {
@@ -340,7 +350,7 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 	})()
 	void pump.catch(() => undefined)
 
-	async function* events(): AsyncIterable<BidiRunEvent> {
+	async function* events(): AsyncIterable<BidiTurnEvent> {
 		while (true) {
 			while (queue.length > 0) {
 				const next = queue.shift()
@@ -355,7 +365,8 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 	}
 
 	return {
-		runId,
+		sessionId,
+		turnId,
 		events,
 		send: async (input) => {
 			lifetime.signal.throwIfAborted()

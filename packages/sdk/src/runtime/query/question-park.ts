@@ -6,7 +6,7 @@ import type { CheckpointId, HITLResumeDecision, UserQuestionData } from '../../t
  * `ask_user_question` parked through the raw handler with a synthetic
  * `cp_question_<toolUseId>` id that was never written anywhere. The
  * checkpoint therefore did not exist: nothing on disk said a human owed
- * this run an answer, `findPendingCheckpoint` could never return it, and a
+ * this turn an answer, `findPendingCheckpoint` could never return it, and a
  * remote host could not even OBSERVE the question except through the
  * in-process callback. Kill the process while somebody is looking at the
  * question card and the answer can never be applied — the restore path
@@ -31,7 +31,7 @@ export interface QuestionParkRecorder {
 	 *
 	 * `null` rather than a throw: an unrecorded park is a lost cross-process
 	 * handoff, not a reason to fail the tool. The in-process await is still
-	 * perfectly valid, and taking the run down would turn a durability
+	 * perfectly valid, and taking the turn down would turn a durability
 	 * shortfall into an outage.
 	 */
 	record(question: UserQuestionData): Promise<CheckpointId | null>
@@ -42,10 +42,10 @@ export interface QuestionParkRecorder {
 /**
  * A recorder whose backing store is attached later.
  *
- * The tool that asks is built before the run exists — an agent constructs
+ * The tool that asks is built before the turn exists — an agent constructs
  * its tool registry, and only then hands it to `query()`, which is where
  * the checkpoint manager is created. Binding late is what lets the same
- * tool instance be durable inside a run and inert outside one, without the
+ * tool instance be durable inside a turn and inert outside one, without the
  * tool builder needing to know about checkpoints at all.
  *
  * Unbound, `record` returns `null` and `resolve` is a no-op, which is
@@ -59,7 +59,7 @@ export class QuestionParkBinding implements QuestionParkRecorder {
 		this.backing = recorder
 	}
 
-	/** Detach when the run settles, so a later run cannot write into it. */
+	/** Detach when the turn settles, so a later turn cannot write into it. */
 	unbind(): void {
 		this.backing = undefined
 	}
@@ -74,7 +74,7 @@ export class QuestionParkBinding implements QuestionParkRecorder {
 }
 
 /**
- * Answers carried into a resumed run, keyed by the `questionId` of the
+ * Answers carried into a resumed turn, keyed by the `questionId` of the
  * tool call that asked.
  *
  * Consulted before the park handler, so a re-entered `ask_user_question`
@@ -84,7 +84,7 @@ export class QuestionParkBinding implements QuestionParkRecorder {
  * sentinel.
  *
  * Each answer is consumed once. A tool that somehow asks the same question
- * twice in one resumed run is asking a genuinely new question the second
+ * twice in one resumed turn is asking a genuinely new question the second
  * time, and answering it from a stale record would be fabricating consent.
  */
 export class PendingAnswers {

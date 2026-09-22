@@ -6,7 +6,7 @@ import type { CodeNavigationProvider } from '../code-navigation/index.js'
 // the guardrails is described here. Erased at compile time, so neither
 // module exists at runtime to depend on the other.
 import type { ToolResultGuardrailSpec } from '../guardrail/index.js'
-import type { RunId } from '../ids/index.js'
+import type { SessionId, TurnId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
@@ -92,7 +92,7 @@ export interface SkillRegistryRef {
  * `ToolRegistryRef` exists: this type file is imported by everything, and
  * naming the implementation here would drag a `node:child_process` module
  * into every consumer's type graph. `owner` is not on this surface at all —
- * the executor binds it to the run, so a tool cannot start a job that
+ * the executor binds it to the turn, so a tool cannot start a job that
  * outlives, or is billed to, somebody else's run.
  */
 export interface BackgroundJobRegistryRef {
@@ -129,12 +129,12 @@ export interface BackgroundJobRegistryRef {
 		exitCode?: number
 	}>
 	/**
-	 * Say that the model is waiting on this job, so the run stays open for it
+	 * Say that the model is waiting on this job, so the turn stays open for it
 	 * when the model stops calling tools.
 	 *
 	 * Called by `wait_for_job` and nothing else. The kernel holds a finishing
 	 * run open — bounded, and for no model tokens — only for a job marked
-	 * here; a job nobody marked never delays a run, which is what a dev server
+	 * here; a job nobody marked never delays a turn, which is what a dev server
 	 * or a watcher needs. Optional for the reason `waitForExit` is: a host
 	 * implementing this interface directly may have nowhere to record the
 	 * intent, and then there is simply no hold.
@@ -143,7 +143,7 @@ export interface BackgroundJobRegistryRef {
 }
 
 /**
- * Tracks which files the agent has read in the current run.
+ * Tracks which files the agent has read in the current turn.
  * Write tool consults this to enforce the "read before overwrite" invariant
  * an existing file must be read first or the write fails.
  * Keys are the resolved path used by the tool — sandbox-relative when a sandbox
@@ -340,16 +340,19 @@ export interface ToolContext {
 	 * deadline; an optional signal can cancel capture earlier. Never replays
 	 * effects. Unsupported stores return undefined.
 	 */
-	captureRunEvidence?: (
+	captureSessionEvidence?: (
 		maxReadBytes?: number,
 		signal?: AbortSignal,
-	) => Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined>
+	) => Promise<import('../../store/evidence/types.js').SessionTextEvidenceSource | undefined>
 
-	runId: RunId
+	/** The session this call belongs to. */
+	sessionId: SessionId
+	/** The turn this call belongs to. */
+	turnId: TurnId
 	workingDirectory: string
 	/**
 	 * Directories besides the working directory the file tools may reach,
-	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed run
+	 * absolute. A host adds one for a session (`/add-dir`); a sandboxed turn
 	 * binds each. Relative paths still resolve against the working
 	 * directory; an absolute path inside any of these is accepted.
 	 */
@@ -359,7 +362,8 @@ export interface ToolContext {
 	log: (level: 'info' | 'warn' | 'error', message: string) => void
 	permissionContext?: {
 		mode: PermissionMode
-		runId: string
+		sessionId: string
+		turnId: string
 		workingDirectory: string
 	}
 
@@ -382,7 +386,7 @@ export interface ToolContext {
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	/**
-	 * Symbol resolution for this run, when a host wired one up.
+	 * Symbol resolution for this turn, when a host wired one up.
 	 *
 	 * Absent means the `lsp` tool is not registered at all — see
 	 * `tools/builtins/lsp.ts` for why a tool that is always present and
@@ -409,14 +413,14 @@ export interface ToolContext {
 	/**
 	 * Where the `skill` tool reads from.
 	 *
-	 * Absent means the run has no skills, and the tool says so rather than
+	 * Absent means the turn has no skills, and the tool says so rather than
 	 * reporting an empty list — "no skills here" and "no registry" are
 	 * different answers.
 	 */
 	skills?: SkillRegistryRef
 
 	/**
-	 * How this run reaches the web.
+	 * How this turn reaches the web.
 	 *
 	 * Two independent halves, and either may be absent. This kernel ships a
 	 * guarded fetch provider and NO search backend, so `search` missing is
@@ -470,9 +474,9 @@ export interface ToolContext {
 	maxToolOutputChars?: number
 
 	/**
-	 * Screens the RUN asked for, applied to results this call produces.
+	 * Screens the TURN asked for, applied to results this call produces.
 	 *
-	 * Worth having because a run usually does not build its registry: a host
+	 * Worth having because a turn usually does not build its registry: a host
 	 * assembles one and hands it to `runAgent`, so a registry-construction
 	 * option alone is the host's to write and the kernel's default reaches
 	 * nobody.
@@ -481,9 +485,9 @@ export interface ToolContext {
 	 * the registry was built with them — including an empty array, which means
 	 * none — because a registry that stated its policy has stated it. These
 	 * apply to a registry that declared none, which is the ordinary case: a
-	 * host assembles a registry and hands it to a run it does not own.
+	 * host assembles a registry and hands it to a turn it does not own.
 	 *
-	 * `undefined` means the run declared none; an empty array means the run
+	 * `undefined` means the turn declared none; an empty array means the turn
 	 * declared none ON PURPOSE, which is how a caller turns off a screen the
 	 * executor would otherwise install by default.
 	 */
@@ -505,7 +509,7 @@ export interface ToolContext {
 	 *
 	 * Tools are host-installed code — the model cannot add one — so the trust
 	 * boundary this protects is the MODEL's reach. `allowedTools` is enforced
-	 * again at dispatch. When the run has an operator authorization gate, a
+	 * again at dispatch. When the turn has an operator authorization gate, a
 	 * nested call must be explicitly allowed by that gate; a deny or an
 	 * undecided call fails closed because another durable human review cannot
 	 * be opened from inside the already-executing parent.
@@ -527,13 +531,13 @@ export interface ToolContext {
 	toolUseId?: string
 
 	/**
-	 * Stable, run-scoped identity shared by every direct tool call the model
+	 * Stable, turn-scoped identity shared by every direct tool call the model
 	 * issued in the same response batch.
 	 *
 	 * `toolUseId` answers "which call is this?"; this answers "which sibling
 	 * calls were launched together?". Hosts use it to keep a concurrent group
 	 * visible while one sibling is still running without accidentally reviving
-	 * terminal work from an older batch or another run whose provider reused a
+	 * terminal work from an older batch or another turn whose provider reused a
 	 * call id. Optional because a host may invoke a tool directly, outside the
 	 * query executor.
 	 */
@@ -543,7 +547,7 @@ export interface ToolContext {
 	 * How this execution entered the tool registry.
 	 *
 	 * Present on executor-owned calls. Optional because a host may invoke a
-	 * tool directly outside a run and construct its own minimal context.
+	 * tool directly outside a turn and construct its own minimal context.
 	 */
 	source?: ToolCallSource
 
@@ -565,7 +569,7 @@ export interface ToolContext {
 	 * own, and one tool may pause more than once.
 	 *
 	 * Absent when whatever is driving the tool provides no route to a
-	 * human — a host calling a tool directly, outside a run. A tool must
+	 * human — a host calling a tool directly, outside a turn. A tool must
 	 * treat it as optional and decide what to do without one, and must
 	 * never read an unanswered pause as consent; the outcome says which it
 	 * was, in its own shape, so silence cannot be destructured into a yes.
@@ -642,7 +646,7 @@ export interface ToolResult {
 	 */
 	retryable?: boolean
 	/**
-	 * Facts this result pins into the run's working memory, by key. The
+	 * Facts this result pins into the turn's working memory, by key. The
 	 * kernel keeps them in the working-memory slot — in front of the model
 	 * every iteration, across compaction — and a later pin under the same
 	 * key replaces the earlier one. For what a tool knows and the model
@@ -717,7 +721,7 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	category?: 'filesystem' | 'shell' | 'network' | 'analysis' | 'custom'
 
 	/**
-	 * Deadline for a single execution, overriding the run-level default.
+	 * Deadline for a single execution, overriding the turn-level default.
 	 *
 	 * On expiry the executor stops waiting and returns a model-visible
 	 * error result, so a slow dependency becomes something the agent can
@@ -747,21 +751,21 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	maxRetries?: number
 
 	/**
-	 * This tool's output IS the run's answer: settle with it instead of
+	 * This tool's output IS the turn's answer: settle with it instead of
 	 * asking the model to restate it.
 	 *
 	 * Every delegation path is blocking and returns the worker's final
 	 * text as the dispatching call's result, after which the loop went
 	 * round again — so a router agent, whose entire job is to pick a
 	 * specialist, paid one extra model call per request at the parent's
-	 * full context size, the most expensive call in the run. The relay is
+	 * full context size, the most expensive call in the turn. The relay is
 	 * also LOSSY: the parent paraphrases the worker's answer through its
 	 * own (compacted) context, so what the caller receives is not what the
 	 * worker produced.
 	 *
 	 * Honoured only when the terminal call is the ONLY call in the turn
 	 * and it did not fail. A model that asked for other work in the same
-	 * turn meant to see those results, and ending the run would discard
+	 * turn meant to see those results, and ending the turn would discard
 	 * answers it requested; that turn takes the ordinary path and the
 	 * reason is logged. A failed terminal call is not an answer either —
 	 * the error goes back to the model, which is the point of returning

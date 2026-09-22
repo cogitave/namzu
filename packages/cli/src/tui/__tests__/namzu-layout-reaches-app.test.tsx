@@ -39,6 +39,8 @@ vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, tru
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
 vi.mock('../../user-commands/store.js', () => ({ discoverUserCommands: () => [] }))
 vi.mock('../../integrations/sessions/store.js', () => ({
+	// The /resume and /abandon paths ask for the parked turn first; none here.
+	activeConversationTurn: async () => undefined,
 	openSessions: async () => ({ tenantId: '29b3a0cc-469e-4536-8e4d-ac3301a586a6' }),
 	startConversation: async () => '535454a0-3284-474e-80c6-c0c73b5d8eb5',
 	requireWritableConversation: async () => {},
@@ -190,7 +192,7 @@ function recorder(screen: Screen, initialColumns: number, initialRows: number) {
 
 function expectActiveLayout(screen: Screen): void {
 	const viewport = screen.viewport().join('\n')
-	// Check every size even if one fails, so the same run records all affected layouts.
+	// Check every size even if one fails, so the same turn records all affected layouts.
 	expect.soft(viewport).toContain('Check keyboard')
 	expect.soft(viewport).toContain('then compare output')
 	expect.soft(viewport).toContain('Working')

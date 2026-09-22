@@ -8,7 +8,7 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ReasoningEffort } from '../../../types/provider/index.js'
-import type { AgentRunConfig } from '../../../types/run/index.js'
+import type { TurnConfig } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
@@ -18,7 +18,7 @@ import { drainQuery } from '../index.js'
  * model's default) reads as "this model ignores effort" rather than "nobody
  * plumbed it through".
  *
- * These drive a real run and read what the provider was actually handed, which
+ * These drive a real turn and read what the provider was actually handed, which
  * is the only thing that distinguishes a wired field from a declared one. A
  * test asserting the field exists on the config type would have passed against
  * the broken version.
@@ -31,7 +31,7 @@ afterEach(async () => {
 	workdirs = []
 })
 
-async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promise<MockLLMProvider> {
+async function run(overrides: Partial<TurnConfig>, turns: unknown[]): Promise<MockLLMProvider> {
 	const provider = new MockLLMProvider({
 		turns: turns as never,
 		capabilities: {
@@ -47,7 +47,7 @@ async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promis
 	await drainQuery({
 		provider,
 		tools: new ToolRegistry(),
-		runConfig: {
+		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 30_000,
 			tokenBudget: 100_000,
@@ -67,7 +67,7 @@ async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promis
 	return provider
 }
 
-describe('an effort level set on the run reaches the provider', () => {
+describe('an effort level set on the turn reaches the provider', () => {
 	it('arrives on the request', async () => {
 		const provider = await run({ effort: 'max' }, [{ text: 'done' }])
 
@@ -93,9 +93,9 @@ describe('an effort level set on the run reaches the provider', () => {
 		expect(provider.requests[0] && 'effort' in provider.requests[0]).toBe(false)
 	})
 
-	it('rides every turn of the run, not only the first', async () => {
-		// The value is run-level because the provider documents that changing
-		// it between requests invalidates the cached prefix. A run that
+	it('rides every turn of the turn, not only the first', async () => {
+		// The value is turn-level because the provider documents that changing
+		// it between requests invalidates the cached prefix. A turn that
 		// forwarded it once and then stopped would pay that cost silently.
 		const provider = await run({ effort: 'low' }, [{ text: 'one' }, { text: 'two' }])
 
@@ -116,14 +116,14 @@ describe('an effort level set on the run reaches the provider', () => {
 
 describe('the front door forwards it too, not only the kernel', () => {
 	/**
-	 * These exist because everything above passed while a real run put NOTHING
+	 * These exist because everything above passed while a real turn put NOTHING
 	 * on the wire.
 	 *
-	 * `drainQuery` takes the run config a caller hands it, so testing through
+	 * `drainQuery` takes the turn config a caller hands it, so testing through
 	 * it proves the loop forwards the field and nothing about whether a caller
 	 * can set it. Every ergonomic entry point — this one, `ReactiveAgent`,
 	 * `SupervisorAgent`, and the manager's bare-config branch — builds its
-	 * `AgentRunConfig` by HAND-LISTING fields, so a field nobody remembered to
+	 * `TurnConfig` by HAND-LISTING fields, so a field nobody remembered to
 	 * add is dropped in silence, with no cast to blame and no error to see.
 	 * `thinking` had been in that state since it shipped.
 	 *

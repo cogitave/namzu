@@ -1,23 +1,24 @@
-import { lstatSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Message, createProjectInstructionMessage, createUserMessage } from '@namzu/sdk'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
+import { recordTurn } from '../../../__fixtures__/session-log.js'
 import {
-	appendMessages,
 	forkConversation,
 	forkConversationBeforeUser,
 	listRecent,
 	loadConversation,
 	nextForkName,
+	openConversationLog,
 	openSessions,
-	replaceConversation,
+	readConversationFacts,
+	refreshIndex,
 	setTitle,
 	startConversation,
 	titleOf,
 } from '../store.js'
-import { conversationMarkdown } from '../transcript-export.js'
 
 /**
  * `/resume` lists conversations by the first thing the operator typed. That is
@@ -32,7 +33,9 @@ import { conversationMarkdown } from '../transcript-export.js'
  */
 
 async function project(): Promise<Awaited<ReturnType<typeof openSessions>>> {
-	return openSessions(mkdtempSync(join(tmpdir(), 'namzu-sessions-')))
+	return openSessions(mkdtempSync(join(tmpdir(), 'namzu-sessions-')), {
+		stateRoot: mkdtempSync(join(tmpdir(), 'namzu-sessions-home-')),
+	})
 }
 
 function said(role: 'user' | 'assistant', content: string): Message {
@@ -40,50 +43,34 @@ function said(role: 'user' | 'assistant', content: string): Message {
 }
 
 describe('naming a conversation', () => {
-	it.runIf(process.platform !== 'win32')(
-		'keeps generated state private without hiding authored project state',
-		async () => {
-			const s = await project()
-			const id = await startConversation(s)
-			// `mode` is ignored when a direct write replaces an existing file. Seed
-			// the old permissive shape so the assertion proves upgrade behaviour,
-			// not only the first-write default.
-			writeFileSync(join(s.controlRoot, 'titles.json'), '{}\n', {
-				mode: 0o644,
-			})
-			setTitle(s, id, 'private title')
-
-			expect(lstatSync(join(s.root, 'sessions')).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(s.root, 'goals')).mode & 0o777).toBe(0o700)
-			expect(lstatSync(join(s.controlRoot, 'titles.json')).mode & 0o777).toBe(0o600)
-		},
-	)
-
 	it('reports no name before one is given', async () => {
 		const s = await project()
 		const id = await startConversation(s)
 
-		expect(titleOf(s, id)).toBeUndefined()
+		expect(await titleOf(s, id)).toBeUndefined()
 	})
 
-	it('remembers a name, and reads it back', async () => {
+	it('remembers a name as a session_updated record, and reads it back', async () => {
 		const s = await project()
 		const id = await startConversation(s)
 
-		setTitle(s, id, 'the auth refactor')
+		await setTitle(s, id, 'the auth refactor')
 
-		expect(titleOf(s, id)).toBe('the auth refactor')
+		expect(await titleOf(s, id)).toBe('the auth refactor')
+		const facts = await readConversationFacts(s, id)
+		expect(facts?.records.at(-1)).toMatchObject({
+			type: 'session_updated',
+			title: 'the auth refactor',
+			titleSource: 'named',
+		})
 	})
 
 	it('shows the chosen name in the list instead of the opening message', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [
-			said('user', 'why does the build fail'),
-			said('assistant', 'because'),
-		])
+		await recordTurn(s, id, [said('user', 'why does the build fail'), said('assistant', 'because')])
 
-		setTitle(s, id, 'flaky build')
+		await setTitle(s, id, 'flaky build')
 		const [row] = await listRecent(s)
 
 		expect(row?.title).toBe('flaky build')
@@ -91,11 +78,9 @@ describe('naming a conversation', () => {
 	})
 
 	it('says a derived title is derived, which the text alone cannot', async () => {
-		// The distinction the list needs: a derived title changes meaning as
-		// the conversation moves on, and a chosen one does not.
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'why does the build fail')])
+		await recordTurn(s, id, [said('user', 'why does the build fail')])
 
 		const [row] = await listRecent(s)
 
@@ -106,7 +91,7 @@ describe('naming a conversation', () => {
 	it('derives the title from the operator, not a retained policy snapshot', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [
+		await recordTurn(s, id, [
 			createProjectInstructionMessage('do not use as a title', ['AGENTS.md']),
 			createUserMessage('the operator request'),
 		])
@@ -118,16 +103,14 @@ describe('naming a conversation', () => {
 	})
 
 	it('takes the name away rather than storing an empty one', async () => {
-		// An empty string is not a name. Keeping one would show a blank row,
-		// which reads as a conversation with nothing in it.
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'opening question')])
-		setTitle(s, id, 'temporary')
+		await recordTurn(s, id, [said('user', 'opening question')])
+		await setTitle(s, id, 'temporary')
 
-		setTitle(s, id, '   ')
+		await setTitle(s, id, '   ')
 
-		expect(titleOf(s, id)).toBeUndefined()
+		expect(await titleOf(s, id)).toBeUndefined()
 		const [row] = await listRecent(s)
 		expect(row?.title).toBe('opening question')
 		expect(row?.named).toBe(false)
@@ -137,58 +120,20 @@ describe('naming a conversation', () => {
 		const s = await project()
 		const first = await startConversation(s)
 		const second = await startConversation(s)
-		setTitle(s, first, 'one')
-		setTitle(s, second, 'two')
+		await setTitle(s, first, 'one')
+		await setTitle(s, second, 'two')
 
-		setTitle(s, first, 'one renamed')
+		await setTitle(s, first, 'one renamed')
 
-		expect(titleOf(s, second)).toBe('two')
+		expect(await titleOf(s, second)).toBe('two')
+		expect(await titleOf(s, first)).toBe('one renamed')
 	})
 
-	it('survives a titles file a person has broken', async () => {
-		// It is a plain JSON file next to the sessions, so it can be edited and
-		// it can be wrong. A conversation with no readable name still has a
-		// derived one, and refusing to list anything would be a worse answer
-		// than falling back to it.
+	it('omits a conversation with no messages from the list', async () => {
 		const s = await project()
-		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'still listed')])
-		writeFileSync(join(s.controlRoot, 'titles.json'), '{ this is not json', 'utf-8')
+		await startConversation(s)
 
-		const [row] = await listRecent(s)
-
-		expect(row?.title).toBe('still listed')
-	})
-
-	it('ignores a non-string name rather than rendering it', async () => {
-		const s = await project()
-		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'still listed')])
-		writeFileSync(
-			join(s.controlRoot, 'titles.json'),
-			JSON.stringify({ [id]: { not: 'a string' } }),
-			'utf-8',
-		)
-
-		expect(titleOf(s, id)).toBeUndefined()
-		expect((await listRecent(s))[0]?.title).toBe('still listed')
-	})
-
-	it('reads chosen names written by the old string-only sidecar', async () => {
-		const s = await project()
-		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'opening')])
-		writeFileSync(
-			join(s.controlRoot, 'titles.json'),
-			JSON.stringify({ [id]: 'legacy chosen name' }),
-			'utf-8',
-		)
-
-		expect(titleOf(s, id)).toBe('legacy chosen name')
-		expect((await listRecent(s))[0]).toMatchObject({
-			title: 'legacy chosen name',
-			named: true,
-		})
+		expect(await listRecent(s)).toEqual([])
 	})
 })
 
@@ -196,7 +141,7 @@ describe('forking a conversation', () => {
 	it('copies the transcript into a new conversation', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'first'), said('assistant', 'second')])
+		await recordTurn(s, id, [said('user', 'first'), said('assistant', 'second')])
 
 		const forked = await forkConversation(s, id)
 
@@ -208,53 +153,39 @@ describe('forking a conversation', () => {
 		])
 	})
 
-	it('does not publish lineage when the atomic copied prefix fails read-back', async () => {
+	it('seeds the fork as one compaction record outside any turn', async () => {
 		const s = await project()
-		const source = await startConversation(s)
-		const messages = [said('user', 'first'), said('assistant', 'second')]
-		await appendMessages(s, source, messages)
-		const replace = s.store.replaceMessages.bind(s.store)
-		vi.spyOn(s.store, 'replaceMessages').mockImplementation(async (sessionId, copied, tenantId) => {
-			await replace(sessionId, copied.slice(0, 1), tenantId)
-		})
+		const id = await startConversation(s)
+		await recordTurn(s, id, [said('user', 'first'), said('assistant', 'second')])
 
-		await expect(forkConversation(s, source)).rejects.toThrow(/exact copied history/i)
+		const forked = await forkConversation(s, id)
 
-		const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
-		const partial = sessions.find(
-			(session) =>
-				session.id !== source && session.projectId === s.projectId && session.topicId === s.topicId,
-		)
-		if (!partial) throw new Error('fixture expected the interrupted fork session')
-		expect(await loadConversation(s, partial.id)).toEqual([messages[0]])
-		expect(await s.turnEvidence?.read(partial.id)).toEqual({
-			kind: 'not-recorded',
-		})
-		await expect(conversationMarkdown(s, partial.id)).rejects.toMatchObject({
-			reason: 'evidence-not-recorded',
-		})
+		const facts = await readConversationFacts(s, forked.id)
+		const seed = facts?.records.find((record) => record.type === 'compaction')
+		expect(seed).toMatchObject({ type: 'compaction', strategy: 'fork', trigger: 'manual' })
+		expect(seed?.turnId).toBeUndefined()
+		expect(facts?.records.some((record) => record.type === 'turn_started')).toBe(false)
 	})
 
 	it('leaves the original exactly as it was', async () => {
-		// The whole point. A fork that moved the conversation would be a
-		// rename with extra steps.
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'first')])
+		await recordTurn(s, id, [said('user', 'first')])
 
 		const forked = await forkConversation(s, id)
-		await appendMessages(s, forked.id, [said('user', 'only in the fork')])
+		await recordTurn(s, forked.id, [said('user', 'only in the fork')])
 
 		expect((await loadConversation(s, id)).map((m) => m.content)).toEqual(['first'])
+		expect((await loadConversation(s, forked.id)).map((m) => m.content)).toEqual([
+			'first',
+			'only in the fork',
+		])
 	})
 
 	it('names the fork, so the two are not one row twice', async () => {
-		// Load-bearing. Both conversations open with the same message, so both
-		// DERIVE the same title — and the list a person would use to undo the
-		// fork would show two rows they cannot tell apart.
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'why does the build fail')])
+		await recordTurn(s, id, [said('user', 'why does the build fail')])
 
 		const forked = await forkConversation(s, id)
 		const titles = (await listRecent(s)).map((row) => row.title)
@@ -266,8 +197,8 @@ describe('forking a conversation', () => {
 	it('takes the name from the original when it has one', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'anything')])
-		setTitle(s, id, 'the auth refactor')
+		await recordTurn(s, id, [said('user', 'anything')])
+		await setTitle(s, id, 'the auth refactor')
 
 		expect((await forkConversation(s, id)).title).toBe('the auth refactor (fork)')
 	})
@@ -275,7 +206,7 @@ describe('forking a conversation', () => {
 	it('numbers a second fork instead of colliding with the first', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'anything')])
+		await recordTurn(s, id, [said('user', 'anything')])
 
 		const one = await forkConversation(s, id)
 		const two = await forkConversation(s, id)
@@ -285,8 +216,6 @@ describe('forking a conversation', () => {
 	})
 
 	it('refuses to fork a conversation with nothing in it', async () => {
-		// An empty fork is a session that shows up in the list forever and
-		// answers no question.
 		const s = await project()
 		const id = await startConversation(s)
 
@@ -295,15 +224,9 @@ describe('forking a conversation', () => {
 })
 
 describe('forking before a selected user prompt', () => {
-	it('copies the exact prefix and leaves the source byte-for-byte whole', async () => {
+	it('copies the exact prefix and leaves the source whole', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		const summary = {
-			role: 'system',
-			content: 'summary of older work',
-			timestamp: 10,
-			cacheHint: 'ephemeral',
-		} as Message
 		const first = createUserMessage('first surviving prompt', [
 			{
 				type: 'document',
@@ -313,11 +236,7 @@ describe('forking before a selected user prompt', () => {
 				citations: true,
 			},
 		])
-		const answer = {
-			role: 'assistant',
-			content: 'first answer',
-			timestamp: 20,
-		} as Message
+		const answer = { role: 'assistant', content: 'first answer', timestamp: 20 } as Message
 		const selected = createUserMessage('rewrite this prompt', [
 			{
 				type: 'stored',
@@ -327,20 +246,16 @@ describe('forking before a selected user prompt', () => {
 				name: 'diagram.png',
 			},
 		])
-		const suffix = {
-			role: 'assistant',
-			content: 'answer to remove',
-			timestamp: 40,
-		} as Message
-		const source = [summary, first, answer, selected, suffix]
-		await appendMessages(s, id, source)
+		const suffix = { role: 'assistant', content: 'answer to remove', timestamp: 40 } as Message
+		await recordTurn(s, id, [first, answer])
+		await recordTurn(s, id, [selected, suffix])
 
 		const forked = await forkConversationBeforeUser(s, id, 1, selected)
 
-		expect(forked.messages).toEqual([summary, first, answer])
+		expect(forked.messages).toEqual([first, answer])
 		expect(forked.selected).toEqual(selected)
-		expect(await loadConversation(s, forked.id)).toEqual([summary, first, answer])
-		expect(await loadConversation(s, id)).toEqual(source)
+		expect(await loadConversation(s, forked.id)).toEqual([first, answer])
+		expect(await loadConversation(s, id)).toEqual([first, answer, selected, suffix])
 	})
 
 	it('allows the first prompt to reopen on an empty branch', async () => {
@@ -349,7 +264,7 @@ describe('forking before a selected user prompt', () => {
 		const selected = createUserMessage('the opening prompt', [
 			{ data: 'aGVsbG8=', mediaType: 'image/png' },
 		])
-		await appendMessages(s, id, [selected, said('assistant', 'the old answer')])
+		await recordTurn(s, id, [selected, said('assistant', 'the old answer')])
 
 		const forked = await forkConversationBeforeUser(s, id, 0, selected)
 
@@ -365,65 +280,53 @@ describe('forking before a selected user prompt', () => {
 		const s = await project()
 		const id = await startConversation(s)
 		const durable = createUserMessage('durable text')
-		await appendMessages(s, id, [durable])
-		const before = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+		await recordTurn(s, id, [durable])
+		const before = await s.index.listSessions({ slug: s.slug })
 
 		await expect(
-			forkConversationBeforeUser(s, id, 0, {
-				...durable,
-				content: 'stale picker text',
-			}),
+			forkConversationBeforeUser(s, id, 0, { ...durable, content: 'stale picker text' }),
 		).rejects.toThrow(/conversation changed.*nothing was forked/i)
 
-		const after = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+		const after = await s.index.listSessions({ slug: s.slug })
 		expect(after.map((session) => session.id)).toEqual(before.map((session) => session.id))
 	})
 })
 
-describe('compacting a conversation', () => {
-	it('replaces the durable view and preserves the opening title', async () => {
+describe('a compacted conversation', () => {
+	it('keeps the opening title after its opening message is folded away', async () => {
 		const s = await project()
 		const id = await startConversation(s)
-		await appendMessages(s, id, [
-			said('user', 'the opening question'),
-			said('assistant', 'an old answer'),
-			said('user', 'a recent follow-up'),
-		])
-
-		await replaceConversation(s, id, [
-			{ role: 'system', content: 'the compacted summary' } as Message,
-			said('user', 'a recent follow-up'),
-		])
+		await recordTurn(s, id, [said('user', 'the opening question'), said('assistant', 'an answer')])
+		// A manual compaction outside any turn, as `compactSession` records one.
+		const log = openConversationLog(s, id)
+		const head = await log.head()
+		const lease = await log.claim({ holder: 'test-compaction', ttlMs: 10_000 })
+		if (!lease || !head) throw new Error('fixture: the log could not be leased')
+		await log.append(lease, {
+			type: 'compaction',
+			compactionId: 'manual-1',
+			strategy: 'structured',
+			trigger: 'manual',
+			replacesSeqRange: [2, head.pointer.seq],
+			summary: [{ role: 'system', content: 'the compacted summary' } as Message],
+			keptMessageIds: [],
+			tokensBefore: 100,
+			tokensAfter: 10,
+		})
+		await log.release(lease)
+		await refreshIndex(s, id)
 
 		expect((await loadConversation(s, id)).map((message) => message.content)).toEqual([
 			'the compacted summary',
-			'a recent follow-up',
 		])
 		const [row] = await listRecent(s)
 		expect(row?.title).toBe('the opening question')
 		expect(row?.named).toBe(false)
-		expect(titleOf(s, id)).toBeUndefined()
-	})
-
-	it('does not replace a name the operator chose', async () => {
-		const s = await project()
-		const id = await startConversation(s)
-		await appendMessages(s, id, [said('user', 'opening')])
-		setTitle(s, id, 'chosen name')
-
-		await replaceConversation(s, id, [
-			{ role: 'system', content: 'summary' } as Message,
-			said('user', 'recent'),
-		])
-
-		expect(titleOf(s, id)).toBe('chosen name')
 	})
 })
 
 describe('fork names', () => {
 	it('reuses a number that was freed rather than counting forks', () => {
-		// Numbered against the names IN USE. A fork that was renamed never held
-		// its number, and a name that was removed gives it back.
 		expect(nextForkName({ a: 'x (fork 2)' }, 'x')).toBe('x (fork)')
 		expect(nextForkName({ a: 'x (fork)' }, 'x')).toBe('x (fork 2)')
 		expect(nextForkName({ a: 'x (fork)', b: 'x (fork 2)' }, 'x')).toBe('x (fork 3)')
@@ -432,49 +335,4 @@ describe('fork names', () => {
 	it('keeps a fork of a fork readable', () => {
 		expect(nextForkName({ a: 'x (fork)' }, 'x (fork)')).toBe('x (fork) (fork)')
 	})
-})
-
-it('does not pin an instruction-only placeholder before the first human prompt', async () => {
-	const s = await project()
-	const id = await startConversation(s)
-	const instructions = createProjectInstructionMessage('internal doctrine', ['AGENTS.md'])
-	await appendMessages(s, id, [instructions])
-	await replaceConversation(s, id, [instructions])
-	await appendMessages(s, id, [createUserMessage('Inspect the SDK resume path')])
-	expect((await listRecent(s))[0]).toMatchObject({
-		title: 'Inspect the SDK resume path',
-		preview: 'Inspect the SDK resume path',
-	})
-	await replaceConversation(s, id, [createUserMessage('follow-up after compaction')])
-	expect((await listRecent(s))[0]?.title).toBe('Inspect the SDK resume path')
-})
-
-it('repairs derived Conversation placeholders without replacing explicitly chosen names', async () => {
-	const s = await project()
-	const id = await startConversation(s)
-	await appendMessages(s, id, [createUserMessage('Recover agent results')])
-	writeFileSync(
-		join(s.controlRoot, 'titles.json'),
-		JSON.stringify({ [id]: { title: 'Conversation', named: false } }),
-	)
-	expect((await listRecent(s))[0]?.title).toBe('Recover agent results')
-	await replaceConversation(s, id, [createUserMessage('next request')])
-	expect((await listRecent(s))[0]?.title).toBe('Recover agent results')
-	await setTitle(s, id, 'Conversation')
-	expect((await listRecent(s))[0]?.title).toBe('Conversation')
-})
-
-it('lists this project without scanning all projects and still enforces topic membership', async () => {
-	const s = await project()
-	const id = await startConversation(s)
-	await appendMessages(s, id, [createUserMessage('local conversation')])
-	const globalScan = vi
-		.spyOn(s.store, 'listSessionsByTopic')
-		.mockRejectedValue(new Error('global scan forbidden'))
-	try {
-		expect((await listRecent(s)).map((row) => row.id)).toEqual([id])
-		expect(globalScan).not.toHaveBeenCalled()
-	} finally {
-		globalScan.mockRestore()
-	}
 })

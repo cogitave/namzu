@@ -112,8 +112,8 @@ function truncateMessages(messages: readonly Message[], budget: number): string 
  * The verifier runs outside the iteration loop, so its usage never reached
  * `runMgr.accumulateUsage` and the guard could not see it — and it fires
  * exactly when the context is largest, making it the most expensive call
- * the run does not count. A one-method sink keeps the compaction layer
- * from depending on `RunPersistence`.
+ * the turn does not count. A one-method sink keeps the compaction layer
+ * from depending on `TurnRecorder`.
  */
 export type UsageSink = (usage: TokenUsage) => void
 
@@ -136,11 +136,11 @@ export async function buildVerifiedSummary(
 	config: CompactionConfig,
 	onUsage?: UsageSink,
 	/**
-	 * The run's model. Required in practice: this used to send `model: ''`,
+	 * The turn's model. Required in practice: this used to send `model: ''`,
 	 * which some drivers quietly default and others reject outright — on
 	 * some backends the model id IS the endpoint. So compaction's verifier failed
-	 * exactly on the providers where a long run most needs it, and the
-	 * failure surfaced as compaction killing the run it exists to save.
+	 * exactly on the providers where a long turn most needs it, and the
+	 * failure surfaced as compaction killing the turn it exists to save.
 	 */
 	model?: string,
 	options: CompactionVerificationOptions = {},
@@ -162,7 +162,7 @@ export async function buildVerifiedSummary(
 
 /**
  * Query-only seam for a provider whose idle/retry/fallback order was already
- * composed at run admission. Wrapping that chain again would put an idle
+ * composed at turn admission. Wrapping that chain again would put an idle
  * timer around retry backoff and misclassify a healthy recovery pause as a
  * stalled stream. This symbol is intentionally absent from the package barrel.
  */
@@ -243,7 +243,7 @@ async function buildVerifiedSummaryWithProvider(
 	// content at all — and used to fall through to the append below, stamping a
 	// bare `## LLM Verification Additions` heading with nothing under it. That
 	// empty promise then rides in the compaction summary, and therefore in every
-	// subsequent system prompt, for the rest of the run. A heading with no body
+	// subsequent system prompt, for the rest of the turn. A heading with no body
 	// is not a verification result; treat a silent verifier the same as one that
 	// had nothing to say.
 	if (responseText === 'COMPLETE' || responseText.length === 0) {

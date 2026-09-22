@@ -8,14 +8,14 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**
  * Cumulative spend and current context size are different quantities, and a
  * host divided the first by a context window and shipped it.
  *
- * That indicator climbed toward full on any long run no matter how much room
+ * That indicator climbed toward full on any long turn no matter how much room
  * the conversation actually had — most wrong exactly when someone needed it —
  * because `usage` is summed over every turn and never falls, while the context
  * is what is being sent right now and falls whenever a compaction sheds.
@@ -33,7 +33,7 @@ afterEach(async () => {
 	workdirs = []
 })
 
-type UsageEvent = Extract<RunEvent, { type: 'token_usage_updated' }>
+type UsageEvent = Extract<SessionEvent, { type: 'token_usage_updated' }>
 
 async function run(
 	compaction: CompactionConfig | undefined,
@@ -47,7 +47,12 @@ async function run(
 		{
 			provider: new MockLLMProvider({ turns: turns as never }),
 			tools: new ToolRegistry(),
-			runConfig: { model: 'mock-model', timeoutMs: 30_000, tokenBudget: 100_000, maxIterations: 3 },
+			turnConfig: {
+				model: 'mock-model',
+				timeoutMs: 30_000,
+				tokenBudget: 100_000,
+				maxIterations: 3,
+			},
 			...(compaction ? { compactionConfig: compaction } : {}),
 			agentId: 'agent_ctx',
 			agentName: 'Context Agent',
@@ -58,7 +63,7 @@ async function run(
 			tenantId: fixtureId.tenant('ctx'),
 			messages: [createUserMessage('go')],
 		},
-		(event: RunEvent) => {
+		(event: SessionEvent) => {
 			if (event.type === 'token_usage_updated') seen.push(event)
 		},
 	)
@@ -76,7 +81,7 @@ const COMPACTION = CompactionConfigSchema.parse({
 	keepRecentMessages: 4,
 })
 
-describe('a run reports how much room its context has', () => {
+describe('a turn reports how much room its context has', () => {
 	it('carries the context size and the window together', async () => {
 		const events = await run(COMPACTION, [{ text: 'done' }])
 
@@ -103,7 +108,7 @@ describe('a run reports how much room its context has', () => {
 		// cumulative spend stays at zero while the context genuinely fills.
 		//
 		// A surface dividing spend by a window would show 0% here, for a
-		// conversation that is really there. The same surface on a long run
+		// conversation that is really there. The same surface on a long turn
 		// shows 100% for a conversation that was compacted down to nothing.
 		// Both directions, same category error — which is why the two numbers
 		// are reported separately rather than left to be inferred from each

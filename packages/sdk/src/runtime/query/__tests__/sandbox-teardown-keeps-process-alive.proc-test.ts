@@ -8,11 +8,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 /**
- * A teardown deadline is part of the run, not background housekeeping.
+ * A teardown deadline is part of the turn, not background housekeeping.
  *
  * An awaited promise does not keep Node alive. If the deadline timer is
  * `unref()`'d and a third-party `destroy()` has no active handle of its own,
- * the process exits zero after `run_completed` but before `drainQuery()`
+ * the process exits zero after `turn_completed` but before `drainQuery()`
  * returns. A test runner supplies unrelated handles and cannot observe that,
  * so this case must run in a bare child against the built package entry.
  */
@@ -54,7 +54,7 @@ sdk.drainQuery({
   agentId: 'a', agentName: 'A',
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],
   workingDirectory: process.argv[3],
-  runConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 2 },
+  turnConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 2 },
   sessionId: randomUUID(), topicId: randomUUID(), projectId: randomUUID(), tenantId: randomUUID(),
 }, (event) => { last = event.type }).then(
   (run) => console.log('RESULT ' + JSON.stringify({ status: run.status, result: run.result, last })),
@@ -64,7 +64,7 @@ process.on('exit', () => console.log('LAST ' + last))
 `
 
 describe('sandbox teardown keeps its own process alive', () => {
-	it('returns the completed run after the teardown deadline', () => {
+	it('returns the completed turn after the teardown deadline', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-sandbox-teardown-process-'))
 		dirs.push(dir)
 		const script = join(dir, 'run.mjs')
@@ -76,9 +76,9 @@ describe('sandbox teardown keeps its own process alive', () => {
 			timeout: 60_000,
 		})
 
-		expect(out, `the run exited before teardown settled:\n${out}`).toContain('RESULT ')
+		expect(out, `the turn exited before teardown settled:\n${out}`).toContain('RESULT ')
 		expect(out).toContain('"status":"completed"')
 		expect(out).toContain('"result":"done"')
-		expect(out).toContain('"last":"run_completed"')
+		expect(out).toContain('"last":"turn_completed"')
 	})
 })

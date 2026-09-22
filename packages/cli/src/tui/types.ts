@@ -12,9 +12,9 @@ import type {
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
-	RunLimitsConfig,
 	SandboxConfig,
 	TuiConfig,
+	TurnLimitsConfig,
 	WebConfig,
 } from '../config/schema.js'
 import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
@@ -96,8 +96,8 @@ export interface TuiContext {
 	readonly hooks?: HooksConfig
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
-	/** Configured per-run limits, also applied when rebuilding a session. */
-	readonly limits?: RunLimitsConfig
+	/** Configured per-turn limits, also applied when rebuilding a session. */
+	readonly limits?: TurnLimitsConfig
 	/**
 	 * See `NamzuCliConfig.toolResultScreens`.
 	 *

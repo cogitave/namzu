@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { MCPJsonRpcMessage, MCPToolDefinition } from '../../../types/connector/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { mcpToolToToolDefinition } from '../adapter.js'
 import { MCPClient } from '../client.js'
@@ -256,7 +256,8 @@ function respondJson(response: ServerResponse, message: MCPJsonRpcMessage): void
 
 function toolContext(): ToolContext {
 	return {
-		runId: 'bdebd4d8-3fad-4206-8f5d-0237078629a3' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: 'bdebd4d8-3fad-4206-8f5d-0237078629a3' as TurnId,
 		workingDirectory: '/',
 		abortSignal: new AbortController().signal,
 		env: {},

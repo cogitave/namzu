@@ -66,7 +66,7 @@ export interface ResolvedSandbox extends SandboxSummary {
 }
 
 /**
- * Build the sandbox for a run, or explain why there is none.
+ * Build the sandbox for a turn, or explain why there is none.
  *
  * Never throws for an ordinary platform shortfall — a machine that cannot
  * confine the network still runs the CLI, and says so. It DOES throw when
@@ -90,7 +90,7 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 	const workspaceNotice =
 		workspace === 'working-directory'
 			? 'The real working directory is mounted; changes persist across turns.'
-			: 'Each run receives a disposable workspace; changes are removed at teardown.'
+			: 'Each turn receives a disposable workspace; changes are removed at teardown.'
 
 	const required = (config?.requireIsolation ?? []) as readonly SandboxIsolationControl[]
 	// Constructing with the requirement is what makes `requireIsolation`

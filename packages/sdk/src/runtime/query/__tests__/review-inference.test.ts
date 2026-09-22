@@ -10,7 +10,7 @@ import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { AnswerReviewContext } from '../../../types/run/answer-review.js'
+import type { AnswerReviewContext } from '../../../types/session/answer-review.js'
 import { drainQuery } from '../index.js'
 
 const roots: string[] = []
@@ -47,7 +47,7 @@ async function fixture(turns: MockTurn[]) {
 		agentId: 'review-inference',
 		agentName: 'Review inference',
 		workingDirectory: cwd,
-		runConfig: {
+		turnConfig: {
 			model: 'main-model',
 			effort: 'low',
 			tokenBudget: 1000,
@@ -122,7 +122,7 @@ it('accounts a rejecting review before admitting another correction request', as
 	])
 	const result = await drainQuery({
 		...params,
-		runConfig: { ...params.runConfig, tokenBudget: 100 },
+		turnConfig: { ...params.turnConfig, tokenBudget: 100 },
 		reviewAnswer: async (_answer, { generateText }) => {
 			await generateText!(input)
 			return { accept: false, feedback: 'Try again.' }

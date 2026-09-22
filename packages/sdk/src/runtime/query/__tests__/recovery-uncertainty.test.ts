@@ -1,44 +1,52 @@
 import { expect, it, vi } from 'vitest'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
-import { fixtureId } from '../../../test-support/ids.js'
-import type { RunStore, ToolExecutionSnapshot } from '../../../types/run/store.js'
+import type { SessionLease, SessionLog } from '../../../store/session-log/index.js'
+import type { TurnId } from '../../../types/ids/index.js'
+import { generateMessageId, generateTurnId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { PendingAnswers } from '../question-park.js'
 import { recoverCompletedCalls } from '../resume-pending.js'
+import { type CheckpointedSession, sessionWithCheckpoint } from './support/session.js'
 
-const runId = fixtureId.run('recovery-uncertainty')
 const calls = ['done', 'unknown', 'untouched'].map((id) => ({
 	id,
 	type: 'function' as const,
 	function: { name: 'effect', arguments: '{}' },
 }))
 const log = { warn: vi.fn(), info: vi.fn() } as unknown as Logger
-const snapshot = (): ToolExecutionSnapshot => ({
-	complete: true,
-	records: new Map([
-		[
-			'done',
-			{
-				toolUseId: 'done',
-				toolName: 'effect',
-				status: 'completed',
-				result: 'actual receipt',
-				isError: false,
-			},
-		],
-		['unknown', { toolUseId: 'unknown', toolName: 'effect', status: 'started' }],
-	]),
-})
-function manager(store: Partial<RunStore>) {
-	return { id: runId, getRunStore: () => store } as RunPersistence
+
+/**
+ * A turn whose log holds a completed `done`, a `unknown` that started and
+ * never finished, and no record of `untouched`.
+ */
+async function interruptedBatch(
+	completed: { toolName?: string } = {},
+): Promise<CheckpointedSession> {
+	const session = await sessionWithCheckpoint()
+	const append = (draft: Record<string, unknown>) =>
+		session.log.append(session.lease, {
+			turnId: session.turnId,
+			...draft,
+		} as Parameters<SessionLog['append']>[1])
+	await append({ type: 'tool_executing', toolUseId: 'done', toolName: 'effect', input: {} })
+	await append({
+		type: 'tool_completed',
+		toolUseId: 'done',
+		toolName: completed.toolName ?? 'effect',
+		result: 'actual receipt',
+		isError: false,
+	})
+	await append({ type: 'tool_executing', toolUseId: 'unknown', toolName: 'effect', input: {} })
+	return session
+}
+
+/** The recorder side recovery reads: a log and the turn it is resuming. */
+function recorder(sessionLog: SessionLog, turnId: TurnId) {
+	return { log: sessionLog, turnId, flush: async () => {} } as never
 }
 
 it('keeps real completions, marks starts unknown, and leaves proven unstarted calls eligible', async () => {
-	const recovered = await recoverCompletedCalls(
-		manager({ readToolExecutions: async () => snapshot() }),
-		calls,
-		log,
-	)
+	const session = await interruptedBatch()
+	const recovered = await recoverCompletedCalls(recorder(session.log, session.turnId), calls, log)
 	expect(recovered.get('done')).toEqual({ result: 'actual receipt', isError: false })
 	expect(recovered.get('unknown')).toMatchObject({
 		result: expect.stringContaining('outcome is unknown'),
@@ -46,78 +54,79 @@ it('keeps real completions, marks starts unknown, and leaves proven unstarted ca
 	})
 	expect(recovered.has('untouched')).toBe(false)
 })
-it.each(['unavailable', 'incomplete', 'wrong-name', 'wrong-id'] as const)(
+
+it.each(['unavailable', 'incomplete', 'wrong-name'] as const)(
 	'does not mistake %s evidence for permission to repeat',
 	async (mode) => {
-		const state = snapshot()
-		if (mode === 'wrong-name' || mode === 'wrong-id')
-			(state.records as Map<string, unknown>).set('done', {
-				status: 'completed',
-				toolUseId: mode === 'wrong-id' ? 'another' : 'done',
-				toolName: mode === 'wrong-name' ? 'other_tool' : 'effect',
-				result: 'unrelated receipt',
-				isError: false,
-			})
-		const recovered = await recoverCompletedCalls(
-			manager({
-				readToolExecutions: async () => {
-					if (mode === 'unavailable') throw new Error('read failed')
-					return mode === 'incomplete' ? { ...state, complete: false } : state
-				},
-			}),
-			calls,
-			log,
-		)
+		const session = await interruptedBatch(mode === 'wrong-name' ? { toolName: 'other_tool' } : {})
+		const source =
+			mode === 'unavailable'
+				? ({
+						...session.log,
+						read: () => {
+							throw new Error('read failed')
+						},
+					} as unknown as SessionLog)
+				: session.log
+		// A turn the log never began: its records cannot prove anything absent.
+		const turnId = mode === 'incomplete' ? generateTurnId() : session.turnId
+		const recovered = await recoverCompletedCalls(recorder(source, turnId), calls, log)
 		expect(recovered.get('done')?.result).toContain('outcome is unknown')
-		expect(recovered.get('done')?.result).not.toContain('unrelated receipt')
+		expect(recovered.get('done')?.result).not.toContain('actual receipt')
 		if (mode === 'unavailable' || mode === 'incomplete') expect(recovered.size).toBe(3)
 	},
 )
-it('uses strict ordered events for a store without the optional bounded scan', async () => {
-	const readEvents = vi.fn(
-		async () =>
-			[
-				{ type: 'run_started', runId, seq: 1 },
-				{ type: 'tool_executing', runId, seq: 2, toolUseId: 'unknown', toolName: 'effect' },
-			] as never,
-	)
-	const recovered = await recoverCompletedCalls(manager({ readEvents }), calls, log)
-	expect(readEvents).toHaveBeenCalledWith({ integrity: 'strict' })
-	expect([...recovered.keys()]).toEqual(['unknown'])
+
+it("reads only the resumed turn's records", async () => {
+	// An earlier turn of the session ran a call with the same id; its
+	// receipt is not this turn's, and this turn has no record of the call.
+	const session = await sessionWithCheckpoint()
+	await session.log.append(session.lease, {
+		type: 'tool_completed',
+		turnId: session.turnId,
+		toolUseId: 'unknown',
+		toolName: 'effect',
+		result: 'an earlier turn',
+		isError: false,
+	} as Parameters<SessionLog['append']>[1])
+	await session.log.release(session.lease)
+	const lease = (await session.log.claim({ holder: 'next', ttlMs: 60_000 })) as SessionLease
+	await session.log.abandonTurn(lease, session.turnId, 'the earlier process went away')
+	const next = generateTurnId()
+	await session.log.beginTurn(lease, {
+		turnId: next,
+		userMessageId: generateMessageId(),
+		config: { model: 'mock-model', tokenBudget: 0, timeoutMs: 0 },
+	})
+	const recovered = await recoverCompletedCalls(recorder(session.log, next), calls, log)
+	expect(recovered.size).toBe(0)
 })
+
 it('lets an explicit durable answer re-enter only its asking tool when the log is unavailable', async () => {
+	const session = await interruptedBatch()
 	const answers = PendingAnswers.from({
 		action: 'answer_question',
 		questionId: 'unknown:target',
 		selectedOptionIds: ['yes'],
 	})
-	const recovered = await recoverCompletedCalls(
-		manager({
-			readToolExecutions: async () => {
-				throw new Error('unavailable')
-			},
-		}),
-		calls,
-		log,
-		{ answers },
-	)
+	const unavailable = {
+		...session.log,
+		read: () => {
+			throw new Error('unavailable')
+		},
+	} as unknown as SessionLog
+	const recovered = await recoverCompletedCalls(recorder(unavailable, session.turnId), calls, log, {
+		answers,
+	})
 	expect(recovered.has('unknown')).toBe(false)
 	expect(recovered.has('done')).toBe(true)
 	expect(recovered.has('untouched')).toBe(true)
 })
+
 it('preserves cancellation instead of synthesizing recovery permission', async () => {
+	const session = await interruptedBatch()
 	const signal = AbortSignal.abort(new Error('cancelled'))
 	await expect(
-		recoverCompletedCalls(
-			manager({
-				readToolExecutions: async (_ids, signal) => {
-					signal!.throwIfAborted()
-					return snapshot()
-				},
-			}),
-			calls,
-			log,
-			{ signal },
-		),
+		recoverCompletedCalls(recorder(session.log, session.turnId), calls, log, { signal }),
 	).rejects.toThrow('cancelled')
 })

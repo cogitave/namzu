@@ -25,6 +25,15 @@ export interface DiskSessionCheckpointStoreOptions {
 	readonly paths: SessionPaths
 	/** The session log the checkpoints are verified and protected against. */
 	readonly log: CheckpointLogView
+	/**
+	 * The session this store answers for, with its ancestors when it is a
+	 * child session. A scope for that session that names no `ancestors` is
+	 * placed by this locator, so a child's checkpoints land in
+	 * `<parent-session-dir>/subagents/<child-id>/checkpoints/` even when the
+	 * caller building the scope knows only the session id. A scope that names
+	 * its own `ancestors` is placed by them.
+	 */
+	readonly session?: SessionLocator
 }
 
 const DOCUMENT = /^(.+)\.json$/
@@ -46,17 +55,20 @@ const DOCUMENT = /^(.+)\.json$/
 export class DiskSessionCheckpointStore implements SessionCheckpointStore {
 	readonly #paths: SessionPaths
 	readonly #log: CheckpointLogView
+	readonly #session: SessionLocator | undefined
 
 	constructor(options: DiskSessionCheckpointStoreOptions) {
 		this.#paths = options.paths
 		this.#log = options.log
+		this.#session = options.session
 	}
 
 	#locator(scope: CheckpointScope): SessionLocator {
-		return {
-			sessionId: scope.sessionId,
-			...(scope.ancestors === undefined ? {} : { ancestors: scope.ancestors }),
+		if (scope.ancestors !== undefined) {
+			return { sessionId: scope.sessionId, ancestors: scope.ancestors }
 		}
+		if (this.#session?.sessionId === scope.sessionId) return this.#session
+		return { sessionId: scope.sessionId }
 	}
 
 	async write(scope: CheckpointScope, checkpoint: Checkpoint): Promise<CheckpointWriteReceipt> {

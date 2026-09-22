@@ -3,14 +3,14 @@
  *
  * `recordStep` had two call sites and both were on success paths, so an
  * iteration that threw recorded a span exception and re-threw with nothing
- * written down. That is the worst shape an evidence record can take: a run
+ * written down. That is the worst shape an evidence record can take: a turn
  * ledger complete except on the turns that failed reads as "nothing went
  * wrong" precisely when something did, and a reader cannot tell iteration N
  * failing from iteration N never happening.
  *
  * The assertions below are about the ledger AGAINST A TOTAL wherever they can
  * be — one step per iteration the events announced, and the token sum
- * reconciling with the run's own counter — because the defect was an absence,
+ * reconciling with the turn's own counter — because the defect was an absence,
  * and an absence is only visible against something that says how much should
  * be there.
  */
@@ -28,8 +28,8 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { PluginHookEvent } from '../../../types/plugin/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 function registerEcho(tools: ToolRegistry): void {
@@ -60,7 +60,7 @@ function baseParams(provider: MockLLMProvider, tools: ToolRegistry, workingDirec
 	return {
 		provider,
 		tools,
-		runConfig: {
+		turnConfig: {
 			model: 'run-model',
 			timeoutMs: 5_000,
 			tokenBudget: 100_000,
@@ -113,7 +113,7 @@ describe('an iteration that failed still leaves a step', () => {
 		// How it ended, in the field a reader already sorts by.
 		expect(failed?.finishReason).toBe('error')
 		// And WHAT went wrong — a step that only said `error` would leave a
-		// reader back where they started, re-parsing the run's message.
+		// reader back where they started, re-parsing the turn's message.
 		expect(failed?.failure?.message).toContain('upstream refused the request')
 		expect(failed?.failure?.status).toBe(400)
 		expect(failed?.failure?.code).toBe('invalid_request')
@@ -134,7 +134,7 @@ describe('an iteration that failed still leaves a step', () => {
 		})
 		const tools = new ToolRegistry()
 		registerEcho(tools)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -156,7 +156,7 @@ describe('an iteration that failed still leaves a step', () => {
 
 	it('carries the tokens the failed turn spent, so the ledger still reconciles', async () => {
 		// The case the issue is really about: the model was called, the tokens
-		// were counted against the run, and then the iteration died. Without a
+		// were counted against the turn, and then the iteration died. Without a
 		// step those tokens belong to nothing, and the gap grows with context
 		// length because the expensive turn is the late one.
 		const provider = new MockLLMProvider({
@@ -192,7 +192,7 @@ describe('an iteration that failed still leaves a step', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ text: 'a long answer that gets cut off', throwAfterChunks: 1 }],
 		})
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
@@ -291,7 +291,7 @@ describe('an iteration that failed still leaves a step', () => {
 
 		expect(run.steps?.map((s) => s.stepNumber)).toEqual([1])
 		// The turn's own verdict survives; it really did end in tool calls,
-		// and the failure that came afterwards is the run's, not the turn's.
+		// and the failure that came afterwards is the turn's, not the turn's.
 		expect(run.steps?.[0]?.finishReason).toBe('tool_calls')
 		expect((run.steps ?? []).reduce((t, s) => t + s.usage.totalTokens, 0)).toBe(
 			run.tokenUsage.totalTokens,

@@ -87,7 +87,7 @@ export interface MockScript {
 	responseText?: string
 	responseDelayMs?: number
 	/**
-	 * Scripted turns. A script shorter than the run repeats its last entry,
+	 * Scripted turns. A script shorter than the turn repeats its last entry,
 	 * so a loop bug shows up as repetition rather than a crash.
 	 */
 	turns?: MockTurn[]
@@ -96,7 +96,7 @@ export interface MockScript {
 	/**
 	 * Override the capability declaration for this instance.
 	 *
-	 * Capability negotiation degrades a run when a driver says it cannot do
+	 * Capability negotiation degrades a turn when a driver says it cannot do
 	 * something, and testing that path means being able to SAY it — a fixed
 	 * registry-level declaration cannot express "a driver with no vision".
 	 */
@@ -116,7 +116,7 @@ export interface MockProviderConfig extends MockScript {
  * service has a tools endpoint; a driver that drops `attachments`
  * declares `supportsVision: false` even for a multimodal model.
  *
- * The query runtime consults these before each run (see
+ * The query runtime consults these before each turn (see
  * `resolveProviderCapabilities` in `provider/capabilities.ts`) so
  * degradation is loud instead of silent.
  */

@@ -4,12 +4,15 @@ import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
 	asMessageId,
 	asProjectId,
-	asRunId,
+	asSessionId,
+	asTurnId,
 	generateMessageId,
 	generateProjectId,
-	generateRunId,
+	generateSessionId,
+	generateTurnId,
 } from '../../utils/id.js'
-import { MessageIdSchema, ProjectIdSchema, RunIdSchema } from '../schemas.js'
+import { MessageIdSchema, ProjectIdSchema } from '../schemas.js'
+import { SessionIdSchema, TurnIdSchema } from '../session/schemas.js'
 
 const contracts = [
 	{
@@ -20,11 +23,18 @@ const contracts = [
 		prefix: 'prj_',
 	},
 	{
-		name: 'run',
-		schema: RunIdSchema,
-		generate: generateRunId,
-		parse: asRunId,
-		prefix: 'run_',
+		name: 'session',
+		schema: SessionIdSchema,
+		generate: generateSessionId,
+		parse: asSessionId,
+		prefix: 'ses_',
+	},
+	{
+		name: 'turn',
+		schema: TurnIdSchema,
+		generate: generateTurnId,
+		parse: asTurnId,
+		prefix: 'trn_',
 	},
 	{
 		name: 'message',

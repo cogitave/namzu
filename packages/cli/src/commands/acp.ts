@@ -1,13 +1,19 @@
 import {
 	ACPServer,
 	type AcpAgentGateway,
+	type ExternalRefTarget,
 	HostCommandRegistry,
 	type Message,
-	type RunEvent,
+	type Origin,
 	ServerStdioTransport,
+	type SessionEvent,
+	type SessionId,
 	ToolRegistry,
 	createToolPresenter,
 	createUserMessage,
+	generateSessionId,
+	isEntityId,
+	openSessionIndex,
 } from '@namzu/sdk'
 
 import { readFileSync } from 'node:fs'
@@ -88,6 +94,58 @@ function waitForOperation<T>(operation: Promise<T>, signal: AbortSignal): Promis
  * on the child's stdout under info-level logging.
  */
 
+/** The namzu session one ACP wire session id stands for. */
+export interface AcpSessionTarget {
+	readonly sessionId: SessionId
+	/** Present when the session is new: recorded in `session_started.origin`. */
+	readonly origin?: Origin
+}
+
+/** How a caller-side name is looked up (`SessionIndex.resolveExternal`). */
+export type ExternalSessionLookup = (
+	protocol: 'acp',
+	kind: 'session',
+	externalId: string,
+) => Promise<ExternalRefTarget | undefined>
+
+/**
+ * Map an ACP wire session id onto a namzu session (spec §5.3).
+ *
+ * The SDK's server mints a UUIDv7 `SessionId` by default, and that id IS the
+ * namzu session. A host's `newSessionId` may return any string; such an id
+ * is never read as a namzu id. It is looked up in the index's
+ * `external_refs('acp', 'session', id)`, and a name nobody has claimed gets a
+ * new session whose `session_started.origin` records it — which is what puts
+ * the ref in the index, so it survives a rebuild and the next connection
+ * finds the same session.
+ */
+export async function resolveAcpSession(
+	wireSessionId: string,
+	lookup: ExternalSessionLookup,
+): Promise<AcpSessionTarget> {
+	if (isEntityId(wireSessionId, 'session')) return { sessionId: wireSessionId }
+	const found = await lookup('acp', 'session', wireSessionId)
+	if (found) return { sessionId: found.sessionId }
+	return {
+		sessionId: generateSessionId(),
+		origin: { protocol: 'acp', externalSessionId: wireSessionId },
+	}
+}
+
+/** Open the index under `NAMZU_HOME` for one lookup and close it again. */
+async function lookupInIndex(
+	protocol: 'acp',
+	kind: 'session',
+	externalId: string,
+): Promise<ExternalRefTarget | undefined> {
+	const index = await openSessionIndex()
+	try {
+		return await index.resolveExternal(protocol, kind, externalId)
+	} finally {
+		index.close()
+	}
+}
+
 type AcpLiveSession = Pick<
 	AgentSession,
 	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close'
@@ -102,12 +160,14 @@ export interface AcpRuntimeDependencies {
 	) => Promise<AcpLiveSession>
 	readonly decideTrust: typeof decideHeadlessTrust
 	readonly resolveProjectContext: typeof resolveTrustedProjectContext
+	/** Which namzu session a wire session id stands for; see {@link resolveAcpSession}. */
+	readonly resolveSession: (wireSessionId: string) => Promise<AcpSessionTarget>
 }
 
 interface AcpRuntimeRecord {
 	readonly cwd: string
 	readonly session: AcpLiveSession
-	route: ((event: RunEvent) => void) | undefined
+	route: ((event: SessionEvent) => void) | undefined
 }
 
 export interface CliAcpRuntime {
@@ -120,6 +180,7 @@ const DEFAULT_RUNTIME_DEPS: AcpRuntimeDependencies = {
 	createSession: createAgentSession,
 	decideTrust: decideHeadlessTrust,
 	resolveProjectContext: resolveTrustedProjectContext,
+	resolveSession: (wireSessionId) => resolveAcpSession(wireSessionId, lookupInIndex),
 }
 
 /**
@@ -211,9 +272,14 @@ export function createCliAcpRuntime(
 					)
 				}
 
+				const target = await deps.resolveSession(sessionId)
+				signal.throwIfAborted()
+				if (closed) throw new Error('The ACP connection closed while its session was starting.')
 				const routeOwner: { current?: AcpRuntimeRecord } = {}
 				candidate = await deps.createSession(prefs, probe.detected, {
 					cwd,
+					sessionId: target.sessionId,
+					...(target.origin ? { origin: target.origin } : {}),
 					rules: permissions.rules,
 					...(projectCtx.config.mcpServers ? { mcpServers: projectCtx.config.mcpServers } : {}),
 					...(projectCtx.config.plugins ? { plugins: projectCtx.config.plugins } : {}),
@@ -227,7 +293,7 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.toolResultScreens !== undefined
 						? { toolResultScreens: projectCtx.config.toolResultScreens }
 						: {}),
-					onRunEvent: (event) => routeOwner.current?.route?.(event),
+					onSessionEvent: (event: SessionEvent) => routeOwner.current?.route?.(event),
 				})
 				if (signal.aborted || closed) {
 					await closeCandidate()

@@ -181,7 +181,7 @@ describe('importCuratedNotes', () => {
 		return { cwd, curated }
 	}
 
-	it('copies each bullet once even when two runs race, and never changes the file', async () => {
+	it('copies each bullet once even when two turns race, and never changes the file', async () => {
 		const directory = tempRoot()
 		const text = '- use pnpm, not npm\n- keep prose\n'
 		const { cwd, curated } = curatedFile(text)

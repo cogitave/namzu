@@ -6,11 +6,18 @@ import {
 	type ResidentConsumptionReceipt,
 	type ResidentConsumptionReport,
 	type ResidentConsumptionResolver,
+	SessionPaths,
+	type TurnId,
 	inspectResidentConsumption,
 	isEntityId,
 } from '@namzu/sdk'
+import {
+	SESSION_LOG_READ_BYTES,
+	readSessionStart,
+	readTurnSettlement,
+} from './session-log-reads.js'
 import type { CliResident } from './storage.js'
-import { readResidentAttemptReceipt } from './tool-evidence.js'
+import { isResidentUuid, readResidentAttemptReceipt } from './tool-evidence.js'
 
 function object(value: unknown): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -27,18 +34,23 @@ function text(value: unknown): string {
 	return value
 }
 function id(value: unknown): string {
-	if (!isEntityId(value, 'run')) throw new Error('Invalid receipt identity.')
+	if (!isResidentUuid(value)) throw new Error('Invalid receipt identity.')
+	return value
+}
+function turnId(value: unknown): TurnId {
+	if (!isEntityId(value, 'turn')) throw new Error('Invalid receipt identity.')
 	return value
 }
 function identity(value: unknown) {
 	const v = object(value)
 	if (v.version !== 1) throw new Error('Unknown attempt receipt version.')
+	if (!isEntityId(v.sessionId, 'session')) throw new Error('Invalid receipt identity.')
 	return {
 		version: 1,
 		pursuitId: id(v.pursuitId),
 		claimId: id(v.claimId),
-		sessionId: id(v.sessionId),
-		runId: id(v.runId),
+		sessionId: v.sessionId,
+		turnId: turnId(v.turnId),
 	}
 }
 function parseBudget(value: unknown) {
@@ -92,7 +104,10 @@ function parseFinish(value: unknown) {
 	}
 }
 
-/** Uses only scoped attempt/run records. No provider discovery or session writes. */
+/**
+ * Uses only the attempt receipts and the step's own session log, read in
+ * bounded pieces. No provider discovery, no index, no session writes.
+ */
 export function residentConsumptionResolver(resident: CliResident): ResidentConsumptionResolver {
 	const read = async (path: string, signal?: AbortSignal) => {
 		try {
@@ -103,7 +118,7 @@ export function residentConsumptionResolver(resident: CliResident): ResidentCons
 		}
 	}
 	return {
-		maxReadBytes: 3 * 65_536,
+		maxReadBytes: 2 * 65_536 + SESSION_LOG_READ_BYTES,
 		async resolve(
 			admission: ResidentAdmission,
 			signal?: AbortSignal,
@@ -115,28 +130,30 @@ export function residentConsumptionResolver(resident: CliResident): ResidentCons
 			const start = { ...identity(rawStart), startedAt: count(object(rawStart).startedAt) }
 			if (start.claimId !== admission.claimId || start.pursuitId !== admission.pursuitId)
 				throw new Error('Attempt does not match the admitted claim.')
-			const rawRun = await read(
-				join(resident.root, 'sessions', start.sessionId, 'runs', start.runId, 'run.json'),
-				signal,
-			)
-			if (!rawRun) return null
-			const raw = object(rawRun)
-			const run = {
-				id: id(raw.id),
-				metadata: { scope: object(object(raw.metadata).scope) },
-				tokenUsage: { totalTokens: count(object(raw.tokenUsage).totalTokens) },
-				budget: parseBudget(raw.budget),
-			}
+			// Each resident step is a root session of this resident's project, so
+			// its log sits at `projects/<slug>/<session-id>.jsonl`.
+			const logPath = new SessionPaths({ home: resident.root, slug: resident.slug }).sessionLog({
+				sessionId: start.sessionId,
+			})
+			const opened = await readSessionStart(resident.root, logPath, signal)
+			if (!opened) return null
 			if (
-				run.id !== start.runId ||
-				!isDeepStrictEqual(run.metadata.scope, {
-					tenantId: resident.tenantId,
-					projectId: resident.projectId,
-					sessionId: start.sessionId,
-					runId: start.runId,
-				})
+				opened.sessionId !== start.sessionId ||
+				opened.projectId !== resident.projectId ||
+				(opened.tenantId !== undefined && opened.tenantId !== resident.tenantId)
 			)
-				throw new Error('Attempt run is outside this resident project.')
+				throw new Error('Attempt session is outside this resident project.')
+			const settled = await readTurnSettlement(resident.root, logPath, start.turnId, signal)
+			if (settled && settled.sessionId !== start.sessionId)
+				throw new Error('Attempt turn is outside this resident project.')
+			// An unsettled turn (a crash mid-step) has no ledger of its own; its
+			// receipt, if any, is the only usage left, and it is never final.
+			const turn = settled
+				? {
+						tokenUsage: { totalTokens: count(settled.settlement.usage.totalTokens) },
+						budget: parseBudget(settled.budget),
+					}
+				: null
 			const rawFinish = await read(join(dir, 'finish.json'), signal)
 			const finish = rawFinish === null ? null : parseFinish(rawFinish)
 			if (
@@ -145,10 +162,11 @@ export function residentConsumptionResolver(resident: CliResident): ResidentCons
 					finish.finishedAt < start.startedAt)
 			)
 				throw new Error('Attempt receipts disagree.')
-			if (finish?.usage && finish.usage.totalTokens !== run.tokenUsage.totalTokens)
-				throw new Error('Finish usage disagrees with the scoped run.')
-			const tree = finish?.budget ?? run.budget
-			if (tree && tree.ownTokens !== run.tokenUsage.totalTokens)
+			if (turn && finish?.usage && finish.usage.totalTokens !== turn.tokenUsage.totalTokens)
+				throw new Error('Finish usage disagrees with the settled turn.')
+			const tree = finish?.budget ?? turn?.budget ?? null
+			const ownTokens = turn?.tokenUsage.totalTokens ?? finish?.usage?.totalTokens ?? null
+			if (tree && ownTokens !== null && tree.ownTokens !== ownTokens)
 				throw new Error('Tree ledger disagrees with own usage.')
 			let verification: ResidentConsumptionReceipt['verification'] =
 				!finish || finish.verificationPolicy ? 'unconfirmed' : 'unconfigured'
@@ -167,12 +185,12 @@ export function residentConsumptionResolver(resident: CliResident): ResidentCons
 					pursuitId: admission.pursuitId,
 					claimId: admission.claimId,
 					sessionId: start.sessionId,
-					runId: start.runId,
+					turnId: start.turnId,
 					revision: admission.pursuitRevision,
 				}
 				if (
 					!isDeepStrictEqual(JSON.parse(text(receipt.scope)), expectedScope) ||
-					receipt.runId !== start.runId ||
+					receipt.turnId !== start.turnId ||
 					finish.decision?.kind !== 'complete' ||
 					finish.error !== null ||
 					finish.cleanup !== 'confirmed' ||
@@ -225,12 +243,14 @@ export function residentConsumptionResolver(resident: CliResident): ResidentCons
 				verification = 'recorded'
 			}
 			return {
-				runId: start.runId,
-				ownTokens: finish?.usage?.totalTokens ?? run.tokenUsage.totalTokens,
+				sessionId: start.sessionId,
+				turnId: start.turnId,
+				ownTokens: finish?.usage?.totalTokens ?? ownTokens,
 				treeTokens: tree?.treeTokens ?? null,
 				ownCostUsd: finish?.usage?.cost.totalCost ?? null,
 				unpricedOwnTokens: finish?.usage?.cost.unpricedTokens ?? null,
 				usageFinal:
+					!!turn &&
 					!!finish?.usage &&
 					finish.error === null &&
 					finish.cleanup === 'confirmed' &&
@@ -253,7 +273,7 @@ export function residentInspectionText(report: ResidentConsumptionReport): strin
 	const deferred = report.attempts.filter((a) => a.receiptStatus === 'deferred')
 	const missing = report.attempts.filter((a) => a.receiptStatus === 'missing').length
 	const invalid = report.attempts.filter(
-		(a) => a.receiptStatus === 'invalid' || a.receiptStatus === 'duplicate-run',
+		(a) => a.receiptStatus === 'invalid' || a.receiptStatus === 'duplicate-turn',
 	).length
 	const settled = report.attempts.filter((a) => a.settlement).length
 	const verified = report.attempts.filter(

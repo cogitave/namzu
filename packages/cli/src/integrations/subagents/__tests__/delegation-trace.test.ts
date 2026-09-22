@@ -10,23 +10,24 @@ import {
 	type ReactiveAgentConfig,
 	type ResumeHandler,
 	type SandboxProvider,
+	type SessionId,
 	type TaskHandle,
 	type ToolContext,
-	asRunId,
+	asTurnId,
 	createProjectInstructionMessage,
 	generateTaskId,
 } from '@namzu/sdk'
 
 import { subagentParentFixture } from '../__fixtures__/parent.js'
-import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../policy.js'
+import { CLI_INTERACTIVE_TURN_TIMEOUT_MS } from '../policy.js'
 import { GENERAL_PURPOSE_SUBAGENT, createSubagentRuntime } from '../runtime.js'
 
 /**
- * A delegated run belongs inside the turn that asked for it.
+ * A delegated child belongs inside the turn that asked for it.
  *
  * The kernel supports this end to end — the executing tool's span reaches
  * `createTask`, survives `configOverrides`, is stamped onto the child config
- * after the host's `configBuilder` runs, and becomes the child run's trace
+ * after the host's `configBuilder` runs, and becomes the child turn's trace
  * parent. Every hop was built and tested. The `Agent` tool simply did not pass
  * the first one, so a sub-agent opened its own ROOT trace and the delegation
  * structure — the one thing a delegation trace exists to record — was absent.
@@ -41,7 +42,8 @@ const fakeSpan = { __brand: 'span' } as unknown as NonNullable<ToolContext['pare
 
 function toolContext(parentSpan?: ToolContext['parentSpan']): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2',
+		sessionId: '5c1d7a3e-0b52-4c1f-9d8e-2a6f4b7c9e10',
+		turnId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2',
 		abortSignal: new AbortController().signal,
 		...(parentSpan ? { parentSpan } : {}),
 	} as unknown as ToolContext
@@ -53,7 +55,7 @@ async function buildAgentTool(
 		sandboxProvider?: SandboxProvider
 		sandboxWorkspace?: 'working-directory' | 'ephemeral'
 		sandboxTeardownTimeoutMs?: number
-		resolveResumeHandler?: (runId: ToolContext['runId']) => ResumeHandler | undefined
+		resolveResumeHandler?: (turnId: ToolContext['turnId']) => ResumeHandler | undefined
 	} = {},
 ) {
 	const created: Record<string, unknown>[] = []
@@ -82,7 +84,7 @@ async function buildAgentTool(
 
 	const parent = await subagentParentFixture(
 		'/tmp',
-		asRunId('4adf3fdd-2823-4640-be0a-5d21fe28b6d2'),
+		asTurnId('4adf3fdd-2823-4640-be0a-5d21fe28b6d2'),
 	)
 	const runtime = await createSubagentRuntime({
 		resolveParent: parent.resolveParent,
@@ -98,7 +100,7 @@ async function buildAgentTool(
 		activity: runtime.activity,
 		close: runtime.close,
 		created,
-		gateway: await runtime.gatewayForRun(parent.scope.runId),
+		gateway: await runtime.gatewayForTurn(parent.scope.turnId),
 		registered,
 	}
 }
@@ -107,7 +109,7 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-describe('the Agent tool parents a delegated run to the turn that asked for it', () => {
+describe('the Agent tool parents a delegated child to the turn that asked for it', () => {
 	it('carries parsed cockpit annotations through the production tool into activity', async () => {
 		const { agentTool, activity, close, created } = await buildAgentTool()
 		try {
@@ -160,22 +162,22 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 		}
 	})
 
-	it('defaults the tool, scheduler and child run to no deadline', async () => {
+	it('defaults the tool, scheduler and child turn to no deadline', async () => {
 		const { agentTool, close, gateway, registered } = await buildAgentTool()
 		try {
-			expect(agentTool.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(agentTool.timeoutMs).toBe(CLI_INTERACTIVE_TURN_TIMEOUT_MS)
 			expect(agentTool.timeoutMs).toBe(0)
 
 			const manager = Object.values(gateway as unknown as Record<string, unknown>).find(
 				(value) => value instanceof AgentManager,
 			) as { config?: { childTimeoutMs?: number } } | undefined
-			expect(manager?.config?.childTimeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(manager?.config?.childTimeoutMs).toBe(CLI_INTERACTIVE_TURN_TIMEOUT_MS)
 
 			const general = registered.find(
 				(definition) => definition.info.id === GENERAL_PURPOSE_SUBAGENT,
 			)
 			const config = (await general?.configBuilder?.({})) as ReactiveAgentConfig | undefined
-			expect(config?.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
+			expect(config?.timeoutMs).toBe(CLI_INTERACTIVE_TURN_TIMEOUT_MS)
 		} finally {
 			await close()
 		}
@@ -223,7 +225,7 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 		}
 	})
 
-	it('passes the executing tool span through to the child run', async () => {
+	it('passes the executing tool span through to the child turn', async () => {
 		const { agentTool, created } = await buildAgentTool()
 
 		await agentTool.execute({ description: 'audit', prompt: 'do a thing' }, toolContext(fakeSpan))
@@ -234,7 +236,7 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 
 	it('omits the key entirely when the turn supplied no span', async () => {
 		// Not the same as passing `undefined`: the kernel branches on the
-		// property's presence, and a top-level run with no parent is correct
+		// property's presence, and a top-level turn with no parent is correct
 		// to start its own root. Refusing to invent one is the other half of
 		// the fix, not an edge case.
 		const { agentTool, created } = await buildAgentTool()
@@ -354,12 +356,12 @@ describe('a sub-agent shares the session workspace policy', () => {
 	})
 })
 
-describe('a sub-agent shares the parent run review channel', () => {
-	it('passes only the handler belonging to the run that invoked Agent', async () => {
+describe('a sub-agent shares the parent turn review channel', () => {
+	it('passes only the handler belonging to the turn that invoked Agent', async () => {
 		const handler = vi.fn() as ResumeHandler
 		const { agentTool, created } = await buildAgentTool({
-			resolveResumeHandler: (runId) =>
-				String(runId) === '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' ? handler : undefined,
+			resolveResumeHandler: (turnId) =>
+				String(turnId) === '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' ? handler : undefined,
 		})
 
 		await agentTool.execute({ description: 'audit', prompt: 'do a thing' }, toolContext())
@@ -369,7 +371,7 @@ describe('a sub-agent shares the parent run review channel', () => {
 		).toBe(handler)
 	})
 
-	it('installs a fail-closed review channel when the parent run owns none', async () => {
+	it('installs a fail-closed review channel when the parent turn owns none', async () => {
 		const { agentTool, created } = await buildAgentTool({
 			resolveResumeHandler: () => undefined,
 		})
@@ -382,7 +384,8 @@ describe('a sub-agent shares the parent run review channel', () => {
 		await expect(
 			handler?.({
 				type: 'tool_review',
-				runId: asRunId('4721e070-5ba2-425a-bf5a-8cc927907e9a'),
+				sessionId: '5c1d7a3e-0b52-4c1f-9d8e-2a6f4b7c9e10' as SessionId,
+				turnId: asTurnId('4721e070-5ba2-425a-bf5a-8cc927907e9a'),
 				checkpointId: '8b8ce2e3-d58a-45cf-aec9-53e78d2d212f' as never,
 				toolCalls: [],
 			}),

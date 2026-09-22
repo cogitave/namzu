@@ -1,8 +1,8 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, realpathSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
@@ -12,11 +12,11 @@ import { MockLLMProvider } from '../../provider/mock.js'
 import { AgentRegistry } from '../../registry/agent/definitions.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { DefaultCapacityValidator } from '../../session/handoff/capacity.js'
+import { resolveNamzuHome } from '../../session/home.js'
+import { SessionPaths } from '../../session/paths.js'
 import { SessionSummaryMaterializer } from '../../session/summary/materialize.js'
-import { DefaultPathBuilder } from '../../session/workspace/path-builder.js'
 import { WorkspaceBackendRegistry } from '../../session/workspace/registry.js'
-import { defaultStateRoot } from '../../session/workspace/state-root.js'
-import { InMemoryRunStore } from '../../store/run/memory.js'
+import { InMemorySessionLog } from '../../store/session-log/index.js'
 import { InMemorySessionStore } from '../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../store/topic/memory.js'
 import { defineTool } from '../../tools/defineTool.js'
@@ -33,19 +33,28 @@ import { ReactiveAgent } from '../ReactiveAgent.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 
 /**
- * An agent run whose `runStore` is in memory writes nothing under
- * `defaultStateRoot()`, and neither do the children it delegates to.
+ * An agent whose session log is in memory writes nothing under `NAMZU_HOME`,
+ * and neither do the child sessions it delegates to.
  *
- * `BaseAgentConfig` had no `runStore`, so an agent could not be put in memory
- * at all; and a delegated child's config never carried its parent's choice,
- * so the child built disk stores under the state root and left its evidence,
- * checkpoints and history there. Passing a run store through an agent also
- * failed outright: every agent puts its logger in the run config, and the
- * in-memory store's `structuredClone` refused it.
+ * A delegated child's config never carried its parent's choice, so the child
+ * opened a disk log and left its records, checkpoints and ledger there. The
+ * choice now travels on `AgentTaskContext.childStorage`, and the manager
+ * gives such a child an in-memory log of its own.
  */
 
 const dirs: string[] = []
+
+// A home of this file's own. The suite's shared `NAMZU_HOME` is written by
+// every other test file running beside this one, so a snapshot of it could
+// never say that THIS agent added nothing.
+beforeEach(async () => {
+	const home = await mkdtemp(join(realpathSync(tmpdir()), 'namzu-in-memory-home-'))
+	dirs.push(home)
+	vi.stubEnv('NAMZU_HOME', home)
+})
+
 afterEach(async () => {
+	vi.unstubAllEnvs()
 	await removeTempDirs(dirs)
 	dirs.length = 0
 })
@@ -68,7 +77,7 @@ function echoTools(): ToolRegistry {
 	return registry
 }
 
-/** A tool call, so the run writes an iteration checkpoint, then an answer. */
+/** A tool call, so the turn writes an iteration checkpoint, then an answer. */
 function workerProvider(): MockLLMProvider {
 	return new MockLLMProvider({
 		turns: [
@@ -86,11 +95,13 @@ const workerMetadata = {
 	description: 'a worker',
 }
 
-it('a ReactiveAgent with an in-memory run store writes nothing to disk', async () => {
+it('a ReactiveAgent with an in-memory session log writes nothing to disk', async () => {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-agent-'))
 	dirs.push(workingDirectory)
 	const projectId = generateProjectId()
-	const runStore = new InMemoryRunStore()
+	const sessionId = generateSessionId()
+	const sessionLog = new InMemorySessionLog({ sessionId })
+	const before = listHome()
 
 	const result = await new ReactiveAgent(workerMetadata).run(
 		{ messages: [{ role: 'user', content: 'go', timestamp: 1 }], workingDirectory },
@@ -102,8 +113,8 @@ it('a ReactiveAgent with an in-memory run store writes nothing to disk', async (
 			provider: workerProvider(),
 			tools: echoTools(),
 			systemPrompt: 'work',
-			runStore,
-			sessionId: generateSessionId(),
+			sessionLog,
+			sessionId,
 			topicId: generateTopicId(),
 			projectId,
 			tenantId: generateTenantId(),
@@ -111,8 +122,8 @@ it('a ReactiveAgent with an in-memory run store writes nothing to disk', async (
 	)
 
 	expect(result.status).toBe('completed')
-	expect(runStore.snapshot().meta?.status).toBe('completed')
-	expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
+	expect(JSON.stringify(await sessionLog.messages())).toContain('done')
+	expect(listHome()).toEqual(before)
 })
 
 async function delegationHarness() {
@@ -133,7 +144,7 @@ async function delegationHarness() {
 	await store.updateSession({ ...session, status: 'active' }, tenantId)
 
 	const registry = new AgentRegistry()
-	const childRuns: string[] = []
+	const childSessions: string[] = []
 	registry.register({
 		info: { ...workerMetadata, tools: [], defaults: { model: 'mock', tokenBudget: 0 } },
 		typedAgent: new ReactiveAgent(workerMetadata),
@@ -159,7 +170,7 @@ async function delegationHarness() {
 		threadManager: new TopicManager({ topicStore: topics, sessionStore: store }),
 	})
 	manager.on((event) => {
-		if (event.type === 'completed') childRuns.push(event.result.runId)
+		if (event.type === 'completed') childSessions.push(event.result.sessionId)
 	})
 	return {
 		tenantId,
@@ -167,11 +178,19 @@ async function delegationHarness() {
 		topicId: topic.id,
 		sessionId: session.id,
 		manager,
-		childRuns,
+		childSessions,
 	}
 }
 
-async function runSupervisor(extra: Record<string, unknown>) {
+type Harness = Awaited<ReturnType<typeof delegationHarness>>
+
+/** Every name under the home the tests run with, so a test can say it added none. */
+function listHome(): string[] {
+	const home = resolveNamzuHome()
+	return existsSync(home) ? readdirSync(home, { recursive: true }).map(String).sort() : []
+}
+
+async function runSupervisor(extra: (h: Harness) => Record<string, unknown>) {
 	const h = await delegationHarness()
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-in-memory-supervisor-'))
 	dirs.push(workingDirectory)
@@ -212,35 +231,40 @@ async function runSupervisor(extra: Record<string, unknown>) {
 		topicId: h.topicId,
 		projectId: h.projectId,
 		tenantId: h.tenantId,
-		...extra,
+		...extra(h),
 	} as never)
 	return { result, ...h }
 }
 
 describe('a supervisor held in memory', () => {
 	it('delegates to a child that is held in memory too', async () => {
-		const { result, projectId, childRuns } = await runSupervisor({
-			runStore: new InMemoryRunStore(),
-		})
+		const before = listHome()
+		const { result, sessionId, childSessions } = await runSupervisor((h) => ({
+			sessionLog: new InMemorySessionLog({ sessionId: h.sessionId }),
+		}))
 
 		expect(result.status).toBe('completed')
-		// The child really ran — through the manager, on a real ReactiveAgent.
-		expect(childRuns).toHaveLength(1)
-		expect(existsSync(join(defaultStateRoot(), 'projects', projectId))).toBe(false)
+		expect(result.sessionId).toBe(sessionId)
+		// The child really ran — through the manager, on a real ReactiveAgent,
+		// as a child session of its own.
+		expect(childSessions).toHaveLength(1)
+		expect(childSessions[0]).not.toBe(sessionId)
+		expect(listHome()).toEqual(before)
 	})
 
-	it('still writes to disk when the host names a path builder', async () => {
+	it('still writes to disk when the host names paths', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-supervisor-root-'))
 		dirs.push(root)
-		const { result, projectId, childRuns } = await runSupervisor({
-			runStore: new InMemoryRunStore(),
-			pathBuilder: new DefaultPathBuilder(root),
-		})
+		const paths = new SessionPaths({ home: root, slug: '-supervisor' })
+		const { result, childSessions } = await runSupervisor((h) => ({
+			sessionLog: new InMemorySessionLog({ sessionId: h.sessionId }),
+			paths,
+		}))
 
 		expect(result.status).toBe('completed')
-		expect(childRuns).toHaveLength(1)
-		// The supervisor's ledger and checkpoints go under the root it named.
-		expect(existsSync(join(root, 'projects', projectId))).toBe(true)
+		expect(childSessions).toHaveLength(1)
+		// The supervisor's ledger goes under the layout it named.
+		expect(existsSync(paths.budgets({ sessionId: result.sessionId }))).toBe(true)
 	})
 })
 
@@ -253,7 +277,8 @@ describe('the spawn context carries the choice', () => {
 					taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91',
 					status: 'completed',
 					result: {
-						runId: '4721e070-5ba2-425a-bf5a-8cc927907e9a',
+						sessionId: '4721e070-5ba2-425a-bf5a-8cc927907e9a',
+						turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e',
 						status: 'completed',
 						usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
 						cost: { totalCost: 0 },
@@ -273,16 +298,27 @@ describe('the spawn context carries the choice', () => {
 	}
 
 	it.each([
-		['in memory', () => ({ runStore: new InMemoryRunStore() }), { kind: 'memory' }],
 		[
-			'in memory with a path builder',
-			() => ({ runStore: new InMemoryRunStore(), pathBuilder: new DefaultPathBuilder('/tmp/x') }),
-			undefined,
+			'in memory',
+			(h: Harness) => ({ sessionLog: new InMemorySessionLog({ sessionId: h.sessionId }) }),
+			{ kind: 'memory' },
 		],
-		['on disk', () => ({}), undefined],
+		[
+			'in memory with paths',
+			(h: Harness) => ({
+				sessionLog: new InMemorySessionLog({ sessionId: h.sessionId }),
+				paths: new SessionPaths({ home: '/tmp/x', slug: '-x' }),
+			}),
+			// A named layout is on disk, so the children nest under it.
+			{ kind: 'disk', paths: expect.objectContaining({ slug: '-x' }) },
+		],
+		// No log and no layout: the default layout its own log resolves to.
+		['on disk', () => ({}), { kind: 'disk', paths: expect.any(SessionPaths) }],
 	])('%s', async (_label, extra, expected) => {
 		const contexts: AgentTaskContext[] = []
-		await runSupervisor({ ...extra(), agentManager: spyManager(contexts) }).catch(() => undefined)
+		await runSupervisor((h) => ({ ...extra(h), agentManager: spyManager(contexts) })).catch(
+			() => undefined,
+		)
 
 		expect(contexts.length).toBeGreaterThan(0)
 		expect(contexts[0]?.childStorage).toEqual(expected)

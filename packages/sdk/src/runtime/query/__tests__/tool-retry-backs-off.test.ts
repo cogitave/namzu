@@ -21,13 +21,14 @@ import { z } from 'zod'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor, type ToolExecutorConfig } from '../executor.js'
 
-const RUN_ID = 'd0d972d3-5ea3-4825-a3c7-04d73b15efb3' as RunId
+const SESSION_ID = '9d3c4b2a-1e0f-4a8b-9c7d-6e5f4a3b2c1d' as SessionId
+const TURN_ID = 'd0d972d3-5ea3-4825-a3c7-04d73b15efb3' as TurnId
 
 function makeLogger(): Logger {
 	const stub = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
@@ -58,14 +59,15 @@ function makeExecutor(registry: ToolRegistry, extra: Partial<ToolExecutorConfig>
 	return new ToolExecutor(
 		{
 			tools: registry,
-			runId: RUN_ID,
+			turnId: TURN_ID,
 			workingDirectory: process.cwd(),
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
 			...extra,
+			sessionId: extra.sessionId ?? SESSION_ID,
 		},
-		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
+		new ActivityStore(TURN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		() => Promise.resolve(),
 		makeLogger(),
 	)
@@ -215,7 +217,7 @@ describe('a retried tool call waits before trying again', () => {
 		expect(batch.results[0]?.isError).toBe(true)
 	})
 
-	it('stops retrying when the run is stopped mid-backoff, and still answers the call', async () => {
+	it('stops retrying when the turn is stopped mid-backoff, and still answers the call', async () => {
 		// An abort thrown from inside the wait would escape `executeSingle`
 		// and leave this `tool_use` unanswered in the transcript, which is
 		// the one invariant the executor is not allowed to break. The failure

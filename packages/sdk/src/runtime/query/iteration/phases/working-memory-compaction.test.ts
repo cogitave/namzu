@@ -2,7 +2,7 @@
  * Regression test for the ses_055 Layer-B SDK seam (#104):
  *
  *   1. **Compaction FIRES** under a small `contextWindowTokens` even with the
- *      run-level `tokenBudget = 0` (UNLIMITED) — proving the F1 fix repointed
+ *      turn-level `tokenBudget = 0` (UNLIMITED) — proving the F1 fix repointed
  *      BOTH the `<= 0` guard AND the divisor, closing the silent-no-op trap.
  *   2. **The pinned working-memory slot SURVIVES** the compaction pass (it is a
  *      leading system message → preserved by header identity).
@@ -22,7 +22,7 @@ import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { estimateMessagesTokens } from '../../../../compaction/token-estimate.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
-import type { RunId } from '../../../../types/ids/index.js'
+import type { TurnId } from '../../../../types/ids/index.js'
 import {
 	type Message,
 	createAssistantMessage,
@@ -76,13 +76,13 @@ function makeCtx(opts: {
 	manager.addDecision('built the report as .docx')
 
 	return {
-		runConfig: { tokenBudget: 0 }, // UNLIMITED cumulative cost cap
+		turnConfig: { tokenBudget: 0 }, // UNLIMITED cumulative cost cap
 		compactionConfig: config,
 		workingStateManager: manager,
 		workingMemoryProvider: opts.workingMemoryProvider,
 		log: makeLogger(),
-		runMgr: {
-			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as RunId,
+		recorder: {
+			id: '37ddff8e-e13f-4e57-937f-d048fa323f5e' as TurnId,
 			currentIteration: 3,
 			messages: opts.messages,
 			// Compaction prefers the provider's reported prompt size over the
@@ -115,11 +115,11 @@ describe('working-memory changes after a provider measured the prompt', () => {
 		await refreshWorkingMemory(ctx)
 		let measuredTokens: number | undefined = 1_000
 		let measuredCount: number | undefined = messages.length
-		Object.defineProperties(ctx.runMgr, {
+		Object.defineProperties(ctx.recorder, {
 			lastPromptTokens: { get: () => measuredTokens },
 			lastPromptMessageCount: { get: () => measuredCount },
 		})
-		ctx.runMgr.clearLastPromptTokens = () => {
+		ctx.recorder.clearLastPromptTokens = () => {
 			measuredTokens = undefined
 			measuredCount = undefined
 		}
@@ -142,11 +142,11 @@ describe('working-memory changes after a provider measured the prompt', () => {
 			const ctx = makeCtx({ messages, workingMemoryProvider: () => block })
 			await refreshWorkingMemory(ctx)
 			const measuredCount = messages.length
-			Object.assign(ctx.runMgr, {
+			Object.assign(ctx.recorder, {
 				lastPromptTokens: 1_000,
 				lastPromptMessageCount: measuredCount,
 			})
-			const invalidate = vi.spyOn(ctx.runMgr, 'clearLastPromptTokens')
+			const invalidate = vi.spyOn(ctx.recorder, 'clearLastPromptTokens')
 			const tail = createAssistantMessage('not included in the measured prompt')
 			messages.push(tail)
 			await refreshWorkingMemory(ctx)

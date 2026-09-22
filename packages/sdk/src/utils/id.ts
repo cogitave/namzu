@@ -1,6 +1,3 @@
-import { createHash } from 'node:crypto'
-import { realpathSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { unsafeId } from '../types/ids/brand.js'
 import type {
 	ActivityId,
@@ -15,7 +12,6 @@ import type {
 	CredentialId,
 	DeliverableId,
 	DocumentId,
-	EmergencySaveId,
 	EnvironmentId,
 	ExecutionContextId,
 	GoalId,
@@ -33,7 +29,6 @@ import type {
 	PluginId,
 	ProjectId,
 	RecordId,
-	RunId,
 	SandboxId,
 	SessionId,
 	SubSessionId,
@@ -65,40 +60,7 @@ export function generateProjectId(): ProjectId {
 	return generateId()
 }
 
-/**
- * The Project id a directory stands for: the same directory, the same id,
- * every time and in every process.
- *
- * For a host that has no Project store to look one up in. Minting a fresh id
- * per run instead partitions everything keyed by Project — the durable layout
- * (`projects/<projectId>/…`), generated memory, task state — per invocation,
- * so a batch of runs in one directory leaves a Project directory per run and
- * no run can find what the one before it saved.
- *
- * The directory is canonicalised first (absolute, symlinks resolved where the
- * path exists), so two spellings of one directory agree. The id is a
- * name-based UUID (RFC 9562 version 8) over that path: opaque, admitted by
- * every id check, and not reversible to the path.
- */
-export function projectIdForDirectory(directory: string): ProjectId {
-	let canonical = resolve(directory)
-	try {
-		canonical = realpathSync(canonical)
-	} catch {
-		// A directory that does not exist yet still names a stable Project.
-	}
-	const hex = createHash('sha256').update(`namzu:project-directory:${canonical}`).digest('hex')
-	const variant = (0x8 | (Number.parseInt(hex[16] as string, 16) & 0x3)).toString(16)
-	return unsafeId<ProjectId>(
-		`${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`,
-	)
-}
-
 export function generateTopicId(): TopicId {
-	return generateId()
-}
-
-export function generateRunId(): RunId {
 	return generateId()
 }
 
@@ -203,10 +165,6 @@ export function generateAuditEventId(): AuditEventId {
 	return generateId()
 }
 
-export function generateEmergencySaveId(): EmergencySaveId {
-	return generateId()
-}
-
 export function generateMemoryId(): MemoryId {
 	return generateId()
 }
@@ -241,7 +199,6 @@ export function generateDeliverableId(): DeliverableId {
 
 /** Entity kinds are supplied by a typed field or storage collection. */
 export interface EntityIdByKind {
-	run: RunId
 	turn: TurnId
 	record: RecordId
 	message: MessageId
@@ -267,7 +224,6 @@ export interface EntityIdByKind {
 	lock: LockId
 	advisory: AdvisoryId
 	advisoryCall: AdvisoryCallId
-	emergencySave: EmergencySaveId
 	memory: MemoryId
 	plugin: PluginId
 	sandbox: SandboxId
@@ -289,7 +245,6 @@ export interface EntityIdByKind {
 export type EntityIdKind = keyof EntityIdByKind
 
 const ENTITY_KINDS = new Set<EntityIdKind>([
-	'run',
 	'turn',
 	'record',
 	'message',
@@ -315,7 +270,6 @@ const ENTITY_KINDS = new Set<EntityIdKind>([
 	'lock',
 	'advisory',
 	'advisoryCall',
-	'emergencySave',
 	'memory',
 	'plugin',
 	'sandbox',
@@ -365,8 +319,8 @@ export function parseProjectId(raw: string): ProjectId {
 	return parseId(raw, 'project', 'ProjectId')
 }
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
-export function parseRunId(raw: string): RunId {
-	return parseId(raw, 'run', 'RunId')
+export function parseTurnId(raw: string): TurnId {
+	return parseId(raw, 'turn', 'TurnId')
 }
 /** @deprecated Use the `as*Id` constructor of the same type; this family throws a plain Error and is removed in the next major. */
 export function parseConnectorInstanceId(raw: string): ConnectorInstanceId {
@@ -407,7 +361,6 @@ function makeIdParser<K extends EntityIdKind>(kind: K): IdParser<EntityIdByKind[
 	}
 }
 
-export const asRunId: IdParser<RunId> = makeIdParser('run')
 export const asTurnId: IdParser<TurnId> = makeIdParser('turn')
 export const asRecordId: IdParser<RecordId> = makeIdParser('record')
 export const asMessageId: IdParser<MessageId> = makeIdParser('message')
@@ -434,7 +387,6 @@ export const asCheckpointId: IdParser<CheckpointId> = makeIdParser('checkpoint')
 export const asLockId: IdParser<LockId> = makeIdParser('lock')
 export const asAdvisoryId: IdParser<AdvisoryId> = makeIdParser('advisory')
 export const asAdvisoryCallId: IdParser<AdvisoryCallId> = makeIdParser('advisoryCall')
-export const asEmergencySaveId: IdParser<EmergencySaveId> = makeIdParser('emergencySave')
 export const asMemoryId: IdParser<MemoryId> = makeIdParser('memory')
 export const asPluginId: IdParser<PluginId> = makeIdParser('plugin')
 export const asSandboxId: IdParser<SandboxId> = makeIdParser('sandbox')

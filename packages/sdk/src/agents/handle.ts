@@ -5,15 +5,15 @@ import type { TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 
 /**
- * The object a host holds between runs.
+ * The object a host holds between turns.
  *
  * There was none. A host could not ask whether the agent was running, and
  * had nowhere to put "when you next run, start with this" — so it either
- * held a steer until it observed a run starting, or carried the text itself
+ * held a steer until it observed a turn starting, or carried the text itself
  * and passed it manually on the next `run()` call.
  *
  * Two delivery targets, each with a stated lifetime, and no silent third
- * state. `steer` reaches the run that is happening; `queueForNextRun`
+ * state. `steer` reaches the turn that is happening; `queueForNextTurn`
  * reaches the one that has not started. `steer` on an idle handle THROWS
  * rather than accepting into a queue nothing will read — that refusal is
  * the design, because the alternative is a host believing it redirected an
@@ -21,14 +21,12 @@ import type { Message } from '../types/message/index.js'
  */
 
 /**
- * Whether a run is in flight, as this handle sees it.
+ * Whether a turn is in flight, as this handle sees it.
  *
- * NOT `AgentStatus` — that name is taken by a deprecated alias of
- * `RunExecutionStatus` whose own test records that it never typed an agent
- * and is being removed in the next major. Reusing it here would silently
- * change what a consumer's `AgentStatus` MEANS rather than failing their
- * build, which is the worse of the two outcomes and the one a deprecation
- * window exists to avoid.
+ * NOT `AgentStatus` — that name was a deprecated alias of the execution
+ * status which never typed an agent. Reusing it here would silently change
+ * what a consumer's `AgentStatus` MEANS rather than failing their build,
+ * which is the worse of the two outcomes.
  */
 export type AgentHandleStatus = 'idle' | 'running'
 
@@ -38,7 +36,7 @@ export class AgentNotRunningError extends NamzuError {
 		super({
 			code: 'invalid_config',
 			message:
-				'steer() needs a run in flight — this agent is idle. Use queueForNextRun() to leave a message for the next one.',
+				'steer() needs a turn in flight — this agent is idle. Use queueForNextTurn() to leave a message for the next one.',
 			details: {},
 			retryable: false,
 		})
@@ -49,15 +47,15 @@ export class AgentNotRunningError extends NamzuError {
 export interface AgentHandle {
 	readonly status: AgentHandleStatus
 	/**
-	 * Hand guidance to the run happening now.
+	 * Hand guidance to the turn happening now.
 	 *
 	 * Reaches the model at the next turn boundary whether or not a tool is
 	 * in flight — the channel rides a settled tool result when there is one,
 	 * and the loop delivers the remainder otherwise.
 	 */
 	steer(text: string): void
-	/** Leave a message for the run that has not started yet. */
-	queueForNextRun(message: Message): Promise<void>
+	/** Leave a message for the turn that has not started yet. */
+	queueForNextTurn(message: Message): Promise<void>
 }
 
 export interface AgentHandleOptions {
@@ -85,20 +83,20 @@ export function createAgentHandle(options: AgentHandleOptions): AgentHandle {
 		},
 
 		steer(text: string): void {
-			// Refused, not rerouted. Quietly forwarding to `queueForNextRun`
+			// Refused, not rerouted. Quietly forwarding to `queueForNextTurn`
 			// would be a host asking to redirect what is happening now and
-			// getting a message delivered minutes later to a different run —
+			// getting a message delivered minutes later to a different turn —
 			// which is worse than an error, because nothing says it happened.
 			if (!options.isRunning()) throw new AgentNotRunningError()
 			options.steering.steer(text)
 		},
 
-		async queueForNextRun(message: Message): Promise<void> {
+		async queueForNextTurn(message: Message): Promise<void> {
 			if (!options.topicStateStore) {
 				throw new NamzuError({
 					code: 'invalid_config',
 					message:
-						'queueForNextRun() needs a topic state store; this handle was built without one, so there is nowhere to leave the message.',
+						'queueForNextTurn() needs a topic state store; this handle was built without one, so there is nowhere to leave the message.',
 					details: { topicId: options.topicId },
 					retryable: false,
 				})
@@ -109,7 +107,7 @@ export function createAgentHandle(options: AgentHandleOptions): AgentHandle {
 }
 
 /**
- * Add a message to the topic's next-run queue, under compare-and-set.
+ * Add a message to the topic's next-turn queue, under compare-and-set.
  *
  * Read-modify-write against the record's revision, so two hosts queueing
  * for one conversation cannot silently drop each other's message — the

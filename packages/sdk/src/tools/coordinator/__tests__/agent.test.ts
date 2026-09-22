@@ -7,7 +7,7 @@
  *   layer disagrees — the canonical bug review caught was that a
  *   failed subagent could be reported as successful when the gateway
  *   forwarded `state: 'completed'` from a manager that did not
- *   propagate the run's `status: 'failed'`.
+ *   propagate the turn's `status: 'failed'`.
  * - Returns the subagent's `result` string as the tool output on
  *   success.
  */
@@ -21,7 +21,8 @@ import { buildAgentTool } from '../agent.js'
 
 function makeContext(): ToolContext {
 	return {
-		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
+		sessionId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as never,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -66,7 +67,8 @@ describe('buildAgentTool', () => {
 			...launched,
 			state: 'completed',
 			result: {
-				runId: '04e408dd-fdea-4f1a-aae1-cb426d5850ed' as never,
+				sessionId: '04e408dd-fdea-4f1a-aae1-cb426d5850ed' as never,
+				turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 				status: 'completed',
 				usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 				cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,
@@ -103,7 +105,8 @@ describe('buildAgentTool', () => {
 			...launched,
 			state: 'completed',
 			result: {
-				runId: '04e408dd-fdea-4f1a-aae1-cb426d5850ed' as never,
+				sessionId: '04e408dd-fdea-4f1a-aae1-cb426d5850ed' as never,
+				turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 				status: 'failed',
 				usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } as never,
 				cost: { inputCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 } as never,
@@ -154,9 +157,9 @@ describe('buildAgentTool', () => {
 		expect(result.error).toContain('failed')
 	})
 
-	it("does not accept a taskStore or runId — plan-task lifecycle is the parent's job", () => {
-		// Compile-time pin: AgentToolOptions must NOT include `taskStore`
-		// or `runId`. The Agent tool used to manage a per-call plan task
+	it("does not accept a taskStore or a turn — plan-task lifecycle is the parent's job", () => {
+		// Compile-time pin: AgentToolOptions must NOT include `taskStore`,
+		// `sessionId` or `turnId`. The Agent tool used to manage a per-call plan task
 		// internally and review caught a leak: when the subagent failed,
 		// the plan task stayed `'in_progress'` forever because
 		// `TaskStatus` has no `'failed'` value to flip to. Drop the
@@ -172,6 +175,7 @@ describe('buildAgentTool', () => {
 			onTaskLaunched: undefined,
 		}
 		expect('taskStore' in allowedOpts).toBe(false)
-		expect('runId' in allowedOpts).toBe(false)
+		expect('sessionId' in allowedOpts).toBe(false)
+		expect('turnId' in allowedOpts).toBe(false)
 	})
 })

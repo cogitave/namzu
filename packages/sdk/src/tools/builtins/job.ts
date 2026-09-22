@@ -20,7 +20,7 @@ const inputSchema = z.object({
 	action: z
 		.enum(['read', 'list', 'kill'])
 		.describe(
-			'read: output since `from_offset`. list: every background job this run started, with status. kill: stop a job and everything it forked.',
+			'read: output since `from_offset`. list: every background job this turn started, with status. kill: stop a job and everything it forked.',
 		),
 	id: z
 		.string()
@@ -86,7 +86,7 @@ export const JobTool = defineTool({
 			return {
 				success: false,
 				output: '',
-				error: `action "${input.action}" needs an id. Use action "list" to see the jobs this run has started.`,
+				error: `action "${input.action}" needs an id. Use action "list" to see the jobs this turn has started.`,
 			}
 		}
 
@@ -127,9 +127,9 @@ export const JobTool = defineTool({
 				},
 			}
 		} catch (err) {
-			// An id from another run reads as unknown here, because the
-			// owner-bound view refuses it. That is the intended answer: a run
-			// should not be able to confirm another run's job exists.
+			// An id from another turn reads as unknown here, because the
+			// owner-bound view refuses it. That is the intended answer: a turn
+			// should not be able to confirm another turn's job exists.
 			return {
 				success: false,
 				output: '',

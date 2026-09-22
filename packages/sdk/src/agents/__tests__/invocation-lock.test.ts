@@ -10,14 +10,14 @@ import { ConcurrentInvocationError } from '../lock.js'
  * invocations of one agent instance were never prevented, and the error
  * type that announces the refusal could not be thrown by anything.
  *
- * They genuinely are unsafe: `abortController` and `currentRunId` are
- * INSTANCE state. Two overlapping runs share one abort controller, so
- * cancelling either kills both, and the second clobbers the first's run
- * id, so a later `cancel()` cancels the wrong run. Neither failure
- * announces itself — the first run simply stops, or the wrong one does.
+ * They genuinely are unsafe: `abortController` and `currentSessionId` are
+ * INSTANCE state. Two overlapping turns share one abort controller, so
+ * cancelling either kills both, and the second clobbers the first's
+ * session, so a later `cancel()` cancels the wrong children. Neither failure
+ * announces itself — the first turn simply stops, or the wrong one does.
  */
 
-/** A provider that blocks until released, so two runs can overlap. */
+/** A provider that blocks until released, so two turns can overlap. */
 function blockingProvider() {
 	let release: (() => void) | undefined
 	const started: number[] = []
@@ -54,14 +54,14 @@ function agentConfig(provider: unknown): ReactiveAgentConfig {
 
 const input: AgentInput = { messages: [{ role: 'user', content: 'go' }] } as AgentInput
 
-describe('one run at a time per instance', () => {
+describe('one turn at a time per instance', () => {
 	it('refuses a second concurrent run on the same instance', async () => {
 		const { provider, release } = blockingProvider()
 		const agent = new ReactiveAgent({ id: 'a', name: 'A' } as never)
 
 		const first = agent.run(input, agentConfig(provider))
 		// The refusal is what makes the shared-state hazard visible instead
-		// of letting two runs quietly cancel each other.
+		// of letting two turns quietly cancel each other.
 		await expect(agent.run(input, agentConfig(provider))).rejects.toBeInstanceOf(
 			ConcurrentInvocationError,
 		)
@@ -81,7 +81,7 @@ describe('one run at a time per instance', () => {
 		await first.catch(() => undefined)
 	})
 
-	it('releases the lock once a run settles, so the instance is reusable', async () => {
+	it('releases the lock once a turn settles, so the instance is reusable', async () => {
 		const { provider, release } = blockingProvider()
 		const agent = new ReactiveAgent({ id: 'a', name: 'A' } as never)
 
@@ -97,7 +97,7 @@ describe('one run at a time per instance', () => {
 		await expect(next.catch(() => 'settled')).resolves.toBeDefined()
 	})
 
-	it('releases the lock even when the run throws', async () => {
+	it('releases the lock even when the turn throws', async () => {
 		const failing = {
 			id: 'test',
 			name: 'Test',
@@ -110,8 +110,8 @@ describe('one run at a time per instance', () => {
 		const agent = new ReactiveAgent({ id: 'a', name: 'A' } as never)
 
 		await agent.run(input, agentConfig(failing)).catch(() => undefined)
-		// Without the `finally`, one failed run would brick the instance —
-		// and the second call would report a concurrency error for a run
+		// Without the `finally`, one failed turn would brick the instance —
+		// and the second call would report a concurrency error for a turn
 		// that is not running.
 		await expect(
 			agent.run(input, agentConfig(failing)).catch((err: unknown) => err),
@@ -120,7 +120,7 @@ describe('one run at a time per instance', () => {
 
 	it('leaves separate instances independent', async () => {
 		// The supported shape for parallelism: a second instance is cheap,
-		// and each owns its own abort controller and run id.
+		// and each owns its own abort controller and turn id.
 		const a = blockingProvider()
 		const b = blockingProvider()
 		const first = new ReactiveAgent({ id: 'a', name: 'A' } as never)
@@ -134,7 +134,7 @@ describe('one run at a time per instance', () => {
 		const settled = await Promise.allSettled([runA, runB])
 
 		// The claim is about the LOCK, so assert on the lock. An earlier
-		// version counted provider calls, which is a side effect these runs
+		// version counted provider calls, which is a side effect these turns
 		// may never reach — it failed for a reason that had nothing to do
 		// with what the test is named for.
 		for (const outcome of settled) {

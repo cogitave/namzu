@@ -6,8 +6,16 @@ import {
 	type ExecFile,
 	type ExecFileResult,
 	GitWorktreeDriver,
+	defaultWorktreesDir,
 	parseWorktreeList,
 } from '../git-worktree.js'
+
+/**
+ * Where the driver puts managed worktrees for `/repo` when the host names no
+ * directory: `projects/<slug>/worktrees` under NAMZU_HOME, never inside the
+ * repository.
+ */
+const WT = defaultWorktreesDir('/repo')
 
 function stubLogger() {
 	return {
@@ -28,6 +36,13 @@ function okExec(stdout = '', stderr = ''): ExecFileResult {
 function listedWorktree(path: string, branch: string): string {
 	return [`worktree ${path}`, 'HEAD abc123', `branch refs/heads/${branch}`, ''].join('\n')
 }
+
+describe('the default worktrees directory', () => {
+	it('lives under NAMZU_HOME for the repository, not inside it', () => {
+		expect(posix(WT).startsWith('/repo/')).toBe(false)
+		expect(posix(WT)).toMatch(/\/projects\/[^/]+\/worktrees$/)
+	})
+})
 
 describe('GitWorktreeDriver', () => {
 	it('create: invokes `git worktree add` with argv array (no shell interpolation)', async () => {
@@ -61,7 +76,7 @@ describe('GitWorktreeDriver', () => {
 			'-b',
 			'namzu/foo',
 			'--',
-			'/repo/.namzu/worktrees/foo',
+			`${WT}/foo`,
 			'main',
 		])
 	})
@@ -80,7 +95,7 @@ describe('GitWorktreeDriver', () => {
 		await driver.create({ label: 'bar' })
 		const call = calls[0]
 		if (!call) throw new Error('missing call')
-		expect(posix(call.args.at(-1))).toBe('/repo/.namzu/worktrees/bar')
+		expect(posix(call.args.at(-1))).toBe(`${WT}/bar`)
 	})
 
 	it('create: wraps failures in WorkspaceBackendError', async () => {
@@ -116,9 +131,7 @@ describe('GitWorktreeDriver', () => {
 		const calls: Array<readonly string[]> = []
 		const exec: ExecFile = async (_file, args) => {
 			calls.push(args)
-			return args.includes('list')
-				? okExec(listedWorktree('/repo/.namzu/worktrees/x', 'namzu/x'))
-				: okExec()
+			return args.includes('list') ? okExec(listedWorktree(`${WT}/x`, 'namzu/x')) : okExec()
 		}
 		const driver = new GitWorktreeDriver({
 			repoRoot: '/repo',
@@ -131,14 +144,14 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
 		await driver.dispose(ref)
 		expect(calls).toEqual([
 			['-C', '/repo', 'worktree', 'list', '--porcelain'],
-			['-C', '/repo', 'worktree', 'remove', '/repo/.namzu/worktrees/x', '--force'],
+			['-C', '/repo', 'worktree', 'remove', `${WT}/x`, '--force'],
 		])
 	})
 
@@ -155,7 +168,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
@@ -175,25 +188,25 @@ describe('GitWorktreeDriver', () => {
 			name: 'a sibling-prefix directory',
 			repoRoot: '/repo',
 			branch: 'namzu/x',
-			worktreePath: '/repo/.namzu/worktrees-other/x',
+			worktreePath: `${WT}-other/x`,
 		},
 		{
 			name: 'the managed root itself',
 			repoRoot: '/repo',
 			branch: 'namzu/worktrees',
-			worktreePath: '/repo/.namzu/worktrees',
+			worktreePath: `${WT}`,
 		},
 		{
 			name: 'a different repository',
 			repoRoot: '/other',
 			branch: 'namzu/x',
-			worktreePath: '/repo/.namzu/worktrees/x',
+			worktreePath: `${WT}/x`,
 		},
 		{
 			name: 'a branch inconsistent with its managed path',
 			repoRoot: '/repo',
 			branch: 'main',
-			worktreePath: '/repo/.namzu/worktrees/x',
+			worktreePath: `${WT}/x`,
 		},
 	])('dispose: refuses $name before invoking Git', async (meta) => {
 		const exec = vi.fn(async () => okExec())
@@ -229,7 +242,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/parent/child',
-				worktreePath: '/repo/.namzu/worktrees/parent/child',
+				worktreePath: `${WT}/parent/child`,
 			},
 			createdAt: new Date(),
 		}
@@ -245,7 +258,7 @@ describe('GitWorktreeDriver', () => {
 			'-b',
 			'namzu/next',
 			'--',
-			'/repo/.namzu/worktrees/next',
+			`${WT}/next`,
 			'namzu/parent/child',
 		])
 	})
@@ -282,9 +295,7 @@ describe('GitWorktreeDriver', () => {
 		const exec = vi.fn(async (_file: string, args: readonly string[]) => {
 			if (args.includes('list')) {
 				listCalls++
-				return listCalls === 1
-					? okExec(listedWorktree('/repo/.namzu/worktrees/x', 'namzu/x'))
-					: okExec()
+				return listCalls === 1 ? okExec(listedWorktree(`${WT}/x`, 'namzu/x')) : okExec()
 			}
 			throw new Error('another disposer removed it first')
 		})
@@ -299,7 +310,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
@@ -323,7 +334,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
@@ -331,12 +342,9 @@ describe('GitWorktreeDriver', () => {
 	})
 
 	it('inspect: parses list output and detects clean tree', async () => {
-		const listStdout = [
-			'worktree /repo/.namzu/worktrees/x',
-			'HEAD abc123',
-			'branch refs/heads/namzu/x',
-			'',
-		].join('\n')
+		const listStdout = [`worktree ${WT}/x`, 'HEAD abc123', 'branch refs/heads/namzu/x', ''].join(
+			'\n',
+		)
 		let callIndex = 0
 		const exec: ExecFile = async (_file, args) => {
 			callIndex++
@@ -355,7 +363,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
@@ -365,12 +373,9 @@ describe('GitWorktreeDriver', () => {
 	})
 
 	it('inspect: reports dirty when status --porcelain has output', async () => {
-		const listStdout = [
-			'worktree /repo/.namzu/worktrees/x',
-			'HEAD abc123',
-			'branch refs/heads/namzu/x',
-			'',
-		].join('\n')
+		const listStdout = [`worktree ${WT}/x`, 'HEAD abc123', 'branch refs/heads/namzu/x', ''].join(
+			'\n',
+		)
 		const exec: ExecFile = async (_file, args) => {
 			if (args.includes('list')) return okExec(listStdout)
 			if (args.includes('status')) return okExec(' M path/to/file\n')
@@ -387,7 +392,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
@@ -396,9 +401,7 @@ describe('GitWorktreeDriver', () => {
 	})
 
 	it('inspect: does not enter a path now registered to another branch', async () => {
-		const exec = vi.fn(async () =>
-			okExec(listedWorktree('/repo/.namzu/worktrees/x', 'namzu/someone-else')),
-		)
+		const exec = vi.fn(async () => okExec(listedWorktree(`${WT}/x`, 'namzu/someone-else')))
 		const driver = new GitWorktreeDriver({
 			repoRoot: '/repo',
 			logger: stubLogger(),
@@ -410,7 +413,7 @@ describe('GitWorktreeDriver', () => {
 				backend: 'git-worktree',
 				repoRoot: '/repo',
 				branch: 'namzu/x',
-				worktreePath: '/repo/.namzu/worktrees/x',
+				worktreePath: `${WT}/x`,
 			},
 			createdAt: new Date(),
 		}
@@ -432,7 +435,7 @@ describe('parseWorktreeList', () => {
 
 	it('extracts head + branch for the matching entry', () => {
 		const stdout = [
-			'worktree /repo/.namzu/worktrees/x',
+			`worktree ${WT}/x`,
 			'HEAD deadbeef',
 			'branch refs/heads/namzu/x',
 			'',
@@ -441,9 +444,9 @@ describe('parseWorktreeList', () => {
 			'bare',
 			'',
 		].join('\n')
-		const entry = parseWorktreeList(stdout, '/repo/.namzu/worktrees/x')
+		const entry = parseWorktreeList(stdout, `${WT}/x`)
 		expect(entry).toEqual({
-			path: '/repo/.namzu/worktrees/x',
+			path: `${WT}/x`,
 			head: 'deadbeef',
 			branch: 'refs/heads/namzu/x',
 		})

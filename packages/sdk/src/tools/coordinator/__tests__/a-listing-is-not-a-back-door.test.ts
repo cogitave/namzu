@@ -6,10 +6,10 @@ import type { ToolContext } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
 
 /**
- * A supervisor could read a sibling run's worker output by listing.
+ * A supervisor could read a sibling session's worker output by listing.
  *
  * `SupervisorAgentConfig.gateway` exists so a host can hand the SAME gateway to
- * several runs, which makes `listTasks()` gateway-wide by design.
+ * several turns, which makes `listTasks()` gateway-wide by design.
  * `agent_task_list` handed that straight to the model — including each task's
  * `result`, the worker's actual output — and `wait_for_task` had the same reach
  * through `getTask`.
@@ -25,7 +25,8 @@ const AGENTS = ['reviewer', 'researcher']
 
 function makeContext(): ToolContext {
 	return {
-		runId: 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as never,
+		sessionId: 'fc08e0e5-f896-4bd0-9d65-d1c0ba7372fa' as never,
+		turnId: '0199a3c2-7c1e-7b4a-9d2f-5e6a7b8c9d0e' as never,
 		workingDirectory: '/tmp/test',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -67,7 +68,7 @@ function sharedGateway() {
 	return gateway
 }
 
-/** A run's own coordinator surface over a gateway it may be sharing. */
+/** A turn's own coordinator surface over a gateway it may be sharing. */
 function runOver(gateway: TaskScheduler) {
 	const tools = buildCoordinatorTools({
 		gateway,
@@ -90,8 +91,8 @@ function runOver(gateway: TaskScheduler) {
 	}
 }
 
-describe('one run cannot read another run through the listing', () => {
-	it('lists only the tasks this run launched', async () => {
+describe('one turn cannot read another turn through the listing', () => {
+	it('lists only the tasks this turn launched', async () => {
 		const gateway = sharedGateway()
 		const first = runOver(gateway)
 		const second = runOver(gateway)
@@ -128,7 +129,7 @@ describe('one run cannot read another run through the listing', () => {
 		expect(data.items).toHaveLength(1)
 	})
 
-	it('refuses to wait on a task another run launched', async () => {
+	it('refuses to wait on a task another turn launched', async () => {
 		const gateway = sharedGateway()
 		const first = runOver(gateway)
 		const second = runOver(gateway)
@@ -143,7 +144,7 @@ describe('one run cannot read another run through the listing', () => {
 
 	it('says the same thing about a task that never existed', async () => {
 		// The refusal must not distinguish "belongs to someone else" from
-		// "never existed". Confirming a real id to a run that should not know
+		// "never existed". Confirming a real id to a turn that should not know
 		// it is the leak in miniature.
 		const gateway = sharedGateway()
 		const first = runOver(gateway)
@@ -157,8 +158,8 @@ describe('one run cannot read another run through the listing', () => {
 		expect(sibling.output).toBe(fictional.output.replace('tsk_9999', 'tsk_1'))
 	})
 
-	it('still lets a run wait on its own task', async () => {
-		// The scope has to be a filter, not a wall — a run that launched a task
+	it('still lets a turn wait on its own task', async () => {
+		// The scope has to be a filter, not a wall — a turn that launched a task
 		// must still be able to read it back, or the fix breaks delegation.
 		const gateway = sharedGateway()
 		const only = runOver(gateway)

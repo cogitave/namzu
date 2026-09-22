@@ -1,4 +1,4 @@
-import type { CredentialId, LockId, RunId, SandboxId, TenantId } from '../ids/index.js'
+import type { CredentialId, LockId, SandboxId, SessionId, TenantId, TurnId } from '../ids/index.js'
 
 export type { LockId } from '../ids/index.js'
 
@@ -8,7 +8,7 @@ export type CircuitBreakerState = 'closed' | 'open' | 'half_open'
 
 export interface CircuitBreakerSnapshot {
 	readonly state: CircuitBreakerState
-	readonly agentRunId: RunId
+	readonly agentSessionId: SessionId
 	readonly consecutiveFailures: number
 	readonly lastFailureAt?: number
 	readonly lastSuccessAt?: number
@@ -18,7 +18,7 @@ export interface CircuitBreakerSnapshot {
 export interface FileLock {
 	readonly lockId: LockId
 	readonly filePath: string
-	readonly owner: RunId
+	readonly owner: SessionId
 	readonly acquiredAt: number
 	readonly expiresAt?: number
 }
@@ -27,21 +27,21 @@ export type LockAcquireResult =
 	| { acquired: true; lock: FileLock }
 	// `holder` is OPTIONAL, and its absence is the honest answer to "who holds
 	// it". The failure branch is also reached when the lock was released
-	// between the attempt and the read, and this used to report `'' as RunId`
+	// between the attempt and the read, and this used to report `'' as SessionId`
 	// for that — an empty string wearing an id type, which the nominal ids of
 	// NZ-SURF-11 will not express and which no caller could have distinguished
 	// from a real holder anyway.
-	| { acquired: false; holder?: RunId; filePath: string }
+	| { acquired: false; holder?: SessionId; filePath: string }
 
 export interface FileOwnership {
 	readonly filePath: string
-	readonly owner: RunId
+	readonly owner: SessionId
 	readonly claimedAt: number
 }
 
 export type OwnershipClaimResult =
 	| { claimed: true; ownership: FileOwnership }
-	| { claimed: false; currentOwner: RunId; filePath: string }
+	| { claimed: false; currentOwner: SessionId; filePath: string }
 
 export interface ProviderCallUsage {
 	readonly inputTokens?: number
@@ -53,32 +53,34 @@ export interface ProviderCallUsage {
 export type SandboxDecisionAction = 'allow' | 'deny'
 
 export type AgentBusEvent =
-	| { type: 'lock_acquired'; lockId: LockId; filePath: string; owner: RunId }
-	| { type: 'lock_released'; lockId: LockId; filePath: string; owner: RunId }
-	| { type: 'lock_denied'; filePath: string; requester: RunId; holder: RunId }
-	| { type: 'lock_expired'; lockId: LockId; filePath: string; owner: RunId }
-	| { type: 'ownership_claimed'; filePath: string; owner: RunId }
-	| { type: 'ownership_released'; filePath: string; previousOwner: RunId }
-	| { type: 'ownership_transferred'; filePath: string; from: RunId; to: RunId }
-	| { type: 'ownership_denied'; filePath: string; requester: RunId; currentOwner: RunId }
-	| { type: 'breaker_tripped'; agentRunId: RunId; consecutiveFailures: number }
-	| { type: 'breaker_reset'; agentRunId: RunId }
-	| { type: 'breaker_half_open'; agentRunId: RunId }
-	| { type: 'breaker_probe_success'; agentRunId: RunId }
-	| { type: 'breaker_probe_failure'; agentRunId: RunId }
+	| { type: 'lock_acquired'; lockId: LockId; filePath: string; owner: SessionId }
+	| { type: 'lock_released'; lockId: LockId; filePath: string; owner: SessionId }
+	| { type: 'lock_denied'; filePath: string; requester: SessionId; holder: SessionId }
+	| { type: 'lock_expired'; lockId: LockId; filePath: string; owner: SessionId }
+	| { type: 'ownership_claimed'; filePath: string; owner: SessionId }
+	| { type: 'ownership_released'; filePath: string; previousOwner: SessionId }
+	| { type: 'ownership_transferred'; filePath: string; from: SessionId; to: SessionId }
+	| { type: 'ownership_denied'; filePath: string; requester: SessionId; currentOwner: SessionId }
+	| { type: 'breaker_tripped'; agentSessionId: SessionId; consecutiveFailures: number }
+	| { type: 'breaker_reset'; agentSessionId: SessionId }
+	| { type: 'breaker_half_open'; agentSessionId: SessionId }
+	| { type: 'breaker_probe_success'; agentSessionId: SessionId }
+	| { type: 'breaker_probe_failure'; agentSessionId: SessionId }
 	| {
 			type: 'provider_call_start'
 			providerId: string
 			model: string
 			callId: ProviderCallId
-			runId?: RunId
+			sessionId?: SessionId
+			turnId?: TurnId
 	  }
 	| {
 			type: 'provider_call_completed'
 			providerId: string
 			model: string
 			callId: ProviderCallId
-			runId?: RunId
+			sessionId?: SessionId
+			turnId?: TurnId
 			durationMs: number
 			usage?: ProviderCallUsage
 	  }
@@ -87,7 +89,8 @@ export type AgentBusEvent =
 			providerId: string
 			model: string
 			callId: ProviderCallId
-			runId?: RunId
+			sessionId?: SessionId
+			turnId?: TurnId
 			durationMs: number
 			error: string
 	  }
@@ -112,7 +115,8 @@ export type AgentBusEvent =
 			source: string
 			ref: string
 			tenantId?: TenantId
-			runId?: RunId
+			sessionId?: SessionId
+			turnId?: TurnId
 	  }
 	| {
 			type: 'vault_lookup'
@@ -120,7 +124,8 @@ export type AgentBusEvent =
 			credentialId?: CredentialId
 			tenantId?: TenantId
 			found: boolean
-			runId?: RunId
+			sessionId?: SessionId
+			turnId?: TurnId
 	  }
 	| {
 			type: 'sandbox_decision'
@@ -128,7 +133,8 @@ export type AgentBusEvent =
 			action: SandboxDecisionAction
 			resource: string
 			ruleId?: string
-			runId?: RunId
+			sessionId?: SessionId
+			turnId?: TurnId
 	  }
 
 export type AgentBusEventListener = (event: AgentBusEvent) => void

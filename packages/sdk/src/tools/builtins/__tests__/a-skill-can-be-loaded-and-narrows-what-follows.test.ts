@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RunId } from '../../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { SkillRegistryRef, ToolContext } from '../../../types/tool/index.js'
 import { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from '../skill.js'
 
@@ -8,7 +8,7 @@ import { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from '../skill.js'
  * A skill the model can actually open, and a scope it cannot decline.
  *
  * The manifest told the model a SKILL.md exists and to "read the SKILL.md
- * at its <location>" — a filesystem instruction, so a run without
+ * at its <location>" — a filesystem instruction, so a turn without
  * filesystem tools could see every skill and open none. The protocol text
  * even hedged: *"when the runtime exposes filesystem or skill-loading
  * tools"*. There was no skill-loading tool.
@@ -53,7 +53,8 @@ function contextFor(
 	overrides: Partial<ToolContext> = {},
 ): ToolContext {
 	return {
-		runId: '651d7ad7-a79e-4783-85bb-5bcd9da09f20' as RunId,
+		sessionId: '0190a5b2-7c3d-7e4f-8a9b-0c1d2e3f4a5b' as SessionId,
+		turnId: '651d7ad7-a79e-4783-85bb-5bcd9da09f20' as TurnId,
 		workingDirectory: '/tmp',
 		abortSignal: new AbortController().signal,
 		env: {},
@@ -322,7 +323,7 @@ describe('a declared tool scope is adopted, not merely announced', () => {
 	})
 
 	it('still announces the scope where nothing can enforce it', async () => {
-		// A host driving this tool outside a run has no executor. Saying
+		// A host driving this tool outside a turn has no executor. Saying
 		// nothing there would be worse than advice.
 		const result = await SkillTool.execute(
 			{ name: 'reconcile' },

@@ -15,7 +15,7 @@ describe('applyProviderFlags', () => {
 		expect(applyProviderFlags(chain, noFlags)).toBe(chain)
 	})
 
-	it('--provider REPLACES the chain, so the run cannot answer from an unnamed provider', () => {
+	it('--provider REPLACES the chain, so the turn cannot answer from an unnamed provider', () => {
 		// The decision this test exists for. Prepending and keeping the tail
 		// would let a run the operator scoped to one provider be served by a
 		// different one, with the flag they passed saying otherwise.

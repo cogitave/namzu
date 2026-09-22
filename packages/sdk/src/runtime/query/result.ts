@@ -1,7 +1,6 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
-import { EmergencySaveManager } from '../../manager/run/emergency.js'
-import type { RunPersistence } from '../../manager/run/persistence.js'
+import type { TurnRecorder } from '../../manager/session/turn-recorder.js'
 import { isCallerAbortError, isProviderRequestError } from '../../provider/errors.js'
 import { TokenBudgetAdmissionError } from '../../provider/token-budget.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
@@ -9,38 +8,36 @@ import { GENAI, NAMZU } from '../../telemetry/attributes.js'
 import { explainError } from '../../types/errors/catalog.js'
 import { toPlatformError } from '../../types/errors/index.js'
 import type { CheckpointId } from '../../types/hitl/index.js'
-import { cancelCauseOf } from '../../types/run/cancel-cause.js'
-import type { Run, RunEvent } from '../../types/run/index.js'
+import { cancelCauseOf } from '../../types/session/cancel-cause.js'
+import type { SessionEvent, Turn } from '../../types/session/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import type { EmitEvent } from './events.js'
 
 export interface ResultAssemblerConfig {
-	runMgr: RunPersistence
+	recorder: TurnRecorder
 	planManager: PlanManager
 	activityStore: ActivityStore
 	log: Logger
 	emitEvent: EmitEvent
-	drainPending: () => Generator<RunEvent>
+	drainPending: () => Generator<SessionEvent>
 	/**
-	 * The state a host should resume from if the run settles recoverably.
-	 *
-	 * A function rather than a value: checkpoints are written per iteration,
-	 * so the answer changes as the run proceeds and reading it at
-	 * construction would pin the first one forever.
+	 * The state a host should resume from if the turn settles recoverably.
+	 * A function rather than a value: checkpoints are written per iteration.
 	 */
 	resumeCheckpointId?: () => CheckpointId | undefined
 	/**
-	 * The run's abort signal, read only to recover WHY a cancellation
-	 * happened. Optional so a caller that never cancels needs no extra
-	 * wiring, and absent simply means the cause is unknown — which is the
-	 * same answer an unattributed cancellation gives.
+	 * The turn's abort signal, read only to recover WHY a cancellation
+	 * happened. Absent means the cause is unknown.
 	 */
 	signal?: AbortSignal
-	/** A crash dump the run continues; removed when it completes. See `QueryParams`. */
-	supersedesEmergencySave?: string
 }
 
+/**
+ * How a turn ends: the terminal record (`turn_completed` or `turn_failed`),
+ * or `turn_paused` for a recoverable failure, with the audit entry and the
+ * span verdict that go with it.
+ */
 export class ResultAssembler {
 	private config: ResultAssemblerConfig
 
@@ -48,112 +45,90 @@ export class ResultAssembler {
 		this.config = config
 	}
 
-	async *completeRun(rootSpan: Span): AsyncGenerator<RunEvent> {
-		const { runMgr, planManager, activityStore, log, emitEvent, drainPending } = this.config
+	async *completeTurn(rootSpan: Span): AsyncGenerator<SessionEvent> {
+		const { recorder, planManager, activityStore, log, emitEvent, drainPending } = this.config
 		const cancelCause = cancelCauseOf(this.config.signal?.reason)
 
-		if (runMgr.status === 'running') {
-			runMgr.markCompleted(runMgr.stopReason)
+		if (recorder.status === 'running') {
+			recorder.markCompleted(recorder.stopReason)
 		}
 
-		// Settle the plan, which nothing did on this path — so a plan could
-		// reach `failed` (the error path calls `failPlan`) or stay `executing`
-		// forever, but never `completed`. A host reading `plan.status` after a
-		// successful run saw "still running".
-		//
-		// Only when every step has reported, and the check is a read rather
-		// than a caught throw: `completePlan` refuses an unreported step on
-		// purpose, and turning a run that worked into a run that crashed on its
-		// way out would be a worse version of the bug the refusal prevents.
-		//
-		// A plan with steps nobody reported is LEFT `executing`, which is the
-		// honest answer — the caller and the plan disagree about whether the
-		// work is over, and this is not the place to resolve that by guessing.
+		// A turn that paused on a decision ended its segment with `turn_paused`;
+		// it is not settled, and a terminal record would close it for good. The
+		// consumer is told the same thing the log says.
+		if (recorder.isPaused) {
+			rootSpan.setAttributes({
+				[NAMZU.TURN_STATUS]: 'paused',
+				[NAMZU.ITERATION]: recorder.currentIteration,
+			})
+			rootSpan.setStatus({ code: SpanStatusCode.OK })
+			log.info('Turn paused; resume it once the decision is made', {
+				[NAMZU.TURN_ID]: recorder.turnId,
+				'namzu.runtime.iterations': recorder.currentIteration,
+			})
+			return
+		}
+
+		// Settle the plan once every step has reported. A plan with steps
+		// nobody reported is LEFT executing: the caller and the plan disagree
+		// about whether the work is over.
 		if (planManager.isActive && planManager.unreportedSteps.length === 0) {
 			planManager.completePlan()
 		}
 
-		// The run's own terminal verdict — first-class in the audit trail per
-		// LOG-14, scoped deliberately: only the one outcome `AuditOutcome` can
-		// name for a settled run today ('completed' → 'success'). This also
-		// covers a guardrail-blocked run, which reaches `status: 'completed'`
-		// via the `markCompleted` call above — "completed is not succeeded"
-		// (see `types/run/events.ts`'s `run_completed` doc), and the granular
-		// 'refused' entry for the block itself was already recorded at the
-		// point it happened. 'cancelled'/'paused' are left unaudited here
-		// rather than forced into a mapping nothing asked for — a later minor
-		// can widen `AuditOutcome` additively when that scope is taken on.
-		if (runMgr.status === 'completed') {
-			await runMgr.recordAudit({ what: { action: 'run_completed' }, outcome: 'success' })
+		// The turn's own terminal verdict, first-class in the audit trail.
+		// 'completed' is not 'succeeded' (a guardrail-blocked turn lands here
+		// too); the granular 'refused' entry was recorded where it happened.
+		if (recorder.status === 'completed' && recorder.isActive) {
+			await recorder.recordAudit({ what: { action: 'turn_completed' }, outcome: 'success' })
 		}
 
+		const turn = recorder.getTurn()
 		await emitEvent({
-			type: 'run_completed',
-			budget: runMgr.budget?.summary(),
-			runId: runMgr.id,
-			result: runMgr.getRun().result ?? '',
-			// Read AFTER `markCompleted`, which is where a run that was stopped
-			// mid-flight has its reason settled. Carried on the event so a
-			// consumer can tell "answered" from "ran out of budget" without
-			// holding the `Run`.
-			...(runMgr.getRun().stopReason ? { stopReason: runMgr.getRun().stopReason } : {}),
-			// Only on a cancellation, and only when one was recorded. Absent is
-			// a real answer: a cancellation nobody attributed is not a user
-			// cancellation, and defaulting would put a confident wrong value
-			// where an honest gap belongs.
+			type: 'turn_completed',
+			budget: recorder.budget?.summary(),
+			result: turn.result ?? '',
+			...(turn.stopReason ? { stopReason: turn.stopReason } : {}),
+			// Only on a cancellation, and only when one was recorded.
 			...(cancelCause !== undefined ? { cancelCause } : {}),
+			settlement: recorder.settlement(recorder.status === 'cancelled' ? 'cancelled' : 'completed'),
 		})
 		yield* drainPending()
 
 		rootSpan.setAttributes({
-			[NAMZU.RUN_STATUS]: runMgr.stopReason ?? 'completed',
-			[NAMZU.ITERATION]: runMgr.currentIteration,
-			[GENAI.USAGE_INPUT_TOKENS]: runMgr.tokenUsage.promptTokens,
-			[GENAI.USAGE_OUTPUT_TOKENS]: runMgr.tokenUsage.completionTokens,
+			[NAMZU.TURN_STATUS]: recorder.stopReason ?? 'completed',
+			[NAMZU.ITERATION]: recorder.currentIteration,
+			[GENAI.USAGE_INPUT_TOKENS]: recorder.tokenUsage.promptTokens,
+			[GENAI.USAGE_OUTPUT_TOKENS]: recorder.tokenUsage.completionTokens,
 		})
 		rootSpan.setStatus({ code: SpanStatusCode.OK })
 
 		log.info('Query completed', {
-			[NAMZU.RUN_ID]: runMgr.id,
-			'namzu.runtime.iterations': runMgr.currentIteration,
-			'namzu.runtime.stop_reason': runMgr.stopReason,
+			[NAMZU.TURN_ID]: recorder.turnId,
+			'namzu.runtime.iterations': recorder.currentIteration,
+			'namzu.runtime.stop_reason': recorder.stopReason,
 			'namzu.runtime.activity_stats': activityStore.enabled ? activityStore.stats() : undefined,
 		})
 	}
 
-	async *completeSession(rootSpan: Span): AsyncGenerator<RunEvent> {
-		yield* this.completeRun(rootSpan)
-	}
-
-	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<RunEvent> {
-		const { runMgr, planManager, log, emitEvent, drainPending } = this.config
+	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<SessionEvent> {
+		const { recorder, planManager, log, emitEvent, drainPending } = this.config
 		if (isCallerAbortError(err, this.config.signal)) {
-			// Cancellation may happen before the iteration loop owns control —
-			// project preparation, a run-start hook and a pre-model hook all sit
-			// outside its catch. The loop already settles its own aborts, but an
-			// abort escaping one of these boundaries reached the outer catch and
-			// was historically rewritten as a run failure. Preserve the caller's
-			// control-flow verdict and let the normal terminal-event path report it.
-			runMgr.markCancelled()
-			yield* this.completeRun(rootSpan)
+			// Cancellation outside the loop's own catch (preparation, a
+			// turn-start hook, a pre-model hook) keeps the caller's verdict.
+			recorder.markCancelled()
+			yield* this.completeTurn(rootSpan)
 			return
 		}
 		if (err instanceof TokenBudgetAdmissionError) {
-			runMgr.setStopReason('token_budget')
-			yield* this.completeRun(rootSpan)
+			recorder.setStopReason('token_budget')
+			yield* this.completeTurn(rootSpan)
 			return
 		}
 		const errorMessage = toErrorMessage(err)
-		// The classifier at the provider boundary already walked the cause
-		// chain over status, errno and `Retry-After`, so a fully-populated
-		// error arrives here — and used to be flattened to a string one line
-		// later, discarding every field of it. `toPlatformError` is the
-		// projection that was written for exactly this and had no callers.
+		// The provider boundary already classified this error; keep every
+		// field of it rather than flattening it to a string.
 		const failure = toPlatformError(err)
-		// The driver's classification and the operator explanation describe the
-		// throwable, not the terminal verdict. Compute them before choosing paused
-		// versus failed so a recoverable run does not become the one path that
-		// discards the reason and remedy a host needs in order to recover it.
 		const providerError = isProviderRequestError(err)
 			? {
 					kind: err.kind,
@@ -161,33 +136,23 @@ export class ResultAssembler {
 					...(err.providerCode !== undefined ? { providerCode: err.providerCode } : {}),
 					...(err.status !== undefined ? { status: err.status } : {}),
 					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
-					// The provider's own sentence, already truncated and scrubbed
-					// by the driver. Without it a host rendering this metadata
-					// knows a request was rejected but not which field, and has to
-					// re-parse prose to find out.
 					...(err.detail !== undefined ? { detail: err.detail } : {}),
 				}
 			: undefined
-		// Classification is structural; remediation is editorial. The catalog is
-		// optional because inventing advice for an uncharacterised failure is worse
-		// than presenting the reason alone.
 		const explanation = explainError(err) ?? undefined
 
-		// A transient failure that survived every in-turn recovery is not the
-		// same thing as a bad API key, and settling both as `failed` gave the
-		// host no way to tell them apart — recovery meant knowing about
-		// checkpoints and driving replay itself. The state is already there:
-		// checkpoints are written every iteration by default. Only the settle
-		// and the signal were missing.
-		const resumeFrom = failure.retryable ? this.config.resumeCheckpointId?.() : undefined
+		// A transient failure that survived every in-turn recovery pauses the
+		// turn on its newest checkpoint instead of failing it: the host resumes
+		// the same turn with `resumeSession`.
+		const resumeFrom =
+			failure.retryable && recorder.isActive ? this.config.resumeCheckpointId?.() : undefined
 		if (resumeFrom !== undefined) {
-			runMgr.setLastError(errorMessage)
-			runMgr.setStopReason('paused')
+			recorder.setLastError(errorMessage)
+			recorder.setStopReason('paused')
 
 			await emitEvent({
-				type: 'run_paused',
-				budget: runMgr.budget?.summary(),
-				runId: runMgr.id,
+				type: 'turn_paused',
+				budget: recorder.budget?.summary(),
 				checkpointId: resumeFrom,
 				reason: errorMessage,
 				failure,
@@ -196,16 +161,15 @@ export class ResultAssembler {
 			})
 			yield* drainPending()
 
-			// OK, not ERROR: the run is resumable, and a span marked failed
-			// puts it in an error dashboard it does not belong in.
+			// OK, not ERROR: the turn is resumable.
 			rootSpan.setAttributes({
-				[NAMZU.RUN_STATUS]: 'paused',
-				[NAMZU.ITERATION]: runMgr.currentIteration,
+				[NAMZU.TURN_STATUS]: 'paused',
+				[NAMZU.ITERATION]: recorder.currentIteration,
 			})
 			rootSpan.setStatus({ code: SpanStatusCode.OK })
 
-			log.warn('Run paused on a recoverable failure — resume from the checkpoint', {
-				[NAMZU.RUN_ID]: runMgr.id,
+			log.warn('Turn paused on a recoverable failure — resume from the checkpoint', {
+				[NAMZU.TURN_ID]: recorder.turnId,
 				'namzu.checkpoint.id': resumeFrom,
 				'namzu.runtime.code': failure.code,
 				'exception.message': errorMessage,
@@ -213,94 +177,49 @@ export class ResultAssembler {
 			return
 		}
 
-		runMgr.markFailed(errorMessage, providerError)
+		recorder.markFailed(errorMessage, providerError)
 
 		if (planManager.isActive) {
 			planManager.failPlan(errorMessage)
 		}
 
-		// Same terminal-verdict recording as the success path in completeRun —
-		// see LOG-14, design §5. Placed AFTER the early `resumeFrom !== undefined`
-		// return above, so a paused/resumable run is never audited as 'failure'.
-		await runMgr.recordAudit({
-			what: { action: 'run_failed' },
-			outcome: 'failure',
-			reason: errorMessage,
-		})
+		// Same terminal-verdict recording as the success path; a paused turn
+		// is never audited as a failure.
+		if (recorder.isActive) {
+			await recorder.recordAudit({
+				what: { action: 'turn_failed' },
+				outcome: 'failure',
+				reason: errorMessage,
+			})
+		}
 
 		await emitEvent({
-			type: 'run_failed',
-			budget: runMgr.budget?.summary(),
-			runId: runMgr.id,
+			type: 'turn_failed',
+			budget: recorder.budget?.summary(),
 			error: errorMessage,
 			failure,
 			...(providerError ? { providerError } : {}),
 			...(explanation ? { explanation } : {}),
+			settlement: recorder.settlement('failed'),
 		})
 		yield* drainPending()
 
 		rootSpan.setAttributes({
-			[NAMZU.RUN_STATUS]: 'error',
-			[NAMZU.ITERATION]: runMgr.currentIteration,
+			[NAMZU.TURN_STATUS]: 'error',
+			[NAMZU.ITERATION]: recorder.currentIteration,
 		})
 		rootSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
 		rootSpan.recordException(err instanceof Error ? err : new Error(errorMessage))
 
 		log.error('Query failed', {
-			[NAMZU.RUN_ID]: runMgr.id,
+			[NAMZU.TURN_ID]: recorder.turnId,
 			'exception.message': errorMessage,
 		})
 	}
 
-	async finalize(): Promise<Run> {
-		const { runMgr, log } = this.config
-		await runMgr.persist()
-		const run = runMgr.getRun()
-		if (run.status === 'completed') {
-			const runDir = runMgr.getRunDir()
-			if (runDir) {
-				clearSupersededEmergencySave(
-					runMgr,
-					log,
-					EmergencySaveManager.savePathFor(runDir, runMgr.id),
-				)
-			}
-			if (this.config.supersedesEmergencySave !== undefined) {
-				clearSupersededEmergencySave(runMgr, log, this.config.supersedesEmergencySave)
-			}
-		}
-		return run
-	}
-}
-
-/**
- * Remove a crash dump the run has now outlived.
- *
- * A dump is what a run that died left behind. Once the same run — resumed
- * under its own id — or a replay forked from the dump
- * (`QueryParams.supersedesEmergencySave`) has completed and persisted, that
- * durable record is newer than the dump and carries the conversation on.
- * Nothing else removes one, so without this every crash stayed on disk with
- * the whole conversation in it.
- *
- * Only on `completed`. A resume that fails or pauses leaves the dump where it
- * is; that is still the last record of a moment the run did not survive.
- * Best-effort: failing to delete a stale file is worth a log line and never
- * worth retracting an answer.
- */
-function clearSupersededEmergencySave(runMgr: RunPersistence, log: Logger, path: string): void {
-	try {
-		EmergencySaveManager.clearSave(path)
-		log.info('Emergency save cleared after the run completed', {
-			[NAMZU.RUN_ID]: runMgr.id,
-			'namzu.manager.path': path,
-		})
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-		log.warn('Emergency save could not be cleared', {
-			[NAMZU.RUN_ID]: runMgr.id,
-			'namzu.manager.path': path,
-			'exception.message': toErrorMessage(error),
-		})
+	/** The durable half of settling: every queued record lands, the ledger is flushed. */
+	async finalize(): Promise<Turn> {
+		await this.config.recorder.persist()
+		return this.config.recorder.getTurn()
 	}
 }

@@ -5,13 +5,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { type ExecFile, GitWorktreeDriver } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
+import { InMemorySessionLog, type SessionLease } from '../../../store/session-log/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import type {
+	AgentId,
+	MessageId,
+	ProjectId,
+	SessionId,
+	TenantId,
+	UserId,
+} from '../../../types/ids/index.js'
+import { type Message, createUserMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { TopicId, WorkspaceId } from '../../../types/session/ids.js'
 import type { SubSession } from '../../../types/session/sub-session.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
+import { generateMessageId, generateTurnId } from '../../../utils/id.js'
+import { readSessionMessages } from '../../messages.js'
 import {
 	ArchivalManager,
 	ArchiveNotConfiguredError,
@@ -22,6 +32,51 @@ import { DiskArchiveBackend } from '../disk-backend.js'
 const TEST_THREAD_ID = '4bd72c65-bcc9-475c-8d7c-27d622df04e8' as TopicId
 
 const tenantA = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
+
+/** Session logs by session id: the only store of a session's messages. */
+const sessionLogs = new Map<SessionId, InMemorySessionLog>()
+
+function readMessages(sessionId: SessionId, tenantId: TenantId) {
+	const log = sessionLogs.get(sessionId)
+	return log ? readSessionMessages(log, tenantId) : Promise.resolve([])
+}
+
+/** Record `messages` into one turn of a fresh log for `sessionId`; their record ids, in order. */
+async function recordMessages(
+	sessionId: SessionId,
+	projectId: ProjectId,
+	messages: readonly Message[],
+): Promise<MessageId[]> {
+	const log = new InMemorySessionLog({ sessionId })
+	sessionLogs.set(sessionId, log)
+	const lease = (await log.claim({ holder: 'test', ttlMs: 60_000 })) as SessionLease
+	await log.append(lease, {
+		type: 'session_started',
+		projectId,
+		tenantId: tenantA,
+		topicId: TEST_THREAD_ID,
+		cwd: '/tmp',
+		agent: { id: 'agent', name: 'Agent' },
+	} as Parameters<InMemorySessionLog['append']>[1])
+	const ids = messages.map(() => generateMessageId())
+	const turnId = generateTurnId()
+	await log.beginTurn(lease, {
+		turnId,
+		userMessageId: ids[0] as MessageId,
+		config: { model: 'mock-model', tokenBudget: 0, timeoutMs: 0 },
+	})
+	for (const [index, message] of messages.entries()) {
+		await log.append(lease, {
+			type: 'message',
+			turnId,
+			messageId: ids[index] as MessageId,
+			role: message.role,
+			content: message,
+		})
+	}
+	await log.release(lease)
+	return ids
+}
 
 function stubLogger() {
 	return {
@@ -92,16 +147,18 @@ describe('ArchivalManager', () => {
 	})
 
 	afterEach(() => {
+		sessionLogs.clear()
 		removeTempDir(rootDir)
 	})
 
 	it('archive happy path: idle sub-session → tombstone attached, backend called once', async () => {
-		const { sub, child } = await seedIdleSubSession(store)
-		await store.appendMessage(child.id, createUserMessage('hi'), tenantA)
+		const { sub, child, project } = await seedIdleSubSession(store)
+		await recordMessages(child.id, project.id, [createUserMessage('hi')])
 
 		const storeSpy = vi.spyOn(backend, 'store')
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
@@ -141,6 +198,7 @@ describe('ArchivalManager', () => {
 
 			const manager = new ArchivalManager({
 				sessionStore: store,
+				readSessionMessages: readMessages,
 				workspaceRegistry: buildRegistry(),
 				archiveBackend: backend,
 			})
@@ -160,6 +218,7 @@ describe('ArchivalManager', () => {
 
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
@@ -173,6 +232,7 @@ describe('ArchivalManager', () => {
 		const { sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
@@ -187,6 +247,7 @@ describe('ArchivalManager', () => {
 	it('rejects missing sub-sessions', async () => {
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
@@ -202,6 +263,7 @@ describe('ArchivalManager', () => {
 		const { sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			// archiveBackend intentionally omitted.
 		})
@@ -212,6 +274,7 @@ describe('ArchivalManager', () => {
 		const { sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
@@ -231,6 +294,7 @@ describe('ArchivalManager', () => {
 		const { parent, sub } = await seedIdleSubSession(store)
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 		})
@@ -287,6 +351,7 @@ describe('ArchivalManager', () => {
 
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: registry,
 			archiveBackend: backend,
 			workspaceResolver: async () => workspaceRef,
@@ -301,12 +366,13 @@ describe('ArchivalManager', () => {
 	})
 
 	it('SessionMessage round-trip: archive preserves original MessageId + timestamps', async () => {
-		// Phase 9 Known Delta #7: ArchivalManager now uses
-		// SessionStore.loadSessionMessages for full-fidelity archival (no more
-		// synthetic `msg_restored_N` IDs).
-		const { sub, child } = await seedIdleSubSession(store)
-		const id1 = await store.appendMessage(child.id, createUserMessage('m1'), tenantA)
-		const id2 = await store.appendMessage(child.id, createUserMessage('m2'), tenantA)
+		// The archive reads the child session's log: each message keeps the
+		// record id and time the log gave it (no synthetic `msg_restored_N`).
+		const { sub, child, project } = await seedIdleSubSession(store)
+		const [id1, id2] = await recordMessages(child.id, project.id, [
+			createUserMessage('m1'),
+			createUserMessage('m2'),
+		])
 
 		const captured: unknown[] = []
 		const capturingBackend: DiskArchiveBackend = Object.assign(
@@ -324,6 +390,7 @@ describe('ArchivalManager', () => {
 
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: capturingBackend,
 		})
@@ -345,6 +412,7 @@ describe('ArchivalManager', () => {
 		const onArchived = vi.fn()
 		const manager = new ArchivalManager({
 			sessionStore: store,
+			readSessionMessages: readMessages,
 			workspaceRegistry: buildRegistry(),
 			archiveBackend: backend,
 			onArchived,

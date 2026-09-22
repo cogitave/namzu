@@ -10,8 +10,8 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
-import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 const ZERO_USAGE = {
@@ -117,13 +117,13 @@ describe('query stream recovery', () => {
 		})
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-stream-recovery-'))
 		workdirs.push(workingDirectory)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
 				provider,
 				tools,
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
 					tokenBudget: 100_000,
@@ -151,7 +151,7 @@ describe('query stream recovery', () => {
 		expect(provider.calls).toBe(1)
 		expect(actualWrite).not.toHaveBeenCalled()
 
-		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
+		expect(events.some((event) => event.type === 'turn_failed')).toBe(false)
 		expect(
 			events.some(
 				(event) =>
@@ -178,21 +178,21 @@ describe('query stream recovery', () => {
 		)
 	})
 
-	it('preserves classified provider metadata through the primary run boundary', async () => {
+	it('preserves classified provider metadata through the primary turn boundary', async () => {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-provider-error-'))
 		workdirs.push(workingDirectory)
-		const events: RunEvent[] = []
+		const events: SessionEvent[] = []
 
 		const run = await drainQuery(
 			{
 				provider: new ClassifiedFailureProvider(),
 				// Retry off: this pins METADATA at the boundary, and a throttle
-				// is genuinely retryable — leaving retry on would spend the run's
+				// is genuinely retryable — leaving retry on would spend the turn's
 				// whole timeout backing off and settle it as a timeout instead,
 				// testing the retry policy rather than the thing named here.
 				retry: { maxRetries: 0 },
 				tools: new ToolRegistry(),
-				runConfig: {
+				turnConfig: {
 					model: 'mock-model',
 					timeoutMs: 5_000,
 					tokenBudget: 100_000,
@@ -225,8 +225,8 @@ describe('query stream recovery', () => {
 			retryAfterMs: 2000,
 			detail: 'rate limit reached for this organization',
 		})
-		expect(events.find((event) => event.type === 'run_failed')).toMatchObject({
-			type: 'run_failed',
+		expect(events.find((event) => event.type === 'turn_failed')).toMatchObject({
+			type: 'turn_failed',
 			providerError: run.lastProviderError,
 		})
 	})
