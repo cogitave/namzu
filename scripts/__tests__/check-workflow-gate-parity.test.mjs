@@ -251,6 +251,23 @@ describe('check-workflow-gate-parity', () => {
 		assert.equal(status, 0, out)
 	})
 
+	// A block sequence is ordinary YAML, and a regex over the whole file for it
+	// backtracks until the job times out. These hold the parse to the job's lines.
+	it('reads needs written as a block sequence, with steps after it', () => {
+		const blockNeeds = `  validated-tree:\n    name: Record the validated tree\n    needs:\n      - check\n    if: ${RECORD_IF}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v5\n      - uses: actions/upload-artifact@v4\n`
+		const started = Date.now()
+		const { status, out } = check({ recordJob: blockNeeds })
+		assert.equal(status, 0, out)
+		assert.ok(Date.now() - started < 10_000, 'the check must answer in seconds, not backtrack')
+	})
+
+	it('fails when a block-sequence needs omits a job that runs gates', () => {
+		const blockNeeds = `  validated-tree:\n    name: Record the validated tree\n    needs:\n      - docs\n    if: ${RECORD_IF}\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v5\n      - uses: actions/upload-artifact@v4\n`
+		const { status, out } = check({ recordJob: blockNeeds })
+		assert.equal(status, 1)
+		assert.match(out, /The ci\.yml job `check` runs gates, and `validated-tree` does not list it in `needs`/)
+	})
+
 	it('fails when validated-tree does not wait on a job that runs gates', () => {
 		const { status, out } = check({ recordJob: RECORD_JOB.replace('needs: [check]', 'needs: [docs]') })
 		assert.equal(status, 1)

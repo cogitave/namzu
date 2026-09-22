@@ -343,7 +343,36 @@ for (const job of new Set(ciSteps.map((step) => step.job))) {
 const RECORD_JOB = 'validated-tree'
 /** The one condition the record job may carry. */
 const RECORD_CONDITION = "success() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')"
-const recordNeeds = ciText.match(new RegExp(`^ {2}${RECORD_JOB}:\\s*\\n(?:(?: {4,}.*| *#.*|\\s*)\\n)*? {4}needs: (.+)$`, 'm'))
+/**
+ * The names in a job's `needs`, in either YAML spelling: `needs: [a, b]`,
+ * `needs: a`, or a block sequence under `needs:`. Read line by line from the
+ * job's own block — a regex over the whole file for this backtracks
+ * catastrophically on the block-sequence form, which is the very shape the
+ * message below exists to report.
+ */
+function jobNeeds(lines) {
+	const names = []
+	for (const [index, line] of lines.entries()) {
+		const head = line.match(/^ {4}needs:\s*(.*)$/)
+		if (!head) continue
+		const inline = (head[1] ?? '').trim()
+		if (inline && !inline.startsWith('#')) {
+			return inline
+				.replace(/^\[|\]$/g, '')
+				.split(',')
+				.map((name) => name.trim().replace(/^['"]|['"]$/g, ''))
+				.filter(Boolean)
+		}
+		for (const next of lines.slice(index + 1)) {
+			if (/^\s*(#.*)?$/.test(next)) continue
+			const item = next.match(/^ {6}- (.+)$/)
+			if (!item) break
+			names.push((item[1] ?? '').trim().replace(/^['"]|['"]$/g, ''))
+		}
+		return names
+	}
+	return names
+}
 if (!new RegExp(`^ {2}${RECORD_JOB}:\\s*$`, 'm').test(ciText)) {
 	problems.push(
 		`ci.yml has no \`${RECORD_JOB}\` job.`,
@@ -351,13 +380,7 @@ if (!new RegExp(`^ {2}${RECORD_JOB}:\\s*$`, 'm').test(ciText)) {
 		'    can never be taken, and this check cannot say what the record vouches for.',
 	)
 } else {
-	const needed = new Set(
-		(recordNeeds?.[1] ?? '')
-			.replace(/^\[|\]\s*$/g, '')
-			.split(',')
-			.map((name) => name.trim())
-			.filter(Boolean),
-	)
+	const needed = new Set(jobNeeds(ciJobBlocks.get(RECORD_JOB) ?? []))
 	const recordIf = jobIf(ciJobBlocks.get(RECORD_JOB) ?? [])
 	if (recordIf !== RECORD_CONDITION) {
 		problems.push(
