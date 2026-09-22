@@ -26,6 +26,8 @@ import {
 
 const resumeCalls: Record<string, unknown>[] = []
 let resumeOutcome: unknown = { resumed: true, turn: {}, state: {} }
+/** Runs inside the mocked resume, as the resumed turn's tool calls would. */
+let duringResume: ((params: Record<string, unknown>) => Promise<void>) | undefined
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
@@ -33,6 +35,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 		...actual,
 		resumeSession: async (params: Record<string, unknown>) => {
 			resumeCalls.push(params)
+			await duringResume?.(params)
 			const listener = params.listener as ((event: SessionEvent) => void) | undefined
 			listener?.({
 				type: 'text_delta',
@@ -75,6 +78,7 @@ const roots: string[] = []
 afterEach(() => {
 	resumeCalls.length = 0
 	resumeOutcome = { resumed: true, turn: {}, state: {} }
+	duringResume = undefined
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
@@ -242,7 +246,7 @@ describe('resuming this session’s own paused turn', () => {
 	// without reaching the handler that refuses a change in plan mode.
 	it.each([
 		['plan', true],
-		['auto', undefined],
+		['auto', false],
 	] as const)(
 		'under a %s session, hands the resumed turn reviewAllowedCalls → %s',
 		async (mode, expected) => {
@@ -266,4 +270,91 @@ describe('resuming this session’s own paused turn', () => {
 			expect(call.reviewAllowedCalls?.()).toBe(expected)
 		},
 	)
+
+	// The interactive terminal creates its session WITHOUT a mode and hands
+	// one to every turn. `/resume` used to hand none, so a parked turn resumed
+	// in plan mode was decided under `auto`, and so were its children.
+	describe('under the mode the operator is in, not the session’s', () => {
+		const write = {
+			type: 'tool_review',
+			sessionId: 'ses_x',
+			turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+			toolCalls: [{ id: 'c1', name: 'write_file', args: { path: 'a.txt', content: 'x' } }],
+		} as never
+		type Call = {
+			approvalPolicyName?: string
+			reviewAllowedCalls?: () => boolean
+			resumeHandler: (request: never) => Promise<{ action: string; feedback?: string }>
+		}
+
+		it('a /resume in plan mode refuses a change, rule-allowed ones included', async () => {
+			const { session, scope, conversations } = await openSession()
+			await recordTurnStart(conversations, scope.sessionId, {
+				tokenBudget: 0,
+				maxIterations: 0,
+				timeoutMs: 0,
+			})
+			const decisions: string[] = []
+			duringResume = async (params) => {
+				decisions.push((await (params as Call).resumeHandler(write)).action)
+			}
+			try {
+				for await (const event of session.resumePaused({
+					turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+					checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+					permissionMode: 'plan',
+					currentPermissionMode: () => 'plan',
+				})) {
+					if (event.kind === 'error') throw new Error(event.message)
+				}
+			} finally {
+				await session.close()
+			}
+			const call = resumeCalls[0] as Call
+			expect(call.approvalPolicyName).toBe('plan')
+			expect(call.reviewAllowedCalls?.()).toBe(true)
+			expect(decisions).toEqual(['reject_tools'])
+		})
+
+		it('reads the mode live: Shift+Tab into plan mid-resume refuses the next change, leaving plan approves nothing back', async () => {
+			const { session, scope, conversations } = await openSession()
+			await recordTurnStart(conversations, scope.sessionId, {
+				tokenBudget: 0,
+				maxIterations: 0,
+				timeoutMs: 0,
+			})
+			let mode: 'auto' | 'plan' = 'auto'
+			const seen: Array<{ action: string; reviewAllowed: boolean | undefined }> = []
+			duringResume = async (params) => {
+				const call = params as Call
+				const decide = async () => ({
+					action: (await call.resumeHandler(write)).action,
+					reviewAllowed: call.reviewAllowedCalls?.(),
+				})
+				seen.push(await decide())
+				mode = 'plan'
+				seen.push(await decide())
+				mode = 'auto'
+				seen.push(await decide())
+			}
+			try {
+				for await (const event of session.resumePaused({
+					turnId: '3b0329bb-f60a-48dc-9552-1b386c52cfe8',
+					checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+					permissionMode: 'auto',
+					currentPermissionMode: () => mode,
+				})) {
+					if (event.kind === 'error') throw new Error(event.message)
+				}
+			} finally {
+				await session.close()
+			}
+			expect(seen).toEqual([
+				{ action: 'approve_tools', reviewAllowed: false },
+				{ action: 'reject_tools', reviewAllowed: true },
+				// A later request under the new mode; the refused one stays refused.
+				{ action: 'approve_tools', reviewAllowed: false },
+			])
+		})
+	})
 })

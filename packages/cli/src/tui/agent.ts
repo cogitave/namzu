@@ -671,6 +671,20 @@ export interface ResumePausedParams {
 	 */
 	readonly checkpointId?: string
 	readonly signal?: AbortSignal
+	/**
+	 * The mode the resumed turn starts under. Absent: the session's own
+	 * `permissionMode`, else `auto`. The interactive terminal never creates
+	 * its session with a mode — it hands one to every turn — so without this
+	 * a `/resume` in plan mode was decided under `auto`.
+	 */
+	readonly permissionMode?: PermissionMode
+	/**
+	 * The host's current mode, read at every decision, as
+	 * `SendOptions.currentPermissionMode` is for a new turn: Shift+Tab into
+	 * plan while the resumed turn runs refuses its next change, and its
+	 * children's.
+	 */
+	readonly currentPermissionMode?: () => PermissionMode
 }
 
 export interface AgentSession {
@@ -2895,9 +2909,13 @@ export async function createAgentSession(
 		signal,
 		checkpointId,
 		listener,
+		permissionMode,
+		currentPermissionMode,
 	}: ResumeDurableParams & {
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
+		readonly permissionMode?: PermissionMode
+		readonly currentPermissionMode?: () => PermissionMode
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
@@ -2938,24 +2956,39 @@ export async function createAgentSession(
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
 
-			const resumeHandler = makeResumeHandler(
-				approval,
-				undefined,
-				options.permissionMode,
-				(name, input) => isPromptExempt(registry, name, input),
-				{ unattendedSandboxEscape },
-			)
 			if (delegatedResumeHandlers.has(entry.turnId)) {
 				throw new Error(`Turn ${entry.turnId} already owns a delegated review channel.`)
 			}
-			// The resumed turn is decided under the session's fixed mode. Plan
-			// is stricter than the rules, so a batch a rule allows, or an
-			// approval earlier in the turn covers, has to reach the handler
-			// that refuses it — in this turn and in every turn it delegates.
-			const reviewAllowedCalls = options.permissionMode === 'plan' ? () => true : undefined
+			// The resumed turn is decided under the caller's mode, else the
+			// session's, read at every decision exactly as a new turn's is: the
+			// interactive terminal creates its session without a mode and hands
+			// one to each turn, so the session's alone left a TUI `/resume` in
+			// plan mode under `auto`. Plan is stricter than the rules, so while it
+			// holds a batch a rule allows, or an approval earlier in the turn
+			// covers, still reaches the handler that refuses it — in this turn and
+			// in every turn it delegates. No prompt stands behind the handler:
+			// nobody answers a drainer's terminal, and `/resume` never asked.
+			const modeControl = createLiveModeControl({
+				initial: permissionMode ?? options.permissionMode ?? 'auto',
+				...(currentPermissionMode ? { read: currentPermissionMode } : {}),
+				...(recordedModes.has(String(entry.sessionId))
+					? { recorded: recordedModes.get(String(entry.sessionId)) }
+					: {}),
+				handlerFor: (mode) =>
+					makeResumeHandler(
+						approval,
+						undefined,
+						mode,
+						(name, input) => isPromptExempt(registry, name, input),
+						{ unattendedSandboxEscape },
+					),
+			})
+			const resumeHandler = modeControl.handler
+			const reviewAllowedCalls = modeControl.reviewAllowedCalls
+			liveModeControls.add(modeControl)
 			const turnScope = { ...entry, topicId: scope.topicId }
 			delegatedResumeHandlers.set(entry.turnId, resumeHandler)
-			if (reviewAllowedCalls) delegatedReviewAllowedCalls.set(entry.turnId, reviewAllowedCalls)
+			delegatedReviewAllowedCalls.set(entry.turnId, reviewAllowedCalls)
 			delegationScopes.set(entry.turnId, turnScope)
 			delegationLimits.set(entry.turnId, resumedLimits)
 			const turnTaskStore = selectTaskStore(turnScope)
@@ -3028,7 +3061,9 @@ export async function createAgentSession(
 					// prompt would block the pass forever on a turn nobody is watching.
 					// The gate's deny rules still apply.
 					resumeHandler,
-					...(reviewAllowedCalls ? { reviewAllowedCalls } : {}),
+					approvalPolicyName: modeControl.initialName,
+					onApprovalPolicy: (box) => modeControl.attach(box),
+					reviewAllowedCalls,
 					signal: ownedSignal,
 					// Attribution comes from the ENTRY, not from this session: the turn
 					// belongs to whoever started it, and stamping the drainer's ids onto
@@ -3064,6 +3099,8 @@ export async function createAgentSession(
 						: {}),
 				})
 			} finally {
+				liveModeControls.delete(modeControl)
+				recordedModes.set(String(entry.sessionId), modeControl.current())
 				if (delegatedResumeHandlers.get(entry.turnId) === resumeHandler) {
 					delegatedResumeHandlers.delete(entry.turnId)
 					delegatedReviewAllowedCalls.delete(entry.turnId)
@@ -3083,6 +3120,8 @@ export async function createAgentSession(
 		turnId,
 		checkpointId,
 		signal,
+		permissionMode,
+		currentPermissionMode,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
@@ -3101,6 +3140,8 @@ export async function createAgentSession(
 			sessionLog,
 			...(signal ? { signal } : {}),
 			...(checkpointId !== undefined ? { checkpointId: checkpointId as CheckpointId } : {}),
+			...(permissionMode ? { permissionMode } : {}),
+			...(currentPermissionMode ? { currentPermissionMode } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()

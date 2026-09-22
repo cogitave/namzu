@@ -52,9 +52,14 @@ rule allows and one of a kind the operator approved earlier in the child's
 turn: the parent turn's "review even what the rules allow" switch reaches every
 delegated turn (`resolveReviewAllowedCalls`, the SDK's
 `AgentTaskContext.reviewAllowedCalls`). Leaving plan mode approves nothing
-retroactively; a refused call stays refused. A paused turn resumed under a
-session started in plan mode, and the children it delegates, are held the same
-way.
+retroactively; a refused call stays refused. A paused turn continued with
+`/resume` is decided under the mode the operator is in when they type it, read
+at each request like a new turn's, so `/resume` in plan mode refuses the
+resumed turn's changes and its children's, and Shift+Tab during it reaches
+both. With nobody asked on a resumed turn, `prompt` and `accept-edits` approve
+what the rules leave to review, as `auto` does, except a sandbox escape or a
+path outside the roots, which is refused; `plan` and `strict` refuse. `namzu
+exec` resumes under the mode the session was started with.
 
 `send_message` takes `task_id` and `message` and queues a correction for a running
 or queued child owned by the current parent session. The child reads it at its next

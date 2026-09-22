@@ -3696,6 +3696,10 @@ export function App({
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
+				// The operator's mode, read at every decision like a new turn's:
+				// `/resume` in plan mode stays read-only, and so do its children.
+				permissionMode: permissionModeRef.current,
+				currentPermissionMode: () => permissionModeRef.current,
 			})) {
 				applyEventRef.current?.(event, st)
 			}
