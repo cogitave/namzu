@@ -48,8 +48,10 @@ name: Release
 #
 # `check-workflow-gate-parity.mjs` holds all of that: a gate on one path and
 # not the other still fails it, and so does a gate carrying any condition but
-# that guard, a guarded step ci.yml does not run, or a guard on Install, Build
-# or the pre-publish check.
+# that guard, a guarded step ci.yml does not run, a guard on Install, Build
+# or the pre-publish check, or `continue-on-error` on any gate or on a job that
+# runs one, in either workflow: a ci.yml gate under it can fail inside a run
+# that concludes success, which would record the tree and skip it here too.
 on:
   push:
     branches:

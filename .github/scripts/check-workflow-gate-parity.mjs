@@ -45,7 +45,11 @@
  *   - the step that produces the skip exists, has no condition of its own, and
  *     comes before every step it guards;
  *   - a `ci.yml` gate carries no `if:` or exactly `matrix.gates`, and some
- *     matrix entry sets `gates: true`, so the run the skip trusts ran it.
+ *     matrix entry sets `gates: true`, so the run the skip trusts ran it;
+ *   - no gate, on either path, and no job running one carries
+ *     `continue-on-error` (other than a literal `false`): on ci.yml it lets a
+ *     gate fail under a successful run, which the validated-tree record then
+ *     vouches for; on release.yml it lets a failing gate step aside for publish.
  */
 
 import { readFileSync } from 'node:fs'
@@ -75,6 +79,8 @@ const NOT_A_GATE = /^(Run |Install$|Build the packages|Backfill |Create Release|
 const SKIP_STEP_ID = 'revalidation'
 /** The one condition a release.yml gate may carry. */
 const SKIP_GUARD = `steps.${SKIP_STEP_ID}.outputs.skip != 'true'`
+/** A release.yml step whose condition mentions the skip at all, well-formed or not. */
+const isGuarded = (step) => step.if?.includes(`steps.${SKIP_STEP_ID}.outputs.skip`) ?? false
 /** release.yml steps that must run whatever the skip says. */
 const ALWAYS_RUNS = new Set(['Install', 'Build', 'Pre-publish consumer install check', 'Create Release Pull Request or Publish'])
 /** The one condition a ci.yml gate may carry. */
@@ -92,29 +98,73 @@ function normaliseCondition(raw) {
 }
 
 /**
- * Every named step in a workflow, in order, with its `if:` and `id:`. A step
- * block runs from its `- name:` line to the next line at the same indentation
- * that starts a list item, or to the first non-blank line indented less.
+ * Every named step in a workflow, in order, with its `if:`, `id:`,
+ * `continue-on-error:` and the job it belongs to. A step block runs from its
+ * `- name:` line to the next line at the same indentation that starts a list
+ * item, or to the first non-blank line indented less.
  */
 function steps(file) {
 	const lines = readFileSync(join(root, '.github', 'workflows', file), 'utf8').split('\n')
 	const found = []
+	let job
 	for (let i = 0; i < lines.length; i += 1) {
+		const jobHead = lines[i].match(/^ {2}([A-Za-z0-9_-]+):\s*$/)
+		if (jobHead) job = jobHead[1]
 		const head = lines[i].match(/^(\s+)- name: (.+)$/)
 		if (!head) continue
 		const indent = head[1]
-		const step = { name: head[2].trim(), if: undefined, id: undefined, index: found.length }
+		const step = { name: head[2].trim(), if: undefined, id: undefined, continueOnError: undefined, job, index: found.length }
 		for (let j = i + 1; j < lines.length; j += 1) {
 			const line = lines[j]
 			if (line.trim() === '' || line.trim().startsWith('#')) continue
 			const lineIndent = line.match(/^(\s*)/)[1].length
 			if (lineIndent < indent.length + 2) break
-			const key = line.match(new RegExp(`^${indent}  (if|id): (.+)$`))
-			if (key) step[key[1]] = key[1] === 'if' ? normaliseCondition(key[2]) : key[2].trim()
+			const key = line.match(new RegExp(`^${indent}  (if|id|continue-on-error): (.+)$`))
+			if (!key) continue
+			if (key[1] === 'if') step.if = normaliseCondition(key[2])
+			else if (key[1] === 'id') step.id = key[2].trim()
+			else step.continueOnError = normaliseCondition(key[2])
 		}
 		found.push(step)
 	}
 	return found
+}
+
+/**
+ * `continue-on-error:` set directly on each job, keyed by job id. Job-level
+ * keys sit at four spaces under a two-space job id, below the top-level
+ * `jobs:`.
+ */
+function jobContinueOnError(file) {
+	const lines = readFileSync(join(root, '.github', 'workflows', file), 'utf8').split('\n')
+	const found = new Map()
+	let inJobs = false
+	let job
+	for (const line of lines) {
+		if (/^\S/.test(line)) {
+			inJobs = /^jobs:\s*$/.test(line)
+			job = undefined
+			continue
+		}
+		if (!inJobs) continue
+		const jobHead = line.match(/^ {2}([A-Za-z0-9_-]+):\s*$/)
+		if (jobHead) {
+			job = jobHead[1]
+			continue
+		}
+		const key = job && line.match(/^ {4}continue-on-error: (.+)$/)
+		if (key) found.set(job, normaliseCondition(key[1]))
+	}
+	return found
+}
+
+/**
+ * `continue-on-error` turns a failing step green, and a failing step in a job
+ * green too. Only a literal `false` — the default spelled out — leaves a gate
+ * able to fail; an expression may evaluate to true, so it is refused like `true`.
+ */
+function mayContinueOnError(value) {
+	return value !== undefined && value !== 'false'
 }
 
 const ciText = readFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'utf8')
@@ -174,10 +224,54 @@ if (ciSteps.some((step) => step.if === CI_GATE_CONDITION) && !/^\s+gates: true\s
 	)
 }
 
-const skipStep = releaseSteps.find((step) => step.id === SKIP_STEP_ID)
+// A gate that cannot fail is a gate that did not run, as far as anything
+// downstream can tell. On ci.yml, `continue-on-error` lets a gate fail while
+// the job, and so the run, concludes success; `validated-tree` then records
+// the tree and release.yml skips that gate too, so the failure reaches publish
+// with no failing step on either path. On release.yml it lets a failing gate
+// step aside for the publish step. Evals once carried it (see ci.yml).
 const ciGateNames = new Set(ci)
+const ciJobs = jobContinueOnError('ci.yml')
+const releaseJobs = jobContinueOnError('release.yml')
+for (const step of ciSteps) {
+	if (!mayContinueOnError(step.continueOnError)) continue
+	problems.push(
+		`"${step.name}" in ci.yml carries \`continue-on-error: ${step.continueOnError}\`.`,
+		'    A gate that may fail while its job succeeds is one the validated-tree record',
+		'    vouches for without it having passed, and release.yml then skips it as well.',
+	)
+}
+for (const job of new Set(ciSteps.map((step) => step.job))) {
+	if (!mayContinueOnError(ciJobs.get(job))) continue
+	problems.push(
+		`The ci.yml job \`${job}\` carries \`continue-on-error: ${ciJobs.get(job)}\`, and it runs gates.`,
+		'    A failing job under it leaves the run green, so the validated-tree record and',
+		'    the skip in release.yml would both trust gates that failed.',
+	)
+}
+const releaseChecked = releaseSteps.filter((step) => {
+	const ciName = REVERSE_ALIASES.get(step.name) ?? step.name
+	return ALWAYS_RUNS.has(step.name) || isGuarded(step) || ciGateNames.has(ciName) || step.id === SKIP_STEP_ID
+})
+for (const step of releaseChecked) {
+	if (!mayContinueOnError(step.continueOnError)) continue
+	problems.push(
+		`"${step.name}" in release.yml carries \`continue-on-error: ${step.continueOnError}\`.`,
+		'    A failing gate would step aside for the publish step. Drop it: a gate that',
+		'    cannot stop the release is not one.',
+	)
+}
+for (const job of new Set(releaseChecked.map((step) => step.job))) {
+	if (!mayContinueOnError(releaseJobs.get(job))) continue
+	problems.push(
+		`The release.yml job \`${job}\` carries \`continue-on-error: ${releaseJobs.get(job)}\`, and it runs gates.`,
+		'    It would report a failed validation as a green release run.',
+	)
+}
+
+const skipStep = releaseSteps.find((step) => step.id === SKIP_STEP_ID)
 for (const step of releaseSteps) {
-	const guarded = step.if !== undefined && step.if.includes(`steps.${SKIP_STEP_ID}.outputs.skip`)
+	const guarded = isGuarded(step)
 	const ciName = REVERSE_ALIASES.get(step.name) ?? step.name
 	const isGate = ciGateNames.has(ciName) && !DIRECT_PUSH_EXEMPT.has(ciName)
 

@@ -23,17 +23,18 @@ const GUARD = "steps.revalidation.outputs.skip != 'true'"
 
 const EXEMPT = ['Evals', 'SDK coverage (produce summary)', 'SDK coverage floor gate', 'Process-level regression tests']
 
-function workflow(stepList, { preamble = '' } = {}) {
+function workflow(stepList, { preamble = '', jobKeys = '' } = {}) {
 	const body = stepList
 		.map((step) => {
 			const lines = [`      - name: ${step.name}`]
 			if (step.id) lines.push(`        id: ${step.id}`)
 			if (step.if) lines.push(`        if: ${step.if}`)
+			if (step.continueOnError) lines.push(`        continue-on-error: ${step.continueOnError}`)
 			lines.push(`        run: echo ${JSON.stringify(step.name)}`)
 			return lines.join('\n')
 		})
 		.join('\n\n')
-	return `name: fixture\njobs:\n  check:\n    strategy:\n      matrix:\n        include:\n          - node-version: 24\n${preamble}    steps:\n${body}\n`
+	return `name: fixture\njobs:\n  check:\n    strategy:\n      matrix:\n        include:\n          - node-version: 24\n${preamble}${jobKeys}    steps:\n${body}\n`
 }
 
 function ciSteps(overrides = {}) {
@@ -67,12 +68,12 @@ function releaseSteps(overrides = {}) {
 	]
 }
 
-function check({ ci = ciSteps(), release = releaseSteps(), gatesLeg = true } = {}) {
+function check({ ci = ciSteps(), release = releaseSteps(), gatesLeg = true, ciJobKeys = '', releaseJobKeys = '' } = {}) {
 	const root = mkdtempSync(join(tmpdir(), 'namzu-parity-'))
 	try {
 		mkdirSync(join(root, '.github', 'workflows'), { recursive: true })
-		writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), workflow(ci, { preamble: gatesLeg ? '            gates: true\n' : '' }))
-		writeFileSync(join(root, '.github', 'workflows', 'release.yml'), workflow(release))
+		writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), workflow(ci, { preamble: gatesLeg ? '            gates: true\n' : '', jobKeys: ciJobKeys }))
+		writeFileSync(join(root, '.github', 'workflows', 'release.yml'), workflow(release, { jobKeys: releaseJobKeys }))
 		const result = spawnSync(process.execPath, [SCRIPT, root], { encoding: 'utf8' })
 		return { status: result.status, out: result.stdout + result.stderr }
 	} finally {
@@ -188,6 +189,58 @@ describe('check-workflow-gate-parity', () => {
 		const { status, out } = check({ gatesLeg: false })
 		assert.equal(status, 1)
 		assert.match(out, /no matrix entry sets `gates: true`/)
+	})
+
+	// A gate under continue-on-error fails while its job, and the run, succeed:
+	// validated-tree records the tree and release.yml skips the gate as well.
+	const withContinue = (list, name, value = 'true') => list.map((step) => (step.name === name ? { ...step, continueOnError: value } : step))
+
+	it('fails when a ci.yml gate carries continue-on-error', () => {
+		const { status, out } = check({ ci: withContinue(ciSteps(), 'Evals') })
+		assert.equal(status, 1)
+		assert.match(out, /"Evals" in ci\.yml carries `continue-on-error: true`/)
+	})
+
+	it('fails when a matrix.gates ci.yml gate carries continue-on-error as an expression', () => {
+		const { status, out } = check({ ci: withContinue(ciSteps(), 'Docs OKF gate', '${{ matrix.gates }}') })
+		assert.equal(status, 1)
+		assert.match(out, /"Docs OKF gate" in ci\.yml carries `continue-on-error: matrix\.gates`/)
+	})
+
+	it('accepts continue-on-error: false spelled out', () => {
+		const { status, out } = check({ ci: withContinue(ciSteps(), 'Lint', 'false'), release: withContinue(releaseSteps(), 'Lint', 'false') })
+		assert.equal(status, 0, out)
+	})
+
+	it('fails when a ci.yml job running gates carries continue-on-error', () => {
+		const { status, out } = check({ ciJobKeys: '    continue-on-error: true\n' })
+		assert.equal(status, 1)
+		assert.match(out, /The ci\.yml job `check` carries `continue-on-error: true`, and it runs gates/)
+	})
+
+	it('fails when a guarded release.yml gate carries continue-on-error', () => {
+		const { status, out } = check({ release: withContinue(releaseSteps(), 'Lint') })
+		assert.equal(status, 1)
+		assert.match(out, /"Lint" in release\.yml carries `continue-on-error: true`/)
+	})
+
+	it('fails when an unguarded release.yml gate carries continue-on-error', () => {
+		const release = withContinue(releaseSteps({ Typecheck: undefined }), 'Typecheck')
+		const { status, out } = check({ release })
+		assert.equal(status, 1)
+		assert.match(out, /"Typecheck" in release\.yml carries `continue-on-error: true`/)
+	})
+
+	it('fails when Build in release.yml carries continue-on-error', () => {
+		const { status, out } = check({ release: withContinue(releaseSteps(), 'Build') })
+		assert.equal(status, 1)
+		assert.match(out, /"Build" in release\.yml carries `continue-on-error: true`/)
+	})
+
+	it('fails when the release job carries continue-on-error', () => {
+		const { status, out } = check({ releaseJobKeys: '    continue-on-error: ${{ true }}\n' })
+		assert.equal(status, 1)
+		assert.match(out, /The release\.yml job `check` carries `continue-on-error: true`, and it runs gates/)
 	})
 
 	it('still fails on an exemption for a step that is gone', () => {
