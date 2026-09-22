@@ -95,10 +95,14 @@ checkpoint restoration. Driver tests inspect actual request bodies, including
 Anthropic through its SDK against a loopback HTTP server. No paid inference or
 live model eligibility is established by these tests.
 
-## Interactive CLI
+## CLI
 
-Launch `namzu --output-schema /absolute/path/schema.json` to constrain each
-main-query answer in the TUI through native output. The schema is loaded once
+Headless: `namzu exec --output-schema /absolute/path/schema.json "<prompt>"`
+binds that one turn's final answer to the schema, with or without `--json`
+(see [exec exit codes](../cli/exec-exit-codes.md) and [exec --json](../cli/exec-json.md)).
+
+Interactive: launch `namzu --output-schema /absolute/path/schema.json` to
+constrain each main-query answer in the TUI through native output. The schema is loaded once
 for that invocation and applies across model switches. It is not saved as a
 global preference; the printed resume command carries the flag. Supply it yourself when using a different resume command. Unsupported providers
 fail explicitly. Subagents keep their own output contracts.

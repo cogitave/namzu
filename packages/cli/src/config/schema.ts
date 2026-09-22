@@ -193,7 +193,7 @@ export interface NamzuCliConfig {
 	/**
 	 * How far one turn may go before the kernel stops it. Headless `exec` and
 	 * `exec --json` read these; `--max-iterations` and `--token-budget` override
-	 * them for one turn. Absent means unlimited tokens, iterations and run duration.
+	 * them for one turn. Absent means unlimited tokens, iterations and turn duration.
 	 * Explicit token budgets cover descendants.
 	 */
 	readonly limits?: TurnLimitsConfig
