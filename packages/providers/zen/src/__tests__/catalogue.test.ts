@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { priceCell } from '../catalogue/derive.js'
 import {
 	ZenCatalogueFormatError,
 	ZenCatalogueSourceError,
@@ -265,6 +266,59 @@ describe('buildZenCatalogue', () => {
 		).toThrow(/past the floor/)
 		// The default baseline is the bundled snapshot.
 		expect(() => buildZenCatalogue(sources())).toThrow(/past the floor/)
+	})
+
+	// A derivation is held to the checks its own stored copy will face. Each of
+	// these used to build, become the session's roster, and then be refused by
+	// `parseZenCatalogue` on the next launch's read of the last-good copy.
+	it('reads a price cell with two decimal points as no price, never as NaN', () => {
+		expect(priceCell('$1.2.3')).toBeUndefined()
+		expect(priceCell('$1.')).toBeUndefined()
+		expect(priceCell('$.5')).toBeUndefined()
+		expect(priceCell('$1.50')).toBe(1.5)
+		expect(priceCell('$12')).toBe(12)
+		const { catalogue, report } = build(
+			sources({
+				docs: { zen: ZEN_PAGE.replace('| $1.50 |', '| $1.2.3 |'), go: GO_PAGE },
+			}),
+		)
+		// Unpriced and not free is undecided, exactly as a missing price row is.
+		expect(catalogue.zen.map((model) => model.id)).not.toContain('alpha-chat')
+		expect(report.undecided.map(([key]) => key)).toContain('zen/alpha-chat')
+		expect(parseZenCatalogue(JSON.parse(JSON.stringify(catalogue)))).toEqual(catalogue)
+	})
+
+	it('refuses a page that routes one id on two rows', () => {
+		const input = sources({
+			docs: {
+				zen: ZEN_PAGE.replace(
+					row(ZEN_HOST, 'Gamma Free', 'gamma-free', '/chat/completions', CHAT),
+					[
+						row(ZEN_HOST, 'Gamma Free', 'gamma-free', '/chat/completions', CHAT),
+						row(ZEN_HOST, 'Alpha Chat Two', 'alpha-chat', '/messages', MESSAGES),
+					].join('\n'),
+				),
+				go: GO_PAGE,
+			},
+		})
+		expect(() => build(input)).toThrow(ZenCatalogueSourceError)
+		expect(() => build(input)).toThrow(/routes "alpha-chat" on more than one row/)
+	})
+
+	it('refuses a derivation that a stored copy of it could not be read back as', () => {
+		const long = 'A'.repeat(201)
+		const input = sources({
+			docs: { zen: ZEN_PAGE.replaceAll('Alpha Chat', long), go: GO_PAGE },
+		})
+		expect(() => build(input)).toThrow(ZenCatalogueSourceError)
+		expect(() => build(input)).toThrow(
+			/not one a stored copy could be read back as: catalogue\.zen\[0\]\.name is not a model name/,
+		)
+		// Two hundred characters is still a name.
+		const { catalogue } = build(
+			sources({ docs: { zen: ZEN_PAGE.replaceAll('Alpha Chat', 'A'.repeat(200)), go: GO_PAGE } }),
+		)
+		expect(catalogue.zen[0]?.name).toHaveLength(200)
 	})
 })
 

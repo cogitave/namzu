@@ -264,7 +264,12 @@ host fetched itself.
 The result is plain data. `JSON.stringify` stores it, and `parseZenCatalogue`
 re-admits a stored copy with the same strictness, refusing a torn, edited or
 other-version document as a whole with `ZenCatalogueFormatError`; a stored name
-carrying such a character is refused the same way.
+carrying such a character is refused the same way. A fresh derivation passes
+through those same checks before it is returned, so nothing `buildZenCatalogue`
+or `fetchZenCatalogue` yields is a catalogue its own stored copy would fail: a
+page that routes one id on two rows, or a name longer than 200 characters,
+rejects the whole result with `ZenCatalogueSourceError`, and a price cell that
+is not a single figure (`$1.2.3`) is read as no price rather than as `NaN`.
 
 `ZenConfig.catalogue` takes the catalogue, or a function returning it (or
 `undefined` for the bundled snapshot alone) that is called at every lookup, so a

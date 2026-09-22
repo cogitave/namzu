@@ -18,9 +18,19 @@ follow upstream without waiting for a new release.
 
 ## When it runs
 
-The interactive TUI (`namzu`, `namzu resume`), `namzu run`, `namzu run-stream`
-and `namzu acp` each start one refresh when they launch. Other commands
-(`doctor`, `login`, `state`, `eval` and the rest) start none.
+Every launch that opens agent sessions starts one refresh: the interactive TUI
+(`namzu`, `namzu resume`), `namzu run`, `namzu run-stream`, `namzu acp`,
+`namzu drain` and `namzu resident run`. A background resident runner
+(`namzu resident start`) is a separate forked process, and it starts its own
+refresh when it begins. Other commands (`doctor`, `login`, `state`, `eval`,
+`resident status` and the rest) open no session and start none.
+
+`drain` and the resident runner are on the list because they continue turns
+another launch started. A turn that parked on a model only the live or last-good
+catalogue carries would otherwise be continued on the bundled catalogue alone,
+where that model has no known wire format. The last-good copy always comes from
+the application home (`NAMZU_HOME`), including when `drain --store` names a
+different one.
 
 - **It never delays startup.** The launch starts the refresh and carries on;
   nothing on the startup path waits for it

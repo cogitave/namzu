@@ -298,6 +298,15 @@ export function parsePage(
 		)
 	}
 	if (routes.length === 0) unusable(`${page} has no route table.`)
+	const seen = new Set<string>()
+	for (const route of routes) {
+		if (seen.has(route.id)) {
+			unusable(
+				`${page} routes "${route.id}" on more than one row. Which row states its wire and\n  its name is not something these rules can choose, so the run stops instead.`,
+			)
+		}
+		seen.add(route.id)
+	}
 	if (service === 'zen' && freeNames.length === 0) {
 		unusable(
 			`${page} has no free-model list. Anonymous admission is stated there and is never\n  inferred from a zero price, so an empty list is a page that moved, not a\n  catalogue that serves nothing for free.`,
@@ -314,7 +323,9 @@ export function parsePage(
  * zero.
  */
 export function priceCell(cell: string): number | undefined {
-	const dollars = /^\$([0-9.]+)$/.exec(cell.trim())
+	// One figure with at most one decimal point. A looser pattern reads `$1.2.3`
+	// as `Number('1.2.3')`, which is NaN, and a NaN rate is not a price.
+	const dollars = /^\$([0-9]+(?:\.[0-9]+)?)$/.exec(cell.trim())
 	if (dollars) return Number(dollars[1])
 	return /^free$/i.test(cell.trim()) ? 0 : undefined
 }

@@ -76,8 +76,27 @@ const EX_USAGE = 64
  * The commands that open a session, and so refresh the model catalogue in the
  * background when they start. The interactive TUI (`namzu`, `namzu resume`)
  * starts it from `launchInteractiveTui`, once it knows it has a terminal.
+ *
+ * `drain` belongs here because it continues turns another launch parked, and
+ * the model such a turn was on may be one only the live or last-good catalogue
+ * carries: continued on the bundled snapshot alone, it would have no wire.
+ * `namzu resident run` is matched by its action (`opensSessions`); a
+ * background runner (`resident start`) is a forked worker that never passes
+ * through here and starts its own refresh.
  */
-const CATALOGUE_REFRESH_COMMANDS: ReadonlySet<string> = new Set(['run', 'run-stream', 'acp'])
+const CATALOGUE_REFRESH_COMMANDS: ReadonlySet<string> = new Set([
+	'run',
+	'run-stream',
+	'acp',
+	'drain',
+])
+
+/** Whether the command commander is about to run opens agent sessions. */
+export function opensSessions(name: string, args: readonly unknown[]): boolean {
+	if (CATALOGUE_REFRESH_COMMANDS.has(name)) return true
+	// `resident`'s action is its first operand, exactly as `parseResidentFlags` reads it.
+	return name === 'resident' && args[0] === 'run'
+}
 
 export interface RunCliOptions {
 	/** Argv with the leading `node` + script path, matching `process.argv` shape. */
@@ -172,7 +191,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					code: 'commander.invalidArgument',
 				})
 			}
-			if (CATALOGUE_REFRESH_COMMANDS.has(action.name())) {
+			if (opensSessions(action.name(), action.args)) {
 				beginCatalogueRefresh(getBootstrapContext().config)
 			}
 		})

@@ -159,13 +159,25 @@ export function buildZenCatalogue(
 		carried,
 		options.baseline ?? { zen: getZenModels('zen'), go: getZenModels('go') },
 	)
-	const catalogue = freezeCatalogue({
-		version: ZEN_CATALOGUE_VERSION,
-		fetchedAt: (options.fetchedAt ?? new Date()).toISOString(),
-		zen: carried.zen,
-		go: carried.go,
-		unrouted,
-	})
+	// The result is admitted by the same checks a stored copy of it will face.
+	// A derivation that yields something `parseZenCatalogue` would refuse on the
+	// next launch — a NaN rate, a repeated id, a name no picker can show — is
+	// refused now, whole, instead of becoming this session's roster.
+	let catalogue: ZenCatalogue
+	try {
+		catalogue = parseZenCatalogue({
+			version: ZEN_CATALOGUE_VERSION,
+			fetchedAt: (options.fetchedAt ?? new Date()).toISOString(),
+			zen: carried.zen,
+			go: carried.go,
+			unrouted,
+		})
+	} catch (error) {
+		if (!(error instanceof ZenCatalogueFormatError)) throw error
+		throw new ZenCatalogueSourceError(
+			`The derived catalogue is not one a stored copy could be read back as: ${error.message}`,
+		)
+	}
 	return {
 		catalogue,
 		report: Object.freeze({
