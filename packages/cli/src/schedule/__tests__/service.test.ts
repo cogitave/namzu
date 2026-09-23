@@ -14,7 +14,12 @@ import { defaultServiceName } from '../service/names.js'
 import { checkWslPath, systemdWord, windowsArgument } from '../service/quote.js'
 import type { CommandRunner } from '../service/runner.js'
 import { systemdUnit } from '../service/systemd.js'
-import { parseTaskQuery, taskXml, taskXmlBytes } from '../service/windows-task.js'
+import {
+	REMOVE_EMPTY_TASK_FOLDER_SCRIPT,
+	parseTaskQuery,
+	taskXml,
+	taskXmlBytes,
+} from '../service/windows-task.js'
 import { isEphemeralBin, wslTaskDefinition } from '../service/wsl.js'
 import { type Sandbox, sandbox } from './fixtures.js'
 
@@ -260,6 +265,53 @@ describe('Windows Task Scheduler', () => {
 		expect(calls[0]).toBe(
 			'/mnt/c/Windows/System32/schtasks.exe /Change /TN \\namzu\\namzu-test /DISABLE',
 		)
+	})
+})
+
+describe('uninstalling a Windows task', () => {
+	it('deletes the \\namzu folder once it is empty, and says so when it could not', async () => {
+		const calls: { cmd: string; args: readonly string[] }[] = []
+		let folderCode = 0
+		const run: CommandRunner = async (cmd, args) => {
+			calls.push({ cmd, args })
+			if (args.includes('/Query')) return { code: 1, stdout: '', stderr: 'not found' }
+			if (cmd.endsWith('powershell.exe')) return { code: folderCode, stdout: '', stderr: '' }
+			return { code: 0, stdout: '', stderr: '' }
+		}
+		const manifest = {
+			v: 1 as const,
+			kind: 'schedule-service' as const,
+			platform: 'wsl-windows-task' as const,
+			name: 'namzu-test-wsl-arch',
+			installedAt: '',
+			cliVersion: 't',
+			nodePath: '',
+			binPath: '',
+			namzuHome: sb.home,
+			artifacts: [{ type: 'windows-task' as const, taskPath: '\\namzu\\namzu-test-wsl-arch' }],
+			windows: {
+				taskPath: '\\namzu\\namzu-test-wsl-arch',
+				schtasks: '/mnt/c/Windows/System32/schtasks.exe',
+				powershell: '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
+			},
+		}
+		const { writeManifest } = await import('../service/manifest.js')
+		writeManifest(sb.paths, manifest)
+		expect(
+			(await uninstallService({ paths: sb.paths, run, env: {}, version: 't' })).problems,
+		).toEqual([])
+		const ps = calls.find((c) => c.cmd.endsWith('powershell.exe'))
+		expect(ps?.args.at(-2)).toBe('-EncodedCommand')
+		const script = Buffer.from(String(ps?.args.at(-1)), 'base64').toString('utf16le')
+		expect(script).toBe(REMOVE_EMPTY_TASK_FOLDER_SCRIPT)
+		expect(script).toContain("DeleteFolder('namzu', 0)")
+		expect(script).toContain('GetTasks(1).Count -gt 0')
+
+		folderCode = 1
+		writeManifest(sb.paths, manifest)
+		const stuck = await uninstallService({ paths: sb.paths, run, env: {}, version: 't' })
+		expect(stuck.problems).toEqual([expect.stringMatching(/empty Task Scheduler folder/)])
+		expect(readManifest(sb.paths)).toBeDefined()
 	})
 })
 

@@ -211,7 +211,10 @@ reported in its heartbeat, not the one the shell running `status` would pick.
 `uninstall` stops the daemon, waits up to `--wait` (default ten minutes) for
 runs in progress (`--interrupt-runs` does not wait; they finish on their own),
 removes exactly what `schedule/service.json` lists, checks each piece is gone,
-and removes the manifest last. It exits non-zero and names anything it could not
+and removes the manifest last. On Windows and WSL that includes the `\namzu`
+Task Scheduler folder `install` created, once no task is left in it
+(`schtasks /Delete` removes the task, never its folder, and `schtasks /Query`
+does not show an empty one). It exits non-zero and names anything it could not
 remove. Jobs and history are kept unless `--purge-data`.
 
 ## Manual checks

@@ -28,7 +28,13 @@ import {
 	systemdUnitPath,
 	uninstallSystemd,
 } from './systemd.js'
-import { parseTaskQuery, taskPath, taskXml, taskXmlBytes } from './windows-task.js'
+import {
+	parseTaskQuery,
+	removeEmptyTaskFolderArguments,
+	taskPath,
+	taskXml,
+	taskXmlBytes,
+} from './windows-task.js'
 import {
 	type WindowsTools,
 	isEphemeralBin,
@@ -295,7 +301,17 @@ async function removeArtifact(
 			await ctx.run(schtasks, ['/End', '/TN', artifact.taskPath], cwd)
 			await ctx.run(schtasks, ['/Delete', '/TN', artifact.taskPath, '/F'], cwd)
 			const queried = await ctx.run(schtasks, ['/Query', '/TN', artifact.taskPath], cwd)
-			return queried.code === 0 ? [`task ${artifact.taskPath} is still registered`] : []
+			if (queried.code === 0) return [`task ${artifact.taskPath} is still registered`]
+			// The `\namzu` folder `/Create` made, once nothing else is in it.
+			const powershell =
+				manifest.windows?.powershell ??
+				(manifest.platform === 'wsl-windows-task'
+					? windowsTools().powershell
+					: `${ctx.env.SystemRoot ?? 'C:\\Windows'}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`)
+			const folder = await ctx.run(powershell, removeEmptyTaskFolderArguments(), cwd)
+			return folder.code === 0
+				? []
+				: ['the empty Task Scheduler folder \\namzu is still there; delete it in Task Scheduler']
 		}
 	}
 }
