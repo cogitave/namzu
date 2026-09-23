@@ -192,7 +192,7 @@ import {
 	readSuggestionLedger,
 	writeSuggestionLedger,
 } from './skills/suggestion-ledger.js'
-import { setUserConfigValue } from '../config/user-config.js'
+import { setSkillSuggestions } from './skills/suggest-setting.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
 import { checklistProgress } from './Checklist.js'
@@ -6991,23 +6991,17 @@ export function App({
 						break
 					}
 					case 'skill-suggestions': {
-						let file: string
-						try {
-							file = setUserConfigValue(['skills', 'suggest'], slash.on)
-						} catch (error) {
-							pushMessage(
-								'system',
-								`Could not save skills.suggest: ${error instanceof Error ? error.message : String(error)}`,
-							)
-							return
-						}
+						// The session follows the choice whatever the files say; the
+						// message says whether a later start will too.
 						skillSuggestOverrideRef.current = slash.on
 						if (slash.on) writeSuggestionLedger(resolveNamzuHome(), FRESH_LEDGER)
+						const profile = ctx.configDebug?.selectedProfile?.name
 						pushMessage(
 							'system',
-							slash.on
-								? `Skill suggestions are on: after a multi-step task you will be offered /skills save. Saved skills.suggest: true to ${file}.`
-								: `Skill suggestions are off. Saved skills.suggest: false to ${file}; /skills save on turns them back on. /skills save and /skills new still work.`,
+							setSkillSuggestions(slash.on, {
+								cwd: ctx.cwd,
+								...(profile ? { profile } : {}),
+							}).message,
 						)
 						return
 					}
@@ -7443,7 +7437,14 @@ export function App({
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
 				...(skillFlow ? { skillFlow: true as const } : {}),
 			}
-			if (mode === 'submit') {
+			// `/skills save` and `/skills new` are turns of their own: steered into
+			// a running turn, they would lose the flag that keeps the skill-making
+			// turn from being proposed as a skill, and the model would read them
+			// mid-task. They wait in the queue for the turn to end.
+			if (skillFlow && activeTurnInboxRef.current) {
+				pushMessage('system', 'Queued: this runs when the current turn ends.')
+			}
+			if (mode === 'submit' && !skillFlow) {
 				const inbox = activeTurnInboxRef.current
 				if (inbox) {
 					const expanded = expandFileMentions(outgoing, ctx.cwd)

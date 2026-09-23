@@ -59,6 +59,10 @@ function* multiStepTurn(n: number): Generator<AgentEvent> {
 }
 
 let sends = 0
+/** Holds the first turn open before its end, so a prompt can arrive meanwhile. */
+let hold: Promise<void> | null = null
+/** Each send: the prompt it was given, and what it was steered with before it ended. */
+const sent: Array<{ prompt: string; steered: string[] }> = []
 vi.mock('../agent.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('../agent.js')>()
 	return {
@@ -88,9 +92,19 @@ vi.mock('../agent.js', async (importOriginal) => {
 			close: async () => {},
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
-			send: async function* (): AsyncIterable<AgentEvent> {
+			send: async function* (messages, opts): AsyncIterable<AgentEvent> {
 				sends += 1
-				yield* multiStepTurn(sends)
+				const n = sends
+				const record = { prompt: String(messages.at(-1)?.content ?? ''), steered: [] as string[] }
+				sent.push(record)
+				const events = [...multiStepTurn(n)]
+				const end = events.pop() as AgentEvent
+				yield* events
+				if (n === 1 && hold) await hold
+				for (const message of opts?.inboundMessages?.() ?? []) {
+					record.steered.push(String(message.content))
+				}
+				yield end
 			},
 		}),
 	}
@@ -104,6 +118,8 @@ let savedHome: string | undefined
 
 beforeEach(() => {
 	sends = 0
+	hold = null
+	sent.length = 0
 	savedHome = process.env.NAMZU_HOME
 	home = mkdtempSync(join(tmpdir(), 'namzu-skill-suggestion-'))
 	process.env.NAMZU_HOME = home
@@ -204,4 +220,33 @@ it('stops after three proposals went unused, and says so once', async () => {
 	await tick(100)
 	expect(now()).not.toContain('Not suggesting skills any more')
 	expect(now()).not.toContain(PROPOSAL)
+})
+
+it('/skills save typed during a turn waits for it, and neither turn is proposed', async () => {
+	let release = () => {}
+	hold = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	const { type, shown, now } = await mount()
+
+	await type('find every TODO and write TODO.md')
+	await until(() => sends === 1 && shown().includes('Working'), 'first turn never started')
+	await type('/skills save todo-report')
+	await until(
+		() => shown().includes('Queued: this runs when the current turn ends.'),
+		'/skills save during a turn said nothing',
+	)
+	await tick(100)
+	expect(sends, 'it must not start beside the running turn').toBe(1)
+
+	release()
+	await until(() => sends === 2, '/skills save never ran after the turn')
+	await until(() => shown().includes('ANSWER2'), 'the skill turn never finished')
+	await tick(100)
+	expect(sent[0]?.steered, 'it was steered into the running turn').toEqual([])
+	expect(sent[1]?.prompt).toContain('"from this conversation" mode')
+	expect(sent[1]?.prompt).toContain('Name it todo-report.')
+	// The first turn was taken up by /skills save, the second is the skill flow.
+	expect(now()).not.toContain(PROPOSAL)
+	expect(readSuggestionLedger(home).unanswered).toBe(0)
 })

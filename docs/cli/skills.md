@@ -187,12 +187,19 @@ placeholders, leave out secrets and personal data, and never copy tool, file
 or page output into the skill. It ends on the `save_skill` screen described
 above, where you read the whole file and choose where it goes or cancel. A
 name, when given, must be a valid skill name (`/skills save todo-report`);
-without one the model picks one for the kind of task.
+without one the model picks one for the kind of task. Typed while a turn is
+running, `/skills save` (and `/skills new`) is not steered into that turn: it
+waits in the queue, says so, and runs when the turn ends.
 
 **Turning it off.** `/skills save off` writes `skills.suggest: false` to your
 user config (`$NAMZU_HOME/config.yaml`, keeping the rest of the file as it
 was) and says which file; `/skills save on` writes `true`. Either applies to
-the running session at once. `/skills save` and `/skills new` keep working
+the running session at once. It then reads the whole cascade back: when a
+project file, a selected profile or the managed file sets its own `skills`
+block (which replaces the user file's whole block, see [Config](#config)) and
+so resolves to the other value, the message names that file, says what
+`skills.suggest` will be from the next start, and asks you to add `suggest`
+there (`packages/cli/src/tui/skills/suggest-setting.ts`). `/skills save` and `/skills new` keep working
 when proposals are off.
 
 **It stops by itself.** A proposal counts as unused until you type
@@ -266,7 +273,8 @@ skills` adds `tier`, `shadows`, `disabled`, `invocation` and
 - `packages/cli/src/tui/SaveSkillOverlay.tsx` — the confirmation screen
 - `packages/cli/src/tui/skills/learning.ts` — when a turn is proposed as a skill
 - `packages/cli/src/tui/skills/suggestion-ledger.ts` — the unused-proposal count
-- `packages/cli/src/config/user-config.ts` — `/skills save off|on` writing the user config
+- `packages/cli/src/config/user-config.ts` — writing one key of the user config
+- `packages/cli/src/tui/skills/suggest-setting.ts` — `/skills save off|on` and the override check
 - `packages/cli/skills/` — the built-in skills
 - `packages/cli/src/tui/agent.ts` — the catalog handed to each turn
 - `packages/sdk/src/tools/builtins/skill.ts` — the `skill` tool
