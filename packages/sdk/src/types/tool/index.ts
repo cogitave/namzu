@@ -77,6 +77,8 @@ export interface SkillRegistryRef {
 						invocation?: 'model' | 'operator' | 'both'
 					}
 					body?: string
+					/** The skill's directory, which `${CLAUDE_SKILL_DIR}` in `allowed-tools` names. */
+					dirPath?: string
 				}
 		  }
 		| undefined
@@ -473,17 +475,55 @@ export interface ToolContext {
 	}
 
 	/**
-	 * Adopt the tool scope a skill declared.
+	 * Formerly: narrow the turn's tools to what a skill's `allowed-tools`
+	 * named. That reading was backwards — the field pre-approves, it never
+	 * restricts — and the kernel no longer supplies this member, so a tool
+	 * that calls it through `?.` does nothing.
 	 *
-	 * Called by the `skill` tool when a loaded skill names `allowed-tools`.
-	 * The scope INTERSECTS what the turn already allows and takes effect from
-	 * the next batch — a skill loaded alongside other calls must not
-	 * retroactively refuse them.
+	 * @deprecated Never supplied by the kernel since `allowed-tools` became a
+	 * pre-approval. Use {@link ToolContext.grantSkillTools}. Removed in the
+	 * next major.
 	 */
 	adoptSkillScope?: (scope: {
 		skill: string
 		allowedTools: readonly string[]
 	}) => void
+
+	/**
+	 * Pre-approve what a loaded skill's `allowed-tools` names, for the rest of
+	 * this turn.
+	 *
+	 * Called by the `skill` tool. It never narrows anything: every tool the
+	 * turn had stays callable, and a call the grant does not cover is reviewed
+	 * exactly as before. A covered call skips the approval prompt, but not an
+	 * operator `deny` or `ask` rule, plan mode, `strict` mode, a destructive
+	 * call or one that reaches outside the turn's roots or sandbox. Each call
+	 * approved this way is written to the session's audit trail naming the
+	 * skill.
+	 *
+	 * Returns what would be granted and what was ignored (an unknown tool
+	 * name, a pattern on a tool without a command line, a tool every call of
+	 * which is destructive), so the tool can tell the model. Nothing is
+	 * recorded until `commit()` is called: the caller commits only once the
+	 * skill's instructions have actually been delivered, so a load that fails
+	 * afterwards leaves no approval behind. Absent outside a turn, where
+	 * there is nothing to grant into.
+	 */
+	grantSkillTools?: (grant: {
+		readonly skill: string
+		/** The parsed entries, as `parseAllowedTools` returns them. */
+		readonly allowedTools: readonly string[]
+		/** The skill's directory, for `${CLAUDE_SKILL_DIR}` / `${NAMZU_SKILL_DIR}`. */
+		readonly skillDirectory?: string
+	}) => {
+		readonly granted: readonly string[]
+		readonly ignored: readonly {
+			readonly entry: string
+			readonly reason: string
+		}[]
+		/** Record the grant in the turn. Idempotent. */
+		readonly commit: () => void
+	}
 
 	/**
 	 * Effective model-visible character cap for this tool result.
@@ -677,6 +717,14 @@ export interface ToolResult {
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
 }
 
+/**
+ * The shell a command line will run in, as the permission rules read it.
+ * `bash` reads it as bash does. `sh` reads it for a shell that may be bash or
+ * a POSIX shell such as `dash`: every construct the two read differently
+ * makes the line opaque, so a line that is not opaque means the same in both.
+ */
+export type ShellDialect = 'bash' | 'sh'
+
 export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {
 	name: string
 	description: string
@@ -737,6 +785,20 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * chaining — has nothing to decompose and must not claim otherwise.
 	 */
 	commandArgument?: string
+	/**
+	 * The shell {@link commandArgument} runs in, as the dialect the permission
+	 * rules must read it in.
+	 *
+	 * A rule reads a command line before it runs, and the reading is only
+	 * right for the shell that runs it: `$'\x3b'`, `|&` and `&>` mean one
+	 * thing to bash and another to `dash`. `bash` reads the line as bash
+	 * does. `sh`, the default when this is absent, reads it for a shell that
+	 * may be bash or a POSIX shell, and every construct the two read
+	 * differently makes the line opaque, so no allow rule approves it. The
+	 * shipped `bash` tool answers `bash` when it will spawn bash on the host
+	 * and `sh` inside a sandbox, whose guest may not have bash.
+	 */
+	commandDialect?: (context: { readonly sandboxed: boolean }) => ShellDialect
 	/**
 	 * The argument that holds a filesystem path the tool resolves against the
 	 * turn's roots (the working directory and the added directories).

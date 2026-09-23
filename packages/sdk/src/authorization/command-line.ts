@@ -32,8 +32,9 @@
  * caller must read the two decisions differently, and {@link evaluateRule}
  * does:
  *
- * - **deny** matches when ANY segment matches. One prohibited command poisons
- *   the line it rides on.
+ * - **deny** matches when ANY segment matches, or when any command's decoded
+ *   words ({@link decodedCommands}) do. One prohibited command poisons the
+ *   line it rides on, however it is quoted.
  * - **allow** matches only when EVERY segment matches, and never when the line
  *   is {@link CommandLineDecomposition.opaque}. Permission is a claim about the
  *   whole line, and a claim that cannot be checked is not granted.
@@ -41,35 +42,53 @@
  * That asymmetry is the same one `refuse-do-not-degrade` describes: when the
  * analysis is uncertain, the uncertainty spends against the permissive answer.
  *
+ * ## Where the commands come from
+ *
+ * One lexer, {@link lexShellCommandLine}, reads the line the way bash does and
+ * is the only thing in the SDK that knows bash's quoting. This module and
+ * {@link writesThroughRedirection} are views of its result. There used to be
+ * three hand-written walkers here, each with its own idea of where a quote
+ * ends, and every disagreement between them was a way to run a command the
+ * rules never saw.
+ *
  * ## What `opaque` means
  *
  * Some lines contain text that is not the command that runs. Command
  * substitution (`$(…)`, backticks, `<(…)`) executes something whose text is
- * not in the line at all, and `eval` runs a string assembled at runtime. No
- * decomposition of the source can be a decomposition of what ran, so the line
- * is marked opaque and `allow` declines it. `deny` still tests what is visible,
- * because a deny that matches too much costs a prompt and a deny that matches
- * too little costs the thing it was written to prevent.
+ * not in the line at all, and `eval` or `source` runs a string assembled at
+ * runtime. The lexer also reports a line opaque when it does not parse, or
+ * contains a construct it does not model. No decomposition of the source can
+ * be a decomposition of what ran, so `allow` declines it. `deny` still tests
+ * what is visible, because a deny that matches too much costs a prompt and a
+ * deny that matches too little costs the thing it was written to prevent.
  *
  * ## What it deliberately does not do
  *
- * A value with no chain operator, no nested shell and nothing opaque comes back
- * as itself, byte for byte. That keeps every rule about a non-command argument
- * — a path, a number, a URL — behaving exactly as it did, and confines this
- * machinery to the case that motivated it.
+ * A value that is one plain command comes back as itself, byte for byte. That
+ * keeps every rule about a non-command argument — a path, a number, a URL —
+ * behaving exactly as it did, and confines this machinery to the case that
+ * motivated it.
  *
- * It is a decomposition, not a shell. `xargs sh -c`, a command read from a
- * file, and a shell invoked through an interpreter it does not recognise all
- * pass through as ordinary text. Each of those either denies as before or, for
- * an allow rule, fails to match every segment and so declines. The failure mode
- * is a prompt, never a silent grant.
+ * It is a decomposition, not a shell. `xargs sh -c`, `env git push`, a command
+ * read from a file, and a shell invoked through an interpreter it does not
+ * recognise all pass through as ordinary text. Each of those either denies as
+ * before or, for an allow rule, fails to match every segment and so declines.
+ * The failure mode is a prompt, never a silent grant.
  */
+
+import {
+	type ShellDialect,
+	type ShellLexResult,
+	type ShellRedirection,
+	basename,
+	lexShellCommandLine,
+} from './shell-lexer.js'
 
 /** The commands a line runs, and whether that list can be trusted as complete. */
 export interface CommandLineDecomposition {
 	/**
-	 * The individual commands, in source order. Never empty: a line that
-	 * decomposes to nothing yields the original.
+	 * The individual commands' source text, in the order they were read. Never
+	 * empty: a line that decomposes to nothing yields the original.
 	 */
 	readonly segments: readonly string[]
 	/**
@@ -79,312 +98,148 @@ export interface CommandLineDecomposition {
 	readonly opaque: boolean
 }
 
-/**
- * Shells whose `-c` argument is another command line.
- *
- * Matched on the basename, so `/bin/bash` and `bash` are the same entry. An
- * interpreter absent from this list is not a hole that grants anything: its
- * payload stays inside one segment, where an allow rule fails to match it.
- */
-const NESTED_SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'ash', 'busybox'])
-
 /** Commands whose argument is code assembled at runtime. */
 const RUNTIME_EVALUATORS = new Set(['eval', 'source', '.'])
 
 /**
- * Depth and width limits.
- *
- * A line that exceeds either is reported opaque rather than truncated: a
+ * Width limit. A line past it is reported opaque rather than truncated: a
  * shortened list of segments would read as complete to `allow`, which is the
  * one reading that must never be wrong.
  */
-const MAX_DEPTH = 4
 const MAX_SEGMENTS = 64
 
-export function decomposeCommandLine(command: string): CommandLineDecomposition {
-	const state: WalkState = { opaque: false, structured: false }
-	const segments = split(command, state, 0)
+/**
+ * `dialect` is the shell that will run the line (see `ShellDialect`); a
+ * caller that does not know passes `sh`, whose reading holds for any POSIX
+ * shell.
+ */
+export function decomposeCommandLine(
+	command: string,
+	dialect: ShellDialect = 'bash',
+): CommandLineDecomposition {
+	const lexed = lex(command, dialect)
+	let opaque = lexed.opaque
+	for (const each of lexed.commands) {
+		const head = each.words[each.assignments]
+		if (head !== undefined && !head.expands && RUNTIME_EVALUATORS.has(basename(head.value))) {
+			// The argument is source text assembled elsewhere. Even when it is a
+			// visible literal, what runs is decided at runtime.
+			opaque = true
+		}
+	}
 
-	// The untouched-value case, kept exact. Nothing was cut and nothing was
-	// unpacked, so there is no decomposition to report and the value goes back
-	// as it arrived — which is what keeps a rule about a path or a URL seeing
-	// the string it always saw, punctuation and surrounding space included.
-	if (!state.structured) return { segments: [command], opaque: state.opaque }
+	// A line that does not parse runs none of the text from its error on, and
+	// what it ran before that is in `decodedCommands` for deny. The value goes
+	// back untouched, the way a path or a URL that is not shell at all does.
+	if (!lexed.complete || lexed.commands.length === 0) return { segments: [command], opaque }
 
-	if (segments.length === 0) return { segments: [command], opaque: state.opaque }
-	if (segments.length > MAX_SEGMENTS) {
+	// The untouched-value case, kept exact: one command whose text is the
+	// whole line. Nothing was cut and nothing was unpacked, so the value goes
+	// back as it arrived — which is what keeps a rule about a path or a URL
+	// seeing the string it always saw, surrounding space included.
+	const only = lexed.commands[0]
+	if (
+		lexed.commands.length === 1 &&
+		only !== undefined &&
+		only.origin === 'line' &&
+		only.text === command.trim()
+	) {
+		return { segments: [command], opaque }
+	}
+
+	const segments = lexed.commands.map((each) => each.text)
+	if (segments.length > MAX_SEGMENTS)
 		return { segments: segments.slice(0, MAX_SEGMENTS), opaque: true }
-	}
-	return { segments, opaque: state.opaque }
-}
-
-interface WalkState {
-	opaque: boolean
-	/**
-	 * Whether anything was cut or unpacked. False means the value is not a
-	 * command line as far as this module can tell, and it goes back untouched.
-	 */
-	structured: boolean
+	return { segments, opaque }
 }
 
 /**
- * Walk the line once, quote-aware, cutting at every top-level separator.
+ * Each command's words as bash passes them (quotes removed, `$'…'` decoded),
+ * joined by single spaces — and, for a command led by assignments, the same
+ * without them. For `deny` only.
  *
- * Quote tracking is the whole reason this is not a `String.split`: `echo "a &&
- * b"` is one command that prints a literal, and a splitter that cannot tell
- * would report a second command named `b"` — inventing a segment is as wrong as
- * missing one, because `allow` requires every segment to match.
+ * A deny rule written as `^git push` must not be evaded by `'git' push`,
+ * `g\it push`, `$'git' push` or `GIT_DIR=x git push`: the source text of each
+ * differs from the pattern and the command that runs does not. `allow` does
+ * not use these. Its subject stays the source text, so a pattern that names
+ * quotes keeps meaning what its author wrote, and a decoded form can only ever
+ * add a match — which for `deny` is the safe direction and for `allow` is not.
  */
-function split(command: string, state: WalkState, depth: number): string[] {
-	const segments: string[] = []
-	let current = ''
-	let quote: "'" | '"' | null = null
-
-	const cut = (): void => {
-		const trimmed = trimSegment(current)
-		current = ''
-		if (trimmed === '') return
-		for (const piece of expand(trimmed, state, depth)) segments.push(piece)
+export function decodedCommands(
+	command: string,
+	dialect: ShellDialect = 'bash',
+): readonly string[] {
+	const out: string[] = []
+	for (const each of lex(command, dialect).commands) {
+		if (each.words.length === 0) continue
+		out.push(each.words.map((word) => word.value).join(' '))
+		if (each.assignments > 0 && each.words.length > each.assignments) {
+			out.push(
+				each.words
+					.slice(each.assignments)
+					.map((word) => word.value)
+					.join(' '),
+			)
+		}
 	}
-
-	for (let i = 0; i < command.length; i += 1) {
-		const char = command[i] as string
-
-		if (quote === "'") {
-			// Single quotes suspend everything, including the backslash. This is
-			// the branch that keeps `echo 'a && b'` one command.
-			if (char === "'") quote = null
-			current += char
-			continue
-		}
-
-		if (char === '\\') {
-			// An escaped separator is a literal, so both characters go through
-			// untouched and the next loop never sees the separator as one.
-			current += char + (command[i + 1] ?? '')
-			i += 1
-			continue
-		}
-
-		if (quote === '"') {
-			if (char === '"') quote = null
-			// Substitution is live inside double quotes, which is exactly where
-			// it hides best.
-			else if (isSubstitutionStart(command, i)) state.opaque = true
-			current += char
-			continue
-		}
-
-		if (char === "'" || char === '"') {
-			quote = char
-			current += char
-			continue
-		}
-
-		if (isSubstitutionStart(command, i)) {
-			state.opaque = true
-			current += char
-			continue
-		}
-
-		const separator = separatorAt(command, i)
-		if (separator > 0) {
-			state.structured = true
-			cut()
-			i += separator - 1
-			continue
-		}
-
-		current += char
-	}
-
-	// An unterminated quote means the line does not parse. Whatever it runs is
-	// not what this walk saw, so the caller must not treat the result as a
-	// complete account.
-	if (quote !== null) state.opaque = true
-
-	cut()
-	return segments
+	return out
 }
 
 /**
- * Length of the separator starting at `index`, or 0.
+ * Whether a command line sends output into a file through a shell redirection.
  *
- * The redirection cases are why this is a function. `2>&1` and `&>log` contain
- * `&` and are not separators; splitting there would manufacture a segment named
- * `1`, which no allow rule matches, and a command that redirects its output
- * would stop being approvable for a reason nobody could see.
+ * A permission pattern names commands. `>`, `>>`, `>|`, `&>`, `&>>`, `<>` and
+ * `>&word` open a file for writing whose path is not the command's argument,
+ * so a pattern that covers `git status *` would otherwise also cover
+ * `git status > ~/.bashrc`. Callers that grant on a pattern's say-so decline
+ * such a line.
+ *
+ * Not writes: a target of `/dev/null`, descriptor duplication and closing
+ * (`2>&1`, `>&2`, `>&-`), and anything quoted or escaped so that it is not an
+ * operator. Anything whose target is not known before the line runs — a
+ * target built from a variable, a glob or a tilde — counts as a write, and so
+ * does a line that does not parse or holds a process substitution: the
+ * uncertainty spends against the grant.
  */
-function separatorAt(command: string, index: number): number {
-	const char = command[index]
-	const next = command[index + 1]
-
-	if (char === '\n') return 1
-	if (char === ';') return next === ';' ? 2 : 1
-	if (char === '&') {
-		if (next === '&') return 2
-		if (next === '>') return 0
-		if (command[index - 1] === '>') return 0
-		return 1
-	}
-	if (char === '|') {
-		if (next === '|') return 2
-		// `|&` pipes stderr as well; still a pipe, and both sides still run.
-		if (next === '&') return 2
-		return 1
-	}
-	return 0
+export function writesThroughRedirection(command: string, dialect: ShellDialect = 'bash'): boolean {
+	const lexed = lex(command, dialect)
+	if (!lexed.complete) return true
+	if (lexed.reasons.includes('process substitution')) return true
+	return lexed.redirections.some(writes)
 }
 
-/** Whether a command substitution opens here. */
-function isSubstitutionStart(command: string, index: number): boolean {
-	const char = command[index]
-	if (char === '`') return true
-	if (char === '$' && command[index + 1] === '(') return true
-	// Process substitution: `diff <(a) <(b)` runs `a` and `b`.
-	if ((char === '<' || char === '>') && command[index + 1] === '(') return true
-	return false
+function writes(redirection: ShellRedirection): boolean {
+	const { operator, target } = redirection
+	switch (operator) {
+		case '<':
+		case '<&':
+		case '<<':
+		case '<<-':
+		case '<<<':
+			return false
+		case '>&':
+			// `>&N`, `>&N-`, `>&-` duplicate or close a descriptor. `>&word`
+			// with any other word redirects both streams into that file.
+			if (!target.expands && /^(?:\d+-?|-)$/.test(target.value)) return false
+			return target.expands || target.value !== '/dev/null'
+		default:
+			return target.expands || target.value !== '/dev/null'
+	}
 }
 
 /**
- * Strip the grouping punctuation a split leaves behind.
- *
- * `(cd build && make)` cuts into `(cd build` and `make)`. Leaving the bracket on
- * would stop an allow rule matching a command it names, and — worse — stop a
- * deny rule matching one, since `^make` does not match `make)`.
+ * One gate evaluation tests the same line against every rule, and each rule
+ * asks for it again. The last line lexed is kept so that is one lexing.
  */
-function trimSegment(segment: string): string {
-	return segment
-		.trim()
-		.replace(/^[({\s]+/, '')
-		.replace(/[)}\s]+$/, '')
-}
+let cached:
+	| { readonly command: string; readonly dialect: ShellDialect; readonly result: ShellLexResult }
+	| undefined
 
-/**
- * Turn one segment into the commands it stands for.
- *
- * A shell invoked with `-c` carries a whole second command line in an argument,
- * and that argument is where the smuggling this module exists for is easiest:
- * `bash -c "git push"` contains no separator at all, so nothing above this
- * function would have looked inside it.
- *
- * The outer segment is kept alongside the inner ones. A rule that denies the
- * interpreter itself must still fire, and for `allow` the extra segment only
- * makes the requirement stricter — which is the safe direction.
- */
-function expand(segment: string, state: WalkState, depth: number): string[] {
-	const words = tokenize(segment)
-	const head = words[0]
-	if (head === undefined) return [segment]
-
-	if (RUNTIME_EVALUATORS.has(basename(head.text))) {
-		// The argument is source text assembled elsewhere. Even when it is a
-		// visible literal, what runs is decided at runtime.
-		state.opaque = true
-		return [segment]
+function lex(command: string, dialect: ShellDialect): ShellLexResult {
+	if (cached !== undefined && cached.command === command && cached.dialect === dialect) {
+		return cached.result
 	}
-
-	if (!NESTED_SHELLS.has(basename(head.text))) return [segment]
-
-	const flag = words.findIndex(
-		(word, index) => index > 0 && word.quoted === null && word.text === '-c',
-	)
-	if (flag < 0) return [segment]
-
-	const payload = words[flag + 1]
-	if (payload === undefined) {
-		// `bash -c` with nothing after it is either a syntax error or an
-		// argument this tokenizer failed to read. Neither may be reported as
-		// "there is no nested command".
-		state.opaque = true
-		return [segment]
-	}
-
-	if (depth + 1 >= MAX_DEPTH) {
-		state.opaque = true
-		return [segment]
-	}
-
-	const nested = split(payload.text, state, depth + 1)
-	if (nested.length === 0) return [segment]
-	state.structured = true
-	return [segment, ...nested]
-}
-
-interface Word {
-	readonly text: string
-	/** The quote that wrapped it, or null when it was bare. */
-	readonly quoted: "'" | '"' | null
-}
-
-/**
- * Split a segment into words, removing one layer of quoting.
- *
- * The quote is reported rather than discarded because `-c` must be the flag and
- * not a literal: `echo "-c"` names no nested shell, and treating its next word
- * as a command line would decompose a string that never runs.
- */
-function tokenize(segment: string): Word[] {
-	const words: Word[] = []
-	let current = ''
-	let quote: "'" | '"' | null = null
-	let sawQuote: "'" | '"' | null = null
-	let open = false
-
-	const push = (): void => {
-		if (open) words.push({ text: current, quoted: sawQuote })
-		current = ''
-		sawQuote = null
-		open = false
-	}
-
-	for (let i = 0; i < segment.length; i += 1) {
-		const char = segment[i] as string
-
-		if (quote === "'") {
-			// Single quotes suspend the backslash too, so this branch precedes
-			// the escape below rather than sharing it.
-			if (char === "'") quote = null
-			else current += char
-			open = true
-			continue
-		}
-
-		if (char === '\\' && i + 1 < segment.length) {
-			current += segment[i + 1]
-			i += 1
-			open = true
-			continue
-		}
-
-		if (quote === '"') {
-			if (char === '"') quote = null
-			else current += char
-			open = true
-			continue
-		}
-
-		if (char === "'" || char === '"') {
-			quote = char
-			sawQuote = char
-			open = true
-			continue
-		}
-
-		if (char === ' ' || char === '\t') {
-			push()
-			continue
-		}
-
-		current += char
-		open = true
-	}
-
-	push()
-	return words
-}
-
-function basename(word: string): string {
-	const cut = word.lastIndexOf('/')
-	return cut < 0 ? word : word.slice(cut + 1)
+	const result = lexShellCommandLine(command, { dialect })
+	cached = { command, dialect, result }
+	return result
 }

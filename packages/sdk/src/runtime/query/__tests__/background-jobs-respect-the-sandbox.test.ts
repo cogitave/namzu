@@ -11,6 +11,7 @@ import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { BackgroundJobRegistry } from '../../../runtime/jobs/registry.js'
 import { BashTool, SANDBOX_CANNOT_DETACH } from '../../../tools/builtins/bash.js'
+import { sandboxShellSpawn } from '../../../tools/command-shell.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -150,7 +151,10 @@ describe('a sandbox and a host background registry are not one capability', () =
 				},
 			)
 
-			expect(spawnDetached).toHaveBeenCalledExactlyOnceWith('/bin/sh', ['-c', command], {
+			// The guest runs bash when it has it and `/bin/sh` otherwise, the
+			// same launcher a foreground call goes through.
+			const launch = sandboxShellSpawn(command)
+			expect(spawnDetached).toHaveBeenCalledExactlyOnceWith(launch.file, launch.args, {
 				cwd,
 				env: expect.objectContaining({ NAMZU_JOB_FIXTURE: 'sandbox' }),
 			})

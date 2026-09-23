@@ -230,7 +230,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 		expect(seenOutputs.join('\n')).toContain(middle)
 	})
 
-	it('does not widen the next batch when an old cursor meets new policy', async () => {
+	it('grants nothing under an old cursor that meets new policy, and never narrows', async () => {
 		const current = {
 			body: 'unchanged body '.repeat(120),
 			allowedTools: 'read',
@@ -267,7 +267,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 		tools.register({
 			...read,
 			name: 'bash',
-			execute: async () => ({ success: true, output: 'must stay unavailable' }),
+			execute: async () => ({ success: true, output: 'still available' }),
 		})
 		let staleOutput = ''
 		const provider = new MockLLMProvider({
@@ -294,6 +294,8 @@ describe('skill pages reach the provider through the real query executor', () =>
 		expect(result.status, JSON.stringify(result)).toBe('completed')
 		expect(staleOutput).toMatch(/stale or invalid/)
 		expect(read.execute).toHaveBeenCalledOnce()
-		expect(readContexts[0]).toEqual(['skill', 'read'])
+		// `allowed-tools` pre-approves; it does not take tools away. The turn's
+		// own list stands, bash included.
+		expect(readContexts[0]).toEqual(['skill', 'read', 'bash'])
 	})
 })

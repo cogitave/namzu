@@ -11,7 +11,11 @@
  * thing that decides anything, which is what keeps this testable without a turn.
  */
 
-import { type AuthorizationRule, builtinCommandArguments } from '@namzu/sdk'
+import {
+	type AuthorizationRule,
+	builtinCommandArguments,
+	permissionPatternToRegExpSource,
+} from '@namzu/sdk'
 
 import { type PermissionChecksConfig, verifyPermissionChecks } from './checks.js'
 
@@ -69,13 +73,9 @@ export interface CompiledPermissions {
  * exists to stop.
  */
 export function patternToRegExpSource(pattern: string): string {
-	const normalized = pattern.replaceAll('\\', '/')
-	const escaped = normalized
-		.replace(/[.+^${}()|[\]\\]/g, '\\$&')
-		.replace(/\*/g, '.*')
-		.replace(/\?/g, '.')
-	const trailingSpaceStar = escaped.endsWith(' .*') ? `${escaped.slice(0, -3)}( .*)?` : escaped
-	return `^${trailingSpaceStar}$`
+	// The kernel owns the dialect so a skill's `Bash(git status *)` and this
+	// table's `"git status *"` cannot drift apart.
+	return permissionPatternToRegExpSource(pattern)
 }
 
 /**

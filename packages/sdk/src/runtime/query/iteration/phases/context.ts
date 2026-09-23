@@ -1,4 +1,5 @@
 import type { AdvisoryContext } from '../../../../advisory/context.js'
+import type { SkillGrantSet } from '../../../../authorization/skill-grant.js'
 import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import type { ContextReducer } from '../../../../compaction/reducer.js'
@@ -166,6 +167,12 @@ export interface IterationContext {
 	 * asked about again. Absent on paths that do not review tools.
 	 */
 	readonly toolGrants?: ToolGrantSet
+	/**
+	 * What skills loaded in this turn pre-approve (`allowed-tools`). Read by
+	 * the review phase to mark covered calls; the review policy decides
+	 * whether a mark skips the prompt. Absent: nothing is marked.
+	 */
+	readonly skillGrants?: SkillGrantSet
 	/** See `QueryParams.reviewAllowedCalls`. Absent: allowed and granted batches skip review. */
 	readonly reviewAllowedCalls?: () => boolean
 	/**

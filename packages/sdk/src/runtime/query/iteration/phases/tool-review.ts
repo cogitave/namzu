@@ -2,6 +2,7 @@ import type { AuthorizationGate } from '../../../../authorization/index.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
+import type { ShellDialect } from '../../../../types/tool/index.js'
 import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
@@ -53,6 +54,15 @@ export async function* runToolReview(
 ): AsyncGenerator<SessionEvent, ToolReviewOutcome> {
 	let executed: readonly import('../../executor.js').ToolCallOutcome[] = []
 	let toolMs = 0
+	// The shell each call's command line will run in, for the rules and the
+	// skill grants to read it the same way. A test double without the method
+	// leaves it unset, which reads the line for any POSIX shell.
+	const dialectFor = (toolName: string): { commandDialect?: ShellDialect } => {
+		const executor = ctx.toolExecutor as { commandDialect?: (name: string) => ShellDialect }
+		return typeof executor.commandDialect === 'function'
+			? { commandDialect: executor.commandDialect(toolName) }
+			: {}
+	}
 
 	const finish = (decision: ToolReviewDecision): ToolReviewOutcome => ({
 		decision,
@@ -255,6 +265,7 @@ export async function* runToolReview(
 				toolName: tc.name,
 				toolInput: tc.input,
 				toolDef: ctx.tools.get(tc.name),
+				...dialectFor(tc.name),
 			}),
 		}))
 		for (const gr of gateResults) {
@@ -329,6 +340,24 @@ export async function* runToolReview(
 				decision: gr.gateResult.decision,
 			})),
 		})
+	}
+
+	// A skill's `allowed-tools` pre-approval, marked on the calls it covers
+	// and left for the review policy to honour. Marked, never decided here:
+	// only the policy knows the mode, and `plan` and `strict` must refuse a
+	// call a skill granted exactly as they refuse any other. Nothing stronger
+	// may stand in the way — an operator's deny or explicit ask, a
+	// destructive call, a path outside the roots or a sandbox escape all
+	// leave the call unmarked, so it is reviewed as though no skill had
+	// spoken.
+	if (ctx.skillGrants && ctx.skillGrants.size > 0) {
+		for (const tc of toolCallSummaries) {
+			if (gateDenied.has(tc.id)) continue
+			if (tc.authorization?.decision === 'deny' || tc.authorization?.explicitReview) continue
+			if (tc.isDestructive || tc.escalation !== undefined) continue
+			const skill = ctx.skillGrants.coveringSkill(tc, ctx.tools.get(tc.name), dialectFor(tc.name))
+			if (skill !== undefined) tc.skillGrant = { skill }
+		}
 	}
 
 	// Already approved, at a scope the approver chose — and nothing the
@@ -490,6 +519,7 @@ export async function* runToolReview(
 						toolName: summary.name,
 						toolInput: summary.input,
 						toolDef: ctx.tools.get(summary.name),
+						...dialectFor(summary.name),
 					})
 					if (gateResult.decision === 'allow') continue
 					const reason =
@@ -549,6 +579,21 @@ export async function* runToolReview(
 			// unless the approver chose to transfer it.
 			if (reviewDecision.action === 'approve_tools' && reviewDecision.remember) {
 				ctx.toolGrants?.grant(reviewDecision.remember)
+			}
+			// A call nobody was asked about, approved because a skill said so,
+			// is on the record naming that skill. Only a call that carried the
+			// mark counts: a policy that lists an unmarked id has not been
+			// given a skill's word for it.
+			if (reviewDecision.action === 'approve_tools' && reviewDecision.skillGranted) {
+				const listed = new Set(reviewDecision.skillGranted)
+				for (const tc of toolCallSummaries) {
+					if (!listed.has(tc.id) || !tc.skillGrant || gateDenied.has(tc.id)) continue
+					await ctx.recorder.recordAudit({
+						what: { action: 'tool_call', tool: tc.name },
+						outcome: 'approved',
+						reason: `pre-approved by the allowed-tools of skill "${tc.skillGrant.skill}" for this turn; nobody was asked`,
+					})
+				}
 			}
 
 			await ctx.emitEvent({

@@ -49,6 +49,9 @@ The kernel.
 * [Ids](ids.md) - Opaque UUIDs, nominal entity types and strict storage admission.
 * [Delegation events](delegation-events.md) - What the kernel says when a turn delegates to a child session, which fields a host may act on, which are captions for a screen, and what the logs keep.
 * [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks (`turn_start`, `turn_end`, `session_start`, …), what each carries, which can answer with a verdict, and the JSON a shell hook reads on stdin.
+* [Skills and allowed-tools](skills.md) - Loading a SKILL.md through the skill tool, and allowed-tools as a turn-scoped pre-approval that never narrows the tool set.
+* [The bash tool](bash-tool.md) - Which shell the bash tool runs a command in, on the host and in a sandbox, and how the permission rules follow that choice.
+* [How command lines are read](command-lines.md) - The one bash lexer behind command-line permission rules and skill Bash(<pattern>) grants, and when it calls a line opaque.
 * [The review policy](review-policy.md) - The five modes a turn resolves undecided tool calls under, which calls skip review, and how a host supplies the person to ask.
 * [Crossing the tool boundary](escalations.md) - A file tool's path outside the turn's roots, or a command outside its sandbox, as a reviewed question: `outsideRootAccess`, `sandboxEscape`, `confirmedEscalations` and the audit records.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.

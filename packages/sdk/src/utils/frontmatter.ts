@@ -117,6 +117,23 @@ export type FrontmatterValue =
 	| { readonly kind: 'scalar'; readonly value: string }
 	| { readonly kind: 'mapping'; readonly entries: Readonly<Record<string, string>> }
 
+/** What a caller lets {@link parseFrontmatter} accept beyond flat scalars. */
+export interface FrontmatterOptions {
+	/**
+	 * Keys that may be written as a YAML list — a block sequence (`- item`
+	 * lines) or a flow sequence (`[a, b]`) — and come back as ONE scalar, the
+	 * items joined with `", "`.
+	 *
+	 * Opt-in per key, because a list is refused everywhere else for a reason:
+	 * a key the caller reads as a scalar would otherwise come back absent. A
+	 * caller names a key here only when a comma-separated scalar is already
+	 * a spelling it reads, so the joined value means what the list did.
+	 * `allowed-tools` is the case: the Agent Skills format writes it either
+	 * way.
+	 */
+	readonly lists?: readonly string[]
+}
+
 export interface ParsedFrontmatter {
 	/**
 	 * Every top-level key, in the order the file declared it.
@@ -146,7 +163,12 @@ export interface ParsedFrontmatter {
  *   does not implement. It never returns a partial or empty result to stand in
  *   for a file it could not read.
  */
-export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter {
+export function parseFrontmatter(
+	raw: string,
+	source: string,
+	options: FrontmatterOptions = {},
+): ParsedFrontmatter {
+	const listKeys = new Set(options.lists ?? [])
 	const trimmed = raw.trimStart()
 
 	if (!trimmed.startsWith(FRONTMATTER_DELIMITER)) {
@@ -174,6 +196,7 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 	// round trip is safe at both ends.
 	const data = new Map<string, string>()
 	const blocks = new Map<string, Map<string, string>>()
+	const lists = new Map<string, string[]>()
 	let currentKey: string | undefined
 
 	for (const line of frontmatterRaw.split(LINE_SPLIT)) {
@@ -182,7 +205,8 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 		if (/^\s/.test(line)) {
 			if (!currentKey) continue
 
-			// A block sequence item. Refused, not skipped.
+			// A block sequence item. Read as a list when the caller named this
+			// key in `options.lists`; refused, not skipped, everywhere else.
 			//
 			// These lines carry no `:`, so the `continue` below used to drop them
 			// and the key — having no scalar value and no mapping entries — came
@@ -195,6 +219,18 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 			// and silently did not get it is indistinguishable from one that never
 			// asked. A capability quietly not granted is the worst thing this
 			// reader can produce.
+			if (listKeys.has(currentKey) && !data.has(currentKey) && /^\s*-(\s|$)/.test(line)) {
+				const item = normalizeScalar(line.replace(/^\s*-/, ''))
+				if (item) {
+					let list = lists.get(currentKey)
+					if (!list) {
+						list = []
+						lists.set(currentKey, list)
+					}
+					list.push(item)
+				}
+				continue
+			}
 			if (/^\s*-\s/.test(line)) {
 				throw new Error(
 					`${source}: "${currentKey}" uses a block sequence (a "- " list), which this reader does not support. Write it as a single-line value instead. Refusing rather than reading "${currentKey}" as absent, which is what silently dropping the list would mean.`,
@@ -220,6 +256,17 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 		const key = line.slice(0, colonIdx).trim()
 		const value = normalizeScalar(line.slice(colonIdx + 1))
 
+		if (listKeys.has(key) && /^\[.*\]$/.test(value)) {
+			currentKey = key
+			const items = value
+				.slice(1, -1)
+				.split(',')
+				.map(normalizeScalar)
+				.filter((item) => item.length > 0)
+			// `[]` is a list the author declared empty, which is not absence.
+			data.set(key, items.join(', '))
+			continue
+		}
 		assertReadableScalar(key, value, source)
 
 		currentKey = key
@@ -230,6 +277,9 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 	// that — so refusing here is what makes the illegal state unrepresentable
 	// in the returned type rather than merely undocumented. The alternative,
 	// picking a precedence, would silently drop half of what the author wrote.
+	for (const [key, items] of lists) {
+		if (!data.has(key)) data.set(key, items.join(', '))
+	}
 	for (const key of blocks.keys()) {
 		if (!data.has(key)) continue
 		throw new Error(

@@ -40,6 +40,15 @@ export type HITLResumeDecision =
 			 * person said yes to a batch that showed the escape.
 			 */
 			confirmedEscalations?: readonly string[]
+			/**
+			 * Ids of calls approved on the strength of a skill's `allowed-tools`
+			 * grant ({@link ToolCallSummary.skillGrant}), with nobody asked.
+			 *
+			 * The kernel writes each one to the session's audit trail naming the
+			 * skill, and only for a call that actually carried the grant — an id
+			 * listed here for an unmarked call is ignored rather than trusted.
+			 */
+			skillGranted?: readonly string[]
 	  }
 	| {
 			action: 'modify_tools'
@@ -126,6 +135,18 @@ export interface ToolCallSummary {
 	 * approve it on their own. A `deny` rule still refuses it outright.
 	 */
 	escalation?: ToolCallEscalation
+	/**
+	 * Present when a skill loaded earlier in this turn pre-approved this call
+	 * through its `allowed-tools`, and nothing stronger stands in the way.
+	 *
+	 * Marked only on a call the operator's policy left to review (no `deny`,
+	 * no explicit `ask` rule), that is not destructive and that carries no
+	 * {@link escalation}. The review policy decides what the mark is worth:
+	 * `createReviewHandler` approves a batch without asking when every call
+	 * it would have asked about carries one, and still refuses under `plan`
+	 * and `strict`. A host's own handler may ignore it.
+	 */
+	skillGrant?: { readonly skill: string }
 }
 
 /** See {@link ToolCallSummary.escalation}. */

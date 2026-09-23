@@ -13,6 +13,13 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
 export const SKILL_FILENAME = 'SKILL.md'
 
 /**
+ * `allowed-tools` may be a YAML list. The Agent Skills format writes it
+ * space-separated, comma-separated or as a list, and all three must mean the
+ * same grant; the reader joins a list into the comma form.
+ */
+export const SKILL_FRONTMATTER_OPTIONS = { lists: ['allowed-tools'] } as const
+
+/**
  * How this file's errors name themselves. Passed to the shared reader so a
  * frontmatter failure still reads as a `SKILL.md` failure — the reader is
  * generic, the message is not.
@@ -152,7 +159,7 @@ export async function loadSkill(
 ): Promise<SkillLoadResult> {
 	const skillMdPath = join(dirPath, SKILL_FILENAME)
 	const raw = await readFile(skillMdPath, 'utf-8')
-	const parsed = parseFrontmatter(raw, sourceLabel(dirPath))
+	const parsed = parseFrontmatter(raw, sourceLabel(dirPath), SKILL_FRONTMATTER_OPTIONS)
 	const metadata = toSkillMetadata(parsed, dirPath)
 
 	const skill: Skill = {
