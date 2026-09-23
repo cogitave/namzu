@@ -1294,6 +1294,8 @@ export {
 	isReviewExempt,
 	isReviewMode,
 } from './runtime/query/review-policy.js'
+// What the model is told when a person declines a call without words of their own.
+export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
 
 // The system prompt is open: a contribution registry the assembler
 // consumes, with skills as its first contributor. See `prompt/contributions.ts`.

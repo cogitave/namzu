@@ -26,6 +26,7 @@
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+	DECLINED_TOOL_CALL_FEEDBACK,
 	DiskSessionLog,
 	type HITLResumeDecision,
 	SessionPaths,
@@ -359,7 +360,7 @@ export async function prepareScheduledResume(input: {
 	})
 	return resumeWith(
 		answer.kind === 'reject'
-			? { action: 'reject_tools', feedback: answer.feedback ?? 'The operator declined this call.' }
+			? { action: 'reject_tools', feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK }
 			: { action: 'approve_tools' },
 	)
 }

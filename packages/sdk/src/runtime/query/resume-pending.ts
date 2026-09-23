@@ -14,6 +14,7 @@ import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { ToolExecutionSnapshot } from '../../types/session/tool-execution.js'
 import type { Logger } from '../../utils/logger.js'
 import type { RestoredCheckpoint } from './checkpoint.js'
+import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
 import { PendingAnswers } from './question-park.js'
 import { readToolExecutions } from './tool-executions.js'
@@ -630,7 +631,7 @@ function derriveDenials(
 			return new Map()
 
 		case 'reject_tools': {
-			const reason = decision.feedback || 'The user rejected this tool call.'
+			const reason = decision.feedback || DECLINED_TOOL_CALL_FEEDBACK
 			return new Map(toolCalls.map((tc) => [tc.id, reason]))
 		}
 
@@ -642,7 +643,7 @@ function derriveDenials(
 			const denials = new Map<string, string>()
 			for (const mod of decision.modifications) {
 				if (mod.action === 'deny') {
-					denials.set(mod.toolCallId, 'The user denied this tool call.')
+					denials.set(mod.toolCallId, DECLINED_TOOL_CALL_FEEDBACK)
 				}
 			}
 			for (const mod of decision.modifications) {

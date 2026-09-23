@@ -2,6 +2,7 @@ import type { AuthorizationGate } from '../../../../authorization/index.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
+import { DECLINED_TOOL_CALL_FEEDBACK } from '../../declined.js'
 import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
@@ -436,7 +437,7 @@ export async function* runToolReview(
 			})
 			yield* ctx.drainPending()
 
-			const feedback = reviewDecision.feedback || 'The user rejected this tool call.'
+			const feedback = reviewDecision.feedback || DECLINED_TOOL_CALL_FEEDBACK
 			const denials = new Map(denyAll(feedback))
 			await settleEscalations(denials, undefined)
 			await settle(denials)
@@ -466,7 +467,7 @@ export async function* runToolReview(
 					}
 				}
 				if (mod.action === 'deny' && !denials.has(mod.toolCallId)) {
-					denials.set(mod.toolCallId, 'The user denied this tool call.')
+					denials.set(mod.toolCallId, DECLINED_TOOL_CALL_FEEDBACK)
 				}
 			}
 
