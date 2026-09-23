@@ -6,7 +6,13 @@
  */
 
 import { BrowserProfileStore } from '@namzu/browser'
-import { NOOP_LOGGER, buildScheduleTools, defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
+import {
+	NOOP_LOGGER,
+	buildScheduleTools,
+	defineTool,
+	hostTimeZone,
+	mcpJsonSchemaToZod,
+} from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import {
@@ -292,6 +298,32 @@ describe('the model proposing a browser job', () => {
 		expect(created.said.join('\n')).toContain(
 			'The scheduler is not installed, so it does not run until you install it: namzu schedule install.',
 		)
+	})
+
+	it('marks every optional value the model chose instead of the default', async () => {
+		const chose = host('cancel')
+		await chose.tool.execute(
+			{
+				...input,
+				tz: 'America/New_York',
+				permissions: { ...input.permissions, execution: 'sandbox' },
+				budget: { tokenBudget: 12000 },
+			},
+			{} as never,
+		)
+		const shown = chose.said[0] ?? ''
+		expect(shown).toContain(
+			`Warning     Chosen by the model, not the default: time zone America/New_York, not this machine's ${hostTimeZone()}`,
+		)
+		expect(shown).toContain(
+			'Chosen by the model, not the default: commands run in the sandbox; the default is this machine',
+		)
+		expect(shown).toContain(
+			'Chosen by the model, not the default: 12,000 tokens per run (the default is 500,000)',
+		)
+		const plain = host('cancel')
+		await plain.tool.execute(input, {} as never)
+		expect(plain.said[0]).not.toContain('Chosen by the model')
 	})
 
 	it('cannot grant every site', async () => {

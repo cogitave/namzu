@@ -42,8 +42,16 @@ const inputSchema = z.object({
 		.string()
 		.optional()
 		.describe('create: "every 30m", "0 9 * * 1-5" (cron), "at 2026-09-24 09:00", "in 2h"'),
-	folder: z.string().optional().describe("create: folder to run in; default the session's"),
-	tz: z.string().optional().describe('create: IANA time zone; default the host zone'),
+	folder: z
+		.string()
+		.optional()
+		.describe("create: folder to run in; leave unset for the session's unless the user named one"),
+	tz: z
+		.string()
+		.optional()
+		.describe(
+			"create: IANA time zone; leave unset for the operator's own zone unless the user named another",
+		),
 	permissions: z
 		.object({
 			preset: z
@@ -55,7 +63,12 @@ const inputSchema = z.object({
 			unmatched: z
 				.enum(['park', 'deny'])
 				.describe('A call no rule covers: park (wait for the operator) or deny'),
-			execution: z.enum(['host', 'sandbox']).optional(),
+			execution: z
+				.enum(['host', 'sandbox'])
+				.optional()
+				.describe(
+					'Where commands run; leave unset (this machine) unless the user asked for a sandbox',
+				),
 			rules: z
 				.record(z.string(), z.union([EFFECT, z.record(z.string(), EFFECT)]))
 				.optional()
@@ -327,7 +340,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). Scheduled runs cannot ask questions.",
+				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). Leave every other field (folder, tz, execution, budget, headed) unset unless the user asked for it: the defaults are the operator's, and the confirmation marks each value you chose. Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

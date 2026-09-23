@@ -442,7 +442,11 @@ only question: the tool's `create`, `resume` and `delete` skip the ordinary
 permission review ("Do you want to run schedule?") in `prompt`, `accept-edits`
 and `auto`, as they draw their own. `plan` and `strict` still refuse them, a
 `schedule: ask` or `deny` rule still applies, and `pause` is reviewed as
-before. When no scheduler is
+before. Every optional value the model set to something other than what you
+would get by leaving it out — a time zone other than this machine's, a folder
+other than the session's, the sandbox, a budget, a visible browser window —
+is marked on the confirmation: `Chosen by the model, not the default: time
+zone America/New_York, not this machine's Europe/Istanbul`. When no scheduler is
 installed, the line that says the job was created also says it does not run
 until `namzu schedule install`. See
 [Session loops](session-loops.md) for `/loop`, which repeats a prompt inside an

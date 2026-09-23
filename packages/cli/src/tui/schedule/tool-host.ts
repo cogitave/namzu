@@ -25,7 +25,15 @@ import {
 import { readPermissionLayers } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { discoverProviders } from '../../integrations/providers/discover.js'
-import { buildJob, confirmJob, previewLines, runsPerDay } from '../../schedule/build.js'
+import {
+	DEFAULT_MAX_ITERATIONS,
+	DEFAULT_TIMEOUT_MS,
+	DEFAULT_TOKEN_BUDGET,
+	buildJob,
+	confirmJob,
+	previewLines,
+	runsPerDay,
+} from '../../schedule/build.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy } from '../../schedule/policy.js'
 import { readManifest } from '../../schedule/service/manifest.js'
@@ -106,6 +114,44 @@ export function renderConfirmation(
 	].join('\n')
 }
 
+/**
+ * Each optional value the model set to something other than what the
+ * operator would get by leaving it out, in words. Models fill optional fields
+ * in: one proposal set the time zone to America/New_York on a machine in
+ * Istanbul and ran commands in the sandbox, which nobody had asked for.
+ */
+export function chosenByTheModel(
+	draft: ScheduleJobDraft,
+	job: ScheduleJob,
+	cwd: string,
+	config: Pick<NamzuCliConfig, 'limits'>,
+): string[] {
+	const zone = hostTimeZone()
+	const limits = config.limits ?? {}
+	const out: string[] = []
+	if (draft.tz !== undefined && draft.tz !== zone)
+		out.push(`time zone ${draft.tz}, not this machine's ${zone}`)
+	if (draft.folder !== undefined && resolve(cwd, draft.folder) !== resolve(cwd))
+		out.push(`folder ${job.folder.canonical}, not this session's`)
+	if (draft.permissions.execution === 'sandbox')
+		out.push('commands run in the sandbox; the default is this machine')
+	const iterations = limits.maxIterations || DEFAULT_MAX_ITERATIONS
+	if (draft.budget?.maxIterations !== undefined && draft.budget.maxIterations !== iterations)
+		out.push(`${draft.budget.maxIterations} iterations per run (the default is ${iterations})`)
+	const tokens = limits.tokenBudget || DEFAULT_TOKEN_BUDGET
+	if (draft.budget?.tokenBudget !== undefined && draft.budget.tokenBudget !== tokens)
+		out.push(
+			`${draft.budget.tokenBudget.toLocaleString('en-US')} tokens per run (the default is ${tokens.toLocaleString('en-US')})`,
+		)
+	const timeout = limits.timeoutMs || DEFAULT_TIMEOUT_MS
+	if (draft.budget?.timeoutMs !== undefined && draft.budget.timeoutMs !== timeout)
+		out.push(
+			`${Math.round(draft.budget.timeoutMs / 1000)} s per run (the default is ${Math.round(timeout / 60_000)} min)`,
+		)
+	if (draft.permissions.browser?.headed) out.push('a visible browser window during each run')
+	return out
+}
+
 export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 	const built = new WeakMap<ScheduleJobPreview, { job: ScheduleJob; lines: string[] }>()
 	const paths = () => schedulePaths(ui.home())
@@ -169,6 +215,9 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 							`This run drives the browser signed in as you (profile ${job.permissions.browser.profile}) on ${Object.keys(job.permissions.browser.sites).join(', ')}.`,
 						]
 					: []),
+				...chosenByTheModel(draft, job, ui.cwd(), ui.config()).map(
+					(line) => `Chosen by the model, not the default: ${line}`,
+				),
 			]
 			const preview: ScheduleJobPreview = {
 				name: job.name,
