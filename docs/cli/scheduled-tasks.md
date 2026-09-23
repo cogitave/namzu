@@ -156,8 +156,8 @@ A service does not see what your shell exported. A run finds its provider
 credential in namzu's own store (`namzu login`), a provider's own sign-in file,
 or `NAMZU_HOME/schedule/daemon.env` — `KEY=value` lines, mode 0600, read by the
 run and handed to provider discovery only, never put into the environment a
-shell tool inherits. A run that used another program's sign-in (Claude Code,
-Codex, Gemini CLI) records a warning: refreshing that sign-in from the
+shell tool inherits. A run that used another program's sign-in (another coding
+tool's OAuth file or keychain entry) records a warning: refreshing that sign-in from the
 scheduler can race the other program's own refresh, so an unattended job is
 better served by a credential of its own.
 
