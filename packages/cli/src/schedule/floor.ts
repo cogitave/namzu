@@ -922,7 +922,16 @@ class Floor {
 			const rest = spellLocalAppData(spelling.rest)
 			// Anywhere in the word, and as a relative path from each directory.
 			const bases = isAbsolute(known) ? [''] : ['', ...cwd.dirs]
+			// A word with none of the root's names, no `..` and nothing unknown
+			// in it cannot lead into the root from a directory outside it:
+			// only a directory already inside it matters then, and joining the
+			// word to every directory a line of `cd`s names is the cost.
+			const inert = !/namzu|local|appdata|\.\.|[*?[$`{]/.test(known + rest)
 			for (const base of bases) {
+				if (inert && base !== '') {
+					if (namesProfile(base)) return true
+					continue
+				}
 				const at = (text: string) => (base === '' ? normalize(text) : join(base, text))
 				if (spelling.stop === 'end') {
 					const path = at(known)
