@@ -21,10 +21,14 @@
  *   the turn. The turn ends, the grant ends; loading the skill again in a
  *   later turn grants again.
  * - **Never overrides**: an operator `deny` rule, an operator `ask` rule, plan
- *   mode, `strict` mode, a call that reaches outside the working directory or
- *   the sandbox, or a call the tool itself declares destructive. Those are all
- *   statements by the operator or the tool; a skill is repository content and
- *   cannot outrank either.
+ *   mode, `strict` mode, an escalation (a path argument outside the working
+ *   directory, a sandbox escape), or a call the tool itself declares
+ *   destructive. Those are all statements by the operator or the tool; a
+ *   skill is repository content and cannot outrank either. `bash` has no path
+ *   argument, so a pattern entry refuses output redirection itself (see
+ *   `coveringSkill`); a whole-tool `Bash` entry grants what any line does.
+ * - **Ends early**: when the operator sends another message into the running
+ *   turn, the iteration clears the set.
  * - **Never adds a tool**: an entry names a tool this turn already has, or it
  *   is ignored and the model is told so. An unknown name widens nothing.
  *
@@ -35,6 +39,7 @@
 
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
+import { writesThroughRedirection } from './command-line.js'
 import { evaluateRule } from './rules.js'
 
 /**
@@ -128,6 +133,12 @@ export type SkillGrantToolResolver = (name: string) =>
 			 * reported as ignored rather than listed as pre-approved.
 			 */
 			readonly alwaysDestructive?: boolean
+			/**
+			 * The tool is registered but withheld from this turn or step by
+			 * `allowedTools`. The model cannot call it, so an entry naming it is
+			 * reported as ignored rather than listed as pre-approved.
+			 */
+			readonly unavailable?: boolean
 	  }
 	| undefined
 
@@ -212,6 +223,13 @@ export function compileSkillGrant(
 		const tool = options.resolveTool(alias ?? written)
 		if (!tool) {
 			ignored.push({ entry, reason: 'this turn has no tool by that name' })
+			continue
+		}
+		if (tool.unavailable) {
+			ignored.push({
+				entry,
+				reason: `\`${tool.name}\` is not available in this turn, so nothing was granted for it`,
+			})
 			continue
 		}
 		if (tool.alwaysDestructive) {
@@ -312,6 +330,14 @@ export class SkillGrantSet {
 	 * cannot see through (a substitution, a heredoc) matches nothing. So
 	 * `Bash(git status *)` covers `git status -s` and not
 	 * `git status && git push`.
+	 *
+	 * A pattern entry also never covers a line that redirects output into a
+	 * file (`git status > ~/.bashrc`). The pattern names a command; where its
+	 * output lands is not part of that command, and the shell's redirection
+	 * writes wherever the line says without the tool reporting a path.
+	 * `/dev/null` and descriptor duplication (`2>&1`) are not writes and stay
+	 * covered. A whole-tool entry (`Bash`) grants the tool as it is, which
+	 * includes redirection.
 	 */
 	coveringSkill(
 		call: { readonly name: string; readonly input: unknown },
@@ -320,6 +346,11 @@ export class SkillGrantSet {
 		for (const held of this.held) {
 			if (held.entry.tool !== call.name) continue
 			if (held.entry.pattern === undefined || held.entry.argument === undefined) return held.skill
+			const line =
+				call.input !== null && typeof call.input === 'object'
+					? (call.input as Record<string, unknown>)[held.entry.argument]
+					: undefined
+			if (typeof line !== 'string' || writesThroughRedirection(line)) continue
 			const decision = evaluateRule(
 				{
 					type: 'argument_pattern',
@@ -337,6 +368,15 @@ export class SkillGrantSet {
 			if (decision === 'allow') return held.skill
 		}
 		return undefined
+	}
+
+	/**
+	 * Drop every grant. Called when the operator speaks again inside a running
+	 * turn: the grant belonged to the request that loaded the skill, and a new
+	 * message is a new request, even when it reaches the same `query()`.
+	 */
+	clear(): void {
+		this.held.length = 0
 	}
 
 	get size(): number {

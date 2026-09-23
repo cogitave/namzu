@@ -741,6 +741,11 @@ export class ToolExecutor {
 		const tools = this.config.tools
 		const byLowerName = new Map<string, string>()
 		for (const name of tools.listNames()) byLowerName.set(name.toLowerCase(), name)
+		// A grant can only ever name a tool this turn — or this step — can call.
+		// The registry holds more than that when `allowedTools` withholds some,
+		// and telling the model a withheld tool is pre-approved is a promise the
+		// executor will refuse to keep.
+		const allowed = this.effectiveAllowedTools()
 		const compiled = compileSkillGrant(grant.allowedTools, {
 			resolveTool: (name) => {
 				const registered = byLowerName.get(name.toLowerCase())
@@ -749,6 +754,7 @@ export class ToolExecutor {
 				const commandArgument = definition?.commandArgument
 				return {
 					name: registered,
+					...(allowed !== undefined && !allowed.includes(registered) ? { unavailable: true } : {}),
 					...(commandArgument === undefined ? {} : { commandArgument }),
 					...(definition && isAlwaysDestructive(definition) ? { alwaysDestructive: true } : {}),
 				}

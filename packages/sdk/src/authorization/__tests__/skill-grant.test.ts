@@ -236,6 +236,48 @@ describe('Bash(<pattern>) uses the permission-table glob', () => {
 		expect(grants.coveringSkill(bash('echo $(git push)'))).toBeUndefined()
 	})
 
+	it('never covers a line that redirects output into a file', () => {
+		// The pattern names a command, not where its output lands. Without this
+		// `Bash(git status *)` covered `git status > ~/.bashrc`, and bash reports
+		// no path for the escalation check to see.
+		const { grants } = granted('Bash(git status *)')
+		for (const line of [
+			'git status > ~/.bashrc',
+			'git status -s >> /etc/passwd',
+			'git status > src/index.ts',
+			'git status >| out',
+			'git status &> log',
+			'git status &>> log',
+			'git status >& log',
+			'git status 2>err.txt',
+			'git status <> file',
+			'git status > "$HOME/x"',
+			'git status >',
+		]) {
+			expect(grants.coveringSkill(bash(line)), line).toBeUndefined()
+		}
+	})
+
+	it('still covers a line whose redirections write nothing', () => {
+		const { grants } = granted('Bash(git status *)')
+		for (const line of [
+			'git status 2>/dev/null',
+			'git status > /dev/null 2>&1',
+			'git status &>/dev/null',
+			'git status >&2',
+			"git status -- 'a>b'",
+			'git status -- "a > b"',
+			'git status -- a\\>b',
+		]) {
+			expect(grants.coveringSkill(bash(line)), line).toBe('demo')
+		}
+	})
+
+	it('a whole-tool grant is the tool as it is, redirection included', () => {
+		const { grants } = granted('Bash')
+		expect(grants.coveringSkill(bash('git status > out.txt'))).toBe('demo')
+	})
+
 	it('reads the legacy `:*` prefix form', () => {
 		const { grants } = granted('Bash(npm run test:*)')
 		expect(grants.coveringSkill(bash('npm run test -- --watch'))).toBe('demo')
@@ -280,5 +322,30 @@ describe('the set', () => {
 		grants.grant('second', compileSkillGrant(['Bash(ls *)'], { resolveTool: resolve }))
 		expect(grants.coveringSkill({ name: 'read', input: {} })).toBe('first')
 		expect(grants.coveringSkill(bash('ls -la'))).toBe('second')
+	})
+
+	it('empties when cleared, for the next operator message', () => {
+		const grants = new SkillGrantSet()
+		grants.grant('demo', compileSkillGrant(['Read', 'Bash(ls *)'], { resolveTool: resolve }))
+		grants.clear()
+		expect(grants.size).toBe(0)
+		expect(grants.coveringSkill({ name: 'read', input: {} })).toBeUndefined()
+		expect(grants.coveringSkill(bash('ls'))).toBeUndefined()
+	})
+})
+
+describe('a tool the turn withholds', () => {
+	it('is ignored with a reason, not listed as granted', () => {
+		const compiled = compileSkillGrant(['Read', 'Bash'], {
+			resolveTool: (name) =>
+				name === 'bash' ? { name: 'bash', unavailable: true } : resolve(name),
+		})
+		expect(compiled.entries.map((entry) => entry.tool)).toEqual(['read'])
+		expect(compiled.ignored).toEqual([
+			{
+				entry: 'Bash',
+				reason: '`bash` is not available in this turn, so nothing was granted for it',
+			},
+		])
 	})
 })

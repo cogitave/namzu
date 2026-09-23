@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decomposeCommandLine } from '../command-line.js'
+import { decomposeCommandLine, writesThroughRedirection } from '../command-line.js'
 
 /**
  * Two failures, and they are opposites.
@@ -172,5 +172,42 @@ describe('it never returns nothing', () => {
 		// no readable command into an allow. That is the single worst output
 		// this function could produce.
 		expect(decomposeCommandLine(command).segments.length).toBeGreaterThan(0)
+	})
+})
+
+describe('writesThroughRedirection', () => {
+	it('sees every operator that opens a file for writing', () => {
+		for (const line of [
+			'a > f',
+			'a>>f',
+			'a >| f',
+			'a &> f',
+			'a &>>f',
+			'a >&f',
+			'a 1>f',
+			'a <> f',
+			'a >(b)',
+			'a >',
+		])
+			expect(writesThroughRedirection(line), line).toBe(true)
+	})
+
+	it('does not count /dev/null, descriptor duplication or quoted text', () => {
+		for (const line of [
+			'a',
+			'a 2>/dev/null',
+			'a >/dev/null 2>&1',
+			'a >&2',
+			'a 3>&-',
+			"a '>' b",
+			'a ">f"',
+			'a \\> f',
+		])
+			expect(writesThroughRedirection(line), line).toBe(false)
+	})
+
+	it('counts a target it cannot read as a write', () => {
+		expect(writesThroughRedirection('a > "$OUT"')).toBe(true)
+		expect(writesThroughRedirection('a > "unterminated')).toBe(true)
 	})
 })

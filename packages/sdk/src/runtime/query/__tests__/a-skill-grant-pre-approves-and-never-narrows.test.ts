@@ -98,11 +98,12 @@ function provider(opts: {
 	command: string
 	call?: { name: string; args: Record<string, unknown> }
 	seen?: string[]
+	script?: MockTurn[]
 }) {
 	return new MockLLMProvider({
 		nextTurn(params, index): MockTurn {
 			opts.seen?.push(JSON.stringify(params.messages))
-			const script: MockTurn[] = [
+			const script: MockTurn[] = opts.script ?? [
 				...(opts.load ? [{ toolCalls: [{ name: 'skill', args: { name: 'helper' } }] }] : []),
 				{
 					toolCalls: [opts.call ?? { name: 'bash', args: { command: opts.command } }],
@@ -123,6 +124,8 @@ async function turn(opts: {
 	prompt: ToolReviewPrompt
 	call?: { name: string; args: Record<string, unknown> }
 	seen?: string[]
+	script?: MockTurn[]
+	extra?: Pick<Parameters<typeof drainQuery>[0], 'inboundMessages' | 'allowedTools'>
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-skill-grant-wd-'))
 	dirs.push(workingDirectory)
@@ -132,7 +135,9 @@ async function turn(opts: {
 			command: opts.command,
 			...(opts.call ? { call: opts.call } : {}),
 			...(opts.seen ? { seen: opts.seen } : {}),
+			...(opts.script ? { script: opts.script } : {}),
 		}),
+		...opts.extra,
 		tools: opts.tools,
 		skillRegistry: opts.skills,
 		resumeHandler: createReviewHandler({
@@ -256,5 +261,78 @@ describe('a loaded skill through the real turn', () => {
 		expect(afterLoad).toContain('Pre-approved for the rest of this turn: read.')
 		expect(afterLoad).toContain('Ignored allowed-tools entry \\"Write\\"')
 		expect(afterLoad).toContain('is destructive and is always reviewed')
+	})
+
+	it('a message the operator sends during the turn ends the grant', async () => {
+		// The TUI hands a message typed mid-turn to the SAME `query()` through
+		// `inboundMessages`. It is a new request, and what the skill
+		// pre-approved for the old one must not carry over to it.
+		const ran: string[] = []
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const bashCall = { toolCalls: [{ name: 'bash', args: { command: 'git status -s' } }] }
+		let queued = false
+		const result = await turn({
+			tools: toolsWithBash(ran),
+			skills: await skillsWith('Bash(git status *)'),
+			load: true,
+			command: 'git status -s',
+			mode: 'prompt',
+			prompt,
+			script: [
+				{ toolCalls: [{ name: 'skill', args: { name: 'helper' } }] },
+				bashCall,
+				bashCall,
+				{ text: 'done' },
+			],
+			extra: {
+				inboundMessages: () => {
+					if (queued || ran.length !== 1) return []
+					queued = true
+					return [createUserMessage('now check the other repository')]
+				},
+			},
+		})
+
+		expect(result.status, JSON.stringify(result)).toBe('completed')
+		expect(ran).toEqual(['git status -s', 'git status -s'])
+		// The first call rode on the grant; the one after the new message was asked about.
+		expect(prompt).toHaveBeenCalledOnce()
+	})
+
+	it('a pattern grant does not cover a line that redirects into a file', async () => {
+		const ran: string[] = []
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const result = await turn({
+			tools: toolsWithBash(ran),
+			skills: await skillsWith('Bash(git status *)'),
+			load: true,
+			command: 'git status > ~/.bashrc',
+			mode: 'prompt',
+			prompt,
+		})
+
+		expect(result.status, JSON.stringify(result)).toBe('completed')
+		expect(prompt).toHaveBeenCalledOnce()
+	})
+
+	it('a tool the turn withholds is reported as unavailable, not pre-approved', async () => {
+		const seen: string[] = []
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		await turn({
+			tools: toolsWithBash([]),
+			skills: await skillsWith('Read Bash'),
+			load: true,
+			command: '',
+			call: { name: 'read', args: {} },
+			mode: 'prompt',
+			prompt,
+			seen,
+			extra: { allowedTools: ['skill', 'read'] },
+		})
+
+		const afterLoad = seen[1] ?? ''
+		expect(afterLoad).toContain('Pre-approved for the rest of this turn: read.')
+		expect(afterLoad).toContain('Ignored allowed-tools entry \\"Bash\\"')
+		expect(afterLoad).toContain('is not available in this turn')
 	})
 })

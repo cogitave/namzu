@@ -388,3 +388,84 @@ function basename(word: string): string {
 	const cut = word.lastIndexOf('/')
 	return cut < 0 ? word : word.slice(cut + 1)
 }
+
+/**
+ * Whether a command line sends output into a file through a shell redirection.
+ *
+ * A permission pattern names commands. `>`, `>>`, `>|`, `&>`, `&>>`, `<>` and
+ * `>&word` open a file for writing whose path is not the command's argument,
+ * so a pattern that covers `git status *` would otherwise also cover
+ * `git status > ~/.bashrc`. Callers that grant on a pattern's say-so decline
+ * such a line.
+ *
+ * Not writes: a target of `/dev/null`, descriptor duplication and closing
+ * (`2>&1`, `>&2`, `>&-`), and anything quoted or escaped. Anything this walk
+ * cannot read as one of those — a target built from a variable, a missing
+ * target, a process substitution — counts as a write, so the uncertainty
+ * spends against the grant.
+ */
+export function writesThroughRedirection(command: string): boolean {
+	let quote: "'" | '"' | null = null
+	for (let i = 0; i < command.length; i += 1) {
+		const char = command[i]
+		if (quote === "'") {
+			if (char === "'") quote = null
+			continue
+		}
+		if (char === '\\') {
+			i += 1
+			continue
+		}
+		if (quote === '"') {
+			if (char === '"') quote = null
+			continue
+		}
+		if (char === "'" || char === '"') {
+			quote = char
+			continue
+		}
+		if (char !== '>') continue
+
+		let j = i + 1
+		const next = command[j]
+		if (next === '(') return true
+		if (next === '>' || next === '|') j += 1
+		if (command[j] === '&') {
+			// `>&N`, `>&N-`, `>&-` duplicate or close a descriptor. `>&word`
+			// with any other word redirects both streams into that file.
+			const target = readRedirectionWord(command, j + 1)
+			if (!/^(?:\d+-?|-)$/.test(target.word)) return true
+			i = target.end - 1
+			continue
+		}
+		const target = readRedirectionWord(command, j)
+		if (target.word !== '/dev/null') return true
+		i = target.end - 1
+	}
+	return false
+}
+
+/** The word a redirection operator applies to, with simple quoting removed. */
+function readRedirectionWord(command: string, start: number): { word: string; end: number } {
+	let i = start
+	while (i < command.length && (command[i] === ' ' || command[i] === '\t')) i += 1
+	let word = ''
+	let quote: "'" | '"' | null = null
+	for (; i < command.length; i += 1) {
+		const char = command[i] as string
+		if (quote) {
+			if (char === quote) quote = null
+			else word += char
+			continue
+		}
+		if (char === "'" || char === '"') {
+			quote = char
+			continue
+		}
+		if (/[\s;&|<>()]/.test(char)) break
+		word += char
+	}
+	// An unterminated quote leaves the target unknown.
+	if (quote) return { word: '', end: command.length }
+	return { word, end: i }
+}
