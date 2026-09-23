@@ -45,7 +45,8 @@
  *
  * Some lines contain text that is not the command that runs. Command
  * substitution (`$(…)`, backticks, `<(…)`) executes something whose text is
- * not in the line at all, and `eval` runs a string assembled at runtime. No
+ * not in the line at all, `eval` runs a string assembled at runtime, and an
+ * ANSI-C quote (`$'…'`) decodes escapes such as `\x3b` only when it runs. No
  * decomposition of the source can be a decomposition of what ran, so the line
  * is marked opaque and `allow` declines it. `deny` still tests what is visible,
  * because a deny that matches too much costs a prompt and a deny that matches
@@ -138,7 +139,7 @@ interface WalkState {
 function split(command: string, state: WalkState, depth: number): string[] {
 	const segments: string[] = []
 	let current = ''
-	let quote: "'" | '"' | null = null
+	let quote: Quote | null = null
 
 	const cut = (): void => {
 		const trimmed = trimSegment(current)
@@ -158,6 +159,20 @@ function split(command: string, state: WalkState, depth: number): string[] {
 			continue
 		}
 
+		if (quote === ANSI_C) {
+			// Inside `$'…'` a backslash escapes the next character, `\'`
+			// included. Reading `$'\''` as a closed quote and an opening one is
+			// how the rest of a line came to look quoted while the shell ran it.
+			if (char === '\\') {
+				current += char + (command[i + 1] ?? '')
+				i += 1
+				continue
+			}
+			if (char === "'") quote = null
+			current += char
+			continue
+		}
+
 		if (char === '\\') {
 			// An escaped separator is a literal, so both characters go through
 			// untouched and the next loop never sees the separator as one.
@@ -172,6 +187,18 @@ function split(command: string, state: WalkState, depth: number): string[] {
 			// it hides best.
 			else if (isSubstitutionStart(command, i)) state.opaque = true
 			current += char
+			continue
+		}
+
+		if (isAnsiCQuoteStart(command, i)) {
+			// The escapes decode at runtime (`$'\x3b'` is `;` as an argument),
+			// so the text is not the word that runs. Walk it correctly for the
+			// segments a deny rule tests, and mark the line opaque so allow
+			// declines it.
+			state.opaque = true
+			quote = ANSI_C
+			current += "$'"
+			i += 1
 			continue
 		}
 
@@ -234,6 +261,23 @@ function separatorAt(command: string, index: number): number {
 		return 1
 	}
 	return 0
+}
+
+/**
+ * The quote a walker is inside. `$'…'` is bash's ANSI-C quoting: single-quote
+ * rules except that a backslash escapes the next character, so `$'\''` is one
+ * quoted `'`, not a closed quote followed by an open one. `/bin/sh` is bash on
+ * the hosts this runs on, and the bash tool spawns through it.
+ */
+type Quote = "'" | '"' | typeof ANSI_C
+const ANSI_C = "$'"
+
+/**
+ * Whether an ANSI-C quote opens here. Only unquoted text reaches the callers;
+ * inside double quotes `$'` is a literal dollar and an apostrophe.
+ */
+function isAnsiCQuoteStart(command: string, index: number): boolean {
+	return command[index] === '$' && command[index + 1] === "'"
 }
 
 /** Whether a command substitution opens here. */
@@ -314,7 +358,7 @@ function expand(segment: string, state: WalkState, depth: number): string[] {
 interface Word {
 	readonly text: string
 	/** The quote that wrapped it, or null when it was bare. */
-	readonly quoted: "'" | '"' | null
+	readonly quoted: Quote | null
 }
 
 /**
@@ -327,8 +371,8 @@ interface Word {
 function tokenize(segment: string): Word[] {
 	const words: Word[] = []
 	let current = ''
-	let quote: "'" | '"' | null = null
-	let sawQuote: "'" | '"' | null = null
+	let quote: Quote | null = null
+	let sawQuote: Quote | null = null
 	let open = false
 
 	const push = (): void => {
@@ -350,6 +394,18 @@ function tokenize(segment: string): Word[] {
 			continue
 		}
 
+		if (quote === ANSI_C) {
+			// Escapes are kept undecoded. A line that has one is already opaque,
+			// so what this word reads as only feeds deny rules and nesting.
+			if (char === '\\' && i + 1 < segment.length) {
+				current += segment[i + 1]
+				i += 1
+			} else if (char === "'") quote = null
+			else current += char
+			open = true
+			continue
+		}
+
 		if (char === '\\' && i + 1 < segment.length) {
 			current += segment[i + 1]
 			i += 1
@@ -361,6 +417,14 @@ function tokenize(segment: string): Word[] {
 			if (char === '"') quote = null
 			else current += char
 			open = true
+			continue
+		}
+
+		if (isAnsiCQuoteStart(segment, i)) {
+			quote = ANSI_C
+			sawQuote = ANSI_C
+			open = true
+			i += 1
 			continue
 		}
 
@@ -405,11 +469,16 @@ function basename(word: string): string {
  * spends against the grant.
  */
 export function writesThroughRedirection(command: string): boolean {
-	let quote: "'" | '"' | null = null
+	let quote: Quote | null = null
 	for (let i = 0; i < command.length; i += 1) {
 		const char = command[i]
 		if (quote === "'") {
 			if (char === "'") quote = null
+			continue
+		}
+		if (quote === ANSI_C) {
+			if (char === '\\') i += 1
+			else if (char === "'") quote = null
 			continue
 		}
 		if (char === '\\') {
@@ -418,6 +487,11 @@ export function writesThroughRedirection(command: string): boolean {
 		}
 		if (quote === '"') {
 			if (char === '"') quote = null
+			continue
+		}
+		if (isAnsiCQuoteStart(command, i)) {
+			quote = ANSI_C
+			i += 1
 			continue
 		}
 		if (char === "'" || char === '"') {
@@ -458,6 +532,9 @@ function readRedirectionWord(command: string, start: number): { word: string; en
 			else word += char
 			continue
 		}
+		// An ANSI-C target decodes at runtime (`$'/dev/nul\x6c'`), so its
+		// text is not the path. Unknown, and so a write.
+		if (isAnsiCQuoteStart(command, i)) return { word: '', end: command.length }
 		if (char === "'" || char === '"') {
 			quote = char
 			continue

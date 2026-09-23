@@ -107,6 +107,8 @@ describe('a prohibition cannot be smuggled past', () => {
 		'bash -c "git push origin main"',
 		'sh -c "cd /tmp && git push origin main"',
 		'(cd /tmp && git push origin main)',
+		// `$'\\''` is one quoted apostrophe, so the chain after it runs.
+		"echo $'\\'' ; git push origin main #'",
 	])('denies %p', (command) => {
 		expect(evaluate([PUSH_RULE], 'bash', { command }).decision).toBe('deny')
 	})
@@ -151,6 +153,17 @@ describe('a permission is a claim about the whole line', () => {
 		// and this line becomes approved rather than merely unmatched.
 		const result = evaluate([ALLOW_STATUS], 'bash', { command: 'git status && rm -rf ~' })
 		expect(result.decision).not.toBe('allow')
+	})
+
+	it('refuses to allow a line whose ANSI-C quote hides the rest', () => {
+		// An operator allow rule read the line the way the skill grant did:
+		// everything after `$'\\''` looked quoted, and bash ran it.
+		for (const command of [
+			"git status $'\\'' ; touch pwned #'",
+			"git status $'\\'' && touch pwned #'",
+		]) {
+			expect(evaluate([ALLOW_STATUS], 'bash', { command }).decision, command).not.toBe('allow')
+		}
 	})
 
 	it('refuses to allow a line that runs something it cannot see', () => {

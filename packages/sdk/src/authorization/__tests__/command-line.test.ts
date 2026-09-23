@@ -166,6 +166,39 @@ describe('opacity', () => {
 	})
 })
 
+describe("ANSI-C quoting, `$'…'`", () => {
+	// Inside `$'…'` a backslash escapes the quote, so `$'\\''` is ONE quoted
+	// apostrophe. A walker that reads it as a closed quote and an open one
+	// takes the rest of the line for quoted text while the shell runs it.
+	it('sees the command after an escaped quote (missing)', () => {
+		const { segments, opaque } = decomposeCommandLine("git status $'\\'' ; touch pwned #'")
+		expect(segments).toContain("touch pwned #'")
+		expect(opaque).toBe(true)
+	})
+
+	it('keeps a separator inside the quote inside its command (inventing)', () => {
+		const { segments } = decomposeCommandLine("echo $'a \\' ; b' && git push")
+		expect(segments).toEqual(["echo $'a \\' ; b'", 'git push'])
+	})
+
+	it('marks any ANSI-C quote opaque, since its escapes decode at runtime', () => {
+		expect(decomposeCommandLine("echo $'\\x3b'").opaque).toBe(true)
+		// Inside single or double quotes `$'` is literal text.
+		expect(decomposeCommandLine("grep 'a$' f").opaque).toBe(false)
+		expect(decomposeCommandLine('echo "$\'"').opaque).toBe(false)
+	})
+
+	it('reads a nested shell payload written in ANSI-C quotes', () => {
+		expect(decomposeCommandLine("bash -c $'git push'").segments).toContain('git push')
+	})
+
+	it('finds a redirection after an escaped quote', () => {
+		expect(writesThroughRedirection("git status $'\\'' > ~/.bashrc #'")).toBe(true)
+		expect(writesThroughRedirection("a $'>' b")).toBe(false)
+		expect(writesThroughRedirection("a > $'/dev/nul\\x6c'")).toBe(true)
+	})
+})
+
 describe('it never returns nothing', () => {
 	it.each(['', '   ', '&&', ';;'])('keeps %p rather than emptying it', (command) => {
 		// An empty list would make `every` vacuously true, turning a line with

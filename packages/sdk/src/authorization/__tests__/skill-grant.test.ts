@@ -273,6 +273,22 @@ describe('Bash(<pattern>) uses the permission-table glob', () => {
 		}
 	})
 
+	it('never covers a line whose ANSI-C quote hides what runs after it', () => {
+		// `$'\\''` is one quoted apostrophe in bash, which `/bin/sh` is where the
+		// bash tool spawns. Read as a closed quote and an open one, the rest of
+		// each line looked quoted and the grant pre-approved a command it never
+		// named, or a write into a file.
+		const { grants } = granted('Bash(git status *)')
+		for (const line of [
+			"git status $'\\'' ; touch pwned #'",
+			"git status $'\\'' && touch pwned #'",
+			"git status $'\\'' > ~/.bashrc #'",
+			"git status $'-s'",
+		]) {
+			expect(grants.coveringSkill(bash(line)), line).toBeUndefined()
+		}
+	})
+
 	it('a whole-tool grant is the tool as it is, redirection included', () => {
 		const { grants } = granted('Bash')
 		expect(grants.coveringSkill(bash('git status > out.txt'))).toBe('demo')
