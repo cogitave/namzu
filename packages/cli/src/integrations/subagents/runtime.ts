@@ -297,6 +297,22 @@ export interface SubagentRuntime {
 	 */
 	readonly narrationTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
+	/**
+	 * Whether this `Agent` input starts a child that can only read, on the
+	 * session's own provider and model.
+	 *
+	 * True for `subagent_type: "explore"` and for a file-defined agent whose
+	 * file says `readOnly: true`, and only while the launch names no
+	 * `provider`, no `effort` and no `model` other than the one the child
+	 * would inherit anyway, and the file names no other model either. A
+	 * project file that reuses the name `explore` is judged by its own
+	 * `readOnly`, since that file is what the launch would start.
+	 *
+	 * The host reads this to decide whether the launch itself is asked about;
+	 * nothing the child then does is affected — its calls reach the parent's
+	 * review exactly as before, and its roster has no tool that writes.
+	 */
+	launchesReadOnlyAgent(input: unknown): boolean
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
 	/** Stop every child still owned by this parent session. Idempotent. */
@@ -1309,6 +1325,18 @@ export async function createSubagentRuntime(
 		sendMessageTool,
 		narrationTool,
 		allowedAgentIds: agentTypeIds,
+		launchesReadOnlyAgent(input: unknown): boolean {
+			if (typeof input !== 'object' || input === null) return false
+			const fields = input as Record<string, unknown>
+			if (fields.provider !== undefined || fields.effort !== undefined) return false
+			const inherits = (model: unknown): boolean => model === undefined || model === opts.model
+			if (!inherits(fields.model)) return false
+			const type = fields.subagent_type
+			if (typeof type !== 'string') return false
+			const fileAgent = fileAgents.get(type)
+			if (fileAgent) return fileAgent.readOnly && inherits(fileAgent.model)
+			return type === EXPLORE_SUBAGENT
+		},
 		activity,
 		close,
 	}

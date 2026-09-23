@@ -36,6 +36,46 @@ like `workflow`, `phase` and `phase_order`: it creates no dependencies,
 barriers or serial execution. The first agent to declare a phase's detail
 sets it; a later sibling in the same phase cannot change it.
 
+## Which launches are asked about
+
+In `prompt` mode (the default with a person at the terminal) an `Agent` call
+that starts a **read-only child on the session's own provider and model**
+starts without the "Start an agent" review. That is:
+
+- `subagent_type: "explore"`, or a project or user agent file with
+  `readOnly: true` (a file that reuses the name `explore` is judged by its own
+  `readOnly`);
+- with no `provider`, no `effort`, and no `model` other than the session's own;
+  and, for an agent file, no `model` in the file other than the session's own.
+
+Starting such a child grants nothing by itself. Its roster holds only tools
+that declare themselves read-only, so a `write` it asks for is not a tool it
+has; and every call it makes is still reviewed under the parent turn's live
+mode, exactly as before — a network tool such as `web_search` included. What
+the operator is no longer asked is whether a reader may start. The cost it can
+run up is bounded by the tree budget the turn already carries.
+
+Every other launch is reviewed as before: a general-purpose agent, an agent
+file without `readOnly: true`, and a read-only agent sent to another provider
+or model or given an effort. A batch that mixes a read-only launch with any of
+those is reviewed as one batch.
+
+By mode:
+
+| Mode | Read-only launch on the session model | Any other launch |
+|---|---|---|
+| `prompt` | starts | asked |
+| `accept-edits` | starts | asked |
+| `plan` | starts (reading is what plan mode is for) | refused with the plan-mode feedback |
+| `strict` | refused unless a rule allows `Agent` | refused unless a rule allows `Agent` |
+| `auto` | starts | starts |
+
+**To keep every launch asked about**, as before this change, add an `ask` rule
+for the tool: `"permissions": { "Agent": "ask" }` in `namzu.config.json` or
+`~/.namzu/config.yaml`. An `ask` rule is an explicit review, which no
+exemption skips; under it `plan` refuses a read-only launch again, as it did
+before. `/permissions` says which launches start without asking.
+
 Reviews identify the requesting agent by its exact child session ID in the activity monitor. If the child has not appeared in the monitor, the full session ID is shown instead of guessing an agent. This attribution stays with each queued review.
 
 Concurrent permission requests are queued in arrival order. The current review
@@ -139,8 +179,8 @@ and incomplete work keeps its reported status rather than appearing completed.
 The automatic rail stays on screen while an approval dialog is open, reduced to
 its header line, so agents already approved can be seen working while the next
 launch is decided. The reduced header names no key, since the dialog holds ↓
-and Ctrl+T until it closes. Every agent launch is still reviewed in `prompt` mode,
-read-only ones included.
+and Ctrl+T until it closes. Read-only launches start without a review; see
+[Which launches are asked about](#which-launches-are-asked-about).
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same

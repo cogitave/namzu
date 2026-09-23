@@ -2979,7 +2979,11 @@ export async function createAgentSession(
 						approval,
 						undefined,
 						mode,
-						(name, input) => isPromptExempt(registry, name, input),
+						reviewExemptionFor(
+							mode,
+							registry,
+							(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
+						),
 						{ unattendedSandboxEscape },
 					),
 			})
@@ -3362,7 +3366,11 @@ export async function createAgentSession(
 								approval,
 								opts?.onPermission,
 								mode,
-								(name, input) => isPromptExempt(runTools, name, input),
+								reviewExemptionFor(
+									mode,
+									runTools,
+									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
+								),
 								{ unattendedSandboxEscape },
 							),
 					})
@@ -4599,6 +4607,34 @@ export function makeResumeHandler(
  */
 export const isPromptExempt: (registry: ToolRegistry, name: string, input: unknown) => boolean =
 	isReviewExempt
+
+/** The delegation tool whose read-only launches {@link reviewExemptionFor} lets through. */
+export const AGENT_LAUNCH_TOOL = 'Agent'
+
+/**
+ * What skips review under `mode`: the kernel's exemption, and — in every mode
+ * but `strict` — an `Agent` call that starts a read-only child on the
+ * session's own provider and model (`launchesReadOnlyAgent`).
+ *
+ * Starting such a child changes nothing by itself: its roster holds no tool
+ * that writes, and every call it makes is reviewed under this same mode as
+ * before. What the operator stops being asked is "may I start a reader?".
+ * A launch that is not read-only, or that picks another provider, model or
+ * effort, is asked about as before. `strict` still refuses it, since no rule
+ * allowed it; `plan` lets it start, since reading is what plan mode is for.
+ * An operator who wants every launch asked about writes
+ * `permissions: { Agent: "ask" }`: an `ask` rule is an explicit review, which
+ * no exemption skips.
+ */
+export function reviewExemptionFor(
+	mode: PermissionMode,
+	registry: ToolRegistry,
+	launchesReadOnlyAgent: (input: unknown) => boolean,
+): (name: string, input: unknown) => boolean {
+	return (name, input) =>
+		isPromptExempt(registry, name, input) ||
+		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input))
+}
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */
 export function promptExemptToolNames(registry: ToolRegistry): readonly string[] {

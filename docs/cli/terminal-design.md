@@ -331,7 +331,11 @@ execution and the rule report. Both levels identify the effective current
 behavior and session scope. Settings use named controls and the same effective
 permission value. Internal mode identifiers remain accepted as typed shortcuts.
 The approval prompt spells out when a choice allows all tools for the session.
-Agent launch reviews lead with the task, type and built-in tool capabilities,
+In `prompt`, `accept-edits` and `plan` mode a read-only agent — `explore`, or
+an agent file with `readOnly: true` — that runs on the session's own provider
+and model starts without a review; see
+[Delegated work](delegated-work.md#which-launches-are-asked-about). Every
+other launch is reviewed. Agent launch reviews lead with the task, type and built-in tool capabilities,
 including the default general-purpose type when omitted. A prompt saying
 "only inspect" does not change the displayed tool authority. Role and optional
 workflow/phase labels precede the full instructions, which remain pageable

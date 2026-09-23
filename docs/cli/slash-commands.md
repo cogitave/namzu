@@ -238,6 +238,11 @@ rule, including when it precedes a broader wildcard `allow`. It also prevents
 automatic read-only exemptions in prompt modes. Omitting a rule keeps the normal
 read-only default. Auto mode and already granted approvals retain their meaning.
 
+`/permissions details` also says, in `prompt`, `accept-edits` and `plan`, that
+a read-only agent (`explore`, or an agent file with `readOnly: true`) on the
+session's model starts without asking, and that a rule `Agent: "ask"` asks
+about every launch. See [Delegated work](delegated-work.md#which-launches-are-asked-about).
+
 ## Goals and task scope
 
 `/goal` opens actions appropriate to the saved goal. `/goal set` and
