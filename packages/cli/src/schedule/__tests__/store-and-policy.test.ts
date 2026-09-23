@@ -299,12 +299,14 @@ describe('what a scheduled run may do', () => {
 			'schtasks /Delete \\\n/TN \\namzu\\x /F',
 			'pkill \\\n  namzu',
 			'echo done\nnamzu schedule stop',
+			// Broader than the shell, on purpose: the verb is searched past the
+			// end of the command that names the CLI.
+			'echo namzu\n./schedule stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		for (const command of [
 			'namzu schedule list',
 			'namzu schedule \\\nlist',
-			'echo namzu\n./schedule stop',
 			'systemctl --user status namzu-scheduler',
 		])
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
@@ -326,6 +328,13 @@ describe('what a scheduled run may do', () => {
 			"namzu 'schedule' re''sume x",
 			'true; namzu schedule uninstall',
 			'namzu schedule list && namzu schedule stop',
+			// A separator inside a quoted option value ends no command.
+			"namzu --add-dir ';' schedule confirm x",
+			"namzu --add-dir 'a|b' schedule confirm x",
+			'namzu --profile "x&y" schedule run x',
+			'namzu --add-dir a\\;b schedule stop',
+			'node x/bin.js --add-dir ";" schedule stop',
+			'echo namzu; ./schedule stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		for (const command of [
@@ -334,7 +343,6 @@ describe('what a scheduled run may do', () => {
 			'namzu schedule "status"',
 			'namzu schedule history nightly --json',
 			'namzu schedule logs --job nightly',
-			'echo namzu; ./schedule stop',
 			'npm run scheduled-report',
 		])
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
@@ -427,6 +435,7 @@ describe('what a scheduled run may do', () => {
 			'\\\\\n',
 			'/\\\n',
 			"\\\n'",
+			'\n',
 		])
 			for (const prefix of [`cat ${user}`, 'cat ~/.nam', 'cat ~']) {
 				const command = `${prefix}${filler.repeat(20_000)}x`
@@ -455,6 +464,24 @@ describe('what a scheduled run may do', () => {
 			const started = performance.now()
 			decide(g, 'bash', { command })
 			expect(performance.now() - started, filler).toBeLessThan(500)
+		}
+	})
+
+	it('reads a long run of blank lines in linear time, in any tool', () => {
+		// The NAMZU_HOME rule reads every tool's arguments as JSON text, where a
+		// newline is `\\n`. Its lookbehind once walked back through the whole
+		// run from each of them: 80 KB of blank lines in a note took 17 s.
+		// Measured with a short home: the sandbox's own, longer one did not
+		// show the slowdown.
+		const g = gate(scheduledRunFloor('/home/u/.namzu', '/home/u'))
+		const blank = `a${'\n'.repeat(80_000)}`
+		for (const [tool, input] of [
+			['write', { path: 'notes.md', content: blank }],
+			['bash', { command: blank }],
+		] as const) {
+			const started = performance.now()
+			decide(g, tool, input)
+			expect(performance.now() - started, tool).toBeLessThan(500)
 		}
 	})
 

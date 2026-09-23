@@ -124,7 +124,11 @@ The rules a run is gated by, in order (the first that matches decides):
    service (`systemctl --user stop namzu-scheduler…`, `launchctl bootout
    com.namzu.scheduler…`, `schtasks /Delete … \namzu\…`), every `namzu
    schedule` subcommand except `list`, `show`, `status`, `history` and `logs`
-   (however the CLI is reached: `namzu`, `npx @namzu/cli`, `node …/bin.js`),
+   (however the CLI is reached: `namzu`, `npx @namzu/cli`, `node …/bin.js`;
+   the subcommand is looked for anywhere after the CLI's name, in a later
+   command of the same line too, because a separator inside a quoted option
+   value such as `namzu --add-dir ';' schedule stop` ends no command, so
+   `echo namzu; ./schedule stop` is refused as well),
    and any tool argument naming `NAMZU_HOME` — by its absolute path (doubled
    slashes, `./` and empty quoted segments such as `/home/you/''/.namzu`
    included), as `~/…`, `$HOME/…` or `${HOME}/…` when it is under your home,

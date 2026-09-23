@@ -189,14 +189,6 @@ function loose(text: string): string {
 const GAP = `[\\s"'\\\\$]+`
 
 /**
- * One character of the same simple command: `;`, `&`, `|` and a newline end
- * one, a line continuation does not.
- */
-const IN_COMMAND = String.raw`(?:\\\n|[^;&|\n])`
-/** Where a simple command starts: the text's start, or a `;`, `&`, `|` or newline that ends the one before. */
-const COMMAND_START = String.raw`(?:^|[;&|]|(?<!\\)\n)`
-
-/**
  * `words` in this order anywhere in the text, newlines included. Each but the
  * last is taken at its first place after the one before, inside a lookahead
  * the match cannot backtrack into, and only from the text's start: `a.*b.*c`
@@ -210,16 +202,6 @@ function inOrder(...words: string[]): string {
 	// `[\s\S]`: the gate's limit is tight for the launchctl rules.
 	const atomic = words.slice(0, -1).map((word, i) => `(?=([^]*?${word}))\\${i + 1}`)
 	return `^${atomic.join('')}[^]*?${last}`
-}
-
-/**
- * `word` at its first place in a simple command, and the rest of that command
- * after it. Every other `word` of the command comes after the first, so a
- * match from a later one is a match from the first too; trying each would be
- * quadratic on a command that repeats `word`. `word` must not capture.
- */
-function firstInCommand(word: string): string {
-	return `${COMMAND_START}(?=(${IN_COMMAND}*?${word}))\\1${IN_COMMAND}*`
 }
 
 /**
@@ -244,12 +226,14 @@ const QUOTES = `(?:${QUOTE})*`
 const SEP = String.raw`[/\\]+(?:(?:${QUOTES}\.${QUOTES}|(?:${QUOTE})+)[/\\]+)*`
 /**
  * Where a leading {@link SEP} may start: at a `/` or a real backslash (not the
- * one JSON puts before a quote), and not where a separator and what
+ * one JSON puts before a quote or in a newline's `\\n`: from there the
+ * lookbehind would walk back through a whole run of blank lines, at every
+ * one of them), and not where a separator and what
  * {@link SEP} allows after one come just before. A match starting there would
  * also start at that earlier separator, and trying every start inside a long
  * run (`/./././…`, `/''/''/…`, `\\\\…`) backtracks quadratically.
  */
-const LEAD = String.raw`(?=/|\\(?!"))(?<![/\\]${QUOTES}(?:\.${QUOTES})?)${SEP}`
+const LEAD = String.raw`(?=/|\\(?!["n]))(?<![/\\]${QUOTES}(?:\.${QUOTES})?)${SEP}`
 /**
  * Inside a segment's name, also an escaping backslash (`.nam\zu`), which JSON
  * doubles, and so a line continuation (`.nam\<newline>zu`).
@@ -369,9 +353,11 @@ export function scheduledRunFloor(
 	// reached: `namzu`, `npx @namzu/cli`, `node …/@namzu/cli/dist/bin.js`,
 	// `node packages/cli/dist/bin.js`; options may come between. The verb
 	// must start right after the space and its quotes, so `"list"` cannot be
-	// read as a space followed by a verb `"list"`. Within one command of a
-	// list: `;`, `&`, `|` and a newline end the search, a line continuation
-	// does not.
+	// read as a space followed by a verb `"list"`. The verb may come anywhere
+	// after the CLI's name, in a later command of the list too: where one
+	// command ends depends on quoting (`namzu --add-dir ';' schedule stop` is
+	// one command), and reading that wrong lets a verb through. Denying
+	// `echo namzu; ./schedule stop` as well is the price.
 	const readOnly = READ_ONLY_VERBS.map(caseless).join('|')
 	const scheduleVerb = `\\b${loose('schedule')}${GAP}(?![\\s"'\\\\$])(?!(?:${readOnly})(?![A-Za-z0-9_-]))`
 	return [
@@ -391,10 +377,8 @@ export function scheduledRunFloor(
 			),
 		),
 		bash(inOrder(`\\b(?:${loose('pkill')}|${loose('killall')})\\b`, loose('namzu'))),
-		bash(`${firstInCommand(`\\b${loose('namzu')}\\b`)}${scheduleVerb}`),
-		bash(
-			`${firstInCommand(`\\b${loose('bin')}${DROPPED}\\.${DROPPED}${loose('js')}\\b`)}${scheduleVerb}`,
-		),
+		bash(inOrder(`\\b${loose('namzu')}\\b`, scheduleVerb)),
+		bash(inOrder(`\\b${loose('bin')}${DROPPED}\\.${DROPPED}${loose('js')}\\b`, scheduleVerb)),
 		...namzuHomePatterns(namzuHome, userHome).map(
 			(pattern): AuthorizationRule => ({
 				type: 'custom_pattern',
