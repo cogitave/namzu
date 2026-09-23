@@ -55,6 +55,13 @@ export interface LiveActivityProps {
 	 * has streamed since. Absent or zero draws nothing.
 	 */
 	readonly tokens?: number
+	/**
+	 * A question for the operator is on screen (a confirmation, a Continue
+	 * card, a permission review): the row says so instead of counting, and the
+	 * time spent waiting is left out of the turn's elapsed time. A timer that
+	 * kept running under "Continue the scheduled run?" read as work being done.
+	 */
+	readonly waitingForYou?: boolean
 }
 
 const MAX_VISIBLE_TOOLS = 3
@@ -68,6 +75,7 @@ export function LiveActivity({
 	animate = true,
 	thinking = null,
 	tokens,
+	waitingForYou = false,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -80,10 +88,31 @@ export function LiveActivity({
 		process.env.TERM !== 'dumb'
 	const active = activeTools.length > 0 || working
 	const startedAtRef = useRef<number | null>(null)
-	if (active && startedAtRef.current === null) startedAtRef.current = Date.now()
+	// Time spent waiting on the operator, left out of the elapsed figure.
+	const pausedRef = useRef<{ total: number; since: number | null }>({ total: 0, since: null })
+	if (active && startedAtRef.current === null) {
+		startedAtRef.current = Date.now()
+		pausedRef.current = { total: 0, since: null }
+	}
 	if (!active) startedAtRef.current = null
-	const { frame: tick } = useAnimation({ isActive: active && motion, interval: 120 })
+	if (waitingForYou && pausedRef.current.since === null) pausedRef.current.since = Date.now()
+	if (!waitingForYou && pausedRef.current.since !== null) {
+		pausedRef.current.total += Date.now() - pausedRef.current.since
+		pausedRef.current.since = null
+	}
+	const { frame: tick } = useAnimation({
+		isActive: active && motion && !waitingForYou,
+		interval: 120,
+	})
 	if (!active) return null
+	if (waitingForYou) {
+		return (
+			<Box>
+				<Text color={theme.text.secondary}>Waiting for you</Text>
+				<Text color={theme.text.muted}> · the question below</Text>
+			</Box>
+		)
+	}
 	const label = 'Working'
 	const edge = tick % (label.length + 1)
 	const mark = (
@@ -107,7 +136,7 @@ export function LiveActivity({
 		</Text>
 	)
 	const now = Date.now()
-	const elapsed = formatElapsed(now - (startedAtRef.current ?? now))
+	const elapsed = formatElapsed(now - (startedAtRef.current ?? now) - pausedRef.current.total)
 	const spent = tokens !== undefined && tokens > 0 ? ` · ↓ ${formatCompactCount(tokens)} tokens` : ''
 	const waiting = waitingLine(activeTools)
 	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)

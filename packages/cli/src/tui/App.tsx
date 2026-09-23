@@ -8628,6 +8628,7 @@ export function App({
 								animate={stdout.isTTY === true && permission === null && textPrompt === null}
 								thinking={thinking}
 								tokens={turnTokens}
+								waitingForYou={choicePicker !== null || permission !== null || textPrompt !== null}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.
