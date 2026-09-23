@@ -37,6 +37,9 @@
 			"path": "./packages/computer-use"
 		},
 		{
+			"path": "./packages/browser"
+		},
+		{
 			"path": "./packages/providers/bedrock"
 		},
 		{

@@ -21,6 +21,7 @@ The kernel.
 
 * [Computer action capabilities](computer-actions.md) - Exact supported actions and per-gesture mouse buttons.
 * [Browser tools](browser-tools.md) - The browser and browser_act tools over a BrowserHost, canonical URLs and origins for site rules, snapshot framing and structural host errors.
+* [The browser host](browser-host.md) - @namzu/browser's PlaywrightBrowserHost: engine detection, profiles and leases, the site policy after every navigation, the human-handoff classifier and snapshot refs.
 
 * [Framework and computer-use gap audit](framework-gap-audit.md) - Verified boundaries against Pydantic AI, AG-UI and OpenBot, with next acceptance checks.
 

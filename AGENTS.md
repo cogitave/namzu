@@ -8,7 +8,7 @@ Namzu is an AI agent kernel. Its TypeScript SDK exposes the runtime; the CLI is 
 
 - `@namzu/sdk` — core runtime (agents, tools, providers, stores, compaction)
 - `@namzu/cli` — the operator application
-- `@namzu/computer-use`, `@namzu/files`, `@namzu/live`, `@namzu/lsp`, `@namzu/sandbox` — optional capability packages
+- `@namzu/browser`, `@namzu/computer-use`, `@namzu/files`, `@namzu/live`, `@namzu/lsp`, `@namzu/sandbox` — optional capability packages
 - `@namzu/telemetry` — optional observability package
 - `@namzu/ag-ui` — optional AG-UI protocol adapter
 - `@namzu/evals` — the eval suites
@@ -16,7 +16,7 @@ Namzu is an AI agent kernel. Its TypeScript SDK exposes the runtime; the CLI is 
 
 <dependency_direction>
 ```
-sdk  ←  { ag-ui | computer-use | live | lsp | sandbox | telemetry | evals | providers }
+sdk  ←  { ag-ui | browser | computer-use | live | lsp | sandbox | telemetry | evals | providers }
 { sdk | computer-use | files | selected providers }  ←  cli
 files  (standalone)
 ```
