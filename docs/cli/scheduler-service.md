@@ -160,7 +160,9 @@ exits 0; the supervisor starts the new code. While it waits it does not evaluate
 schedules either, so an occurrence that comes due during the wait is left to the
 daemon that takes over: it runs late, or is recorded as missed under the job's
 catch-up policy, and a one-shot still runs. A `schedule run-now` during the
-wait is queued on disk and started by the daemon that takes over. The wait
+wait, or one accepted earlier that was still waiting for a free slot or its
+folder when the wait began, is queued on disk and started by the daemon that
+takes over. The wait
 lasts as long as the longest run in progress.
 
 ## Status

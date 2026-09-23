@@ -446,6 +446,51 @@ describe('a run-now during an upgrade drain', () => {
 	})
 })
 
+describe('a run-now accepted before a drain and still waiting when it starts', () => {
+	for (const how of ['an upgrade request', 'a changed install'] as const) {
+		it(`is moved to disk when ${how} starts the drain`, async () => {
+			holdRuns = true
+			let fingerprint = 'same'
+			confirmedJob(
+				sb,
+				{ name: 'long', permissions: { preset: 'read-only' } },
+				new Date(clock - 60_000),
+			)
+			const other = confirmedJob(sb, { name: 'other', when: '0 9 * * *' }, new Date(clock - 60_000))
+			clock = Date.parse('2026-09-23T03:00:01Z')
+			const first = daemon({ maxConcurrentRuns: 1, fingerprint: () => fingerprint })
+			await first.claimOwnership()
+			await first.tick()
+			expect(spawned.map((s) => s.job.name)).toEqual(['long'])
+			const answer = first.requestRunNow(other.id)
+			expect(answer).toMatchObject({ ok: true })
+			// The cap is full: the request waits in memory.
+			await first.tick()
+			expect(spawned.map((s) => s.job.name)).toEqual(['long'])
+			expect(readState(sb.paths, other.id).queued).toBeUndefined()
+			if (how === 'an upgrade request') first.drainAndRestart()
+			else fingerprint = 'upgraded'
+			await first.tick()
+			expect(readState(sb.paths, other.id).queued).toMatchObject({ trigger: 'manual' })
+			expect(first.requestRunNow(other.id).ok).toBe(false)
+			for (const release of releases.splice(0)) release()
+			await settle(first)
+			await first.releaseOwnership()
+			holdRuns = false
+			clock += 5_000
+			const second = daemon({ maxConcurrentRuns: 1, fingerprint: () => fingerprint })
+			await second.claimOwnership()
+			await second.tick()
+			await settle(second)
+			expect(spawned.map((s) => s.job.name)).toEqual(['long', 'other'])
+			const runs = foldHistory(readHistory(sb.paths, other.id)).filter((r) => r.kind === 'run')
+			expect(runs).toHaveLength(1)
+			expect(runs[0]).toMatchObject({ status: 'completed', trigger: 'manual' })
+			expect(readState(sb.paths, other.id).queued).toBeUndefined()
+		})
+	}
+})
+
 describe('a job removed while its run goes on', () => {
 	it('gets the run’s end in its history when the run exits', async () => {
 		holdRuns = true

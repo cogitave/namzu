@@ -209,6 +209,7 @@ export class ScheduleDaemon {
 	/** Stop dispatching, wait for our own runs, then stop (an upgrade restart). */
 	drainAndRestart(): void {
 		this.#draining = true
+		this.#persistManual()
 		this.#wake?.()
 	}
 
@@ -330,6 +331,7 @@ export class ScheduleDaemon {
 			await this.#endpoint?.close()
 			this.#endpoint = undefined
 			await Promise.allSettled(this.#finalizing)
+			if (this.#stopping) this.#persistManual()
 			if (this.#lease && this.#stopping) {
 				await this.#leaseStore.release(this.#lease).catch(() => undefined)
 				this.#lease = null
@@ -443,28 +445,56 @@ export class ScheduleDaemon {
 		if (state.activeRun || state.queued || this.#manual.some((m) => m.jobId === job.id)) {
 			return { ok: false, message: `${job.name} already has a run` }
 		}
-		const runId = generateScheduleRunId()
+		this.#manual.push({ jobId: job.id, runId: generateScheduleRunId() })
 		if (this.#draining) {
 			// This daemon starts nothing more and its memory goes with it: the run
 			// is left queued on disk, for the daemon that takes over.
-			const at = new Date(this.#now()).toISOString()
-			writeState(this.#o.paths, {
-				...state,
-				queued: {
-					key: `${MANUAL_KEY_PREFIX}${runId}`,
-					scheduledFor: at,
-					trigger: 'manual',
-					queuedAt: at,
-				},
-			})
+			this.#persistManual()
 			return {
 				ok: true,
 				message: `${job.name} queued; the scheduler is restarting for an upgrade and starts it once it is back`,
 			}
 		}
-		this.#manual.push({ jobId: job.id, runId })
 		this.wake()
 		return { ok: true, message: `${job.name} queued` }
+	}
+
+	/**
+	 * Move every manual run still waiting in memory (deferred by the cap or a
+	 * busy folder lane) to `state.queued` on disk. A daemon that stops
+	 * dispatching (a drain) or exits keeps no memory, and the CLI has already
+	 * told the operator the run is queued; the daemon that takes over starts
+	 * it from disk under the same run id.
+	 */
+	#persistManual(): void {
+		for (const manual of this.#manual.splice(0)) {
+			try {
+				const state = readState(this.#o.paths, manual.jobId)
+				if (state.activeRun || state.queued) {
+					this.#o.log.warn('manual run dropped; the job already has a run', {
+						'namzu.schedule.job_id': manual.jobId,
+						'namzu.schedule.run_id': manual.runId,
+					})
+					continue
+				}
+				const at = new Date(this.#now()).toISOString()
+				writeState(this.#o.paths, {
+					...state,
+					queued: {
+						key: `${MANUAL_KEY_PREFIX}${manual.runId}`,
+						scheduledFor: at,
+						trigger: 'manual',
+						queuedAt: at,
+					},
+				})
+			} catch (error) {
+				this.#o.log.error('manual run could not be queued on disk', {
+					'namzu.schedule.job_id': manual.jobId,
+					'namzu.schedule.run_id': manual.runId,
+					'exception.message': error instanceof Error ? error.message : String(error),
+				})
+			}
+		}
 	}
 
 	#heartbeat(): void {
@@ -521,6 +551,7 @@ export class ScheduleDaemon {
 				'namzu.schedule.epoch': this.#o.epoch,
 			})
 			this.#draining = true
+			this.#persistManual()
 		}
 		const now = this.#now()
 		const { jobs, errors } = listJobs(this.#o.paths)
@@ -542,6 +573,9 @@ export class ScheduleDaemon {
 		}
 		this.#observedGap = undefined
 		if (!this.#draining) await this.#dispatch(now)
+		// A dispatch that was under way when the drain began may have handed a
+		// deferred manual run back to memory.
+		if (this.#draining) this.#persistManual()
 		if (now - this.#lastHousekeeping > HOUSEKEEPING_MS) {
 			this.#lastHousekeeping = now
 			for (const job of jobs) {
