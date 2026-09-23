@@ -2,6 +2,7 @@
 
 ## 2026-09-23
 
+- **Update** SDK coding-agent doctrine (`CODING_AGENT_WORKING_DOCTRINE`, `packages/sdk/src/prompt/coding-agent-doctrine.ts`): under "Working with git" the model is told never to change git configuration (`user.name`/`user.email`, hooks, remotes, credential helpers) or other persistent settings without asking, and to tell the user the command when a commit fails for want of an identity; in a live session it set a local identity on its own
 - **Update** [Schedules](sdk/schedules.md#the-tools) and [Scheduled tasks](cli/scheduled-tasks.md#creating-a-job): `ScheduleToolHost.create()` may return `note`, appended to the `schedule` tool's result; the CLI's TUI host uses it to tell the model no scheduler is installed. Only the person was told, and the model answered that a notification would come
 - **Update** [Skills](cli/skills.md#making-a-skill): Esc or Ctrl+C on the save-skill screen cancels the save and no longer also interrupts the turn (`· Interrupted.`); the model is told nothing was written and asks what to change
 - **Update** [Skills](sdk/skills.md) and [Terminal design](cli/terminal-design.md): the `skill` tool presents a call as `Read skill <name>` or `List skills`, hidden when it succeeds; the TUI printed `Skill({"name":"browser-automation"})` and the first lines of the body. While the screen that saves a skill is up, the Working row reads `Waiting for you` instead of counting on with `esc to interrupt`

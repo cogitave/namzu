@@ -31,6 +31,19 @@ describe('the coding-agent doctrine', () => {
 		expect(named.has('Agent')).toBe(false)
 	})
 
+	it('forbids changing git config or other persistent settings without asking', () => {
+		// A live session set `git config user.name`/`user.email` on its own
+		// when a commit failed for want of an identity.
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'Never change git configuration or other persistent settings without asking',
+		)
+		for (const named of ['`user.name`', '`user.email`', 'hooks', 'remotes', '`git config`'])
+			expect(CODING_AGENT_WORKING_DOCTRINE).toContain(named)
+		expect(CODING_AGENT_WORKING_DOCTRINE).toContain(
+			'If a commit fails because no identity is set, stop and tell the user the command to set one; do not invent one.',
+		)
+	})
+
 	it('keeps the delegation rules out of a sub-agent prompt on request', () => {
 		const parent = codingAgentDoctrineContribution().render({})
 		const child = codingAgentDoctrineContribution({ delegation: false }).render({})
