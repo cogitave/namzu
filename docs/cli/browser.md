@@ -76,13 +76,21 @@ The host then checks what actually happened: a link, a script or a redirect head
 
 ## The review screen
 
-A reviewed browser call names the rule that asked for the review, the profile and the engine, above the call:
+A reviewed browser call says what it does in words (`Open a web page`, `Click on https://shop.example`) and names the rule that asked:
 
 ```text
+Open a web page
 site rule: https://tr.wikipedia.org (any other site) → ask · profile work · windows-cdp
+  Open: https://tr.wikipedia.org/wiki/İstanbul
+  sent as: https://tr.wikipedia.org/wiki/%C4%B0stanbul
+
+Do you want to open this page?
+❯ 1. Yes
+  2. Yes, allow all tools for this session
+  3. No, and tell namzu what to do differently (esc)
 ```
 
-Typed text is shown whole, with hidden characters made visible. `d` shows the exact input. `/browser` shows the engine, profile and sites in force.
+The address shows its path the way a person writes it, and the address actually sent when the two differ; the host stays in its canonical punycode form. Typed text is shown whole, with hidden characters made visible. `d` shows the exact input. `/browser` shows the engine, profile and sites in force.
 
 ## When a page needs you
 
