@@ -23,6 +23,7 @@ by regression tests and a bounded live CLI smoke check.
 | Delegation | A child's effective token cap cannot exceed its reserved allocation. Failed startup returns the reservation and disposes owned resources. |
 | Completion | Exhausted hard guards do not buy an extra model summary. Streaming completion is emitted once, after the persistence attempt. |
 | File discovery | Glob scope is explicit; incremental enumeration observes cancellation and both result and traversal limits. Incomplete searches remain identifiable. |
+| Tool surface | Only the host decides which tools a turn can call and how each call is authorized. The tools offered to the model and the list the executor enforces are the same before and after a skill loads; a skill's `allowed-tools` neither narrows, widens nor pre-approves a tool. See [Skills and the tool surface](skills.md). |
 
 The host-readable output and model-readable content can differ. Each text
 channel receives its own bounded preview. Model-content spills use the

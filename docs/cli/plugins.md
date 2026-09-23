@@ -51,7 +51,9 @@ shared user directory. Sharing an application root alone does not merge two
 different plugin directories.
 
 That skill directory contains `SKILL.md` with a `name` and `description` in YAML
-frontmatter. Its registered name is `ledger__reconcile`. Tools and hooks declare
+frontmatter. Its registered name is `ledger__reconcile`. An `allowed-tools` value
+in it changes nothing the turn can call or how calls are approved; see
+[Skills and the tool surface](../sdk/skills.md). Tools and hooks declare
 JavaScript module paths; MCP servers declare their stdio command, optional
 arguments and environment. `connectors` and `personas` in plugin manifests are
 not supported and are refused rather than ignored.

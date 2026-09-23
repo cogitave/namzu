@@ -16,6 +16,7 @@ The kernel.
 * [Evaluating exploration policies](exploration-policies.md) - Purpose-bound learning instructions and independent measurement of evidence acquisition.
 
 * [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
+* [Skills and the tool surface](skills.md) - The `skill` tool, why a skill's `allowed-tools` never narrows, widens or pre-approves a tool, and where a host restricts tools instead.
 * [Portable tool schemas](tool-schema-portability.md) - One rendering valid in draft-07 and 2020-12, the profile that defines it and the normaliser that enforces it.
 
 * [Computer action capabilities](computer-actions.md) - Exact supported actions and per-gesture mouse buttons.
