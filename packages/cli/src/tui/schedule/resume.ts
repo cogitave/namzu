@@ -36,6 +36,7 @@ import {
 } from '@namzu/sdk'
 import { readPermissionLayers } from '../../config/load.js'
 import type { PermissionMode } from '../../permissions/mode.js'
+import { currentTimeLine } from '../../schedule/fire/unattended-note.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { allowsCommands, compileJobPolicy } from '../../schedule/policy.js'
 import { resumeCommand } from '../../schedule/resume-command.js'
@@ -372,8 +373,11 @@ export async function prepareScheduledResume(input: {
 	const layers = readPermissionLayers({ cwd: park.job.folder.canonical })
 	const policy = compileJobPolicy(park.job.permissions, { layers, namzuHome: input.home })
 	const grant = park.job.permissions.browser
+	const zone = park.job.schedule.kind === 'cron' ? park.job.schedule.tz : hostTimeZone()
 	const resumeWith = (pendingDecision?: HITLResumeDecision): ScheduledResumeParams => ({
 		...(pendingDecision ? { pendingDecision } : {}),
+		// The run may have waited days for its answer: the time its note gave is old.
+		systemNote: currentTimeLine(new Date(), zone),
 		onPermission: ask,
 		rules: policy.rules,
 		permissionMode: STRICTER.includes(input.operatorMode) ? input.operatorMode : policy.mode,
@@ -400,11 +404,7 @@ export async function prepareScheduledResume(input: {
 		if (choice === 'continue') {
 			return {
 				...resumeWith(),
-				systemNote: handoffContinuationNote(
-					park.handoff.reason,
-					new Date(),
-					park.job.schedule.kind === 'cron' ? park.job.schedule.tz : hostTimeZone(),
-				),
+				systemNote: handoffContinuationNote(park.handoff.reason, new Date(), zone),
 			}
 		}
 		if (choice === 'abandon')

@@ -1,6 +1,6 @@
 import { type SessionTokenBudgetSummary, type StopReason, hostTimeZone } from '@namzu/sdk'
 
-import { localTimeText } from '../schedule/fire/unattended-note.js'
+import { currentTimeLine } from '../schedule/fire/unattended-note.js'
 
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -170,6 +170,6 @@ export function handoffContinuationNote(
 	return [
 		`This turn stopped because a tool needed a person: ${flat}. The person has dealt with it and chose to continue.`,
 		'Try the step that stopped again (for a web page, open or reload it and read it again) before deciding it cannot be done. If it still needs a person, say so and stop; never type a password or a code.',
-		`It is now ${localTimeText(now, tz)}.`,
+		currentTimeLine(now, tz),
 	].join('\n')
 }

@@ -20,6 +20,14 @@ export function localTimeText(now: Date, tz: string): string {
 }
 
 /**
+ * The time, said so that the model uses it: one run was refused `date`, and
+ * the next, told the time, still tried `date` first.
+ */
+export function currentTimeLine(now: Date, tz: string): string {
+	return `It is now ${localTimeText(now, tz)}. This is the current local time, already looked up: use it when the task needs the time, and do not run date or guess another.`
+}
+
+/**
  * What a scheduled turn is told about its circumstances, in its system prompt.
  */
 export function unattendedNote(
@@ -33,11 +41,7 @@ export function unattendedNote(
 ): string {
 	return [
 		`This turn is a scheduled run of the job "${jobName}". Nobody is watching it.`,
-		...(options.now && options.tz
-			? [
-					`- It is now ${localTimeText(options.now, options.tz)}. Use this as the current local time when the task needs one; do not guess another.`,
-				]
-			: []),
+		...(options.now && options.tz ? [`- ${currentTimeLine(options.now, options.tz)}`] : []),
 		'- There is no one to answer questions: do not ask the user anything; decide, or say what you could not decide in your final answer.',
 		'- A call the job does not allow either is refused or waits for the operator to approve it later; the run then stops until they do. Prefer what the permissions allow.',
 		'- Background jobs (run_in_background) end when this run ends; do not leave servers running for later.',

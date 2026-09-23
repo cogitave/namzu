@@ -193,6 +193,8 @@ describe('answering a parked scheduled run', () => {
 			say: () => {},
 		})) as ScheduledResumeParams | undefined
 		expect(scheduled?.pendingDecision).toEqual({ action: 'approve_tools' })
+		// Told the time now: the park may have waited days for this answer.
+		expect(scheduled?.systemNote).toMatch(/^It is now \w+day, .*This is the current local time/)
 		expect(scheduled?.model).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
 		expect(scheduled?.permissionMode).toBe('prompt')
 		expect(asked[0]?.toolCalls[0]?.name).toBe('bash')

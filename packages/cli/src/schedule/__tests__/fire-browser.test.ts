@@ -167,7 +167,7 @@ describe('the time a scheduled run is told', () => {
 			'Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul)',
 		)
 		expect(unattendedNote('post', { now: at, tz: 'Europe/Istanbul' })).toContain(
-			'- It is now Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul). Use this as the current local time',
+			'- It is now Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul). This is the current local time, already looked up: use it when the task needs the time, and do not run date',
 		)
 	})
 
