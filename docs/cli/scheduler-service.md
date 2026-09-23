@@ -203,10 +203,14 @@ Title and body are data: they reach the other program as argv items or
 environment variables, never as script text. The PowerShell script is a
 constant sent with `-EncodedCommand` and nothing after it; under WSL the
 variables are named in `WSLENV`, or Windows would receive them empty. A systemd
-user service inside WSL has no interop socket, so it has no Windows toasts: it
-is told it runs in WSL by the kernel (a systemd service gets no `WSL_*`
-variables) and reports `none` with that reason, rather than the Linux session
-bus, which nothing in WSL displays. `status` shows the backend the daemon
+user service inside WSL gets no `WSL_*` variables, so it is told it runs in WSL
+by the kernel, never the Linux session bus, which nothing in WSL displays. It
+has no `WSL_INTEROP` either, so the daemon finds an interop socket itself —
+`/run/WSL/1_interop`, which WSL links for systemd to the distro's init, else
+the newest `/run/WSL/<pid>_interop` — and hands it to `powershell.exe` alone;
+the daemon's environment, and a run's, stay as they were. `status` names the
+socket beside the backend. With interop disabled or no socket there, the
+backend is `none` with that reason. `status` shows the backend the daemon
 reported in its heartbeat, not the one the shell running `status` would pick.
 
 ## Uninstall

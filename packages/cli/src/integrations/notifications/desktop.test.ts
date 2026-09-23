@@ -60,15 +60,60 @@ describe('a WSL toast', () => {
 		expect(TOAST_SCRIPT).toContain('[Security.SecurityElement]::Escape')
 	})
 
-	it('is still WSL, with none, for a systemd service that has no WSL variables at all', () => {
+	const service = {
+		platform: 'linux' as const,
+		env: { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus', PATH: '/usr/bin' },
+		exists: () => true,
+		osRelease: () => '6.6.87.2-microsoft-standard-WSL2',
+	}
+
+	it('is a toast for a systemd service with no WSL variables, through an interop socket it finds', async () => {
 		const backend = selectDesktopBackend({
-			platform: 'linux',
-			env: { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus', PATH: '/usr/bin' },
-			exists: () => true,
-			osRelease: () => '6.6.87.2-microsoft-standard-WSL2',
+			...service,
+			interopSockets: () => [
+				{ path: '/run/WSL/4857_interop', mtimeMs: 3 },
+				{ path: '/run/WSL/1_interop', mtimeMs: 1 },
+			],
 		})
+		expect(backend.kind).toBe('wsl-toast')
+		expect(backend.detail).toContain('/run/WSL/1_interop')
+		const { calls, spawn } = recorder()
+		await sendDesktopNotification(backend, { title: 't', body: 'b' }, { env: service.env, spawn })
+		// Handed to the helper only; the daemon's own environment is untouched.
+		expect(calls[0]?.env.WSL_INTEROP).toBe('/run/WSL/1_interop')
+		expect(service.env).not.toHaveProperty('WSL_INTEROP')
+	})
+
+	it('takes the newest session socket when the distro has no 1_interop', () => {
+		const backend = selectDesktopBackend({
+			...service,
+			interopSockets: () => [
+				{ path: '/run/WSL/240_interop', mtimeMs: 1 },
+				{ path: '/run/WSL/3202802_interop', mtimeMs: 5 },
+			],
+		})
+		expect(backend.detail).toContain('/run/WSL/3202802_interop')
+	})
+
+	it('keeps a WSL_INTEROP it was given, and does not name a socket of its own', async () => {
+		const backend = selectDesktopBackend({
+			...wslProbe,
+			interopSockets: () => [{ path: '/run/WSL/1_interop', mtimeMs: 1 }],
+		})
+		expect(backend.detail).not.toContain('interop through')
+		const { calls, spawn } = recorder()
+		await sendDesktopNotification(
+			backend,
+			{ title: 't', body: 'b' },
+			{ env: { ...wslProbe.env, WSL_INTEROP: '/run/WSL/99_interop' }, spawn },
+		)
+		expect(calls[0]?.env.WSL_INTEROP).toBe('/run/WSL/99_interop')
+	})
+
+	it('is still WSL, with none, for a systemd service when no interop socket exists', () => {
+		const backend = selectDesktopBackend({ ...service, interopSockets: () => [] })
 		expect(backend.kind).toBe('none')
-		expect(backend.detail).toMatch(/WSL_INTEROP/)
+		expect(backend.detail).toMatch(/no interop socket/)
 	})
 
 	it('falls back to none without interop', () => {

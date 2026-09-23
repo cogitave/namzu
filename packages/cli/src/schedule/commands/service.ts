@@ -270,7 +270,7 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 		: 'not installed'
 	const jobs = listJobs(paths).jobs
 	// What the daemon picked, from its own heartbeat: this shell's environment
-	// is not the service's (under systemd in WSL it has no interop), so a
+	// is not the service's (under systemd in WSL it has no WSL_INTEROP), so a
 	// backend computed here named one the daemon was not using.
 	const backend = daemonNotifications(heartbeat, live) ?? {
 		...selectDesktopBackend(

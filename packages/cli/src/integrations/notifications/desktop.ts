@@ -17,7 +17,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { detectWsl } from '../../context/environment.js'
 import { gdbusArguments, notifySendArguments } from './desktop/freedesktop.js'
@@ -47,6 +47,8 @@ export interface BackendProbe {
 	readonly powershell?: string
 	/** The kernel release (`/proc/sys/kernel/osrelease`); WSL's names Microsoft. */
 	readonly osRelease?: () => string | undefined
+	/** WSL's interop sockets (`/run/WSL/*_interop`), each with its modification time. */
+	readonly interopSockets?: () => readonly { readonly path: string; readonly mtimeMs: number }[]
 }
 
 function readOsRelease(): string | undefined {
@@ -67,6 +69,43 @@ function whichOnPath(env: NodeJS.ProcessEnv, exists: (p: string) => boolean) {
 		}
 		return undefined
 	}
+}
+
+const WSL_RUN_DIR = '/run/WSL'
+
+function listInteropSockets(): { path: string; mtimeMs: number }[] {
+	const sockets: { path: string; mtimeMs: number }[] = []
+	let names: string[]
+	try {
+		names = readdirSync(WSL_RUN_DIR)
+	} catch {
+		return sockets
+	}
+	for (const name of names) {
+		if (!/^\d+_interop$/.test(name)) continue
+		const path = join(WSL_RUN_DIR, name)
+		try {
+			const stat = statSync(path)
+			if (stat.isSocket()) sockets.push({ path, mtimeMs: stat.mtimeMs })
+		} catch {
+			// Gone between the listing and the stat: a session that just ended.
+		}
+	}
+	return sockets
+}
+
+/**
+ * The interop socket a process without `WSL_INTEROP` can use — a systemd
+ * service's, which WSL starts outside any session. `1_interop` is the one
+ * WSL links for systemd to the distro's own init, so it lives as long as the
+ * distro; failing that, the newest session's.
+ */
+export function findInteropSocket(
+	sockets: readonly { readonly path: string; readonly mtimeMs: number }[],
+): string | undefined {
+	const stable = sockets.find((socket) => socket.path === join(WSL_RUN_DIR, '1_interop'))
+	if (stable) return stable.path
+	return [...sockets].sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.path
 }
 
 const WSL_POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
@@ -101,21 +140,34 @@ export function selectDesktopBackend(probe: BackendProbe = {}): DesktopBackend {
 	// which nothing in WSL displays, and every notification failed.
 	const wslKernel = !wsl && /microsoft/i.test((probe.osRelease ?? readOsRelease)() ?? '')
 	if (wsl || wslKernel) {
-		if (!wsl?.interop || !env.WSL_INTEROP) {
+		// A systemd service has no WSL_INTEROP: WSL starts it outside any
+		// session. Interop still answers there through a socket under
+		// /run/WSL, which is handed to the notification helper alone; the
+		// daemon's own environment, and so a run's, is left as it was.
+		const enabled = wsl?.interop ?? exists('/proc/sys/fs/binfmt_misc/WSLInterop')
+		const socket = enabled
+			? env.WSL_INTEROP || findInteropSocket((probe.interopSockets ?? listInteropSockets)())
+			: undefined
+		if (!socket) {
 			return {
 				kind: 'none',
-				detail:
-					'WSL interop is not available to this process (no WSL_INTEROP; a systemd service has none), so Windows notifications cannot be shown',
+				detail: enabled
+					? 'WSL interop is not available to this process (no WSL_INTEROP and no interop socket under /run/WSL), so Windows notifications cannot be shown'
+					: 'WSL interop is disabled ([interop] enabled=false in /etc/wsl.conf), so Windows notifications cannot be shown',
 			}
 		}
 		const powershell = probe.powershell ?? WSL_POWERSHELL
 		if (!exists(powershell)) return { kind: 'none', detail: `${powershell} was not found` }
+		const found = env.WSL_INTEROP ? undefined : socket
 		return {
 			kind: 'wsl-toast',
-			detail: powershell,
+			detail: found ? `${powershell} (interop through ${found})` : powershell,
 			command: powershell,
 			args: () => toastArguments(),
-			env: (base, title, body) => toastEnvironment(base, title, body, true),
+			env: (base, title, body) => ({
+				...toastEnvironment(base, title, body, true),
+				...(found ? { WSL_INTEROP: found } : {}),
+			}),
 			cwd: '/mnt/c',
 		}
 	}
