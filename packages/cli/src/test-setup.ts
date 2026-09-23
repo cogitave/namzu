@@ -18,8 +18,10 @@
  * `NAMZU_LOG_LEVEL=debug pnpm test` gets what they asked for.
  */
 import { mkdtempSync, realpathSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { homedir, tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterAll, inject } from 'vitest'
 
 import { removeTempDir } from './__fixtures__/temp-dir.js'
@@ -64,3 +66,132 @@ if (process.env.NAMZU_HOME === undefined) {
 		}
 	})
 }
+
+// The developer's own application home is never read or written by a test.
+// Every suite gets an owned NAMZU_HOME above, but a code path that resolves
+// the home from an environment it was HANDED (`{ HOME: … }` without
+// NAMZU_HOME) falls back to `~/.namzu` — the real one. Such an access is
+// refused here, as if the directory did not exist, and the suite fails
+// naming the path, so the leak is fixed rather than silently tolerated.
+const realApplicationHome = resolve(homedir(), '.namzu')
+const leaks: string[] = []
+function underRealHome(target: unknown): string | undefined {
+	let text: string | undefined
+	if (typeof target === 'string') text = target
+	else if (target instanceof URL && target.protocol === 'file:') text = fileURLToPath(target)
+	else if (Buffer.isBuffer(target)) text = target.toString()
+	if (text === undefined) return undefined
+	const absolute = resolve(text)
+	return absolute === realApplicationHome || absolute.startsWith(`${realApplicationHome}/`)
+		? absolute
+		: undefined
+}
+function refused(path: string): NodeJS.ErrnoException {
+	leaks.push(path)
+	const error: NodeJS.ErrnoException = new Error(
+		`ENOENT: a test reached the real application home (${path})`,
+	)
+	error.code = 'ENOENT'
+	return error
+}
+{
+	const fs = createRequire(import.meta.url)('node:fs') as Record<string, unknown> & {
+		promises: Record<string, unknown>
+	}
+	const guard = (
+		owner: Record<string, unknown>,
+		name: string,
+		kind: 'sync' | 'async' | 'exists',
+	) => {
+		const original = owner[name]
+		if (typeof original !== 'function') return
+		const wrapped = function (this: unknown, target: unknown, ...rest: unknown[]) {
+			const path = underRealHome(target)
+			if (path !== undefined) {
+				const error = refused(path)
+				if (kind === 'exists') return false
+				if (kind === 'async') {
+					const callback = rest.at(-1)
+					if (typeof callback === 'function') {
+						queueMicrotask(() => callback(error))
+						return undefined
+					}
+					return Promise.reject(error)
+				}
+				throw error
+			}
+			return original.call(this, target, ...rest)
+		}
+		Object.assign(wrapped, original)
+		owner[name] = wrapped
+	}
+	for (const name of [
+		'accessSync',
+		'appendFileSync',
+		'copyFileSync',
+		'lstatSync',
+		'mkdirSync',
+		'openSync',
+		'opendirSync',
+		'readFileSync',
+		'readdirSync',
+		'readlinkSync',
+		'realpathSync',
+		'renameSync',
+		'rmSync',
+		'rmdirSync',
+		'statSync',
+		'unlinkSync',
+		'writeFileSync',
+		'createReadStream',
+		'createWriteStream',
+		'watch',
+	])
+		guard(fs, name, 'sync')
+	guard(fs, 'existsSync', 'exists')
+	for (const name of [
+		'access',
+		'appendFile',
+		'lstat',
+		'mkdir',
+		'open',
+		'opendir',
+		'readFile',
+		'readdir',
+		'readlink',
+		'realpath',
+		'rename',
+		'rm',
+		'rmdir',
+		'stat',
+		'unlink',
+		'writeFile',
+	])
+		guard(fs, name, 'async')
+	for (const name of [
+		'access',
+		'appendFile',
+		'lstat',
+		'mkdir',
+		'open',
+		'opendir',
+		'readFile',
+		'readdir',
+		'readlink',
+		'realpath',
+		'rename',
+		'rm',
+		'rmdir',
+		'stat',
+		'unlink',
+		'writeFile',
+	])
+		guard(fs.promises, name, 'async')
+	syncBuiltinESMExports()
+}
+afterAll(() => {
+	if (leaks.length > 0)
+		throw new Error(
+			`tests reached the real application home ${realApplicationHome}; give the code under test an owned NAMZU_HOME:\n${[...new Set(leaks)].join('\n')}`,
+		)
+})

@@ -237,7 +237,12 @@ export async function runFire(
 	let layers: ReturnType<typeof readPermissionLayers>
 	try {
 		projectCtx = resolveTrustedProjectContext(ctx, folder.canonical)
-		layers = readPermissionLayers({ cwd: folder.canonical, env: deps.env ?? process.env })
+		// The user config is the scheduler's home's, whatever NAMZU_HOME the
+		// environment given to the run names (or leaves unset).
+		layers = readPermissionLayers({
+			cwd: folder.canonical,
+			env: { ...(deps.env ?? process.env), NAMZU_HOME: paths.home },
+		})
 	} catch (error) {
 		return blocked(
 			`config cannot be read: ${error instanceof Error ? error.message : String(error)}`,
