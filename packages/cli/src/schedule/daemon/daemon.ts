@@ -62,6 +62,7 @@ import { childEnvironment } from '../env.js'
 import { isFinal, readRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
 import { allowsWrites } from '../policy.js'
+import { resumeCommand } from '../resume-command.js'
 import { PRIVATE_FILE_MODE, ensureDir, writeJsonAtomic } from '../store/atomic.js'
 import { claimOccurrence, isClaimed, pruneClaims } from '../store/claims.js'
 import { appendHistory, compactHistory } from '../store/history.js'
@@ -1070,6 +1071,9 @@ export class ScheduleDaemon {
 				this.#notice(tell, job, {
 					at: new Date(now),
 					...(result.summary ? { summary: result.summary } : {}),
+					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
+						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
+						: {}),
 				}),
 			)
 		}

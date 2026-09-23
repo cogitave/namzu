@@ -29,6 +29,7 @@ import { daemonLogPath, daemonLogSink } from '../daemon/log.js'
 import { type FireArgs, parseFireArgs, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult, writeRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
+import { resumeCommand } from '../resume-command.js'
 import { detectPlatform } from '../service/detect.js'
 import {
 	ServiceRefusal,
@@ -296,6 +297,20 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 			)
 	}
 	const healthy = Boolean(live) || (age !== undefined && age < 90_000)
+	// Runs waiting for the operator, each with the command that answers it:
+	// conversations are stored per folder, so the command carries the folder.
+	const awaitingApproval = jobs.flatMap((job) => {
+		const run = readState(paths, job.id).activeRun
+		return run?.status === 'awaiting-approval' && run.sessionId
+			? [
+					{
+						job: job.name,
+						sessionId: run.sessionId,
+						resumeCommand: resumeCommand(job, run.sessionId),
+					},
+				]
+			: []
+	})
 	const payload = {
 		v: 1,
 		installed: Boolean(manifest),
@@ -316,6 +331,7 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 		notifications: `${backend.kind} (${backend.detail})${'guessed' in backend ? ' — the daemon has not reported, so this is what this shell would pick' : ''}`,
 		jobs: { total: jobs.length, active: jobs.filter((j) => j.state === 'active').length },
 		runsInFlight: runsInFlight(paths),
+		awaitingApproval,
 		problems: pathProblems,
 		log: daemonLogPath(paths.daemonLog),
 	}
@@ -329,6 +345,9 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 				`Daemon         ${live ? `running, pid ${String(live.pid)}, version ${String(live.version)}${live.standby ? ', on standby' : ''}${live.draining ? ', draining for a restart' : ''}` : heartbeat ? `not answering; last seen ${Math.round((age ?? 0) / 1000)} s ago${heartbeat.standby ? ' (on standby)' : ''}` : 'never started'}`,
 				`Notifications  ${backend.kind}${backend.kind === 'none' ? ` — ${backend.detail}` : ''}${'guessed' in backend ? ' (not reported by the daemon yet; this shell would pick it)' : ''}`,
 				`Jobs           ${payload.jobs.active} active of ${payload.jobs.total}; ${payload.runsInFlight} run(s) in progress`,
+				...awaitingApproval.map(
+					(w) => `Waiting        ${w.job} needs your approval: ${w.resumeCommand}`,
+				),
 				`Log            ${payload.log}`,
 				...pathProblems.map((p) => `Warning        ${p}`),
 			].join('\n'),

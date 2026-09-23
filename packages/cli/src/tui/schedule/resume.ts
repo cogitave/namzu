@@ -30,6 +30,7 @@ import { readPermissionLayers } from '../../config/load.js'
 import type { PermissionMode } from '../../permissions/mode.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy } from '../../schedule/policy.js'
+import { resumeCommand } from '../../schedule/resume-command.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
@@ -167,18 +168,6 @@ function describeModel(model: ScheduledPark['model']): string {
 	return model.model ? `${model.provider}/${model.model}` : model.provider
 }
 
-function shellQuote(value: string): string {
-	return /^[A-Za-z0-9._/@+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-/** The command that opens a TUI session matching the job, for the refusal. */
-function matchingResumeCommand(job: ScheduleJob, sessionId: string): string {
-	const addDirs = (job.permissions.additionalDirectories ?? [])
-		.map((dir) => ` --add-dir ${shellQuote(dir)}`)
-		.join('')
-	return `cd ${shellQuote(job.folder.canonical)} && namzu${addDirs} resume ${sessionId}`
-}
-
 /**
  * The operator's permission screen for a scheduled turn: one prompt at a
  * time, each for its own batch only.
@@ -228,7 +217,7 @@ export async function prepareScheduledResume(input: {
 				? ' with `sandbox.enabled: true` in your config'
 				: ' with the sandbox off (`sandbox.enabled: false`)'
 		throw new Error(
-			`the scheduled job ${park.job.name} is waiting for approval, but its turn must continue as the job runs: ${mismatch.join('; ')}. Answer it from a session that matches: ${matchingResumeCommand(park.job, input.sessionId)}${execution}.`,
+			`the scheduled job ${park.job.name} is waiting for approval, but its turn must continue as the job runs: ${mismatch.join('; ')}. Answer it from a session that matches: ${resumeCommand(park.job, input.sessionId)}${execution}.`,
 		)
 	}
 	const ask = scheduledPermission(input.ask)

@@ -29,6 +29,9 @@ function clock(at: Date): string {
 	}).format(at)
 }
 
+/** The longest body a notification carries whole (`sendDesktopNotification` cuts the rest). */
+export const NOTICE_BODY_MAX = 200
+
 export function noticeText(
 	kind: NoticeKind,
 	job: Pick<ScheduleJob, 'name' | 'notify'>,
@@ -38,6 +41,8 @@ export function noticeText(
 		readonly scheduledFor?: Date
 		readonly missed?: number
 		readonly failures?: number
+		/** For a park: the command that opens it (`cd <folder> && namzu resume <id>`). */
+		readonly resumeCommand?: string
 	},
 ): { title: string; body: string } {
 	const title = `namzu: ${job.name}`
@@ -57,8 +62,21 @@ export function noticeText(
 				title,
 				body: `could not start at ${when}: check it with namzu schedule show ${job.name}`,
 			}
-		case 'awaiting-approval':
-			return { title, body: `is waiting for your approval (since ${when}); open /schedule` }
+		case 'awaiting-approval': {
+			const waiting = `is waiting for your approval (since ${when})`
+			// The command only when it fits whole: a notification is cut at
+			// NOTICE_BODY_MAX, and half a `cd` is worse than none.
+			const answer = extra.resumeCommand
+				? `${waiting}; answer it: ${extra.resumeCommand}`
+				: undefined
+			return {
+				title,
+				body:
+					answer && [...answer].length <= NOTICE_BODY_MAX
+						? answer
+						: `${waiting}; namzu schedule show ${job.name} says how to answer it`,
+			}
+		}
 		case 'approval-expired':
 			return { title, body: `approval expired at ${when}; the run was abandoned` }
 		case 'catch-up':

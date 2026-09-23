@@ -169,7 +169,9 @@ lasts as long as the longest run in progress.
 
 `namzu schedule status` shows the service, what the supervisor says, whether the
 daemon answers (pid, version, standby, draining), the notification backend, the
-number of jobs and runs in progress, the log file, and warnings: a node or CLI
+number of jobs and runs in progress, each run waiting for approval with the
+command that answers it (`awaitingApproval: [{ job, sessionId, resumeCommand }]`
+in `--json`), the log file, and warnings: a node or CLI
 path that no longer exists, or a CLI version that differs from the installed
 one.
 
@@ -233,7 +235,8 @@ systemd paths. On a Mac and on native Windows, run these once:
    seconds.
 2. `namzu schedule add probe --prompt "Say hello." --when "in 2m" --permissions
    read-only`, confirm, wait: `namzu schedule history probe` shows `completed`,
-   a notification appeared, `namzu resume <session>` opens the run.
+   a notification appeared, `cd <folder> && namzu resume <session>` opens the
+   run.
 3. Log out and in (macOS) or reboot (Windows): `status` is healthy again
    without anything typed.
 4. macOS: a job whose folder is under `~/Documents` either runs or stops with a

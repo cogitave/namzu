@@ -461,6 +461,17 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.description('Resume an interactive conversation by its durable id')
 		.argument('<conversation-id>', 'Conversation id printed when the TUI exited')
 		.action(async (conversationId: string) => {
+			// Conversations are stored per folder. A scheduled run's id resumed
+			// from elsewhere would only be "not found"; say where it lives.
+			const { scheduledSessionElsewhere } = await import('./schedule/resume-command.js')
+			const elsewhere = scheduledSessionElsewhere(resolveNamzuHome(), conversationId, process.cwd())
+			if (elsewhere) {
+				process.stderr.write(
+					`namzu: ${conversationId} is a run of the scheduled job ${elsewhere.job.name}, and its conversation is stored with the job's folder, ${elsewhere.job.folder.canonical}. Open it there:\n  ${elsewhere.command}\n`,
+				)
+				setExitCode(EX_USAGE)
+				return
+			}
 			await launchInteractiveTui(conversationId)
 		})
 

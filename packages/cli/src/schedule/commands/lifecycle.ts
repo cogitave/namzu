@@ -26,6 +26,7 @@ import { abandonParkedTurn, sessionFacts, sessionLeaseLive } from '../daemon/ses
 import { type FireDependencies, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
+import { resumeCommand } from '../resume-command.js'
 import { claimOccurrence } from '../store/claims.js'
 import { appendHistory, foldHistory, readHistory } from '../store/history.js'
 import {
@@ -355,7 +356,7 @@ export async function runNowCommand(
 		}
 		const result = await record(code, 'the run ended without recording a result')
 		ctx.formatter.print({
-			text: `${job.name}: ${result?.status ?? 'interrupted'}${result?.reason ? ` — ${result.reason}` : ''}${result?.sessionId ? `\nsession ${result.sessionId}` : ''}`,
+			text: `${job.name}: ${result?.status ?? 'interrupted'}${result?.reason ? ` — ${result.reason}` : ''}${result?.sessionId ? `\nsession ${result.sessionId}` : ''}${result?.status === 'awaiting-approval' && result.sessionId ? `\nanswer it: ${resumeCommand(job, result.sessionId)}` : ''}`,
 			status: result?.status,
 		})
 		return code

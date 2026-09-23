@@ -8,6 +8,7 @@ import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import { compileJobPolicy } from '../policy.js'
+import { resumeCommand } from '../resume-command.js'
 import { foldHistory, readHistory } from '../store/history.js'
 import { confirmationHolds, findJob, listJobs } from '../store/jobs.js'
 import { nextFireOf, readState } from '../store/state.js'
@@ -44,7 +45,12 @@ export interface JobListing {
 	readonly folder: string
 	readonly nextFireAt?: string
 	readonly lastRun?: ScheduleJobState['lastRun']
-	readonly activeRun?: { readonly status: string; readonly sessionId?: string }
+	readonly activeRun?: {
+		readonly status: string
+		readonly sessionId?: string
+		/** For a run waiting for approval: the command that opens it, folder included. */
+		readonly resumeCommand?: string
+	}
 }
 
 export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
@@ -62,6 +68,9 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 					activeRun: {
 						status: state.activeRun.status,
 						...(state.activeRun.sessionId ? { sessionId: state.activeRun.sessionId } : {}),
+						...(state.activeRun.status === 'awaiting-approval' && state.activeRun.sessionId
+							? { resumeCommand: resumeCommand(job, state.activeRun.sessionId) }
+							: {}),
 					},
 				}
 			: {}),
@@ -103,6 +112,7 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}`,
 			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
 			`  ${r.folder}`,
+			...(r.activeRun?.resumeCommand ? [`  answer it: ${r.activeRun.resumeCommand}`] : []),
 		].join('\n')
 	})
 	ctx.formatter.print(lines.join('\n'))
@@ -151,6 +161,11 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 				`When        ${describeSchedule(job.schedule, { tz })}`,
 				`Next        ${when(state.nextFireAt, tz)}`,
 				`Folder      ${job.folder.canonical}`,
+				...(state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId
+					? [
+							`Waiting     for approval; answer it: ${resumeCommand(job, state.activeRun.sessionId)}`,
+						]
+					: []),
 				`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,
 				`Budget      ${job.budget.tokenBudget} tokens, ${job.budget.maxIterations} iterations, ${Math.round(job.budget.timeoutMs / 60_000)} min`,
 				`Confirmed   ${job.confirmation ? `${when(job.confirmation.at, tz)} (${job.confirmation.surface})` : 'not yet'}`,

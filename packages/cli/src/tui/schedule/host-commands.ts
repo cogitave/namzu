@@ -16,6 +16,7 @@ import { JobRequestError, buildJob, confirmJob, previewLines } from '../../sched
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy, isPresetName } from '../../schedule/policy.js'
+import { resumeCommand } from '../../schedule/resume-command.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory } from '../../schedule/store/history.js'
 import {
@@ -93,10 +94,11 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
 		)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
+			const command = resumeCommand(job, state.activeRun.sessionId)
 			lines.push(
 				job.folder.canonical === ctx.cwd
-					? `    answer it: /resume and pick "⏲ ${job.name}", or namzu resume ${state.activeRun.sessionId}`
-					: `    answer it: cd '${job.folder.canonical}' && namzu resume ${state.activeRun.sessionId}`,
+					? `    answer it: /resume and pick "⏲ ${job.name}", or ${command}`
+					: `    answer it: ${command}`,
 			)
 		}
 	}

@@ -209,10 +209,17 @@ A call held for you parks the turn: the run records `awaiting-approval`, you get
 a notification, and the job's next occurrences are skipped
 (`previous-run-awaiting-approval`) until it is answered.
 
-Answer it in the TUI, in the job's folder: `/schedule` lists the waiting run,
-and `namzu resume <session-id>` opens its conversation with the parked call
-already on the permission screen (`/resume` inside the conversation does the
-same; a turn that is not a scheduled run's park waits for `/resume`). **Approve** runs exactly the parked batch — the model is not asked
+Answer it in the TUI, from the job's folder: a run's conversation is stored with
+its folder, so `namzu resume <session-id>` finds it only there. Every place that
+tells you how to answer — the notification, `/schedule`, `schedule list`,
+`show`, `status` and a foreground `run-now` — gives the whole command,
+`cd <folder> && namzu [--add-dir <dir>]… resume <session-id>`, quoted for a
+POSIX shell (the notification only when the command fits in it whole, else it
+points at `schedule show`). `namzu resume <session-id>` run from another folder
+says which job the run belongs to and prints that command, and exits 64. The
+command opens the conversation with the parked call already on the permission
+screen (`/resume` inside the conversation does the same; a turn that is not a
+scheduled run's park waits for `/resume`). **Approve** runs exactly the parked batch — the model is not asked
 again — and later calls in that turn are asked of you live. **Reject** refuses
 it and the turn continues. The resumed turn stays under **the job's rules**, not
 your folder's: a `deny` in the job holds even if your config allows it. It also
@@ -313,7 +320,8 @@ killed outright is settled by the next `run-now` or the scheduler, as soon as
 nothing holds its session.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
-tz, folder, nextFireAt?, lastRun?, activeRun? }] }`; `show` prints `{ "v": 1,
+tz, folder, nextFireAt?, lastRun?, activeRun?: { status, sessionId?,
+resumeCommand? } }] }`, `resumeCommand` for a run waiting for approval; `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
 "records": [...] }` with records newest first, a run's last status winning.
 
