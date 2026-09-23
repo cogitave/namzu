@@ -75,7 +75,7 @@ with mode 0700 and refused if it is a symlink or owned by another user.
 | `schedule/history/`, `schedule/runs/`, `schedule/daemon/log/` | Records and output of past runs, and the scheduler's log. | Yes. |
 | `schedule/claims/` | Which occurrences already started. | Only while the scheduler is stopped: deleting one while it runs can re-run an occurrence after a backward clock jump inside the catch-up window. |
 | `schedule/state/` | The scheduler's memory of each job. | Only while the scheduler is stopped; it is rebuilt, and occurrences within the catch-up window may then be caught up again. |
-| Old run sessions | The scheduler **archives** (never deletes) a job's completed-run sessions beyond its newest `retention.keepSessions` (default 20), so `/resume` stays usable. | `namzu schedule prune --delete` deletes old runs and their sessions after listing them. |
+| Old run sessions | The scheduler **archives** (never deletes) a job's completed-run sessions beyond its newest `retention.keepSessions` (default 20), so `/resume` stays usable. | `namzu schedule prune --delete` deletes old runs and their sessions after listing them, a removed job's included, and a removed job's history once none of its runs is left. |
 
 ## Why one log per session
 

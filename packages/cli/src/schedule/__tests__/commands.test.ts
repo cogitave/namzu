@@ -6,7 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { addCommand, confirmCommand } from '../commands/add.js'
-import { pauseCommand, removeCommand } from '../commands/lifecycle.js'
+import { pauseCommand, pruneCommand, removeCommand } from '../commands/lifecycle.js'
 import { historyCommand, listCommand } from '../commands/list.js'
 import { findJob, readJob } from '../store/jobs.js'
 import { type Sandbox, confirmedJob, recordingContext, sandbox } from './fixtures.js'
@@ -102,5 +102,56 @@ describe('reading and changing jobs', () => {
 		expect(await removeCommand(recordingContext(), ['nightly', '--home', sb.home])).toBe(64)
 		expect(await removeCommand(recordingContext(), ['nightly', '--home', sb.home, '--yes'])).toBe(0)
 		expect(readJob(sb.paths, job.id)).toBeUndefined()
+	})
+})
+
+describe('prune', () => {
+	it('reaches a removed job’s run files and, once they are gone, its history', async () => {
+		const { mkdirSync, writeFileSync, existsSync, utimesSync } = await import('node:fs')
+		const { appendHistory } = await import('../store/history.js')
+		const { writeRunResult } = await import('../fire/result.js')
+		const kept = confirmedJob(sb, { name: 'kept' })
+		const gone = confirmedJob(sb, { name: 'gone' })
+		const old = new Date(Date.now() - 40 * 86_400_000).toISOString()
+		for (const job of [kept, gone]) {
+			appendHistory(sb.paths, job.id, {
+				v: 1,
+				kind: 'run',
+				at: old,
+				runId: `run-${job.name}`,
+				key: '1',
+				trigger: 'scheduled',
+				startedAt: old,
+				endedAt: old,
+				status: 'completed',
+			})
+			writeRunResult(sb.paths, {
+				v: 1,
+				kind: 'schedule-run-result',
+				runId: `run-${job.name}`,
+				jobId: job.id,
+				status: 'completed',
+				exitCode: 0,
+				startedAt: old,
+				endedAt: old,
+			})
+		}
+		// A run file history never named, old enough to go.
+		mkdirSync(sb.paths.runsOf(gone.id), { recursive: true })
+		writeFileSync(sb.paths.runLog(gone.id, 'orphan'), 'x')
+		const then = new Date(Date.now() - 40 * 86_400_000)
+		utimesSync(sb.paths.runLog(gone.id, 'orphan'), then, then)
+		expect(await removeCommand(recordingContext(), ['gone', '--home', sb.home, '--yes'])).toBe(0)
+
+		const dry = recordingContext()
+		expect(await pruneCommand(dry, ['--home', sb.home])).toBe(0)
+		expect(String(dry.out.printed[0])).toMatch(/removed job .* run run-gone/)
+		expect(String(dry.out.printed[0])).toMatch(/removed job .* run orphan/)
+
+		expect(await pruneCommand(recordingContext(), ['--home', sb.home, '--delete', '--yes'])).toBe(0)
+		expect(existsSync(sb.paths.runsOf(gone.id))).toBe(false)
+		expect(existsSync(sb.paths.historyOf(gone.id))).toBe(false)
+		expect(existsSync(sb.paths.runResult(kept.id, 'run-kept'))).toBe(false)
+		expect(existsSync(sb.paths.historyOf(kept.id))).toBe(true)
 	})
 })

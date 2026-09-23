@@ -252,10 +252,13 @@ namzu schedule history <job> [--json]     # runs, skips and missed occurrences w
 namzu schedule edit <job> [options]       # change it; confirmed again
 namzu schedule pause|resume <job>
 namzu schedule run-now <job>              # through the scheduler, or here when it is not running
-namzu schedule remove <job> [--yes]
-namzu schedule prune [--older-than 30d] [--delete]
+namzu schedule remove <job> [--yes]            # history and run files are kept
+namzu schedule prune [--older-than 30d] [--delete] # old runs and their sessions, removed jobs' too
 namzu schedule logs [--follow] [--job <name>]
 ```
+
+`prune` covers removed jobs as well (without `--job`): their run files and run
+sessions older than the cutoff, and their history once no run of theirs is left.
 
 `run-now` with no scheduler running runs the job in your terminal, recorded as
 the job's run in progress exactly as a scheduled run is: a scheduler that
