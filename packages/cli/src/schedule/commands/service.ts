@@ -236,6 +236,20 @@ function readHeartbeat(paths: SchedulePaths): Heartbeat | undefined {
 	}
 }
 
+/** The backend the daemon reported, `kind: detail`, live or from its heartbeat. */
+function daemonNotifications(
+	heartbeat: Heartbeat | undefined,
+	live: Record<string, unknown> | undefined,
+): { kind: string; detail: string } | undefined {
+	const reported =
+		typeof live?.notifications === 'string' ? live.notifications : heartbeat?.notifications
+	if (!reported || reported === 'unknown') return undefined
+	const at = reported.indexOf(': ')
+	return at < 0
+		? { kind: reported, detail: '' }
+		: { kind: reported.slice(0, at), detail: reported.slice(at + 2) }
+}
+
 export async function statusCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
 	const args = parseArgs(argv, ['home', 'json!'])
 	if (args.unknown.length > 0) {
@@ -255,9 +269,15 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 			)
 		: 'not installed'
 	const jobs = listJobs(paths).jobs
-	const backend = selectDesktopBackend(
-		manifest?.windows?.powershell ? { powershell: manifest.windows.powershell } : {},
-	)
+	// What the daemon picked, from its own heartbeat: this shell's environment
+	// is not the service's (under systemd in WSL it has no interop), so a
+	// backend computed here named one the daemon was not using.
+	const backend = daemonNotifications(heartbeat, live) ?? {
+		...selectDesktopBackend(
+			manifest?.windows?.powershell ? { powershell: manifest.windows.powershell } : {},
+		),
+		guessed: true,
+	}
 	const pathProblems: string[] = []
 	if (manifest) {
 		for (const [label, path] of [
@@ -293,7 +313,7 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 						version: heartbeat.version,
 					}
 				: null,
-		notifications: `${backend.kind} (${backend.detail})`,
+		notifications: `${backend.kind} (${backend.detail})${'guessed' in backend ? ' — the daemon has not reported, so this is what this shell would pick' : ''}`,
 		jobs: { total: jobs.length, active: jobs.filter((j) => j.state === 'active').length },
 		runsInFlight: runsInFlight(paths),
 		problems: pathProblems,
@@ -307,7 +327,7 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 				`Service        ${manifest ? `${manifest.name} (${manifest.platform})` : 'not installed — namzu schedule install'}`,
 				`Supervisor     ${supervisor}`,
 				`Daemon         ${live ? `running, pid ${String(live.pid)}, version ${String(live.version)}${live.standby ? ', on standby' : ''}${live.draining ? ', draining for a restart' : ''}` : heartbeat ? `not answering; last seen ${Math.round((age ?? 0) / 1000)} s ago${heartbeat.standby ? ' (on standby)' : ''}` : 'never started'}`,
-				`Notifications  ${backend.kind}${backend.kind === 'none' ? ` — ${backend.detail}` : ''}`,
+				`Notifications  ${backend.kind}${backend.kind === 'none' ? ` — ${backend.detail}` : ''}${'guessed' in backend ? ' (not reported by the daemon yet; this shell would pick it)' : ''}`,
 				`Jobs           ${payload.jobs.active} active of ${payload.jobs.total}; ${payload.runsInFlight} run(s) in progress`,
 				`Log            ${payload.log}`,
 				...pathProblems.map((p) => `Warning        ${p}`),

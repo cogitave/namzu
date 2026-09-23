@@ -60,6 +60,17 @@ describe('a WSL toast', () => {
 		expect(TOAST_SCRIPT).toContain('[Security.SecurityElement]::Escape')
 	})
 
+	it('is still WSL, with none, for a systemd service that has no WSL variables at all', () => {
+		const backend = selectDesktopBackend({
+			platform: 'linux',
+			env: { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1000/bus', PATH: '/usr/bin' },
+			exists: () => true,
+			osRelease: () => '6.6.87.2-microsoft-standard-WSL2',
+		})
+		expect(backend.kind).toBe('none')
+		expect(backend.detail).toMatch(/WSL_INTEROP/)
+	})
+
 	it('falls back to none without interop', () => {
 		const backend = selectDesktopBackend({
 			...wslProbe,
@@ -83,7 +94,12 @@ describe('other backends', () => {
 	})
 
 	it('Linux without a session bus has none, with the reason', () => {
-		const backend = selectDesktopBackend({ platform: 'linux', env: {}, exists: () => false })
+		const backend = selectDesktopBackend({
+			platform: 'linux',
+			env: {},
+			exists: () => false,
+			osRelease: () => '6.1.0-generic',
+		})
 		expect(backend).toMatchObject({ kind: 'none' })
 		expect(backend.detail).toMatch(/session bus/)
 	})

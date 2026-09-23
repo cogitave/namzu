@@ -17,7 +17,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { detectWsl } from '../../context/environment.js'
 import { gdbusArguments, notifySendArguments } from './desktop/freedesktop.js'
@@ -45,6 +45,16 @@ export interface BackendProbe {
 	readonly which?: (name: string) => string | undefined
 	/** `powershell.exe` under WSL, as recorded at install. */
 	readonly powershell?: string
+	/** The kernel release (`/proc/sys/kernel/osrelease`); WSL's names Microsoft. */
+	readonly osRelease?: () => string | undefined
+}
+
+function readOsRelease(): string | undefined {
+	try {
+		return readFileSync('/proc/sys/kernel/osrelease', 'utf8')
+	} catch {
+		return undefined
+	}
 }
 
 function whichOnPath(env: NodeJS.ProcessEnv, exists: (p: string) => boolean) {
@@ -85,12 +95,17 @@ export function selectDesktopBackend(probe: BackendProbe = {}): DesktopBackend {
 		}
 	}
 	const wsl = detectWsl(env, { exists })
-	if (wsl) {
-		if (!wsl.interop || !env.WSL_INTEROP) {
+	// A systemd user service in WSL gets neither WSL_DISTRO_NAME nor
+	// WSL_INTEROP, so the environment alone does not say this is WSL; the
+	// kernel does. Without this, such a daemon picked the Linux session bus,
+	// which nothing in WSL displays, and every notification failed.
+	const wslKernel = !wsl && /microsoft/i.test((probe.osRelease ?? readOsRelease)() ?? '')
+	if (wsl || wslKernel) {
+		if (!wsl?.interop || !env.WSL_INTEROP) {
 			return {
 				kind: 'none',
 				detail:
-					'WSL interop is not available to this process (no WSL_INTEROP), so Windows notifications cannot be shown',
+					'WSL interop is not available to this process (no WSL_INTEROP; a systemd service has none), so Windows notifications cannot be shown',
 			}
 		}
 		const powershell = probe.powershell ?? WSL_POWERSHELL
