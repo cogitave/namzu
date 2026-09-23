@@ -622,3 +622,36 @@ export type {
 	ParsedSessionLogLine,
 	SessionLogLineFault,
 } from './session/log-hash.js'
+
+// Scheduled jobs: the time engine's and evaluator's types. The unions here
+// may grow in a minor release; switch over them with a `default:` branch.
+export type {
+	CronExpression,
+	DescribeScheduleOptions,
+	OccurrenceCount,
+	ParseScheduleOptions,
+	ScheduleAtSpec,
+	ScheduleCronSpec,
+	ScheduleDecision,
+	ScheduleEvaluationInput,
+	ScheduleEvaluationJob,
+	ScheduleEvaluationState,
+	ScheduleEverySpec,
+	ScheduleFireTrigger,
+	ScheduleJobLifecycle,
+	ScheduleMissedReason,
+	ScheduleObservedGap,
+	ScheduleSkipReason,
+	ScheduleSpec,
+} from './schedules/index.js'
+export type {
+	ScheduleConfirmAnswer,
+	ScheduleConfirmRequest,
+	ScheduleJobDraft,
+	ScheduleJobPreview,
+	ScheduleJobSummary,
+	ScheduleRuleEffect,
+	ScheduleToolHost,
+	SessionLoop,
+	SessionLoopHost,
+} from './tools/schedules/index.js'

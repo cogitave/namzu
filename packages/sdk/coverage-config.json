@@ -31,6 +31,7 @@
 			"runtime",
 			"sandbox",
 			"scheduler",
+			"schedules",
 			"session",
 			"session-query",
 			"skills",

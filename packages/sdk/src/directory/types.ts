@@ -16,6 +16,8 @@ import type { ToolDefinition } from '../types/tool/index.js'
  * those is a `major` waiting to happen on a published type. The layering
  * question — does a convention belong outside the kernel — was answered yes
  * and stands; the shape question had simply never been asked.
+ * Schedules were later answered outside this loader, with a zone per spec and
+ * a claimed occurrence key: see `docs/sdk/schedules.md` (`../schedules/`).
  */
 export type DirectorySlot = 'agent' | 'instructions' | 'tools' | 'skills' | 'agents'
 

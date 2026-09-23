@@ -622,6 +622,26 @@ export {
 	formatCompletionNotification,
 } from './scheduler/completion-inbox.js'
 
+// Scheduled jobs: WHEN something is due, and nothing about how a host stores
+// or runs a job. The time engine and the evaluator are pure (`Intl` for time
+// zones, no clock, no I/O); the CLI keeps its job files and history to itself.
+export {
+	countOccurrences,
+	describeSchedule,
+	evaluateJob,
+	hostTimeZone,
+	nextFireTime,
+	parseCronExpression,
+	parseDuration,
+	parseScheduleSpec,
+	previousFireTime,
+	SCHEDULE_CATCH_UP_WINDOW_MS,
+	SCHEDULE_LATE_GRACE_MS,
+	ScheduleValidationError,
+	upcomingFireTimes,
+	validateTimeZone,
+} from './schedules/index.js'
+
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
 export {

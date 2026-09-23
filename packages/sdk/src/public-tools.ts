@@ -128,6 +128,18 @@ export {
 } from './tools/coordinator/ask-user-question.js'
 export { buildAgentTool, type AgentToolOptions } from './tools/coordinator/agent.js'
 
+// Scheduled jobs and in-session loops, over host callbacks: the host stores
+// jobs, draws the confirmation and computes every field it shows. Register
+// only where a person can confirm (never headless, scheduled or delegated).
+export {
+	buildScheduleTools,
+	buildSessionLoopTools,
+	revealHiddenCharacters,
+	scanSchedulePrompt,
+	SCHEDULE_TOOL_NAME,
+	SESSION_LOOP_TOOL_NAME,
+} from './tools/schedules/index.js'
+
 // ─── RAG tool builder ────────────────────────────────────────────────────
 
 export { createRAGTool } from './rag/index.js'
