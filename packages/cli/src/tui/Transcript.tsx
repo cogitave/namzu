@@ -6,12 +6,12 @@
  * streams; the Working row owns the active turn's animation.
  */
 
-import { Box, Static, Text } from 'ink'
+import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo } from 'react'
 
 import { Checklist, checklistLine } from './Checklist.js'
-import { Markdown } from './Markdown.js'
+import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { StatusPanel } from './StatusPanel.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -132,7 +132,11 @@ export function Transcript({
 	const drawn: readonly TranscriptMessage[] = pending
 		? [...live.slice(0, at), pending, ...live.slice(at)]
 		: live
+	// The text beside the two-column glyph gutter: the terminal less the
+	// caller's padding on both sides, which settled rows draw themselves.
+	const { columns } = useWindowSize()
 	return (
+		<ContentWidth.Provider value={Math.max(10, columns - 2 * staticIndent - 2)}>
 		<Box flexDirection="column">
 			<Static key={resetKey} items={rows}>
 				{(row) => (
@@ -163,6 +167,7 @@ export function Transcript({
 					})
 				: null}
 		</Box>
+		</ContentWidth.Provider>
 	)
 }
 
@@ -238,6 +243,7 @@ function MessageRow({
 	// The other roles flow straight into Ink here and need the projection now.
 	const content =
 		message.role === 'assistant' ? message.content : terminalDisplayText(message.content)
+	const width = useContentWidth()
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
@@ -247,7 +253,13 @@ function MessageRow({
 	// belonging to the call that produced it rather than as free-standing.
 	const exploration = message.activity === 'exploration'
 	const startsExploration = exploration && prev?.activity !== 'exploration'
-	const gap = !prev || message.glyph === '⎿' || (exploration && !startsExploration) ? 0 : 1
+	// Consecutive web searches and fetches read as one burst of work, the way
+	// consecutive exploration steps do: no blank line between one call's `⎿`
+	// line and the next call.
+	const web = message.activity === 'web'
+	const continuesWeb = web && prev?.activity === 'web'
+	const gap =
+		!prev || message.glyph === '⎿' || (exploration && !startsExploration) || continuesWeb ? 0 : 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
 			{startsExploration ? <Text bold color={theme.text.secondary}>Explored</Text> : null}
@@ -264,8 +276,23 @@ function MessageRow({
 							color={contentColorForRole(message.role)}
 							hyperlinks={hyperlinks}
 						/>
-					) : (
+					) : !web && content.length > 0 ? (
+						// Every other row wraps the way a reply does, each row in the
+						// same column (see `markdown-wrap.ts`); a web row is cut instead.
 						<Text color={contentColorForRole(message.role)} wrap="wrap">
+							<WrappedSpans
+								spans={[
+									{ text: content },
+									...(message.meta
+										? [{ text: ` · ${terminalDisplayText(message.meta)}`, muted: true }]
+										: []),
+								]}
+								width={width}
+								color={contentColorForRole(message.role)}
+							/>
+						</Text>
+					) : (
+						<Text color={contentColorForRole(message.role)} wrap={web ? 'truncate-end' : 'wrap'}>
 							{content}
 							{message.meta ? (
 								<Text color={theme.text.muted}> · {terminalDisplayText(message.meta)}</Text>

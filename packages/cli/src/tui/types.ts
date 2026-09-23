@@ -32,8 +32,13 @@ export interface TranscriptMessage {
 	/** Structured operator status snapshot; plain content remains available for raw/export. */
 	readonly statusRows?: readonly (readonly [string, string])[]
 	readonly pending?: boolean
-	/** Compact successful observation, with full output available on expansion. */
-	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result'
+	/**
+	 * Compact successful observation, with full output available on expansion.
+	 * `web` rows (a search or fetch and its `⎿` line) also sit together without
+	 * a blank line between consecutive calls, and never wrap: they are cut at
+	 * the terminal's width with an ellipsis.
+	 */
+	readonly activity?: 'exploration' | 'catalogue' | 'evidence' | 'agent-result' | 'web'
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */

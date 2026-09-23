@@ -202,7 +202,10 @@ and never redrawn; the live state belongs to the rail.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched, in how many phases when the model
   named two or more, what they spent when any reported it, and how many failed
-  when one did. A turn that delegated nothing adds no line.
+  when one did. A turn that delegated nothing closes with its time alone,
+  `✻ Worked for 46s`, when it finished normally and took three seconds or more;
+  a quicker answer, or a turn that was stopped or cancelled (which already says
+  how it ended), adds no line.
 
 While the parent does nothing but wait on its agents, the per-call rows under
 `Working` fold into one line, `✻ Waiting for 2 agents to finish` (or
@@ -232,6 +235,77 @@ are distinct. Ctrl+O expands the original retained JSON; malformed receipts and
 tool failures keep the ordinary output view. This is a TUI projection only and
 does not change the model-facing tool result.
 
+## Web searches and fetches
+
+A web search is one row naming what was searched for and one `⎿` line under
+it; a page fetch is the same shape with the address:
+
+```text
+✓ Web search("OpenClaw agent runtime built on pi-agent-core framework")
+⎿ Did 1 search in 9.0s
+✓ Web search("OpenClaw embedded runtime")
+⎿ Found 3 results in 4.1s
+✓ Web fetch(https://docs.openclaw.ai/agent-runtime-architecture)
+⎿ Received 7.5KB in 1.2s · ctrl+o output
+```
+
+While a call runs, its row under `Working` carries the same `⎿` line as a
+status: `Searching: <query>` (`Searching…` while a provider has not yet said
+what it is searching for) or `Fetching <host>…`. Once it settles the line says
+what it came to: the number of results when the provider or tool reported
+one, `Did 1 search` when it did not, the size of a fetched page, and how long
+it took. Consecutive searches and fetches sit together without a blank line
+between them. The row never wraps: a long query or address is cut at the
+terminal's width with an ellipsis. A fetched page or a search's result list
+stays behind Ctrl+O. Provider-hosted searches (see [Web search](web-search.md))
+are named from the query the provider reports; a provider that opens a page
+rather than running a query is shown as a fetch of that page. A failed call
+keeps `✗` and its `failed: …` line.
+
+## Tables
+
+A markdown table in a reply is drawn as a box of one-cell rule glyphs
+(`┌┬┐ ├┼┤ └┴┘ │ ─`), sized to the terminal: each column gets its widest line
+when everything fits; otherwise columns that need no more than an even share
+keep their width, and the rest share what remains, each at least as wide as
+its longest word (up to 30 cells; a longer word, such as a URL, breaks inside
+its cell). A cell too long for its column wraps inside it, and a rule
+separates every row. Inline markdown in a cell is drawn — bold, `code`, links —
+never shown as `**` or backticks. The header is bold and centred; body cells
+follow the separator row's alignment (`:--`, `:-:`, `--:`).
+
+```text
+┌───────────────────┬──────────────────────────────────────────────────────┐
+│      Katman       │                   Kullanılan yapı                    │
+├───────────────────┼──────────────────────────────────────────────────────┤
+│ Agent core / loop │ OpenClaw’ın kendi çekirdeği: @openclaw/agent-core —  │
+│                   │ agent loop, harness tipleri, mesajlar, compaction    │
+├───────────────────┼──────────────────────────────────────────────────────┤
+│ Runtime facade    │ src/agents/runtime/, @openclaw/runtime               │
+└───────────────────┴──────────────────────────────────────────────────────┘
+```
+
+Where the columns cannot hold their longest words, or a row would wrap to more
+than four lines, the table is drawn as records instead: a `Header: value` line
+per column, wrapped to the full width, with a `─` rule (at most 40 cells)
+between records.
+
+```text
+Katman: Agent core / loop
+Kullanılan yapı: OpenClaw’ın kendi çekirdeği: @openclaw/agent-core — agent
+loop, harness tipleri, mesajlar, compaction yardımcıları
+────────────────────────────────────────
+Katman: Runtime facade
+Kullanılan yapı: src/agents/runtime/, @openclaw/runtime
+```
+
+Widths are terminal cells as `string-width` measures them, so CJK text and
+emoji keep the box straight. A table streaming in is drawn as a table from the
+moment its separator row arrives: a lone `| a | b |` line is held back until
+the line after it shows whether it is a header, a row is released only once
+it is complete, and a line with a pipe after the separator stays a row of the
+table rather than falling out below it as a paragraph.
+
 ## The model's plan
 
 `task_create`, `task_update` and `task_list` leave one block in the transcript
@@ -259,6 +333,12 @@ when no step is open.
 ## Reading the conversation
 
 The `›` mark identifies an operator message and `∴` identifies a Namzu reply.
+Both, and every notice and tool row except a web call's (which is cut, see
+[Web searches and fetches](#web-searches-and-fetches)), are wrapped by Namzu to
+the width beside the gutter, breaking at the
+space between words and dropping it, so every row of a paragraph starts in the
+same column; a word longer than the row (a URL, a path) continues on the next
+row rather than being cut at the edge, and a tab is drawn as four spaces.
 Tool results remain grouped beneath their calls, with expandable output and
 diffs. Color supports the text and symbols: errors, permissions and task states
 retain explicit labels. Raw output remains the original source projection.
@@ -288,7 +368,12 @@ mounted, so drafts
 and attachments survive the transition.
 
 The Working label itself has a repeating green fill and pale leading edge,
-alongside elapsed time. No extra logo is added to the activity row. This is activity, not percentage
+alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
+tokens · esc to interrupt)`. The count is the provider's reported output
+tokens for the turn plus an estimate (characters over four) of the reply and
+reasoning streamed since that report, redrawn at most five times a second; it
+is absent until the model has written something. On a narrow terminal the
+figures after the label are cut with an ellipsis; the label keeps its letters. No extra logo is added to the activity row. This is activity, not percentage
 progress. Short screens retain the same animated label. Animation stops
 for permission and text prompts and disappears when work ends; no success is
 inferred from a stopped turn. Decorative motion is disabled for non-interactive

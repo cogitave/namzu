@@ -8,6 +8,8 @@
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useRef } from 'react'
 
+import { formatCompactCount, formatElapsed } from './units.js'
+import type { WebActivity } from './web-activity.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -25,6 +27,8 @@ export interface ActiveTool {
 	 * wait, the rows fold into one `✻ Waiting for …` line.
 	 */
 	readonly waitingOn?: string
+	/** A web search or fetch: its `progress` line is drawn as the call's `⎿` status. */
+	readonly web?: WebActivity
 }
 
 export interface LiveActivityProps {
@@ -45,6 +49,12 @@ export interface LiveActivityProps {
 	 * provider gave no readable text" and still earns the row.
 	 */
 	readonly thinking?: string | null
+	/**
+	 * Output tokens this turn has produced so far, as `↓ 1.1k tokens`. The
+	 * provider's own count once it has reported one, plus an estimate of what
+	 * has streamed since. Absent or zero draws nothing.
+	 */
+	readonly tokens?: number
 }
 
 const MAX_VISIBLE_TOOLS = 3
@@ -57,6 +67,7 @@ export function LiveActivity({
 	interruptible = false,
 	animate = true,
 	thinking = null,
+	tokens,
 }: LiveActivityProps) {
 	const { stdout } = useStdout()
 	const screenReader = useIsScreenReaderEnabled()
@@ -97,6 +108,7 @@ export function LiveActivity({
 	)
 	const now = Date.now()
 	const elapsed = formatElapsed(now - (startedAtRef.current ?? now))
+	const spent = tokens !== undefined && tokens > 0 ? ` · ↓ ${formatCompactCount(tokens)} tokens` : ''
 	const waiting = waitingLine(activeTools)
 	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
 	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
@@ -117,6 +129,7 @@ export function LiveActivity({
 					<Text color={theme.text.muted}>
 						{' · '}
 						{elapsed}
+						{spent}
 						{activeTools.length > 0
 							? ` · ${activeTools.length} tool${activeTools.length === 1 ? '' : 's'}`
 							: ''}
@@ -147,10 +160,13 @@ export function LiveActivity({
 	return (
 		<Box flexDirection="column">
 			<Box flexDirection="row">
-				{mark}
-				<Text color={theme.text.muted}>
+				{/* The label keeps its letters on a narrow terminal; the figures after
+				    it are what gets cut, with an ellipsis. */}
+				<Box flexShrink={0}>{mark}</Box>
+				<Text color={theme.text.muted} wrap="truncate-end">
 					{' ('}
 					{elapsed}
+					{spent}
 					{agentCount > 0
 						? ` · ${agentCount} agent${agentCount === 1 ? '' : 's'} · ctrl+t to view`
 						: ''}
@@ -176,6 +192,7 @@ export function LiveActivity({
 						{t.progress !== undefined ? (
 							<Box flexDirection="row" paddingLeft={2}>
 								<Text color={theme.text.muted} wrap="truncate-end">
+									{t.web ? '⎿ ' : ''}
 									{percent}
 									{terminalDisplayText(t.progress)}
 								</Text>
@@ -211,11 +228,4 @@ export function waitingLine(tools: readonly ActiveTool[]): string | undefined {
 	return names.length === 1 ? `Waiting for ${names[0]}` : `Waiting for ${names.length} agents to finish`
 }
 
-/** `420ms` → `0.4s`, `3210ms` → `3.2s`, `12000ms` → `12s`, `83000ms` → `1m23s`. */
-export function formatElapsed(ms: number): string {
-	const s = ms / 1000
-	if (s < 10) return `${s.toFixed(1)}s`
-	if (s < 60) return `${Math.round(s)}s`
-	const m = Math.floor(s / 60)
-	return `${m}m${Math.round(s - m * 60)}s`
-}
+export { formatElapsed } from './units.js'

@@ -145,11 +145,14 @@ describe('completion row', () => {
 })
 
 describe('settle line', () => {
-	it('is written only for a turn that delegated', () => {
+	it('names the agents of a turn that delegated and the time alone of one that did not', () => {
 		const three = ['a', 'b', 'c'].map((viewId) => agent({ viewId }))
 		expect(settleLine(38_200, three)).toBe('Worked for 38s · 3 agents')
 		expect(settleLine(1_700, [agent({ viewId: 'solo' })])).toBe('Worked for 1.7s · 1 agent')
-		expect(settleLine(5_000, [])).toBeUndefined()
+		expect(settleLine(5_000, [])).toBe('Worked for 5.0s')
+		expect(settleLine(46_000, [])).toBe('Worked for 46s')
+		// An answer that arrived at once closes without an account of it.
+		expect(settleLine(2_999, [])).toBeUndefined()
 	})
 
 	it('closes a phased workflow with its phases, spend and failures', () => {

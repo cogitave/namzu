@@ -44,3 +44,27 @@ it.each([40, 100])('draws a settled row in the column and at the width it had li
 	// And nothing reaches the last column, where a terminal would wrap it again.
 	for (const line of rows) expect([...line].length).toBeLessThanOrEqual(cols - 1)
 })
+
+it.each([40, 80, 120, 160])(
+	'starts every wrapped row of a notice in the column of its first word, at %i columns',
+	async (cols) => {
+		// Words sized so that some end exactly at the edge: Ink's own wrap put
+		// the following space at the start of the next row.
+		const words = Array.from({ length: 60 }, (_, i) => 'ğ'.repeat((i % 7) + 2)).join(' ')
+		const messages: TranscriptMessage[] = [
+			{ id: 'n', role: 'system', content: words, glyph: '·' },
+			{ id: 'u', role: 'user', content: words },
+		]
+		mounted = await renderToScreen(
+			<Box flexDirection="column" paddingX={1}>
+				<Transcript messages={messages} pending={null} state="idle" settled={1} resetKey={0} staticIndent={1} />
+			</Box>,
+			{ cols, rows: 60 },
+		)
+		const rows = mounted.viewport().filter((line) => line.trim().length > 0)
+		for (const line of rows) {
+			expect(line).toMatch(/^ (?:[·›] |  )\S/u)
+			expect([...line].length).toBeLessThanOrEqual(cols - 1)
+		}
+	},
+)

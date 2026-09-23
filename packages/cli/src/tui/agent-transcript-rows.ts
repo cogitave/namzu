@@ -94,8 +94,16 @@ export function completionRow(agent: SubagentActivity, now = Date.now()): Comple
 }
 
 /**
- * `Worked for 38s · 3 agents in 2 phases · 27.0k tokens`, or `undefined` for
- * a turn that delegated nothing.
+ * A turn that delegated nothing and took less than this closes without a
+ * line: an answer that arrived at once needs no account of how long it took.
+ */
+export const SETTLE_LINE_MIN_MS = 3_000
+
+/**
+ * `Worked for 38s · 3 agents in 2 phases · 27.0k tokens`, or `Worked for 46s`
+ * for a turn that delegated nothing — a finished turn closes with how long it
+ * took, as the reference terminal's do — or `undefined` for a turn that
+ * delegated nothing and finished within {@link SETTLE_LINE_MIN_MS}.
  *
  * The phase count appears only when the model named two or more phases, the
  * tokens only when a child reported spend, and `· 1 failed` only when one
@@ -106,7 +114,8 @@ export function settleLine(
 	elapsedMs: number,
 	agents: readonly SubagentActivity[],
 ): string | undefined {
-	if (agents.length <= 0) return undefined
+	if (agents.length <= 0)
+		return elapsedMs >= SETTLE_LINE_MIN_MS ? `Worked for ${formatElapsed(elapsedMs)}` : undefined
 	const phases = new Set(
 		agents.filter((agent) => agent.phase !== DEFAULT_AGENT_PHASE).map((agent) => agent.phaseId),
 	).size

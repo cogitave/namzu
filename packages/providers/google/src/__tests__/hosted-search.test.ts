@@ -44,6 +44,11 @@ it('combines native search and functions and retains grounded links', async () =
 		'running',
 		'completed',
 	])
+	expect(chunks.flatMap((c) => c.delta.hostedTool ?? []).at(-1)).toMatchObject({
+		status: 'completed',
+		query: 'test',
+		results: 1,
+	})
 	const content = chunks.map((c) => c.delta.content ?? '').join('')
 	const replayState = chunks.find((c) => c.replayState)?.replayState
 	for await (const _ of provider.chatStream({

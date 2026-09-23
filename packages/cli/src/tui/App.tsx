@@ -155,6 +155,7 @@ import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
+import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
 import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
@@ -545,6 +546,14 @@ type StreamState = {
 	taskBlockKey?: string
 	/** When this turn began, for the closing line of a turn that delegated. */
 	startedAt?: number
+	/**
+	 * Output tokens the provider has reported for this turn, and characters of
+	 * reply and reasoning streamed since that report. Together they are the
+	 * `↓ 1.1k tokens` on the Working row: the provider's count where it has
+	 * given one, a characters-over-four estimate for what has arrived since.
+	 */
+	reportedOutputTokens?: number
+	streamedChars?: number
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -655,6 +664,8 @@ type RunningTool = ActiveTool & {
 	readonly turnId?: string
 	readonly toolName: string
 	readonly detail?: readonly string[]
+	/** A web search or fetch, named by its query or address. */
+	readonly web?: WebActivity
 }
 
 /**
@@ -1016,6 +1027,16 @@ export function App({
 	 * than as silence. Cleared by the first text or tool call that follows.
 	 */
 	const [thinking, setThinking] = useState<string | null>(null)
+	/** Output tokens of the running turn, for the Working row. See `StreamState`. */
+	const [turnTokens, setTurnTokens] = useState(0)
+	const turnTokensShownAt = useRef(0)
+	const turnTokensTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+	useEffect(
+		() => () => {
+			if (turnTokensTimer.current) clearTimeout(turnTokensTimer.current)
+		},
+		[],
+	)
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly RunningTool[]>([])
@@ -4686,6 +4707,36 @@ export function App({
 					st.assistantId = null
 				}
 			}
+			// Redrawn at most five times a second: a count that changes on every
+			// delta would re-render the live region per token for a figure no
+			// one reads at that rate. A provider report always lands.
+			// A count held back is drawn when the interval ends, so the last one
+			// of a burst is never left unshown while the stream goes quiet.
+			const noteTokens = (force = false) => {
+				const show = () => {
+					turnTokensShownAt.current = Date.now()
+					setTurnTokens((st.reportedOutputTokens ?? 0) + Math.ceil((st.streamedChars ?? 0) / 4))
+				}
+				const wait = 200 - (Date.now() - turnTokensShownAt.current)
+				if (force || wait <= 0) {
+					if (turnTokensTimer.current) clearTimeout(turnTokensTimer.current)
+					turnTokensTimer.current = undefined
+					show()
+				} else if (!turnTokensTimer.current) {
+					turnTokensTimer.current = setTimeout(() => {
+						turnTokensTimer.current = undefined
+						show()
+					}, wait)
+				}
+			}
+			if (event.kind === 'delta' || event.kind === 'reasoning') {
+				st.streamedChars = (st.streamedChars ?? 0) + event.text.length
+				noteTokens()
+			} else if (event.kind === 'usage' && event.outputTokens !== undefined) {
+				st.reportedOutputTokens = event.outputTokens
+				st.streamedChars = 0
+				noteTokens(true)
+			}
 			if (event.kind !== 'usage' && 'budget' in event && event.budget) {
 				const budget = event.budget
 				const own = st.lastUsage
@@ -4772,9 +4823,12 @@ export function App({
 						activity: event.activity,
 						label: waitingAgent
 							? `Waiting · ${waitingAgent.description}`
-							: formatToolCall(event.toolName, event.summary, event.standalone),
+							: event.web
+								? webCallTitle(event.web)
+								: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
+						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
 					activeToolsRef.current = [...activeToolsRef.current, tool]
 					setActiveTools(activeToolsRef.current)
@@ -4865,6 +4919,51 @@ export function App({
 							: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
 						pushMessage('tool', done.label, false, '└', output,
 							theme.text.muted, output.length > 0 ? 'ctrl+o output' : undefined, 'exploration')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					const web = event.web ?? done?.web
+					if (web) {
+						// Two rows, the call and what it came to, drawn as `web` activity:
+						// consecutive ones sit together and the result list stays behind
+						// Ctrl+O, as the reference terminal draws them.
+						const activity: WebActivity = {
+							...web,
+							...(event.web?.target ?? done?.web?.target
+								? { target: event.web?.target ?? done?.web?.target }
+								: {}),
+						}
+						const durationMs =
+							event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)
+						const output = web.hosted ? undefined : event.output
+						pushMessage(
+							'tool',
+							webCallTitle(activity),
+							false,
+							event.isError ? '✗' : '✓',
+							undefined,
+							event.isError ? theme.status.error : theme.status.ok,
+							undefined,
+							'web',
+						)
+						const outputLines = output !== undefined ? output.split('\n') : undefined
+						pushMessage(
+							'tool',
+							event.isError
+								? `failed: ${event.summary}`
+								: webSettledLine(activity, {
+										...(durationMs !== undefined ? { durationMs } : {}),
+										...(activity.kind === 'fetch' && output !== undefined
+											? { bytes: Buffer.byteLength(output, 'utf8') }
+											: {}),
+									}),
+							false,
+							'⎿',
+							outputLines,
+							undefined,
+							outputLines && outputLines.length > 0 ? 'ctrl+o output' : undefined,
+							'web',
+						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
@@ -5065,7 +5164,13 @@ export function App({
 						const delegated = subagentsRef.current.filter(
 							(agent) => agent.replayed !== true && agent.startedAt >= since,
 						)
-						const closing = settleLine(Date.now() - since, delegated)
+						// A turn that delegated always says what its agents came to; one
+						// that did not closes with its time only when it finished, since
+						// a stop or a cancellation has already said how it ended.
+						const closing =
+							delegated.length > 0 || st.completed
+								? settleLine(Date.now() - since, delegated)
+								: undefined
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
 					break
@@ -5230,6 +5335,10 @@ export function App({
 			tasksRef.current = []
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
+			if (turnTokensTimer.current) clearTimeout(turnTokensTimer.current)
+			turnTokensTimer.current = undefined
+			setTurnTokens(0)
+			turnTokensShownAt.current = 0
 			const st: StreamState = {
 				assistantId: null,
 				startedAt: Date.now(),
@@ -8190,6 +8299,7 @@ export function App({
 								interruptible={abortRef.current !== null}
 								animate={stdout.isTTY === true && permission === null && textPrompt === null}
 								thinking={thinking}
+								tokens={turnTokens}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.

@@ -43,6 +43,8 @@
 
 import { checklistBlockRows, checklistLine } from './Checklist.js'
 import { renderedDetailLines } from './Transcript.js'
+import { tableHeight } from './markdown-table.js'
+import { parseBlock, scanBlocks } from './markdownParser.js'
 import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
 import type { TranscriptMessage } from './types.js'
@@ -192,9 +194,37 @@ const ROW_HEIGHT_ALLOWANCE = 2
  * source line is a conservative ceiling on those vertical margins. Detail and
  * non-assistant rows render as plain Text and need no such allowance.
  */
-function markdownHeightAllowance(message: TranscriptMessage, raw: boolean): number {
+function markdownHeightAllowance(
+	message: TranscriptMessage,
+	raw: boolean,
+	columns: number | undefined,
+): number {
 	if (raw || message.role !== 'assistant') return 0
-	return message.content.split('\n').filter((line) => line.trim().length > 0).length
+	return (
+		message.content.split('\n').filter((line) => line.trim().length > 0).length +
+		tableAllowance(message.content, columns)
+	)
+}
+
+/**
+ * Rows a table draws beyond its source lines.
+ *
+ * A boxed table adds a rule above, below and between every row and wraps each
+ * cell inside its column, so a four-line source table can draw twenty rows:
+ * more than the per-line allowance above admits. The layout is the one the
+ * renderer uses, at the width it will have, so this is the table's real
+ * height rather than a guess at it.
+ */
+function tableAllowance(content: string, columns: number | undefined): number {
+	if (!content.includes('|')) return 0
+	const width = Math.max(10, (columns ?? 80) - 4)
+	let extra = 0
+	for (const segment of scanBlocks(content)) {
+		const block = parseBlock(segment)
+		if (block.type !== 'table') continue
+		extra += Math.max(0, tableHeight(block, width) - segment.split('\n').length)
+	}
+	return extra
 }
 
 /** How tall one row is expected to render, rounded UP. */
@@ -208,7 +238,7 @@ function messageHeight(
 	return (
 		estimateRenderedLines(messageLines(message, hasPrev, raw), columns) +
 		ROW_HEIGHT_ALLOWANCE +
-		markdownHeightAllowance(message, raw)
+		markdownHeightAllowance(message, raw, columns)
 	)
 }
 

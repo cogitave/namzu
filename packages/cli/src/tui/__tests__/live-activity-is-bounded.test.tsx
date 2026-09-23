@@ -28,6 +28,47 @@ describe('the redrawable Working region', () => {
 		}
 	})
 
+	it('counts the turn’s output tokens beside its time, and keeps the interrupt key', () => {
+		const harness = render(<LiveActivity activeTools={[]} working interruptible animate={false} tokens={1_100} />)
+		try {
+			expect(harness.lastFrame()).toMatch(/Working \(\d+\.\ds · ↓ 1\.1k tokens · esc to interrupt\)/u)
+		} finally {
+			harness.unmount()
+		}
+		// Nothing written yet reads as nothing, not as `↓ 0 tokens`.
+		const silent = render(<LiveActivity activeTools={[]} working interruptible animate={false} tokens={0} />)
+		try {
+			expect(silent.lastFrame()).not.toContain('tokens')
+		} finally {
+			silent.unmount()
+		}
+	})
+
+	it('draws a running web call’s status on its own ⎿ line', () => {
+		const harness = render(
+			<LiveActivity
+				activeTools={[
+					{
+						id: 'search',
+						label: 'Web search("OpenClaw runtime")',
+						progress: 'Searching: OpenClaw runtime',
+						web: { kind: 'search', target: 'OpenClaw runtime' },
+						startedAt: Date.now(),
+					},
+				]}
+				working
+				animate={false}
+			/>,
+		)
+		try {
+			const frame = harness.lastFrame() ?? ''
+			expect(frame).toContain('└ Web search("OpenClaw runtime")')
+			expect(frame).toContain('⎿ Searching: OpenClaw runtime')
+		} finally {
+			harness.unmount()
+		}
+	})
+
 	it('caps concurrent tool rows and accounts for the hidden remainder', () => {
 		const tools = Array.from({ length: 7 }, (_, index) => ({
 			id: `tool-${index}`,

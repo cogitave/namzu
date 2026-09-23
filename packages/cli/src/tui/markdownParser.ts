@@ -55,7 +55,14 @@ export type MdBlock =
 			readonly type: 'table'
 			readonly headers: readonly string[]
 			readonly rows: readonly string[][]
+			/**
+			 * Per-column alignment from the separator row (`:--`, `:-:`, `--:`).
+			 * Present only when some column asks for one; absent is all left.
+			 */
+			readonly align?: readonly TableAlign[]
 	  }
+
+export type TableAlign = 'left' | 'center' | 'right'
 
 const FENCE = /^```(\w*)\s*$/
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*$/
@@ -63,13 +70,39 @@ const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/
 const TABLE_ROW = /^\s*\|.*\|\s*$/
 const TABLE_SEP = /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
 
-/** Split a `| a | b |` row into trimmed cells. */
+/**
+ * Split a `| a | b |` row into trimmed cells. A backslash-escaped pipe (`\|`)
+ * is a literal `|` inside a cell, not a column boundary.
+ */
 function tableCells(line: string): string[] {
-	return line
-		.trim()
-		.replace(/^\||\|$/g, '')
-		.split('|')
-		.map((c) => c.trim())
+	let body = line.trim()
+	if (body.startsWith('|')) body = body.slice(1)
+	if (body.endsWith('|') && !body.endsWith('\\|')) body = body.slice(0, -1)
+	return body.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'))
+}
+
+/** Alignment of each column named by a separator row, or `undefined` when all are plain. */
+function tableAlign(separator: string): TableAlign[] | undefined {
+	const align = tableCells(separator).map((cell): TableAlign => {
+		const left = cell.startsWith(':')
+		const right = cell.endsWith(':')
+		return left && right ? 'center' : right ? 'right' : 'left'
+	})
+	return align.some((a) => a !== 'left') ? align : undefined
+}
+
+/**
+ * Whether a line continues a table already begun.
+ *
+ * GitHub's rule, which models follow: after the header and separator, every
+ * following line with a pipe in it is a row until a blank line or another
+ * block. The row need not close with a pipe — `a | b` is a row — and neither
+ * does a row still being typed, which is the reason this is looser than
+ * {@link TABLE_ROW}: `| 1 | 2` arriving mid-stream stays inside the table it
+ * belongs to instead of flashing below it as a paragraph.
+ */
+function continuesTable(line: string): boolean {
+	return line.includes('|') && line.trim().length > 0 && !FENCE.test(line) && !HEADING.test(line)
 }
 
 /**
@@ -124,7 +157,7 @@ export function scanBlocks(src: string): string[] {
 			}
 			case 'table': {
 				let end = i + 2 // header + separator
-				while (end < lines.length && TABLE_ROW.test(lines[end] ?? '')) end++
+				while (end < lines.length && continuesTable(lines[end] ?? '')) end++
 				segments.push(lines.slice(i, end).join('\n'))
 				i = end
 				break
@@ -165,12 +198,15 @@ export function parseBlock(raw: string): MdBlock {
 				lines: closed ? lines.slice(1, -1) : lines.slice(1),
 			}
 		}
-		case 'table':
+		case 'table': {
+			const align = tableAlign(lines[1] ?? '')
 			return {
 				type: 'table',
 				headers: tableCells(first),
 				rows: lines.slice(2).map(tableCells),
+				...(align ? { align } : {}),
 			}
+		}
 		case 'heading': {
 			const heading = HEADING.exec(first)
 			return { type: 'heading', level: heading?.[1]?.length ?? 1, text: heading?.[2] ?? '' }
@@ -221,9 +257,11 @@ export function parseInline(text: string): InlineSpan[] {
 		} else if (linkMatch) {
 			spans.push({ text: linkMatch[1] ?? '', link: linkMatch[2] ?? '' })
 		} else if (token.startsWith('**') || token.startsWith('__')) {
-			spans.push({ text: token.slice(2, -2), bold: true })
+			// Emphasis may hold other spans — `**\`pkg\`**` is bold code — so
+			// its inside is parsed too and every piece carries the emphasis.
+			spans.push(...parseInline(token.slice(2, -2)).map((span) => ({ ...span, bold: true })))
 		} else {
-			spans.push({ text: token.slice(1, -1), italic: true })
+			spans.push(...parseInline(token.slice(1, -1)).map((span) => ({ ...span, italic: true })))
 		}
 		rest = rest.slice(match.index + token.length)
 	}

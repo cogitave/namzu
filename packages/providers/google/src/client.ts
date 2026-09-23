@@ -240,6 +240,7 @@ export class GoogleProvider implements LLMProvider {
 		let terminal = false
 		let text = ''
 		let searched = false
+		let searchQuery: string | undefined
 		const sources = new Map<string, string>()
 		let toolIndex = 0
 		let reasoningIndex = 0
@@ -280,6 +281,7 @@ export class GoogleProvider implements LLMProvider {
 						grounding &&
 						(grounding.webSearchQueries?.length || grounding.groundingChunks?.length)
 					) {
+						searchQuery ??= grounding.webSearchQueries?.find((q) => q.trim().length > 0)?.trim()
 						if (!searched)
 							yield {
 								id,
@@ -288,6 +290,7 @@ export class GoogleProvider implements LLMProvider {
 										id: `${id}-search`,
 										name: 'web_search',
 										status: 'running',
+										...(searchQuery ? { query: searchQuery } : {}),
 									},
 								},
 							}
@@ -387,6 +390,8 @@ export class GoogleProvider implements LLMProvider {
 							id: `${id}-search`,
 							name: 'web_search',
 							status: 'completed',
+							...(searchQuery ? { query: searchQuery } : {}),
+							results: sources.size,
 						},
 					},
 				}

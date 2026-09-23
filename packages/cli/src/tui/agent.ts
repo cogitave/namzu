@@ -4,6 +4,13 @@ import {
 	resolveWebSearch,
 	webSearchLabel,
 } from '../integrations/web/search.js'
+import {
+	type WebActivity,
+	countListedResults,
+	webActivityFromInput,
+	webActivityKind,
+	webCallTitle,
+} from './web-activity.js'
 /**
  * TUI agent session — provider-direct, tool-enabled.
  *
@@ -303,6 +310,8 @@ export type AgentEvent =
 			readonly standalone?: boolean
 			/** Diff / content preview shown (collapsible) under the call. */
 			readonly detail?: readonly string[]
+			/** A web search or fetch: what it is for, so its row can name it. */
+			readonly web?: WebActivity
 	  }
 	| {
 			readonly kind: 'tool-progress'
@@ -336,6 +345,8 @@ export type AgentEvent =
 			 * needs.
 			 */
 			readonly resultLabel?: string
+			/** A web search or fetch, with whatever its result told us (query, result count). */
+			readonly web?: WebActivity
 	  }
 	/**
 	 * The model thinking, for the live region only. `text` is a delta;
@@ -357,6 +368,8 @@ export type AgentEvent =
 			readonly budget?: SessionTokenBudgetSummary
 			/** CUMULATIVE turn spend. Never a context size. */
 			readonly totalTokens: number
+			/** The output share of `totalTokens`: what the model has written this turn. */
+			readonly outputTokens?: number
 			/**
 			 * The kernel's cost record, carried whole.
 			 *
@@ -4661,12 +4674,24 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				toolUseId: event.tool.id,
 				toolName: 'web_search',
 			}
+			// A page action names an address rather than a query, and reads as
+			// a fetch; everything else is a search, named once the provider says.
+			const web: WebActivity =
+				event.tool.url && !event.tool.query
+					? { kind: 'fetch', target: event.tool.url, hosted: true }
+					: {
+							kind: 'search',
+							hosted: true,
+							...(event.tool.query ? { target: event.tool.query } : {}),
+							...(event.tool.results !== undefined ? { results: event.tool.results } : {}),
+						}
 			return event.tool.status === 'running'
 				? {
 						...common,
 						kind: 'tool-start',
-						summary: 'Web search',
+						summary: webCallTitle(web),
 						standalone: true,
+						web,
 					}
 				: {
 						...common,
@@ -4674,6 +4699,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 						summary: event.tool.status === 'completed' ? '' : 'Provider-hosted search failed',
 						isError: event.tool.status !== 'completed',
 						output: event.tool.status,
+						web,
 					}
 		}
 		case 'text_delta':
@@ -4712,6 +4738,10 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 							? { standalone: true }
 							: {}),
 					}
+				})(),
+				...(() => {
+					const web = webActivityFromInput(event.toolName, event.input)
+					return web ? { web } : {}
 				})(),
 			}
 		case 'tool_progress':
@@ -4757,6 +4787,13 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
 					: {}),
+				...(() => {
+					const kind = webActivityKind(event.toolName)
+					if (!kind) return {}
+					const results =
+						kind === 'search' && !event.isError ? countListedResults(event.result) : undefined
+					return { web: { kind, ...(results !== undefined ? { results } : {}) } }
+				})(),
 			}
 		}
 		case 'token_usage_updated':
@@ -4772,6 +4809,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				sessionId: event.sessionId,
 				...(event.turnId ? { turnId: event.turnId } : {}),
 				totalTokens: event.usage.totalTokens,
+				outputTokens: event.usage.completionTokens,
 				...(event.budget ? { budget: event.budget } : {}),
 				cost: event.cost,
 				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),

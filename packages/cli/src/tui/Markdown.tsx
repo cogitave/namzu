@@ -1,8 +1,12 @@
 /**
  * Renders parsed markdown blocks into Ink elements — the way assistant
  * replies are shown (code blocks, inline code, bold/italic, headings,
- * lists). Only the constructs a terminal can render faithfully: a
- * half-rendered table is harder to read than the source it came from.
+ * lists, tables). Only the constructs a terminal can render faithfully.
+ *
+ * Prose is wrapped here, to the width {@link ContentWidth} says the row has,
+ * rather than left to Ink: Ink's wrap starts a row with the space it broke at
+ * (see `markdown-wrap.ts`). Tables are laid out to the same width by
+ * `markdown-table.ts`: a box when it fits, stacked records when it does not.
  *
  * Stylistic choices:
  *  - code blocks: a dim left rule + code-colored lines (no syntax
@@ -13,13 +17,31 @@
  */
 
 import { Box, Text } from 'ink'
-import { memo, useRef } from 'react'
+import { Fragment, createContext, memo, useContext, useRef } from 'react'
 
 import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
-import { type InlineSpan, type MdBlock, parseInline } from './markdownParser.js'
+import { type TableSource, type TableSpan, layoutTable } from './markdown-table.js'
+import { type DisplayLine, type DisplaySpan, inlineDisplaySpans, wrapSpans } from './markdown-wrap.js'
+import type { MdBlock } from './markdownParser.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { terminalWebHyperlink } from './terminal-hyperlinks.js'
 import { theme } from './theme.js'
+
+/**
+ * How many terminal cells the text beside a transcript gutter has.
+ *
+ * Provided by the transcript, which knows its padding and gutter and is the
+ * one component that listens for resizes. Every row reads it from here rather
+ * than subscribing itself: a listener per row put Node's "possible memory
+ * leak" warning on the operator's screen past ten rows. Outside a transcript
+ * it is an 80-column terminal less a transcript's margins.
+ */
+export const ContentWidth = createContext<number>(76)
+
+/** The width text drawn here has, from the nearest {@link ContentWidth}. */
+export function useContentWidth(): number {
+	return Math.max(10, useContext(ContentWidth))
+}
 
 const CODE_COLOR = theme.status.ok
 
@@ -48,6 +70,7 @@ export function Markdown({ text, color = theme.text.primary, hyperlinks = false 
 	const cache = useRef<BlockCache>(undefined)
 	cache.current ??= createBlockCache()
 	const blocks = cache.current.parse(terminalDisplayText(text))
+	const width = useContentWidth()
 	return (
 		<Box flexDirection="column">
 			{blocks.map((block, i) => (
@@ -57,6 +80,7 @@ export function Markdown({ text, color = theme.text.primary, hyperlinks = false 
 					prev={blocks[i - 1]}
 					color={color}
 					hyperlinks={hyperlinks}
+					width={width}
 				/>
 			))}
 		</Box>
@@ -77,11 +101,14 @@ const BlockView = memo(function BlockView({
 	prev,
 	color,
 	hyperlinks,
+	width,
 }: {
 	readonly block: MdBlock
 	readonly prev: MdBlock | undefined
 	readonly color: string
 	readonly hyperlinks: boolean
+	/** Cells this block has; a resize re-renders every block at the new width. */
+	readonly width: number
 }) {
 	// One blank line between blocks, except: nothing before the first block,
 	// and consecutive list items stay tight (no gap between bullets).
@@ -91,7 +118,7 @@ const BlockView = memo(function BlockView({
 			return (
 				<Box marginTop={gap}>
 					<Text bold color={block.level <= 2 ? theme.accent.user : color}>
-						<Inline spans={parseInline(block.text)} color={color} hyperlinks={hyperlinks} />
+						<WrappedInline source={block.text} width={width} color={color} hyperlinks={hyperlinks} />
 					</Text>
 				</Box>
 			)
@@ -104,7 +131,12 @@ const BlockView = memo(function BlockView({
 					</Box>
 					<Box flexGrow={1}>
 						<Text color={color} wrap="wrap">
-							<Inline spans={parseInline(block.text)} color={color} hyperlinks={hyperlinks} />
+							<WrappedInline
+								source={block.text}
+								width={width - marker.length - 1}
+								color={color}
+								hyperlinks={hyperlinks}
+							/>
 						</Text>
 					</Box>
 				</Box>
@@ -113,7 +145,7 @@ const BlockView = memo(function BlockView({
 		case 'table':
 			return (
 				<Box marginTop={gap}>
-					<TableView headers={block.headers} rows={block.rows} color={color} />
+					<TableView table={block} width={width} color={color} hyperlinks={hyperlinks} />
 				</Box>
 			)
 		case 'code':
@@ -141,100 +173,141 @@ const BlockView = memo(function BlockView({
 			return (
 				<Box marginTop={gap}>
 					<Text color={color} wrap="wrap">
-						<Inline spans={parseInline(block.text)} color={color} hyperlinks={hyperlinks} />
+						<WrappedInline source={block.text} width={width} color={color} hyperlinks={hyperlinks} />
 					</Text>
 				</Box>
 			)
 	}
 })
 
-const TABLE_MAX_COL = 32
-
-/** Render a markdown table as an aligned grid (header bold + dim rule). */
+/**
+ * A markdown table: a box when it fits the width, stacked `Header: value`
+ * records when it does not. The layout is `markdown-table.ts`; this draws it,
+ * one Ink row per line, so nothing here is wrapped a second time.
+ */
 function TableView({
-	headers,
-	rows,
+	table,
+	width,
 	color,
+	hyperlinks,
 }: {
-	readonly headers: readonly string[]
-	readonly rows: readonly string[][]
+	readonly table: TableSource
+	readonly width: number
 	readonly color: string
+	readonly hyperlinks: boolean
 }) {
-	const cols = headers.length
-	const widths: number[] = []
-	for (let c = 0; c < cols; c++) {
-		let w = (headers[c] ?? '').length
-		for (const row of rows) w = Math.max(w, (row[c] ?? '').length)
-		widths[c] = Math.min(Math.max(w, 1), TABLE_MAX_COL)
-	}
-	const pad = (s: string, w: number) => (s.length >= w ? s.slice(0, w) : s + ' '.repeat(w - s.length))
+	const layout = layoutTable(table, width, { hyperlinks })
 	return (
 		<Box flexDirection="column">
-			<Box>
-				{headers.map((h, c) => (
-					<Text key={`h-${c}`} bold color={color}>
-						{pad(h, widths[c] ?? 1)}
-						{c < cols - 1 ? '  ' : ''}
-					</Text>
-				))}
-			</Box>
-			<Text color={theme.border.default}>
-				{widths.map((w) => '─'.repeat(w)).join('  ')}
-			</Text>
-			{rows.map((row, r) => (
-				<Box key={`r-${r}`}>
-					{widths.map((w, c) => (
-						<Text key={`c-${c}`} color={color}>
-							{pad(row[c] ?? '', w)}
-							{c < cols - 1 ? '  ' : ''}
-						</Text>
+			{layout.lines.map((line, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: a table's lines have no identity beyond their position.
+				<Text key={`t-${i}`} color={color} wrap="truncate-end">
+					{line.map((span, j) => (
+						<SpanView
+							// biome-ignore lint/suspicious/noArrayIndexKey: spans are positional.
+							key={`s-${j}`}
+							span={span}
+							color={color}
+							hyperlinks={hyperlinks}
+						/>
 					))}
-				</Box>
+				</Text>
 			))}
 		</Box>
 	)
 }
 
-function Inline({
-	spans,
+/** Inline markdown wrapped to `width` cells. See {@link WrappedSpans}. */
+function WrappedInline({
+	source,
+	width,
 	color,
 	hyperlinks,
 }: {
-	readonly spans: readonly InlineSpan[]
+	readonly source: string
+	readonly width: number
 	readonly color: string
 	readonly hyperlinks: boolean
 }) {
 	return (
+		<WrappedSpans
+			spans={inlineDisplaySpans(source, hyperlinks)}
+			width={width}
+			color={color}
+			hyperlinks={hyperlinks}
+		/>
+	)
+}
+
+/**
+ * Spans wrapped to `width` cells, as text with the row breaks in it: Ink
+ * finds every row already fits and leaves it alone. Goes inside a `<Text>`.
+ */
+export function WrappedSpans({
+	spans,
+	width,
+	color,
+	hyperlinks = false,
+}: {
+	readonly spans: readonly DisplaySpan[]
+	readonly width: number
+	readonly color: string
+	readonly hyperlinks?: boolean
+}) {
+	const lines: readonly DisplayLine[] = wrapSpans(spans, width)
+	return (
 		<>
-			{spans.map((span, i) => {
-				if (span.code) {
-					return (
-						<Text key={`s-${i}`} color={CODE_COLOR}>
-							{span.text}
-						</Text>
-					)
-				}
-				if (span.link) {
-					const linkedLabel = hyperlinks ? terminalWebHyperlink(span.text, span.link) : null
-					// Link text in accent + underline; the URL trails dim unless it's
-					// identical to the text or the terminal owns an admitted click target.
-					return (
-						<Text key={`s-${i}`}>
-							<Text color={theme.accent.user} underline>
-								{linkedLabel ?? span.text}
-							</Text>
-							{!linkedLabel && span.link !== span.text ? (
-								<Text color={theme.text.muted}> ({span.link})</Text>
-							) : null}
-						</Text>
-					)
-				}
-				return (
-					<Text key={`s-${i}`} color={color} bold={span.bold} italic={span.italic}>
-						{span.text}
-					</Text>
-				)
-			})}
+			{lines.map((line, i) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: rows are positional.
+				<Fragment key={`l-${i}`}>
+					{line.map((span, j) => (
+						<SpanView
+							// biome-ignore lint/suspicious/noArrayIndexKey: spans are positional.
+							key={`s-${j}`}
+							span={span}
+							color={color}
+							hyperlinks={hyperlinks}
+						/>
+					))}
+					{i < lines.length - 1 ? '\n' : null}
+				</Fragment>
+			))}
 		</>
+	)
+}
+
+/** One drawn span: code, a link, dim text, a rule, or styled prose. */
+function SpanView({
+	span,
+	color,
+	hyperlinks,
+}: {
+	readonly span: DisplaySpan & Pick<TableSpan, 'border'>
+	readonly color: string
+	readonly hyperlinks: boolean
+}) {
+	if (span.border) return <Text color={theme.border.default}>{span.text}</Text>
+	if (span.muted) return <Text color={theme.text.muted}>{span.text}</Text>
+	if (span.code) {
+		return (
+			<Text color={CODE_COLOR} bold={span.bold} italic={span.italic}>
+				{span.text}
+			</Text>
+		)
+	}
+	if (span.link) {
+		// A wrapped label is drawn a row at a time, each piece its own link to
+		// the same address: one OSC 8 sequence cannot span a row break.
+		const linked = hyperlinks ? terminalWebHyperlink(span.text, span.link) : null
+		return (
+			<Text color={theme.accent.user} underline bold={span.bold}>
+				{linked ?? span.text}
+			</Text>
+		)
+	}
+	return (
+		<Text color={color} bold={span.bold} italic={span.italic}>
+			{span.text}
+		</Text>
 	)
 }

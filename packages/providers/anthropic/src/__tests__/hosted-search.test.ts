@@ -94,6 +94,15 @@ it('uses hosted search, emits activity without local calls, and preserves encryp
 		'running',
 		'completed',
 	])
+	// The query streams in as the block's input and is named on the result,
+	// with the number of results the service returned.
+	expect(chunks.flatMap((c) => c.delta.hostedTool ?? []).at(-1)).toEqual({
+		id: 'search-1',
+		name: 'web_search',
+		status: 'completed',
+		query: 'test',
+		results: 1,
+	})
 	const text = chunks.map((c) => c.delta.content ?? '').join('')
 	expect(text).toContain('https://example.com')
 	const replayState = chunks.find((c) => c.replayState)?.replayState

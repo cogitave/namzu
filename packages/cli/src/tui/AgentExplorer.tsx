@@ -10,6 +10,7 @@ import {
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import { formatElapsed } from './LiveActivity.js'
+import { formatCompactCount } from './units.js'
 import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
@@ -1203,11 +1204,7 @@ function oneLine(text: string): string {
 }
 
 /** `42.1k`, `1.38M`; below 1,000 the exact count is short enough to show plainly. */
-export function formatCompactCount(value: number): string {
-	if (value < 1_000) return String(value)
-	if (value < 1_000_000) return `${(value / 1_000).toFixed(1)}k`
-	return `${(value / 1_000_000).toFixed(2)}M`
-}
+export { formatCompactCount }
 
 /**
  * `undefined` when this child has reported neither figure — there is nothing

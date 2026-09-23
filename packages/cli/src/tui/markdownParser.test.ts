@@ -115,4 +115,45 @@ describe('parseMarkdown tables', () => {
 		const blocks = parseMarkdown('| not | a table |\njust text')
 		expect(blocks[0]?.type).toBe('paragraph')
 	})
+
+	it('keeps a row without a closing pipe — or one still being typed — inside its table', () => {
+		const blocks = parseMarkdown('| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | fo')
+		expect(blocks).toHaveLength(1)
+		expect(blocks[0]).toEqual({
+			type: 'table',
+			headers: ['A', 'B'],
+			rows: [
+				['1', '2'],
+				['3', 'fo'],
+			],
+		})
+		// A blank line still ends it.
+		expect(parseMarkdown('| A |\n|---|\n| 1 |\n\nafter').map((b) => b.type)).toEqual([
+			'table',
+			'paragraph',
+		])
+	})
+
+	it('reads an escaped pipe as a character of its cell', () => {
+		const [block] = parseMarkdown('| op | meaning |\n|---|---|\n| `a \\| b` | either |')
+		expect(block).toMatchObject({ rows: [['`a | b`', 'either']] })
+	})
+
+	it('records the separator row’s alignment only when a column asks for one', () => {
+		expect(parseMarkdown('| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |')[0]).toMatchObject({
+			align: ['left', 'center', 'right'],
+		})
+		expect(parseMarkdown('| a |\n|---|\n| 1 |')[0]).not.toHaveProperty('align')
+	})
+})
+
+describe('parseInline nesting', () => {
+	it('parses the spans inside emphasis, so bold code is code that is bold', () => {
+		expect(parseInline('**`@openclaw/runtime`** and *a [link](https://x.dev)*')).toEqual([
+			{ text: '@openclaw/runtime', code: true, bold: true },
+			{ text: ' and ' },
+			{ text: 'a ', italic: true },
+			{ text: 'link', link: 'https://x.dev', italic: true },
+		])
+	})
 })
