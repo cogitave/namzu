@@ -314,6 +314,7 @@ export async function runFire(
 		permissionMode: policy.mode,
 		...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
 		...(config.plugins ? { plugins: config.plugins } : {}),
+		...(config.skills ? { skills: config.skills } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),
 		...(policy.network && config.web ? { web: config.web } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),

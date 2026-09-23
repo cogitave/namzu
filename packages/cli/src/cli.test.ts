@@ -149,7 +149,7 @@ describe('runCli', () => {
 		const code = await invoke(['skills', '--cwd', cwd, '--trust'])
 		expect(code).toBe(0)
 		expect(stdout).toContain(`Skills available for ${cwd}`)
-		expect(stdout).toContain('release [project] — prepare a verified release')
+		expect(stdout).toContain('release [project · ./skills] — prepare a verified release')
 		// The output names `cwd`, and `cwd` is a random temp path: on CI it once
 		// contained "M5" and this failed a test about a milestone stub that
 		// was never printed. Look for the stub in what the command SAID, not
@@ -220,7 +220,7 @@ describe('runCli', () => {
 		const code = await invoke(['skills', '--help'])
 		expect(code).toBe(0)
 		expect(stdout).toContain('Usage: namzu skills [--cwd <path>] [--trust]')
-		expect(stdout).toMatch(/Project\s+skills shadow user skills/)
+		expect(stdout).toMatch(/later ones shadowing earlier ones of the\s+same name/)
 	})
 
 	it('doctor command pass-through preserves --help routing to the doctor', async () => {

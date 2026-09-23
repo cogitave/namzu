@@ -1068,6 +1068,31 @@ const CONFIG_READERS: ConfigReaders = {
 	// TUI notifications are terminal escape writes only. Invalid nested values
 	// refuse rather than silently selecting a different event/protocol or
 	// disabling the feature the operator explicitly configured.
+	skills: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'builtin' && key !== 'disabled') {
+				return invalidConfigValue(context, [key], 'is not a skills setting (builtin, disabled)')
+			}
+		}
+		const raw = v as { builtin?: unknown; disabled?: unknown }
+		if (raw.builtin !== undefined && typeof raw.builtin !== 'boolean') {
+			return invalidConfigValue(context, ['builtin'], 'must be true or false')
+		}
+		if (
+			raw.disabled !== undefined &&
+			(!Array.isArray(raw.disabled) ||
+				raw.disabled.some((name) => typeof name !== 'string' || name.trim() === ''))
+		) {
+			return invalidConfigValue(context, ['disabled'], 'must be a list of skill names')
+		}
+		return {
+			...(raw.builtin !== undefined ? { builtin: raw.builtin as boolean } : {}),
+			...(raw.disabled !== undefined
+				? { disabled: (raw.disabled as string[]).map((name) => name.trim()) }
+				: {}),
+		}
+	},
 	schedule: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1198,6 +1223,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// How many unattended runs a machine starts is the machine owner's to say,
 	// in a file; never a variable a profile could carry invisibly.
 	schedule: undefined,
+	// A list of names and a switch that decide what reaches the model's prompt;
+	// declared in a file, where a project's runs are reviewed.
+	skills: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',

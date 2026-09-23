@@ -77,12 +77,14 @@ vi.mock('../../skills/store.js', async (importOriginal) => {
 				description: 'Inspect the problem',
 				path: '/skills/analysis/SKILL.md',
 				source: 'project',
+				tier: 'project',
 			},
 			{
 				name: 'release-check',
 				description: 'Verify a release candidate',
 				path: '/skills/release-check/SKILL.md',
 				source: 'user',
+				tier: 'user',
 			},
 		],
 		loadSkillBody: (info: { name: string }) => {

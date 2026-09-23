@@ -300,6 +300,26 @@ export interface NamzuCliConfig {
 	 * notifications.
 	 */
 	readonly schedule?: ScheduleConfig
+	/**
+	 * Which `SKILL.md` skills a session offers. Absent means every tier,
+	 * built-ins included, with nothing disabled.
+	 */
+	readonly skills?: SkillsConfig
+}
+
+/** See `NamzuCliConfig.skills`. */
+export interface SkillsConfig {
+	/**
+	 * Offer the skills shipped with the CLI (the lowest-precedence tier).
+	 * Default `true`; `false` leaves them out of listings and the model's
+	 * manifest alike.
+	 */
+	readonly builtin?: boolean
+	/**
+	 * Skill names neither the model nor `/skills <name>` may use, whatever
+	 * tier they come from. They stay in listings, marked disabled.
+	 */
+	readonly disabled?: readonly string[]
 }
 
 /** See `NamzuCliConfig.schedule`. */

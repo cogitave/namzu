@@ -336,6 +336,7 @@ export async function execJson(
 		permissionMode: modeResult.mode,
 		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
 		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
@@ -390,7 +391,7 @@ export async function execJson(
 
 	// --skills <a,b,c>: load the named skills' bodies and inject them as the
 	// turn's extra system context (the same channel the TUI's /skill uses).
-	const extraSystem = await loadSkillsContext(cwd, flags.skills)
+	const extraSystem = await loadSkillsContext(cwd, flags.skills, ctx.config.skills)
 
 	const userMessage: Message = {
 		role: 'user',

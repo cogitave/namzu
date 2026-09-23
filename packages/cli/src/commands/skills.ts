@@ -1,7 +1,7 @@
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
-import { discoverSkills } from '../skills/store.js'
+import { discoverSkillRoster, skillTierLabel } from '../skills/store.js'
 import type { SkillInfo } from '../skills/store.js'
 import { terminalDisplayText } from '../tui/terminal-display.js'
 import { resolveWorkingDirectory } from './exec-flags.js'
@@ -17,9 +17,19 @@ export interface SkillListItem {
 	readonly name: string
 	readonly description: string
 	readonly source: SkillInfo['source']
+	/** The directory family it came from, e.g. `agents-user` for `~/.agents/skills`. */
+	readonly tier: SkillInfo['tier']
 	readonly path: string
 	readonly usable: boolean
 	readonly problem?: string
+	/** Named in `skills.disabled`. */
+	readonly disabled?: boolean
+	/** `operator` when the model is never offered it. */
+	readonly invocation?: SkillInfo['invocation']
+	/** Tools a session must have for the model to be offered it. */
+	readonly requiresTools?: readonly string[]
+	/** Lower-precedence `SKILL.md` files this one hides. */
+	readonly shadows?: readonly string[]
 }
 
 export interface SkillListOutput {
@@ -33,9 +43,11 @@ export interface SkillListOutput {
 const HELP = [
 	'Usage: namzu skills [--cwd <path>] [--trust]',
 	'',
-	'List user and project skills available in a working directory. Project',
-	'skills shadow user skills with the same name. A broken skill remains in',
-	'the list with the reason it cannot be activated.',
+	'List the skills available in a working directory: built-in, ~/.agents/skills,',
+	'~/.namzu/skills, ./skills, .agents/skills (checkout root down to the',
+	'directory) and ./.namzu/skills, later ones shadowing earlier ones of the',
+	'same name. A broken or disabled skill remains in the list with the reason',
+	'it cannot be activated.',
 	'',
 	'Options:',
 	'  --cwd <path>  Inspect this working directory instead of the current one',
@@ -69,7 +81,10 @@ export const skillsCommand: CommandDef = {
 		}
 
 		const ctx = resolveTrustedProjectContext(bootstrapCtx, trust.cwd)
-		const skills = discoverSkills({ cwd: trust.cwd }).map(toListItem)
+		const skills = discoverSkillRoster({
+			cwd: trust.cwd,
+			...(ctx.config.skills ? { config: ctx.config.skills } : {}),
+		}).skills.map(toListItem)
 		ctx.formatter.print({
 			cwd: trust.cwd,
 			count: skills.length,
@@ -116,9 +131,14 @@ function toListItem(skill: SkillInfo): SkillListItem {
 		name: skill.name,
 		description: skill.description,
 		source: skill.source,
+		tier: skill.tier,
 		path: skill.path,
 		usable: skill.problem === undefined,
 		...(skill.problem ? { problem: skill.problem } : {}),
+		...(skill.disabled ? { disabled: true } : {}),
+		...(skill.invocation ? { invocation: skill.invocation } : {}),
+		...(skill.requiresTools ? { requiresTools: skill.requiresTools } : {}),
+		...(skill.shadows ? { shadows: skill.shadows } : {}),
 	}
 }
 
@@ -129,12 +149,18 @@ function renderSkillsText(cwd: string, skills: readonly SkillListItem[]): string
 
 	const lines = [`Skills available for ${oneLine(cwd)} (${skills.length}):`]
 	for (const skill of skills) {
-		const status = skill.usable ? '' : 'unavailable · '
+		const status = skill.disabled ? 'disabled · ' : skill.usable ? '' : 'unavailable · '
 		lines.push(
-			`  ${oneLine(skill.name)} [${skill.source}] — ${status}${oneLine(skill.description)}`,
+			`  ${oneLine(skill.name)} [${skill.source} · ${skillTierLabel(skill.tier)}] — ${status}${oneLine(skill.description)}`,
 			`    ${oneLine(skill.path)}`,
 		)
 		if (skill.problem) lines.push(`    reason: ${oneLine(skill.problem)}`)
+		if (skill.invocation === 'operator') lines.push('    operator only: not offered to the model')
+		if (skill.requiresTools)
+			lines.push(
+				`    offered to the model when these tools exist: ${skill.requiresTools.join(', ')}`,
+			)
+		for (const hidden of skill.shadows ?? []) lines.push(`    shadows ${oneLine(hidden)}`)
 	}
 	return lines.join('\n')
 }

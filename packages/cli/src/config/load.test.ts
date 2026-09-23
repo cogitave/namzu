@@ -178,6 +178,27 @@ describe('automatic memory recall config', () => {
 	)
 })
 
+describe('skills config', () => {
+	it('reads builtin and disabled from a file', () => {
+		const home = userConfig(
+			'skills:\n  builtin: false\n  disabled:\n    - noisy\n    - " other "\n',
+		)
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).skills).toEqual({
+			builtin: false,
+			disabled: ['noisy', 'other'],
+		})
+	})
+	it.each([
+		'skills: true\n',
+		'skills:\n  builtin: sometimes\n',
+		'skills:\n  disabled: noisy\n',
+		'skills:\n  enabled: true\n',
+	])('rejects malformed skills config %s', (contents) => {
+		const home = userConfig(contents)
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(ConfigValueError)
+	})
+})
+
 describe('pre-trust bootstrap config', () => {
 	it('does not read or validate the project layer before trust', () => {
 		const home = userConfig('format: yaml\n')

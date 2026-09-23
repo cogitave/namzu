@@ -122,7 +122,14 @@ import {
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
-import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
+import {
+	NO_SKILLS_FOUND,
+	composeSkillsPrompt,
+	discoverSkills,
+	loadSkillBody,
+	renderSkillRoster,
+	skillTierLabel,
+} from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	AgentCockpit,
@@ -2306,7 +2313,10 @@ export function App({
 
 	const activateSkill = useCallback(
 		(name: string): void => {
-			const info = discoverSkills({ cwd: ctx.cwd }).find((skill) => skill.name === name)
+			const info = discoverSkills({
+				cwd: ctx.cwd,
+				...(ctx.skills ? { config: ctx.skills } : {}),
+			}).find((skill) => skill.name === name)
 			if (!info) {
 				pushMessage('system', `No skill named "${name}". See /skills.`)
 				return
@@ -2325,7 +2335,7 @@ export function App({
 				)
 			}
 		},
-		[ctx.cwd, pushMessage],
+		[ctx.cwd, ctx.skills, pushMessage],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -3179,6 +3189,7 @@ export function App({
 					: {}),
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
+				...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 				...(activeCtx.web ? { web: activeCtx.web } : {}),
 				...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 				...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
@@ -6713,24 +6724,16 @@ export function App({
 						// distinction the headless commands get from `--cwd`. They are
 						// the same value today, and were the same value in `exec --json`
 						// too until they were not.
-						const skills = discoverSkills({ cwd: ctx.cwd })
+						const skills = discoverSkills({
+							cwd: ctx.cwd,
+							...(ctx.skills ? { config: ctx.skills } : {}),
+						})
 						if (skills.length === 0) {
-							pushMessage(
-								'system',
-								'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md or ./skills/<name>/SKILL.md.',
-							)
+							pushMessage('system', NO_SKILLS_FOUND)
 							return
 						}
 						const activeNames = new Set(activeSkills.map((s) => s.name))
-						const lines = skills.map((s) =>
-							// A refused skill is shown with its reason rather than hidden.
-							// Dropping it silently would leave someone wondering where a
-							// file they can see on disk went.
-							s.problem
-								? `! ${s.name} — ${s.problem}`
-								: `${activeNames.has(s.name) ? '● ' : '○ '}${s.name} — ${s.description}`,
-						)
-						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
+						pushMessage('system', renderSkillRoster(skills, activeNames))
 						return
 					}
 					case 'plugins': {
@@ -6762,12 +6765,12 @@ export function App({
 						return
 					}
 					case 'skill-picker': {
-						const skills = discoverSkills({ cwd: ctx.cwd })
+						const skills = discoverSkills({
+							cwd: ctx.cwd,
+							...(ctx.skills ? { config: ctx.skills } : {}),
+						})
 						if (skills.length === 0) {
-							pushMessage(
-								'system',
-								'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md or ./skills/<name>/SKILL.md.',
-							)
+							pushMessage('system', NO_SKILLS_FOUND)
 							return
 						}
 						const activeNames = new Set(activeSkills.map((skill) => skill.name))
@@ -6780,7 +6783,7 @@ export function App({
 								label: skill.name,
 								description: skill.problem
 									? `Unavailable: ${skill.problem}`
-									: `${skill.description} · ${skill.source}`,
+									: `${skill.description} · ${skill.source} (${skillTierLabel(skill.tier)})`,
 								current: activeNames.has(skill.name),
 							})),
 						})
