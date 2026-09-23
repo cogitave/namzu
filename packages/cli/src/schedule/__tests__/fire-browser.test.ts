@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { CHILD_ENV_ALLOWLIST } from '../env.js'
-import { runFire } from '../fire/fire.js'
+import { handoffReason, runFire } from '../fire/fire.js'
 import { readRunResult } from '../fire/result.js'
 import { localTimeText, unattendedNote } from '../fire/unattended-note.js'
 import { claimOccurrence } from '../store/claims.js'
@@ -140,6 +140,23 @@ describe('what a scheduled run is told', () => {
 			/run stops there and the operator is told; do not try to get past it, never type a password/,
 		)
 		expect(unattendedNote('post')).not.toMatch(/browser/)
+	})
+})
+
+describe('what a parked browser run says it needs', () => {
+	it('names the sign-in command with the page’s reason', () => {
+		expect(
+			handoffReason({
+				reason: 'http://localhost:8123 is showing a sign-in page',
+				detail: {
+					tool: 'browser',
+					loginCommand: 'namzu browser login social http://localhost:8123/login',
+				},
+			}),
+		).toBe(
+			'http://localhost:8123 is showing a sign-in page; sign in again with namzu browser login social http://localhost:8123/login',
+		)
+		expect(handoffReason({ reason: 'Approve on your phone' })).toBe('Approve on your phone')
 	})
 })
 

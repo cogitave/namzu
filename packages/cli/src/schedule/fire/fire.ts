@@ -512,7 +512,7 @@ export async function runFire(
 		// A tool that asked for a person parks the run the same way a held
 		// batch does: the operator continues it from the TUI. The reason is
 		// what they have to do, so it is recorded as the reason.
-		const handoff = parked.handoff ? sanitizeLine(parked.handoff.reason, 200) : ''
+		const handoff = parked.handoff ? sanitizeLine(handoffReason(parked.handoff), 300) : ''
 		return finish('awaiting-approval', 0, {
 			reason: handoff || parked.reason,
 			...(handoff ? { handoff: { reason: handoff } } : {}),
@@ -537,6 +537,20 @@ export async function runFire(
 		})
 	}
 	return finish('completed', 0, { ...(summary ? { summary } : {}), ...withUsage })
+}
+
+/**
+ * What a parked run tells the operator it needs: the tool's reason, and for
+ * the browser the command that signs in again. "http://… is showing a
+ * sign-in page" alone, in a notification and `schedule list`, left what to
+ * do unsaid.
+ */
+export function handoffReason(handoff: {
+	readonly reason: string
+	readonly detail?: Readonly<Record<string, string>>
+}): string {
+	const login = handoff.detail?.tool === 'browser' ? handoff.detail.loginCommand : undefined
+	return login ? `${handoff.reason}; sign in again with ${login}` : handoff.reason
 }
 
 function describeWhen(iso: string, tz: string | undefined): string {

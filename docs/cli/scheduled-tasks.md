@@ -239,7 +239,8 @@ its cookies there. There is no window unless the job has `--browser-headed`.
 
 A page that needs a person — a sign-in form, a second factor, a CAPTCHA — stops
 the run: it parks as `awaiting-approval` with the page's reason, the
-notification says `needs you (since …): Sign in to …`, and `schedule list`,
+notification says `needs you (since …): <page> is showing a sign-in page; sign in
+again with namzu browser login <profile> <url>`, and `schedule list`,
 `show`, `status` and `/schedule` say `needs you: <reason>` instead of waiting
 for approval. Sign in again with `namzu browser login`, then
 `cd <folder> && namzu resume <session-id>` and choose **Continue**: the turn
