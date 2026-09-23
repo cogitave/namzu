@@ -24,6 +24,11 @@ import { type ShellCommand, type ShellLexResult, lexShellCommandLine } from '../
  *   expanding standing for any run of bash's words, and in order when
  *   nothing in the line runs concurrently or loops.
  *
+ * Each line is also read in the `sh` dialect, which must pass the same
+ * check. That dialect is meant to agree with `dash` as well, which is not
+ * installed where this runs; it gets there by making every construct the two
+ * shells read differently opaque, not by measurement.
+ *
  * The corpus is every sequence of up to three tokens over the characters
  * that matter to quoting and control, wrapped in commands, plus a seeded
  * random sample from a small grammar and the cases earlier readers got wrong.
@@ -261,13 +266,15 @@ async function check(
 			if (lines === undefined) return
 			const [succeeding, failing] = await Promise.all([observe(lines, true), observe(lines, false)])
 			lines.forEach((line, k) => {
+				const observed = [succeeding[k] as Observed, failing[k] as Observed]
 				const lexed = lexShellCommandLine(line)
 				if (!lexed.opaque) exact += 1
-				const problem = disagreement(line, lexed, [
-					succeeding[k] as Observed,
-					failing[k] as Observed,
-				])
+				const problem = disagreement(line, lexed, observed)
 				if (problem !== undefined) failures.push(`${JSON.stringify(line)}: ${problem}`)
+				// The sh reading only ever adds opacity, so it must pass the same
+				// check against bash; whether dash agrees is by construction.
+				const posix = disagreement(line, lexShellCommandLine(line, { dialect: 'sh' }), observed)
+				if (posix !== undefined) failures.push(`${JSON.stringify(line)} (sh dialect): ${posix}`)
 			})
 		}
 	}

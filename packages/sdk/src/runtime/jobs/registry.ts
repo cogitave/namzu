@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { killTree } from '../../process/kill-tree.js'
+import { hostShellSpawn } from '../../tools/command-shell.js'
 import { scrubInheritedEnv } from '../../tools/env-scrub.js'
 import { awaitWithAbort } from '../../utils/await-with-abort.js'
 
@@ -72,8 +73,8 @@ export interface StartJobParams {
 	readonly env?: Readonly<Record<string, string>>
 	/**
 	 * Start the process yourself — a sandbox does, so the job runs inside
-	 * its boundary. Absent, the registry runs `/bin/sh -c command` on the
-	 * host. The process must be the leader of its own group and must not
+	 * its boundary. Absent, the registry runs it on the
+	 * host in the `bash` tool's shell (`tools/command-shell.ts`). The process must be the leader of its own group and must not
 	 * expect stdin.
 	 */
 	readonly spawn?: () => JobProcess
@@ -205,18 +206,25 @@ export class BackgroundJobRegistry {
 		// started it, which makes the leak longer-lived, not smaller.
 		const inherited = scrubInheritedEnv()
 
+		// The same shell as a foreground `bash` call, so the permission
+		// rules' reading of the line holds for the job too.
+		const shell = hostShellSpawn(params.command, { ...inherited.env, ...params.env })
 		const started = params.spawn
 			? params.spawn()
 			: {
-					child: spawn('/bin/sh', ['-c', params.command], {
-						cwd: params.workingDirectory,
-						env: { ...inherited.env, ...params.env },
-						// Leader of its own process group, which is what `killTree` needs
-						// to reach the command and everything it forks rather than only the
-						// wrapping shell. See `process/kill-tree.ts`.
-						detached: process.platform !== 'win32',
-						stdio: ['ignore', 'pipe', 'pipe'],
-					}),
+					child: spawn(
+						shell.file ?? '/bin/sh',
+						shell.file === undefined ? ['-c', params.command] : [...shell.args],
+						{
+							cwd: params.workingDirectory,
+							env: shell.env,
+							// Leader of its own process group, which is what `killTree` needs
+							// to reach the command and everything it forks rather than only the
+							// wrapping shell. See `process/kill-tree.ts`.
+							detached: process.platform !== 'win32',
+							stdio: ['ignore', 'pipe', 'pipe'],
+						},
+					),
 				}
 		const child = started.child
 		// Started, not adopted: this process stays the parent for the job's

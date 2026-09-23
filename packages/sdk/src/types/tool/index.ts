@@ -717,6 +717,14 @@ export interface ToolResult {
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
 }
 
+/**
+ * The shell a command line will run in, as the permission rules read it.
+ * `bash` reads it as bash does. `sh` reads it for a shell that may be bash or
+ * a POSIX shell such as `dash`: every construct the two read differently
+ * makes the line opaque, so a line that is not opaque means the same in both.
+ */
+export type ShellDialect = 'bash' | 'sh'
+
 export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {
 	name: string
 	description: string
@@ -777,6 +785,20 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * chaining — has nothing to decompose and must not claim otherwise.
 	 */
 	commandArgument?: string
+	/**
+	 * The shell {@link commandArgument} runs in, as the dialect the permission
+	 * rules must read it in.
+	 *
+	 * A rule reads a command line before it runs, and the reading is only
+	 * right for the shell that runs it: `$'\x3b'`, `|&` and `&>` mean one
+	 * thing to bash and another to `dash`. `bash` reads the line as bash
+	 * does. `sh`, the default when this is absent, reads it for a shell that
+	 * may be bash or a POSIX shell, and every construct the two read
+	 * differently makes the line opaque, so no allow rule approves it. The
+	 * shipped `bash` tool answers `bash` when it will spawn bash on the host
+	 * and `sh` inside a sandbox, whose guest may not have bash.
+	 */
+	commandDialect?: (context: { readonly sandboxed: boolean }) => ShellDialect
 	/**
 	 * The argument that holds a filesystem path the tool resolves against the
 	 * turn's roots (the working directory and the added directories).

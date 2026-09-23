@@ -41,6 +41,7 @@ import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { writesThroughRedirection } from './command-line.js'
 import { evaluateRule } from './rules.js'
+import type { ShellDialect } from './shell-lexer.js'
 
 /**
  * Split an `allowed-tools` value into entries.
@@ -343,7 +344,11 @@ export class SkillGrantSet {
 	coveringSkill(
 		call: { readonly name: string; readonly input: unknown },
 		toolDef?: ToolDefinition,
+		options: { readonly commandDialect?: ShellDialect } = {},
 	): string | undefined {
+		// Read the line for the shell that will run it; unknown is `sh`, the
+		// reading that holds for any POSIX shell.
+		const dialect = options.commandDialect ?? 'sh'
 		for (const held of this.held) {
 			if (held.entry.tool !== call.name) continue
 			if (held.entry.pattern === undefined || held.entry.argument === undefined) return held.skill
@@ -351,7 +356,7 @@ export class SkillGrantSet {
 				call.input !== null && typeof call.input === 'object'
 					? (call.input as Record<string, unknown>)[held.entry.argument]
 					: undefined
-			if (typeof line !== 'string' || writesThroughRedirection(line)) continue
+			if (typeof line !== 'string' || writesThroughRedirection(line, dialect)) continue
 			const decision = evaluateRule(
 				{
 					type: 'argument_pattern',
@@ -365,6 +370,7 @@ export class SkillGrantSet {
 				toolDef,
 				held.compiled,
 				held.names,
+				{ commandDialect: dialect },
 			)
 			if (decision === 'allow') return held.skill
 		}

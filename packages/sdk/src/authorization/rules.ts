@@ -3,6 +3,16 @@ import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { decodedCommands, decomposeCommandLine } from './command-line.js'
+import type { ShellDialect } from './shell-lexer.js'
+
+export interface EvaluateRuleOptions {
+	/**
+	 * The shell the tool will run a command-line argument in. Default `sh`:
+	 * every construct bash and a POSIX shell read differently makes the line
+	 * opaque. `ToolDefinition.commandDialect` supplies it for a tool.
+	 */
+	readonly commandDialect?: ShellDialect
+}
 
 export function evaluateRule(
 	rule: AuthorizationRule,
@@ -11,7 +21,11 @@ export function evaluateRule(
 	toolDef: ToolDefinition | undefined,
 	compiledPattern?: RegExp,
 	nameSet?: Set<string>,
+	options: EvaluateRuleOptions = {},
 ): GateDecision | null {
+	// A command line is read for the shell that will run it. Not knowing
+	// which, the reading that holds for every POSIX shell is the safe one.
+	const dialect = options.commandDialect ?? 'sh'
 	switch (rule.type) {
 		case 'allow_read_only': {
 			// A server's own claim about its own tool cannot settle this. See
@@ -122,7 +136,7 @@ export function evaluateRule(
 			// and does not see `true; git push origin main`. See
 			// `decomposeCommandLine` for the measurement and for why the two
 			// decisions must read the result differently.
-			const { segments, opaque } = decomposeCommandLine(subject)
+			const { segments, opaque } = decomposeCommandLine(subject, dialect)
 
 			if (rule.decision === 'deny') {
 				// ANY segment. The whole subject is tested first so an
@@ -131,7 +145,9 @@ export function evaluateRule(
 				// words as bash passes them, so that `'git' push` is `git push`.
 				if (compiledPattern.test(subject)) return 'deny'
 				if (segments.some((segment) => compiledPattern.test(segment))) return 'deny'
-				return decodedCommands(subject).some((text) => compiledPattern.test(text)) ? 'deny' : null
+				return decodedCommands(subject, dialect).some((text) => compiledPattern.test(text))
+					? 'deny'
+					: null
 			}
 
 			// EVERY segment, and nothing that hides one. Permission is a claim

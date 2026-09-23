@@ -61,6 +61,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	 * hand-written definitions can use.
 	 */
 	commandArgument?: string
+	/** The shell the command argument runs in; see {@link ToolDefinition.commandDialect}. */
+	commandDialect?: ToolDefinition['commandDialect']
 	/** The argument holding a filesystem path; see {@link ToolDefinition.pathArgument}. */
 	pathArgument?: string
 	/** The argument asking to leave the sandbox; see {@link ToolDefinition.sandboxEscapeArgument}. */
@@ -113,6 +115,7 @@ export function defineTool<S extends z.ZodType>(
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
 		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
+		...(options.commandDialect !== undefined ? { commandDialect: options.commandDialect } : {}),
 		...(options.pathArgument !== undefined ? { pathArgument: options.pathArgument } : {}),
 		...(options.sandboxEscapeArgument !== undefined
 			? { sandboxEscapeArgument: options.sandboxEscapeArgument }

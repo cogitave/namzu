@@ -375,3 +375,79 @@ describe('cost', () => {
 		expect(result.complete).toBe(false)
 	})
 })
+
+describe('the sh dialect', () => {
+	/**
+	 * For a line that may run in bash or in a POSIX shell such as `dash`.
+	 * Every construct the two read differently makes the line opaque, so a
+	 * line that stays transparent means the same in both.
+	 */
+	const sh = (line: string): ShellLexResult => lexShellCommandLine(line, { dialect: 'sh' })
+
+	it.each([
+		["a $'x'", "$'…'"],
+		['a $"x"', '$"…"'],
+		['a |& b', '|&'],
+		['a &>f', '&> and &>>'],
+		['a &>>f', '&> and &>>'],
+		['a <<<x', '<<<'],
+		['case a in a) b;& esac', ';&'],
+		['case a in a) b;;& esac', ';;&'],
+		['a {b,c}', 'brace expansion'],
+		['[[ a ]]', '[['],
+		['((1))', '((…))'],
+		['a $[1]', '$[…]'],
+		['for ((;;)); do a; done', 'for ((…))'],
+		['for x in a; { b; }', 'a { } loop body'],
+		['select x in a; do b; done', 'select'],
+		['time a', 'time'],
+		['function f { a; }', 'function'],
+		['coproc a', 'coproc'],
+		['x=(1) a', 'array assignment'],
+		['x[1]=2 a', 'subscript'],
+		['x+=1 a', 'array or += assignment'],
+		['a {fd}>f', '{name} redirection'],
+		['a ${x/y/z}', 'parameter expansion'],
+		["a ${x:-'y'}", 'parameter expansion'],
+		['a 3<&-b', 'a word glued to <&- or >&-'],
+		['a x\\', 'a trailing backslash'],
+		['cat <<E\nx\\\nE\nE', 'a line continuation in a here-document'],
+	])('%j is opaque (%s)', (line, construct) => {
+		expect(sh(line).reasons).toContain(`not POSIX sh: ${construct}`)
+		// The bash reading of the same line does not object to it.
+		expect(lexShellCommandLine(line).reasons).not.toContain(`not POSIX sh: ${construct}`)
+	})
+
+	it.each([
+		'git status -s',
+		'a && b || c; d & e | f',
+		'a > f 2>&1 < g >> h 3>&- <> i >| j',
+		'a \'b c\' "d $e" f\\ g',
+		'a ${x} ${x:-y} ${x#y} ${x%%y} ${#x} $1 $@ $?',
+		'if a; then b; elif c; then d; else e; fi',
+		'while a; do b; done; until c; do d; done',
+		'for x in a b; do c; done',
+		'case a in (b|c) d;; e) f;; esac',
+		'{ a; } ; (b)',
+		'! a | b',
+		'cat <<E\nx\nE\nb',
+		"cat <<'E'\n$(x)\nE\nb",
+		'a # comment',
+		'a $((1 + 2))',
+	])('%j stays transparent', (line) => {
+		const result = sh(line)
+		expect(result.reasons).toEqual([])
+		// And reads the same as bash reads it.
+		expect(words(line, result)).toEqual(words(line))
+	})
+
+	it('reads a nested bash -c payload as bash, and any other shell as sh', () => {
+		expect(sh(`bash -c "a |& b"`).opaque).toBe(false)
+		expect(lexShellCommandLine(`sh -c "a |& b"`).reasons).toContain('not POSIX sh: |&')
+		expect(lexShellCommandLine('zsh -c a').reasons).toContain('nested zsh is not modeled')
+	})
+
+	it('keeps the dialect inside a backtick substitution', () => {
+		expect(sh("a `b $'c'`").reasons).toContain("not POSIX sh: $'…'")
+	})
+})

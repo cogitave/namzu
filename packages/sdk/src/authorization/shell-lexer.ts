@@ -146,8 +146,18 @@ const MAX_SHELL_DEPTH = 4
 /** How deep compound commands and expansions may nest before it gives up. */
 const MAX_NESTING = 100
 
-export function lexShellCommandLine(line: string): ShellLexResult {
+import type { ShellDialect } from '../types/tool/index.js'
+
+export type { ShellDialect }
+
+export interface ShellLexOptions {
+	/** Default `bash`. */
+	readonly dialect?: ShellDialect
+}
+
+export function lexShellCommandLine(line: string, options: ShellLexOptions = {}): ShellLexResult {
 	const context = new Context(line.length)
+	context.setDialect(line, options.dialect ?? 'bash')
 	try {
 		lexInto(line, context, 'line', 0)
 	} catch {
@@ -183,6 +193,17 @@ class Context {
 
 	opaque(reason: string): void {
 		this.reasons.add(reason)
+	}
+
+	private readonly dialects = new Map<string, ShellDialect>()
+
+	/** The dialect a string is read in. A string read two ways gets the stricter. */
+	setDialect(src: string, dialect: ShellDialect): void {
+		if (this.dialects.get(src) !== 'sh') this.dialects.set(src, dialect)
+	}
+
+	dialectFor(src: string): ShellDialect {
+		return this.dialects.get(src) ?? 'sh'
 	}
 
 	private readonly sources = new Map<string, SourceState>()
@@ -349,6 +370,8 @@ class WordBuilder {
 	value = ''
 	expands = false
 	quoted = false
+	/** A brace expansion, which POSIX shells do not perform. */
+	brace = false
 	/** Unquoted `{` seen, and whether a `,` or `..` followed it: brace expansion. */
 	private braceOpen = false
 	private braceSeparator = false
@@ -373,6 +396,7 @@ class WordBuilder {
 			this.braceSeparator = true
 		} else if (char === '}' && this.braceOpen && this.braceSeparator) {
 			this.expands = true
+			this.brace = true
 		}
 		this.previous = char
 		this.literal(char)
@@ -415,6 +439,23 @@ class Parser {
 	) {
 		if (nesting > MAX_NESTING) throw new Stop('nesting too deep')
 		this.source = context.source(src)
+	}
+
+	private get dialect(): ShellDialect {
+		return this.context.dialectFor(this.src)
+	}
+
+	/**
+	 * A construct bash reads differently from a POSIX shell. In the `sh`
+	 * dialect the line is opaque: which of the two runs it is not known.
+	 */
+	private bashOnly(what: string): void {
+		if (this.dialect === 'sh') this.context.opaque(`not POSIX sh: ${what}`)
+	}
+
+	/** A string read inside this one (a backtick or here-document body) keeps its dialect. */
+	private inherit(body: string): void {
+		this.context.setDialect(body, this.dialect)
 	}
 
 	/** Record a single-quoted region; see {@link SourceState}. */
@@ -538,6 +579,7 @@ class Parser {
 				continue
 			}
 			if (this.isReserved(token, 'time')) {
+				this.bashOnly('time')
 				this.take()
 				prefixed = true
 				const option = this.peek()
@@ -616,6 +658,7 @@ class Parser {
 			token.reservedOk &&
 			token.word.text.replace(/\\\n/g, '') === '[['
 		) {
+			this.bashOnly('[[')
 			this.conditional()
 			this.redirectionsAfterCompound()
 			return
@@ -648,6 +691,7 @@ class Parser {
 					return
 				case 'for':
 				case 'select':
+					if (token.word.value === 'select') this.bashOnly('select')
 					this.forCommand()
 					this.redirectionsAfterCompound()
 					return
@@ -656,11 +700,13 @@ class Parser {
 					this.redirectionsAfterCompound()
 					return
 				case 'function':
+					this.bashOnly('function')
 					this.context.opaque('function definition')
 					this.take()
 					this.functionBody(true)
 					return
 				case 'coproc': {
+					this.bashOnly('coproc')
 					// `coproc [NAME] command`: runs in the background, and its
 					// descriptors land in a variable. Read the command; opaque.
 					this.context.opaque('coproc')
@@ -729,6 +775,7 @@ class Parser {
 			// `for (( init; test; step ))`: arithmetic throughout.
 			const end = this.scanArithmetic(header + 2)
 			if (end < 0) throw new Stop('syntax error: arithmetic for loop')
+			this.bashOnly('for ((…))')
 			this.arithmeticContent(this.src.slice(header + 2, end - 2), header + 2)
 			this.pos = end
 			this.last = { kind: 'other' }
@@ -782,6 +829,7 @@ class Parser {
 			return
 		}
 		if (this.isReservedAnywhere(token, '{')) {
+			this.bashOnly('a { } loop body')
 			this.take()
 			this.braceGroup()
 			return
@@ -956,6 +1004,8 @@ class Parser {
 				afterAssignment = false
 				if (words.length === assignments && ASSIGNMENT.test(joined(token.word.text))) {
 					assignments += 1
+					if (/^[A-Za-z_][A-Za-z0-9_]*(?:\[|\+=)/.test(joined(token.word.text)))
+						this.bashOnly('array or += assignment')
 					afterAssignment = true
 					const subscript = /^[A-Za-z_][A-Za-z0-9_]*\[([^\]]*)\]/.exec(joined(token.word.text))
 					if (subscript && !/^\d*$/.test(subscript[1] as string))
@@ -1139,6 +1189,7 @@ class Parser {
 	 * non-option argument once `-c` has been seen among the options.
 	 */
 	private nestedShell(words: readonly ShellWord[]): void {
+		const shell = basename(words[0]?.value ?? '')
 		let command = false
 		let payload: ShellWord | undefined
 		for (let i = 1; i < words.length; i += 1) {
@@ -1180,6 +1231,13 @@ class Parser {
 		}
 		const origin = this.origin === 'substitution' ? 'substitution' : 'shell'
 		this.context.rescan(payload.value.length)
+		// `bash -c` is read as bash. Another shell is read in the dialect
+		// that holds for every POSIX shell; zsh and ksh go beyond POSIX in
+		// ways this lexer does not model, so their payloads are opaque, and
+		// still read for what a deny rule can see.
+		this.context.setDialect(payload.value, shell === 'bash' ? 'bash' : 'sh')
+		if (shell === 'zsh' || shell === 'ksh' || shell === 'mksh')
+			this.context.opaque(`nested ${shell} is not modeled`)
 		const inner = new Parser(
 			payload.value,
 			0,
@@ -1291,8 +1349,10 @@ class Parser {
 			if (this.src[i] !== '\\') return i
 			const next = i + 1
 			if (this.src[next] === '\n') i += 2
-			else if (next === this.src.length && this.source.finalLineRaw) i += 1
-			else return i
+			else if (next === this.src.length && this.source.finalLineRaw) {
+				this.bashOnly('a trailing backslash')
+				i += 1
+			} else return i
 		}
 	}
 
@@ -1332,6 +1392,9 @@ class Parser {
 				this.last.kind === 'op' &&
 				(this.last.op === '<&' || this.last.op === '>&')
 			) {
+				const after = src[this.cont(start + 1)]
+				if (after !== undefined && !WORD_BREAK.has(after))
+					this.bashOnly('a word glued to <&- or >&-')
 				this.pos = start + 1
 				return {
 					kind: 'word',
@@ -1361,16 +1424,23 @@ class Parser {
 			case ';': {
 				if (c1 === ';') {
 					const n2 = this.cont(n1 + 1)
-					if (src[n2] === '&') return op(';;&', n2 + 1)
+					if (src[n2] === '&') {
+						this.bashOnly(';;&')
+						return op(';;&', n2 + 1)
+					}
 					return op(';;', n1 + 1)
 				}
-				if (c1 === '&') return op(';&', n1 + 1)
+				if (c1 === '&') {
+					this.bashOnly(';&')
+					return op(';&', n1 + 1)
+				}
 				return op(';', start + 1)
 			}
 			case '&': {
 				if (c1 === '&') return op('&&', n1 + 1)
 				if (c1 === '>') {
 					const n2 = this.cont(n1 + 1)
+					this.bashOnly('&> and &>>')
 					if (src[n2] === '>') return op('&>>', n2 + 1)
 					return op('&>', n1 + 1)
 				}
@@ -1378,7 +1448,10 @@ class Parser {
 			}
 			case '|': {
 				if (c1 === '|') return op('||', n1 + 1)
-				if (c1 === '&') return op('|&', n1 + 1)
+				if (c1 === '&') {
+					this.bashOnly('|&')
+					return op('|&', n1 + 1)
+				}
 				return op('|', start + 1)
 			}
 			case '(': {
@@ -1386,6 +1459,7 @@ class Parser {
 					const end = this.arithmeticCommand(n1 + 1)
 					if (end >= 0) {
 						this.pos = end
+						this.bashOnly('((…))')
 						return { kind: 'arith', start, end }
 					}
 				}
@@ -1416,7 +1490,10 @@ class Parser {
 		if (char === '<') {
 			if (c1 === '<') {
 				const n2 = this.cont(n1 + 1)
-				if (src[n2] === '<') return done('<<<', n2 + 1)
+				if (src[n2] === '<') {
+					this.bashOnly('<<<')
+					return done('<<<', n2 + 1)
+				}
 				if (src[n2] === '-') return done('<<-', n2 + 1)
 				return done('<<', n1 + 1)
 			}
@@ -1575,6 +1652,7 @@ class Parser {
 					// In an unquoted body, a backslash that escapes the newline
 					// joins the lines before the delimiter test.
 					if (!heredoc.quoted && newline >= 0 && trailingBackslashes(piece) % 2 === 1) {
+						this.bashOnly('a line continuation in a here-document')
 						line += piece.slice(0, -1)
 						j = newline + 1
 						continue
@@ -1600,6 +1678,7 @@ class Parser {
 		// Parameter expansion in a body runs nothing; substitution and
 		// arithmetic might. Read with double-quote rules, where `"` is plain.
 		this.context.rescan(body.length)
+		this.inherit(body)
 		const reader = new Parser(body, 0, this.context, this.origin, this.depth, this.nestingNow + 1)
 		try {
 			let i = 0
@@ -1649,6 +1728,7 @@ class Parser {
 					this.allowCompound &&
 					/^[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=$/.test(joined(src.slice(start, i)))
 				) {
+					this.bashOnly('array assignment')
 					i = this.compoundArray(i + 1, builder)
 					continue
 				}
@@ -1661,6 +1741,7 @@ class Parser {
 			) {
 				// `NAME[…]` where an assignment may stand: bash reads the
 				// subscript as one unit, blanks and quotes included.
+				this.bashOnly('subscript')
 				const close = this.subscript(i + 1)
 				builder.expansion(src.slice(i, close))
 				i = close
@@ -1669,6 +1750,7 @@ class Parser {
 			if (char === '\\') {
 				if (i + 1 >= src.length) {
 					// A trailing backslash is a literal backslash.
+					this.bashOnly('a trailing backslash')
 					builder.literal('\\')
 					i += 1
 					continue
@@ -1701,6 +1783,7 @@ class Parser {
 			i += 1
 		}
 		this.pos = i
+		if (builder.brace) this.bashOnly('brace expansion')
 		const word: ShellWord = {
 			text: src.slice(start, i),
 			value: builder.value,
@@ -1711,6 +1794,7 @@ class Parser {
 		const next = src[i]
 		if ((next === '<' || next === '>') && src[this.cont(i + 1)] !== '(') {
 			const fd = joined(word.text)
+			if (/^\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(fd)) this.bashOnly('{name} redirection')
 			if (/^\d+$/.test(fd) || /^\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(fd)) {
 				const operator = this.redirectionOperator(i, fd)
 				return { ...operator, start }
@@ -1844,8 +1928,12 @@ class Parser {
 		const src = this.src
 		const n = this.cont(at + 1)
 		const next = src[n]
-		if (next === "'" && !inDouble) return this.ansiC(n + 1, builder)
+		if (next === "'" && !inDouble) {
+			this.bashOnly("$'…'")
+			return this.ansiC(n + 1, builder)
+		}
 		if (next === '"' && !inDouble) {
+			this.bashOnly('$"…"')
 			// `$"…"` is translated through the message catalogue at runtime.
 			const inner = new WordBuilder()
 			const end = this.doubleQuoted(n + 1, inner)
@@ -1901,6 +1989,7 @@ class Parser {
 			return end
 		}
 		if (next === '[') {
+			this.bashOnly('$[…]')
 			const end = this.matchBracket(n + 1)
 			this.arithmeticContent(src.slice(n + 1, end - 1), n + 1)
 			builder.expansion(src.slice(at, end))
@@ -2014,6 +2103,7 @@ class Parser {
 		}
 		const content = src.slice(from, i).replace(/\\\n/g, '')
 		if (!SAFE_PARAMETER.test(content)) this.context.opaque('parameter expansion')
+		else if (!POSIX_PARAMETER.test(content)) this.bashOnly('parameter expansion')
 		return i + 1
 	}
 
@@ -2151,6 +2241,7 @@ class Parser {
 		this.context.opaque('command substitution')
 		builder.expansion(src.slice(at, i + 1))
 		this.context.rescan(body.length)
+		this.inherit(body)
 		const inner = new Parser(body, 0, this.context, 'substitution', this.depth, this.nestingNow + 1)
 		try {
 			inner.program()
@@ -2187,6 +2278,13 @@ class Parser {
  */
 const SAFE_PARAMETER =
 	/^(?:#?(?:[A-Za-z_][A-Za-z0-9_]*(?:\[(?:\d+|@|\*)\])?|\d+|[@*#?$!-])(?:(?::?[-=+?]|##?|%%?|\/[/#%]?|\^\^?|,,?)[\s\S]*|:\s*-?\d+\s*(?::\s*-?\d+\s*)?)?)$/
+
+/**
+ * `${…}` forms POSIX defines, with a word free of quotes and escapes, whose
+ * handling inside `${…}` differs between shells.
+ */
+const POSIX_PARAMETER =
+	/^(?:#?(?:[A-Za-z_][A-Za-z0-9_]*|\d+|[@*#?$!-])|(?:[A-Za-z_][A-Za-z0-9_]*|\d+|[@*#?$!-])(?::?[-=+?]|##?|%%?)[^'"\\`]*)$/
 
 const ANSI_C_SIMPLE: Readonly<Record<string, string>> = {
 	a: '\x07',

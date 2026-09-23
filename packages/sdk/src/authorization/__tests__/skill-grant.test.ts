@@ -269,8 +269,19 @@ describe('Bash(<pattern>) uses the permission-table glob', () => {
 			'git status -- "a > b"',
 			'git status -- a\\>b',
 		]) {
-			expect(grants.coveringSkill(bash(line)), line).toBe('demo')
+			// Read as bash, the shell the tool runs on a host that has it.
+			expect(grants.coveringSkill(bash(line), undefined, { commandDialect: 'bash' }), line).toBe(
+				'demo',
+			)
 		}
+	})
+
+	it('reads a line for any POSIX shell unless told the shell is bash', () => {
+		// `&>` backgrounds the command in dash and redirects in bash. Not
+		// knowing which shell runs the line, the grant does not cover it.
+		const { grants } = granted('Bash(git status *)')
+		expect(grants.coveringSkill(bash('git status &>/dev/null'))).toBeUndefined()
+		expect(grants.coveringSkill(bash('git status 2>/dev/null'))).toBe('demo')
 	})
 
 	it('never covers a line whose ANSI-C quote hides what runs after it', () => {
@@ -293,8 +304,11 @@ describe('Bash(<pattern>) uses the permission-table glob', () => {
 		// decoded. They are now, and `$'-s'` is the argument `-s`: the line is
 		// `git status -s`, one command the entry names.
 		const { grants } = granted('Bash(git status *)')
-		expect(grants.coveringSkill(bash("git status $'-s'"))).toBe('demo')
-		expect(grants.coveringSkill(bash("git status $'\\x3b' rm"))).toBe('demo')
+		const asBash = { commandDialect: 'bash' } as const
+		expect(grants.coveringSkill(bash("git status $'-s'"), undefined, asBash)).toBe('demo')
+		expect(grants.coveringSkill(bash("git status $'\\x3b' rm"), undefined, asBash)).toBe('demo')
+		// Not in a POSIX shell, which has no `$'…'`.
+		expect(grants.coveringSkill(bash("git status $'-s'"))).toBeUndefined()
 	})
 
 	it('a whole-tool grant is the tool as it is, redirection included', () => {

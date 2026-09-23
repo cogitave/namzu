@@ -11,6 +11,7 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
+import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell.js'
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
@@ -34,6 +35,7 @@ import type {
 	FileReadTracker,
 	PreparedToolExecution,
 	RequestToolPause,
+	ShellDialect,
 	SkillRegistryRef,
 	ToolContext,
 	ToolDispatchOptions,
@@ -789,7 +791,18 @@ export class ToolExecutor {
 			toolName,
 			toolInput: input,
 			toolDef: this.config.tools.get(toolName),
+			commandDialect: this.commandDialect(toolName),
 		})
+	}
+
+	/**
+	 * The shell a tool's command line will run in this turn, for the
+	 * permission rules to read it in. A tool that does not say is `sh`, the
+	 * reading that holds for any POSIX shell.
+	 */
+	commandDialect(toolName: string): ShellDialect {
+		const tool = this.config.tools.get(toolName)
+		return tool?.commandDialect?.({ sandboxed: this.config.sandbox !== undefined }) ?? 'sh'
 	}
 
 	/**
@@ -1242,6 +1255,7 @@ export class ToolExecutor {
 			toolName: name,
 			toolInput: preparedInput,
 			toolDef: this.config.tools.get(name),
+			commandDialect: this.commandDialect(name),
 		})
 		if (gateResult && gateResult.decision !== 'allow') {
 			const reason =
@@ -1528,11 +1542,11 @@ export class ToolExecutor {
 												readonly env?: Record<string, string>
 											}): JobProcess =>
 												(this.config.sandbox as Sandbox).spawnDetached?.(
-													'/bin/sh',
-													['-c', job.command],
+													sandboxShellSpawn(job.command).file,
+													sandboxShellSpawn(job.command).args,
 													{
 														cwd: job.workingDirectory,
-														...(job.env ? { env: job.env } : {}),
+														...(job.env ? { env: withoutBashStartup(job.env) } : {}),
 													},
 												) as JobProcess,
 										}

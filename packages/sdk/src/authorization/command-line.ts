@@ -77,6 +77,7 @@
  */
 
 import {
+	type ShellDialect,
 	type ShellLexResult,
 	type ShellRedirection,
 	basename,
@@ -107,8 +108,16 @@ const RUNTIME_EVALUATORS = new Set(['eval', 'source', '.'])
  */
 const MAX_SEGMENTS = 64
 
-export function decomposeCommandLine(command: string): CommandLineDecomposition {
-	const lexed = lex(command)
+/**
+ * `dialect` is the shell that will run the line (see `ShellDialect`); a
+ * caller that does not know passes `sh`, whose reading holds for any POSIX
+ * shell.
+ */
+export function decomposeCommandLine(
+	command: string,
+	dialect: ShellDialect = 'bash',
+): CommandLineDecomposition {
+	const lexed = lex(command, dialect)
 	let opaque = lexed.opaque
 	for (const each of lexed.commands) {
 		const head = each.words[each.assignments]
@@ -156,9 +165,12 @@ export function decomposeCommandLine(command: string): CommandLineDecomposition 
  * quotes keeps meaning what its author wrote, and a decoded form can only ever
  * add a match — which for `deny` is the safe direction and for `allow` is not.
  */
-export function decodedCommands(command: string): readonly string[] {
+export function decodedCommands(
+	command: string,
+	dialect: ShellDialect = 'bash',
+): readonly string[] {
 	const out: string[] = []
-	for (const each of lex(command).commands) {
+	for (const each of lex(command, dialect).commands) {
 		if (each.words.length === 0) continue
 		out.push(each.words.map((word) => word.value).join(' '))
 		if (each.assignments > 0 && each.words.length > each.assignments) {
@@ -189,8 +201,8 @@ export function decodedCommands(command: string): readonly string[] {
  * does a line that does not parse or holds a process substitution: the
  * uncertainty spends against the grant.
  */
-export function writesThroughRedirection(command: string): boolean {
-	const lexed = lex(command)
+export function writesThroughRedirection(command: string, dialect: ShellDialect = 'bash'): boolean {
+	const lexed = lex(command, dialect)
 	if (!lexed.complete) return true
 	if (lexed.reasons.includes('process substitution')) return true
 	return lexed.redirections.some(writes)
@@ -219,11 +231,15 @@ function writes(redirection: ShellRedirection): boolean {
  * One gate evaluation tests the same line against every rule, and each rule
  * asks for it again. The last line lexed is kept so that is one lexing.
  */
-let cached: { readonly command: string; readonly result: ShellLexResult } | undefined
+let cached:
+	| { readonly command: string; readonly dialect: ShellDialect; readonly result: ShellLexResult }
+	| undefined
 
-function lex(command: string): ShellLexResult {
-	if (cached !== undefined && cached.command === command) return cached.result
-	const result = lexShellCommandLine(command)
-	cached = { command, result }
+function lex(command: string, dialect: ShellDialect): ShellLexResult {
+	if (cached !== undefined && cached.command === command && cached.dialect === dialect) {
+		return cached.result
+	}
+	const result = lexShellCommandLine(command, { dialect })
+	cached = { command, dialect, result }
 	return result
 }

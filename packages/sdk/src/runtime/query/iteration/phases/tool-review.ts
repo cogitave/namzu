@@ -2,6 +2,7 @@ import type { AuthorizationGate } from '../../../../authorization/index.js'
 import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
+import type { ShellDialect } from '../../../../types/tool/index.js'
 import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
@@ -53,6 +54,15 @@ export async function* runToolReview(
 ): AsyncGenerator<SessionEvent, ToolReviewOutcome> {
 	let executed: readonly import('../../executor.js').ToolCallOutcome[] = []
 	let toolMs = 0
+	// The shell each call's command line will run in, for the rules and the
+	// skill grants to read it the same way. A test double without the method
+	// leaves it unset, which reads the line for any POSIX shell.
+	const dialectFor = (toolName: string): { commandDialect?: ShellDialect } => {
+		const executor = ctx.toolExecutor as { commandDialect?: (name: string) => ShellDialect }
+		return typeof executor.commandDialect === 'function'
+			? { commandDialect: executor.commandDialect(toolName) }
+			: {}
+	}
 
 	const finish = (decision: ToolReviewDecision): ToolReviewOutcome => ({
 		decision,
@@ -255,6 +265,7 @@ export async function* runToolReview(
 				toolName: tc.name,
 				toolInput: tc.input,
 				toolDef: ctx.tools.get(tc.name),
+				...dialectFor(tc.name),
 			}),
 		}))
 		for (const gr of gateResults) {
@@ -344,7 +355,7 @@ export async function* runToolReview(
 			if (gateDenied.has(tc.id)) continue
 			if (tc.authorization?.decision === 'deny' || tc.authorization?.explicitReview) continue
 			if (tc.isDestructive || tc.escalation !== undefined) continue
-			const skill = ctx.skillGrants.coveringSkill(tc, ctx.tools.get(tc.name))
+			const skill = ctx.skillGrants.coveringSkill(tc, ctx.tools.get(tc.name), dialectFor(tc.name))
 			if (skill !== undefined) tc.skillGrant = { skill }
 		}
 	}
@@ -508,6 +519,7 @@ export async function* runToolReview(
 						toolName: summary.name,
 						toolInput: summary.input,
 						toolDef: ctx.tools.get(summary.name),
+						...dialectFor(summary.name),
 					})
 					if (gateResult.decision === 'allow') continue
 					const reason =
