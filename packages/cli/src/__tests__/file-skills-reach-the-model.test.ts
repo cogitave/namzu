@@ -132,7 +132,7 @@ describe('a file skill', () => {
 			expect.objectContaining({
 				kind: 'tool-start',
 				toolName: 'skill',
-				summary: JSON.stringify({ name: 'release-notes' }),
+				summary: 'Read skill release-notes',
 			}),
 		)
 		expect(events).toContainEqual(
