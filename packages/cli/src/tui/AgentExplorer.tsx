@@ -525,6 +525,12 @@ export function AgentCockpit({
 						now={now}
 						wide={wide}
 						terminalColumns={terminalColumns}
+						detailWidth={Math.floor(
+							Math.max(
+								2,
+								terminalColumns - COCKPIT_FRAME_COLUMNS - (phasePaneWidth ?? 0) - (sideBySide ? 3 : 0),
+							) / 2,
+						)}
 					/>
 				</Box>
 			</Box>
@@ -629,8 +635,15 @@ function AgentPane({
 	now,
 	wide,
 	terminalColumns,
+	detailWidth,
 }: {
 	readonly agents: readonly SubagentActivity[]
+	/**
+	 * Cells for the status and meta half of a wide row, worked out from the
+	 * pane's width. As `50%` the row came out one cell wider than its pane,
+	 * and its last character sat on the frame's padding, touching the border.
+	 */
+	readonly detailWidth?: number
 	readonly selected: number
 	readonly focused: boolean
 	readonly pageSize: number
@@ -666,7 +679,7 @@ function AgentPane({
 								{oneLine(agent.description || agent.agentId)}
 							</Text>
 						</Box>
-						<Box marginLeft={1} flexShrink={0} width={wide ? '50%' : undefined}>
+						<Box marginLeft={1} flexShrink={0} width={wide ? detailWidth : undefined}>
 							<Box flexGrow={1} flexShrink={1} minWidth={0}>
 								<Text color={theme.text.secondary} wrap="truncate-end">
 									{statusLabel(agent.status)} ·{' '}
