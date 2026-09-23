@@ -217,7 +217,7 @@ describe('the rail tree', () => {
 			{ cols: 40, rows: 10 },
 		)
 		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-		expect(rows[0]).toContain('● İki aşamalı cümle · 2/2')
+		expect(rows[0]).toContain('● İki aşamalı cümle · 0/2 done')
 		expect(rows).toHaveLength(5)
 		expect(rows.join('\n')).toContain('Birinci rengi seç')
 		expect(rows.join('\n')).not.toContain('gpt-5.6-luna')
@@ -291,7 +291,10 @@ describe('the rail tree', () => {
 				{ cols: 40, rows: 8 },
 			)
 			const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-			expect(rows[0]).toContain('● Two-phase colour sentence · 1/3')
+			// done/total, as the cockpit header says at the same moment, never
+			// the one agent still running out of three.
+			expect(rows[0]).toContain('● Two-phase colour sentence · 2/3 done')
+			expect(rows[0]).not.toContain('1/3')
 			expect(rows.join('\n')).not.toContain('Phase 1')
 			expect(rows[1]).toBe('  ● Phase 2 · 0/1')
 			for (const row of rows) expect(stringWidth(row)).toBeLessThanOrEqual(40)

@@ -194,8 +194,11 @@ export function AgentTaskPanel({
 		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
 		undefined,
 	)
+	// Narrow or wide, the count is the reference's `done/total`, the same
+	// figure the cockpit header and each phase line carry, so one moment
+	// never reads as two different numbers.
 	const counts = narrow
-		? `${active}/${agents.length}${hidden > 0 ? ` +${hidden}` : ''}`
+		? `${done}/${agents.length} done${hidden > 0 ? ` +${hidden}` : ''}`
 		: [
 				`${running} running`,
 				...(queued > 0 ? [`${queued} queued`] : []),

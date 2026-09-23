@@ -775,7 +775,7 @@ describe('Ctrl+T', () => {
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
-		expect(frame).toContain('1/1')
+		expect(frame).toContain('0/1 done')
 		expect(frame).not.toContain('public preview')
 		expect(screen.viewport()).toHaveLength(14)
 	})

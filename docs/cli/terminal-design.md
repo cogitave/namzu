@@ -117,7 +117,10 @@ boxed panel:
 The header's `●` is green while anything runs and becomes `✓` once all have
 settled; the counts separate running from queued, then say how many are done
 (`2/3 done`, once one is) and, from 96 columns, how long the work has run
-since its first agent started and what it has spent so far. Each agent is one `├`/`└`
+since its first agent started and what it has spent so far. Below 64 columns
+the counts shrink to that one figure, `2/3 done` (with `+N` for agents the
+rail has no room to draw), the same count the cockpit's header gives at that
+width. Each agent is one `├`/`└`
 branch with its status glyph (`◌ ● ✓ ✗ ○`), name, elapsed time and, as width
 allows, tool uses, spend and model — tool uses and spend drop first, then the
 model. A running agent's latest activity sits beneath it on a `⎿` line; on a
