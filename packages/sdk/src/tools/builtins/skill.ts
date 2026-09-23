@@ -1,23 +1,27 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
+import { parseAllowedTools } from '../../authorization/skill-grant.js'
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
 import { defineTool } from '../defineTool.js'
 
+export { parseAllowedTools }
+
 /**
- * Load a skill's instructions, and adopt whatever it says it needs.
+ * Load a skill's instructions, and apply what its `allowed-tools` grants.
  *
  * The manifest in the system prompt told the model that a SKILL.md exists
  * and to "read the SKILL.md at its <location> before writing code" — which
  * is a filesystem instruction, so a turn with no filesystem tools could see
- * every skill it had and open none of them. The protocol text even admits
- * it: *"when the runtime exposes filesystem or skill-loading tools"*. There
- * was no skill-loading tool.
+ * every skill it had and open none of them. There was no skill-loading tool.
  *
- * `allowed-tools` had the same shape of problem from the other side. It was
- * parsed, carried into `SkillMetadata`, rendered into the prompt as
- * `<allowed_tools>…</allowed_tools>` — and read by nothing. It was advice
- * the model could take or ignore, phrased as a declaration.
+ * `allowed-tools` is a PRE-APPROVAL, as the Agent Skills format defines it:
+ * the listed tools skip the approval prompt for the rest of this turn, and
+ * every other tool stays callable under the turn's ordinary review. It was
+ * read here for a while as a restriction — the listed tools and nothing
+ * else, from the next batch — which inverted what skill authors mean by it
+ * and left a model that loaded `allowed-tools: Read Grep` without `bash`.
+ * See `authorization/skill-grant.ts` for what a grant can and cannot do.
  */
 
 const inputSchema = z.object({
@@ -47,6 +51,8 @@ interface SkillSnapshot {
 	readonly name: string
 	readonly body: string
 	readonly allowedTools: readonly string[] | undefined
+	/** Bound into the cursor because `${CLAUDE_SKILL_DIR}` in a grant expands to it. */
+	readonly skillDirectory: string | undefined
 	readonly invocation: ReturnType<typeof skillInvocation>
 }
 
@@ -76,6 +82,9 @@ function snapshotDigest(snapshot: SkillSnapshot): string {
 				name: snapshot.name,
 				body: snapshot.body,
 				allowedTools: snapshot.allowedTools ?? null,
+				...(snapshot.skillDirectory === undefined
+					? {}
+					: { skillDirectory: snapshot.skillDirectory }),
 				invocation: snapshot.invocation,
 			}),
 		)
@@ -231,27 +240,6 @@ function pageSkillBody(input: {
 	return undefined
 }
 
-/**
- * `allowed-tools` as a list.
- *
- * Comma-separated in the frontmatter because that is what authors write and
- * what the field has always accepted. Split here rather than at parse so
- * the stored metadata keeps the author's own string — the same reasoning
- * `invocation` uses for not defaulting at parse.
- */
-export function parseAllowedTools(declared: string | undefined): readonly string[] | undefined {
-	if (declared === undefined) return undefined
-	const names = declared
-		.split(',')
-		.map((name) => name.trim())
-		.filter((name) => name.length > 0)
-	// An empty result from a non-empty declaration is a real answer and not
-	// the same as "declared nothing": `allowed-tools: ""` is an author
-	// saying this skill needs no tools, and collapsing it to `undefined`
-	// would silently widen that to everything.
-	return names
-}
-
 export const SKILL_TOOL_NAME = 'skill'
 
 export const SkillTool = defineTool({
@@ -261,9 +249,9 @@ export const SkillTool = defineTool({
 	inputSchema,
 	category: 'analysis',
 	permissions: [],
-	// Reads instructions and changes nothing. It is the one tool whose
-	// availability a narrowed skill scope must never remove, or a model
-	// inside one skill could not reach for another.
+	// Reads instructions and changes nothing on disk. What it does change is
+	// the turn's approvals, through `grantSkillTools`, and only ever towards
+	// fewer prompts for calls the operator's policy already leaves to review.
 	readOnly: true,
 	destructive: false,
 	concurrencySafe: true,
@@ -382,6 +370,7 @@ export const SkillTool = defineTool({
 			name: input.name,
 			body: skill.body ?? '(this skill has no body)',
 			allowedTools: allowed,
+			skillDirectory: skill.dirPath,
 			invocation,
 		}
 		const digest = snapshotDigest(snapshot)
@@ -403,10 +392,18 @@ export const SkillTool = defineTool({
 			start = parsed.offset
 		}
 
-		const notice =
-			allowed === undefined
-				? ''
-				: `\n\n[While following this skill, restrict yourself to: ${allowed.length > 0 ? allowed.join(', ') : '(no tools)'}. This takes effect from your next turn.]`
+		// Applied before paging so the notice can say what actually happened.
+		// Idempotent: a continuation call grants the same entries again, and
+		// the turn's set keeps one copy.
+		let grant: ReturnType<NonNullable<typeof context.grantSkillTools>> | undefined
+		if (allowed !== undefined && allowed.length > 0 && context.grantSkillTools) {
+			grant = context.grantSkillTools({
+				skill: skill.metadata.name,
+				allowedTools: allowed,
+				...(snapshot.skillDirectory ? { skillDirectory: snapshot.skillDirectory } : {}),
+			})
+		}
+		const notice = grantNotice(allowed, grant, context.grantSkillTools !== undefined)
 		const page = pageSkillBody({
 			snapshot,
 			digest,
@@ -422,31 +419,52 @@ export const SkillTool = defineTool({
 			}
 		}
 
-		// Cursor and policy validation must finish before this mutation. A
-		// continuation is bound to the body AND its effective authorization
-		// metadata, so an edit to allowed-tools or invocation cannot widen the
-		// next batch under an old cursor.
-		if (allowed !== undefined) {
-			// Adopted, not merely announced. The notice below tells the model
-			// what happened; this is what makes it true whether or not the
-			// model reads it — the difference between the field as it was and
-			// the field as a declaration.
-			//
-			// Absent `adoptSkillScope`, the notice still goes out and is all
-			// there is: a host driving this tool outside a turn has no executor
-			// to enforce anything, and saying nothing would be worse than
-			// advice.
-			context.adoptSkillScope?.({ skill: skill.metadata.name, allowedTools: allowed })
-		}
-
 		return {
 			success: true,
 			output: page.output,
 			data: {
 				skill: skill.metadata.name,
 				...(allowed === undefined ? {} : { allowedTools: allowed }),
+				...(grant ? { granted: grant.granted, ignored: grant.ignored } : {}),
 				...(page.nextCursor === undefined ? {} : { nextCursor: page.nextCursor }),
 			},
 		}
 	},
 })
+
+/**
+ * What the model is told about `allowed-tools`.
+ *
+ * The sentence that matters most is the second one. The old notice said
+ * "restrict yourself to", and a model told that does exactly what the owner
+ * reported: it stops using `bash` and tries to do the work through the skill.
+ * So the notice says, every time, that nothing was taken away.
+ */
+function grantNotice(
+	allowed: readonly string[] | undefined,
+	grant:
+		| {
+				granted: readonly string[]
+				ignored: readonly { entry: string; reason: string }[]
+		  }
+		| undefined,
+	canGrant: boolean,
+): string {
+	if (allowed === undefined || allowed.length === 0) return ''
+	const unchanged =
+		'Every other tool remains available and is reviewed as usual; this skill does not limit which tools you may use.'
+	if (!canGrant || !grant) {
+		return `\n\n[This skill lists allowed-tools (${allowed.join(', ')}), but this host applies no pre-approval, so those calls are reviewed as usual. ${unchanged}]`
+	}
+	const lines: string[] = []
+	lines.push(
+		grant.granted.length > 0
+			? `Pre-approved for the rest of this turn: ${grant.granted.join(', ')}. The operator's deny and ask rules, plan mode and strict mode still apply to them.`
+			: 'Nothing in allowed-tools could be pre-approved.',
+	)
+	for (const { entry, reason } of grant.ignored) {
+		lines.push(`Ignored allowed-tools entry "${entry}": ${reason}.`)
+	}
+	lines.push(unchanged)
+	return `\n\n[${lines.join(' ')}]`
+}

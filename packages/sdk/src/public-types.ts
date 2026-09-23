@@ -113,9 +113,15 @@ export type { CacheRates, ModelPricing } from './utils/cost.js'
 export type { VendorRates } from './pricing/index.js'
 export type { PricingSubject } from './manager/session/turn-recorder.js'
 export type {
+	FrontmatterOptions,
 	FrontmatterValue,
 	ParsedFrontmatter,
 } from './utils/frontmatter.js'
+export type {
+	CompiledSkillGrant,
+	SkillGrantEntry,
+	SkillGrantToolResolver,
+} from './authorization/skill-grant.js'
 export type { Logger } from './utils/logger.js'
 export type {
 	LevelFilter,

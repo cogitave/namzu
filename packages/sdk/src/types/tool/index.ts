@@ -77,6 +77,8 @@ export interface SkillRegistryRef {
 						invocation?: 'model' | 'operator' | 'both'
 					}
 					body?: string
+					/** The skill's directory, which `${CLAUDE_SKILL_DIR}` in `allowed-tools` names. */
+					dirPath?: string
 				}
 		  }
 		| undefined
@@ -473,17 +475,49 @@ export interface ToolContext {
 	}
 
 	/**
-	 * Adopt the tool scope a skill declared.
+	 * Formerly: narrow the turn's tools to what a skill's `allowed-tools`
+	 * named. That reading was backwards — the field pre-approves, it never
+	 * restricts — and the kernel no longer supplies this member, so a tool
+	 * that calls it through `?.` does nothing.
 	 *
-	 * Called by the `skill` tool when a loaded skill names `allowed-tools`.
-	 * The scope INTERSECTS what the turn already allows and takes effect from
-	 * the next batch — a skill loaded alongside other calls must not
-	 * retroactively refuse them.
+	 * @deprecated Never supplied by the kernel since `allowed-tools` became a
+	 * pre-approval. Use {@link ToolContext.grantSkillTools}. Removed in the
+	 * next major.
 	 */
 	adoptSkillScope?: (scope: {
 		skill: string
 		allowedTools: readonly string[]
 	}) => void
+
+	/**
+	 * Pre-approve what a loaded skill's `allowed-tools` names, for the rest of
+	 * this turn.
+	 *
+	 * Called by the `skill` tool. It never narrows anything: every tool the
+	 * turn had stays callable, and a call the grant does not cover is reviewed
+	 * exactly as before. A covered call skips the approval prompt, but not an
+	 * operator `deny` or `ask` rule, plan mode, `strict` mode, a destructive
+	 * call or one that reaches outside the turn's roots or sandbox. Each call
+	 * approved this way is written to the session's audit trail naming the
+	 * skill.
+	 *
+	 * Returns what was granted and what was ignored (an unknown tool name, a
+	 * pattern on a tool without a command line), so the tool can tell the
+	 * model. Absent outside a turn, where there is nothing to grant into.
+	 */
+	grantSkillTools?: (grant: {
+		readonly skill: string
+		/** The parsed entries, as `parseAllowedTools` returns them. */
+		readonly allowedTools: readonly string[]
+		/** The skill's directory, for `${CLAUDE_SKILL_DIR}` / `${NAMZU_SKILL_DIR}`. */
+		readonly skillDirectory?: string
+	}) => {
+		readonly granted: readonly string[]
+		readonly ignored: readonly {
+			readonly entry: string
+			readonly reason: string
+		}[]
+	}
 
 	/**
 	 * Effective model-visible character cap for this tool result.

@@ -67,8 +67,11 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 			if (s.metadata.license) {
 				lines.push(`<license>${s.metadata.license}</license>`)
 			}
+			// Named for what it does. Rendered as `<allowed_tools>` it read as a
+			// whitelist, and a model that took it that way stopped reaching for
+			// tools the skill did not list — the reverse of the field's meaning.
 			if (s.metadata.allowedTools) {
-				lines.push(`<allowed_tools>${s.metadata.allowedTools}</allowed_tools>`)
+				lines.push(`<pre_approved_tools>${s.metadata.allowedTools}</pre_approved_tools>`)
 			}
 			lines.push('</skill>')
 			return lines.join('\n')
@@ -81,7 +84,7 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 	// instructions and no listing that would let it reason about them.
 	const loadedSkills = forModel.filter((s) => s.body)
 	const sections = [
-		`## Available Skills\nThe following block is a manifest, not the full skill content. Skill metadata is always visible; SKILL.md bodies are loaded only when the user's task matches the skill description.\n\n<available_skills>\n${available}\n</available_skills>\n\nSkill usage protocol:\n- Plain questions do not require a skill.\n- When a matching skill is already listed under Loaded Skills, apply its loaded instructions.\n- When a matching skill is not loaded and the runtime exposes filesystem or skill-loading tools, read the SKILL.md at its <location> before writing code, creating files, running shell commands for that workflow, or calling mutation tools guided by the skill.\n- Do not claim to have read a SKILL.md until its content is actually present in the prompt or returned by a tool.\n- Tool schemas and runtime permissions remain authoritative; skills provide guidance, not hidden tools.`,
+		`## Available Skills\nThe following block is a manifest, not the full skill content. Skill metadata is always visible; SKILL.md bodies are loaded only when the user's task matches the skill description.\n\n<available_skills>\n${available}\n</available_skills>\n\nSkill usage protocol:\n- Plain questions do not require a skill.\n- When a matching skill is already listed under Loaded Skills, apply its loaded instructions.\n- When a matching skill is not loaded and the runtime exposes filesystem or skill-loading tools, read the SKILL.md at its <location> before writing code, creating files, running shell commands for that workflow, or calling mutation tools guided by the skill.\n- Do not claim to have read a SKILL.md until its content is actually present in the prompt or returned by a tool.\n- Tool schemas and runtime permissions remain authoritative; skills provide guidance, not hidden tools.\n- <pre_approved_tools> lists tools a skill lets run without an approval prompt once it is loaded. It never limits which tools you may use: every tool stays available.`,
 	]
 
 	if (loadedSkills.length > 0) {

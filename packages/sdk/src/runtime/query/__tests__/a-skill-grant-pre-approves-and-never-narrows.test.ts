@@ -1,0 +1,213 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { MockLLMProvider } from '../../../provider/mock.js'
+import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { SkillRegistry } from '../../../skills/registry.js'
+import { SkillTool } from '../../../tools/builtins/skill.js'
+import { defineTool } from '../../../tools/defineTool.js'
+import type { SessionId, TenantId } from '../../../types/ids/index.js'
+import { createUserMessage } from '../../../types/message/index.js'
+import type { MockTurn } from '../../../types/provider/index.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { drainQuery } from '../index.js'
+import { type ReviewMode, type ToolReviewPrompt, createReviewHandler } from '../review-policy.js'
+
+/**
+ * The owner's report, through the real `query()`: a skill was loaded and the
+ * model stopped using `bash`. `allowed-tools` had been read as a restriction.
+ *
+ * Driven end to end — a SKILL.md on disk, the kernel's skill registry, the
+ * shipped review policy — so what is pinned is the wiring as a host gets it:
+ * one grant set per turn, filled by the `skill` tool and read by the review.
+ */
+
+let dirs: string[] = []
+afterEach(async () => {
+	await removeTempDirs(dirs)
+	dirs = []
+})
+
+async function skillsWith(allowedTools: string): Promise<SkillRegistry> {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-skill-grant-e2e-'))
+	dirs.push(root)
+	const dir = join(root, 'helper')
+	await mkdir(dir, { recursive: true })
+	await writeFile(
+		join(dir, 'SKILL.md'),
+		[
+			'---',
+			'name: helper',
+			'description: Helps',
+			`allowed-tools: ${allowedTools}`,
+			'---',
+			'Run the checks.',
+		].join('\n'),
+	)
+	const registry = new SkillRegistry()
+	await registry.register(dir)
+	return registry
+}
+
+function toolsWithBash(ran: string[]): ToolRegistry {
+	const tools = new ToolRegistry()
+	tools.register(SkillTool)
+	tools.register(
+		defineTool({
+			name: 'bash',
+			description: 'run a command',
+			inputSchema: z.object({ command: z.string() }),
+			category: 'shell',
+			permissions: ['shell_execute'],
+			commandArgument: 'command',
+			readOnly: false,
+			destructive: false,
+			concurrencySafe: false,
+			execute: async (input: { command: string }) => {
+				ran.push(input.command)
+				return { success: true, output: `ran ${input.command}` }
+			},
+		}),
+	)
+	tools.register(
+		defineTool({
+			name: 'read',
+			description: 'read',
+			inputSchema: z.object({}),
+			category: 'filesystem',
+			permissions: [],
+			readOnly: true,
+			destructive: false,
+			concurrencySafe: true,
+			execute: async () => ({ success: true, output: 'read' }),
+		}),
+	)
+	return tools
+}
+
+/** One turn: optionally load the skill, then run `command` through bash. */
+function provider(opts: { load: boolean; command: string }) {
+	return new MockLLMProvider({
+		nextTurn(_params, index): MockTurn {
+			const script: MockTurn[] = [
+				...(opts.load ? [{ toolCalls: [{ name: 'skill', args: { name: 'helper' } }] }] : []),
+				{ toolCalls: [{ name: 'bash', args: { command: opts.command } }] },
+				{ text: 'done' },
+			]
+			return script[index] ?? { text: 'done' }
+		},
+	})
+}
+
+async function turn(opts: {
+	tools: ToolRegistry
+	skills: SkillRegistry
+	load: boolean
+	command: string
+	mode: ReviewMode
+	prompt: ToolReviewPrompt
+}) {
+	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-skill-grant-wd-'))
+	dirs.push(workingDirectory)
+	return drainQuery({
+		provider: provider({ load: opts.load, command: opts.command }),
+		tools: opts.tools,
+		skillRegistry: opts.skills,
+		resumeHandler: createReviewHandler({
+			mode: opts.mode,
+			prompt: opts.prompt,
+			registry: opts.tools,
+		}),
+		authorizationGate: {
+			enabled: true,
+			rules: [],
+			allowReadOnlyTools: true,
+			denyDangerousPatterns: true,
+			logDecisions: false,
+		},
+		turnConfig: {
+			model: 'mock-model',
+			timeoutMs: 30_000,
+			tokenBudget: 100_000,
+			maxIterations: 10,
+			maxResponseTokens: 256,
+		},
+		agentId: 'agent_skill_grant',
+		agentName: 'Skill Grant Agent',
+		workingDirectory,
+		sessionId: '5b7a1c2d-3e4f-4a5b-9c6d-7e8f9a0b1c2d' as SessionId,
+		topicId: '6c8b2d3e-4f5a-4b6c-8d7e-8f9a0b1c2d3e' as TopicId,
+		projectId: '7d9c3e4f-5a6b-4c7d-9e8f-9a0b1c2d3e4f' as ProjectId,
+		tenantId: '8e0d4f5a-6b7c-4d8e-8f9a-0b1c2d3e4f5a' as TenantId,
+		messages: [createUserMessage('use the helper skill')],
+	})
+}
+
+describe('a loaded skill through the real turn', () => {
+	it('`allowed-tools: Read Grep` leaves bash callable and still asked about', async () => {
+		const ran: string[] = []
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const result = await turn({
+			tools: toolsWithBash(ran),
+			skills: await skillsWith('Read Grep'),
+			load: true,
+			command: 'ls -la',
+			mode: 'prompt',
+			prompt,
+		})
+
+		expect(result.status, JSON.stringify(result)).toBe('completed')
+		expect(ran).toEqual(['ls -la'])
+		expect(prompt).toHaveBeenCalledOnce()
+	})
+
+	it('`Bash(git status *)` runs `git status -s` without asking, for this turn only', async () => {
+		const ran: string[] = []
+		const tools = toolsWithBash(ran)
+		const skills = await skillsWith('Read Bash(git status *)')
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+
+		const first = await turn({
+			tools,
+			skills,
+			load: true,
+			command: 'git status -s',
+			mode: 'prompt',
+			prompt,
+		})
+		expect(first.status, JSON.stringify(first)).toBe('completed')
+		expect(ran).toEqual(['git status -s'])
+		expect(prompt).not.toHaveBeenCalled()
+
+		// The next message is a new turn; the grant did not survive it.
+		const second = await turn({
+			tools,
+			skills,
+			load: false,
+			command: 'git status -s',
+			mode: 'prompt',
+			prompt,
+		})
+		expect(second.status, JSON.stringify(second)).toBe('completed')
+		expect(prompt).toHaveBeenCalledOnce()
+	})
+
+	it('plan mode refuses a call the skill pre-approved', async () => {
+		const ran: string[] = []
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		await turn({
+			tools: toolsWithBash(ran),
+			skills: await skillsWith('Bash(git status *)'),
+			load: true,
+			command: 'git status',
+			mode: 'plan',
+			prompt,
+		})
+
+		expect(ran).toEqual([])
+		expect(prompt).not.toHaveBeenCalled()
+	})
+})

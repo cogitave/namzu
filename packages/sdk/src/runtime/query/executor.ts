@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
+import { type SkillGrantSet, compileSkillGrant } from '../../authorization/skill-grant.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
@@ -10,7 +11,6 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
-import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
@@ -449,6 +449,12 @@ export interface ToolExecutorConfig {
 	authorizationGate?: AuthorizationGate
 	/** Durable refusal sink paired with {@link authorizationGate}. */
 	recordAudit?: (input: AuditEventInput) => Promise<unknown>
+	/**
+	 * Where the `skill` tool's `allowed-tools` pre-approvals are recorded for
+	 * this turn. The review phase reads the same set. Absent: a loaded skill
+	 * grants nothing, and its tool says so.
+	 */
+	skillGrants?: SkillGrantSet
 }
 
 /**
@@ -692,58 +698,65 @@ export class ToolExecutor {
 	private batchMode?: PermissionMode
 
 	/**
-	 * The tool scope a loaded skill declared, and the batch it applies from.
+	 * The step's list where it has one; the turn's is the default.
 	 *
-	 * `allowed-tools` was parsed, stored and rendered into the prompt, and
-	 * read by nothing — advice phrased as a declaration. This is what makes
-	 * it a restriction, on the same line that already enforces the step's
-	 * list, because a narrowing the model can decline is not one.
-	 *
-	 * Two fields rather than one, and the second is the point: a skill
-	 * loaded MID-batch must not retroactively refuse the calls the model
-	 * issued alongside it. The model chose that batch under the old scope,
-	 * and refusing half of it teaches nothing except that tools fail at
-	 * random. `adoptedInBatch` is compared against the batch counter, so the
-	 * scope takes effect from the next one.
-	 *
-	 * **`adoptedInBatch` is redundant TODAY and kept deliberately**, the same
-	 * bargain `batchMode` above documents. `buildToolContext()` runs once per
-	 * batch, so every call in a batch already shares one `allowedTools` array
-	 * computed before any of them could adopt anything — remove this
-	 * comparison and no test changes, because the guarantee currently comes
-	 * from where the context happens to be built rather than from here.
-	 * Moving the context into the per-call spread is a plausible refactor,
-	 * and it would silently produce a batch whose second half is refused for
-	 * a scope its first half installed. That is precisely the incoherent
-	 * batch this line exists to make impossible.
-	 */
-	private skillScope?: {
-		skill: string
-		allowedTools: readonly string[]
-		adoptedInBatch: number
-	}
-	private batchCounter = 0
-
-	/**
-	 * The step's list, narrowed by any skill scope in force.
-	 *
-	 * An INTERSECTION, never a replacement: a skill cannot hand the model a
-	 * tool the step withheld. Widening has to be unexpressible rather than
-	 * discouraged — the same rule `CreateTaskOptions.toolScope` states for
-	 * delegation, and for the same reason: a skill file is content, and
-	 * content that can grant tools is a privilege-escalation surface wearing
-	 * the word "scope".
-	 *
-	 * The `skill` tool itself always survives. A skill that narrowed the
-	 * model out of reaching for another skill would be a one-way door, and
-	 * the tool reads instructions and changes nothing.
+	 * A loaded skill no longer narrows this. Its `allowed-tools` used to be
+	 * intersected in here from the next batch on, which read the field as a
+	 * restriction when it is a pre-approval; see `grantSkillTools`.
 	 */
 	private effectiveAllowedTools(): readonly string[] | undefined {
-		const base = this.stepAllowedTools ?? this.config.allowedTools
-		const scope = this.skillScope
-		if (!scope || scope.adoptedInBatch >= this.batchCounter) return base
-		const narrowed = new Set([...scope.allowedTools, SKILL_TOOL_NAME])
-		return base === undefined ? [...narrowed] : base.filter((name) => narrowed.has(name))
+		return this.stepAllowedTools ?? this.config.allowedTools
+	}
+
+	/**
+	 * Record a skill's `allowed-tools` as pre-approvals for the rest of the
+	 * turn, and say what was granted.
+	 *
+	 * Names resolve against THIS turn's registry, case-insensitively and
+	 * through the Agent Skills aliases (`Read` is `read`, `WebFetch` is
+	 * `web_fetch`), so a grant can only ever name a tool the turn already has.
+	 * An entry that resolves to nothing is reported and grants nothing.
+	 */
+	private grantSkillTools(grant: {
+		readonly skill: string
+		readonly allowedTools: readonly string[]
+		readonly skillDirectory?: string
+	}): {
+		readonly granted: readonly string[]
+		readonly ignored: readonly {
+			readonly entry: string
+			readonly reason: string
+		}[]
+	} {
+		const grants = this.config.skillGrants
+		if (!grants) return { granted: [], ignored: [] }
+		const tools = this.config.tools
+		const byLowerName = new Map<string, string>()
+		for (const name of tools.listNames()) byLowerName.set(name.toLowerCase(), name)
+		const compiled = compileSkillGrant(grant.allowedTools, {
+			resolveTool: (name) => {
+				const registered = byLowerName.get(name.toLowerCase())
+				if (registered === undefined) return undefined
+				const commandArgument = tools.get(registered)?.commandArgument
+				return commandArgument === undefined
+					? { name: registered }
+					: { name: registered, commandArgument }
+			},
+			...(grant.skillDirectory ? { skillDirectory: grant.skillDirectory } : {}),
+		})
+		grants.grant(grant.skill, compiled)
+		if (compiled.ignored.length > 0) {
+			this.log.warn('Skill allowed-tools entries were ignored', {
+				'namzu.skill.name': grant.skill,
+				'namzu.skill.ignored': compiled.ignored.map((item) => item.entry),
+			})
+		}
+		return {
+			granted: compiled.entries.map((entry) =>
+				entry.pattern === undefined ? entry.tool : entry.declared,
+			),
+			ignored: compiled.ignored,
+		}
 	}
 
 	private resolvePermissionMode(): PermissionMode {
@@ -882,8 +895,6 @@ export class ToolExecutor {
 			return { messages: [], results: [], observations: [] }
 		}
 		assertUniqueToolCallIds(toolCalls)
-
-		this.batchCounter += 1
 
 		// Sampled here, once, and held for every call below. See the note on
 		// `permissionMode` in the config type.
@@ -1442,11 +1453,11 @@ export class ToolExecutor {
 			// Same precedence the request already uses when it decides which
 			// schemas to send, so the menu and the kitchen agree.
 			allowedTools: this.effectiveAllowedTools(),
-			// Recorded, not applied here: a skill loaded during this batch
-			// narrows the NEXT one. See `skillScope`.
-			adoptSkillScope: (scope) => {
-				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
-			},
+			// A skill loaded during this batch pre-approves calls from the NEXT
+			// review on; this batch was already reviewed. See `grantSkillTools`.
+			...(this.config.skillGrants
+				? { grantSkillTools: (grant) => this.grantSkillTools(grant) }
+				: {}),
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 			// The turn's screens, defaulted HERE rather than on the registry: a
 			// host builds the registry and hands it over, so a registry-side

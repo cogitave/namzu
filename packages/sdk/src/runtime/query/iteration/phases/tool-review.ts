@@ -331,6 +331,24 @@ export async function* runToolReview(
 		})
 	}
 
+	// A skill's `allowed-tools` pre-approval, marked on the calls it covers
+	// and left for the review policy to honour. Marked, never decided here:
+	// only the policy knows the mode, and `plan` and `strict` must refuse a
+	// call a skill granted exactly as they refuse any other. Nothing stronger
+	// may stand in the way — an operator's deny or explicit ask, a
+	// destructive call, a path outside the roots or a sandbox escape all
+	// leave the call unmarked, so it is reviewed as though no skill had
+	// spoken.
+	if (ctx.skillGrants && ctx.skillGrants.size > 0) {
+		for (const tc of toolCallSummaries) {
+			if (gateDenied.has(tc.id)) continue
+			if (tc.authorization?.decision === 'deny' || tc.authorization?.explicitReview) continue
+			if (tc.isDestructive || tc.escalation !== undefined) continue
+			const skill = ctx.skillGrants.coveringSkill(tc, ctx.tools.get(tc.name))
+			if (skill !== undefined) tc.skillGrant = { skill }
+		}
+	}
+
 	// Already approved, at a scope the approver chose — and nothing the
 	// operator's policy denied, because `gateDenied` is checked first.
 	// Re-asking about a call somebody has already said yes to is how an
@@ -549,6 +567,21 @@ export async function* runToolReview(
 			// unless the approver chose to transfer it.
 			if (reviewDecision.action === 'approve_tools' && reviewDecision.remember) {
 				ctx.toolGrants?.grant(reviewDecision.remember)
+			}
+			// A call nobody was asked about, approved because a skill said so,
+			// is on the record naming that skill. Only a call that carried the
+			// mark counts: a policy that lists an unmarked id has not been
+			// given a skill's word for it.
+			if (reviewDecision.action === 'approve_tools' && reviewDecision.skillGranted) {
+				const listed = new Set(reviewDecision.skillGranted)
+				for (const tc of toolCallSummaries) {
+					if (!listed.has(tc.id) || !tc.skillGrant || gateDenied.has(tc.id)) continue
+					await ctx.recorder.recordAudit({
+						what: { action: 'tool_call', tool: tc.name },
+						outcome: 'approved',
+						reason: `pre-approved by the allowed-tools of skill "${tc.skillGrant.skill}" for this turn; nobody was asked`,
+					})
+				}
 			}
 
 			await ctx.emitEvent({

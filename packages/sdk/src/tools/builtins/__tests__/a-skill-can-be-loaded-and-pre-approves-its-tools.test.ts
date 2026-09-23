@@ -5,17 +5,16 @@ import type { SkillRegistryRef, ToolContext } from '../../../types/tool/index.js
 import { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from '../skill.js'
 
 /**
- * A skill the model can actually open, and a scope it cannot decline.
+ * A skill the model can actually open, and an `allowed-tools` that grants.
  *
  * The manifest told the model a SKILL.md exists and to "read the SKILL.md
  * at its <location>" — a filesystem instruction, so a turn without
- * filesystem tools could see every skill and open none. The protocol text
- * even hedged: *"when the runtime exposes filesystem or skill-loading
- * tools"*. There was no skill-loading tool.
+ * filesystem tools could see every skill and open none.
  *
- * `allowed-tools` failed from the other side: parsed, stored, rendered into
- * the prompt, and read by nothing — advice the model could ignore, phrased
- * as a declaration.
+ * `allowed-tools` was then read as a RESTRICTION: the tool told the model to
+ * "restrict yourself to" the listed tools and the executor narrowed the next
+ * batch to them. The owner loaded a skill with `allowed-tools` and watched
+ * the model stop using `bash`. The field pre-approves; it never narrows.
  */
 
 interface StoredSkill {
@@ -24,6 +23,7 @@ interface StoredSkill {
 	body?: string
 	allowedTools?: string
 	invocation?: 'model' | 'operator' | 'both'
+	dirPath?: string
 }
 
 function registry(skills: StoredSkill[]): SkillRegistryRef {
@@ -40,6 +40,7 @@ function registry(skills: StoredSkill[]): SkillRegistryRef {
 						...(found.invocation === undefined ? {} : { invocation: found.invocation }),
 					},
 					...(found.body === undefined ? {} : { body: found.body }),
+					...(found.dirPath === undefined ? {} : { dirPath: found.dirPath }),
 				},
 			}
 		},
@@ -47,9 +48,30 @@ function registry(skills: StoredSkill[]): SkillRegistryRef {
 	}
 }
 
+interface GrantCall {
+	skill: string
+	allowedTools: readonly string[]
+	skillDirectory?: string
+}
+
+/** Records every grant, and answers the way the executor does for a turn with `read` and `grep`. */
+function granting(calls: GrantCall[]): NonNullable<ToolContext['grantSkillTools']> {
+	return (grant) => {
+		calls.push({ ...grant })
+		const known = new Set(['read', 'grep', 'bash'])
+		const granted: string[] = []
+		const ignored: { entry: string; reason: string }[] = []
+		for (const entry of grant.allowedTools) {
+			if (known.has(entry.toLowerCase())) granted.push(entry.toLowerCase())
+			else ignored.push({ entry, reason: 'this turn has no tool by that name' })
+		}
+		return { granted, ignored }
+	}
+}
+
 function contextFor(
 	skills?: SkillRegistryRef,
-	adopted?: { scope?: { skill: string; allowedTools: readonly string[] } },
+	grants?: GrantCall[],
 	overrides: Partial<ToolContext> = {},
 ): ToolContext {
 	return {
@@ -60,13 +82,7 @@ function contextFor(
 		env: {},
 		log: () => {},
 		...(skills ? { skills } : {}),
-		...(adopted
-			? {
-					adoptSkillScope: (scope: { skill: string; allowedTools: readonly string[] }) => {
-						adopted.scope = scope
-					},
-				}
-			: {}),
+		...(grants ? { grantSkillTools: granting(grants) } : {}),
 		...overrides,
 	}
 }
@@ -105,7 +121,11 @@ describe('the model can open a skill without a filesystem', () => {
 			| {
 					cap: number
 					output: string
-					page: { skills: unknown[]; warnings: string[]; nextCursor: string | null }
+					page: {
+						skills: unknown[]
+						warnings: string[]
+						nextCursor: string | null
+					}
 			  }
 			| undefined
 		for (let cap = 120; cap <= 420; cap += 1) {
@@ -128,7 +148,9 @@ describe('the model can open a skill without a filesystem', () => {
 		expect(first, 'fixture could not isolate the warning-only budget boundary').toBeDefined()
 		const wrongBudget = await SkillTool.execute(
 			{ cursor: first?.page.nextCursor as string },
-			contextFor(skills, undefined, { maxToolOutputChars: (first?.cap as number) + 1 }),
+			contextFor(skills, undefined, {
+				maxToolOutputChars: (first?.cap as number) + 1,
+			}),
 		)
 		expect(wrongBudget.success).toBe(false)
 		expect(wrongBudget.error).toMatch(/stale or invalid/)
@@ -247,97 +269,126 @@ describe('the model can open a skill without a filesystem', () => {
 		expect(outputs.join('\n')).toContain(middle)
 	})
 
-	it('rejects a cursor after authorization metadata changes before adopting scope', async () => {
+	it('rejects a cursor after authorization metadata changes', async () => {
 		const stored: StoredSkill = {
 			name: 'mutable',
-			body: 'body '.repeat(200),
+			body: 'body '.repeat(400),
 			allowedTools: 'read',
 		}
-		const adopted: { scope?: { skill: string; allowedTools: readonly string[] } } = {}
-		const ctx = contextFor(registry([stored]), adopted, { maxToolOutputChars: 360 })
+		const grants: GrantCall[] = []
+		// Room for the grant notice, which rides on every page.
+		const ctx = contextFor(registry([stored]), grants, {
+			maxToolOutputChars: 700,
+		})
 		const first = await SkillTool.execute({ name: 'mutable' }, ctx)
 		const cursor = (first.data as { nextCursor?: string } | undefined)?.nextCursor
 		expect(cursor).toBeDefined()
-		expect(adopted.scope).toEqual({ skill: 'mutable', allowedTools: ['read'] })
+		expect(grants).toEqual([{ skill: 'mutable', allowedTools: ['read'] }])
 
 		stored.allowedTools = 'bash'
 		const continued = await SkillTool.execute({ name: 'mutable', cursor: cursor as string }, ctx)
 
 		expect(continued.success).toBe(false)
 		expect(continued.error).toMatch(/stale or invalid/)
-		expect(adopted.scope).toEqual({ skill: 'mutable', allowedTools: ['read'] })
+		// Nothing new granted under the stale cursor.
+		expect(grants).toEqual([{ skill: 'mutable', allowedTools: ['read'] }])
 	})
 })
 
-describe('a declared tool scope is adopted, not merely announced', () => {
-	it('hands the scope to the runtime', async () => {
-		// The difference between the field as it was and the field as a
-		// declaration: this happens whether or not the model reads the notice.
-		const adopted: { scope?: { skill: string; allowedTools: readonly string[] } } = {}
+describe('allowed-tools grants, and never restricts', () => {
+	it("hands the parsed entries and the skill's directory to the turn", async () => {
+		const grants: GrantCall[] = []
 
 		await SkillTool.execute(
 			{ name: 'reconcile' },
-			contextFor(registry([{ name: 'reconcile', body: 'B', allowedTools: 'read, grep' }]), adopted),
+			contextFor(
+				registry([
+					{
+						name: 'reconcile',
+						body: 'B',
+						allowedTools: 'Read Grep Bash(git status *)',
+						dirPath: '/skills/reconcile',
+					},
+				]),
+				grants,
+			),
 		)
 
-		expect(adopted.scope).toEqual({ skill: 'reconcile', allowedTools: ['read', 'grep'] })
+		expect(grants).toEqual([
+			{
+				skill: 'reconcile',
+				allowedTools: ['Read', 'Grep', 'Bash(git status *)'],
+				skillDirectory: '/skills/reconcile',
+			},
+		])
 	})
 
-	it('adopts nothing when the skill declares nothing', async () => {
-		// Absent is unrestricted, and must not be collapsed into an empty
-		// scope — that would silently narrow every skill that says nothing to
-		// no tools at all.
-		const adopted: { scope?: { skill: string; allowedTools: readonly string[] } } = {}
-
-		await SkillTool.execute(
-			{ name: 'reconcile' },
-			contextFor(registry([{ name: 'reconcile', body: 'B' }]), adopted),
-		)
-
-		expect(adopted.scope).toBeUndefined()
+	it('grants nothing when the skill declares nothing, or declares it empty', async () => {
+		for (const allowedTools of [undefined, '']) {
+			const grants: GrantCall[] = []
+			const result = await SkillTool.execute(
+				{ name: 'reconcile' },
+				contextFor(
+					registry([
+						{
+							name: 'reconcile',
+							body: 'B',
+							...(allowedTools === undefined ? {} : { allowedTools }),
+						},
+					]),
+					grants,
+				),
+			)
+			expect(grants).toEqual([])
+			expect(result.output).toBe('B')
+		}
 	})
 
-	it('adopts an EMPTY scope when the author declared one', async () => {
-		// `allowed-tools: ""` is an author saying this skill needs no tools.
-		// Collapsing it to `undefined` would widen that to everything.
-		const adopted: { scope?: { skill: string; allowedTools: readonly string[] } } = {}
-
-		await SkillTool.execute(
-			{ name: 'reconcile' },
-			contextFor(registry([{ name: 'reconcile', body: 'B', allowedTools: '' }]), adopted),
-		)
-
-		expect(adopted.scope).toEqual({ skill: 'reconcile', allowedTools: [] })
-	})
-
-	it('tells the model, and tells it WHEN', async () => {
-		// A restriction that lands next turn while the model believes it
-		// landed now produces a batch it cannot explain.
+	it('tells the model what was pre-approved, and that nothing was taken away', async () => {
+		// The old notice said "restrict yourself to", and a model told that
+		// does what the owner saw: it stops using bash.
 		const result = await SkillTool.execute(
 			{ name: 'reconcile' },
-			contextFor(registry([{ name: 'reconcile', body: 'B', allowedTools: 'read' }])),
+			contextFor(registry([{ name: 'reconcile', body: 'B', allowedTools: 'Read Grep' }]), []),
 		)
 
-		expect(result.output).toContain('restrict yourself to: read')
-		expect(result.output).toContain('next turn')
+		expect(result.output).toContain('Pre-approved for the rest of this turn: read, grep')
+		expect(result.output).toContain('Every other tool remains available')
+		expect(result.output).not.toMatch(/restrict yourself/i)
+		expect(result.data).toMatchObject({
+			granted: ['read', 'grep'],
+			ignored: [],
+		})
 	})
 
-	it('still announces the scope where nothing can enforce it', async () => {
-		// A host driving this tool outside a turn has no executor. Saying
-		// nothing there would be worse than advice.
+	it('names an entry it ignored', async () => {
+		const result = await SkillTool.execute(
+			{ name: 'reconcile' },
+			contextFor(registry([{ name: 'reconcile', body: 'B', allowedTools: 'Read Frobnicate' }]), []),
+		)
+
+		expect(result.output).toContain('Ignored allowed-tools entry "Frobnicate"')
+		expect(result.output).toContain('Pre-approved for the rest of this turn: read')
+	})
+
+	it('says nothing is pre-approved where no turn can hold the grant', async () => {
+		// A host driving this tool outside a turn has no executor.
 		const result = await SkillTool.execute(
 			{ name: 'reconcile' },
 			contextFor(registry([{ name: 'reconcile', body: 'B', allowedTools: 'read' }])),
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('restrict yourself to')
+		expect(result.output).toContain('this host applies no pre-approval')
+		expect(result.output).toContain('Every other tool remains available')
+		expect(result.output).not.toMatch(/restrict yourself/i)
 	})
 })
 
 describe('parsing what an author wrote', () => {
-	it('splits and trims a comma list', () => {
+	it('splits on spaces and commas alike', () => {
 		expect(parseAllowedTools(' read , grep ,write ')).toEqual(['read', 'grep', 'write'])
+		expect(parseAllowedTools('read write edit')).toEqual(['read', 'write', 'edit'])
 	})
 
 	it('distinguishes "declared nothing" from "declared none"', () => {
@@ -347,11 +398,8 @@ describe('parsing what an author wrote', () => {
 	})
 })
 
-describe('the tool that must always be reachable', () => {
+describe('the tool itself', () => {
 	it('is read-only and named', () => {
-		// A skill that narrowed the model out of reaching for another skill
-		// would be a one-way door. The executor keeps this name in scope, and
-		// the name is exported so it can.
 		expect(SKILL_TOOL_NAME).toBe('skill')
 		expect(SkillTool.isReadOnly?.({ name: 'x' })).toBe(true)
 		expect(SkillTool.isDestructive?.({ name: 'x' })).toBe(false)

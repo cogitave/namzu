@@ -86,7 +86,10 @@ describe('PromptBuilder runtime context', () => {
 		expect(prompt).toContain('## Available Skills')
 		expect(prompt).toContain('<license>MIT</license>')
 		expect(prompt).toContain('<compatibility>Requires file tools</compatibility>')
-		expect(prompt).toContain('<allowed_tools>read write edit</allowed_tools>')
+		// Named for what it does: a pre-approval, never a whitelist.
+		expect(prompt).toContain('<pre_approved_tools>read write edit</pre_approved_tools>')
+		expect(prompt).not.toContain('<allowed_tools>')
+		expect(prompt).toContain('It never limits which tools you may use')
 		expect(prompt).toContain('read the SKILL.md at its <location> before writing code')
 		expect(prompt).toContain('## Loaded Skills')
 		expect(prompt).toContain('Use skeleton-first writes')
