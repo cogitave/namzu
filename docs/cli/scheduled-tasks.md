@@ -126,14 +126,21 @@ The rules a run is gated by, in order (the first that matches decides):
    schedule` subcommand except `list`, `show`, `status`, `history` and `logs`
    (however the CLI is reached: `namzu`, `npx @namzu/cli`, `node …/bin.js`),
    and any tool argument naming `NAMZU_HOME` — by its absolute path (doubled
-   slashes and `./` included), as `~/…`, `$HOME/…` or `${HOME}/…` when it is
-   under your home, or as `$NAMZU_HOME` — are refused. The check reads through
-   shell quoting and backslash escapes, around a word or inside it (`namzu
-   "schedule" confirm`, `/home/you/".namzu"`, `~/.nam''zu` and `~/.nam\zu` are
-   refused too), but not through variables, aliases, `eval`, globs
-   (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a `cd` followed by
-   a relative path: it is a pattern check and best effort, alongside the
-   digest and the hold above;
+   slashes, `./` and empty quoted segments such as `/home/you/''/.namzu`
+   included), as `~/…`, `$HOME/…` or `${HOME}/…` when it is under your home,
+   or as `$NAMZU_HOME` — are refused. The path is matched in any letter case,
+   because macOS and a Windows drive read `~/.NAMZU` as `~/.namzu`. The check
+   reads through shell quoting and backslash escapes, around a word or inside
+   it (`namzu "schedule" confirm`, `/home/you/".namzu"`, `~/.nam''zu` and
+   `~/.nam\zu` are refused too), but not through variables, aliases, `eval`,
+   globs (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a `cd`
+   followed by a relative path: it is a pattern check and best effort,
+   alongside the digest and the hold above. A pattern is at most 500
+   characters, so for a long `NAMZU_HOME` it matches only the trailing
+   segments that fit (a path elsewhere ending the same way is refused too);
+   when even the last segment read with quotes inside it does not fit, the
+   whole path is matched with quotes read only around its segments and inside
+   as many trailing ones as fit;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;

@@ -175,14 +175,27 @@ function loose(text: string): string {
 /** Space between words, with the quotes that may close and open around it. */
 const GAP = `[\\s"'\\\\]+`
 
-/** A path separator as it appears in JSON text (`\\` doubled), repeated or with `./` between, as the shell reads it. */
-const SEP = String.raw`[/\\]+(?:\.[/\\]+)*`
 /**
  * Quotes the shell drops in a path, as they appear in JSON text. No bare
  * backslash: next to {@link SEP}, which takes one, a run of backslashes would
  * backtrack polynomially.
  */
 const QUOTES = String.raw`(?:\\"|')*`
+/**
+ * A path separator as it appears in JSON text (`\\` doubled), repeated, with
+ * `./` or an empty quoted segment (`''`, `""`, `'.'`) between, as the shell
+ * reads it: `/home/u/''/.namzu` is `/home/u//.namzu`. What comes between two
+ * separators is never empty: `[/\\]+(?:[/\\]+)*` backtracks exponentially.
+ */
+const SEP = String.raw`[/\\]+(?:(?:${QUOTES}\.${QUOTES}|(?:\\"|')+)[/\\]+)*`
+/**
+ * Where a leading {@link SEP} may start: at a `/` or a real backslash (not the
+ * one JSON puts before a quote), and not where a separator and what
+ * {@link SEP} allows after one come just before. A match starting there would
+ * also start at that earlier separator, and trying every start inside a long
+ * run (`/./././…`, `/''/''/…`, `\\\\…`) backtracks quadratically.
+ */
+const LEAD = String.raw`(?=/|\\(?!"))(?<![/\\]${QUOTES}(?:\.${QUOTES})?)${SEP}`
 /** Inside a segment's name, also an escaping backslash (`.nam\zu`), which JSON doubles. */
 const INNER_QUOTES = String.raw`(?:\\["\\]|')*`
 /** Not followed by more of a path segment's name: `/tmp/x` does not match `/tmp/x2`. */
@@ -193,37 +206,80 @@ const MAX_PATTERN = 500
 const jsonText = (text: string) => escapeRegExp(JSON.stringify(text).slice(1, -1))
 
 /**
- * A path segment as the shell reads it: quotes may open and close around it
- * and anywhere inside it (`".namzu"`, `'.namzu'`, `.nam''zu`, `.nam"z"u`), and
- * a backslash may escape any of its characters but the first (`.nam\zu`).
+ * A path segment as the shell reads it, in any letter case (macOS and a
+ * Windows drive do not tell `.NAMZU` from `.namzu`), with quotes around it
+ * (`".namzu"`, `'.namzu'`). `inner` also reads quotes anywhere inside it
+ * (`.nam''zu`, `.nam"z"u`) and a backslash escaping any of its characters but
+ * the first (`.nam\zu`); that costs about fifteen characters a letter.
  */
-const segment = (name: string) => `${QUOTES}${[...name].map(jsonText).join(INNER_QUOTES)}${QUOTES}`
+const segment = (name: string, inner: boolean) =>
+	`${QUOTES}${[...name].map((c) => caseless(jsonText(c))).join(inner ? INNER_QUOTES : '')}${QUOTES}`
+
+/**
+ * `names` joined by {@link SEP} within `budget` characters, or null. With
+ * `inner`, every segment is read with quotes inside it; without, every segment
+ * is read with quotes around it and then, from the last back, as many as fit
+ * are also read with quotes inside.
+ */
+function segments(names: readonly string[], budget: number, inner: boolean): string | null {
+	const loose = names.map(() => inner)
+	const build = () => names.map((name, i) => segment(name, loose[i] ?? false)).join(SEP)
+	let text = build()
+	if (text.length > budget) return null
+	for (let i = names.length - 1; !inner && i >= 0; i--) {
+		loose[i] = true
+		const wider = build()
+		if (wider.length > budget) {
+			loose[i] = false
+			break
+		}
+		text = wider
+	}
+	return text
+}
 
 /**
  * The ways a tool argument names `namzuHome`: its absolute path (with
- * doubled slashes or `./` in it), `~/…`, `$HOME/…` or `${HOME}/…` when it is
- * under the user's home, and `$NAMZU_HOME`, each with shell quotes anywhere in
- * the path's segments. Not `..`, not a relative path after a `cd`, not a
- * variable, a glob (`~/.namz*`) or a brace expansion (`~/.{namzu,x}`): a
- * pattern cannot resolve those.
+ * doubled slashes, `./` or `''` in it), `~/…`, `$HOME/…` or `${HOME}/…` when
+ * it is under the user's home, and `$NAMZU_HOME`, in any letter case and with
+ * shell quotes anywhere in the path's segments. Not `..`, not a relative path
+ * after a `cd`, not a variable, a glob (`~/.namz*`) or a brace expansion
+ * (`~/.{namzu,x}`): a pattern cannot resolve those. Every pattern fits the
+ * gate's limit of {@link MAX_PATTERN} characters.
  */
 export function namzuHomePatterns(namzuHome: string, userHome: string): string[] {
 	const split = (path: string) => path.split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.')
 	const home = split(namzuHome)
-	// A home so deep the whole path does not fit is matched by as many of its
-	// trailing segments as do: broader, never narrower.
-	// The leading separator starts only where a run of separators does: tried
-	// at every backslash of a long run, it would backtrack quadratically.
-	const lead = `(?<![/\\\\])${SEP}`
-	let absolute = `${/^[\\/]/.test(namzuHome) ? lead : ''}${home.map(segment).join(SEP)}${SEGMENT_END}`
-	for (let from = 1; absolute.length > MAX_PATTERN && from < home.length; from++)
-		absolute = `${lead}${home.slice(from).map(segment).join(SEP)}${SEGMENT_END}`
+	const rooted = /^[\\/]/.test(namzuHome)
+	const trailing = (from: number, inner: boolean): string | null => {
+		const lead = rooted || from > 0 ? LEAD : ''
+		const body = segments(home.slice(from), MAX_PATTERN - lead.length - SEGMENT_END.length, inner)
+		return body === null ? null : `${lead}${body}${SEGMENT_END}`
+	}
+	// A home too long to fit is matched by as many of its trailing segments
+	// as do: broader, never narrower. A last segment too long to read with
+	// quotes inside it on its own leaves the whole path, read with quotes
+	// around its segments and inside as many trailing ones as fit; a name
+	// longer still is matched by the start of it.
+	let absolute: string | null = null
+	for (const inner of [true, false])
+		for (let from = 0; absolute === null && from < home.length; from++)
+			absolute = trailing(from, inner)
+	if (absolute === null) {
+		let name = home.at(-1) ?? ''
+		const tail = () => `${LEAD}${QUOTES}${caseless(jsonText(name))}`
+		while (name.length > 1 && tail().length > MAX_PATTERN) name = name.slice(0, -1)
+		absolute = tail()
+	}
 	const patterns = [absolute, String.raw`\$\{?NAMZU_HOME\b`]
 	const user = split(userHome)
 	if (user.length > 0 && home.length > user.length && user.every((name, i) => name === home[i])) {
-		const below = home.slice(user.length).map(segment).join(SEP)
-		const relative = `(?:~[A-Za-z0-9._-]*|\\$\\{?HOME\\b\\}?)${QUOTES}${SEP}${below}${SEGMENT_END}`
-		if (relative.length <= MAX_PATTERN) patterns.push(relative)
+		const prefix = `(?:~[A-Za-z0-9._-]*|\\$\\{?HOME\\b\\}?)${QUOTES}${SEP}`
+		const budget = MAX_PATTERN - prefix.length - SEGMENT_END.length
+		const below = home.slice(user.length)
+		const body = segments(below, budget, true) ?? segments(below, budget, false)
+		// Too long even so, `~/…` is left to the absolute pattern's trailing segments.
+		if (body !== null) patterns.push(`${prefix}${body}${SEGMENT_END}`)
 	}
 	return patterns
 }

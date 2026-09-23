@@ -340,6 +340,13 @@ describe('what a scheduled run may do', () => {
 			'cat ~/.nam"z"u/schedule/daemon/endpoint.json',
 			'cat ~/.nam\\zu/schedule/daemon/endpoint.json',
 			"cat $HOME/'.na'mzu/config.yaml",
+			`cat ${user}/''/.namzu/schedule/daemon/endpoint.json`,
+			`cat ${user}/""/.namzu/schedule/daemon/endpoint.json`,
+			`cat ${user}/'.'/.namzu/x`,
+			"cat ~/''/.namzu/schedule/daemon/endpoint.json",
+			'cat ~/.NAMZU/schedule/daemon/endpoint.json',
+			`cat ${user.toUpperCase()}/.Namzu/x`,
+			`cat \\${user}/.namzu/x`,
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		expect(decide(g, 'read', { path: `${user}//.namzu/schedule/daemon/endpoint.json` })).toBe(
@@ -354,10 +361,23 @@ describe('what a scheduled run may do', () => {
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
 	})
 
-	it('reads a long run of quotes and backslashes in linear time', () => {
+	it('reads a long run of quotes, backslashes and `/.` in linear time', () => {
 		const user = join(sb.root, 'user-home')
 		const g = gate(scheduledRunFloor(join(user, '.namzu'), user))
-		for (const filler of ['\\', '/', "'", '"', '\\"'])
+		for (const filler of [
+			'\\',
+			'/',
+			"'",
+			'"',
+			'\\"',
+			'/.',
+			"/''",
+			'/""',
+			'/./',
+			"/'.'",
+			'/..',
+			'\\"/',
+		])
 			for (const prefix of [`cat ${user}`, 'cat ~/.nam', 'cat ~']) {
 				const command = `${prefix}${filler.repeat(20_000)}x`
 				const started = performance.now()
@@ -369,7 +389,14 @@ describe('what a scheduled run may do', () => {
 	it('keeps every floor pattern within the gate’s length limit, which refuses a longer one', () => {
 		const user = join(sb.root, 'user-home')
 		const deep = join(user, ...Array.from({ length: 40 }, (_, i) => `level-${i}`), '.namzu')
-		for (const home of [join(user, '.namzu'), deep]) {
+		for (const home of [
+			join(user, '.namzu'),
+			deep,
+			'/srv/namzu-scheduler-state-directory',
+			`/srv/${'a'.repeat(30)}`,
+			`/srv/${'a'.repeat(255)}`,
+			`/${'.'.repeat(255)}`,
+		]) {
 			const rules = scheduledRunFloor(home, user)
 			for (const rule of rules) {
 				if (rule.type === 'argument_pattern' || rule.type === 'custom_pattern')
