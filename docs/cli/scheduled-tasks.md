@@ -173,7 +173,17 @@ screen. **Approve** runs exactly the parked batch — the model is not asked
 again — and later calls in that turn are asked of you live. **Reject** refuses
 it and the turn continues. The resumed turn stays under **the job's rules**, not
 your folder's: a `deny` in the job holds even if your config allows it. There is
-no "approve all" for a scheduled run.
+no "approve all" for a scheduled run: answering "allow all" on its prompt
+approves only the batch on screen, and its later batches are asked one at a
+time.
+
+The resumed turn runs in the TUI session you answer from, so that session must
+run the way the job does: in the job's folder, with the sandbox on for a job
+created with `--execution sandbox` and off for one on the host, and with exactly
+the job's `--add-dir` roots, no more and no fewer. A session that differs is
+refused before anything is asked, and the refusal names the difference and the
+command that opens a matching session
+(`cd <folder> && namzu --add-dir <dir> resume <session-id>`).
 
 A park nobody answers within `--approval-ttl` (default 7 days) is abandoned:
 the turn is closed, the run is recorded `approval-expired`, and the job runs

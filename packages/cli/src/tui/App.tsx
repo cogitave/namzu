@@ -3754,7 +3754,11 @@ export function App({
 			// A scheduled run parked on a decision: the operator answers the
 			// parked batch here, and the turn continues under the job's rules.
 			const scheduled = active.paused
-				? await scheduleRef.current?.prepareResume(permissionModeRef.current)
+				? await scheduleRef.current?.prepareResume(permissionModeRef.current, {
+						cwd: ctxRef.current.cwd,
+						roots: session.directories?.list() ?? [],
+						sandboxed: session.sandbox.workspace !== 'host',
+					})
 				: undefined
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,

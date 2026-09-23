@@ -25,7 +25,7 @@ import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
 import { type PermissionRequest, createAgentSession } from '../agent.js'
 import { SessionLoopScheduler } from './loop-host.js'
-import { prepareScheduledResume } from './resume.js'
+import { prepareScheduledResume, scheduledResumeMismatch } from './resume.js'
 import { scheduleStartupLine } from './startup.js'
 import { createScheduleToolHost } from './tool-host.js'
 
@@ -101,24 +101,29 @@ async function parkedRun(marker: string) {
 }
 
 describe('answering a parked scheduled run', () => {
-	it('runs exactly the parked batch, asks about later calls under the job’s rules, and the daemon records it completed', async () => {
+	it('runs exactly the parked batch, asks about every later call under the job’s rules, and the daemon records it completed', async () => {
 		const marker = join(sb.project, 'marker')
 		const second = join(sb.project, 'second')
+		const third = join(sb.project, 'third')
 		const { job, run, daemon } = await parkedRun(marker)
 		expect(existsSync(marker)).toBe(false)
 
 		const asked: PermissionRequest[] = []
 		const ask = async (request: PermissionRequest) => {
 			asked.push(request)
-			// The parked batch: yes. The live one after it: no.
+			// The parked batch: yes. The next: "allow all", which a scheduled
+			// turn takes as yes for that batch only. The one after: no.
 			return asked.length === 1
 				? ({ kind: 'approve' } as const)
-				: ({ kind: 'reject', feedback: 'not now' } as const)
+				: asked.length === 2
+					? ({ kind: 'approve-all' } as const)
+					: ({ kind: 'reject', feedback: 'not now' } as const)
 		}
 		const scheduled = await prepareScheduledResume({
 			home: sb.home,
 			sessionId: run.sessionId as string,
 			operatorMode: 'auto',
+			environment: { cwd: sb.project, roots: [], sandboxed: false },
 			ask,
 			say: () => {},
 		})
@@ -126,14 +131,16 @@ describe('answering a parked scheduled run', () => {
 		expect(scheduled?.permissionMode).toBe('prompt')
 		expect(asked[0]?.toolCalls[0]?.name).toBe('bash')
 
-		// After the parked batch's result, the model asks for one more command.
+		// After the parked batch's result, the model asks for two more commands.
 		vi.stubGlobal(
 			'fetch',
 			vi.fn<typeof fetch>(async (_input, init) => {
 				const body = String(init?.body ?? '')
-				return body.includes('call_1') && !body.includes('call_2')
-					? completion({ name: 'bash', input: { command: `touch ${second}` }, id: 'call_2' })
-					: completion()
+				if (!body.includes('call_2'))
+					return completion({ name: 'bash', input: { command: `touch ${second}` }, id: 'call_2' })
+				if (!body.includes('call_3'))
+					return completion({ name: 'bash', input: { command: `touch ${third}` }, id: 'call_3' })
+				return completion()
 			}),
 		)
 		// The TUI's session for this folder: its own rules would allow bash outright.
@@ -165,8 +172,9 @@ describe('answering a parked scheduled run', () => {
 			await session.close()
 		}
 		expect(existsSync(marker)).toBe(true)
-		expect(existsSync(second)).toBe(false)
-		expect(asked).toHaveLength(2)
+		expect(existsSync(second)).toBe(true)
+		expect(existsSync(third)).toBe(false)
+		expect(asked).toHaveLength(3)
 
 		await daemon.tick()
 		const record = foldHistory(readHistory(sb.paths, job.id)).find(
@@ -183,10 +191,52 @@ describe('answering a parked scheduled run', () => {
 				home: sb.home,
 				sessionId: id,
 				operatorMode: 'auto',
+				environment: { cwd: sb.project, roots: [], sandboxed: false },
 				ask: async () => ({ kind: 'approve' }),
 				say: () => {},
 			}),
 		).toBeUndefined()
+	})
+
+	it('refuses a session whose sandbox or roots differ from the job’s, before asking anything', async () => {
+		const marker = join(sb.project, 'marker')
+		const { run } = await parkedRun(marker)
+		const asked: PermissionRequest[] = []
+		const attempt = (environment: { cwd: string; roots: string[]; sandboxed: boolean }) =>
+			prepareScheduledResume({
+				home: sb.home,
+				sessionId: run.sessionId as string,
+				operatorMode: 'auto',
+				environment,
+				ask: async (request) => {
+					asked.push(request)
+					return { kind: 'approve' }
+				},
+				say: () => {},
+			})
+		await expect(attempt({ cwd: sb.project, roots: [], sandboxed: true })).rejects.toThrow(
+			/runs commands on the host and this session runs them in a sandbox.*namzu resume/,
+		)
+		await expect(attempt({ cwd: sb.project, roots: [sb.root], sandboxed: false })).rejects.toThrow(
+			/also reaches/,
+		)
+		expect(asked).toHaveLength(0)
+	})
+
+	it('names every way a session differs from the job', () => {
+		const other = mkdtempSync(join(sb.osHome, 'extra-'))
+		const job = confirmedJob(sb, {
+			permissions: { preset: 'read-only', execution: 'sandbox', additionalDirectories: [other] },
+		})
+		expect(
+			scheduledResumeMismatch(job, { cwd: sb.project, roots: [other], sandboxed: true }),
+		).toEqual([])
+		const reasons = scheduledResumeMismatch(job, { cwd: sb.osHome, roots: [], sandboxed: false })
+		expect(reasons).toEqual([
+			expect.stringMatching(/in a sandbox and this session runs them on the host/),
+			expect.stringMatching(/folder is not the job/),
+			expect.stringMatching(/does not reach/),
+		])
 	})
 })
 

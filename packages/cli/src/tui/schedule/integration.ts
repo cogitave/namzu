@@ -15,7 +15,7 @@ import type { PermissionMode } from '../../permissions/mode.js'
 import type { PermissionFn, QuestionFn, ResumePausedParams } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
-import { prepareScheduledResume } from './resume.js'
+import { type ResumeEnvironment, prepareScheduledResume } from './resume.js'
 import { scheduleStartupLine } from './startup.js'
 import { createScheduleToolHost } from './tool-host.js'
 
@@ -44,8 +44,13 @@ export interface ScheduleIntegration {
 	/** `/schedule` and `/loop`; false for any other name. */
 	handleSlash(name: string, args: readonly string[]): boolean
 	startupLine(): string | undefined
+	/**
+	 * Ask about a parked scheduled batch. Throws, saying which session would
+	 * match, when `environment` is not how the job runs.
+	 */
 	prepareResume(
 		operatorMode: PermissionMode,
+		environment: ResumeEnvironment,
 	): Promise<
 		| Pick<ResumePausedParams, 'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode'>
 		| undefined
@@ -126,7 +131,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				return undefined
 			}
 		},
-		async prepareResume(operatorMode) {
+		async prepareResume(operatorMode, environment) {
 			const value = deps.home()
 			const sessionId = deps.sessionId()
 			if (!value || !sessionId) return undefined
@@ -134,6 +139,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				home: value,
 				sessionId,
 				operatorMode,
+				environment,
 				ask: deps.askPermission,
 				say: deps.say,
 			})
