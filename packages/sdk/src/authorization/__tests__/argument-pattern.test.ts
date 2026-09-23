@@ -109,6 +109,10 @@ describe('a prohibition cannot be smuggled past', () => {
 		'(cd /tmp && git push origin main)',
 		// `$'\\''` is one quoted apostrophe, so the chain after it runs.
 		"echo $'\\'' ; git push origin main #'",
+		// `$$` is the PID, so the apostrophe after it opens a plain quote.
+		"echo $$'\\' ; git push origin main #'",
+		// `$$` then `$'\\''`: an odd run of dollars still ends in an ANSI-C quote.
+		"echo $$$'\\'' ; git push origin main #'",
 	])('denies %p', (command) => {
 		expect(evaluate([PUSH_RULE], 'bash', { command }).decision).toBe('deny')
 	})

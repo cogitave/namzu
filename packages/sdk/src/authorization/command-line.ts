@@ -190,6 +190,12 @@ function split(command: string, state: WalkState, depth: number): string[] {
 			continue
 		}
 
+		if (isPidParameter(command, i)) {
+			current += '$$'
+			i += 1
+			continue
+		}
+
 		if (isAnsiCQuoteStart(command, i)) {
 			// The escapes decode at runtime (`$'\x3b'` is `;` as an argument),
 			// so the text is not the word that runs. Walk it correctly for the
@@ -278,6 +284,16 @@ const ANSI_C = "$'"
  */
 function isAnsiCQuoteStart(command: string, index: number): boolean {
 	return command[index] === '$' && command[index + 1] === "'"
+}
+
+/**
+ * Whether the special parameter `$$` (the shell's PID) starts here. The shell
+ * reads the pair as one expansion, so in `$$'…'` the second dollar opens no
+ * ANSI-C quote and the apostrophe opens a plain single quote. Callers consume
+ * both characters before they test for `$'`.
+ */
+function isPidParameter(command: string, index: number): boolean {
+	return command[index] === '$' && command[index + 1] === '$'
 }
 
 /** Whether a command substitution opens here. */
@@ -420,6 +436,13 @@ function tokenize(segment: string): Word[] {
 			continue
 		}
 
+		if (isPidParameter(segment, i)) {
+			current += '$$'
+			open = true
+			i += 1
+			continue
+		}
+
 		if (isAnsiCQuoteStart(segment, i)) {
 			quote = ANSI_C
 			sawQuote = ANSI_C
@@ -489,6 +512,10 @@ export function writesThroughRedirection(command: string): boolean {
 			if (char === '"') quote = null
 			continue
 		}
+		if (isPidParameter(command, i)) {
+			i += 1
+			continue
+		}
 		if (isAnsiCQuoteStart(command, i)) {
 			quote = ANSI_C
 			i += 1
@@ -534,6 +561,11 @@ function readRedirectionWord(command: string, start: number): { word: string; en
 		}
 		// An ANSI-C target decodes at runtime (`$'/dev/nul\x6c'`), so its
 		// text is not the path. Unknown, and so a write.
+		if (isPidParameter(command, i)) {
+			word += '$$'
+			i += 1
+			continue
+		}
 		if (isAnsiCQuoteStart(command, i)) return { word: '', end: command.length }
 		if (char === "'" || char === '"') {
 			quote = char

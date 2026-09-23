@@ -188,6 +188,16 @@ describe("ANSI-C quoting, `$'…'`", () => {
 		expect(decomposeCommandLine('echo "$\'"').opaque).toBe(false)
 	})
 
+	it('reads `$$` as the PID, not the start of an ANSI-C quote', () => {
+		expect(decomposeCommandLine("echo $$'\\' ; git push origin main #'").segments).toContain(
+			'git push origin main #\'',
+		)
+		expect(decomposeCommandLine("echo $$$'\\'' ; git push origin main #'").segments).toContain(
+			'git push origin main #\'',
+		)
+		expect(writesThroughRedirection("echo $$'\\' > ~/.bashrc #'")).toBe(true)
+	})
+
 	it('reads a nested shell payload written in ANSI-C quotes', () => {
 		expect(decomposeCommandLine("bash -c $'git push'").segments).toContain('git push')
 	})
