@@ -332,7 +332,10 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 			category: 'custom',
 			permissions: [],
 			readOnly: (input) => input.action === 'list',
-			destructive: (input) => input.action === 'delete',
+			// `delete` removes a job only after the operator confirms it on the
+			// host's own screen; a destructive flag would put a second review,
+			// over the raw arguments, in front of that confirmation.
+			destructive: false,
 			concurrencySafe: false,
 			presentCall: presentScheduleCall,
 			presentResult: presentScheduleResult,

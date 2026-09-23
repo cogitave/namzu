@@ -78,6 +78,7 @@ import {
 	type ResumeHandler,
 	type ResumeOutcome,
 	type ReviewAnswer,
+	SCHEDULE_TOOL_NAME,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
 	type SessionApprovalPolicy,
@@ -4961,7 +4962,23 @@ export function reviewExemptionFor(
 ): (name: string, input: unknown) => boolean {
 	return (name, input) =>
 		isPromptExempt(registry, name, input) ||
-		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input))
+		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
+		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input))
+}
+
+/**
+ * The `schedule` tool's `create`, `resume` and `delete`: each puts its own
+ * confirmation in front of the operator, drawn from the host's computation,
+ * and changes nothing unless they choose to. A review before it only asked
+ * "Do you want to run schedule?" over the model's raw arguments, and then the
+ * real question came. `pause` and anything else is reviewed as before; `plan`
+ * and `strict` still refuse, and an `ask` or `deny` rule still decides, since
+ * an explicit review is never exempted.
+ */
+export function confirmsItself(name: string, input: unknown): boolean {
+	if (name !== SCHEDULE_TOOL_NAME || typeof input !== 'object' || input === null) return false
+	const action = (input as { action?: unknown }).action
+	return action === 'create' || action === 'resume' || action === 'delete'
 }
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */

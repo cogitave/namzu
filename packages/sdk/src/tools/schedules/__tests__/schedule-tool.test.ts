@@ -437,3 +437,10 @@ describe('schedule tool: budget words', () => {
 		).toContain('Every model call resends the whole prompt')
 	})
 })
+
+describe('schedule tool: its own confirmation', () => {
+	it('does not declare delete destructive: the host confirms it on its own screen', () => {
+		const t = tool(fakeHost('create').host)
+		expect(t.isDestructive?.({ action: 'delete', job: 'x' } as never)).toBe(false)
+	})
+})
