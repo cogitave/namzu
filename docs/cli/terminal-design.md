@@ -369,6 +369,14 @@ text and mark, no body): the second copy is dropped where notices are written,
 since the same sentence twice reads as two events.
 
 
+Typing that arrives in one read — keystrokes queued behind a busy screen, with
+no bracketed-paste markers around them — is typed text, not a paste, however
+long: it goes into the draft at the cursor. It used to become a chip once it
+passed 80 characters, and the chip was joined back to what had been typed
+before it with a paragraph break, which split the word it landed in (`subag` /
+`ents`) in the message the model received. A bracketed paste over 80
+characters, and any unbracketed chunk that contains a newline, is still a chip.
+
 The agent browser owns its viewport rather than sharing it with an inactive
 composer. Its navigation stays at the bottom and list capacity grows with the
 terminal height. Returning to the main conversation restores its draft.
