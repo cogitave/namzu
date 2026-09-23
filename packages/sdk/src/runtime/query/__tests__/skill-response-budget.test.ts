@@ -230,7 +230,10 @@ describe('skill pages reach the provider through the real query executor', () =>
 		expect(seenOutputs.join('\n')).toContain(middle)
 	})
 
-	it('does not widen the next batch when an old cursor meets new policy', async () => {
+	it('refuses an old cursor after the declared tool list changed, and leaves the turn its tools', async () => {
+		// The cursor binds the declared list, so an edited list restarts the
+		// read. The list itself changes nothing: loaded content cannot change
+		// the tool surface, so the next batch runs under the host's list.
 		const current = {
 			body: 'unchanged body '.repeat(120),
 			allowedTools: 'read',
@@ -267,7 +270,7 @@ describe('skill pages reach the provider through the real query executor', () =>
 		tools.register({
 			...read,
 			name: 'bash',
-			execute: async () => ({ success: true, output: 'must stay unavailable' }),
+			execute: async () => ({ success: true, output: 'bash ran' }),
 		})
 		let staleOutput = ''
 		const provider = new MockLLMProvider({
@@ -294,6 +297,6 @@ describe('skill pages reach the provider through the real query executor', () =>
 		expect(result.status, JSON.stringify(result)).toBe('completed')
 		expect(staleOutput).toMatch(/stale or invalid/)
 		expect(read.execute).toHaveBeenCalledOnce()
-		expect(readContexts[0]).toEqual(['skill', 'read'])
+		expect(readContexts[0]).toEqual(['skill', 'read', 'bash'])
 	})
 })

@@ -61,7 +61,8 @@ export { JobTool } from './tools/builtins/job.js'
 // the same reason `job` does: a job with nothing that can block on it is
 // the same unbacked suggestion `job` itself exists to fix.
 export { WaitForJobTool } from './tools/builtins/wait-for-job.js'
-// Loads a skill's instructions, and adopts the tool scope it declares.
+// Loads a skill's instructions. A skill's `allowed-tools` is mentioned in the
+// result and never changes which tools the turn may call.
 // NOT in the default builtin set: a turn with no skills has nothing for it
 // to do, and offering a tool that can only refuse is worse than not
 // offering it. Hosts register it alongside a skills registry.

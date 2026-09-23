@@ -23,6 +23,15 @@ export interface SkillMetadata {
 
 	compatibility?: string
 
+	/**
+	 * The frontmatter's `allowed-tools`, exactly as written. Advisory only.
+	 *
+	 * When the skill is loaded through the `skill` tool, the result mentions
+	 * the tools it names for reference, and the host is warned about entries
+	 * that are not registered tools. It is not rendered in the skills
+	 * manifest. It never narrows, widens or pre-approves anything: loaded
+	 * content cannot change the tool surface, only the host can.
+	 */
 	allowedTools?: string
 
 	/**

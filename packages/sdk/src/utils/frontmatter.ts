@@ -29,11 +29,11 @@
  * one is the shape an author actually writes, because the block form is the
  * natural YAML for a list.
  *
- * It matters most for a key like `allowed-tools`: a skill that asked for `Bash`
- * and silently did not get it is indistinguishable from one that never asked,
- * which is a capability quietly not granted rather than a formatting nicety.
- * Both readers this replaced behaved that way, so it was inherited rather than
- * introduced; it is now refused, naming the key.
+ * It matters most for a list key like `allowed-tools`: a skill whose list was
+ * silently dropped is indistinguishable from one that never declared one, and
+ * its author gets no signal that the value was not read. Both readers this
+ * replaced behaved that way, so it was inherited rather than introduced; it is
+ * now refused, naming the key.
  *
  * **Vocabulary belongs to the caller.** This returns the parsed map; it does
  * not know what a skill needs or what a command needs, and it validates no
@@ -191,10 +191,9 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 			//
 			// The block form is the more natural YAML for a list, which is what
 			// made this worth closing: `allowed-tools` is a list, so this is the
-			// shape an author actually writes, and a skill that asked for `Bash`
-			// and silently did not get it is indistinguishable from one that never
-			// asked. A capability quietly not granted is the worst thing this
-			// reader can produce.
+			// shape an author actually writes, and a list silently read as absent
+			// is indistinguishable from one never declared. A value quietly
+			// dropped is the worst thing this reader can produce.
 			if (/^\s*-\s/.test(line)) {
 				throw new Error(
 					`${source}: "${currentKey}" uses a block sequence (a "- " list), which this reader does not support. Write it as a single-line value instead. Refusing rather than reading "${currentKey}" as absent, which is what silently dropping the list would mean.`,

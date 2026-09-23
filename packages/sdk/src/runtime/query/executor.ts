@@ -10,7 +10,6 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
-import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
@@ -692,58 +691,30 @@ export class ToolExecutor {
 	private batchMode?: PermissionMode
 
 	/**
-	 * The tool scope a loaded skill declared, and the batch it applies from.
+	 * What this turn may call: the step's list, else the turn's.
 	 *
-	 * `allowed-tools` was parsed, stored and rendered into the prompt, and
-	 * read by nothing — advice phrased as a declaration. This is what makes
-	 * it a restriction, on the same line that already enforces the step's
-	 * list, because a narrowing the model can decline is not one.
+	 * **Loaded content cannot change the tool surface; only the host can.**
+	 * The inputs here are the host's — `setStepAllowedTools` from the step
+	 * the host shaped, `config.allowedTools` from the turn it configured —
+	 * and nothing a tool returns reaches this list, the authorization gate
+	 * or a grant. A skill's `allowed-tools` in particular is mentioned in
+	 * the `skill` tool's result, for reference, and is nothing more.
+	 * `a-loaded-skill-cannot-change-the-tool-surface.test.ts` pins that the
+	 * list here and the tools offered to the model are the same before and
+	 * after a skill loads.
 	 *
-	 * Two fields rather than one, and the second is the point: a skill
-	 * loaded MID-batch must not retroactively refuse the calls the model
-	 * issued alongside it. The model chose that batch under the old scope,
-	 * and refusing half of it teaches nothing except that tools fail at
-	 * random. `adoptedInBatch` is compared against the batch counter, so the
-	 * scope takes effect from the next one.
-	 *
-	 * **`adoptedInBatch` is redundant TODAY and kept deliberately**, the same
-	 * bargain `batchMode` above documents. `buildToolContext()` runs once per
-	 * batch, so every call in a batch already shares one `allowedTools` array
-	 * computed before any of them could adopt anything — remove this
-	 * comparison and no test changes, because the guarantee currently comes
-	 * from where the context happens to be built rather than from here.
-	 * Moving the context into the per-call spread is a plausible refactor,
-	 * and it would silently produce a batch whose second half is refused for
-	 * a scope its first half installed. That is precisely the incoherent
-	 * batch this line exists to make impossible.
-	 */
-	private skillScope?: {
-		skill: string
-		allowedTools: readonly string[]
-		adoptedInBatch: number
-	}
-	private batchCounter = 0
-
-	/**
-	 * The step's list, narrowed by any skill scope in force.
-	 *
-	 * An INTERSECTION, never a replacement: a skill cannot hand the model a
-	 * tool the step withheld. Widening has to be unexpressible rather than
-	 * discouraged — the same rule `CreateTaskOptions.toolScope` states for
-	 * delegation, and for the same reason: a skill file is content, and
-	 * content that can grant tools is a privilege-escalation surface wearing
-	 * the word "scope".
-	 *
-	 * The `skill` tool itself always survives. A skill that narrowed the
-	 * model out of reaching for another skill would be a one-way door, and
-	 * the tool reads instructions and changes nothing.
+	 * It used to be intersected in here from the batch after the skill was
+	 * loaded, through a `ToolContext.adoptSkillScope` hook that is now gone. A skill declaring `allowed-tools: skill, read, shell, output
+	 * verification` — words, not tool names — then left the rest of the turn
+	 * unable to call `bash`, `write`, `glob` or `verify_outputs`: `Tool
+	 * "bash" is not available on this step. Available: skill, read, shell,
+	 * output verification`. Content written by whoever wrote the skill, and
+	 * possibly shipped in a plugin, broke the default toolset. Restriction
+	 * belongs where the host states it; do not add a content-driven input to
+	 * this method.
 	 */
 	private effectiveAllowedTools(): readonly string[] | undefined {
-		const base = this.stepAllowedTools ?? this.config.allowedTools
-		const scope = this.skillScope
-		if (!scope || scope.adoptedInBatch >= this.batchCounter) return base
-		const narrowed = new Set([...scope.allowedTools, SKILL_TOOL_NAME])
-		return base === undefined ? [...narrowed] : base.filter((name) => narrowed.has(name))
+		return this.stepAllowedTools ?? this.config.allowedTools
 	}
 
 	private resolvePermissionMode(): PermissionMode {
@@ -882,8 +853,6 @@ export class ToolExecutor {
 			return { messages: [], results: [], observations: [] }
 		}
 		assertUniqueToolCallIds(toolCalls)
-
-		this.batchCounter += 1
 
 		// Sampled here, once, and held for every call below. See the note on
 		// `permissionMode` in the config type.
@@ -1442,11 +1411,6 @@ export class ToolExecutor {
 			// Same precedence the request already uses when it decides which
 			// schemas to send, so the menu and the kitchen agree.
 			allowedTools: this.effectiveAllowedTools(),
-			// Recorded, not applied here: a skill loaded during this batch
-			// narrows the NEXT one. See `skillScope`.
-			adoptSkillScope: (scope) => {
-				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
-			},
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 			// The turn's screens, defaulted HERE rather than on the registry: a
 			// host builds the registry and hands it over, so a registry-side

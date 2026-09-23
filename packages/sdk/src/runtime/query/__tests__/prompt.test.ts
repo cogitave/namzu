@@ -86,7 +86,10 @@ describe('PromptBuilder runtime context', () => {
 		expect(prompt).toContain('## Available Skills')
 		expect(prompt).toContain('<license>MIT</license>')
 		expect(prompt).toContain('<compatibility>Requires file tools</compatibility>')
-		expect(prompt).toContain('<allowed_tools>read write edit</allowed_tools>')
+		// Content cannot change the tool surface, and the manifest does not
+		// suggest otherwise: a skill's `allowed-tools` is not rendered here.
+		expect(prompt).not.toContain('allowed_tools')
+		expect(prompt).not.toContain('read write edit')
 		expect(prompt).toContain('read the SKILL.md at its <location> before writing code')
 		expect(prompt).toContain('## Loaded Skills')
 		expect(prompt).toContain('Use skeleton-first writes')

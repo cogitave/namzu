@@ -67,9 +67,10 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 			if (s.metadata.license) {
 				lines.push(`<license>${s.metadata.license}</license>`)
 			}
-			if (s.metadata.allowedTools) {
-				lines.push(`<allowed_tools>${s.metadata.allowedTools}</allowed_tools>`)
-			}
+			// No `allowed-tools` here. A manifest line named for permission reads
+			// as an instruction to stay inside it, and a loaded skill cannot
+			// change the tool surface; the `skill` tool reports the list, as a
+			// mention, when the skill is loaded.
 			lines.push('</skill>')
 			return lines.join('\n')
 		})

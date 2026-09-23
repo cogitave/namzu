@@ -152,9 +152,8 @@ describe('refusing rather than degrading', () => {
 	})
 
 	it('says why silence would have been worse', () => {
-		// `allowed-tools` is the key that makes this a capability question rather
-		// than a formatting one: a skill that asked for a tool and silently did
-		// not get it is indistinguishable from one that never asked.
+		// A list silently read as absent is indistinguishable from one never
+		// declared, and its author gets no signal that the value was not read.
 		const raw = ['---', 'allowed-tools:', '  - Bash', '---'].join('\n')
 		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/absent/)
 	})

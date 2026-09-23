@@ -2,10 +2,11 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { isInvocableBy, skillInvocation } from '../../types/skills/index.js'
+import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
 /**
- * Load a skill's instructions, and adopt whatever it says it needs.
+ * Load a skill's instructions.
  *
  * The manifest in the system prompt told the model that a SKILL.md exists
  * and to "read the SKILL.md at its <location> before writing code" — which
@@ -14,10 +15,27 @@ import { defineTool } from '../defineTool.js'
  * it: *"when the runtime exposes filesystem or skill-loading tools"*. There
  * was no skill-loading tool.
  *
- * `allowed-tools` had the same shape of problem from the other side. It was
- * parsed, carried into `SkillMetadata`, rendered into the prompt as
- * `<allowed_tools>…</allowed_tools>` — and read by nothing. It was advice
- * the model could take or ignore, phrased as a declaration.
+ * **Loaded content cannot change the tool surface; only the host can.**
+ * Which tools a turn may call, and how each call is authorized, are decided
+ * by the host's configuration — the step's and the turn's `allowedTools`,
+ * `deniedTools`, the authorization gate, the permission mode. A skill is
+ * content, and may arrive in a marketplace plugin nobody on the host side
+ * reviewed, so its `allowed-tools` neither narrows, widens nor pre-approves
+ * anything, and the model is never told to keep to it. The loaded result
+ * mentions the tools it names, for reference, and the host is warned once
+ * when it names something that is not a registered tool.
+ *
+ * It used to narrow, twice over: the list was intersected with the step's
+ * from the next batch on, and the model was told "restrict yourself to" it.
+ * A skill that declared `allowed-tools: skill, read, shell, output
+ * verification` — words, not tool names — then locked the rest of the turn
+ * out of `bash`, `write`, `glob` and `verify_outputs` with `Tool "bash" is
+ * not available on this step. Available: skill, read, shell, output
+ * verification`. One author's phrasing broke the default toolset of every
+ * turn that loaded the skill, and a list that can take tools away is also a
+ * list that can be written to take them away. Do not reintroduce a path from
+ * a loaded skill to `allowedTools`, the gate, a grant, or an instruction
+ * that tells the model to narrow itself.
  */
 
 const inputSchema = z.object({
@@ -59,7 +77,6 @@ interface ListedSkill {
 	readonly name: string
 	readonly description: string
 	readonly location: string
-	readonly allowedTools?: string
 }
 
 interface SkillListPage {
@@ -232,24 +249,201 @@ function pageSkillBody(input: {
 }
 
 /**
- * `allowed-tools` as a list.
+ * `allowed-tools` as the list of entries its author wrote.
  *
- * Comma-separated in the frontmatter because that is what authors write and
- * what the field has always accepted. Split here rather than at parse so
- * the stored metadata keeps the author's own string — the same reasoning
- * `invocation` uses for not defaulting at parse.
+ * Both spellings in use are accepted. A declaration with a comma outside
+ * parentheses is split on commas only (`Read, Grep`), so an entry written in
+ * words — `output verification` — stays one entry and is reported as one.
+ * Otherwise whitespace separates, the agentskills.io form (`Bash(git:*)
+ * Read`). Parentheses group either way, `Bash(git add:*)` being one entry,
+ * but only when they balance: an unclosed `(` would otherwise swallow every
+ * entry after it, and a name that silently vanishes is one its author is
+ * never told is not a tool.
+ *
+ * Split here rather than at parse so the stored metadata keeps the author's
+ * own string — the same reasoning `invocation` uses for not defaulting at
+ * parse. `undefined` means the skill declared nothing and `[]` that it
+ * declared an empty list; neither changes what a turn may call.
  */
 export function parseAllowedTools(declared: string | undefined): readonly string[] | undefined {
 	if (declared === undefined) return undefined
-	const names = declared
-		.split(',')
-		.map((name) => name.trim())
-		.filter((name) => name.length > 0)
-	// An empty result from a non-empty declaration is a real answer and not
-	// the same as "declared nothing": `allowed-tools: ""` is an author
-	// saying this skill needs no tools, and collapsing it to `undefined`
-	// would silently widen that to everything.
-	return names
+	const grouping = parenthesesBalance(declared)
+	const byComma = splitAtTopLevel(declared, grouping, (char) => char === ',').length > 1
+	return splitAtTopLevel(declared, grouping, byComma ? (char) => char === ',' : isWhitespace)
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0)
+}
+
+function isWhitespace(char: string): boolean {
+	return /\s/.test(char)
+}
+
+function parenthesesBalance(value: string): boolean {
+	let depth = 0
+	for (const char of value) {
+		if (char === '(') depth += 1
+		else if (char === ')') {
+			depth -= 1
+			if (depth < 0) return false
+		}
+	}
+	return depth === 0
+}
+
+function splitAtTopLevel(
+	value: string,
+	grouping: boolean,
+	separates: (char: string) => boolean,
+): string[] {
+	const parts: string[] = []
+	let depth = 0
+	let current = ''
+	for (const char of value) {
+		if (grouping && char === '(') depth += 1
+		else if (grouping && char === ')') depth -= 1
+		if (depth === 0 && separates(char)) {
+			parts.push(current)
+			current = ''
+		} else {
+			current += char
+		}
+	}
+	parts.push(current)
+	return parts
+}
+
+/** `Name` or `Name(pattern)`, and nothing after the closing parenthesis. */
+const DECLARED_ENTRY = /^([^()]+?)\s*(?:\(.*\))?$/s
+
+/**
+ * The tool an entry names, or `undefined` for an entry that is not shaped
+ * like one.
+ *
+ * `Bash(git:*)` scopes a tool to a command pattern in the formats this field
+ * comes from. There is no pattern to honour here — the list grants nothing —
+ * so the pattern is dropped and the entry names `Bash`. Anything else with
+ * a parenthesis in it (`Bash(git:*)Read`, an unclosed `Bash(git:*`) names no
+ * tool, so it is reported as written rather than read as the tool before
+ * the `(` with the rest thrown away.
+ */
+function declaredToolName(entry: string): string | undefined {
+	const match = DECLARED_ENTRY.exec(entry)
+	const name = match?.[1]?.trim()
+	return name === undefined || name.length === 0 ? undefined : name
+}
+
+interface DeclaredTools {
+	/** Tools this turn can call that the declaration mentions, in its order, once each. */
+	readonly named: readonly string[]
+	/** Entries, as the author wrote them, that this turn cannot call. */
+	readonly unavailable: readonly string[]
+	/** Entries that match no registered tool at all. For the host's log only. */
+	readonly unknown: readonly string[]
+}
+
+/** `name` as one of `names` spells it: exactly, else ignoring case. */
+function matchName(name: string, names: readonly string[]): string | undefined {
+	if (names.includes(name)) return name
+	const folded = name.toLowerCase()
+	return names.find((candidate) => candidate.toLowerCase() === folded)
+}
+
+/**
+ * Match a declaration against the tools this turn holds.
+ *
+ * An exact name first, then the same name ignoring case, so `Read` finds
+ * `read`. What the MODEL is told is split by what this turn can call: a
+ * registered tool the turn's list withholds, or one that is suspended, reads
+ * the same as one that does not exist — the rule `search_tools` keeps for
+ * its no-match answer — so the mention cannot become a way to learn what
+ * lies outside the turn's scope. The HOST's warning is about the registry,
+ * because the author's mistake is a name that is no tool anywhere.
+ *
+ * Without a registry that can list its names there is nothing to check
+ * against; entries are matched against the turn's list if it has one, and
+ * otherwise passed through by name.
+ */
+function resolveDeclaredTools(
+	declared: readonly string[],
+	registry: ToolContext['toolRegistry'],
+	allowed: readonly string[] | undefined,
+): DeclaredTools {
+	const registered = registry?.listNames?.()
+	const named = new Set<string>()
+	const unavailable = new Set<string>()
+	const unknown = new Set<string>()
+	for (const entry of declared) {
+		const name = declaredToolName(entry)
+		const canonical =
+			name === undefined
+				? undefined
+				: registered !== undefined
+					? matchName(name, registered)
+					: allowed !== undefined
+						? matchName(name, allowed)
+						: name
+		if (registered !== undefined && canonical === undefined) unknown.add(entry)
+		const callable =
+			canonical !== undefined &&
+			(allowed === undefined || allowed.includes(canonical)) &&
+			(registered === undefined || registry?.getAvailability(canonical) !== 'suspended')
+		if (callable) named.add(canonical)
+		else unavailable.add(entry)
+	}
+	return { named: [...named], unavailable: [...unavailable], unknown: [...unknown] }
+}
+
+/**
+ * What the model is told about a declaration: which tools it mentions, and
+ * nothing it should do about them. Nothing at all for an empty one.
+ */
+function declaredToolsHint(tools: DeclaredTools): string {
+	if (tools.named.length === 0 && tools.unavailable.length === 0) return ''
+	const parts: string[] = []
+	if (tools.named.length > 0) {
+		parts.push(`Tools this skill mentions: ${tools.named.join(', ')}.`)
+	}
+	if (tools.unavailable.length > 0) {
+		parts.push(
+			`${tools.named.length > 0 ? 'It also mentions' : 'It mentions'} ${tools.unavailable.map((entry) => JSON.stringify(entry)).join(', ')}, which ${tools.unavailable.length === 1 ? 'is' : 'are'} not available here.`,
+		)
+	}
+	parts.push(
+		'For reference only: loading a skill does not change which tools you can call or how their calls are approved.',
+	)
+	return `\n\n[${parts.join(' ')}]`
+}
+
+/**
+ * Declarations already warned about, per tool registry.
+ *
+ * Once per registry rather than per call: a paged body resolves the list
+ * again on every page and a model may load the same skill twice, and the
+ * author needs the line once. A host that keeps one registry for a whole
+ * session is therefore warned once per session. Keyed weakly so a registry
+ * that is gone takes its entries with it.
+ */
+const warnedDeclarations = new WeakMap<object, Set<string>>()
+
+function warnUnknownToolsOnce(
+	context: ToolContext,
+	skill: string,
+	unknown: readonly string[],
+): void {
+	const registry = context.toolRegistry
+	if (unknown.length === 0 || registry === undefined) return
+	let warned = warnedDeclarations.get(registry)
+	if (warned === undefined) {
+		warned = new Set()
+		warnedDeclarations.set(registry, warned)
+	}
+	const key = JSON.stringify([skill, unknown])
+	if (warned.has(key)) return
+	warned.add(key)
+	context.log(
+		'warn',
+		`Skill ${JSON.stringify(skill)} lists allowed-tools that match no registered tool: ${unknown.map((entry) => JSON.stringify(entry)).join(', ')}. The list is advisory and changes no tool's availability or approval; name registered tools for the mention to be of use.`,
+	)
 }
 
 export const SKILL_TOOL_NAME = 'skill'
@@ -261,9 +455,8 @@ export const SkillTool = defineTool({
 	inputSchema,
 	category: 'analysis',
 	permissions: [],
-	// Reads instructions and changes nothing. It is the one tool whose
-	// availability a narrowed skill scope must never remove, or a model
-	// inside one skill could not reach for another.
+	// Reads instructions and changes nothing — the turn's tool surface
+	// included. See the note at the top of this file.
 	readOnly: true,
 	destructive: false,
 	concurrencySafe: true,
@@ -299,7 +492,8 @@ export const SkillTool = defineTool({
 						name: entry.registeredName,
 						description: entry.description,
 						location: entry.location,
-						...(entry.allowedTools === undefined ? {} : { allowedTools: entry.allowedTools }),
+						// Not `allowedTools`: a listing field named for permission reads
+						// as one. The load result mentions the tools a skill names.
 					}),
 				)
 			const maxChars = activeOutputCap(context.maxToolOutputChars)
@@ -403,10 +597,11 @@ export const SkillTool = defineTool({
 			start = parsed.offset
 		}
 
-		const notice =
+		const declared =
 			allowed === undefined
-				? ''
-				: `\n\n[While following this skill, restrict yourself to: ${allowed.length > 0 ? allowed.join(', ') : '(no tools)'}. This takes effect from your next turn.]`
+				? undefined
+				: resolveDeclaredTools(allowed, context.toolRegistry, context.allowedTools)
+		const notice = declared === undefined ? '' : declaredToolsHint(declared)
 		const page = pageSkillBody({
 			snapshot,
 			digest,
@@ -422,21 +617,16 @@ export const SkillTool = defineTool({
 			}
 		}
 
-		// Cursor and policy validation must finish before this mutation. A
-		// continuation is bound to the body AND its effective authorization
-		// metadata, so an edit to allowed-tools or invocation cannot widen the
-		// next batch under an old cursor.
-		if (allowed !== undefined) {
-			// Adopted, not merely announced. The notice below tells the model
-			// what happened; this is what makes it true whether or not the
-			// model reads it — the difference between the field as it was and
-			// the field as a declaration.
-			//
-			// Absent `adoptSkillScope`, the notice still goes out and is all
-			// there is: a host driving this tool outside a turn has no executor
-			// to enforce anything, and saying nothing would be worse than
-			// advice.
-			context.adoptSkillScope?.({ skill: skill.metadata.name, allowedTools: allowed })
+		// A continuation is bound to the body, the declared tool list and the
+		// invocation, so an edit to any of them restarts the read rather than
+		// continuing it under a cursor minted for different content.
+		//
+		// Nothing is adopted. The list is mentioned and, where it names no
+		// registered tool, warned about under the name the registry accepts;
+		// the turn's tool surface is the host's, and this call leaves it as it
+		// found it.
+		if (declared !== undefined) {
+			warnUnknownToolsOnce(context, input.name, declared.unknown)
 		}
 
 		return {

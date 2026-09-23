@@ -18,6 +18,14 @@ export interface ToolRegistryRef {
 	searchActive?(query: string): ToolDefinition[]
 	activate(names: string[]): void
 	getAvailability(name: string): ToolAvailability
+	/**
+	 * Every registered name, whatever its availability.
+	 *
+	 * Optional so a structural ref written before it still type-checks. The
+	 * `skill` tool reads it to say which of a skill's `allowed-tools` entries
+	 * are not tools at all; without it, that check is skipped.
+	 */
+	listNames?(): readonly string[]
 }
 
 /**
@@ -471,19 +479,6 @@ export interface ToolContext {
 			}>
 		}
 	}
-
-	/**
-	 * Adopt the tool scope a skill declared.
-	 *
-	 * Called by the `skill` tool when a loaded skill names `allowed-tools`.
-	 * The scope INTERSECTS what the turn already allows and takes effect from
-	 * the next batch — a skill loaded alongside other calls must not
-	 * retroactively refuse them.
-	 */
-	adoptSkillScope?: (scope: {
-		skill: string
-		allowedTools: readonly string[]
-	}) => void
 
 	/**
 	 * Effective model-visible character cap for this tool result.
