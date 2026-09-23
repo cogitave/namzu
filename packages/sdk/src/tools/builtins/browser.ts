@@ -525,21 +525,28 @@ function hostErrorToResult(tool: string, error: BrowserHostError): ToolResult {
 			const how = error.loginCommand
 				? ` The user can sign in with: ${oneLine(error.loginCommand, 300)}`
 				: ''
-			return refusal(
-				`${tool}: ${error.origin || 'the page'} is showing ${what}. Stop here and tell the user; do not sign in, solve it or type a password or code.${how}`,
-				{
-					code: error.code,
-					handoff: {
-						kind: 'human-required',
-						reason: error.reason,
-						detail: {
-							origin: error.origin,
-							...(error.profile !== undefined ? { profile: error.profile } : {}),
-							...(error.loginCommand !== undefined ? { loginCommand: error.loginCommand } : {}),
-						},
+			const detail = {
+				origin: error.origin,
+				...(error.profile !== undefined ? { profile: error.profile } : {}),
+				...(error.loginCommand !== undefined ? { loginCommand: error.loginCommand } : {}),
+			}
+			return {
+				...refusal(
+					`${tool}: ${error.origin || 'the page'} is showing ${what}. Stop here and tell the user; do not sign in, solve it or type a password or code.${how}`,
+					{
+						code: error.code,
+						handoff: { kind: 'human-required', reason: error.reason, detail },
 					},
+				),
+				// The kernel reads this one: the turn stops here, before the model
+				// is called again, and waits for the person. `data.handoff` stays
+				// for a host that reads the result itself.
+				handoff: {
+					kind: 'human-required',
+					reason: `${error.origin || 'The page'} is showing ${what}`,
+					detail: { tool: 'browser', cause: error.reason, ...detail },
 				},
-			)
+			}
 		}
 		case 'browser_outcome_unknown':
 			return refusal(`${tool}: ${oneLine(error.message, 500)}`, {

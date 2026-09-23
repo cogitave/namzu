@@ -369,6 +369,18 @@ describe('structural host errors', () => {
 				},
 			},
 		})
+		// The field the kernel pauses the turn on.
+		expect(result.handoff).toEqual({
+			kind: 'human-required',
+			reason: 'https://github.com is showing a sign-in page',
+			detail: {
+				tool: 'browser',
+				cause: 'sign-in',
+				origin: 'https://github.com',
+				profile: 'work',
+				loginCommand: 'namzu browser login work https://github.com/login',
+			},
+		})
 	})
 
 	it('says an unknown outcome is unsafe to replay', async () => {

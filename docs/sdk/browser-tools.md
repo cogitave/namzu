@@ -132,7 +132,7 @@ The host refuses by throwing a value with one of these shapes. The tool recognis
 | --- | --- | --- |
 | `browser_origin_mismatch` | `expected`, `actual` | Nothing was done; take a snapshot. |
 | `browser_stale_ref` | `ref` | The ref is from an older snapshot; take a new one. |
-| `browser_human_required` | `reason` (`sign-in`, `two-factor`, `captcha`, `bot-block`, `http-auth`, `credential-field`), `origin`, `profile?`, `loginCommand?` | Stop and tell the user; never sign in, solve it or type a password or code. The result's `data.handoff` is `{ kind: 'human-required', reason, detail: { origin, profile?, loginCommand? } }`. |
+| `browser_human_required` | `reason` (`sign-in`, `two-factor`, `captcha`, `bot-block`, `http-auth`, `credential-field`), `origin`, `profile?`, `loginCommand?` | Stop and tell the user; never sign in, solve it or type a password or code. The result's `data.handoff` is `{ kind: 'human-required', reason, detail: { origin, profile?, loginCommand? } }`, and its [`handoff`](tool-handoff.md) (`reason` in words, `detail` with `tool: 'browser'`, `cause` and the same fields) pauses the turn before the next model call. |
 | `browser_outcome_unknown` | `action`, `outcome: 'unknown'`, `retrySafety: 'unsafe'` | The host's message; do not replay. |
 | `browser_site_denied` | `origin` | Not allowed by the site rules; do not retry. |
 

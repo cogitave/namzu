@@ -225,4 +225,53 @@ describe('browser site rules through the real gate', () => {
 		expect(acted).toEqual([])
 		expect(completed(events, 'browser_act')[0]?.result).toMatch(/authorization gate/i)
 	})
+
+	it('pauses the turn, before the model is called again, when the page needs a person', async () => {
+		const host: BrowserHost = {
+			id: 'fake',
+			capabilities: { engine: 'fake', headless: false, screenshot: true, upload: false },
+			async observe() {
+				throw {
+					code: 'browser_human_required',
+					reason: 'sign-in',
+					origin: 'https://github.com',
+					profile: 'work',
+					loginCommand: 'namzu browser login work https://github.com/login',
+					message: 'sign-in page',
+				}
+			},
+			async act() {
+				throw new Error('not reached')
+			},
+		}
+		const tools = new ToolRegistry()
+		for (const tool of createBrowserTools(host)) tools.register(tool as ToolDefinition)
+		const events = await runTurn(
+			[
+				{
+					id: 'c1',
+					name: 'browser',
+					args: { action: 'navigate', url: 'https://github.com/login' },
+				},
+			],
+			tools,
+		)
+		const paused = events.filter(
+			(e): e is Extract<SessionEvent, { type: 'turn_paused' }> => e.type === 'turn_paused',
+		)
+		expect(paused).toHaveLength(1)
+		expect(paused[0]?.handoff).toEqual({
+			kind: 'human-required',
+			reason: 'https://github.com is showing a sign-in page',
+			detail: {
+				tool: 'browser',
+				cause: 'sign-in',
+				origin: 'https://github.com',
+				profile: 'work',
+				loginCommand: 'namzu browser login work https://github.com/login',
+			},
+		})
+		// The model's second turn ("done") never ran.
+		expect(events.some((e) => e.type === 'turn_completed')).toBe(false)
+	})
 })
