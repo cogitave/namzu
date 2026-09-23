@@ -58,7 +58,11 @@ describe('startCdpRelay', () => {
 		const token = relay.url.slice(base.length + 1)
 		await expect(open(`${base}/`)).rejects.toThrow(/HTTP 404/)
 		await expect(open(`${base}/devtools/browser/x`)).rejects.toThrow(/HTTP 404/)
-		await expect(open(`${base}/${token.slice(0, -1)}0`)).rejects.toThrow(/HTTP 404/)
+		// One hex digit off. Always a different digit: replacing the last one
+		// with a fixed `0` was the real token whenever it already ended in 0,
+		// one run in sixteen.
+		const last = token.at(-1) === '0' ? '1' : '0'
+		await expect(open(`${base}/${token.slice(0, -1)}${last}`)).rejects.toThrow(/HTTP 404/)
 		await expect(open(`${base}/${token}/`)).rejects.toThrow(/HTTP 404/)
 		await expect(open(`${base}/${token}?x=1`)).rejects.toThrow(/HTTP 404/)
 		const plain = await fetch(`${base.replace('ws:', 'http:')}/${token}`)
