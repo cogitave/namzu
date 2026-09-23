@@ -1,6 +1,6 @@
 {
   "name": "@namzu/google",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Native Gemini API and Gemini CLI OAuth provider for the Namzu agent kernel.",
   "license": "FSL-1.1-MIT",
   "engines": {

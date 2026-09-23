@@ -1,5 +1,15 @@
 # Changelog
 
+## 44.3.0
+
+### Minor Changes
+
+- 4375e72: A provider-hosted web search now says what it searched for. `StreamChunk.delta.hostedTool`, and so the `hosted_tool` session event and the `hosted.tool` SSE event, may carry `query` (the search query), `url` (a page the provider opened instead of running a query) and `results` (how many sources it reported). Codex fills them from the search call's action, Anthropic from the search block's streamed input and its result list, Google from the grounding metadata. Each field is optional and absent when the provider does not say; nothing that already reads `id`, `name` and `status` changes. A custom driver can start emitting them whenever it knows them.
+
+### Patch Changes
+
+- 1b65e2e: `CODING_AGENT_ORCHESTRATE_DOCTRINE` gains one sentence: agents in the same phase are launched in the same response, with `run_in_background: true` when they are to be waited for together, never one at a time. The text only reaches a prompt when a host turns orchestrate mode on (`codingAgentDoctrineContribution({ orchestrate: true })`); with the option off the rendered doctrine is byte-identical to before. A host that snapshots the orchestrate text will see the new sentence.
+
 ## 44.2.0
 
 ### Minor Changes

@@ -1,5 +1,84 @@
 # @namzu/cli
 
+## 29.0.0
+
+### Major Changes
+
+- eae8e31: **Read-only agents start without asking in `prompt` mode.** An `Agent` call that starts `explore`, or an agent file with `readOnly: true`, on the session's own provider and model no longer opens the "Start an agent" review in `prompt` or `accept-edits` mode, and `plan` mode now lets it start instead of refusing it. Every call such a child makes is still reviewed as before, and its roster still has no tool that writes.
+
+  Still asked about: a general-purpose agent, an agent file without `readOnly: true`, a read-only agent given `provider`, `effort` or a `model` other than the session's, an agent file that names another model, and any batch that includes one of those. `strict` still refuses every launch no rule allows.
+
+  What breaks: a `prompt`-mode operator who relied on seeing and declining each `explore` launch is no longer asked, and a `plan`-mode turn can now start read-only agents.
+
+  To keep the old behaviour — every launch asked about in `prompt` and `accept-edits`, refused in `plan` — add an `ask` rule for the tool:
+
+  ```json
+  { "permissions": { "Agent": "ask" } }
+  ```
+
+  in `namzu.config.json` (or `permissions: { Agent: ask }` in `~/.namzu/config.yaml`). An `ask` rule is an explicit review, which the read-only exemption never skips. `/permissions details` says which rule is in force.
+
+### Minor Changes
+
+- 64489b3: Delegated work split into phases reads by phase, as the reference terminal's workflow view does. Nothing is removed and no key changes meaning; screens and transcripts look different.
+
+  - **The agent rail keeps a phased workflow together.** Agents sharing a `workflow` label stay on the rail as one piece for the parent turn: a finished phase is one line, `✓ Phase 1 · 2/2 · 4.0s`, and a live phase has its agents beneath it. Unlabelled agents are grouped by launch, as before. Under 24 rows a finished phase's line is left out.
+  - **The rail's header counts the whole workflow**: `● <workflow> · 1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t`. Time and spend show from 96 columns.
+  - **The agent cockpit opens on the phase still working**, and on its first working agent, instead of on the first phase. Its header reads `2/3 agents done · 1 running · 7.7s · 18.0k tokens` while work runs and `3/3 agents · 9.5s · 27.0k tokens · done` after, in place of `N active · N total`. Phase rows add the phase's time; the agent pane is titled by its phase (`Phase 2 · 1 agent`) instead of `Agents · 1/2`.
+  - **The closing line** adds the phase count when two or more were named, the tokens spent, and failures: `✻ Worked for 11s · 3 agents in 2 phases · 27.0k tokens`.
+
+- 5fb75c2: Delegated work reads more like the reference terminal. Nothing is removed and no key changes meaning; transcripts and screenshots will look different.
+
+  - **Launch receipts.** Each batch of agents one response launched now writes one `● Launched 2 agents · <workflow> / <phase> (ctrl+t to manage)` row, with the agents named beneath it as a `├`/`└` tree.
+  - **Completion rows** read `✓ <name> · 1.7s · 9.0k tokens` or `✗ <name> · failed after 2.9s · <reason>` instead of `<name> · Completed · ctrl+t · agent details`. A completed agent's final answer is attached collapsed; Ctrl+O opens it. The hint is `ctrl+o result · ctrl+t details`.
+  - **A closing line**, `✻ Worked for 38s · 3 agents`, ends a turn that launched agents. Other turns add nothing.
+  - **The rail is a borderless tree** under the footer: a `● <workflow> · N running · N queued · ↓ / ctrl+t` header, one `├`/`└` branch per agent, and the running agent's activity on a `⎿` line beneath it on terminals at least 24 rows tall. Tool uses and spend now come before the model. It shows up to three agents on a 30-row terminal where it showed four, because each agent takes two rows there.
+  - **The rail stays visible while an approval dialog is open**, reduced to its header line. It used to disappear for as long as the dialog was up.
+  - **One waiting line.** When the parent is only waiting on its agents, the `Waiting · <name>` rows fold into `✻ Waiting for N agents to finish`.
+  - **The `/effort` picker is a left-to-right slider** on terminals at least 60 columns wide: `default`, the model's levels, then `┆ orchestrate` in violet with `<highest> + delegate by default` under it. ←/→ (and ↑/↓) move it, digits select, Enter applies, Esc goes back. Narrower terminals, and menus too long for one row, keep the vertical list.
+  - **Orchestrate mode shows on the message box**: the top border carries `orchestrate` in violet on the right, with a still colour gradient where colour is allowed; the footer's `orchestrate` is violet. Below 40 columns the border stays plain.
+
+- 4375e72: The terminal draws research turns the way the reference terminal does.
+
+  - **Web searches and fetches** are one row naming the query or address, `✓ Web search("…")` / `✓ Web fetch(https://…)`, with a `⎿` line that reads `Searching: …` while the call runs and settles to `Found 3 results in 4.1s`, `Did 1 search in 9.0s` or `Received 7.5KB in 1.2s`. Consecutive calls sit together without blank lines, and a long query is cut at the terminal's width with an ellipsis. A fetched page or result list stays behind Ctrl+O. They used to read `✓ Web search · 9.0s` with no query and a blank line between every row.
+  - **Markdown tables** are drawn as a box (`┌┬┐ ├┼┤ └┴┘`) sized to the terminal, with long cells wrapped inside their column and `**bold**`, `` `code` `` and links drawn rather than shown as source. Where the columns cannot fit, the table becomes `Header: value` records separated by a `─` rule. A table streaming in no longer flashes raw `| a | b |` rows. Tables used to be a header, one rule and cells cut mid-word at 32 characters.
+  - **The Working row** counts the turn's output, `Working (46s · ↓ 1.1k tokens · esc to interrupt)`.
+  - **A finished turn** that took three seconds or more closes with `✻ Worked for 46s`, as a turn that delegated work already did.
+  - **Wrapped text** in replies, your own messages and notices no longer starts a row with the space it wrapped at, so every row of a paragraph starts in the same column.
+
+  Nothing to change on your side.
+
+### Patch Changes
+
+- 710e684: A wide row in the agent cockpit no longer runs one cell past its pane: the model or token count at the end of the row sat on the frame's padding and touched the border.
+- 4f14e2d: On a terminal under 64 columns the agent rail's header now counts agents done out of the total (`2/3 done`), the figure its wide form and the agent cockpit's header give at the same moment. It used to print the agents still running over the total with no word after it (`1/3`), which read as one agent done. Nothing to change on your side.
+- 45a79f3: Three places in the delegated-work screens named a key or text that did not work or was cut off:
+
+  - An agent's `ctrl+o result` row that had scrolled into history could not be opened. Now, once the live bodies are open, the next Ctrl+O opens the newest settled body in the output viewer, and ←/→ move to the others. With nothing settled, the second press still just folds the live bodies.
+  - While an approval dialog is open, the reduced agents rail no longer shows `↓ / ctrl+t`. The dialog holds both keys, so neither reached the rail.
+  - On an 80-column terminal the effort slider's `<highest> + delegate by default` sub-label moves left so it fits on screen instead of being cut. The spend warning wraps instead of being cut. The rows it uses stay reserved on the other stops, so the picker keeps the same height when the caret moves.
+
+  No configuration or API changes.
+
+- d9b1d30: An `Agent` call that names the session's own `model`, with no `provider` or `effort`, now runs on the session's provider, as a call with no `model` does. It used to be looked up in the model catalogue, and when the session provider's listing failed or did not list that id, the child ran on any other connected provider that did — including a read-only `explore` launch, which starts without the "Start an agent" review on the promise that it stays on the session's provider. To send a child to another provider, name `provider` (still reviewed).
+
+  The agent cockpit's phase pane is titled `Phases`. It used to read `Phases · 1/2`, the cursor position, above phase rows whose `2/2` means agents done, so a finished two-phase workflow read as one phase of two. Nothing to change on your side.
+
+- 5bacecf: A transcript row written while the reply above it is still streaming no longer reaches scrollback before that reply. It used to settle first on a short terminal; when the reply then finished it was placed below rows already printed, so one row was printed twice and the reply's sentence was never printed. Nothing to do on upgrade.
+- f934968: A transcript row keeps its column and its wrap when it settles into scrollback. Settled rows used to lose the one column of padding live rows have, so a finished screen mixed rows starting at column 0 and column 1, and a long settled row wrapped two columns wider than it had while live. The brand header, printed the same way, moves one column right with them. Nothing to do on upgrade.
+- 0a39453: A reply that is still streaming is drawn where it stands in the conversation. It used to be drawn below every finished row, so a row written while it streamed, such as the launch receipt of an agent running in the foreground, appeared above the text that came before it and the two swapped when the turn ended. Rows no longer move after they are drawn. Nothing to do on upgrade.
+- a31aeb7: A reply taller than the terminal keeps its last line once it finishes. The redrawn part of the screen is now held one row shorter than the terminal, so the renderer no longer clears the screen and replays the session on every frame of a long reply, and no longer erases the reply's final line when the turn settles. While such a reply streams, its newest rows stay on screen; the whole reply reaches scrollback when it ends.
+
+  A list item or blockquote containing a pipe directly under a markdown table is drawn as a list item or quote again, not as an extra table row.
+
+- e3c9228: Typing that reaches the composer in one long read (keystrokes queued behind a busy screen, with no bracketed-paste markers) is now inserted as typed text. It used to become a `Pasted text` chip once it passed 80 characters, and the chip was joined back to what had been typed before it with a blank line — so the message the model received could have a word split in two ("subag" / "ents"). A bracketed paste over 80 characters, and any unbracketed chunk containing a newline, is still held as a chip. Nothing to do on upgrade.
+- Updated dependencies [4375e72]
+- Updated dependencies [1b65e2e]
+  - @namzu/sdk@44.3.0
+  - @namzu/openai@4.1.0
+  - @namzu/anthropic@6.1.0
+  - @namzu/google@1.1.0
+
 ## 28.1.1
 
 ### Patch Changes
