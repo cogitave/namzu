@@ -1,5 +1,6 @@
 /**
- * `/resume` of a scheduled run parked on a decision.
+ * `/resume` of a scheduled run parked on a decision, or on a tool's request
+ * for a person.
  *
  * The parked batch is put to the operator with the ordinary permission
  * screen. Their answer is applied to exactly that batch (`pendingDecision`,
@@ -15,6 +16,11 @@
  * and extra roots, so a session whose execution or roots differ from the
  * job's is refused with the command that opens a matching one. And the
  * screen offers no "allow all": a scheduled run has no session-wide approval.
+ *
+ * A run a tool paused for a person (`ToolResult.handoff`) has no batch to
+ * approve. The operator is shown what the tool asked for and chooses to
+ * continue it — the next step is a model call, under the job's rules — or to
+ * abandon it.
  */
 
 import { realpathSync } from 'node:fs'
@@ -34,7 +40,8 @@ import { resumeCommand } from '../../schedule/resume-command.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
-import type { PermissionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
+import type { PermissionFn, QuestionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
+import { terminalDisplayText } from '../terminal-display.js'
 
 export interface ScheduledPark {
 	readonly job: ScheduleJob
@@ -45,10 +52,18 @@ export interface ScheduledPark {
 	 * model its turn recorded when the job names only a provider.
 	 */
 	readonly model: { readonly provider: string; readonly model?: string; readonly effort?: string }
+	/** The parked batch; empty for a handoff park, which has none. */
 	readonly toolCalls: Extract<
 		NonNullable<Awaited<ReturnType<typeof findPendingCheckpoint>>>['pending']['request'],
 		{ type: 'tool_review' }
 	>['toolCalls']
+	/** Present when a tool asked for a person instead of a batch waiting for approval. */
+	readonly handoff?: ScheduledHandoff
+}
+
+export interface ScheduledHandoff {
+	readonly reason: string
+	readonly detail?: Readonly<Record<string, string>>
 }
 
 /** The job whose run is parked in this session, and the batch it waits on. */
@@ -65,8 +80,10 @@ export async function findScheduledPark(
 			sessionId: asSessionId(sessionId),
 		})
 		const park = await findPendingCheckpoint(log)
-		if (!park || park.pending.request.type !== 'tool_review') return undefined
-		const turnId = park.pending.request.turnId
+		const handoff = park ? undefined : await pausedForHandoff(log, run.turnId)
+		if (park && park.pending.request.type !== 'tool_review') return undefined
+		const turnId = park?.pending.request.turnId ?? handoff?.turnId
+		if (!turnId) return undefined
 		const recorded = await recordedTurnModel(log, turnId)
 		const model = job.model.model ?? recorded.model
 		const effort = job.model.effort ?? recorded.effort
@@ -79,10 +96,49 @@ export async function findScheduledPark(
 				...(model ? { model } : {}),
 				...(effort ? { effort } : {}),
 			},
-			toolCalls: park.pending.request.toolCalls,
+			toolCalls: park?.pending.request.type === 'tool_review' ? park.pending.request.toolCalls : [],
+			...(handoff ? { handoff: handoff.handoff } : {}),
 		}
 	}
 	return undefined
+}
+
+/**
+ * The turn's handoff, when its latest segment ended with `turn_paused`
+ * carrying one: a tool asked for a person and nothing has resumed the turn
+ * since. `turnId` narrows it to the run's turn when the run recorded one.
+ */
+async function pausedForHandoff(
+	log: Pick<DiskSessionLog, 'read'>,
+	turnId: string | undefined,
+): Promise<{ turnId: string; handoff: ScheduledHandoff } | undefined> {
+	let latest: { turnId: string; handoff: ScheduledHandoff } | undefined
+	try {
+		for await (const { record } of log.read({ mode: 'strict' })) {
+			if (!('turnId' in record) || typeof record.turnId !== 'string') continue
+			if (turnId !== undefined && record.turnId !== turnId) continue
+			if (record.type === 'turn_paused') {
+				latest = record.handoff
+					? {
+							turnId: record.turnId,
+							handoff: {
+								reason: record.handoff.reason,
+								...(record.handoff.detail ? { detail: record.handoff.detail } : {}),
+							},
+						}
+					: undefined
+			} else if (
+				record.type === 'turn_resuming' ||
+				record.type === 'turn_completed' ||
+				record.type === 'turn_failed'
+			) {
+				latest = undefined
+			}
+		}
+	} catch {
+		return undefined
+	}
+	return latest
 }
 
 /** The model and effort a turn's `turn_started` recorded, when it recorded them. */
@@ -190,9 +246,67 @@ function scheduledPermission(ask: ScreenPermissionFn): PermissionFn {
 	}
 }
 
+/** What `resumePaused` needs to continue a parked scheduled turn. */
+export type ScheduledResumeParams = Pick<
+	ResumePausedParams,
+	'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
+>
+
 /**
- * Ask the operator about the parked batch and return what `resumePaused`
- * needs, or `undefined` when this session is not a parked scheduled run.
+ * The operator's answer to a parked scheduled run: continue it with these
+ * parameters, abandon its turn (with the reason to record), or leave it
+ * waiting.
+ */
+export type ScheduledResume =
+	| ScheduledResumeParams
+	| { readonly abandon: string }
+	| { readonly leave: true }
+
+const CONTINUE = 'continue'
+const ABANDON = 'abandon'
+
+/**
+ * A run a tool paused for a person: say what the tool asked for, then put
+ * Continue / Abandon on the choice screen. Esc, or no choice screen, leaves
+ * the run waiting.
+ */
+export async function chooseHandoffContinuation(
+	park: Pick<ScheduledPark, 'job' | 'runId' | 'model' | 'handoff'>,
+	choose: QuestionFn | undefined,
+	say: (text: string) => void,
+): Promise<'continue' | 'abandon' | 'leave'> {
+	const handoff = park.handoff
+	if (!handoff) return 'leave'
+	// Read back from the log, so shown as data: one line each.
+	const safe = (text: string) => terminalDisplayText(text).replace(/\s+/g, ' ').trim()
+	const detail = Object.entries(handoff.detail ?? {})
+		.map(([key, value]) => `\n  ${safe(key)}: ${safe(value)}`)
+		.join('')
+	say(
+		`⏲ The scheduled job ${park.job.name} stopped because it needs you: ${safe(handoff.reason)}${detail}\nContinue once that is done: the turn goes on under the job’s rules and on its model (${describeModel(park.model)}).`,
+	)
+	if (!choose) return 'leave'
+	const choice = await choose({
+		questionId: `schedule-handoff:${park.runId}`,
+		header: park.job.name,
+		question: 'Continue the scheduled run?',
+		options: [
+			{ id: CONTINUE, label: 'Continue', description: 'It is done; carry on from here' },
+			{ id: ABANDON, label: 'Abandon', description: 'Stop this run; the job stays scheduled' },
+		],
+		multiSelect: false,
+		allowFreeText: false,
+	})
+	if (choice.kind !== 'answer') return 'leave'
+	if (choice.selectedOptionIds.includes(CONTINUE)) return 'continue'
+	if (choice.selectedOptionIds.includes(ABANDON)) return 'abandon'
+	return 'leave'
+}
+
+/**
+ * Ask the operator about the parked batch — or, for a handoff park, whether
+ * to continue — and return what `resumePaused` needs, or `undefined` when
+ * this session is not a parked scheduled run.
  */
 export async function prepareScheduledResume(input: {
 	readonly home: string
@@ -200,14 +314,10 @@ export async function prepareScheduledResume(input: {
 	readonly operatorMode: PermissionMode
 	readonly environment: ResumeEnvironment
 	readonly ask: ScreenPermissionFn
+	/** The choice screen, for a handoff park's Continue / Abandon. */
+	readonly choose?: QuestionFn
 	readonly say: (text: string) => void
-}): Promise<
-	| Pick<
-			ResumePausedParams,
-			'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
-	  >
-	| undefined
-> {
+}): Promise<ScheduledResume | undefined> {
 	const park = await findScheduledPark(input.home, input.sessionId)
 	if (!park) return undefined
 	const mismatch = scheduledResumeMismatch(park.job, input.environment)
@@ -225,6 +335,20 @@ export async function prepareScheduledResume(input: {
 		layers: readPermissionLayers({ cwd: park.job.folder.canonical }),
 		namzuHome: input.home,
 	})
+	const resumeWith = (pendingDecision?: HITLResumeDecision): ScheduledResumeParams => ({
+		...(pendingDecision ? { pendingDecision } : {}),
+		onPermission: ask,
+		rules: policy.rules,
+		permissionMode: STRICTER.includes(input.operatorMode) ? input.operatorMode : policy.mode,
+		model: park.model,
+	})
+	if (park.handoff) {
+		const choice = await chooseHandoffContinuation(park, input.choose, input.say)
+		if (choice === 'continue') return resumeWith()
+		if (choice === 'abandon')
+			return { abandon: 'Scheduled run: the operator abandoned it at a handoff' }
+		return { leave: true }
+	}
 	input.say(
 		`⏲ The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,
 	)
@@ -233,15 +357,9 @@ export async function prepareScheduledResume(input: {
 		turnId: park.turnId as never,
 		toolCalls: park.toolCalls,
 	})
-	const pendingDecision: HITLResumeDecision =
+	return resumeWith(
 		answer.kind === 'reject'
 			? { action: 'reject_tools', feedback: answer.feedback ?? 'The operator declined this call.' }
-			: { action: 'approve_tools' }
-	return {
-		pendingDecision,
-		onPermission: ask,
-		rules: policy.rules,
-		permissionMode: STRICTER.includes(input.operatorMode) ? input.operatorMode : policy.mode,
-		model: park.model,
-	}
+			: { action: 'approve_tools' },
+	)
 }

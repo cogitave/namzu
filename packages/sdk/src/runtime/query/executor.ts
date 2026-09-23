@@ -36,6 +36,7 @@ import type {
 	SkillRegistryRef,
 	ToolContext,
 	ToolDispatchOptions,
+	ToolHandoff,
 	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
@@ -480,6 +481,8 @@ export interface ToolCallOutcome {
 	/** Rich form for the model, when the tool supplied one. */
 	content?: ToolResultContent
 	isError?: boolean
+	/** The tool asked for a person; see `ToolResult.handoff`. */
+	handoff?: ToolHandoff
 }
 
 export interface ToolExecutionBatch {
@@ -1960,6 +1963,12 @@ export class ToolExecutor {
 			// a result whose image is unaffected — and a hook that needs it gone
 			// says so with `content`, which wins over both.
 			...(modelContent !== undefined ? { content: modelContent } : {}),
+			// Carried whatever a post-tool hook did to the text: the request is
+			// the tool's statement about the world, not about its output, and a
+			// hook that redacts a sign-in page has not signed anyone in.
+			...(result.handoff !== undefined && !this.config.abortSignal.aborted
+				? { handoff: result.handoff }
+				: {}),
 		}
 	}
 

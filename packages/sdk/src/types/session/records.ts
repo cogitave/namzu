@@ -201,6 +201,15 @@ const providerError = z
 
 const explanation = z.object({ id: text, message: text, hint: text }).strict()
 
+/** A tool's request for a person, as `turn_paused` carries it. */
+const toolHandoff = z
+	.object({
+		kind: z.literal('human-required'),
+		reason: text,
+		detail: z.record(text).optional(),
+	})
+	.strict()
+
 const stopReason = z.enum([
 	'end_turn',
 	'token_budget',
@@ -361,6 +370,7 @@ export const TurnPausedRecordSchema = inTurn('turn_paused', {
 	providerError: providerError.optional(),
 	explanation: explanation.optional(),
 	budget: tokenBudgetSummary.optional(),
+	handoff: toolHandoff.optional(),
 })
 
 export const TurnResumingRecordSchema = inTurn('turn_resuming', {

@@ -510,6 +510,12 @@ export type AgentEvent =
 			readonly failure?: Extract<SessionEvent, { type: 'turn_paused' }>['failure']
 			readonly providerError?: Extract<SessionEvent, { type: 'turn_paused' }>['providerError']
 			readonly explanation?: Extract<SessionEvent, { type: 'turn_paused' }>['explanation']
+			/**
+			 * A tool asked for a person (`ToolResult.handoff`). The turn's results
+			 * are recorded; continuing it (`resumePaused`) calls the model with
+			 * them, and nothing needs approving first.
+			 */
+			readonly handoff?: Extract<SessionEvent, { type: 'turn_paused' }>['handoff']
 	  }
 	| {
 			readonly kind: 'error'
@@ -5123,6 +5129,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),
+				...(event.handoff ? { handoff: event.handoff } : {}),
 			}
 		case 'turn_completed':
 			// Carried through rather than dropped: `turn_failed` fires only from

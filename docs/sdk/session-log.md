@@ -140,7 +140,7 @@ The turn lifecycle events are checked field by field:
 | Type | Payload |
 |---|---|
 | `turn_started` | `userMessageId`, `systemPrompt?`, `config` (model, token budget, timeout and the other durable limits), `origin?`, `budget?` (`{rootSessionId, rootTurnId, accountId}`) |
-| `turn_paused` | `reason`, `checkpointId`, `failure?`, `providerError?`, `explanation?`, `budget?`. Ends a segment; **not** terminal. |
+| `turn_paused` | `reason`, `checkpointId`, `failure?`, `providerError?`, `explanation?`, `budget?`, `handoff?` (a tool asked for a person; see [Tool handoff](tool-handoff.md)). Ends a segment; **not** terminal. |
 | `turn_resuming` | `fromCheckpointId`, `resolvedDecisionId?` |
 | `turn_completed` | `result` (a preview when `resultSpill` holds the whole answer), `resultSpill?`, `stopReason?`, `cancelCause?`, `budget?`, `settlement` |
 | `turn_failed` | `error`, `failure?`, `providerError?`, `explanation?`, `budget?`, `settlement` |

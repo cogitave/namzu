@@ -227,6 +227,8 @@ const MAPPING: {
 			// it whether and when a retry is justified.
 			{
 				checkpointId: e.checkpointId,
+				// A person, not a retry, is what this pause waits for.
+				...(e.handoff ? { handoff: e.handoff } : {}),
 				...(e.failure
 					? {
 							code: e.failure.code,

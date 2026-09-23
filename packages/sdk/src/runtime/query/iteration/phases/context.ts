@@ -43,6 +43,12 @@ import type { ToolGrantSet } from '../../tool-grants.js'
 
 export interface IterationContext {
 	readonly provider: LLMProvider
+	/**
+	 * The turn runs in a delegated child session. A tool's request for a
+	 * person then fails the turn instead of pausing it: nobody is watching
+	 * a child to resume it, and its parent is waiting on a result.
+	 */
+	readonly delegated?: boolean
 	/** Driver-level request shapes negotiated for this turn. */
 	readonly providerCapabilities?: ResolvedProviderCapabilities
 	/** Refuse a capability mismatch instead of emitting a warning and degrading. */

@@ -1190,6 +1190,15 @@ export function App({
 	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const [composerHasDraft, setComposerHasDraft] = useState(false)
+	// A turn a tool paused for a person (`ToolResult.handoff`), while its
+	// notice is the newest thing on screen: Enter continues it, Esc stops it.
+	// The ref is what the key handler reads; the state is what the footer shows.
+	const [handoffPark, setHandoffParkState] = useState<{ readonly turnId: string } | null>(null)
+	const handoffParkRef = useRef<{ readonly turnId: string } | null>(null)
+	const setHandoffPark = useCallback((value: { readonly turnId: string } | null) => {
+		handoffParkRef.current = value
+		setHandoffParkState(value)
+	}, [])
 	const composerDraftTokenRef = useRef(0)
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
@@ -3864,6 +3873,7 @@ export function App({
 			pushMessage('system', 'Wait for the running turn to finish before resuming the parked one.')
 			return true
 		}
+		setHandoffPark(null)
 		const ac = new AbortController()
 		abortRef.current = ac
 		setState('thinking')
@@ -3892,6 +3902,17 @@ export function App({
 						providers: detected.map((item) => item.entry.id),
 					})
 				: undefined
+			if (scheduled && 'leave' in scheduled) {
+				pushMessage('system', 'The scheduled run stays waiting. /resume asks again.')
+				return true
+			}
+			if (scheduled && 'abandon' in scheduled) {
+				scheduledRun = true
+				if (!session.abandonTurn) throw new Error('this session cannot abandon turns')
+				await session.abandonTurn(active.turnId as TurnId, scheduled.abandon)
+				pushMessage('system', `Abandoned turn ${active.turnId}. The job stays scheduled.`)
+				return true
+			}
 			scheduledRun = scheduled !== undefined
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
@@ -3924,7 +3945,7 @@ export function App({
 			if (scheduledRun) await scheduleRef.current?.settleAnswered()
 		}
 		return true
-	}, [detected, finalizeMessage, flushStream, pushMessage, session, state])
+	}, [detected, finalizeMessage, flushStream, pushMessage, session, setHandoffPark, state])
 
 	// `namzu resume <id>` of a scheduled run parked on a decision: what the
 	// notification and `/schedule` tell the operator to run. Continue it once
@@ -5292,7 +5313,17 @@ export function App({
 					st.outcome = 'stopped'
 					st.queuePauseOutcome = 'paused'
 					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
-					pushMessage('system', describeTurnInterruption(event), false, '‖')
+					if (event.handoff) {
+						// Nothing failed and nothing needs approving: a tool needs the
+						// operator to do something first. Continuing is one key.
+						pushMessage(
+							'system',
+							`${describeTurnInterruption(event)}\nWhen that is done, press Enter to continue · Esc to stop.`,
+							false,
+							'‖',
+						)
+						setHandoffPark({ turnId: event.turnId })
+					} else pushMessage('system', describeTurnInterruption(event), false, '‖')
 					break
 				case 'error':
 					closeAssistant()
@@ -5304,7 +5335,7 @@ export function App({
 					break
 			}
 		},
-		[appendToMessage, finalizeMessage, flushStream, pushMessage, writeTaskBlock],
+		[appendToMessage, finalizeMessage, flushStream, pushMessage, setHandoffPark, writeTaskBlock],
 	)
 	applyEventRef.current = applyEvent
 
@@ -6123,6 +6154,8 @@ export function App({
 				)
 				return
 			}
+			// The operator moved on; a parked turn is still there for /resume.
+			setHandoffPark(null)
 			setHistory((prev) => [...prev, value])
 			const selectionIntent = !attachments?.length ? parseModelSelectionIntent(value) : undefined
 			if (selectionIntent) {
@@ -8170,6 +8203,20 @@ export function App({
 				resetTranscript()
 				return
 			}
+			// A turn a tool paused for a person: Enter on an empty composer
+			// continues it, Esc stops it (the turn is abandoned, like /abandon).
+			if (
+				handoffParkRef.current &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current &&
+				((key.return && !composerHasDraft) || key.escape)
+			) {
+				setHandoffPark(null)
+				if (key.return) void resumeActiveTurn()
+				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
+				return
+			}
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
 			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
@@ -8328,6 +8375,8 @@ export function App({
 														: '↑↓ / 1–9 select · enter apply · esc back'
 												: copyPicker
 													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
+													: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
+													? 'enter continue · esc stop'
 													: goalStatus && phase === 'ready' && state === 'idle'
 														? undefined
 														: hintForPhase(
@@ -8599,8 +8648,11 @@ export function App({
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
 								escapeInterrupts={
-									!compacting &&
-									(state === 'thinking' || state === 'tool' || pendingModelSwitchRef.current !== null)
+									(!compacting &&
+										(state === 'thinking' ||
+											state === 'tool' ||
+											pendingModelSwitchRef.current !== null)) ||
+									(handoffPark !== null && state === 'idle')
 								}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}

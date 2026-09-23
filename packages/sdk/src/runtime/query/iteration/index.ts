@@ -71,6 +71,7 @@ import {
 	relieveOverflow,
 	runCompactionCheck,
 } from './phases/compaction.js'
+import { runHandoffPause } from './phases/handoff.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
@@ -1418,6 +1419,13 @@ export class IterationOrchestrator {
 					})
 
 					if (reviewOutcome.decision === 'stop') {
+						return
+					}
+
+					// A tool asked for a person. The whole batch is committed; the
+					// turn parks here rather than asking the model what to do about
+					// something only the operator can do.
+					if ((yield* runHandoffPause(this.ctx, iterationNum, reviewOutcome.results)) === 'stop') {
 						return
 					}
 
