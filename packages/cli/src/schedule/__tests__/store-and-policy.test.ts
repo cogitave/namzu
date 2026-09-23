@@ -332,13 +332,38 @@ describe('what a scheduled run may do', () => {
 			`cat ${user}//.namzu/schedule/daemon/endpoint.json`,
 			`cat ${user}/./.namzu/x`,
 			`ls ${home} && true`,
+			`cat ${user}/".namzu"/schedule/daemon/endpoint.json`,
+			`cat ${user}/'.namzu'/schedule/daemon/endpoint.json`,
+			`cat "${user}/.namzu/schedule/daemon/endpoint.json"`,
+			`cat ${user.replace('user-home', 'user"-"home')}/.namzu/x`,
+			"cat ~/.nam''zu/schedule/daemon/endpoint.json",
+			'cat ~/.nam"z"u/schedule/daemon/endpoint.json',
+			'cat ~/.nam\\zu/schedule/daemon/endpoint.json',
+			"cat $HOME/'.na'mzu/config.yaml",
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		expect(decide(g, 'read', { path: `${user}//.namzu/schedule/daemon/endpoint.json` })).toBe(
 			'deny',
 		)
-		for (const command of ['ls ~/.namzu-other', 'cat ~/.namzu.bak', 'ls ~/project/.namzu2'])
+		for (const command of [
+			'ls ~/.namzu-other',
+			'cat ~/.namzu.bak',
+			'ls ~/project/.namzu2',
+			"ls ~/.nam''zu2",
+		])
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
+	})
+
+	it('reads a long run of quotes and backslashes in linear time', () => {
+		const user = join(sb.root, 'user-home')
+		const g = gate(scheduledRunFloor(join(user, '.namzu'), user))
+		for (const filler of ['\\', '/', "'", '"', '\\"'])
+			for (const prefix of [`cat ${user}`, 'cat ~/.nam', 'cat ~']) {
+				const command = `${prefix}${filler.repeat(20_000)}x`
+				const started = performance.now()
+				decide(g, 'bash', { command })
+				expect(performance.now() - started, `${prefix} + ${filler}`).toBeLessThan(500)
+			}
 	})
 
 	it('keeps every floor pattern within the gate’s length limit, which refuses a longer one', () => {

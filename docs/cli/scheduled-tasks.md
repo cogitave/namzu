@@ -128,9 +128,12 @@ The rules a run is gated by, in order (the first that matches decides):
    and any tool argument naming `NAMZU_HOME` — by its absolute path (doubled
    slashes and `./` included), as `~/…`, `$HOME/…` or `${HOME}/…` when it is
    under your home, or as `$NAMZU_HOME` — are refused. The check reads through
-   shell quoting (`namzu "schedule" confirm` is refused too) but not through
-   variables, aliases, `eval`, `..` or a `cd` followed by a relative path: it
-   is a pattern check and best effort, alongside the digest and the hold above;
+   shell quoting and backslash escapes, around a word or inside it (`namzu
+   "schedule" confirm`, `/home/you/".namzu"`, `~/.nam''zu` and `~/.nam\zu` are
+   refused too), but not through variables, aliases, `eval`, globs
+   (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a `cd` followed by
+   a relative path: it is a pattern check and best effort, alongside the
+   digest and the hold above;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;
