@@ -225,7 +225,10 @@ again at its next time.
 A notification names the job and what happened — finished, failed, waiting for
 your approval, a catch-up, a job on hold — and nothing the model wrote, unless
 the job asked for its one-line summary (`--notify-summary`). At most one per job
-every ten minutes and twenty a day. `schedule.notifications: false` in your user
+every ten minutes and twenty a day, except the ones that need you — a run
+waiting for your approval, an approval that expired, a job on hold, waiting for
+confirmation or paused after failures — which are always sent.
+`schedule.notifications: false` in your user
 config turns them off. Where they appear: see
 [The scheduler service](scheduler-service.md#notifications).
 

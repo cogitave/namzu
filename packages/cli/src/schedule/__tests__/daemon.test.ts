@@ -267,6 +267,30 @@ describe('failures', () => {
 	})
 })
 
+describe('notifications', () => {
+	it('announces a park even right after the catch-up notice for the same run', async () => {
+		outcome = () => ({
+			status: 'awaiting-approval',
+			sessionId: 'ses_parked',
+			projectSlug: 'project',
+			turnId: 'turn_parked',
+		})
+		// A nightly job, created days ago, and a scheduler that was not running.
+		const job = confirmedJob(sb, {}, new Date(Date.parse('2026-09-19T00:00:00Z')))
+		clock = Date.parse('2026-09-23T06:10:00Z')
+		const d = daemon()
+		await d.claimOwnership()
+		await d.tick()
+		await settle(d)
+		expect(spawned).toHaveLength(1)
+		expect(readState(sb.paths, job.id).activeRun?.status).toBe('awaiting-approval')
+		expect(notices.map((n) => n.body)).toEqual([
+			expect.stringMatching(/^catch-up run for /),
+			expect.stringMatching(/approval/),
+		])
+	})
+})
+
 describe('one owner', () => {
 	it('a second daemon waits on standby and takes over when the owner releases', async () => {
 		const a = daemon({ tickMs: 20, standbyPollMs: 20 })

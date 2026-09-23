@@ -545,7 +545,16 @@ export class ScheduleDaemon {
 						? flags.finished || flags.failed
 						: flags.failed || kind === 'held' || kind === 'needs-confirmation'
 		if (!wanted) return
-		const always = kind === 'held' || kind === 'needs-confirmation' || kind === 'auto-paused'
+		// What needs the person is never throttled: each happens at most once
+		// per run or per change, and a dropped one is never sent again. A park
+		// right after a catch-up notice would otherwise sit unannounced until
+		// its approval expired, with every later occurrence skipped.
+		const always =
+			kind === 'held' ||
+			kind === 'needs-confirmation' ||
+			kind === 'auto-paused' ||
+			kind === 'awaiting-approval' ||
+			kind === 'approval-expired'
 		if (
 			!always &&
 			!admitNotification(join(this.#o.paths.daemon, 'notify.json'), job.id, this.#now())
