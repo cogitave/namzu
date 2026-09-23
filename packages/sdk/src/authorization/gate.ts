@@ -66,6 +66,8 @@ export function describeRule(rule: AuthorizationRule): string {
 			const verb = rule.decision === 'deny' ? 'denied' : 'allowed'
 			return `${verb} by a pattern rule matching the ${where}: ${rule.pattern}`
 		}
+		case 'predicate':
+			return rule.description
 		default: {
 			const exhaustive: never = rule
 			return `matched an unrecognised rule: ${JSON.stringify(exhaustive)}`

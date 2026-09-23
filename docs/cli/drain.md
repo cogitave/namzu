@@ -16,10 +16,12 @@ or on a decision a person has to make — and be continued in another.
 turns under the scope you name, takes each session's lease, continues the
 **same turn** from its checkpoint, and gives the lease back.
 
-**It is not a daemon.** `namzu serve` still says namzu has no daemon, and this
-command is the reason that holds: one bounded pass, an exit code that says what
+**It is not a daemon.** One bounded pass, an exit code that says what
 happened, and whatever you already use to run things periodically runs it
-again.
+again. namzu's one long-lived process, the scheduler behind
+[Scheduled tasks](scheduled-tasks.md), runs scheduled jobs and nothing else: it
+never drains, and a scheduled run parked on a decision waits for a person just
+as `drain` refuses to resume past one.
 
 ```bash
 namzu drain --store ~/.namzu --tenant <id> --project <id> --session <id>

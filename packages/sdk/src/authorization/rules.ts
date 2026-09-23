@@ -165,6 +165,17 @@ export function evaluateRule(
 			return null
 		}
 
+		case 'predicate': {
+			// A rule that throws has not decided the call is safe. Reading the
+			// exception as "no opinion" would let the next rule, or the mode,
+			// approve what this one was written to refuse.
+			try {
+				return rule.decide({ toolName, toolInput, toolDef, commandDialect: dialect })
+			} catch {
+				return 'deny'
+			}
+		}
+
 		default: {
 			const _exhaustive: never = rule
 			throw new Error(`Unhandled verification rule type: ${(_exhaustive as { type: string }).type}`)

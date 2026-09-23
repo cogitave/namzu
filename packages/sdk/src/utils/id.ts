@@ -197,6 +197,20 @@ export function generateDeliverableId(): DeliverableId {
 	return generateId()
 }
 
+/**
+ * The id of a scheduled job, for a host that stores schedules (the CLI's
+ * `NAMZU_HOME/schedule/`). A plain UUIDv7 string: jobs are the host's records,
+ * not a kernel entity, so there is no branded kind for them.
+ */
+export function generateScheduleJobId(): string {
+	return uuidv7()
+}
+
+/** The id of one run of a scheduled job. See {@link generateScheduleJobId}. */
+export function generateScheduleRunId(): string {
+	return uuidv7()
+}
+
 /** Entity kinds are supplied by a typed field or storage collection. */
 export interface EntityIdByKind {
 	turn: TurnId

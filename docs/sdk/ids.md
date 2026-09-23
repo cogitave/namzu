@@ -34,6 +34,11 @@ entity type.
   The second argument selects the expected entity kind.
 - Deprecated `parse*Id` functions perform the same validation and throw a
   plain `Error`. Use the `as*Id` constructor in new code.
+- `generateScheduleJobId()` and `generateScheduleRunId()` return plain UUIDv7
+  strings for a host's scheduled jobs and their runs. Jobs are the host's
+  records (the CLI's `NAMZU_HOME/schedule/`), not a kernel entity, so they
+  carry no nominal brand and no `as*Id` constructor. See
+  [Schedules](schedules.md).
 
 ```ts
 import { generateTurnId, asTurnId, isEntityId } from '@namzu/sdk'

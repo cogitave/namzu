@@ -218,6 +218,29 @@ describe('here-documents', () => {
 	})
 })
 
+describe('words outside simple commands', () => {
+	it('reports a for loop’s variable and list, and a case statement’s subject and patterns', () => {
+		const result = lexShellCommandLine(
+			'for d in ~/x \'a b\'; do rm -r "$d"; done; case $p in a|b*) :;; esac',
+		)
+		expect(result.compoundWords.map((w) => (w.expands ? `~${w.value}` : w.value))).toEqual([
+			'd',
+			'~~/x',
+			'a b',
+			'~$p',
+			'a',
+			'~b*',
+		])
+	})
+
+	it('reports a here-document’s body, up to its delimiter line', () => {
+		const result = lexShellCommandLine("bash <<'EOF' && cat <<-E\nrm x\n$(y)\nEOF\n\tz\n\tE\n")
+		expect(result.redirections.map((r) => r.body)).toEqual(['rm x\n$(y)\n', '\tz\n'])
+		expect(lexShellCommandLine('cat <<EOF\nno end').redirections[0]?.body).toBe('no end')
+		expect(lexShellCommandLine('cat < f').redirections[0]?.body).toBeUndefined()
+	})
+})
+
 describe('nested shells', () => {
 	it.each([
 		'bash -c "git push"',

@@ -209,6 +209,12 @@ export interface SubagentRuntimeOptions {
 		parentSessionId?: SessionId,
 		selection?: DelegatedModel,
 	) => LLMProvider | Promise<LLMProvider>
+	/**
+	 * The model a turn runs on when it is not the session's (a resumed
+	 * scheduled turn runs on its job's): the children of that turn inherit it
+	 * instead of the session's. `undefined`: the session's model.
+	 */
+	readonly resolveTurnModel?: (turnId: TurnId) => DelegatedModel | undefined
 	readonly resolveModel?: (
 		request: { model: string; provider?: string; effort?: string },
 		signal: AbortSignal,
@@ -802,6 +808,11 @@ export async function createSubagentRuntime(
 				throw new Error('Supply model when selecting a child provider or effort.')
 			const explore = subagent_type === EXPLORE_SUBAGENT
 			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
+			// The model the invoking turn runs on: the session's, unless the turn
+			// was resumed on another (a scheduled job's), whose children inherit
+			// that one exactly as other children inherit the session's.
+			const inherited = opts.resolveTurnModel?.(context.turnId)
+			const parentModel = inherited?.model ?? opts.model
 			// Naming the session's own model, with no provider or effort, is
 			// inheriting it: the child runs where the parent runs. Resolving it
 			// would let the model catalogue pick any other provider that lists
@@ -812,10 +823,10 @@ export async function createSubagentRuntime(
 			// and is resolved as before.
 			const selects =
 				requestedModel !== undefined &&
-				(requestedModel !== opts.model ||
+				(requestedModel !== parentModel ||
 					requestedProvider !== undefined ||
 					requestedEffort !== undefined ||
-					(fileAgent?.model !== undefined && fileAgent.model !== opts.model))
+					(fileAgent?.model !== undefined && fileAgent.model !== parentModel))
 			if (selects && !opts.resolveModel)
 				throw new Error('Child model selection is unavailable in this host.')
 			const selection = selects
@@ -827,7 +838,11 @@ export async function createSubagentRuntime(
 						},
 						context.abortSignal,
 					)
-				: undefined
+				: // A file agent that pins its own model keeps it; any other child
+					// of a turn on another model than the session's runs on that one.
+					fileAgent?.model === undefined
+					? inherited
+					: undefined
 			let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
 			const persona = typeof role === 'string' ? role.trim() : ''
 			const dynamic = persona.length > 0 || selection !== undefined
@@ -851,14 +866,14 @@ export async function createSubagentRuntime(
 							: explore
 								? () => filterReadOnlyTools(opts.buildTools())
 								: opts.buildTools,
-						selection?.model ?? fileAgent?.model ?? opts.model,
+						selection?.model ?? fileAgent?.model ?? parentModel,
 						selection,
 					),
 				)
 			}
 			const tracker = activity.begin({
 				agentId,
-				model: selection?.model ?? fileAgent?.model ?? opts.model,
+				model: selection?.model ?? fileAgent?.model ?? parentModel,
 				description,
 				prompt,
 				batchId: context.toolBatchId,

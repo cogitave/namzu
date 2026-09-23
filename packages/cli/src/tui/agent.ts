@@ -51,6 +51,7 @@ import {
 	EVENT_NAME_ATTRIBUTE,
 	type GoalRoundAuthority,
 	GuardedFetchProvider,
+	type HITLResumeDecision,
 	InMemorySessionLog,
 	type LLMProvider,
 	type LogAttributes,
@@ -250,7 +251,11 @@ import { discoverAgentDefinitions } from '../integrations/subagents/definitions.
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
-import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
+import {
+	type DelegatedModel,
+	type SubagentRuntime,
+	createSubagentRuntime,
+} from '../integrations/subagents/runtime.js'
 import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
@@ -541,6 +546,15 @@ export type PermissionRequest = ToolReviewRequest
 export type PermissionDecision = ToolReviewAnswer
 export type PermissionFn = ToolReviewPrompt
 
+/**
+ * A request the screen answers for its own batch only, with no "allow all"
+ * among the answers. A scheduled run's prompts are these: a scheduled turn
+ * has no session-wide approval, so the screen must not offer one.
+ */
+export type ScreenPermissionRequest = PermissionRequest & { readonly batchOnly?: true }
+/** The permission screen itself, which also takes batch-only requests. */
+export type ScreenPermissionFn = (request: ScreenPermissionRequest) => Promise<PermissionDecision>
+
 /** One question the model put to the operator through `ask_user_question`. */
 export type UserQuestion = Extract<
 	Parameters<ResumeHandler>[0],
@@ -561,7 +575,14 @@ export type QuestionAnswer =
 	| { readonly kind: 'skip' }
 	| { readonly kind: 'abort' }
 
-export type QuestionFn = (question: UserQuestion) => Promise<QuestionAnswer>
+/**
+ * `signal`, when the caller has one, fires when it has stopped waiting on the
+ * answer (a tool's own deadline, or the turn aborting); a screen that draws
+ * itself closes on it rather than staying up after nothing can use the reply
+ * any more. Optional and additive: an implementation that ignores it behaves
+ * exactly as before.
+ */
+export type QuestionFn = (question: UserQuestion, signal?: AbortSignal) => Promise<QuestionAnswer>
 
 export interface SendOptions {
 	/** Overrides for this new turn and its built-in children; does not change a parked turn. */
@@ -639,6 +660,24 @@ export interface SendOptions {
 	 * merged after the persistent memory block.
 	 */
 	readonly extraSystem?: string
+	/**
+	 * A standing note for this turn's system prompt, after `extraSystem`: what
+	 * a host needs the model to know about the circumstances of the turn (a
+	 * scheduled run with nobody watching). Absent adds nothing.
+	 */
+	readonly systemNote?: string
+	/**
+	 * Hold every batch that reaches a person instead of asking one.
+	 *
+	 * For a turn nobody is watching that must never approve on its own (a
+	 * scheduled run): a batch the rules allow still runs, `strict` still
+	 * refuses, and every batch the review policy would put to a person — an
+	 * `ask` rule, a call no rule covered under `prompt`, a path outside the
+	 * roots, a sandbox escape — parks the turn durably with `reason`
+	 * (`turn_paused`), for a person to answer later. `onPermission` is ignored
+	 * while this is set, and no "approve all" latch is read or set.
+	 */
+	readonly reviewHold?: { readonly reason: string }
 	/** Host-bound resident admission; uses SDK static policy and dynamic continuity snapshots. */
 	readonly residentContext?: ResidentStepPromptOptions
 	readonly residentLearningDisclosure?: 'eager' | 'on-demand'
@@ -698,6 +737,39 @@ export interface ResumePausedParams {
 	 * children's.
 	 */
 	readonly currentPermissionMode?: () => PermissionMode
+	/**
+	 * The answer to the decision the turn is parked on, applied to exactly the
+	 * parked batch without asking the model again (`resumeSession`'s
+	 * `pendingDecision`). Absent: a turn parked on a decision is refused, as
+	 * before.
+	 */
+	readonly pendingDecision?: HITLResumeDecision
+	/**
+	 * Who answers the resumed turn's LATER reviews. Absent: nobody, and the
+	 * policy decides alone (under `prompt` that approved) — unless
+	 * `reviewHold` is set, which parks them again instead.
+	 */
+	readonly onPermission?: PermissionFn
+	/**
+	 * The rules the resumed turn is gated by, in place of the session's own.
+	 * A host resuming a turn another policy started (a scheduled job's) passes
+	 * that policy, so the session's folder config cannot widen it.
+	 */
+	readonly rules?: readonly AuthorizationRule[]
+	/** Hold, rather than approve, a later review nobody can answer. See `SendOptions.reviewHold`. */
+	readonly reviewHold?: { readonly reason: string }
+	/**
+	 * The provider and model the resumed turn runs on, in place of the
+	 * session's own, with no fallback chain: a turn another policy started
+	 * (a scheduled job's) continues on the model that policy pinned. `model`
+	 * absent is the provider's default. Refused when this session has no
+	 * credential for `provider`.
+	 */
+	readonly model?: {
+		readonly provider: string
+		readonly model?: string
+		readonly effort?: string
+	}
 }
 
 export interface AgentSession {
@@ -1244,7 +1316,16 @@ async function drainIterator(iterator: AsyncIterator<unknown>): Promise<void> {
  * Read preferences + run discovery once. Returned context drives the
  * App's lifecycle decision: ready / picker / unhealthy.
  */
-export async function probeAgentSession(): Promise<AgentSessionContext> {
+export async function probeAgentSession(
+	options: {
+		/**
+		 * The environment credentials are discovered in. Absent: this process's.
+		 * A scheduled run passes the service's own variables here rather than
+		 * merging them into `process.env`, where a shell tool would inherit them.
+		 */
+		readonly env?: NodeJS.ProcessEnv
+	} = {},
+): Promise<AgentSessionContext> {
 	const read = readPreferences()
 	// Bracketed in the log because this is where a boot has stalled without
 	// a record on either side: it reads credential files, and on WSL it asks
@@ -1252,7 +1333,7 @@ export async function probeAgentSession(): Promise<AgentSessionContext> {
 	// and nothing after is this step.
 	const discoveryStartedAt = Date.now()
 	cliLogger().debug('discovering provider credentials')
-	const detected = await discoverProviders()
+	const detected = await discoverProviders(options.env ? { env: options.env } : {})
 	cliLogger().debug('provider credentials discovered', {
 		'namzu.boot.discovery_ms': Date.now() - discoveryStartedAt,
 		'namzu.boot.detected_count': detected.length,
@@ -1636,6 +1717,13 @@ export interface AgentSessionOptions {
 	 * this capability merely because the package is installed.
 	 */
 	readonly enableComputerUse?: boolean
+	/**
+	 * Tools a host adds to this session's own registry — never to a
+	 * sub-agent's, whose registry is built separately. For host capabilities
+	 * that need a person present (the TUI's `schedule` and `session_loop`
+	 * tools); a headless surface passes none.
+	 */
+	readonly extraTools?: readonly ToolDefinition[]
 }
 
 export async function createAgentSession(
@@ -2100,7 +2188,12 @@ export async function createAgentSession(
 	let lastSendInteractive = false
 	const boundaryFor = (interactive: boolean): ExecutionBoundary => ({
 		...(sandbox.provider && sandbox.environment
-			? { sandbox: { environment: sandbox.environment, enforced: sandbox.enforced } }
+			? {
+					sandbox: {
+						environment: sandbox.environment,
+						enforced: sandbox.enforced,
+					},
+				}
 			: {}),
 		escape:
 			sandboxEscape === 'refuse'
@@ -2162,9 +2255,14 @@ export async function createAgentSession(
 	 * refuses to read (a malformed memory file) costs the turn its index and
 	 * the operator a notice, not the turn.
 	 */
-	const storedMemoryPrompt = async (): Promise<{ prompt: string | null; notice?: string }> => {
+	const storedMemoryPrompt = async (): Promise<{
+		prompt: string | null
+		notice?: string
+	}> => {
 		try {
-			return { prompt: composeStoredMemoryPrompt(await memoryStore.readIndex()) }
+			return {
+				prompt: composeStoredMemoryPrompt(await memoryStore.readIndex()),
+			}
 		} catch (error) {
 			return {
 				prompt: null,
@@ -2305,6 +2403,9 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<TurnId, SessionScope>()
 	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
+	// A resumed turn that runs on another model than the session's (a
+	// scheduled job's): its children inherit that model, not the session's.
+	const delegationModels = new Map<TurnId, DelegatedModel>()
 	const delegatedInputWaiters = new Map<TurnId, NonNullable<SendOptions['waitForInbound']>>()
 	if (options.residentHistory) {
 		const history = options.residentHistory
@@ -2426,6 +2527,7 @@ export async function createAgentSession(
 			tokenBudget: options.limits?.tokenBudget,
 			maxIterations: options.limits?.maxIterations,
 			resolveLimits: (turnId) => delegationLimits.get(turnId),
+			resolveTurnModel: (turnId) => delegationModels.get(turnId),
 			timeoutMs: options.limits?.timeoutMs,
 			definitions: discovered.definitions,
 			// Children log under the parent's `<session-id>/subagents/`; an
@@ -2696,6 +2798,9 @@ export async function createAgentSession(
 		// park recorder is supplied.
 		registry.register(buildAskUserQuestionTool({ resumeHandler: parkQuestion }))
 	}
+	// The host's own additions, to this registry only: `buildTools` above
+	// builds a child's roster separately, so none of these reach a sub-agent.
+	for (const tool of options.extraTools ?? []) registry.register(tool)
 	// Task store → query registers task_create / task_update / task_list and
 	// emits task_created/task_updated, so the agent can track a plan. Tasks
 	// belong to the session (`<session-id>/tasks/`) and record the turn that
@@ -2909,6 +3014,35 @@ export async function createAgentSession(
 		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}`
 	}
 	/**
+	 * The provider a resumed turn runs on when its caller pinned one (a
+	 * scheduled job's model): built from this session's credential for that
+	 * provider, with no fallback chain, since the job's own run has none.
+	 * `undefined` without a pin.
+	 */
+	const pinnedResumeRoute = async (
+		pin: ResumePausedParams['model'],
+		sessionId: SessionId,
+		signal: AbortSignal,
+	): Promise<
+		| { readonly provider: LLMProvider; readonly model: string; readonly effort?: ReasoningEffort }
+		| undefined
+	> => {
+		if (!pin) return undefined
+		const providerId = pin.provider as ProviderId
+		const found = findDetected(detected, providerId)
+		if (!found)
+			throw new Error(
+				`the turn runs on ${pin.provider}${pin.model ? `/${pin.model}` : ''} and this session has no credential for ${pin.provider}`,
+			)
+		const pinnedModel = pin.model ?? found.entry.defaultModel
+		await ensureRegistered(providerId)
+		const credential = await currentCredentialFor(providerId, signal)
+		const pinnedProvider = constructProvider(providerId, credential, pinnedModel, { sessionId })
+		const effort = pin.effort as ReasoningEffort | undefined
+		if (effort !== undefined) await prepareDelegatedEffort(pinnedProvider, pinnedModel, signal)
+		return { provider: pinnedProvider, model: pinnedModel, ...(effort ? { effort } : {}) }
+	}
+	/**
 	 * The kernel's resume with this session's half of the turn attached: the
 	 * provider, the tools, the working directory, the doctrine — the part a
 	 * checkpoint cannot carry. `resumeDurable` and `resumePaused` differ only
@@ -2924,11 +3058,21 @@ export async function createAgentSession(
 		listener,
 		permissionMode,
 		currentPermissionMode,
+		pendingDecision,
+		onPermission,
+		rules,
+		reviewHold,
+		model: pinned,
 	}: ResumeDurableParams & {
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
 		readonly permissionMode?: PermissionMode
 		readonly currentPermissionMode?: () => PermissionMode
+		readonly pendingDecision?: HITLResumeDecision
+		readonly onPermission?: PermissionFn
+		readonly rules?: readonly AuthorizationRule[]
+		readonly reviewHold?: { readonly reason: string }
+		readonly model?: ResumePausedParams['model']
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
@@ -2940,6 +3084,7 @@ export async function createAgentSession(
 			// fallback chain has to be built AFTER that so its members do not
 			// hold a client the refresh just replaced.
 			await prepareProviderCredential(ownedSignal)
+			const route = await pinnedResumeRoute(pinned, entry.sessionId, ownedSignal)
 			const pluginSkills = pluginRuntime
 				? await currentPluginSkills(pluginRuntime.skills)
 				: undefined
@@ -2988,17 +3133,31 @@ export async function createAgentSession(
 					? { recorded: recordedModes.get(String(entry.sessionId)) }
 					: {}),
 				handlerFor: (mode) =>
-					makeResumeHandler(
-						approval,
-						undefined,
-						mode,
-						reviewExemptionFor(
-							mode,
-							registry,
-							(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
-						),
-						{ unattendedSandboxEscape },
-					),
+					onPermission === undefined && reviewHold !== undefined
+						? makeHoldingResumeHandler(
+								mode,
+								reviewExemptionFor(
+									mode,
+									registry,
+									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
+								),
+								{ unattendedSandboxEscape },
+								reviewHold.reason,
+							)
+						: makeResumeHandler(
+								// A caller that brings its own prompt (a scheduled turn answered in
+								// the TUI) gets its own latch: the session's "approve all" is not
+								// an answer about a turn another policy started.
+								onPermission ? { all: false } : approval,
+								onPermission,
+								mode,
+								reviewExemptionFor(
+									mode,
+									registry,
+									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
+								),
+								{ unattendedSandboxEscape },
+							),
 			})
 			const resumeHandler = modeControl.handler
 			const reviewAllowedCalls = modeControl.reviewAllowedCalls
@@ -3008,11 +3167,17 @@ export async function createAgentSession(
 			delegatedReviewAllowedCalls.set(entry.turnId, reviewAllowedCalls)
 			delegationScopes.set(entry.turnId, turnScope)
 			delegationLimits.set(entry.turnId, resumedLimits)
+			if (route && pinned)
+				delegationModels.set(entry.turnId, {
+					provider: pinned.provider,
+					model: route.model,
+					...(route.effort ? { effort: route.effort } : {}),
+				})
 			const turnTaskStore = selectTaskStore(turnScope)
 			try {
 				return await resumeSession({
-					provider: providerForSession(entry.sessionId),
-					fallbackProviders: fallbackPlan.build(currentToken, entry.sessionId),
+					provider: route?.provider ?? providerForSession(entry.sessionId),
+					fallbackProviders: route ? [] : fallbackPlan.build(currentToken, entry.sessionId),
 					tools: registry,
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
@@ -3029,9 +3194,12 @@ export async function createAgentSession(
 						task_list: 'active',
 					},
 					...(subagentRuntime
-						? { taskScheduler: await subagentRuntime.gatewayForTurn(entry.turnId) }
+						? {
+								taskScheduler: await subagentRuntime.gatewayForTurn(entry.turnId),
+							}
 						: {}),
-					authorizationGate: gateFor(options.rules),
+					authorizationGate: gateFor(rules ?? options.rules),
+					...(pendingDecision ? { pendingDecision } : {}),
 					compactionConfig: compactionConfigFor(options.compaction),
 					retainedToolPreviewChars: options.conversationSessions
 						? (options.compaction?.retainedToolPreviewChars ?? 4_000)
@@ -3060,7 +3228,8 @@ export async function createAgentSession(
 						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
 						: {}),
 					turnConfig: {
-						model,
+						model: route?.model ?? model,
+						...(route?.effort ? { effort: route.effort } : {}),
 						...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 						...resumedLimits,
@@ -3123,6 +3292,7 @@ export async function createAgentSession(
 					delegatedReviewAllowedCalls.delete(entry.turnId)
 					delegationScopes.delete(entry.turnId)
 					delegationLimits.delete(entry.turnId)
+					delegationModels.delete(entry.turnId)
 					await subagentRuntime?.releaseTurn(entry.turnId)
 				}
 			}
@@ -3139,6 +3309,11 @@ export async function createAgentSession(
 		signal,
 		permissionMode,
 		currentPermissionMode,
+		pendingDecision,
+		onPermission,
+		rules,
+		reviewHold,
+		model: pinned,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
@@ -3159,6 +3334,11 @@ export async function createAgentSession(
 			...(checkpointId !== undefined ? { checkpointId: checkpointId as CheckpointId } : {}),
 			...(permissionMode ? { permissionMode } : {}),
 			...(currentPermissionMode ? { currentPermissionMode } : {}),
+			...(pendingDecision ? { pendingDecision } : {}),
+			...(onPermission ? { onPermission } : {}),
+			...(rules ? { rules } : {}),
+			...(reviewHold ? { reviewHold } : {}),
+			...(pinned ? { model: pinned } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()
@@ -3324,12 +3504,18 @@ export async function createAgentSession(
 		rememberNote: (text, type) => saveTypedNote(memoryStore, text, type),
 		importCuratedNotes: async () =>
 			describeCuratedNotesImport(
-				await importCuratedNotes({ store: memoryStore, directory: memoryDirectory, cwd }),
+				await importCuratedNotes({
+					store: memoryStore,
+					directory: memoryDirectory,
+					cwd,
+				}),
 				memoryDirectory,
 			),
 		storedMemoryIndex: async () => ({
 			directory: memoryDirectory,
-			index: await memoryStore.readIndex({ maxLines: Number.POSITIVE_INFINITY }),
+			index: await memoryStore.readIndex({
+				maxLines: Number.POSITIVE_INFINITY,
+			}),
 			derived: await memoryStore.readIndex({
 				maxLines: Number.POSITIVE_INFINITY,
 				derived: true,
@@ -3365,7 +3551,7 @@ export async function createAgentSession(
 					const initialMode: PermissionMode =
 						opts?.permissionMode ??
 						options.permissionMode ??
-						(opts?.onPermission ? 'prompt' : 'auto')
+						(opts?.onPermission || opts?.reviewHold ? 'prompt' : 'auto')
 					// The mode is read at every decision, so the operator can change it
 					// while this turn runs (see permissions/live-mode.ts).
 					const modeControl = createLiveModeControl({
@@ -3375,17 +3561,28 @@ export async function createAgentSession(
 							? { recorded: recordedModes.get(String(turnScope.sessionId)) }
 							: {}),
 						handlerFor: (mode) =>
-							makeResumeHandler(
-								approval,
-								opts?.onPermission,
-								mode,
-								reviewExemptionFor(
-									mode,
-									runTools,
-									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
-								),
-								{ unattendedSandboxEscape },
-							),
+							opts?.reviewHold
+								? makeHoldingResumeHandler(
+										mode,
+										reviewExemptionFor(
+											mode,
+											runTools,
+											(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
+										),
+										{ unattendedSandboxEscape },
+										opts.reviewHold.reason,
+									)
+								: makeResumeHandler(
+										approval,
+										opts?.onPermission,
+										mode,
+										reviewExemptionFor(
+											mode,
+											runTools,
+											(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
+										),
+										{ unattendedSandboxEscape },
+									),
 					})
 					const resumeHandler = modeControl.handler
 					liveModeControls.add(modeControl)
@@ -3446,7 +3643,11 @@ export async function createAgentSession(
 						}
 						const storedMemory = await storedMemoryPrompt()
 						if (storedMemory.notice) {
-							yield { kind: 'context' as const, text: storedMemory.notice, shed: false }
+							yield {
+								kind: 'context' as const,
+								text: storedMemory.notice,
+								shed: false,
+							}
 						}
 						const memoryPrompt =
 							[composeMemoryPrompt(curatedMemory), storedMemory.prompt]
@@ -3507,7 +3708,10 @@ export async function createAgentSession(
 												claimed.has(context.turnId) &&
 												delegationScopes.get(context.turnId) === turnScope,
 										})
-									: { contributions: createResidentStepContributions(contextOptions), tools: [] }
+									: {
+											contributions: createResidentStepContributions(contextOptions),
+											tools: [],
+										}
 							if (bundle.tools.length) {
 								// Per-send membership: neither another send nor delegated sessions inherit this tool.
 								runTools = runTools.fork()
@@ -3542,6 +3746,7 @@ export async function createAgentSession(
 								residentContext ? undefined : environmentPrompt,
 								residentContext ? undefined : memoryPrompt,
 								residentContext ? undefined : opts?.extraSystem,
+								residentContext ? undefined : opts?.systemNote,
 							]
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
@@ -3577,7 +3782,9 @@ export async function createAgentSession(
 						// when this session is the one bringing it into existence.
 						let ephemeralLog: InMemorySessionLog | undefined
 						if (options.ephemeral) {
-							ephemeralLog = new InMemorySessionLog({ sessionId: turnScope.sessionId })
+							ephemeralLog = new InMemorySessionLog({
+								sessionId: turnScope.sessionId,
+							})
 							await ensureSessionStarted(ephemeralLog, {
 								...turnScope,
 								cwd,
@@ -4613,6 +4820,46 @@ export function makeResumeHandler(
 	})
 }
 
+/** Thrown by the holding prompt; never leaves {@link makeHoldingResumeHandler}. */
+class ReviewHoldSignal extends Error {
+	override readonly name = 'ReviewHoldSignal'
+}
+
+/**
+ * The kernel's review policy with a prompt that never answers: every batch
+ * that would be put to a person parks the turn instead (`{ action: 'pause' }`),
+ * which the kernel records durably for a person to answer later.
+ *
+ * The prompt throws and THIS wrapper catches it: a handler that rejects is
+ * turned into `abort` by the kernel (`awaitDecisionOrAbort`), which would end
+ * the turn rather than hold it. The latch is private and never set, so no
+ * earlier answer can approve a later batch.
+ */
+export function makeHoldingResumeHandler(
+	mode: PermissionMode,
+	exempt: (name: string, input: unknown) => boolean,
+	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' },
+	reason: string,
+): ResumeHandler {
+	const inner = createReviewHandler({
+		mode,
+		prompt: async () => {
+			throw new ReviewHoldSignal(reason)
+		},
+		exempt,
+		remembered: { all: false },
+		unattendedSandboxEscape: escapePolicy.unattendedSandboxEscape ?? 'refuse',
+	})
+	return async (request) => {
+		try {
+			return await inner(request)
+		} catch (error) {
+			if (error instanceof ReviewHoldSignal) return { action: 'pause', reason }
+			throw error
+		}
+	}
+}
+
 /**
  * Whether a call runs without asking. The kernel's rule: a trusted read-only
  * declaration or a named bookkeeping write, never a fetch, never a tool the
@@ -4792,7 +5039,9 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 					if (!kind) return {}
 					const results =
 						kind === 'search' && !event.isError ? countListedResults(event.result) : undefined
-					return { web: { kind, ...(results !== undefined ? { results } : {}) } }
+					return {
+						web: { kind, ...(results !== undefined ? { results } : {}) },
+					}
 				})(),
 			}
 		}

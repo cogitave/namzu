@@ -353,6 +353,22 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 	}
 }
 
+/**
+ * A shell command as the operator would type it: its quotes and backslashes
+ * verbatim, never JSON-escaped (`printf '%s\n' "$x"`, not
+ * `printf '%s\\n' \"$x\"`). Each line of a multi-line command is its own
+ * row, the first after `$ ` and every later one indented under it, so a
+ * newline in the command cannot pose as a field of the prompt or as another
+ * call of the batch. A carriage return is spelled out rather than kept: the
+ * rows' terminal projection would fold CRLF into a plain newline, and to the
+ * shell the CR is part of the word. Every other control and invisible
+ * character is spelled out by that projection (`terminalDisplayText`).
+ */
+function commandLines(command: string): string[] {
+	const [first = '', ...rest] = command.replace(/\r/g, '\\u{000d}').split('\n')
+	return [`$ ${first}`, ...rest.map((line) => `  ${line}`)]
+}
+
 function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 	if (name === 'bash' && isRecord(input)) {
 		const allowed = new Set([
@@ -372,10 +388,7 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		if (shapeIsKnown) {
 			return {
 				lines: [
-					// Escaped the way JSON escapes, so a control character or a
-					// newline cannot pose as a second command, but without the
-					// quotes: the operator is reading a command, not a string.
-					`$ ${JSON.stringify(input.command).slice(1, -1)}`,
+					...commandLines(input.command as string),
 					...(input.timeout !== undefined ? [`timeout: ${String(input.timeout)} ms`] : []),
 					...(input.run_in_background !== undefined
 						? [`background: ${input.run_in_background ? 'yes' : 'no'}`]

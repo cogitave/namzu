@@ -16,6 +16,8 @@ A permission rule about a command line is a rule about the commands the line run
 - a skill's `Bash(<pattern>)` grant ([Skills and allowed-tools](skills.md#syntax)), which is matched the way an allow rule is;
 - the check that a skill pattern never covers a line that writes to a file (`writesThroughRedirection`).
 
+`lexShellCommandLine` and its result types (`ShellLexResult`, `ShellCommand`, `ShellWord`, `ShellRedirection`, `ShellLexOptions`) are exported from `@namzu/sdk`, so a host that decides about a command line in code — a [`predicate` rule](#deciding-in-code) — reads it exactly as the gate does.
+
 Before this reader there were three hand-written walkers, one per purpose, each with its own copy of bash's quoting rules. Each rule of bash's had to be added to all of them, and each place one was missed was a line whose commands the rules did not see.
 
 # What it reads
@@ -33,7 +35,7 @@ In the `bash` dialect it reads:
 - redirections, including a descriptor (`2>`, `{fd}>`), and here-documents, whose bodies are consumed and never read as commands;
 - `bash -c '<payload>'` and the same for `sh`, `dash`, `zsh`, `ksh`, `ash`, `mksh` and `busybox sh`, with option clusters (`-lc`, `-o pipefail -c`): the decoded payload is read the same way, up to four levels deep, in the `bash` dialect for `bash` and the `sh` dialect for the others. A `zsh`, `ksh` or `mksh` payload is also opaque, because those shells go beyond POSIX in ways the lexer does not model.
 
-For each simple command it reports every word as bash passes it, after quote removal and before expansion, and flags each word whose text is not its runtime value: one holding a parameter, command or arithmetic expansion, a glob, a brace expansion, a tilde, or an escape whose value depends on the locale. An unflagged word is exactly the argument bash passes. It also reports each command's redirections, every redirection in the line (a compound command's included), whether the parse completed, and `opaque` with the reasons.
+For each simple command it reports every word as bash passes it, after quote removal and before expansion, and flags each word whose text is not its runtime value: one holding a parameter, command or arithmetic expansion, a glob, a brace expansion, a tilde, or an escape whose value depends on the locale. An unflagged word is exactly the argument bash passes. It also reports each command's redirections, every redirection in the line (a compound command's included), a here-document's body as written (`ShellRedirection.body`), the words that belong to no simple command — a `for` or `select` loop's variable and list, a `case` statement's subject and patterns (`compoundWords`) — whether the parse completed, and `opaque` with the reasons.
 
 # When a line is opaque
 
@@ -61,6 +63,12 @@ An opaque line is never allowed by an `argument_pattern` allow rule and never co
 A value that is one plain command comes back as itself, byte for byte, so a rule about the whole value keeps seeing what it always saw. A value in an argument the tool declares as its path argument (`pathArgument`) is not read as shell at all: `app/(auth)/page.tsx` is a file name, not a syntax error.
 
 **Writes.** `writesThroughRedirection` is true when any redirection opens a file for writing (`>`, `>>`, `>|`, `<>`, `&>`, `&>>`, `>&file`) whose target is not exactly `/dev/null`, when a target expands at runtime (`> "$OUT"`, `> ~/x`), when the line holds a process substitution, and when the line does not parse. Descriptor duplication and closing (`2>&1`, `>&2`, `3>&-`) and anything quoted out of being an operator are not writes. `$'…'` targets are decoded, so `> $'/dev/nul\x6c'` is `/dev/null`.
+
+# Deciding in code
+
+A rule that is not a pattern at all is an `AuthorizationRule` of type `predicate`: `{ type: 'predicate', description, decide }`. `decide` receives the call (`toolName`, `toolInput`, `toolDef`, and `commandDialect`: the caller's, or `sh`) and returns `allow`, `deny`, `review`, or `null` to let the next rule decide. It sits in the rule list like any other rule, so the dangerous-command floor still comes before it and first match still wins. A `decide` that throws is read as `deny`. `description` is the reason the gate reports when the rule decides, and should tell a model whether another input could fare better.
+
+It exists for rules about what a command line does, which a regular expression over the line's text can only approximate: the pattern has to re-implement bash's quoting, and each form it misses is a way past it. `predicate` code reads the line with `lexShellCommandLine` in `commandDialect` and decides on the words. The CLI's [scheduled-run floor](../cli/scheduled-tasks.md#what-a-run-may-do) is one.
 
 # What it does not do
 

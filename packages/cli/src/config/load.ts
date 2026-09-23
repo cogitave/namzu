@@ -246,6 +246,43 @@ function resolveConfigWithProvenance(
 	)
 }
 
+/** One file's `permissions` table, as it was written. */
+export interface PermissionLayer {
+	readonly source: 'user-file' | 'project-file' | 'managed'
+	readonly path: string
+	readonly permissions: PermissionsConfig
+}
+
+/**
+ * The `permissions` table of each file that declares one: user, project and
+ * managed, in cascade order, each on its own.
+ *
+ * The merged config cannot answer "did ANY file deny this": a project that
+ * writes `bash = "allow"` replaces a user's `bash = "deny"` under the same key.
+ * A scheduled run takes its allows from its job alone and the denies from
+ * every file, so it needs the layers apart. Validated as the cascade
+ * validates them; a file that fails to parse throws the same error.
+ */
+export function readPermissionLayers(opts: LoadConfigOptions = {}): PermissionLayer[] {
+	const cwd = opts.cwd ?? process.cwd()
+	const env = opts.env ?? process.env
+	const userPath = join(
+		resolveNamzuHome({ ...(opts.home ? { home: opts.home } : {}), env }),
+		'config.yaml',
+	)
+	const projectPath = resolve(cwd, 'namzu.config.json')
+	const managedPath = opts.managedPath ?? MANAGED_CONFIG_PATH
+	const layers: PermissionLayer[] = []
+	for (const [source, path, config] of [
+		['user-file', userPath, readYamlIfExists(userPath)],
+		['project-file', projectPath, readJsonIfExists(projectPath)],
+		['managed', managedPath, readJsonIfExists(managedPath)],
+	] as const) {
+		if (config.permissions) layers.push({ source, path, permissions: config.permissions })
+	}
+	return layers
+}
+
 /**
  * The selected profile, once per file that declares it.
  *
@@ -1031,6 +1068,41 @@ const CONFIG_READERS: ConfigReaders = {
 	// TUI notifications are terminal escape writes only. Invalid nested values
 	// refuse rather than silently selecting a different event/protocol or
 	// disabling the feature the operator explicitly configured.
+	schedule: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (key !== 'maxConcurrentRuns' && key !== 'notifications') {
+				return invalidConfigValue(
+					context,
+					[key],
+					'is not a schedule setting (maxConcurrentRuns, notifications)',
+				)
+			}
+		}
+		const raw = v as { maxConcurrentRuns?: unknown; notifications?: unknown }
+		if (
+			raw.maxConcurrentRuns !== undefined &&
+			(typeof raw.maxConcurrentRuns !== 'number' ||
+				!Number.isSafeInteger(raw.maxConcurrentRuns) ||
+				raw.maxConcurrentRuns < 1 ||
+				raw.maxConcurrentRuns > 16)
+		) {
+			return invalidConfigValue(
+				context,
+				['maxConcurrentRuns'],
+				'must be a whole number from 1 to 16',
+			)
+		}
+		if (raw.notifications !== undefined && typeof raw.notifications !== 'boolean') {
+			return invalidConfigValue(context, ['notifications'], 'must be a boolean')
+		}
+		return {
+			...(raw.maxConcurrentRuns !== undefined
+				? { maxConcurrentRuns: raw.maxConcurrentRuns as number }
+				: {}),
+			...(raw.notifications !== undefined ? { notifications: raw.notifications as boolean } : {}),
+		}
+	},
 	tui: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
@@ -1123,6 +1195,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// Terminal notifications are an interactive UI choice. An environment
 	// variable in a shell profile must not start producing them invisibly.
 	tui: undefined,
+	// How many unattended runs a machine starts is the machine owner's to say,
+	// in a file; never a variable a profile could carry invisibly.
+	schedule: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',

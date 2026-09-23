@@ -631,6 +631,26 @@ export {
 	formatCompletionNotification,
 } from './scheduler/completion-inbox.js'
 
+// Scheduled jobs: WHEN something is due, and nothing about how a host stores
+// or runs a job. The time engine and the evaluator are pure (`Intl` for time
+// zones, no clock, no I/O); the CLI keeps its job files and history to itself.
+export {
+	countOccurrences,
+	describeSchedule,
+	evaluateJob,
+	hostTimeZone,
+	nextFireTime,
+	parseCronExpression,
+	parseDuration,
+	parseScheduleSpec,
+	previousFireTime,
+	SCHEDULE_CATCH_UP_WINDOW_MS,
+	SCHEDULE_LATE_GRACE_MS,
+	ScheduleValidationError,
+	upcomingFireTimes,
+	validateTimeZone,
+} from './schedules/index.js'
+
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
 export {
@@ -898,6 +918,11 @@ export {
 	evaluateRule,
 	AuthorizationGate,
 } from './authorization/index.js'
+
+// The one reader of a bash command line the gate itself uses. A host that
+// writes a `predicate` rule about what a line runs decides on this reading,
+// so its rule and the SDK's own never disagree about where a quote ends.
+export { lexShellCommandLine } from './authorization/shell-lexer.js'
 
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`

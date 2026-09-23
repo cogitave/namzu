@@ -156,9 +156,11 @@ import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
-import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
+import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
+import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
 import { checklistProgress } from './Checklist.js'
@@ -181,7 +183,10 @@ import {
 	type AgentEvent,
 	type AgentSession,
 	type PermissionDecision,
+	type PermissionFn,
 	type PermissionRequest,
+	type ScreenPermissionFn,
+	type ScreenPermissionRequest,
 	type QuestionAnswer,
 	type QuestionFn,
 	type SessionScope,
@@ -281,7 +286,7 @@ export interface AppProps {
 	readonly terminationExit?: { current: (() => void) | null }
 }
 
-type PendingPermission = PermissionRequest & {
+type PendingPermission = ScreenPermissionRequest & {
 	readonly review: string
 	readonly summary: ReturnType<typeof buildPermissionSummary>
 }
@@ -838,6 +843,9 @@ export function App({
 	const initialConversationIdRef = useRef(initialCtx.initialConversationId)
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
+	/** For the scheduler integration's loop timer, which reads it outside render. */
+	const stateRef = useRef(state)
+	stateRef.current = state
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	const [session, setSession] = useState<AgentSession | null>(null)
 	// Once a usable session publishes the transcript, temporary lifecycle
@@ -1491,6 +1499,48 @@ export function App({
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<SessionScope | null>(null)
 	/**
+	 * Scheduled jobs and session loops (`./schedule/`). Built once; what it
+	 * reads later — the transcript writer, the question and permission
+	 * screens, the submit path, the session's model — is filled in each
+	 * render through `scheduleLiveRef`.
+	 */
+	const scheduleLiveRef = useRef<{
+		say: (text: string) => void
+		ask: QuestionFn
+		askPermission: ScreenPermissionFn
+		submit: (text: string) => void
+		model?: { readonly provider: string; readonly model?: string }
+	} | null>(null)
+	const scheduleRef = useRef<ScheduleIntegration | null>(null)
+	if (scheduleRef.current === null) {
+		scheduleRef.current = createScheduleIntegration({
+			home: () => sessionsRef.current?.root ?? resolveNamzuHome(),
+			cwd: () => ctxRef.current.cwd,
+			extraRoots: () => ctxRef.current.additionalDirectories ?? [],
+			config: () => ctxRef.current,
+			model: () => scheduleLiveRef.current?.model,
+			sessionId: () => (conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined),
+			loopsFile: () => {
+				const sessions = sessionsRef.current
+				const scope = scopeRef.current
+				if (!sessions || !scope || !conversationMaterializedRef.current) return undefined
+				try {
+					return join(sessions.paths.sessionDir({ sessionId: scope.sessionId }), 'loops.json')
+				} catch {
+					return undefined
+				}
+			},
+			isIdle: () => stateRef.current === 'idle' && abortRef.current === null,
+			say: (text) => scheduleLiveRef.current?.say(text),
+			ask: (question, signal) =>
+				scheduleLiveRef.current?.ask(question, signal) ?? Promise.resolve({ kind: 'skip' as const }),
+			askPermission: (request) =>
+				scheduleLiveRef.current?.askPermission(request) ??
+				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
+			submit: (text) => scheduleLiveRef.current?.submit(text),
+		})
+	}
+	/**
 	 * A provider session can be ready before a person has started a conversation.
 	 * The scope still needs a mutable session cursor, but its generated id is
 	 * provisional until the first admitted prompt or an explicit conversation
@@ -1528,6 +1578,12 @@ export function App({
 	const [goalDriveVersion, setGoalDriveVersion] = useState(0)
 	const [goalStatus, setGoalStatus] = useState<SessionGoal | null>(null)
 	const pendingGoalResumeRef = useRef<string | null>(null)
+	/**
+	 * The conversation `namzu resume <id>` opened, until the screen is ready to
+	 * look at it once: a scheduled run parked on a decision there is continued
+	 * then, so its permission prompt is on screen without typing `/resume`.
+	 */
+	const pendingScheduledResumeRef = useRef<string | null>(null)
 	const wakeGoalDriver = useCallback(() => setGoalDriveVersion((version) => version + 1), [])
 	/**
 	 * Conversation writes in the order the operator produced them.
@@ -3021,6 +3077,7 @@ export function App({
 				? { text: persistedOutput, provenance: 'persisted' }
 				: null
 			pendingGoalResumeRef.current = requestedConversationId
+			pendingScheduledResumeRef.current = requestedConversationId
 			initialConversationIdRef.current = undefined
 			conversationMaterializedRef.current = true
 		} else {
@@ -3097,9 +3154,19 @@ export function App({
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
 			const activeCtx = ctxRef.current
+			const primary = prefs.providers[0]
+			if (primary && scheduleLiveRef.current) {
+				scheduleLiveRef.current.model = {
+					provider: primary.id,
+					...(primary.model ? { model: primary.model } : {}),
+				}
+			}
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				// A person is here to confirm: the model may propose scheduled jobs
+				// and session loops (never in exec, a scheduled run or a sub-agent).
+				extraTools: scheduleRef.current?.tools() ?? [],
 				...(activeCtx.structuredOutput ? { structuredOutput: activeCtx.structuredOutput } : {}),
 				...(activeCtx.additionalDirectories
 					? { additionalDirectories: activeCtx.additionalDirectories }
@@ -3811,14 +3878,30 @@ export function App({
 			notification: null,
 		}
 		pushMessage('system', `Resuming turn ${active.turnId} from its checkpoint.`, false, '▶')
+		let scheduledRun = false
 		try {
+			// A scheduled run parked on a decision: the operator answers the
+			// parked batch here, and the turn continues under the job's rules.
+			const scheduled = active.paused
+				? await scheduleRef.current?.prepareResume(permissionModeRef.current, {
+						cwd: ctxRef.current.cwd,
+						roots: session.directories?.list() ?? [],
+						sandboxed: session.sandbox.workspace !== 'host',
+						// The resumed turn runs on the job's provider: one this
+						// session has no credential for is refused before asking.
+						providers: detected.map((item) => item.entry.id),
+					})
+				: undefined
+			scheduledRun = scheduled !== undefined
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
-				// The operator's mode, read at every decision like a new turn's:
-				// `/resume` in plan mode stays read-only, and so do its children.
-				permissionMode: permissionModeRef.current,
-				currentPermissionMode: () => permissionModeRef.current,
+				...(scheduled ?? {
+					// The operator's mode, read at every decision like a new turn's:
+					// `/resume` in plan mode stays read-only, and so do its children.
+					permissionMode: permissionModeRef.current,
+					currentPermissionMode: () => permissionModeRef.current,
+				}),
 			})) {
 				applyEventRef.current?.(event, st)
 			}
@@ -3835,9 +3918,33 @@ export function App({
 		} finally {
 			if (abortRef.current === ac) abortRef.current = null
 			setState('idle')
+			// A scheduled run answered here records its end in its job now —
+			// completed, failed or cancelled — not at a scheduler's next tick,
+			// which may never come. One that parked again stays waiting.
+			if (scheduledRun) await scheduleRef.current?.settleAnswered()
 		}
 		return true
-	}, [finalizeMessage, flushStream, pushMessage, session, state])
+	}, [detected, finalizeMessage, flushStream, pushMessage, session, state])
+
+	// `namzu resume <id>` of a scheduled run parked on a decision: what the
+	// notification and `/schedule` tell the operator to run. Continue it once
+	// the screen is ready, exactly as `/resume` would, so the parked call is on
+	// the permission screen; the job and session checks in `prepareResume`
+	// still refuse a session that does not run as the job does. Any other
+	// parked or interrupted turn is left for the operator's own `/resume`.
+	useEffect(() => {
+		const requested = pendingScheduledResumeRef.current
+		if (!requested || phase !== 'ready' || state !== 'idle' || !session?.hasProvider) return
+		const sessions = sessionsRef.current
+		if (!sessions || scopeRef.current?.sessionId !== requested || abortRef.current) return
+		pendingScheduledResumeRef.current = null
+		void (async () => {
+			const active = await activeConversationTurn(sessions, asSessionId(requested)).catch(() => undefined)
+			if (!active?.paused || !(await scheduleRef.current?.isParked())) return
+			if (scopeRef.current?.sessionId !== requested) return
+			await resumeActiveTurn()
+		})()
+	}, [phase, resumeActiveTurn, session, state])
 
 	const doResume = useCallback(async () => {
 		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
@@ -4596,7 +4703,7 @@ export function App({
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
 	const onPermission = useCallback(
-		(req: PermissionRequest) => {
+		(req: ScreenPermissionRequest) => {
 			const review = buildPermissionReview(req.toolCalls)
 			if (!review.ok) {
 				return Promise.resolve<PermissionDecision>({
@@ -4632,17 +4739,27 @@ export function App({
 	 * and the tool's promise waits on the row the operator picks. One question
 	 * at a time: the tool is not concurrency-safe, so a second cannot arrive
 	 * while the first is up.
+	 *
+	 * `signal`, when the caller has one (the `schedule` tool's confirmation,
+	 * which waits on a person and so is given the tool's own abort signal),
+	 * is honoured the way `save_skill`'s screen honours the same signal: an
+	 * abort — the tool's own deadline elapsing, or the turn stopping —
+	 * answers as `abort` and takes the picker off screen, rather than
+	 * leaving it live after the tool has already given up on the answer.
 	 */
 	const askQuestion = useCallback<QuestionFn>(
-		(question) =>
+		(question, signal) =>
 			new Promise<QuestionAnswer>((resolve) => {
+				if (signal?.aborted) {
+					resolve({ kind: 'abort' })
+					return
+				}
 				questionRef.current = { question, resolve }
 				const values = [
 					...question.options.map((option) => option.id),
 					...(question.allowFreeText ? [FREE_TEXT_ANSWER] : []),
 				]
-				setSelectedChoice(0)
-				setChoicePicker({
+				const picker: ChoicePickerState = {
 					kind: 'user-question',
 					title: question.question,
 					notice: question.header
@@ -4658,10 +4775,17 @@ export function App({
 							? [{ label: 'Something else…', description: 'Answer in your own words' }]
 							: []),
 					],
-				})
+				}
+				const onAbort = () => {
+					if (choicePickerRef.current === picker) setChoicePicker(null)
+					resolveQuestion({ kind: 'abort' })
+				}
+				signal?.addEventListener('abort', onAbort, { once: true })
+				setSelectedChoice(0)
+				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[sendTerminalNotification, setChoicePicker, setSelectedChoice],
+		[sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
 	)
 
 	/**
@@ -6753,6 +6877,7 @@ export function App({
 					case 'none':
 						return
 					case 'host-command': {
+						if (scheduleRef.current?.handleSlash(slash.name, slash.args)) return
 						// Dispatched through the kernel's registry, built with what
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
@@ -7171,6 +7296,33 @@ export function App({
 	// a ref so selecting a help row re-enters the one ordinary slash-command
 	// path instead of growing a second command executor.
 	commandPickerSubmitRef.current = handleSubmit
+	scheduleLiveRef.current = {
+		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
+		say: (text) => pushMessage('system', text),
+		ask: askQuestion,
+		askPermission: onPermission,
+		submit: (text) => handleSubmit(text),
+	}
+	// Scheduled work since the TUI last looked: one line, after the first
+	// paint, never blocking it. Loops fire when a turn ends, and on their timer.
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			const line = scheduleRef.current?.startupLine()
+			if (line) scheduleLiveRef.current?.say(line)
+		}, 250)
+		return () => {
+			clearTimeout(timer)
+			scheduleRef.current?.dispose()
+		}
+	}, [])
+	useEffect(() => {
+		if (state !== 'idle') return
+		try {
+			scheduleRef.current?.loops.tick()
+		} catch {
+			// A loop that cannot be read never takes the screen down with it.
+		}
+	}, [state])
 
 	// Keep the footer on the same durable goal record the driver mutates. A ref
 	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;
@@ -7638,7 +7790,8 @@ export function App({
 				}
 				if (permission && (key.upArrow || key.downArrow)) {
 					const current = permissionChoiceRef.current
-					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(2, current + 1)
+					const last = permissionAnswers(permission.toolCalls, { batchOnly: permission.batchOnly === true }).length - 1
+					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(last, current + 1)
 					setPermissionChoice(next as PermissionChoice)
 					return
 				}
@@ -7676,11 +7829,25 @@ export function App({
 				// the window is what stands between an in-flight Enter and a call
 				// the operator never looked at. Refusals above never wait.
 				if (!approvalIsDeliberate(permissionOpenedAtRef.current, Date.now())) return
-				const numbered = ch === '1' ? 0 : ch === '2' ? 1 : ch === '3' ? 2 : null
+				// The answers on screen, so a digit or Enter means what it is next
+				// to: a batch-only prompt (a scheduled run) has no "allow all", and
+				// neither its `a` nor a `3` answers it.
+				const answers = permissionAnswers(permission?.toolCalls ?? [], {
+					batchOnly: permission?.batchOnly === true,
+				})
+				const numbered = /^[1-9]$/.test(ch) ? Number(ch) - 1 : null
 				const chosen = key.return ? permissionChoiceRef.current : numbered
-				if (ch === 'y' || chosen === 0) resolvePermission({ kind: 'approve' })
-				else if (ch === 'a' || chosen === 1) resolvePermission({ kind: 'approve-all' })
-				else if (chosen === 2) resolvePermission({ kind: 'reject' })
+				const kind =
+					ch === 'y'
+						? 'approve'
+						: ch === 'a'
+							? answers.some((answer) => answer.kind === 'approve-all')
+								? 'approve-all'
+								: undefined
+							: chosen !== null
+								? answers[chosen]?.kind
+								: undefined
+				if (kind) resolvePermission({ kind })
 				return
 			}
 			// The active child count already advertises this key beside Working.
@@ -8330,6 +8497,7 @@ export function App({
 								sourceLabel={permissionSourceLabel}
 								columns={terminal.columns}
 								rows={terminal.rows}
+								batchOnly={permission.batchOnly === true}
 							/>
 						) : null}
 						{textPrompt ? (
