@@ -36,11 +36,14 @@ Start from the smallest set that can do the job.
   job that should never need anyone, `park` when a person should decide the
   odd case. Only the operator can choose `allow`, with
   `namzu schedule add --unmatched allow`; the tool refuses it.
-- `execution`: `host` (default) or `sandbox`. Choose `sandbox` when the job
-  runs commands it did not write itself.
+- `execution`: `host` (default) or `sandbox`. Leave it unset unless the
+  user asked for a sandbox.
 - Web access (`web_fetch`, `web_search`) is off in both presets. Allow it by
-  rule only when the task needs it. The tool refuses web access together
-  with a shell on the host; deny `bash`, or use `execution: "sandbox"`.
+  rule only when the task needs it. The tool refuses web or browser access
+  together with a shell on the host (`read-only` already denies `bash`);
+  deny `bash`, or use `execution: "sandbox"` if the user asked for one.
+- `browser`: see [Browser access](#browser-access). A browser job usually
+  needs nothing more than `preset: "read-only"` plus the grant.
 - The operator's own config `deny` rules always apply on top; a job cannot
   widen them.
 
@@ -48,18 +51,27 @@ Start from the smallest set that can do the job.
 
 `when` takes: `every 30m`, `every 2h`, a five-field cron expression
 (`0 9 * * 1-5` is 09:00 on weekdays), `@daily`, `at 2026-09-24 09:00`,
-`at 09:00`, or `in 2h`. `tz` is an IANA zone (`Europe/Istanbul`); without
-it the host's zone is written into the job. Say the schedule back to the
-user in words, with the zone, and check it with them. Prefer an off-peak
+`at 09:00`, or `in 2h`. Leave `tz` unset unless the user named a zone: the
+operator's own zone is written into the job, and a zone you choose is
+marked on the confirmation as the model's choice. Say the schedule back to
+the user in words, with the zone, and check it with them. Prefer an off-peak
 minute (`7 3 * * *`) to the top of the hour for anything not time-critical.
 
 ## 3. Budget
 
-Every run has a token budget and a wall-clock timeout (defaults: 500 000
-tokens and 30 minutes, or the operator's `limits`). Set `budget.tokenBudget`,
-`budget.timeoutMs` and `budget.maxIterations` lower for small jobs. The
-confirmation shows the most it can spend in a day (runs per day times the
-token budget); a frequent schedule with a large budget is expensive.
+`budget` is the limits of ONE run, not of the job. Leave it unset unless
+the user asked for limits: the defaults are 500 000 tokens and 30 minutes a
+run (or the operator's `limits`). If you set it:
+
+- `tokenBudget` is every token the run spends. Each model call resends the
+  whole prompt (often 10 000 to 30 000 tokens), so a run needs far more
+  than its answer; the confirmation warns below 50 000.
+- `maxIterations` is model steps in one run (each model call with its tool
+  calls), not how many times the job runs. A browser task takes 10 or more.
+- `timeoutMs` is one run's wall clock.
+
+The confirmation shows the most the job can spend in a day (runs per day
+times the token budget).
 
 ## 4. The prompt: written for nobody watching
 
@@ -82,22 +94,35 @@ report its error. Do not install or change anything."
 
 ## 5. Propose, then confirm
 
-Call `schedule` with `name` (lowercase, digits, dashes), `prompt`, `when`,
-optional `folder` and `tz`, `permissions` and optional `budget`. Tell the
-user it will appear for confirmation. Afterwards, `schedule` with
+Call `schedule` with `name` (lowercase, digits, dashes), `prompt`, `when`
+and `permissions`. Leave `folder` (the session's folder), `tz`, `execution`,
+`budget` and `headed` unset unless the user asked for them. The operator
+sees one confirmation screen with the job as it will run, and every value
+you set that differs from the default is marked as yours. Do not ask them
+to confirm again in chat. Afterwards, `schedule` with
 `action: "list"` shows jobs, and the operator manages them with `/schedule`
 or `namzu schedule list`. Jobs run only when the scheduler service is
-installed (`namzu schedule install`).
+installed: if the result says none is installed, tell the user to run
+`namzu schedule install`; do not say the job is set up and running.
 
 ## Browser access
 
-A scheduled run can use the browser only when the `schedule` tool's
-`permissions` accepts a `browser` field; if it does not, scheduled runs
-cannot use the browser. Where it does, grant `browser: { profile, sites }`
-with each site origin mapped to `read`, `ask` or `act`; every site not listed
-is denied. Grant `act` only to sites the job must change. The operator signs
-in first, once, with `namzu browser login <profile>`; a run that meets a
-sign-in page or CAPTCHA stops and notifies them.
+Grant the browser with `permissions.browser`:
+`{ "profile": "social", "sites": { "http://localhost:8123": "act" } }`.
+
+- `profile` is one the operator already signed in to with
+  `namzu browser login <profile> <url>`. Use the one the user named, or ask;
+  never invent one. If they have not signed in, tell them the command first.
+- `sites` maps each origin the job may open to `read` (open and read only),
+  `ask` (changes wait for the operator; needs `unmatched: "park"`) or `act`
+  (changes run unasked). Every site not listed is denied; there is no
+  `*`. Grant `act` only to sites the job must change.
+- `headed: true` shows a window; leave it unset (no window) unless asked.
+- A run that meets a sign-in page or a CAPTCHA stops and notifies the
+  operator (`needs you: …`); they sign in again and continue it with
+  `namzu resume`.
+- In the prompt, name the site's address and what to do there, step by
+  step, as for a person who has never seen the page.
 
 ## If the tool is not here
 
@@ -105,3 +130,7 @@ Without the `schedule` tool (a headless run, or an agent you started), give
 the user the command to run themselves, for example:
 
 `namzu schedule add nightly-deps --prompt "…" --when "0 3 * * *" --permissions read-only`
+
+and for a browser job
+
+`namzu schedule add morning-post --prompt "…" --when "0 9 * * *" --permissions read-only --unmatched deny --browser social --browser-site http://localhost:8123=act`

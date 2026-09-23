@@ -90,15 +90,14 @@ The CLI ships three, in `packages/cli/skills/`:
 | Skill | Offered to | Needs | What it covers |
 | --- | --- | --- | --- |
 | `skill-creator` | model and operator | — | Interviewing the operator (purpose, trigger phrases, steps, constraints, an example), drafting a `SKILL.md` with a description that says when to use it, and saving it only through `save_skill`. A second mode turns the work just done in the conversation into a skill: generalise the task, replace this run's specifics with placeholders, strip secrets and personal data, never copy tool or page output. Without `save_skill` (a headless run) it shows the draft and tells the operator to run `/skills new` in the TUI. |
-| `browser-automation` | model only | `browser` | The procedure for the `browser` and `browser_act` tools: snapshot first, act by ref, copy `origin` from the snapshot header, verify with a snapshot, stop on a sign-in page or CAPTCHA, never type credentials, paginate, prefer read-only paths, report what changed. Hidden until the browser tools exist in the session. |
-| `schedule-task` | model and operator | `schedule` | Proposing a scheduled job with the `schedule` tool: choosing presets or rules, `unmatched` park or deny, budgets, `when` and `tz`, and wording a prompt for a run nobody watches. Offered in the TUI, where the `schedule` tool is. |
+| `browser-automation` | model only | `browser` | The procedure for the `browser` and `browser_act` tools: snapshot first, act by ref, copy `origin` from the snapshot header, verify with a snapshot, let a sign-in page or CAPTCHA pause the turn for the person and retry the step once it continues, never type credentials, never pick the profile, never route around a declined call, paginate, prefer read-only paths, report what changed. Hidden until the browser tools exist in the session. |
+| `schedule-task` | model and operator | `schedule` | Proposing a scheduled job with the `schedule` tool: choosing presets or rules, `unmatched` park or deny, budgets of one run, `when` and `tz`, a browser grant (`permissions.browser`, the profile signed in with `namzu browser login`, sites at `read`/`ask`/`act`), leaving the defaults unset, and wording a prompt for a run nobody watches. Offered in the TUI, where the `schedule` tool is. |
 
 Each is shadowed by a skill of the same name in any other tier, and none is
 read when `skills.builtin` is `false`. A test (`packages/cli/src/skills/builtin-skills.test.ts`)
 loads each with the kernel's loader and checks that every `namzu …` command,
-`namzu schedule add` flag and slash command it names exists; the
-`namzu browser` commands `browser-automation` and `schedule-task` mention
-arrive with the browser feature and are listed there as pending.
+`namzu schedule add` flag and slash command it names exists, `namzu browser
+login` and `--browser-site` included.
 
 ## Making a skill
 

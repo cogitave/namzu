@@ -21,16 +21,6 @@ import { systemSkillsDir } from './store.js'
 const SKILLS = systemSkillsDir()
 const SCHEDULE_SOURCE = fileURLToPath(new URL('../commands/schedule.ts', import.meta.url))
 
-/**
- * Commands a skill may name before this CLI has them, each with the reason.
- * `browser-automation` is offered only when the `browser` tool exists, and
- * `schedule-task` names the login step for the scheduled browser grant: both
- * arrive with the browser feature (`namzu browser login|list|status|install|remove`).
- */
-const PENDING_COMMANDS: Readonly<Record<string, string>> = {
-	browser: 'comes with the browser feature',
-}
-
 function builtinSkillDirs(): string[] {
 	return readdirSync(SKILLS, { withFileTypes: true })
 		.filter((entry) => entry.isDirectory() && existsSync(join(SKILLS, entry.name, 'SKILL.md')))
@@ -112,7 +102,6 @@ describe('the built-in skills', () => {
 				const words = span.split(/\s+/).slice(1)
 				const command = words[0]
 				if (command === undefined || command.startsWith('-')) continue
-				if (PENDING_COMMANDS[command]) continue
 				if (!topLevelCommandExists(command)) {
 					problems.push(`${span}: no command "${command}"`)
 					continue
