@@ -17,6 +17,7 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
@@ -76,6 +77,37 @@ const agent = (detected = [DEEPSEEK]) => ({
 	createAgentSession,
 })
 
+const HANDOFF_REASON = 'Sign in to example.test in the browser, then continue.'
+
+/** The real session, with one tool that asks for a person. */
+const agentWithHandoffTool = () => ({
+	...agent(),
+	createAgentSession: ((prefs, detected, options) =>
+		createAgentSession(prefs, detected, {
+			...options,
+			extraTools: [
+				defineTool({
+					name: 'sign_in_probe',
+					description: 'Opens a page that turns out to need a sign-in',
+					inputSchema: mcpJsonSchemaToZod({ type: 'object', properties: {} }),
+					category: 'custom',
+					permissions: [],
+					readOnly: true,
+					destructive: false,
+					concurrencySafe: true,
+					async execute() {
+						return {
+							success: false,
+							output: 'The page is a sign-in form.',
+							error: 'sign-in required',
+							handoff: { kind: 'human-required' as const, reason: HANDOFF_REASON },
+						}
+					},
+				}),
+			],
+		})) as typeof createAgentSession,
+})
+
 async function fire(
 	job: ScheduleJob,
 	extra: Parameters<typeof runFire>[3] = {},
@@ -126,6 +158,22 @@ describe('a scheduled run', () => {
 		expect(result?.status).toBe('awaiting-approval')
 		expect(result?.turnId).toBeTruthy()
 		expect(existsSync(marker)).toBe(false)
+	})
+
+	it('records a tool’s request for a person as awaiting-approval, with its reason', async () => {
+		const job = confirmedJob(sb, {
+			permissions: { rules: {}, unmatched: 'allow' },
+			allowUnattendedHost: true,
+		})
+		responses.push(() => completion({ name: 'sign_in_probe', input: {} }))
+		const { code, result } = await fire(job, { agent: agentWithHandoffTool() })
+		expect(code).toBe(0)
+		expect(result?.status).toBe('awaiting-approval')
+		expect(result?.reason).toBe(HANDOFF_REASON)
+		expect(result?.handoff).toEqual({ reason: HANDOFF_REASON })
+		expect(result?.turnId).toBeTruthy()
+		// The model was asked once: the pause came before a second call.
+		expect(calls).toBe(1)
 	})
 
 	it('holds a call no rule covers under unmatched: park', async () => {

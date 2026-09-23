@@ -1074,6 +1074,9 @@ export class ScheduleDaemon {
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
 						: {}),
+					...(tell === 'awaiting-approval' && result.handoff
+						? { handoff: result.handoff.reason }
+						: {}),
 				}),
 			)
 		}

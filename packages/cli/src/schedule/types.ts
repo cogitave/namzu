@@ -232,6 +232,12 @@ export interface ScheduleRunResult {
 	readonly usage?: { readonly totalTokens?: number; readonly costUsd?: number }
 	/** A provider asked to be left alone this long. */
 	readonly retryAfterMs?: number
+	/**
+	 * Set on `awaiting-approval` when a tool asked for a person rather than a
+	 * batch waiting for approval: what the person has to do. Continuing the
+	 * run needs no approval, only that.
+	 */
+	readonly handoff?: { readonly reason: string }
 	readonly credentialSource?: string
 	readonly warnings?: readonly string[]
 	readonly startedAt: string

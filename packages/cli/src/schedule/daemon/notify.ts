@@ -43,6 +43,11 @@ export function noticeText(
 		readonly failures?: number
 		/** For a park: the command that opens it (`cd <folder> && namzu resume <id>`). */
 		readonly resumeCommand?: string
+		/**
+		 * For a park a tool asked for: what the person has to do. Written by
+		 * the tool, not the model, and already one sanitised line.
+		 */
+		readonly handoff?: string
 	},
 ): { title: string; body: string } {
 	const title = `namzu: ${job.name}`
@@ -63,6 +68,21 @@ export function noticeText(
 				body: `could not start at ${when}: check it with namzu schedule show ${job.name}`,
 			}
 		case 'awaiting-approval': {
+			if (extra.handoff) {
+				const needs = `needs you (since ${when}): ${extra.handoff}`
+				// Longest first; each is used only when it fits whole, and the
+				// reason alone is cut rather than dropped.
+				const candidates = [
+					...(extra.resumeCommand ? [`${needs}; continue it: ${extra.resumeCommand}`] : []),
+					`${needs}; namzu schedule show ${job.name} says how to continue it`,
+					needs,
+				]
+				const body = candidates.find((text) => [...text].length <= NOTICE_BODY_MAX)
+				return {
+					title,
+					body: body ?? `${[...needs].slice(0, NOTICE_BODY_MAX - 1).join('')}…`,
+				}
+			}
 			const waiting = `is waiting for your approval (since ${when})`
 			// The command only when it fits whole: a notification is cut at
 			// NOTICE_BODY_MAX, and half a `cd` is worse than none.

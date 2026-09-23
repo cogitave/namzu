@@ -29,7 +29,7 @@ import { pauseWait } from '../../commands/provider-wait.js'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { resolveTrustedProjectContext } from '../../config/trusted-project-context.js'
-import { summaryOf } from '../../integrations/notifications/desktop/sanitize.js'
+import { sanitizeLine, summaryOf } from '../../integrations/notifications/desktop/sanitize.js'
 import type { Preferences, ProviderId } from '../../integrations/providers/index.js'
 import {
 	closeSessions,
@@ -463,8 +463,13 @@ export async function runFire(
 	const summary = summaryOf(text)
 	const parked = paused as Extract<AgentEvent, { kind: 'paused' }> | null
 	if (parked) {
+		// A tool that asked for a person parks the run the same way a held
+		// batch does: the operator continues it from the TUI. The reason is
+		// what they have to do, so it is recorded as the reason.
+		const handoff = parked.handoff ? sanitizeLine(parked.handoff.reason, 200) : ''
 		return finish('awaiting-approval', 0, {
-			reason: parked.reason,
+			reason: handoff || parked.reason,
+			...(handoff ? { handoff: { reason: handoff } } : {}),
 			...(summary ? { summary } : {}),
 			...withUsage,
 		})

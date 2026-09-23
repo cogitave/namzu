@@ -99,6 +99,7 @@ function materiallyDifferent(candidate: string, earlier: readonly string[]): boo
  * SDK catalog did not claim a failure, the provider reason is all we know.
  */
 export function describeTurnInterruption(event: Interruption): string {
+	if (event.kind === 'paused' && event.handoff) return describeHandoff(event)
 	const explained = event.explanation
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
 	const lead = line(explained?.message || rawReason)
@@ -122,5 +123,19 @@ export function describeTurnInterruption(event: Interruption): string {
 		rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)
 	}
 
+	return rows.join('\n')
+}
+
+/**
+ * A turn a tool paused for a person: what the person has to do, and the
+ * facts the tool attached. Nothing failed, so there is no error copy.
+ */
+function describeHandoff(event: Extract<Interruption, { kind: 'paused' }>): string {
+	const handoff = event.handoff
+	const rows = [`Turn paused — needs you: ${line(handoff?.reason ?? event.reason)}`]
+	for (const [key, value] of Object.entries(handoff?.detail ?? {})) {
+		rows.push(`${line(key, 60)}: ${line(value, 240)}`)
+	}
+	rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)
 	return rows.join('\n')
 }

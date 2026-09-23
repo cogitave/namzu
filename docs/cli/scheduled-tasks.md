@@ -243,6 +243,18 @@ refused before anything is asked, and the refusal names the difference and the
 command that opens a matching session
 (`cd <folder> && namzu --add-dir <dir> resume <session-id>`).
 
+A run can also park because a tool asked for a person
+([Tool handoff](../sdk/tool-handoff.md)): a sign-in page, say. The results are
+recorded and the model is not called again. The run records `awaiting-approval`
+with the tool's reason as its `reason` and in `handoff.reason`, and the
+notification says `needs you (since …): <reason>` with the command that opens
+it. There is no batch to approve. `namzu resume <session-id>` (or `/resume`)
+shows the reason and offers **Continue** or **Abandon**. Continue resumes the
+turn under the job's rules and on its model, and its next step is a model call
+that sees the results. Abandon closes the turn, and the job stays scheduled.
+Esc leaves the run waiting. The same folder, sandbox, roots and credential
+checks apply as for an approval.
+
 A park nobody answers within `--approval-ttl` (default 7 days) is abandoned:
 the turn is closed, the run is recorded `approval-expired`, and the job runs
 again at its next time.
