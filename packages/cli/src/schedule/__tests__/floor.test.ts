@@ -181,10 +181,21 @@ describe('cost', () => {
 			'~/',
 			'$HOME/',
 		]) {
-			const command = `${filler.repeat(Math.ceil(160_000 / filler.length))}x`
-			const started = performance.now()
-			bash(command)
-			expect(performance.now() - started, filler).toBeLessThan(1500)
+			const time = (length: number): number => {
+				const command = `${filler.repeat(Math.ceil(length / filler.length))}x`
+				const started = performance.now()
+				bash(command)
+				return performance.now() - started
+			}
+			time(16_000)
+			const small = Math.max(time(16_000), 0.5)
+			const large = time(160_000)
+			// Ten times the input: linear is about ten times the time, quadratic
+			// a hundred. The absolute bound is loose because CI machines run
+			// this several times slower than a developer's: the slowest shape,
+			// a line of `cd`s, takes about 500 ms here and 1.8 s on CI.
+			expect(large / small, filler).toBeLessThan(40)
+			expect(large, filler).toBeLessThan(6000)
 		}
 	})
 
