@@ -124,6 +124,18 @@ in `/etc/wsl.conf`). The Windows programs are found at their fixed locations,
 never through PATH, and recorded in the manifest. Runs get a PATH without the
 Windows `/mnt/*` entries: a failed lookup through them costs seconds.
 
+A job with a [browser grant](scheduled-tasks.md#browser-access) drives the
+Windows Chrome or Edge from inside WSL, as the TUI does, through
+`powershell.exe` at its fixed path. A service has no `WSL_INTEROP`, under
+Task Scheduler's `wsl.exe` or a systemd user unit alike; the run finds an
+interop socket under `/run/WSL` and hands it to `powershell.exe` only, as the
+[notifications](#notifications) do. The browser starts without a window
+(`--headless=new`) unless the job has `--browser-headed`, and the profile's
+user data stays on the Windows side under `%LOCALAPPDATA%\namzu\browser\profiles\<name>`.
+A run whose interop, `powershell.exe` or browser is missing is `blocked-config`
+before the model is called; it never falls back to a Chromium inside WSL,
+which would start signed out.
+
 ## One owner, and its standby
 
 Ownership of a home is a fenced lease in `schedule/daemon/`: `lease.<fence>.json`
@@ -170,8 +182,10 @@ lasts as long as the longest run in progress.
 `namzu schedule status` shows the service, what the supervisor says, whether the
 daemon answers (pid, version, standby, draining), the notification backend, the
 number of jobs and runs in progress, each run waiting for approval with the
-command that answers it (`awaitingApproval: [{ job, sessionId, resumeCommand }]`
-in `--json`), the log file, and warnings: a node or CLI
+command that answers it (`awaitingApproval: [{ job, sessionId, resumeCommand,
+waitingFor, handoff? }]` in `--json`; a run a page parked for you reads
+`<job> needs you: <reason>; when that is done: <command>`, with
+`handoff: { reason }`), the log file, and warnings: a node or CLI
 path that no longer exists, or a CLI version that differs from the installed
 one.
 

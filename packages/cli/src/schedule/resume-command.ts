@@ -11,6 +11,7 @@
 
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { sanitizeLine } from '../integrations/notifications/desktop/sanitize.js'
 import { schedulePaths } from './paths.js'
 import { foldHistory, readHistory } from './store/history.js'
 import { listJobs } from './store/jobs.js'
@@ -69,4 +70,15 @@ export function scheduledSessionElsewhere(
 		// A job store that cannot be read says nothing; the ordinary refusal stands.
 	}
 	return undefined
+}
+
+/**
+ * What a parked run waits for, in words: `needs you: <reason>` when a tool
+ * asked for a person (a sign-in, a CAPTCHA), which no approval answers, and
+ * `waiting for your approval` for a held batch. The reason is the tool's own
+ * text, recorded by the daemon; it is flattened to one line here.
+ */
+export function parkedRunWords(run: { readonly handoff?: { readonly reason: string } }): string {
+	const reason = run.handoff ? sanitizeLine(run.handoff.reason, 200) : ''
+	return reason ? `needs you: ${reason}` : 'waiting for your approval'
 }

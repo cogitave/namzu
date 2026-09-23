@@ -14,7 +14,7 @@ In the interactive terminal the model has two browser tools: `browser`, which op
 
 The tools are the SDK's [browser tools](../sdk/browser-tools.md) over the [`@namzu/browser` host](../sdk/browser-host.md), which the CLI installs as a regular dependency. Nothing starts when namzu starts: the browser launches on the model's first browser call, and closes when the session ends (unless `browser.keepOpen`).
 
-`namzu exec`, `exec --json`, `drain`, `acp` and the resident step never get the browser: nobody is at a window there to sign in or to answer a review. A scheduled job gets one only through its own grant.
+`namzu exec`, `exec --json`, `drain`, `acp` and the resident step never get the browser: nobody is at a window there to sign in or to answer a review. A scheduled job gets one only through its own grant: see [Scheduled jobs](#scheduled-jobs).
 
 ## Which browser runs where
 
@@ -109,11 +109,15 @@ Do it in the window and press Enter; the turn continues with the model reading t
 
 Run it in another terminal, sign in, close the window, then press Enter. Nothing is ever typed into a password or one-time-code field by the agent, whatever a rule allows.
 
+## Scheduled jobs
+
+A [scheduled job](scheduled-tasks.md#browser-access) drives the browser only with a grant: `namzu schedule add … --browser <profile> --browser-site <site>=read|ask|act`, or a grant the model proposes in the TUI and you confirm. It lists every site it may open; there is no `*`, and every other site is denied. It runs on the profile you signed in to with `namzu browser login`, with no window unless `--browser-headed`, and a page that needs you stops the run and notifies you (`needs you: Sign in to …`) instead of pausing at a window. Sign in again with `namzu browser login`, then continue the run with `namzu resume` (Continue). The Windows browser from a scheduler service in WSL: [The scheduler service](scheduler-service.md#windows-and-wsl-task-scheduler).
+
 ## What this does not stop
 
 - **Page text is the site's, not yours.** Every snapshot is framed as untrusted content, and the tool descriptions tell the model it is data, but a page can still word itself as instructions. The frame marks where text came from; it does not refuse anything. The boundary is the site rules, the origin check, the review of `ask` sites, and the refusal to type credentials.
 - **An allowed site can carry anything it serves.** `act` on a site means the agent changes it without asking, including what a hostile page on that site asks it to do. Give `act` to sites you would let a script drive.
-- **A declined call is one call.** Answering No refuses that call; the model may still reach similar information another way (a web search, for example). Say what you want instead.
+- **A declined call is one call.** Answering No refuses that call and tells the model not to get the same content another way (another tool, site or a web search) without asking you first. That is an instruction the model reads, not a control: only the site rules and the review stop a call. Say what you want instead.
 - **The session's cookies are real.** A profile signed in to a site is signed in for every call the rules allow on it. Use a separate profile for anything sensitive, and `namzu browser remove` when done.
 - Downloads are cancelled, JavaScript cannot be run by the model, and `file:`, `chrome:` and cloud-metadata addresses are refused in every spelling.
 

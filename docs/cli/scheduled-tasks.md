@@ -153,11 +153,18 @@ The rules a run is gated by, in order (the first that matches decides):
    fit. When the last name does not fit even so (a name of about 80
    letters or more), by as much of the start of that name as fits, about 85
    letters, after any separator: every path segment that begins with it is
-   then refused, wherever it is;
+   then refused, wherever it is. The floor also refuses any tool argument
+   naming the Windows browser's profiles, which live outside `NAMZU_HOME`
+   with the cookies of every site you signed in to: a path through
+   `AppData/Local/namzu` (either slash, any letter case, `/mnt/c/Users/<you>/…`
+   or `C:\Users\<you>\…`), or `%LOCALAPPDATA%`, `$env:LOCALAPPDATA` or
+   `$LOCALAPPDATA` followed by `namzu`;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;
-4. the job's own rules;
+4. the job's own rules, then its [browser grant](#browser-access)'s site
+   rules; `web_fetch` and `web_search` the job does not name, and `browser`
+   and `browser_act` beyond the grant, are denied here;
 5. `unmatched`: `park` holds the call for you, `deny` refuses it, `allow` runs
    it. Even under `allow`, a path outside the folder and a sandbox escape wait
    for you.
@@ -170,6 +177,81 @@ sections that run code or change what may run (`hooks`, `mcpServers`,
 `.namzu/plugins/` are pinned when you confirm. If they change, the next run
 stops before the model with `blocked-config: project config changed since the
 job was confirmed`, and runs again once you confirm the job.
+
+## Browser access
+
+A job can drive a browser, signed in as you, on the sites you list and no
+others. Sign in once in a visible window with
+`namzu browser login <profile> <url>` ([The browser](browser.md#profiles-and-signing-in)),
+then give the job the profile and the sites:
+
+```sh
+namzu browser login social https://social.example/login
+namzu schedule add good-morning --prompt "Post 'Günaydın!' with the time" \
+  --when "every 5m" --permissions read-only --unmatched park \
+  --browser social --browser-site https://social.example=act
+```
+
+`--browser-site <site>=<level>` is repeatable. A site is an origin
+(`https://github.com`, `https://*.example.com`, `http://localhost:*`),
+canonicalised when the job is created; `*` is refused, and every site the job
+does not list is denied.
+
+| Level | Open and read pages | Click, type, fill forms |
+|---|---|---|
+| `read` | yes | no |
+| `ask` | yes | waits for you, as a held call (needs `--unmatched park`) |
+| `act` | yes | yes |
+
+The grant is stored in the job's permission set (`permissions.browser`:
+`profile`, `sites`, `headed`), is part of what a confirmation vouches for, and
+counts as network access (`Network THIS RUN CAN REACH THE NETWORK`). The
+confirmation and `schedule show` add `Browser SIGNED IN AS YOU: profile <p>,
+only <sites>` and one line per site:
+
+```text
+browser: profile social, no window
+browser https://social.example: open, read and change without asking
+browser any other site: deny
+browser sign-in, CAPTCHA or a code: the run stops and tells you
+```
+
+The `[permissions]` rules of a job cannot name `browser` or `browser_act`; the
+grant is the only way in. Without one both tools are denied. A site any config
+file's `browser.sites` denies stays denied, whatever the grant says. Looking
+at the page the browser holds, and `back`, `forward` and `reload`, are
+allowed; the browser itself checks where every navigation lands against the
+same sites. The model's `schedule` tool can propose a grant in the TUI
+(`permissions.browser`); you confirm it on screen like any proposed job. A
+proposal that pairs a browser grant with a shell on the host is refused;
+`read-only` has none.
+
+Before the model is called, a run with a grant checks that the profile exists
+and still has its data, that the browser it was signed in with can start here
+(for the Windows browser from WSL: interop, `powershell.exe` and Chrome or
+Edge, found by a service through `/run/WSL`), and that a window can be shown
+when the job asks for one (`--browser-headed`; `DISPLAY`, `WAYLAND_DISPLAY`
+and `XAUTHORITY` reach the run). Otherwise the run is `blocked-config` with the
+command to fix it, e.g. `browser profile social does not exist; sign in once
+with namzu browser login social https://social.example`. The run never
+switches to another browser: a profile signed in with the Windows Chrome has
+its cookies there. There is no window unless the job has `--browser-headed`.
+
+A page that needs a person — a sign-in form, a second factor, a CAPTCHA — stops
+the run: it parks as `awaiting-approval` with the page's reason, the
+notification says `needs you (since …): Sign in to …`, and `schedule list`,
+`show`, `status` and `/schedule` say `needs you: <reason>` instead of waiting
+for approval. Sign in again with `namzu browser login`, then
+`cd <folder> && namzu resume <session-id>` and choose **Continue**: the turn
+drives the job's profile, held to the job's sites, and your session's own
+profile comes back when it ends. The model is told the same in its system
+prompt: it never types a password or a code and does not look for another way
+in.
+
+`schedule edit` changes the grant: `--browser-site <site>=<level>` adds a site
+or changes its level, `<site>=none` takes one off, `--no-browser` removes the
+grant. Like any edit, it is confirmed again, and a job saved without a
+terminal (`--yes`) is held until you confirm it.
 
 ## One run
 
@@ -338,7 +420,9 @@ nothing holds its session.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
 tz, folder, nextFireAt?, lastRun?, activeRun?: { status, sessionId?,
-resumeCommand? } }] }`, `resumeCommand` for a run waiting for approval; `show` prints `{ "v": 1,
+resumeCommand?, handoff? } }] }`, `resumeCommand` for a run waiting for
+approval and `handoff: { reason }` for one a tool parked for a person (the
+text list says `needs you: <reason>` for it, not `WAITING FOR APPROVAL`); `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
 "records": [...] }` with records newest first, a run's last status winning.
 

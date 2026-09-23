@@ -8,7 +8,7 @@ import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import { compileJobPolicy } from '../policy.js'
-import { resumeCommand } from '../resume-command.js'
+import { parkedRunWords, resumeCommand } from '../resume-command.js'
 import { foldHistory, readHistory } from '../store/history.js'
 import { confirmationHolds, findJob, listJobs } from '../store/jobs.js'
 import { nextFireOf, readState } from '../store/state.js'
@@ -50,6 +50,8 @@ export interface JobListing {
 		readonly sessionId?: string
 		/** For a run waiting for approval: the command that opens it, folder included. */
 		readonly resumeCommand?: string
+		/** For a run a tool paused for a person: what the person has to do. */
+		readonly handoff?: { readonly reason: string }
 	}
 }
 
@@ -70,6 +72,9 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 						...(state.activeRun.sessionId ? { sessionId: state.activeRun.sessionId } : {}),
 						...(state.activeRun.status === 'awaiting-approval' && state.activeRun.sessionId
 							? { resumeCommand: resumeCommand(job, state.activeRun.sessionId) }
+							: {}),
+						...(state.activeRun.status === 'awaiting-approval' && state.activeRun.handoff
+							? { handoff: { reason: state.activeRun.handoff.reason } }
 							: {}),
 					},
 				}
@@ -104,7 +109,9 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		const last = r.lastRun ? `last ${r.lastRun.status} ${when(r.lastRun.endedAt, r.tz)}` : ''
 		const active = r.activeRun
 			? r.activeRun.status === 'awaiting-approval'
-				? 'WAITING FOR APPROVAL'
+				? r.activeRun.handoff
+					? parkedRunWords(r.activeRun)
+					: 'WAITING FOR APPROVAL'
 				: 'running'
 			: ''
 		const tzWarning = r.tz !== host ? ` (host is ${host})` : ''
@@ -112,7 +119,13 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 			`${r.name}  [${r.state}]  ${r.schedule}${tzWarning}`,
 			`  ${[active, next, last].filter(Boolean).join(' · ')}`,
 			`  ${r.folder}`,
-			...(r.activeRun?.resumeCommand ? [`  answer it: ${r.activeRun.resumeCommand}`] : []),
+			...(r.activeRun?.resumeCommand
+				? [
+						r.activeRun.handoff
+							? `  when that is done, continue it: ${r.activeRun.resumeCommand}`
+							: `  answer it: ${r.activeRun.resumeCommand}`,
+					]
+				: []),
 		].join('\n')
 	})
 	ctx.formatter.print(lines.join('\n'))
@@ -163,7 +176,9 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 				`Folder      ${job.folder.canonical}`,
 				...(state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId
 					? [
-							`Waiting     for approval; answer it: ${resumeCommand(job, state.activeRun.sessionId)}`,
+							state.activeRun.handoff
+								? `Waiting     ${parkedRunWords(state.activeRun)}; when that is done, continue it: ${resumeCommand(job, state.activeRun.sessionId)}`
+								: `Waiting     for approval; answer it: ${resumeCommand(job, state.activeRun.sessionId)}`,
 						]
 					: []),
 				`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}`,

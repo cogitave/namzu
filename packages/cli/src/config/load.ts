@@ -258,6 +258,11 @@ export interface PermissionLayer {
 	readonly source: 'user-file' | 'project-file' | 'managed'
 	readonly path: string
 	readonly permissions: PermissionsConfig
+	/**
+	 * The sites the file's `browser.sites` denies, canonical (`*` left out).
+	 * A scheduled run's browser grant cannot reopen one.
+	 */
+	readonly browserDenies?: readonly string[]
 }
 
 /**
@@ -285,7 +290,16 @@ export function readPermissionLayers(opts: LoadConfigOptions = {}): PermissionLa
 		['project-file', projectPath, readJsonIfExists(projectPath)],
 		['managed', managedPath, readJsonIfExists(managedPath)],
 	] as const) {
-		if (config.permissions) layers.push({ source, path, permissions: config.permissions })
+		const browserDenies = Object.entries(config.browser?.sites ?? {})
+			.filter(([site, level]) => site !== '*' && level === 'deny')
+			.map(([site]) => site)
+		if (config.permissions || browserDenies.length > 0)
+			layers.push({
+				source,
+				path,
+				permissions: config.permissions ?? {},
+				...(browserDenies.length > 0 ? { browserDenies } : {}),
+			})
 	}
 	return layers
 }

@@ -289,6 +289,11 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
 		...(policy.network ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
+		...(job.permissions.browser
+			? [
+					`Browser     SIGNED IN AS YOU: profile ${job.permissions.browser.profile}, only ${Object.keys(job.permissions.browser.sites).join(', ')}`,
+				]
+			: []),
 		...(job.permissions.unmatched === 'allow'
 			? ['Unmatched   CALLS NO RULE COVERS RUN WITHOUT ASKING']
 			: []),

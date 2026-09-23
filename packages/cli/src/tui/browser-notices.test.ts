@@ -103,6 +103,7 @@ function control(): BrowserControl & { switched: string[] } {
 			return { ...STATUS, profile }
 		}),
 		release: async () => {},
+		runAs: async () => async () => {},
 		dispose: async () => {},
 	}
 }

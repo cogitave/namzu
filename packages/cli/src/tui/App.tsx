@@ -3915,6 +3915,7 @@ export function App({
 			notification: null,
 		}
 		let scheduledRun = false
+		let restoreBrowser: (() => Promise<void>) | undefined
 		try {
 			// A scheduled run parked on a decision: the operator answers the
 			// parked batch here, and the turn continues under the job's rules.
@@ -3926,6 +3927,7 @@ export function App({
 						// The resumed turn runs on the job's provider: one this
 						// session has no credential for is refused before asking.
 						providers: detected.map((item) => item.entry.id),
+						browser: session.browser !== undefined,
 					})
 				: undefined
 			if (scheduled && 'leave' in scheduled) {
@@ -3940,13 +3942,23 @@ export function App({
 				return true
 			}
 			scheduledRun = scheduled !== undefined
+			const { browser: jobBrowser, ...scheduledParams } = scheduled ?? {}
+			// A job's browser grant: this turn drives the job's profile, held
+			// to its sites, and the session's own comes back when it ends.
+			if (jobBrowser && session.browser) {
+				restoreBrowser = await session.browser.runAs(jobBrowser)
+				pushMessage(
+					'system',
+					`The browser uses the job’s profile ${jobBrowser.profile} for this run, on its sites only.`,
+				)
+			}
 			// Said once the turn really continues: a scheduled park can still
 			// be left waiting or abandoned above.
 			pushMessage('system', PAUSED_TURN_LINES.resuming, false, '▶')
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
-				...(scheduled ?? {
+				...(scheduled ? scheduledParams : {
 					// The operator's mode, read at every decision like a new turn's:
 					// `/resume` in plan mode stays read-only, and so do its children.
 					permissionMode: permissionModeRef.current,
@@ -3972,6 +3984,7 @@ export function App({
 			// completed, failed or cancelled — not at a scheduler's next tick,
 			// which may never come. One that parked again stays waiting.
 			if (scheduledRun) await scheduleRef.current?.settleAnswered()
+			await restoreBrowser?.().catch(() => undefined)
 		}
 		return true
 	}, [detected, finalizeMessage, flushStream, pushMessage, session, setHandoffPark, state])

@@ -117,6 +117,9 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			by: 'tool',
 		})
 	return {
+		// The job stores the grant, the fire enforces it, and the
+		// confirmation shows it line by line, so the model may propose one.
+		browserGrants: true,
 		async preview(draft: ScheduleJobDraft): Promise<ScheduleJobPreview> {
 			const model = ui.model()
 			if (!model)
@@ -135,6 +138,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 						...(draft.permissions.rules ? { rules: draft.permissions.rules } : {}),
 						unmatched: draft.permissions.unmatched,
 						...(draft.permissions.execution ? { execution: draft.permissions.execution } : {}),
+						...(draft.permissions.browser ? { browser: draft.permissions.browser } : {}),
 					},
 					...(draft.budget ? { budget: draft.budget } : {}),
 					model: `${model.provider}${model.model ? `/${model.model}` : ''}`,
@@ -159,6 +163,11 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 					? ['The folder is outside this session’s working directory and added directories.']
 					: []),
 				...(policy.network ? ['This run can reach the network.'] : []),
+				...(job.permissions.browser
+					? [
+							`This run drives the browser signed in as you (profile ${job.permissions.browser.profile}) on ${Object.keys(job.permissions.browser.sites).join(', ')}.`,
+						]
+					: []),
 			]
 			const preview: ScheduleJobPreview = {
 				name: job.name,

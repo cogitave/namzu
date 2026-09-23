@@ -177,6 +177,11 @@ export interface ResumeEnvironment {
 	 * without one, after the question).
 	 */
 	readonly providers?: readonly string[]
+	/**
+	 * Whether this session has the browser tools. Absent: not checked. A job
+	 * with a browser grant cannot continue in a session without them.
+	 */
+	readonly browser?: boolean
 }
 
 function canonical(path: string): string {
@@ -213,6 +218,11 @@ export function scheduledResumeMismatch(
 	const missing = [...jobRoots].filter((root) => !sessionRoots.has(root))
 	if (extra.length > 0) reasons.push(`this session also reaches ${extra.join(', ')}`)
 	if (missing.length > 0) reasons.push(`this session does not reach ${missing.join(', ')}`)
+	if (job.permissions.browser && environment.browser === false) {
+		reasons.push(
+			'the job drives the browser and this session has none (check `browser.enabled` and `namzu doctor`)',
+		)
+	}
 	if (environment.providers && !environment.providers.includes(job.model.provider)) {
 		reasons.push(
 			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this session has no credential for ${job.model.provider} (sign in with \`namzu login\`, or set its API key)`,
@@ -251,7 +261,17 @@ function scheduledPermission(ask: ScreenPermissionFn): PermissionFn {
 export type ScheduledResumeParams = Pick<
 	ResumePausedParams,
 	'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
->
+> & {
+	/**
+	 * For a job with a browser grant: the profile and sites the session's
+	 * browser must run under while the turn continues (`BrowserControl.runAs`),
+	 * so the host holds it to the job's sites as the gate does.
+	 */
+	readonly browser?: {
+		readonly profile: string
+		readonly sites: Readonly<Record<string, 'deny' | 'read' | 'ask' | 'act'>>
+	}
+}
 
 /**
  * The operator's answer to a parked scheduled run: continue it with these
@@ -332,16 +352,31 @@ export async function prepareScheduledResume(input: {
 		)
 	}
 	const ask = scheduledPermission(input.ask)
-	const policy = compileJobPolicy(park.job.permissions, {
-		layers: readPermissionLayers({ cwd: park.job.folder.canonical }),
-		namzuHome: input.home,
-	})
+	const layers = readPermissionLayers({ cwd: park.job.folder.canonical })
+	const policy = compileJobPolicy(park.job.permissions, { layers, namzuHome: input.home })
+	const grant = park.job.permissions.browser
 	const resumeWith = (pendingDecision?: HITLResumeDecision): ScheduledResumeParams => ({
 		...(pendingDecision ? { pendingDecision } : {}),
 		onPermission: ask,
 		rules: policy.rules,
 		permissionMode: STRICTER.includes(input.operatorMode) ? input.operatorMode : policy.mode,
 		model: park.model,
+		...(grant
+			? {
+					browser: {
+						profile: grant.profile,
+						sites: {
+							...grant.sites,
+							...Object.fromEntries(
+								layers
+									.flatMap((layer) => layer.browserDenies ?? [])
+									.map((site) => [site, 'deny' as const]),
+							),
+							'*': 'deny' as const,
+						},
+					},
+				}
+			: {}),
 	})
 	if (park.handoff) {
 		const choice = await chooseHandoffContinuation(park, input.choose, input.say)

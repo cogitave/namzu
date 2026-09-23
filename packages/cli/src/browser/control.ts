@@ -16,6 +16,7 @@
 import type {
 	BrowserEngineSetting,
 	BrowserHeadlessSetting,
+	BrowserRunMode,
 	PlaywrightBrowserHost,
 	PlaywrightBrowserHostOptions,
 } from '@namzu/browser'
@@ -50,6 +51,8 @@ export interface BrowserSessionOptions {
 	readonly keepOpen?: boolean
 	/** `NAMZU_HOME`. */
 	readonly home?: string
+	/** `unattended` for a scheduled run: nobody at the window. Default `interactive`. */
+	readonly mode?: BrowserRunMode
 }
 
 /** What `/browser` shows, and what the handoff notice needs. */
@@ -79,6 +82,17 @@ export interface BrowserControl {
 	 * (`namzu browser login`) while this session waits.
 	 */
 	release(): Promise<void>
+	/**
+	 * Run under `profile` and `sites` from the next browser call on, until
+	 * the returned function puts the session's own profile and sites back.
+	 * For a parked scheduled run continued in this session: its turn drives
+	 * the job's profile, and the host holds it to the job's sites. Closes the
+	 * current browser, both ways.
+	 */
+	runAs(options: {
+		readonly profile: string
+		readonly sites: BrowserSitesConfig
+	}): Promise<() => Promise<void>>
 	dispose(): Promise<void>
 }
 
@@ -88,11 +102,12 @@ export function createBrowserControl(
 	Host: HostConstructor,
 	options: BrowserSessionOptions,
 ): BrowserControl {
-	const sites = options.sites ?? { '*': 'ask' }
+	const ownSites = options.sites ?? { '*': 'ask' }
+	let sites = ownSites
 	const build = (profile: string) =>
 		new Host({
 			profile,
-			mode: 'interactive',
+			mode: options.mode ?? 'interactive',
 			sites,
 			...(options.engine ? { engine: options.engine } : {}),
 			...(options.headless ? { headless: options.headless } : {}),
@@ -165,6 +180,26 @@ export function createBrowserControl(
 			const previous = current
 			current = build(previous.profile)
 			await previous.dispose()
+		},
+		async runAs(run) {
+			if (!isBrowserProfileName(run.profile)) {
+				throw new Error(`"${run.profile}" is not a profile name.`)
+			}
+			if (disposed) throw new Error('The browser of this session is closed.')
+			const previous = current
+			const ownProfile = previous.profile
+			sites = run.sites
+			current = build(run.profile)
+			await previous.dispose()
+			let restored = false
+			return async () => {
+				if (restored || disposed) return
+				restored = true
+				const used = current
+				sites = ownSites
+				current = build(ownProfile)
+				await used.dispose()
+			}
 		},
 		async dispose() {
 			if (disposed) return

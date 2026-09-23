@@ -25,8 +25,20 @@
  */
 
 import { homedir } from 'node:os'
-import type { AuthorizationRule } from '@namzu/sdk'
+import {
+	type AuthorizationRule,
+	BROWSER_ACT_TOOL_NAME,
+	BROWSER_TOOL_NAME,
+	type ScheduleBrowserGrant,
+	type ScheduleBrowserSiteLevel,
+} from '@namzu/sdk'
+import { isBrowserProfileName } from '../browser/control.js'
 import type { PermissionLayer } from '../config/load.js'
+import {
+	type BrowserSiteLevel,
+	canonicalBrowserSiteKey,
+	compileBrowserSites,
+} from '../permissions/browser-sites.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import {
 	type CompileDiagnostic,
@@ -41,6 +53,9 @@ import type { SchedulePermissionSet } from './types.js'
 export type PresetName = 'read-only' | 'edit-in-folder'
 
 const NETWORK_TOOLS = ['web_fetch', 'web_search'] as const
+/** The browser tools: reached only through a job's browser grant, never through its rules. */
+const BROWSER_TOOLS = [BROWSER_TOOL_NAME, BROWSER_ACT_TOOL_NAME] as const
+const GRANT_LEVELS: readonly ScheduleBrowserSiteLevel[] = ['read', 'ask', 'act']
 const WRITE_TOOLS = ['write', 'edit', 'bash'] as const
 
 const READ_ONLY: PermissionsConfig = {
@@ -80,6 +95,60 @@ export interface PermissionInput {
 	readonly unmatched?: 'park' | 'deny' | 'allow'
 	readonly execution?: 'host' | 'sandbox'
 	readonly additionalDirectories?: readonly string[]
+	/** A browser grant as written: site keys in any spelling, levels unchecked. */
+	readonly browser?: {
+		readonly profile: string
+		readonly sites: Readonly<Record<string, string>>
+		readonly headed?: boolean
+	}
+}
+
+/**
+ * A browser grant as a job stores it: a profile name, at least one site,
+ * each key canonical and none of them `*`, each level `read`, `ask` or
+ * `act`. `ask` parks the call for the operator, so it needs
+ * `unmatched: park`: under `deny` every ask would be refused and under
+ * `allow` approved without anyone seeing it.
+ */
+export function checkBrowserGrant(
+	input: NonNullable<PermissionInput['browser']>,
+	unmatched: SchedulePermissionSet['unmatched'],
+): ScheduleBrowserGrant {
+	if (!isBrowserProfileName(input.profile)) {
+		throw new Error(
+			`"${input.profile}" is not a browser profile name: lowercase letters, digits and single hyphens.`,
+		)
+	}
+	const entries = Object.entries(input.sites)
+	if (entries.length === 0) {
+		throw new Error(
+			'A browser grant needs at least one site, e.g. --browser-site https://github.com=read.',
+		)
+	}
+	const sites: Record<string, ScheduleBrowserSiteLevel> = {}
+	for (const [raw, level] of entries) {
+		if (raw.trim() === '*') {
+			throw new Error(
+				'A scheduled job cannot grant every site ("*"); every site it does not list is denied. List each site.',
+			)
+		}
+		if (!(GRANT_LEVELS as readonly string[]).includes(level)) {
+			throw new Error(`browser site ${raw}: "${level}" is not read, ask or act.`)
+		}
+		const key = canonicalBrowserSiteKey(raw)
+		if (!key.ok) throw new Error(`browser site ${raw}: ${key.reason}`)
+		const existing = sites[key.key]
+		if (existing !== undefined && existing !== level) {
+			throw new Error(`browser site ${key.key} is listed twice, as ${existing} and ${level}.`)
+		}
+		sites[key.key] = level as ScheduleBrowserSiteLevel
+	}
+	if (unmatched !== 'park' && Object.values(sites).includes('ask')) {
+		throw new Error(
+			`A browser site at "ask" waits for you, which needs unmatched: park; with ${unmatched} it would be ${unmatched === 'deny' ? 'refused every time' : 'approved without asking'}. Use read or act, or --unmatched park.`,
+		)
+	}
+	return { profile: input.profile, sites, ...(input.headed ? { headed: true } : {}) }
 }
 
 /**
@@ -89,9 +158,15 @@ export interface PermissionInput {
  * boundary) but is always written.
  */
 export function expandPermissions(input: PermissionInput): SchedulePermissionSet {
-	if (!input.preset && !input.rules) {
+	if (!input.preset && !input.rules && !input.browser) {
 		throw new Error(
-			'A permission set needs a preset (read-only, edit-in-folder) or rules; there is no default.',
+			'A permission set needs a preset (read-only, edit-in-folder), rules or a browser grant; there is no default.',
+		)
+	}
+	const named = BROWSER_TOOLS.filter((tool) => input.rules?.[tool] !== undefined)
+	if (named.length > 0) {
+		throw new Error(
+			`The rules name ${named.join(' and ')}; a scheduled job reaches the browser only through a browser grant (--browser <profile> --browser-site <site>=read|ask|act).`,
 		)
 	}
 	const preset = input.preset ? PRESETS[input.preset] : undefined
@@ -106,6 +181,7 @@ export function expandPermissions(input: PermissionInput): SchedulePermissionSet
 			`The permission rules do not compile: ${compiled.diagnostics.map(describeDiagnostic).join('; ')}`,
 		)
 	}
+	const browser = input.browser ? checkBrowserGrant(input.browser, unmatched) : undefined
 	return {
 		unmatched,
 		execution: input.execution ?? 'host',
@@ -114,6 +190,7 @@ export function expandPermissions(input: PermissionInput): SchedulePermissionSet
 			? { additionalDirectories: [...input.additionalDirectories] }
 			: {}),
 		preset: input.preset && !input.rules ? input.preset : 'custom',
+		...(browser ? { browser } : {}),
 	}
 }
 
@@ -127,9 +204,12 @@ function effectsOf(permission: ToolPermission | undefined): PermissionEffect[] {
 	return Object.values(permission).filter(isPermissionEffect)
 }
 
-/** Whether the set lets a run reach the network. */
+/** Whether the set lets a run reach the network: a web tool not denied, or a browser grant. */
 export function allowsNetwork(set: SchedulePermissionSet): boolean {
-	return NETWORK_TOOLS.some((t) => effectsOf(set.rules[t]).some((e) => e !== 'deny'))
+	return (
+		set.browser !== undefined ||
+		NETWORK_TOOLS.some((t) => effectsOf(set.rules[t]).some((e) => e !== 'deny'))
+	)
 }
 
 /** Whether a run under this set can change the folder (write, edit, bash, or an unmatched call). */
@@ -379,7 +459,7 @@ export function scheduledRunFloor(
 		bash(inOrder(`\\b(?:${loose('pkill')}|${loose('killall')})\\b`, loose('namzu'))),
 		bash(inOrder(`\\b${loose('namzu')}\\b`, scheduleVerb)),
 		bash(inOrder(`\\b${loose('bin')}${DROPPED}\\.${DROPPED}${loose('js')}\\b`, scheduleVerb)),
-		...namzuHomePatterns(namzuHome, userHome).map(
+		...[...namzuHomePatterns(namzuHome, userHome), ...windowsBrowserProfilePatterns()].map(
 			(pattern): AuthorizationRule => ({
 				type: 'custom_pattern',
 				pattern,
@@ -387,6 +467,25 @@ export function scheduledRunFloor(
 				decision: 'deny',
 			}),
 		),
+	]
+}
+
+/**
+ * Where the Windows browser keeps namzu's profiles when namzu drives it from
+ * WSL: `%LOCALAPPDATA%\namzu`, outside `NAMZU_HOME`, and with the cookies of
+ * every site the operator signed in to. The ways a tool argument names it:
+ * a path through `AppData/Local/namzu` (`/mnt/c/Users/<you>/AppData/…`,
+ * `C:\Users\<you>\AppData\…`, either slash, any letter case, quotes as
+ * {@link namzuHomePatterns} reads them), and `%LOCALAPPDATA%`,
+ * `$env:LOCALAPPDATA` or `$LOCALAPPDATA` followed by `namzu`. A tripwire like
+ * the rest of the floor: a variable or a relative path gets past it.
+ */
+export function windowsBrowserProfilePatterns(): string[] {
+	const local = `(?:%${caseless('localappdata')}%|\\$(?:${caseless('env')}:)?\\{?${caseless('localappdata')}\\}?)`
+	return [
+		// Quotes around each name; plain separators, so the pattern fits the gate.
+		`[/\\\\]${['AppData', 'Local', 'namzu'].map((name) => segment(name, false)).join('[/\\\\]+')}${SEGMENT_END}`,
+		`${local}${QUOTES}${SEP}${segment('namzu', true)}${SEGMENT_END}`,
 	]
 }
 
@@ -429,22 +528,32 @@ export function compileJobPolicy(
 	}
 	const own = compilePermissions(set.rules)
 	for (const d of own.diagnostics) diagnostics.push(`job: ${describeDiagnostic(d)}`)
+	const siteDenies = options.layers.flatMap((layer) =>
+		(layer.browserDenies ?? []).map((site) => ({ site, path: layer.path })),
+	)
+	const browser = set.browser ? compileBrowserGrant(set.browser, siteDenies) : undefined
+	if (browser) diagnostics.push(...browser.diagnostics.map((d) => `job: ${d}`))
 	// Web tools are denied by name unless the job itself lets them run: the
-	// gate's read-only default would otherwise approve a fetch.
-	const networkDenied = NETWORK_TOOLS.filter((t) => set.rules[t] === undefined)
+	// gate's read-only default would otherwise approve a fetch. The browser
+	// tools always end up here: without a grant nothing else decides them,
+	// and with one this catches every call its site rules did not.
+	const networkDenied = [
+		...NETWORK_TOOLS.filter((t) => set.rules[t] === undefined),
+		...BROWSER_TOOLS,
+	]
 	const rules: AuthorizationRule[] = [
 		...scheduledRunFloor(options.namzuHome),
 		...configDenies,
 		...own.rules,
-		...(networkDenied.length > 0
-			? [{ type: 'deny_by_name', toolNames: [...networkDenied] } as AuthorizationRule]
-			: []),
+		...(browser?.rules ?? []),
+		{ type: 'deny_by_name', toolNames: [...networkDenied] },
 	]
 	const lines = [
 		'dangerous commands (rm -rf /, mkfs, curl | sh, sudo …): deny, always',
-		`the scheduler's commands (but ${READ_ONLY_VERBS.join(', ')}), and anything naming NAMZU_HOME: deny`,
+		`the scheduler's commands (but ${READ_ONLY_VERBS.join(', ')}), and anything naming NAMZU_HOME or the browser's profiles: deny`,
 		...denyLines,
 		...Object.entries(set.rules).flatMap(([tool, permission]) => lineFor(tool, permission)),
+		...(set.browser ? browserGrantLines(set.browser, siteDenies) : []),
 		`anything else: ${set.unmatched === 'park' ? 'wait for the operator' : set.unmatched === 'deny' ? 'deny' : 'run without asking'}`,
 	]
 	return {
@@ -455,4 +564,57 @@ export function compileJobPolicy(
 		writes: allowsWrites(set),
 		lines,
 	}
+}
+
+const GRANT_WORDS: Record<ScheduleBrowserSiteLevel, string> = {
+	read: 'open and read, never change',
+	ask: 'open and read; each change waits for you',
+	act: 'open, read and change without asking',
+}
+
+/**
+ * A job's browser grant as gate rules: the sites it lists at their level,
+ * any site a config file denies denied (a grant cannot reopen it), every
+ * other site denied, looking at the held page allowed, and `back`,
+ * `forward` and `reload` allowed (the host still checks where they land).
+ * What none of these decides falls to the trailing deny.
+ */
+export function compileBrowserGrant(
+	grant: ScheduleBrowserGrant,
+	denies: readonly { readonly site: string }[] = [],
+): { readonly rules: AuthorizationRule[]; readonly diagnostics: readonly string[] } {
+	const sites: Record<string, BrowserSiteLevel> = { ...grant.sites, '*': 'deny' }
+	for (const { site } of denies) sites[site] = 'deny'
+	const compiled = compileBrowserSites(sites)
+	return {
+		rules: [
+			...compiled.rules,
+			{
+				type: 'argument_pattern',
+				toolNames: [BROWSER_TOOL_NAME],
+				argument: 'action',
+				pattern: '^(?:back|forward|reload)$',
+				decision: 'allow',
+			},
+		],
+		diagnostics: compiled.diagnostics,
+	}
+}
+
+/** The grant in words, one line each, for a confirmation and `schedule show`. */
+export function browserGrantLines(
+	grant: ScheduleBrowserGrant,
+	denies: readonly { readonly site: string; readonly path: string }[] = [],
+): string[] {
+	const denied = new Map(denies.map((d) => [d.site, d.path]))
+	return [
+		`browser: profile ${grant.profile}, ${grant.headed ? 'in a visible window' : 'no window'}`,
+		...Object.entries(grant.sites).map(([site, level]) =>
+			denied.has(site)
+				? `browser ${site}: deny (from ${denied.get(site)})`
+				: `browser ${site}: ${GRANT_WORDS[level]}`,
+		),
+		'browser any other site: deny',
+		'browser sign-in, CAPTCHA or a code: the run stops and tells you',
+	]
 }

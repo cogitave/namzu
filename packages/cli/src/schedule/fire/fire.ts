@@ -52,6 +52,7 @@ import type {
 	ScheduleRunStatus,
 	ScheduleRunTrigger,
 } from '../types.js'
+import { type BrowserPreflight, browserPreflight } from './browser-preflight.js'
 import { writeRunResult } from './result.js'
 import { unattendedNote } from './unattended-note.js'
 
@@ -139,6 +140,8 @@ export interface FireDependencies {
 	readonly graceMs?: number
 	/** Test seam: leave the process's logging as it is. */
 	readonly keepLogging?: boolean
+	/** Test seam: whether the job's browser can run (see `browser-preflight.ts`). */
+	readonly browserPreflight?: typeof browserPreflight
 }
 
 /**
@@ -255,6 +258,18 @@ export async function runFire(
 		return blocked(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}
 
+	// ── the browser, when the job has one ─────────────────────────────────
+	const grant = job.permissions.browser
+	let browser: Extract<BrowserPreflight, { ok: true }> | undefined
+	if (grant) {
+		const checked = await (deps.browserPreflight ?? browserPreflight)(grant, paths.home, {
+			env: deps.env ?? process.env,
+		})
+		if (!checked.ok) return blocked(checked.reason)
+		browser = checked
+		warnings.push(...checked.warnings)
+	}
+
 	// ── the provider, as the service sees it ──────────────────────────────
 	const daemonEnv = readDaemonEnv(paths.daemonEnv)
 	warnings.push(...daemonEnv.warnings)
@@ -324,6 +339,27 @@ export async function runFire(
 				: { enabled: false },
 		...(job.permissions.additionalDirectories
 			? { additionalDirectories: [...job.permissions.additionalDirectories] }
+			: {}),
+		...(grant && browser
+			? {
+					browser: {
+						profile: grant.profile,
+						engine: browser.engine,
+						headless: grant.headed ? ('never' as const) : ('always' as const),
+						// The host checks every landing against the same sites the
+						// gate was given: the grant, what a config file denies, and
+						// nothing else.
+						sites: {
+							...grant.sites,
+							...Object.fromEntries(
+								layers.flatMap((layer) => layer.browserDenies ?? []).map((site) => [site, 'deny']),
+							),
+							'*': 'deny',
+						},
+						home: paths.home,
+						mode: 'unattended' as const,
+					},
+				}
 			: {}),
 		limits: {
 			maxIterations: job.budget.maxIterations,
@@ -411,7 +447,7 @@ export async function runFire(
 				signal: abort.signal,
 				permissionMode: policy.mode,
 				reviewHold: { reason: HOLD_REASON },
-				systemNote: unattendedNote(job.name),
+				systemNote: unattendedNote(job.name, { browser: grant !== undefined }),
 				...(job.model.effort ? { effort: job.model.effort as never } : {}),
 			}),
 		)

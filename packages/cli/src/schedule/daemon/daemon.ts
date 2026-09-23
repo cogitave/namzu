@@ -992,6 +992,7 @@ export class ScheduleDaemon {
 					projectSlug: result.projectSlug ?? run.projectSlug,
 					turnId: result.turnId ?? run.turnId,
 					parkedAt: run.parkedAt ?? at,
+					handoff: result.handoff ? { reason: result.handoff.reason } : undefined,
 				}),
 			})
 		} else {
