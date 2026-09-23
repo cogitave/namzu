@@ -26,6 +26,13 @@ export type ToolCallView =
 			readonly activity?: 'exploration'
 			/** A successful result may add no information beyond the completed call row. */
 			readonly visibility?: 'hidden'
+			/**
+			 * For a result: the person declined on the tool's own screen (a
+			 * confirmation they cancelled). The call did not succeed, but
+			 * nothing failed either, so a host draws it as neither: `label` says
+			 * what did not happen ("Cancelled — nothing was saved").
+			 */
+			readonly outcome?: 'cancelled'
 	  }
 	/**
 	 * A change to a document. `path` is optional because not every diff is

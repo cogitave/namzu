@@ -369,6 +369,11 @@ export type AgentEvent =
 			 * needs.
 			 */
 			readonly resultLabel?: string
+			/**
+			 * The person declined on the tool's own screen: the call did not
+			 * succeed, and nothing failed. Drawn neutrally with `resultLabel`.
+			 */
+			readonly cancelled?: boolean
 			/** A web search or fetch, with whatever its result told us (query, result count). */
 			readonly web?: WebActivity
 	  }
@@ -5212,6 +5217,9 @@ export function toAgentEvent(
 				summary,
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
+				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'
+					? { cancelled: true }
+					: {}),
 				...(view.kind === 'generic' && view.label.length > 0 ? { resultLabel: view.label } : {}),
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }

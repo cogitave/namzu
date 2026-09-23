@@ -394,6 +394,11 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 				`Propose skill ${typeof (input as Partial<Input>).name === 'string' ? (input as Input).name : ''}`.trim(),
 			presentation: 'activity',
 		}),
+		// The operator's No on the tool's own screen is not a failure.
+		presentResult: (_input, result) =>
+			!result.success && (result.data as { cancelled?: unknown } | undefined)?.cancelled === true
+				? { kind: 'generic', label: 'Cancelled — nothing was saved', outcome: 'cancelled' }
+				: undefined,
 		async execute(raw, context) {
 			const input = raw as Input
 			let draft: SkillDraft
@@ -447,9 +452,12 @@ export function buildSaveSkillTool(host: SaveSkillHost): ToolDefinition {
 			}
 			if (context.abortSignal?.aborted) answer = 'cancel'
 			if (answer !== 'user' && answer !== 'project') {
-				return refuse(
-					'The operator cancelled; nothing was written. Ask what to change, or leave it.',
-				)
+				return {
+					...refuse(
+						'The operator cancelled; nothing was written. Ask what to change, or leave it.',
+					),
+					data: { cancelled: true },
+				}
 			}
 			const target = targets[answer]
 			try {

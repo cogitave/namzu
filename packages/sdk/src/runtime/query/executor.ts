@@ -1449,9 +1449,16 @@ export class ToolExecutor {
 	}
 
 	private resultPresentation(name: string, input: unknown, result: ToolResult) {
-		if (!result.success) return {}
 		try {
 			const view = this.config.tools.get(name)?.presentResult?.(input, result)
+			// A failed call carries one view only: the person's No on the tool's
+			// own screen, which a host draws as cancelled rather than failed and
+			// cannot tell apart from the result text alone.
+			if (!result.success) {
+				return view?.kind === 'generic' && view.outcome === 'cancelled'
+					? { presentation: { kind: 'generic', label: view.label, outcome: 'cancelled' } as const }
+					: {}
+			}
 			if (view?.kind !== 'diff') return {}
 			const serialized = JSON.stringify(view)
 			if (serialized.length > (this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS))

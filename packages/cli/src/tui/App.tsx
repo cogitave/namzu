@@ -5393,6 +5393,21 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					if (event.cancelled) {
+						// A No on the tool's own screen: the person's answer, not a failure.
+						pushMessage(
+							'tool',
+							done?.label ?? formatToolCall(event.toolName, event.summary),
+							false,
+							'○',
+							undefined,
+							theme.text.muted,
+							event.durationMs !== undefined ? formatElapsed(event.durationMs) : undefined,
+						)
+						pushMessage('tool', event.resultLabel ?? 'Cancelled', false, '⎿')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					const catalogue = !event.isError && event.toolName === 'agent_models' && event.output !== undefined
 						? modelCatalogueView(event.output) : undefined
 					if (catalogue !== undefined) {

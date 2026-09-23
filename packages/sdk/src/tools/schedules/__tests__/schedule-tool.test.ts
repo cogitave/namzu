@@ -103,6 +103,7 @@ describe('schedule tool', () => {
 			const { host, created } = fakeHost(answer)
 			const result = await tool(host).execute(createInput, context)
 			expect(result.success).toBe(false)
+			expect(result.data).toEqual({ cancelled: true })
 			expect(created).toEqual([])
 		},
 	)

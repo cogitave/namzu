@@ -229,6 +229,35 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('marks a result the person cancelled on the tool’s own screen', () => {
+		const cancelling = {
+			presentCall: () => ({ kind: 'generic' as const, label: 'Propose skill x' }),
+			presentResult: () => ({
+				kind: 'generic' as const,
+				label: 'Cancelled — nothing was saved',
+				outcome: 'cancelled' as const,
+			}),
+		} satisfies ToolPresenter
+		expect(
+			toAgentEvent(
+				{
+					type: 'tool_completed',
+					toolUseId,
+					toolName: 'save_skill',
+					result: 'The operator cancelled; nothing was written.',
+					isError: true,
+					...env,
+				} as unknown as SessionEvent,
+				cancelling,
+			),
+		).toMatchObject({
+			kind: 'tool-end',
+			isError: true,
+			cancelled: true,
+			resultLabel: 'Cancelled — nothing was saved',
+		})
+	})
+
 	it('maps turn_completed to done and turn_failed to error', () => {
 		expect(
 			toAgentEvent(

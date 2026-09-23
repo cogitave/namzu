@@ -44,7 +44,21 @@ export function presentScheduleCall(input: {
 	}
 }
 
-export function presentScheduleResult(_input: unknown, result: ToolResult): ToolResultView {
+/** The operator answered no on the tool's own screen: not a failure. */
+function operatorCancelled(result: ToolResult): boolean {
+	const data = result.data as { cancelled?: unknown } | undefined
+	return data?.cancelled === true
+}
+
+export function presentScheduleResult(input: unknown, result: ToolResult): ToolResultView {
+	if (!result.success && operatorCancelled(result)) {
+		const action = (input as { action?: unknown } | null)?.action
+		return {
+			kind: 'generic',
+			outcome: 'cancelled',
+			label: action === 'create' ? 'Cancelled — no job was created' : 'Cancelled — nothing changed',
+		}
+	}
 	if (!result.success) return { kind: 'generic', label: oneLine(result.error) || 'Not done' }
 	return HIDDEN
 }

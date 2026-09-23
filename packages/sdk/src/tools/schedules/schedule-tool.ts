@@ -275,6 +275,7 @@ async function create(
 			success: false,
 			output: '',
 			error: 'The operator did not confirm the job, so it was not created.',
+			data: { cancelled: true },
 		}
 	}
 	const created = await host.create(draft, preview, { paused: answer === 'create-paused' })
@@ -316,7 +317,11 @@ async function lifecycle(
 			confirmed = false
 		}
 		if (signal?.aborted) confirmed = false
-		if (!confirmed) return refuse(`The operator did not confirm; "${job.name}" was not changed.`)
+		if (!confirmed)
+			return {
+				...refuse(`The operator did not confirm; "${job.name}" was not changed.`),
+				data: { cancelled: true },
+			}
 	}
 	if (action === 'pause') await host.pause(job.name)
 	else if (action === 'resume') await host.resume(job.name)

@@ -180,6 +180,12 @@ describe('the save_skill tool', () => {
 		const result = await run(h.value, draft)
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('nothing was written')
+		// Drawn as the operator's answer, not as a failure.
+		expect(buildSaveSkillTool(h.value).presentResult?.(draft as never, result)).toEqual({
+			kind: 'generic',
+			label: 'Cancelled — nothing was saved',
+			outcome: 'cancelled',
+		})
 		expect(existsSync(userDir())).toBe(false)
 		expect(existsSync(projectDir())).toBe(false)
 	})
