@@ -24,7 +24,13 @@
  */
 
 import { hostname } from 'node:os'
-import { TurnCancelled, asSessionId, describeSchedule, releaseHeldSessionLeases } from '@namzu/sdk'
+import {
+	TurnCancelled,
+	asSessionId,
+	describeSchedule,
+	hostTimeZone,
+	releaseHeldSessionLeases,
+} from '@namzu/sdk'
 import { pauseWait } from '../../commands/provider-wait.js'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
@@ -447,7 +453,11 @@ export async function runFire(
 				signal: abort.signal,
 				permissionMode: policy.mode,
 				reviewHold: { reason: HOLD_REASON },
-				systemNote: unattendedNote(job.name, { browser: grant !== undefined }),
+				systemNote: unattendedNote(job.name, {
+					browser: grant !== undefined,
+					now: now(),
+					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
+				}),
 				...(job.model.effort ? { effort: job.model.effort as never } : {}),
 			}),
 		)

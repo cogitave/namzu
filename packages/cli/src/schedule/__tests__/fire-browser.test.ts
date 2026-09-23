@@ -13,7 +13,7 @@ import { createAgentSession } from '../../tui/agent.js'
 import { CHILD_ENV_ALLOWLIST } from '../env.js'
 import { runFire } from '../fire/fire.js'
 import { readRunResult } from '../fire/result.js'
-import { unattendedNote } from '../fire/unattended-note.js'
+import { localTimeText, unattendedNote } from '../fire/unattended-note.js'
 import { claimOccurrence } from '../store/claims.js'
 import type { ScheduleJob } from '../types.js'
 import {
@@ -140,6 +140,35 @@ describe('what a scheduled run is told', () => {
 			/run stops there and the operator is told; do not try to get past it, never type a password/,
 		)
 		expect(unattendedNote('post')).not.toMatch(/browser/)
+	})
+})
+
+describe('the time a scheduled run is told', () => {
+	it('is the local time with its zone, not a date alone', () => {
+		const at = new Date('2026-09-23T18:04:00Z')
+		expect(localTimeText(at, 'Europe/Istanbul')).toBe(
+			'Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul)',
+		)
+		expect(unattendedNote('post', { now: at, tz: 'Europe/Istanbul' })).toContain(
+			'- It is now Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul). Use this as the current local time',
+		)
+	})
+
+	it('reaches the run’s system prompt, in the job’s zone', async () => {
+		const bodies: string[] = []
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>(async (_input, init) => {
+				bodies.push(String(init?.body ?? ''))
+				return completion()
+			}),
+		)
+		const job = confirmedJob(sb, { when: '0 9 * * *', tz: 'Asia/Tokyo' })
+		const { result } = await fire(job, { now: () => new Date('2026-09-23T18:04:00Z') })
+		expect(result?.status).toBe('completed')
+		expect(bodies.join('\n')).toContain(
+			'It is now Thursday, 24 September 2026 at 03:04 GMT+09:00 (Asia/Tokyo)',
+		)
 	})
 })
 

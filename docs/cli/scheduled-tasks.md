@@ -265,7 +265,11 @@ with the reason.
 
 The run's system prompt tells the model it is unattended: no questions
 (`ask_user_question` is not offered), calls outside its rules wait or are
-refused, and background jobs end with the run.
+refused, and background jobs end with the run. It also gives the time the run
+started, in the job's zone (`--tz`, else the host's), with its offset: `It is
+now Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul)`. The
+rest of the prompt carries the date only, and a run with no shell used to guess
+the time in UTC.
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
 `blocked-config`, `interrupted`, `approval-expired`. The run enforces its own
