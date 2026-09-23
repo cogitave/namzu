@@ -156,11 +156,13 @@ the picker is a left-to-right slider:
 
 The stops are `default`, the model's published levels from low to high, and
 then `orchestrate` after a `┆`, in violet, with `<highest level> + delegate by
-default` beneath it. The `▲` marks the stop Enter applies; the current setting's
+default` beneath it, whole: on a terminal where it would run past the right
+edge it moves left to end inside it. The `▲` marks the stop Enter applies; the current setting's
 label is green. ←/→ move it and stop at the ends; ↑/↓ do the same; a digit
 selects a stop directly; Home and End jump to the ends; Enter applies; Esc goes
 back. On the highest level and on `orchestrate` a line says they spend the most
-tokens and time. A narrower terminal, or a menu too long for one row, gets the
+tokens and time; it wraps rather than being cut, and its rows are kept blank on
+the other stops so the picker does not change height as the caret moves. A narrower terminal, or a menu too long for one row, gets the
 vertical list, with `orchestrate` as its own row below a rule. There is no
 separate key for "this session only": the setting already lasts only for the
 session. Turning the mode on pins reasoning effort to the model's
@@ -306,7 +308,7 @@ terminals place descriptions below labels.
 - **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
 - **Esc** while a turn runs interrupts it. **Ctrl+C** is reserved for exit.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
-- **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
+- **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
 

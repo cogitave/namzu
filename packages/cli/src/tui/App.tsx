@@ -7905,10 +7905,21 @@ export function App({
 				return
 			}
 			// Small expansions stay in place. Older or oversized bodies open a viewer.
+			//
+			// A settled row cannot be repainted, so its hint keeps saying Ctrl+O
+			// for as long as it is on screen; this press must keep reaching it. The
+			// first press expands the live bodies in place; the next one, while a
+			// settled body sits above them, opens the viewer on the newest settled
+			// body (←/→ reach the rest) and folds the live ones back behind it, so
+			// the press after that expands them again. Only with nothing settled to
+			// open does a second press simply collapse.
 			if (key.ctrl && input === 'o') {
-				const live = messages.filter((m) => !m.pending).slice(settledRef.current)
+				const shown = messages.filter((m) => !m.pending)
+				const live = shown.slice(settledRef.current)
 				const collapsible = live.filter((m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail))
-				const blocks = messages.filter((m) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0)
+				const hasBody = (m: TranscriptMessage) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
+				const blocks = messages.filter(hasBody)
+				const olderBlock = shown.slice(0, settledRef.current).filter(hasBody).at(-1)
 				const block = collapsible.at(-1) ?? blocks.at(-1)
 				if (!block) {
 					pushMessage('system', 'Nothing to expand yet. Ctrl+O opens retained tool output when available.')
@@ -7917,6 +7928,11 @@ export function App({
 				const expanding = collapsible.some((m) => m.detailExpanded !== true)
 				const ids = new Set(collapsible.map((m) => m.id))
 				const proposed = messages.map((m) => ids.has(m.id) ? { ...m, detailExpanded: expanding } : m)
+				if (!expanding && olderBlock) {
+					setMessages(proposed)
+					setOutputViewer(olderBlock)
+					return
+				}
 				const projected = liveWindow({ messages: proposed.filter((m) => !m.pending), rows: terminal.rows,
 					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture,
 					settled: settledRef.current, raw: rawOutput })

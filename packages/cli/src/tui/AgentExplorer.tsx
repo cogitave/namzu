@@ -164,7 +164,13 @@ export function AgentTaskPanel({
 	const queued = agents.filter((agent) => agent.status === 'queued').length
 	const counts = narrow
 		? `${active}/${agents.length}${hidden > 0 ? ` +${hidden}` : ''}`
-		: [`${running} running`, ...(queued > 0 ? [`${queued} queued`] : []), '↓ / ctrl+t'].join(' · ')
+		: [
+				`${running} running`,
+				...(queued > 0 ? [`${queued} queued`] : []),
+				// A review owns the keyboard, so neither key reaches the rail while
+				// the panel is reduced for one: it names no key it cannot keep.
+				...(compact ? [] : ['↓ / ctrl+t']),
+			].join(' · ')
 
 	return (
 		<Box flexDirection="column">

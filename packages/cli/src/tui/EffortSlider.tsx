@@ -29,6 +29,7 @@ export const EFFORT_SLIDER_MIN_COLUMNS = 60
 
 const SIDE_MARGIN = 2
 const SEPARATOR = '┆'
+const WARNING = 'Spends the most tokens and time; use it for work that splits into independent parts.'
 
 export interface EffortSliderLayout {
 	/** Column each stop's label starts at, relative to the slider's left edge. */
@@ -115,7 +116,14 @@ export function EffortSlider({
 	)
 	const modeStart = layout.starts[last] ?? 0
 	const subLabel = `${highest ? `${highest} + ` : ''}delegate by default`
+	const room = Math.max(1, columns - 2)
+	// Under the orchestrate stop, pulled left as far as it has to be to end
+	// inside the frame: the sub-label is always read whole, never cut.
+	const subStart = Math.max(0, Math.min(layout.indent + modeStart, room - stringWidth(subLabel)))
 	const warn = options.length > 2 && (selected === last || selected === last - 1)
+	// Wrapped, never cut, and the rows it takes are held when it is not
+	// shown, so moving the caret does not make the slider change height.
+	const warning = wrapWords(WARNING, Math.max(1, room - SIDE_MARGIN))
 	return (
 		<Box flexDirection="column" paddingX={1}>
 			<Text color={theme.accent.assistant} bold>
@@ -185,23 +193,35 @@ export function EffortSlider({
 			</Text>
 			{layout.separator !== undefined ? (
 				<Text color={theme.text.muted}>
-					{truncateChoiceText(
-						`${' '.repeat(layout.indent + modeStart)}${subLabel}`,
-						Math.max(1, columns - 2),
-					)}
+					{truncateChoiceText(`${' '.repeat(subStart)}${subLabel}`, room)}
 				</Text>
 			) : null}
-			<Text color={theme.text.muted}>
-				{warn
-					? truncateChoiceText(
-							`${' '.repeat(SIDE_MARGIN)}Spends the most tokens and time; use it for work that splits into independent parts.`,
-							Math.max(1, columns - 2),
-						)
-					: ' '}
-			</Text>
+			{warning.map((line, index) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines of one fixed sentence.
+				<Text key={index} color={theme.text.muted}>
+					{warn ? `${' '.repeat(SIDE_MARGIN)}${line}` : ' '}
+				</Text>
+			))}
 			<Text color={theme.text.muted}>
 				{truncateChoiceText('←/→ adjust · 1–9 select · enter apply · esc back', Math.max(1, columns - 2))}
 			</Text>
 		</Box>
 	)
+}
+
+/** Greedy word wrap at `width` columns; a word longer than a line is cut to fit. */
+function wrapWords(text: string, width: number): readonly string[] {
+	const lines: string[] = []
+	let line = ''
+	for (const word of text.split(' ')) {
+		const candidate = line.length === 0 ? word : `${line} ${word}`
+		if (stringWidth(candidate) <= width) {
+			line = candidate
+			continue
+		}
+		if (line.length > 0) lines.push(line)
+		line = stringWidth(word) <= width ? word : truncateChoiceText(word, width)
+	}
+	if (line.length > 0) lines.push(line)
+	return lines
 }

@@ -123,7 +123,9 @@ terminal under 24 rows it stays inline after the elapsed time instead, so each
 agent costs one row where rows are scarcest, and the rail shows half as many
 agents where each costs two. The rail stays on screen while an approval dialog
 is open, reduced to its header line, so the work already approved can be seen
-moving while the next launch is being decided.
+moving while the next launch is being decided. That header names no key: the
+dialog owns the keyboard, so neither ↓ nor Ctrl+T reaches the rail until it
+closes.
 
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
@@ -165,8 +167,10 @@ and never redrawn; the live state belongs to the rail.
   receipt, and it is always written before any of its agents' completions.
 - **A completion row** per agent: `✓` or `✗` (so failure reads without colour),
   the elapsed time and, when reported, the spend. The agent's final answer is
-  attached collapsed: Ctrl+O opens it in place, Ctrl+T opens the agent's whole
-  transcript. The answer is the child's text and is shown as text — terminal
+  attached collapsed. Ctrl+O opens it in place while the row is still in the
+  live region; once it has settled into history, the press after the live
+  bodies are open shows the newest settled body in the output viewer, where ←/→
+  reach the others. Ctrl+T opens the agent's whole transcript. The answer is the child's text and is shown as text — terminal
   controls in it are displayed, never obeyed.
 - **A closing line** when a turn that launched agents settles: how long the
   turn took and how many agents it launched. A turn that delegated nothing adds
@@ -486,7 +490,12 @@ verification and defers concurrency guarantees to runtime metadata.
 
 
 Ctrl+O does not reprint an old result into scrollback. When an expansion cannot
-fit the live region, a bounded output viewer owns that region instead. It
+fit the live region, a bounded output viewer owns that region instead. A body
+that has settled into history keeps its Ctrl+O hint, because a settled row is
+never repainted, so the key keeps reaching it: the first press opens the live
+bodies in place, and the next one, while a settled body sits above them, folds
+them again and opens the viewer on the newest settled body. With nothing
+settled to open, the second press only folds them. It
 paginates physical rows, preserves retained text, and supports left/right output
 navigation. Closing it restores the composer draft. Incoming approvals close the
 viewer so permission input stays reachable. This changes only presentation, not

@@ -2097,6 +2097,56 @@ describe('agent explorer projection', () => {
 })
 
 describe('agent completion presentation', () => {
+	it('Ctrl+O still reaches a completion row once it has settled into history', async () => {
+		// A settled row cannot be repainted, so its `ctrl+o result` stays on
+		// screen; the key has to keep reaching the answer behind it.
+		const first = agent({ viewId: 'child-first', taskId: 'task-first', description: 'Choose first colour' })
+		const second = agent({ viewId: 'child-second', taskId: 'task-second', description: 'Join the two colours' })
+		const done = (child: SubagentActivity, text: string): SubagentActivity => ({
+			...child,
+			transcript: [{ id: `${child.viewId}-answer`, kind: 'assistant' as const, text }],
+			status: 'completed' as const,
+			completedAt: 30,
+		})
+		activity.set([first, second])
+		sendOverride.current = async function* () {
+			yield { kind: 'delta', text: 'noted\n\n' }
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		activity.set([done(first, 'FIRST_ANSWER'), second])
+		await waitUntil(screen, () => painted(screen).includes('✓ Choose first colour · '), 'first row missing')
+		// Enough later rows that the first completion leaves the live region.
+		for (const prompt of ['one', 'two', 'three', 'four']) {
+			await submit(screen, prompt)
+			await waitUntil(
+				screen,
+				() => painted(screen).split('noted').length > ['one', 'two', 'three', 'four'].indexOf(prompt) + 1,
+				`reply to ${prompt} missing`,
+			)
+		}
+		activity.set([done(first, 'FIRST_ANSWER'), done(second, 'SECOND_ANSWER')])
+		await waitUntil(screen, () => painted(screen).includes('✓ Join the two colours · '), 'second row missing')
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).not.toContain('FIRST_ANSWER')
+		// First press: the live answer opens in place.
+		screen.press('\x0f')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('SECOND_ANSWER'), 'live answer not opened')
+		expect(screen.viewport().join('\n')).not.toContain('FIRST_ANSWER')
+		// Second press: the settled one, in the viewer.
+		screen.press('\x0f')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('FIRST_ANSWER'), 'settled answer never reachable')
+		expect(screen.viewport().join('\n')).toContain('Choose first colour')
+		screen.press('\x1b')
+		await waitUntil(screen, () => !screen.viewport().join('\n').includes('←→ outputs'), 'viewer did not close')
+		// Closed, the live answer is folded again, and the next press reopens it.
+		expect(screen.viewport().join('\n')).not.toContain('SECOND_ANSWER')
+		screen.press('\x0f')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('SECOND_ANSWER'), 'live answer not reopened')
+	})
+
 	it.each([true, false])('shows all three outcomes, retaining wait evidence when inspection is unavailable (inspectable=%s)', async (inspectable) => {
 		const children = ['CLI review', 'SDK review', 'Package review'].map((description, i) =>
 			agent({ viewId: `child-${i}`, taskId: `task-${i}`, description }),
@@ -2225,7 +2275,10 @@ describe('the rail while a review is open', () => {
 			'review never opened',
 		)
 		const during = screen.viewport().join('\n')
-		expect(during).toContain('● Two-phase colour sentence · 1 running · ↓ / ctrl+t')
+		// The review owns the keyboard: ↓ and Ctrl+T do not reach the rail
+		// while it is open, so the reduced header names neither.
+		expect(during).toContain('● Two-phase colour sentence · 1 running')
+		expect(during).not.toContain('↓ / ctrl+t')
 		expect(during).not.toContain('Choose first colour')
 		expect(during).not.toContain('⎿ Reading the palette')
 		screen.press('\x1b')
@@ -2235,6 +2288,7 @@ describe('the rail while a review is open', () => {
 			() => screen.viewport().join('\n').includes('⎿ Reading the palette'),
 			'full rail did not come back after the review',
 		)
+		expect(screen.viewport().join('\n')).toContain('· 1 running · ↓ / ctrl+t')
 	})
 })
 

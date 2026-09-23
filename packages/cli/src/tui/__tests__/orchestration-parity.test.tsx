@@ -10,6 +10,7 @@
 import { createRequire } from 'node:module'
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import stringWidth from 'string-width'
 
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { AgentTaskPanel } from '../AgentExplorer.js'
@@ -202,13 +203,13 @@ describe('the rail tree', () => {
 		expect(rows.join('\n')).not.toContain('gpt-5.6-luna')
 	})
 
-	it('reduces to its header line while a review is open', async () => {
+	it('reduces to its header line while a review is open, naming no key the review holds', async () => {
 		mounted = await renderToScreen(
 			<AgentTaskPanel agents={phase} terminalRows={40} terminalColumns={100} compact />,
 			{ cols: 100, rows: 6 },
 		)
 		const rows = mounted.viewport().filter((row) => row.trim().length > 0)
-		expect(rows).toEqual(['● İki aşamalı cümle · 1 running · 1 queued · ↓ / ctrl+t'])
+		expect(rows).toEqual(['● İki aşamalı cümle · 1 running · 1 queued'])
 	})
 })
 
@@ -280,6 +281,34 @@ describe('the effort slider', () => {
 		expect(text).toContain('←/→ adjust')
 		expect(text).not.toContain('effort orchestrate')
 		expect(text.includes('Spends the most tokens')).toBe(selected === 6)
+	})
+
+	it('keeps the sub-label and the warning whole on an 80-column terminal', async () => {
+		// App hands the slider the terminal less two columns, and lays it out on the same.
+		const columns = 78
+		const layout = effortSliderLayout(labels, columns)
+		if (!layout) throw new Error('fixture must fit')
+		const heights: number[] = []
+		for (const selected of [0, 6]) {
+			mounted = await renderToScreen(
+				<EffortSlider title="t" options={options} selected={selected} layout={layout} columns={columns} highest="max" />,
+				{ cols: 80, rows: 16 },
+			)
+			const rows = mounted.viewport()
+			const text = rows.join('\n')
+			expect(text).toContain('max + delegate by default')
+			expect(rows.every((row) => stringWidth(row.trimEnd()) <= 78)).toBe(true)
+			if (selected === 6) {
+				const flat = rows.map((row) => row.trim()).join(' ')
+				expect(flat).toContain('Spends the most tokens and time; use it for work that splits into independent parts.')
+				expect(text).not.toContain('…')
+			}
+			heights.push(rows.findIndex((row) => row.includes('←/→ adjust')))
+			await mounted.unmount()
+			mounted = undefined
+		}
+		// The warning's rows are held when it is not shown: the caret never resizes the slider.
+		expect(heights[0]).toBe(heights[1])
 	})
 
 	it('draws orchestrate in its own violet', async () => {
