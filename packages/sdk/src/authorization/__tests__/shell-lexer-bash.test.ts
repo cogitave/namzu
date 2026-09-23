@@ -368,6 +368,17 @@ function random(count: number, seed: number): string[] {
 					'`a`',
 					'<(a)',
 				]),
+			() =>
+				pick([
+					'${a:-<(a)}',
+					'${a:-$(a)}',
+					"${a:-'$(a)'}",
+					'"${a:-<(a)}"',
+					'b[<(a)]',
+					'x=<(a)',
+					'${ a; }',
+					'"$$(a)"',
+				]),
 			() => pick(['\\;', '\\ ', '\\\\', '\\$', "\\'", '\\\n', '\\#', '*', '{a,b}', '{a}']),
 		])()
 	const word = (): string => part() + repeat(2, part)
@@ -436,6 +447,9 @@ const KNOWN = [
 	"fi\\\nb=ab $'' c",
 	'a\\\n[[+',
 	'2\\\n>f a',
+	'b ${x:-<(a)}',
+	'b[x >(a)] c',
+	">&2${a:-'$(a)'}",
 ]
 
 describe.skipIf(!available)('the lexer agrees with bash', () => {

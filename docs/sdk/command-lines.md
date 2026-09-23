@@ -34,13 +34,13 @@ For each simple command it reports every word as bash passes it, after quote rem
 
 `opaque` means the commands listed may not be everything the line runs. The lexer sets it rather than guess, for:
 
-- a command or process substitution, including one inside a here-document body that expands;
+- a command or process substitution, including one inside a here-document body that expands, inside `${x:-…}` (`${x:-<(cmd)}` runs `cmd`) or inside an array subscript;
 - arithmetic that names a variable (`$((x))`, `((x))`, `${a[i]}`, `${x:i}`, `${!x}`), because bash evaluates a variable's value as arithmetic, and a value such as `a[$(cmd)]` runs `cmd`; arithmetic on literals is transparent;
 - `[[ … ]]`, whose operands are arithmetic in places;
 - a function definition or `coproc`, whose body runs under a name no rule sees;
 - a command that changes how later text is parsed: `shopt`, `enable`, `set -o posix`, `set -k`, or an assignment to `POSIXLY_CORRECT` or `BASH_COMPAT`;
 - a syntax error or an unterminated quote, and a construct nested past the limit or too costly to read (the lexer is linear in the line, and 200 KB of the shapes that invite re-reading takes about 200 ms at most);
-- two places where bash itself reads a line two ways. Inside double quotes its parser pairs `$$`, so a `(` or `{` after it is text as far as the extent of the string goes, while its expander reads the second `$` as starting `$(…)` or `${…}`: `a "$${x:-"'$(cmd)'"}"` runs `cmd`, which the parse saw single-quoted. And bash 5.2 expands the target of `>&` twice, so `x >&2'$(cmd)'` runs `cmd` there (5.3 does not). A `$$` followed by `(` or `{` in double quotes, and a quoted `>&` or `<&` target, are opaque.
+- two places where bash itself reads a line two ways. Inside double quotes its parser pairs `$$`, so a `(` or `{` after it is text as far as the extent of the string goes, while its expander reads the second `$` as starting `$(…)` or `${…}`: `a "$${x:-"'$(cmd)'"}"` runs `cmd`, which the parse saw single-quoted. And bash 5.2 expands the target of `>&` twice, so `x >&2'$(cmd)'` and `x >&2${v:-'$(cmd)'}` run `cmd` there (5.3 does not). A `$$` followed by `(` or `{` in double quotes, and a `>&` or `<&` target that is quoted or expands, are opaque.
 
 `decomposeCommandLine` adds `eval`, `source` and `.`, which run text assembled at runtime.
 

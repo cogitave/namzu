@@ -1048,11 +1048,15 @@ class Parser {
 	): ShellRedirection {
 		const target = assignmentSyntax ? this.take() : this.takePlainWord()
 		if (target.kind !== 'word') throw this.unexpected(target)
-		if ((operator.op === '>&' || operator.op === '<&') && target.word.quoted) {
-			// Bash 5.2 expands the target of `>&` twice: `x >&2'$(cmd)'` runs
-			// `cmd`, which the parse saw single-quoted (measured; fixed in
-			// 5.3, and 5.2 is what current Debian and Ubuntu ship).
-			this.context.opaque('quoted target of >& or <&')
+		if (
+			(operator.op === '>&' || operator.op === '<&') &&
+			(target.word.quoted || target.word.expands)
+		) {
+			// Bash 5.2 expands the target of `>&` twice: `x >&2'$(cmd)'` and
+			// `x >&2${v:-'$(cmd)'}` run `cmd`, which the parse saw quoted
+			// (measured; fixed in 5.3, and 5.2 is what current Debian and
+			// Ubuntu ship).
+			this.context.opaque('quoted or expanding target of >& or <&')
 		}
 		if (operator.op === '<<' || operator.op === '<<-') {
 			if (target.word.value.includes('\n')) {
@@ -1781,6 +1785,11 @@ class Parser {
 				i = this.dollar(i, scratch, false)
 				continue
 			}
+			if ((char === '<' || char === '>') && src[this.cont(i + 1)] === '(') {
+				// Measured: `b[<(cmd)]` runs `cmd`.
+				i = this.processSubstitution(i, scratch)
+				continue
+			}
 			if (char === '[') depth += 1
 			else if (char === ']') {
 				if (depth === 0) return i + 1
@@ -1987,6 +1996,12 @@ class Parser {
 			}
 			if (char === '$') {
 				i = this.dollar(i, scratch, inDouble)
+				continue
+			}
+			if ((char === '<' || char === '>') && src[this.cont(i + 1)] === '(') {
+				// Measured: unquoted, `${x:-<(cmd)}` runs `cmd`. Inside double
+				// quotes bash still parses it, and rejects a malformed one.
+				i = this.processSubstitution(i, scratch)
 				continue
 			}
 			i += 1
