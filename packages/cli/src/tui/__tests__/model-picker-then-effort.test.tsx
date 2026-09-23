@@ -143,10 +143,10 @@ async function submit(screen: Screen, text: string) {
 	await press(screen, text)
 	await press(screen, '\r')
 }
-async function open() {
+async function open(cols = 100) {
 	const screen = await renderToScreen(
 		<App ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }} />,
-		{ cols: 100, rows: 30 },
+		{ cols, rows: 30 },
 	)
 	screens.push(screen)
 	await shows(screen, 'Type a message')
@@ -161,11 +161,22 @@ async function chooseNextModel(screen: Screen) {
 	await until(screen, () => constructed.length === 2, 'Replacement construction did not start')
 	expect(constructed[1]?.prefs.providers[0]?.model).toBe(NEXT)
 }
+/** The stops of the effort slider, read off its label row (the one carrying the `┆` before orchestrate). */
 function choices(screen: Screen) {
-	return screen.viewport().flatMap((row) => {
-		const match = /^\s*│\s*(?:›\s*)?\d+\.\s+(\S+)/u.exec(row)
-		return match ? [match[1]] : []
-	})
+	const row = screen.viewport().find((line) => line.includes('┆ orchestrate')) ?? ''
+	return row.replace('┆', ' ').trim().split(/\s+/u).filter(Boolean)
+}
+/** The stop the slider's `▲` caret sits under. */
+function caretStop(screen: Screen): string | undefined {
+	const rows = screen.viewport()
+	const ruler = rows.findIndex((line) => line.includes('▲'))
+	const labels = rows[ruler + 1] ?? ''
+	const column = [...(rows[ruler] ?? '')].indexOf('▲')
+	for (const match of labels.matchAll(/\S+/gu)) {
+		const start = [...labels.slice(0, match.index)].length
+		if (column >= start && column < start + [...match[0]].length) return match[0]
+	}
+	return undefined
 }
 
 it('offers exactly the hydrated model levels and sends the chosen effort on the replacement', async () => {
@@ -182,7 +193,7 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 		'xhigh',
 		'orchestrate',
 	])
-	expect(screen.viewport().join('\n')).toMatch(/›\s*1\.\s+default\s+\[current\] \[default\]/u)
+	expect(caretStop(screen)).toBe('default')
 	expect(closeOld).toHaveBeenCalledTimes(1)
 	expect(sent).toHaveLength(0)
 	// Select the exact published level by number rather than End, which now
@@ -203,6 +214,38 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await until(screen, () => sent.length === 2, 'Separate effort command did not resume composer')
 	expect(sent[1]?.model).toBe(NEXT)
 	expect(sent[1]?.options?.effort).toBeUndefined()
+})
+
+it('moves the slider with ←/→, clamps at both ends, and applies orchestrate as a mode', async () => {
+	const screen = await open()
+	await submit(screen, '/effort')
+	await shows(screen, 'Select Reasoning Level')
+	expect(choices(screen)).toEqual(['default', 'low', 'high', 'orchestrate'])
+	await press(screen, '\x1b[D')
+	expect(caretStop(screen)).toBe('default')
+	await press(screen, '\x1b[C')
+	expect(caretStop(screen)).toBe('low')
+	// ↑/↓ still move it, for the hands that learned the list.
+	await press(screen, '\x1b[B')
+	expect(caretStop(screen)).toBe('high')
+	for (let i = 0; i < 4; i++) await press(screen, '\x1b[C')
+	expect(caretStop(screen)).toBe('orchestrate')
+	expect(screen.viewport().join('\n')).toContain('high + delegate by default')
+	expect(screen.viewport().join('\n')).toContain('←/→ adjust')
+	await press(screen, '\r')
+	await shows(screen, 'Type a message')
+	const footer = screen.viewport().join('\n')
+	expect(footer).toContain('orchestrate')
+	expect(footer).not.toContain('effort orchestrate')
+})
+
+it('keeps the vertical list on a terminal too narrow for the slider', async () => {
+	const screen = await open(59)
+	await submit(screen, '/effort')
+	await shows(screen, 'Select Reasoning Level')
+	const text = screen.viewport().join('\n')
+	expect(text).not.toContain('▲')
+	expect(text).toMatch(/\d\.\s+orchestrate/u)
 })
 
 it('keeps the selected model with provider-default effort when the effort menu is cancelled', async () => {

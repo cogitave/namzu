@@ -140,6 +140,7 @@ import {
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
+import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
 import { BrandHeader } from './BrandHeader.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import { emptyPluginReport, pluginDetails, pluginOption, pluginStartupState } from './plugin-view.js'
@@ -150,6 +151,7 @@ import {
 	suggestionWindowSize,
 } from './Composer.js'
 import { ComposerFrame } from './ComposerFrame.js'
+import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
@@ -503,6 +505,13 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
  */
 const STREAM_RELEASE_MS = 250
 
+/**
+ * How long a batch of delegated agents stays still before its launch receipt
+ * is written. Agents of one response are begun within a few milliseconds of
+ * one another; this is the margin that keeps them on one receipt.
+ */
+const RECEIPT_SETTLE_MS = 250
+
 /** How a turn ended, as the transcript and notifications describe it. */
 type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
 
@@ -534,6 +543,8 @@ type StreamState = {
 	notification: TerminalNotification | null
 	/** Names this stream's task blocks, so one turn never extends another's. */
 	taskBlockKey?: string
+	/** When this turn began, for the closing line of a turn that delegated. */
+	startedAt?: number
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -1833,12 +1844,70 @@ export function App({
 		[hydrateSavedChildren, pushMessage, setAgentSurface],
 	)
 
+	/**
+	 * Delegated work writes three kinds of row into settled history (see
+	 * `agent-transcript-rows.ts`): a launch receipt per batch, then one
+	 * completion row per agent. Each is exactly-once, gated by its own set,
+	 * and a batch's receipt is always written before any of its completions.
+	 *
+	 * A receipt waits until the batch is whole — no `Agent` call of the turn is
+	 * still starting without a row of its own, and the newest member arrived
+	 * at least {@link RECEIPT_SETTLE_MS} ago — so two agents launched in one
+	 * response read as one launch rather than two. A member that already
+	 * finished forces the receipt out, so it never trails its completion.
+	 */
 	const reportedAgentsRef = useRef(new Set<string>())
+	const reportedBatchesRef = useRef(new Set<string>())
+	const batchSeenAtRef = useRef(new Map<string, { readonly at: number; readonly count: number }>())
+	const [receiptTick, setReceiptTick] = useState(0)
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
+		reportedBatchesRef.current.clear()
+		batchSeenAtRef.current.clear()
 	}, [session])
 	useEffect(() => {
+		void receiptTick
 		const current = session?.subagents?.getSnapshot() ?? []
+		const now = Date.now()
+		const batches = new Map<string, SubagentActivity[]>()
+		for (const agent of subagents) {
+			if (agent.replayed) continue
+			if (!current.some((item) => item.viewId === agent.viewId)) continue
+			const key = JSON.stringify([agent.workflowId, agent.batchId])
+			const members = batches.get(key) ?? []
+			members.push(agent)
+			batches.set(key, members)
+		}
+		const launching = activeTools.some(
+			(tool) =>
+				tool.toolName.toLowerCase() === 'agent' &&
+				!subagents.some(
+					(agent) =>
+						agent.toolUseId === tool.id &&
+						(tool.turnId === undefined || agent.workflowId === tool.turnId),
+				),
+		)
+		let retryIn: number | undefined
+		for (const [key, members] of batches) {
+			if (reportedBatchesRef.current.has(key)) continue
+			// Re-stamped when the batch grows: the settle window runs from its newest member.
+			const previous = batchSeenAtRef.current.get(key)
+			const stamp =
+				previous !== undefined && previous.count === members.length
+					? previous.at
+					: now
+			if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
+			const settledMember = members.some((agent) =>
+				['completed', 'failed', 'cancelled'].includes(agent.status),
+			)
+			const waited = now - stamp
+			if (!settledMember && (launching || waited < RECEIPT_SETTLE_MS)) {
+				retryIn = Math.min(retryIn ?? RECEIPT_SETTLE_MS, Math.max(50, RECEIPT_SETTLE_MS - waited))
+				continue
+			}
+			reportedBatchesRef.current.add(key)
+			pushMessage('tool', launchReceipt(members).content, false, '●', undefined, theme.accent.assistant)
+		}
 		for (const agent of subagents) {
 			if (
 				!current.some(
@@ -1851,22 +1920,36 @@ export function App({
 				continue
 			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) continue
 			if (reportedAgentsRef.current.has(agent.viewId)) continue
+			// Its receipt first, even if that means writing it alone.
+			const key = JSON.stringify([agent.workflowId, agent.batchId])
+			if (!agent.replayed && !reportedBatchesRef.current.has(key)) {
+				reportedBatchesRef.current.add(key)
+				pushMessage(
+					'tool',
+					launchReceipt(batches.get(key) ?? [agent]).content,
+					false,
+					'●',
+					undefined,
+					theme.accent.assistant,
+				)
+			}
 			reportedAgentsRef.current.add(agent.viewId)
-			const completed = agent.status === 'completed'
-			const status = completed
-				? 'Completed'
-				: (agent.latestActivity ?? (agent.status === 'cancelled' ? 'Cancelled' : 'Failed'))
+			const row = completionRow(agent)
 			pushMessage(
 				'tool',
-				`${agent.description} · ${status}`,
+				row.content,
 				false,
-				completed ? '✓' : '✗',
-				undefined,
-				completed ? theme.status.ok : theme.status.error,
-				'ctrl+t · agent details',
+				row.ok ? '✓' : '✗',
+				row.detail.length > 0 ? row.detail : undefined,
+				row.ok ? theme.status.ok : theme.status.error,
+				row.hint,
+				row.detail.length > 0 ? 'agent-result' : undefined,
 			)
 		}
-	}, [subagents, pushMessage, session])
+		if (retryIn === undefined) return
+		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
+		return () => clearTimeout(timer)
+	}, [subagents, activeTools, pushMessage, session, receiptTick])
 
 	/**
 	 * A delivered `send_message` correction already lands its own row inside
@@ -4666,7 +4749,9 @@ export function App({
 								)
 							: undefined
 					const tool: RunningTool = {
-						...(waitingAgent ? { taskId: waitingAgent.taskId } : {}),
+						...(waitingAgent
+							? { taskId: waitingAgent.taskId, waitingOn: waitingAgent.description }
+							: {}),
 						id: event.toolUseId,
 						...(event.turnId ? { turnId: event.turnId } : {}),
 						toolName: event.toolName,
@@ -4961,6 +5046,14 @@ export function App({
 					closeAssistant()
 					const stopNotice = describeTurnStop(event.stopReason, event.budget)
 					if (stopNotice) pushMessage('system', stopNotice, false, '■')
+					if (st.startedAt !== undefined) {
+						const since = st.startedAt
+						const delegated = subagentsRef.current.filter(
+							(agent) => agent.replayed !== true && agent.startedAt >= since,
+						).length
+						const closing = settleLine(Date.now() - since, delegated)
+						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
+					}
 					break
 				}
 				case 'paused':
@@ -5125,6 +5218,7 @@ export function App({
 			// renders each one in order.
 			const st: StreamState = {
 				assistantId: null,
+				startedAt: Date.now(),
 				text: '',
 				conversationMessages: undefined,
 				pending: '',
@@ -7715,8 +7809,12 @@ export function App({
 					)
 					return
 				}
-				if (key.upArrow) {
+				if (key.upArrow || (key.leftArrow && picker.kind === 'reasoning-effort')) {
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'previous'))
+					return
+				}
+				if (key.rightArrow && picker.kind === 'reasoning-effort') {
+					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
 				}
 				if (key.downArrow) {
@@ -7900,6 +7998,15 @@ export function App({
 		agentSurface === null
 			? goalStatusLabel(goalStatus, goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false)
 			: null
+	// The effort chooser is a left-to-right slider wherever its stops fit on
+	// one row, and the vertical list everywhere else (see EffortSlider.tsx).
+	const effortSlider =
+		choicePicker?.kind === 'reasoning-effort'
+			? effortSliderLayout(
+					choicePicker.options.map((option) => option.label),
+					Math.max(1, (terminal.columns ?? 80) - 2),
+				)
+			: undefined
 	const statusHint =
 		conversationMutation === 'fork'
 			? 'forking conversation — input is paused'
@@ -7926,7 +8033,9 @@ export function App({
 											: choicePicker
 												? choicePickerSearchable(choicePicker)
 													? 'type to filter · ↑↓ select · enter apply · esc back'
-													: '↑↓ / 1–9 select · enter apply · esc back'
+													: effortSlider
+														? '←/→ adjust · 1–9 select · enter apply · esc back'
+														: '↑↓ / 1–9 select · enter apply · esc back'
 												: copyPicker
 													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
 													: goalStatus && phase === 'ready' && state === 'idle'
@@ -8091,6 +8200,20 @@ export function App({
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
+						) : permission === null &&
+						  agentSurface === null &&
+						  outputViewer === null &&
+						  choicePicker?.kind === 'reasoning-effort' &&
+						  effortSlider ? (
+							<EffortSlider
+								title={choicePicker.title}
+								notice={choicePicker.notice}
+								options={choicePicker.options}
+								selected={selectedChoice}
+								layout={effortSlider}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								highest={choicePicker.options.at(-2)?.label === 'default' ? undefined : choicePicker.options.at(-2)?.label}
+							/>
 						) : permission === null && agentSurface === null && outputViewer === null && choicePicker ? (
 							<ChoicePicker
 								busy={'busy' in choicePicker && choicePicker.busy === true}
@@ -8107,6 +8230,7 @@ export function App({
 						) : null}
 						<ComposerFrame
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
+							{...(orchestrateMode ? { mode: 'orchestrate' } : {})}
 							focus={
 								phase === 'ready' &&
 								state !== 'awaiting-permission' &&
@@ -8237,14 +8361,17 @@ export function App({
 					<AgentNarrationBand lines={narration} />
 				) : null}
 				{showComposerSurface &&
-				permission === null &&
 				agentSurface === null &&
 				outputViewer === null &&
 				liveSubagents.length > 0 ? (
+					// Still drawn while a review is open, reduced to its header line:
+					// the work already approved keeps moving, and the operator
+					// deciding the next launch should be able to see that it does.
 					<AgentTaskPanel
 						agents={liveSubagents}
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
+						compact={permission !== null}
 					/>
 				) : showComposerSurface && permission === null && agentSurface?.kind === 'cockpit' ? (
 					<AgentCockpit

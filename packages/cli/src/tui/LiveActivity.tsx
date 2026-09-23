@@ -19,6 +19,12 @@ export interface ActiveTool {
 	/** Latest bounded progress state; intermediate updates are intentionally coalesced. */
 	readonly progress?: string
 	readonly fraction?: number
+	/**
+	 * Set when this call is a `wait_for_task` on a delegated agent the monitor
+	 * knows: that agent's description. When every running call is such a
+	 * wait, the rows fold into one `✻ Waiting for …` line.
+	 */
+	readonly waitingOn?: string
 }
 
 export interface LiveActivityProps {
@@ -91,8 +97,16 @@ export function LiveActivity({
 	)
 	const now = Date.now()
 	const elapsed = formatElapsed(now - (startedAtRef.current ?? now))
-	const visibleTools = activeTools.slice(0, MAX_VISIBLE_TOOLS)
-	const hiddenTools = activeTools.length - visibleTools.length
+	const waiting = waitingLine(activeTools)
+	const visibleTools = waiting ? [] : activeTools.slice(0, MAX_VISIBLE_TOOLS)
+	const hiddenTools = waiting ? 0 : activeTools.length - visibleTools.length
+	const waitingRow = waiting ? (
+		<Box paddingLeft={2}>
+			<Text color={theme.text.secondary} wrap="truncate-end">
+				✻ {terminalDisplayText(waiting)}
+			</Text>
+		</Box>
+	) : null
 
 	if (compact) {
 		const current = activeTools[0]
@@ -108,7 +122,9 @@ export function LiveActivity({
 							: ''}
 					</Text>
 				</Box>
-				{current ? (
+				{waitingRow ? (
+					waitingRow
+				) : current ? (
 					<Box paddingLeft={2}>
 						<Text color={theme.text.secondary} wrap="truncate-end">
 							{terminalDisplayText(current.label)}
@@ -141,6 +157,7 @@ export function LiveActivity({
 					{interruptible ? ' · esc to interrupt' : ''})
 				</Text>
 			</Box>
+			{waitingRow}
 			{visibleTools.map((t, index) => {
 				const percent = t.fraction === undefined ? '' : `${Math.round(t.fraction * 100)}% · `
 				return (
@@ -181,6 +198,17 @@ export function LiveActivity({
 			) : null}
 		</Box>
 	)
+}
+
+/**
+ * One line for a turn that is only waiting on its delegated agents, or
+ * `undefined` when any running call is something else — a wait mixed with
+ * real work keeps every row, so the work is never hidden behind the wait.
+ */
+export function waitingLine(tools: readonly ActiveTool[]): string | undefined {
+	if (tools.length === 0 || !tools.every((tool) => tool.waitingOn !== undefined)) return undefined
+	const names = [...new Set(tools.map((tool) => tool.waitingOn as string))]
+	return names.length === 1 ? `Waiting for ${names[0]}` : `Waiting for ${names.length} agents to finish`
 }
 
 /** `420ms` → `0.4s`, `3210ms` → `3.2s`, `12000ms` → `12s`, `83000ms` → `1m23s`. */

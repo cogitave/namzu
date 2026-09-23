@@ -96,7 +96,10 @@ const activity = vi.hoisted(() => {
 let releaseParent: () => void = () => {}
 let parentGate = Promise.resolve()
 const sendOverride: {
-	current?: (messages: readonly Message[]) => AsyncIterable<AgentEvent>
+	current?: (
+		messages: readonly Message[],
+		opts?: Parameters<AgentSession['send']>[1],
+	) => AsyncIterable<AgentEvent>
 } = vi.hoisted(() => ({}))
 /**
  * What this session's finished children left on disk, as the replay reads it.
@@ -193,9 +196,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 				throw new Error('resumePaused is not part of this test')
 			},
 			close: async () => {},
-			send: async function* (messages: readonly Message[]): AsyncIterable<AgentEvent> {
+			send: async function* (
+				messages: readonly Message[],
+				opts?: Parameters<AgentSession['send']>[1],
+			): AsyncIterable<AgentEvent> {
 				if (sendOverride.current) {
-					yield* sendOverride.current(messages)
+					yield* sendOverride.current(messages, opts)
 					return
 				}
 				if (JSON.stringify(messages).includes('reused tool id')) {
@@ -303,7 +309,7 @@ async function waitUntil(screen: Screen, predicate: () => boolean, message: stri
 		if (predicate()) return
 		await new Promise<void>((resolve) => setImmediate(resolve))
 	}
-	throw new Error(message)
+	throw new Error(`${message}\n${screen.viewport().join('\n')}`)
 }
 
 function painted(screen: Screen): string {
@@ -504,11 +510,11 @@ describe('Ctrl+T', () => {
 
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('3 active · 4 total'),
+				() => screen.viewport().join('\n').includes('3 running · ↓ / ctrl+t'),
 				'completed sibling did not remain beside its live cohort',
 			)
 			const liveFrame = screen.viewport().join('\n')
-			expect(liveFrame).toContain('3 active · 4 total')
+			expect(liveFrame).toContain('3 running · ↓ / ctrl+t')
 			expect(liveFrame).not.toContain('private reasoning must stay hidden')
 
 			for (let index = 1; index < 4; index += 1) {
@@ -524,12 +530,12 @@ describe('Ctrl+T', () => {
 			await Promise.all(executions)
 			await waitUntil(
 				screen,
-				() => !screen.viewport().join('\n').includes('active · 4 total'),
+				() => !screen.viewport().join('\n').includes('running · ↓ / ctrl+t'),
 				'settled runtime cohort remained visible',
 			)
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Runtime child 4 · Completed'),
+				() => painted(screen).includes('✓ Runtime child 4 · '),
 				'runtime completion missing',
 			)
 			expect(screen.viewport().join('\n')).toContain('Type a message')
@@ -632,7 +638,7 @@ describe('Ctrl+T', () => {
 			await submit(screen, 'production executor fan-out')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('4 active · 4 total'),
+				() => screen.viewport().join('\n').includes('4 running · ↓ / ctrl+t'),
 				'real query fan-out did not reach the automatic panel',
 			)
 			await expect(allChildrenStarted).resolves.toBeUndefined()
@@ -649,7 +655,12 @@ describe('Ctrl+T', () => {
 			// scheduler can never reach this assertion; no wall-clock threshold is
 			// involved.
 			expect(screen.writes().join('')).not.toContain('Agent(Production child')
-			expect(screen.viewport().join('\n')).not.toContain('Production fan-out')
+			// The live rail has left with its settled cohort; what stays is the
+			// launch receipt, which names the batch once in settled history.
+			expect(screen.viewport().join('\n')).not.toContain('running · ↓ / ctrl+t')
+			expect(painted(screen).match(/Launched 4 agents · Production fan-out/g)).toHaveLength(1)
+			// The turn delegated, so it closes with one line saying so.
+			expect(painted(screen)).toMatch(/✻ Worked for \S+ · 4 agents/u)
 		} finally {
 			releaseChildren()
 			delete sendOverride.current
@@ -710,7 +721,7 @@ describe('Ctrl+T', () => {
 		])
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('active · 2 total'),
+			() => !screen.viewport().join('\n').includes('running · ↓ / ctrl+t'),
 			'settled cohort remained docked',
 		)
 		expect(screen.viewport().join('\n')).toContain('draft survives')
@@ -1389,7 +1400,7 @@ describe('Ctrl+T', () => {
 			() => painted(screen).includes('parent finished'),
 			'parent result missing after returning from the child',
 		)
-		expect(screen.viewport().join('\n')).toContain('Child session · Completed')
+		expect(screen.viewport().join('\n')).toContain('✓ Child session · ')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
 
 		await submit(screen, '/agents')
@@ -1549,7 +1560,10 @@ describe('agent explorer projection', () => {
 
 	it('bounds automatic agent rows from the terminal height', () => {
 		expect(agentTaskPanelPageSize(15)).toBe(1)
-		expect(agentTaskPanelPageSize(30)).toBe(4)
+		// One row per agent below 24 rows; two (the row and its `⎿` activity
+		// line) from 24 up, so the same row budget buys half as many agents.
+		expect(agentTaskPanelPageSize(20)).toBe(2)
+		expect(agentTaskPanelPageSize(30)).toBe(3)
 		const agents = Array.from({ length: 6 }, (_, index) =>
 			agent({ viewId: `agent-${index}`, description: `Worker ${index}` }),
 		)
@@ -1579,7 +1593,7 @@ describe('agent explorer projection', () => {
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Audit dependencies')
 		expect(frame).toContain('test-model-large')
-		expect(frame).toContain('42.1k · 18 tools')
+		expect(frame).toContain('18 tools · 42.1k')
 	})
 
 	it('a narrow viewport drops counters before the description', async () => {
@@ -1627,7 +1641,7 @@ describe('agent explorer projection', () => {
 		mounted = screen
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Audit dependencies')
-		expect(frame).toContain('42.1k · 18 tools')
+		expect(frame).toContain('18 tools · 42.1k')
 	})
 
 	it('a long model id never erases the description in the agent cockpit', async () => {
@@ -2123,8 +2137,8 @@ describe('agent completion presentation', () => {
 			await submit(screen, 'review')
 			await waitUntil(
 				screen,
-				() => screen.viewport().join('\n').includes('Waiting · CLI review'),
-				'named wait missing',
+				() => screen.viewport().join('\n').includes('✻ Waiting for 2 agents to finish'),
+				'folded wait line missing',
 			)
 			const finished = children.map((child) => ({
 				...child,
@@ -2136,25 +2150,91 @@ describe('agent completion presentation', () => {
 			finishWaits()
 			await waitUntil(
 				screen,
-				() => painted(screen).includes('Package review · Completed'),
+				() => painted(screen).includes('✓ Package review · '),
 				'unwaited child completion missing',
 			)
 			activity.set([...finished])
 			await screen.waitForRender()
 			const output = painted(screen)
 			for (const child of children)
-				expect(output.split(`${child.description} · Completed`)).toHaveLength(2)
+				expect(output.split(`✓ ${child.description} · `)).toHaveLength(2)
 			if (inspectable) {
 				expect(output).not.toContain('task_id:')
 				expect(output).not.toContain('Agent result:')
+				// The answer rides on the completion row, collapsed; Ctrl+O opens it.
+				expect(output).not.toContain('full report from child')
+				expect(output).toContain('ctrl+o result · ctrl+t details')
+				screen.press('\x0f')
+				await waitUntil(
+					screen,
+					() => screen.viewport().join('\n').includes('full report from child'),
+					'Ctrl+O did not open the agent result',
+				)
 			} else {
 				expect(output).toContain('task_id:')
 				expect(output).toContain('full report from child')
 			}
-			expect(output).toContain('ctrl+t · agent details')
+			expect(output).toContain('ctrl+t details')
 		} finally {
 			finishWaits()
 		}
+	})
+})
+
+describe('the rail while a review is open', () => {
+	it('keeps the header line under the review and draws no agent rows', async () => {
+		activity.set([
+			agent({
+				viewId: 'approved',
+				description: 'Choose first colour',
+				workflow: 'Two-phase colour sentence',
+				latestActivity: 'Reading the palette',
+			}),
+		])
+		let answer!: (decision: unknown) => void
+		const decided = new Promise((resolve) => {
+			answer = resolve
+		})
+		sendOverride.current = async function* (_messages, opts) {
+			yield { kind: 'delta', text: 'launching the second agent' }
+			const decision = await opts?.onPermission?.({
+				toolCalls: [
+					{
+						id: 'agent-two',
+						name: 'Agent',
+						input: { description: 'Choose second colour', prompt: 'Name one colour.' },
+						isDestructive: false,
+					},
+				],
+			})
+			answer(decision)
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 30 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('⎿ Reading the palette'),
+			'full rail missing before the review',
+		)
+		await submit(screen, 'start both')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Start an agent'),
+			'review never opened',
+		)
+		const during = screen.viewport().join('\n')
+		expect(during).toContain('● Two-phase colour sentence · 1 running · ↓ / ctrl+t')
+		expect(during).not.toContain('Choose first colour')
+		expect(during).not.toContain('⎿ Reading the palette')
+		screen.press('\x1b')
+		await decided
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('⎿ Reading the palette'),
+			'full rail did not come back after the review',
+		)
 	})
 })
 
@@ -2426,9 +2506,10 @@ describe('render order below the message frame', () => {
 		const border = frameBottomBorder(screen)
 		expect(viewport[border + 1]).toContain('shift+tab to cycle')
 		// Directly under the footer, not the transcript/composer: the rail's
-		// own top border, one row below where the footer landed.
+		// header line, one row below where the footer landed. The rail has no
+		// box any more; its header starts with the live `●`.
 		const railTop = viewport[border + 2] ?? ''
-		expect(railTop.trimStart().charAt(0)).toBe('┌')
+		expect(railTop.trimStart().charAt(0)).toBe('●')
 		const frame = screen.viewport().join('\n')
 		// One agent carries a label and the other does not, so the rail is not
 		// entitled to either agent's label — it gets the neutral count.
@@ -2451,7 +2532,7 @@ describe('render order below the message frame', () => {
 		const border = frameBottomBorder(screen)
 		expect((viewport[border + 1] ?? '').length).toBeGreaterThan(0)
 		const railTop = viewport[border + 2] ?? ''
-		expect(railTop.trimStart().charAt(0)).toBe('┌')
+		expect(railTop.trimStart().charAt(0)).toBe('●')
 	})
 })
 
@@ -2477,10 +2558,14 @@ describe('parent narration', () => {
 	function railBlock(screen: Screen): string[] {
 		const rows = screen.viewport()
 		const below = frameBottom(screen)
-		const top = rows.findIndex((row, index) => index > below && row.trimStart().startsWith('┌'))
-		expect(top, 'rail top border not on screen').toBeGreaterThan(below)
-		const bottom = rows.findIndex((row, index) => index > top && row.trimStart().startsWith('└'))
-		expect(bottom, 'rail bottom border not on screen').toBeGreaterThan(top)
+		const top = rows.findIndex((row, index) => index > below && row.trimStart().startsWith('●'))
+		expect(top, 'rail header not on screen').toBeGreaterThan(below)
+		// The last agent's branch is `└`; everything from the header through it
+		// (and its activity line, when one is drawn) is the rail.
+		const last = rows.findIndex((row, index) => index > top && row.trimStart().startsWith('└'))
+		expect(last, 'rail last branch not on screen').toBeGreaterThan(top)
+		let bottom = last
+		while (bottom + 1 < rows.length && (rows[bottom + 1] ?? '').trim().startsWith('⎿')) bottom += 1
 		return rows.slice(top, bottom + 1)
 	}
 
@@ -2499,10 +2584,10 @@ describe('parent narration', () => {
 		)
 		const quiet = screen.viewport()
 		const railTop = frameBottom(screen) + 2
-		expect((quiet[railTop] ?? '').trimStart().charAt(0)).toBe('┌')
-		// What the rail shows, read from its own top border, so the comparison
+		expect((quiet[railTop] ?? '').trimStart().charAt(0)).toBe('●')
+		// What the rail shows, read from its own header, so the comparison
 		// below is about the rail's rows rather than about where it sits.
-		const railRows = quiet.slice(railTop, railTop + 4)
+		const railRows = railBlock(screen)
 
 		activity.narrate([
 			line('narration-1', 'map returned five lenses, one with a correction'),
@@ -2517,22 +2602,20 @@ describe('parent narration', () => {
 		const viewport = screen.viewport()
 		const border = frameBottom(screen)
 		// The footer stays directly under the frame; narration follows it, and
-		// the rail's border follows the narration — commentary above the box,
+		// the rail's header follows the narration — commentary above the tree,
 		// never inside it and never between the frame and its footer.
 		expect(viewport[border + 1]).toContain('shift+tab to cycle')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
-		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('┌')
+		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('●')
 		// The rail itself is untouched: same rows, same order, same count. An
 		// agent row is never spent on commentary.
-		expect(viewport.slice(border + 4, border + 8)).toEqual(railRows)
-		// Aligned with the rail's own inner text rather than with its border:
-		// the column an agent row's own content starts in, past the border and
-		// the panel's padding.
-		const railRow = viewport[border + 5] ?? ''
-		const inner = railRow.indexOf('│') + 2
+		expect(railBlock(screen)).toEqual(railRows)
+		// Aligned with the rail's title, past its two-cell header glyph.
+		const header = viewport[border + 4] ?? ''
+		const title = header.indexOf('●') + 2
 		const narrationRow = viewport[border + 2] ?? ''
-		expect(narrationRow.length - narrationRow.trimStart().length).toBe(inner)
+		expect(narrationRow.length - narrationRow.trimStart().length).toBe(title)
 	})
 
 	it('shows a written line once, and keeps the row for one that was refused', async () => {
@@ -2617,7 +2700,7 @@ describe('parent narration', () => {
 			'narration missing',
 		)
 
-		// Byte-identical, borders included: the same rows, the same count, the
+		// Byte-identical, header included: the same rows, the same count, the
 		// same `+N more` — nothing hidden and nothing pushed past the bottom.
 		expect(railBlock(screen)).toEqual(quiet)
 		const viewport = screen.viewport()
@@ -2625,7 +2708,7 @@ describe('parent narration', () => {
 		expect(viewport[border + 1]).toContain('shift+tab to cycle')
 		expect(viewport[border + 2]).toContain('map returned five lenses')
 		expect(viewport[border + 3]).toContain('verifying the storage claim')
-		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('┌')
+		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('●')
 	})
 
 	it('leaves a turn with no narration exactly as it was', async () => {

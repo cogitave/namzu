@@ -76,7 +76,7 @@ what was said without opening the child's screen. Each side shows the message
 exactly once, however many times the surface re-renders.
 
 `narrate_work` takes one `line` and shows it to the operator directly above the
-agent rail, outside the rail's border, in the parent's own voice. It starts,
+agent rail, outside the rail's tree, in the parent's own voice. It starts,
 corrects, stops and re-orders nothing: the line is commentary about work the
 rail already reports, and no surface reads it back. Only the three most recent
 lines stay on screen — a further line drops the oldest — each is clipped to one
@@ -120,12 +120,25 @@ presented as trusted narration, which is what wrapping a child's output as
 untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
-Each observed agent completion adds one named status row to the main transcript,
-whether or not the model calls `wait_for_task`. A correlated wait shows
-`Waiting · <task name>` while active; its successful protocol response does not
-add a second report to the transcript. Unknown waits and tool errors remain
+Each batch of agents one response launched adds one launch receipt to the main
+transcript, `● Launched 2 agents · <workflow> / <phase>` with the agents named
+beneath it, and each observed agent completion adds one named row, whether or
+not the model calls `wait_for_task`: `✓ <name> · 1.7s · 9.0k tokens`, or
+`✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
+attached to its row, collapsed; Ctrl+O opens it. A turn that launched agents
+ends with `✻ Worked for <time> · <N> agents`. See
+[Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
+the layout. When every running call is a correlated wait, the rows fold into
+one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
+own `Waiting · <task name>` row. Its successful protocol response does not add
+a second report to the transcript. Unknown waits and tool errors remain
 visible. Press Ctrl+T to inspect agent transcripts and results. Failed, cancelled
 and incomplete work keeps its reported status rather than appearing completed.
+
+The automatic rail stays on screen while an approval dialog is open, reduced to
+its header line, so agents already approved can be seen working while the next
+launch is decided. Every agent launch is still reviewed in `prompt` mode,
+read-only ones included.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same
@@ -199,7 +212,8 @@ the cockpit already drops its other secondary text there.
 Each row in the automatic rail, the agent cockpit and the child transcript
 header shows the child's status, elapsed time, description and — when the
 host reported them — its resolved model and live counters: cumulative spend
-compacted to `42.1k`/`1.38M` and a `· N tools` tool-call count, both drawn
+compacted to `42.1k`/`1.38M` and a `N tools` tool-call count (the rail puts the
+tool count and spend before the model, the cockpit after it), both drawn
 from the same session events the transcript itself renders and never a percentage
 or fill bar. Spend is the child's cumulative usage, not its current context
 size, which is a different number that falls on compaction. A child that has

@@ -67,9 +67,9 @@ export interface AgentNarrationBandProps {
 }
 
 /**
- * The parent's own commentary, directly above the rail and OUTSIDE its border.
+ * The parent's own commentary, directly above the rail and outside its tree.
  *
- * Outside is the point. Inside the frame these rows would read as chrome the
+ * Outside is the point. Inside the tree these rows would read as chrome the
  * panel emitted about its agents; above it, unboxed and aligned with the
  * rail's inner text, they read as the turn talking — which is what they are
  * (see {@link SubagentNarrationLine} for why only the parent may write one).
@@ -94,8 +94,8 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingX 2 lands the text where the rail's own inner text starts —
-		// past its border and its padding — so the two columns line up.
+		// paddingX 2 lands the text where the rail's title starts — past its
+		// two-cell header glyph — so the two columns line up.
 		<Box flexDirection="column" paddingX={2}>
 			{lines.map((line) => (
 				<Box key={line.id}>
@@ -112,6 +112,12 @@ export interface AgentTaskPanelProps {
 	readonly agents: readonly SubagentActivity[]
 	readonly terminalRows: number
 	readonly terminalColumns: number
+	/**
+	 * Draw the header line only. Used while a review owns the screen: the
+	 * operator still sees that the work they already approved is moving,
+	 * without the rows competing with the question being asked.
+	 */
+	readonly compact?: boolean
 }
 
 /**
@@ -121,12 +127,23 @@ export interface AgentTaskPanelProps {
  * above it and the operator can keep typing while children run. Completed
  * siblings remain until their last live sibling settles, then the whole
  * cohort leaves this projection together.
+ *
+ * Drawn as a borderless tree aligned with the transcript's own gutter — a
+ * header line, then one `├`/`└` branch per agent with its latest activity on
+ * a `⎿` line beneath it — rather than as a boxed panel: the rows are the
+ * turn's live work, not chrome around it.
  */
-export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentTaskPanelProps) {
+export function AgentTaskPanel({
+	agents,
+	terminalRows,
+	terminalColumns,
+	compact = false,
+}: AgentTaskPanelProps) {
 	const now = useLiveNow(true)
+	const activityLines = agentTaskPanelShowsActivity(terminalRows)
 	const pageSize = agentTaskPanelPageSize(terminalRows)
-	const visible = agents.slice(0, pageSize)
-	const hidden = agents.length - visible.length
+	const visible = compact ? [] : agents.slice(0, pageSize)
+	const hidden = compact ? 0 : agents.length - visible.length
 	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
 	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
 	const workflowLabel = workflows.length === 1 ? workflows[0] : undefined
@@ -134,72 +151,145 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 	// absent one (every agent still carries the unlabelled default) or a mix
 	// of several distinct labels falls back to a neutral count instead of the
 	// generic default name, which named nothing about THESE agents.
-	const title =
-		workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
-			? workflowLabel
-			: `${agents.length} agent${agents.length === 1 ? '' : 's'} · ${active} running`
+	const labelled = workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
+	const title = labelled
+		? workflowLabel
+		: `${agents.length} agent${agents.length === 1 ? '' : 's'}`
 	const narrow = terminalColumns < 64
 	const showModel = !narrow && terminalColumns >= 76
 	const showCounters = !narrow && terminalColumns >= 96
+	const running = agents.filter(
+		(agent) => agent.status === 'working' || agent.status === 'starting',
+	).length
+	const queued = agents.filter((agent) => agent.status === 'queued').length
+	const counts = narrow
+		? `${active}/${agents.length}${hidden > 0 ? ` +${hidden}` : ''}`
+		: [`${running} running`, ...(queued > 0 ? [`${queued} queued`] : []), '↓ / ctrl+t'].join(' · ')
 
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="single"
-			borderColor={theme.border.default}
-			paddingX={1}
-		>
+		<Box flexDirection="column">
 			<Box>
-				<Box flexGrow={1} flexShrink={1}>
+				<Box width={2} flexShrink={0}>
+					<Text color={active > 0 ? theme.accent.assistant : theme.status.ok}>
+						{active > 0 ? '●' : '✓'}
+					</Text>
+				</Box>
+				<Box flexShrink={1} minWidth={0}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
 						{terminalDisplayText(title)}
 					</Text>
 				</Box>
-				<Box flexShrink={0} marginLeft={1}>
-					<Text color={theme.text.muted}>
-						{narrow
-							? `${active}/${agents.length}${hidden > 0 ? ` +${hidden}` : ''}`
-							: `${active} active · ${agents.length} total${hidden > 0 ? ` · +${hidden} more` : ''} · ↓ / ctrl+t`}
-					</Text>
+				<Box flexShrink={0}>
+					<Text color={theme.text.muted}> · {counts}</Text>
 				</Box>
 			</Box>
-			{visible.map((agent) => {
-				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
-				const meta = agentMetaParts(agent, { showModel, showCounters })
+			{visible.map((agent, index) => {
+				const last = index === visible.length - 1 && hidden === 0
+				// Clamped: a child begun after this panel's last clock tick would
+				// otherwise read `-0.0s` until the next one.
+				const elapsed = formatElapsed(Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
+				const meta = agentRailMetaParts(agent, { showModel, showCounters })
+				const running = !isTerminalStatus(agent.status)
+				const activity = running ? railActivity(agent) : undefined
 				return (
-					<Box key={agent.viewId}>
-						<Box width={narrow ? 2 : 3} flexShrink={0}>
-							<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
-						</Box>
-						<Box width={narrow ? undefined : 28} flexGrow={narrow ? 1 : 0} flexShrink={1}>
-							<Text color={theme.text.primary} wrap="truncate-end">
-								{oneLine(agent.description || agent.agentId)}
-							</Text>
-						</Box>
-						<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
-							<Text color={theme.text.secondary} wrap="truncate-end">
-								{elapsed}
-								{!narrow && agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
-							</Text>
-						</Box>
-						{meta.length > 0 ? (
-							<Box flexShrink={0} marginLeft={1}>
-								<Text color={theme.text.muted} wrap="truncate-end">
-									{meta.join(' · ')}
+					<Box key={agent.viewId} flexDirection="column">
+						<Box paddingLeft={2}>
+							<Box width={2} flexShrink={0}>
+								<Text color={theme.text.muted}>{last ? '└' : '├'}</Text>
+							</Box>
+							<Box width={2} flexShrink={0}>
+								<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
+							</Box>
+							<Box width={narrow ? undefined : 28} flexGrow={narrow ? 1 : 0} flexShrink={1}>
+								<Text color={theme.text.primary} wrap="truncate-end">
+									{oneLine(agent.description || agent.agentId)}
 								</Text>
+							</Box>
+							<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
+								<Text color={theme.text.secondary} wrap="truncate-end">
+									{agent.status === 'queued' ? 'queued' : elapsed}
+									{!narrow && !activityLines && activity ? ` · ${activity}` : ''}
+								</Text>
+							</Box>
+							{meta.length > 0 ? (
+								<Box flexShrink={0} marginLeft={1}>
+									<Text color={theme.text.muted} wrap="truncate-end">
+										{meta.join(' · ')}
+									</Text>
+								</Box>
+							) : null}
+						</Box>
+						{activityLines && activity ? (
+							<Box paddingLeft={2}>
+								<Box width={4} flexShrink={0}>
+									<Text color={theme.text.muted}>{last ? ' ' : '│'}</Text>
+								</Box>
+								<Box flexShrink={1} minWidth={0}>
+									<Text color={theme.text.secondary} wrap="truncate-end">
+										⎿ {activity}
+									</Text>
+								</Box>
 							</Box>
 						) : null}
 					</Box>
 				)
 			})}
+			{hidden > 0 ? (
+				<Box paddingLeft={2}>
+					<Text color={theme.text.muted}>└ +{hidden} more · ctrl+t</Text>
+				</Box>
+			) : null}
 		</Box>
 	)
 }
 
-/** Rows the compact panel may spend without crowding the composer/footer. */
+/**
+ * Whether each running agent gets its own `⎿ activity` line. On a short
+ * terminal the activity stays inline after the elapsed time instead, so the
+ * rail keeps one row per agent where rows are scarcest.
+ */
+export function agentTaskPanelShowsActivity(terminalRows: number | undefined): boolean {
+	return terminalRows !== undefined && Number.isFinite(terminalRows) && terminalRows >= 24
+}
+
+/**
+ * Agents the compact panel may show without crowding the composer/footer.
+ * An agent costs two rows where activity lines are drawn and one elsewhere,
+ * so the budget in ROWS stays what it was when every agent took one.
+ */
 export function agentTaskPanelPageSize(terminalRows: number | undefined): number {
 	if (terminalRows === undefined || !Number.isFinite(terminalRows)) return 2
-	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / 3)))
+	const rowsPerAgent = agentTaskPanelShowsActivity(terminalRows) ? 2 : 1
+	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / (3 * rowsPerAgent))))
+}
+
+/** What the running agent is doing now, or its status when it has said nothing yet. */
+function railActivity(agent: SubagentActivity): string {
+	if (agent.status === 'queued') return 'Waiting for a slot'
+	return distinctActivity(agent) ?? statusLabel(agent.status)
+}
+
+/**
+ * The rail's own ordering: tool uses and spend first, then the model, with
+ * counters dropped first on a narrow screen. The saved marker, when present,
+ * leads for the reason `agentMetaParts` gives.
+ */
+function agentRailMetaParts(
+	agent: SubagentActivity,
+	options: { readonly showModel: boolean; readonly showCounters: boolean },
+): readonly string[] {
+	const parts: string[] = []
+	if (agent.replayed) parts.push('saved')
+	if (options.showCounters) {
+		if (agent.toolCalls !== undefined) {
+			parts.push(`${agent.toolCalls} ${agent.toolCalls === 1 ? 'tool' : 'tools'}`)
+		}
+		if (agent.tokens !== undefined) parts.push(formatCompactCount(agent.tokens))
+	}
+	if (options.showModel && agent.model) {
+		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
+	}
+	return parts
 }
 
 /**
@@ -985,7 +1075,7 @@ function oneLine(text: string): string {
 }
 
 /** `42.1k`, `1.38M`; below 1,000 the exact count is short enough to show plainly. */
-function formatCompactCount(value: number): string {
+export function formatCompactCount(value: number): string {
 	if (value < 1_000) return String(value)
 	if (value < 1_000_000) return `${(value / 1_000).toFixed(1)}k`
 	return `${(value / 1_000_000).toFixed(2)}M`

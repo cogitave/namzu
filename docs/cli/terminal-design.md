@@ -32,7 +32,7 @@ and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
 with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
 `(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
 has set one, beside it as `· effort <level>`; [orchestrate mode](slash-commands.md#orchestrate-mode),
-when it is on, beside that as `· orchestrate`; then the working directory. When
+when it is on, beside that as `· orchestrate` in the mode's own violet; then the working directory. When
 the mode is the unremarkable default (`prompt`), the left side shows a quiet
 `shift+tab to cycle` in place of a badge, rather than a line that is present in
 every state and therefore read in none. On the right: an interaction hint or a
@@ -57,6 +57,13 @@ directory left, goal or hint right — that used to sit one blank row below the
 frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
+
+While orchestrate mode is on, the message box's top border names it on the
+right, `┌─ MESSAGE ──── orchestrate ─┐`, in violet, and the run of `─` before
+it takes a still colour gradient. Nothing on it moves. Where colour is refused
+(`NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb`) the rule is the plain one, and below
+40 columns the tag is left off the border whole; the footer still names the
+mode there.
 
 Every mark on this line and in the plan is a text-presentation character one
 cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on
@@ -96,9 +103,31 @@ default — that agent's title, plus a `+N` count when the group holds more
 than one — so two unlabelled groups still read as distinct entries rather
 than two identical rows.
 
+The rail is a borderless tree aligned with the transcript's own gutter, not a
+boxed panel:
+
+```text
+● Two-phase colour sentence · 1 running · 1 queued · ↓ / ctrl+t
+  ├ ● Choose first colour     2.1s   3 tools · 4.1k · gpt-5.6-luna
+  │   ⎿ Reading src/index.ts
+  └ ◌ Choose second colour    queued
+      ⎿ Waiting for a slot
+```
+
+The header's `●` is green while anything runs and becomes `✓` once all have
+settled; the counts separate running from queued. Each agent is one `├`/`└`
+branch with its status glyph (`◌ ● ✓ ✗ ○`), name, elapsed time and, as width
+allows, tool uses, spend and model — tool uses and spend drop first, then the
+model. A running agent's latest activity sits beneath it on a `⎿` line; on a
+terminal under 24 rows it stays inline after the elapsed time instead, so each
+agent costs one row where rows are scarcest, and the rail shows half as many
+agents where each costs two. The rail stays on screen while an approval dialog
+is open, reduced to its header line, so the work already approved can be seen
+moving while the next launch is being decided.
+
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
-column the rail's own rows start in, so they read as the parent talking rather
+column the rail's title starts in, so they read as the parent talking rather
 than as chrome the panel drew. They are commentary and carry no status —
 status is on the rail below them, in counts and glyphs as everywhere else.
 They never take a row from the rail: its height budget is computed from the
@@ -114,6 +143,51 @@ The band is drawn wherever the rail would be drawn, including between phases
 when no child is live — which is when a line saying what comes next is worth
 the row — and it is hidden by the same full-screen surfaces that hide the
 rail.
+
+## Delegated work in the conversation
+
+Delegated work leaves three kinds of row in the conversation, each written once
+and never redrawn; the live state belongs to the rail.
+
+```text
+● Launched 2 agents · Two-phase colour sentence / Phase 1 (ctrl+t to manage)
+  ├ Choose first colour
+  └ Choose second colour
+✓ Choose first colour · 1.7s · 9.0k tokens · ctrl+o result · ctrl+t details
+✗ Choose second colour · failed after 2.9s · Provider refused the request · ctrl+t details
+✻ Worked for 38s · 3 agents
+```
+
+- **A launch receipt** per batch: the agents one model response launched
+  together, named under one line, with the workflow and phase labels when the
+  model supplied them. A single agent is named inline. The receipt waits until
+  the batch is whole, so agents launched in the same response share one
+  receipt, and it is always written before any of its agents' completions.
+- **A completion row** per agent: `✓` or `✗` (so failure reads without colour),
+  the elapsed time and, when reported, the spend. The agent's final answer is
+  attached collapsed: Ctrl+O opens it in place, Ctrl+T opens the agent's whole
+  transcript. The answer is the child's text and is shown as text — terminal
+  controls in it are displayed, never obeyed.
+- **A closing line** when a turn that launched agents settles: how long the
+  turn took and how many agents it launched. A turn that delegated nothing adds
+  no line.
+
+While the parent does nothing but wait on its agents, the per-call rows under
+`Working` fold into one line, `✻ Waiting for 2 agents to finish` (or
+`✻ Waiting for <name>` for one). A wait running beside other work keeps every
+row.
+
+After the work ends nothing folds up: the prose, receipts, completion rows,
+final answer and closing line stay. The rail, the waiting line and the
+narration band are live-only and leave when their work settles.
+
+The new marks are text characters one cell wide by Unicode's width data, none
+of them emoji: `●` U+25CF, `⎿` U+23BF, `✻` U+273B, `├ └ │`, and the slider's
+`▲` U+25B2 and `┆` U+2506. `●` is East-Asian *ambiguous*, so a terminal set to
+draw ambiguous characters wide draws it in two cells, as it already did on the
+old rail. `⏺`, `✔` and `✳`, which the reference terminal uses in some builds,
+are emoji code points Windows Terminal can draw as two-cell tiles, and are not
+used.
 
 ## Compact tool activity
 
