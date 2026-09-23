@@ -771,6 +771,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		// with the Windows engine: 30 s, then a failure, on a page that was
 		// already back).
 		const options = { waitUntil: 'commit' as const }
+		const before = tab.page.url()
 		let response: unknown = true
 		try {
 			response =
@@ -787,7 +788,9 @@ export class PlaywrightBrowserHost implements BrowserHost {
 				.waitForLoadState('domcontentloaded', { timeout: HISTORY_LOAD_WAIT_MS })
 				.catch(() => undefined)
 		}
-		if (response === null && which !== 'reload') {
+		// `null` is also what a restore from the back-forward cache returns:
+		// no network response. Only an unchanged address means nowhere to go.
+		if (response === null && which !== 'reload' && tab.page.url() === before) {
 			this.notes.push(`There is no page to go ${which} to.`)
 		}
 		return this.afterNavigation(tab)
