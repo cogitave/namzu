@@ -82,6 +82,10 @@ When asked to save what was just done as a skill:
    warning worth keeping ("do not run X before Y: it …").
 
 Then continue as in Mode 1 from "Show the draft", with `origin: "learned"`.
+When the request came from `/skills save`, it says the confirmation screen is
+the operator's review: call `save_skill` in the same turn instead of asking in
+a reply first. The screen shows the whole file, and nothing is saved until
+they choose.
 
 ## Never
 

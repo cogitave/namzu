@@ -188,8 +188,19 @@ describe('skills config', () => {
 			disabled: ['noisy', 'other'],
 		})
 	})
+	it('reads suggest and suggestMinToolCalls from a file', () => {
+		const home = userConfig('skills:\n  suggest: false\n  suggestMinToolCalls: 8\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).skills).toEqual({
+			suggest: false,
+			suggestMinToolCalls: 8,
+		})
+	})
 	it.each([
 		'skills: true\n',
+		'skills:\n  suggest: sometimes\n',
+		'skills:\n  suggestMinToolCalls: 0\n',
+		'skills:\n  suggestMinToolCalls: 2.5\n',
+		'skills:\n  suggestMinToolCalls: "6"\n',
 		'skills:\n  builtin: sometimes\n',
 		'skills:\n  disabled: noisy\n',
 		'skills:\n  enabled: true\n',

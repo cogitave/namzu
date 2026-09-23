@@ -143,6 +143,11 @@ describe('the built-in skills', () => {
 					const action = command.action({} as never, ['new'])
 					if (action.kind !== 'new-skill') problems.push(`${span}: /skills new is not a subcommand`)
 				}
+				if (name === 'skills' && sub === 'save') {
+					const action = command.action({} as never, ['save'])
+					if (action.kind !== 'save-skill')
+						problems.push(`${span}: /skills save is not a subcommand`)
+				}
 			}
 		}
 		expect(problems).toEqual([])

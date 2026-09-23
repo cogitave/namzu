@@ -510,6 +510,13 @@ type ConfigReaders = {
 	) => NamzuCliConfig[K]
 }
 
+const SKILLS_CONFIG_KEYS: readonly string[] = [
+	'builtin',
+	'disabled',
+	'suggest',
+	'suggestMinToolCalls',
+]
+
 const CONFIG_READERS: ConfigReaders = {
 	format: (v, context) => {
 		if (typeof v === 'string' && isFormatName(v)) return v
@@ -1071,13 +1078,37 @@ const CONFIG_READERS: ConfigReaders = {
 	skills: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'builtin' && key !== 'disabled') {
-				return invalidConfigValue(context, [key], 'is not a skills setting (builtin, disabled)')
+			if (!SKILLS_CONFIG_KEYS.includes(key)) {
+				return invalidConfigValue(
+					context,
+					[key],
+					`is not a skills setting (${SKILLS_CONFIG_KEYS.join(', ')})`,
+				)
 			}
 		}
-		const raw = v as { builtin?: unknown; disabled?: unknown }
+		const raw = v as {
+			builtin?: unknown
+			disabled?: unknown
+			suggest?: unknown
+			suggestMinToolCalls?: unknown
+		}
 		if (raw.builtin !== undefined && typeof raw.builtin !== 'boolean') {
 			return invalidConfigValue(context, ['builtin'], 'must be true or false')
+		}
+		if (raw.suggest !== undefined && typeof raw.suggest !== 'boolean') {
+			return invalidConfigValue(context, ['suggest'], 'must be true or false')
+		}
+		if (
+			raw.suggestMinToolCalls !== undefined &&
+			(typeof raw.suggestMinToolCalls !== 'number' ||
+				!Number.isInteger(raw.suggestMinToolCalls) ||
+				raw.suggestMinToolCalls < 1)
+		) {
+			return invalidConfigValue(
+				context,
+				['suggestMinToolCalls'],
+				'must be a whole number of at least 1',
+			)
 		}
 		if (
 			raw.disabled !== undefined &&
@@ -1090,6 +1121,10 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.builtin !== undefined ? { builtin: raw.builtin as boolean } : {}),
 			...(raw.disabled !== undefined
 				? { disabled: (raw.disabled as string[]).map((name) => name.trim()) }
+				: {}),
+			...(raw.suggest !== undefined ? { suggest: raw.suggest as boolean } : {}),
+			...(raw.suggestMinToolCalls !== undefined
+				? { suggestMinToolCalls: raw.suggestMinToolCalls as number }
 				: {}),
 		}
 	},

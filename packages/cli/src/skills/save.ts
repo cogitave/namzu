@@ -53,13 +53,29 @@ export function newSkillPrompt(idea: string): string {
 	].join(' ')
 }
 
+/**
+ * What `/skills save [name]` sends: one turn, in the conversation whose work
+ * it saves, that ends on the `save_skill` screen. The screen shows the whole
+ * file and saves nothing until the operator picks a place, so the model is
+ * told to go straight to it rather than ask in a reply first.
+ */
+export function learnSkillPrompt(name?: string): string {
+	return [
+		`Save what we just did in this conversation as a reusable skill. Load the ${SKILL_CREATOR_SKILL} skill with the skill tool and follow its "from this conversation" mode: generalise the task, replace this run's names, paths, values and dates with placeholders, leave out secrets and personal data, and never copy tool, file or page output into it.`,
+		name
+			? `Name it ${name}.`
+			: 'Choose a short name for the kind of task, not for this instance of it.',
+		'The save_skill confirmation screen is my review of the draft: call save_skill with origin "learned" in this turn, without asking me in a reply first. If I cancel, ask what to change.',
+	].join(' ')
+}
+
 /** The kernel loader's own limits, checked here so the operator is never shown a file it would refuse. */
 export const SKILL_NAME_MAX_CHARS = 64
 export const SKILL_DESCRIPTION_MAX_CHARS = 1024
 /** A skill body is instructions, not a document store. */
 export const SKILL_BODY_MAX_BYTES = 64 * 1024
 
-const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export type SkillSaveScope = 'user' | 'project'
 export type SkillOrigin = 'created' | 'learned'

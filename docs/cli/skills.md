@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Skills
-description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model is offered them and loads one with the skill tool, the manifest budget, tool gating, the built-in skills, making a skill with /skills new and save_skill, and the skills.builtin and skills.disabled config keys.
+description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model is offered them and loads one with the skill tool, the manifest budget, tool gating, the built-in skills, making a skill with /skills new and save_skill, the TUI's proposal to save a multi-step task with /skills save, and the skills.builtin, skills.disabled, skills.suggest and skills.suggestMinToolCalls config keys.
 resource: packages/cli/src/skills/
 tags: [cli, skills, config]
 status: stable
@@ -145,6 +145,68 @@ not ask about it, and the screen asks every time, `auto` included. `plan` and
 A session that can save a skill also carries the `skill` tool, so the saved
 skill is loadable on the next turn.
 
+## Learning from a task
+
+After a turn that did real work, the TUI prints one dim line under the reply:
+
+```text
+✻ That took 9 steps across 4 tools. Save it as a reusable skill? /skills save [name] · /skills save off to stop suggesting
+```
+
+It is a line in the transcript, not a question: it takes no keys, asks the
+model nothing and costs nothing. Nothing is saved unless you type
+`/skills save`.
+
+**When it appears.** All of these must hold for the turn that just ended
+(`packages/cli/src/tui/skills/learning.ts`):
+
+- it ended by answering (`end_turn`), not by an error, a pause, a budget or
+  a cancel;
+- at least `skills.suggestMinToolCalls` (default 6) tool calls succeeded,
+  across at least two different tools, and at least one of them was not
+  read-only by its tool's own declaration (it wrote a file, ran a command).
+  The plan bookkeeping tools (`task_create`, `task_update`, `update_goal`)
+  are not counted;
+- none of the last three tool results failed, and no call refused by a
+  review, a rule or the mode was left without a later successful call of
+  the same tool;
+- the turn was your own prompt, not a goal round or a resumed turn, and it
+  did not run in `plan` mode;
+- no skill has been used in this conversation, by the `skill` tool or
+  `/skills <name>` (an activated skill stays active after `/clear`, so it
+  counts there too), and the turn was not `/skills save`, `/skills new` or a
+  `save_skill` call;
+- this conversation has not proposed one already (`/clear`, `/resume` and a
+  fork start a new conversation);
+- `skills.suggest` is not `false`.
+
+**`/skills save [name]`** sends one turn in the same conversation asking the
+model to load `skill-creator` in its "from this conversation" mode:
+generalise the task, replace this run's names, paths, values and dates with
+placeholders, leave out secrets and personal data, and never copy tool, file
+or page output into the skill. It ends on the `save_skill` screen described
+above, where you read the whole file and choose where it goes or cancel. A
+name, when given, must be a valid skill name (`/skills save todo-report`);
+without one the model picks one for the kind of task.
+
+**Turning it off.** `/skills save off` writes `skills.suggest: false` to your
+user config (`$NAMZU_HOME/config.yaml`, keeping the rest of the file as it
+was) and says which file; `/skills save on` writes `true`. Either applies to
+the running session at once. `/skills save` and `/skills new` keep working
+when proposals are off.
+
+**It stops by itself.** A proposal counts as unused until you type
+`/skills save`. After three unused in a row, across conversations, the next
+one is replaced by a single line saying proposals have stopped, and none
+follow until `/skills save on`. The count is kept in
+`$NAMZU_HOME/skills/.suggestions.json` (`{ "v": 1, "unanswered": n, "stopped":
+bool }`); a missing or unreadable file starts again from zero
+(`packages/cli/src/tui/skills/suggestion-ledger.ts`).
+
+**Only the TUI proposes.** `namzu exec`, `drain`, ACP, a scheduled run, a
+resident worker and sub-agents never import the heuristic; a test checks the
+import graph (`packages/cli/src/tui/__tests__/skill-suggestion-is-the-tuis-alone.test.ts`).
+
 ## Frontmatter
 
 `name`, `description`, `license`, `compatibility`, `allowed-tools`,
@@ -166,14 +228,25 @@ operator can still activate it.
 
 ```yaml
 skills:
-  builtin: false        # leave the built-in tier out; default true
-  disabled: [noisy]     # neither the model nor /skills may use these
+  builtin: false          # leave the built-in tier out; default true
+  disabled: [noisy]       # neither the model nor /skills may use these
+  suggest: false          # no "save it as a skill?" line after a task; default true
+  suggestMinToolCalls: 8  # successful tool calls a turn needs first; default 6
 ```
 
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `skills.builtin` | boolean | `true` | Offer the built-in tier. |
+| `skills.disabled` | list of names | `[]` | Skills neither the model nor `/skills` may use, in any tier. |
+| `skills.suggest` | boolean | `true` | Propose saving a multi-step task as a skill ([Learning from a task](#learning-from-a-task)). `/skills save off` and `on` write it to the user config. |
+| `skills.suggestMinToolCalls` | whole number ≥ 1 | `6` | Successful tool calls a turn needs before it is proposed. |
+
 `skills.disabled` applies to a name in every tier. A disabled skill stays in
-listings, marked, with the reason. Both keys are read from the config files
+listings, marked, with the reason. Every key is read from the config files
 (user, project, managed) and profiles, never from the environment
-(`packages/cli/src/config/load.ts`).
+(`packages/cli/src/config/load.ts`). A later layer replaces the whole `skills`
+mapping of an earlier one, so a project file that sets `skills.disabled`
+also resets `suggest` to its default unless it sets it too.
 
 ## Listing
 
@@ -191,6 +264,9 @@ skills` adds `tier`, `shadows`, `disabled`, `invocation` and
 - `packages/cli/src/skills/catalog.ts` — the per-session registry, gating, budget
 - `packages/cli/src/skills/save.ts` — `save_skill`: validation, targets, atomic write
 - `packages/cli/src/tui/SaveSkillOverlay.tsx` — the confirmation screen
+- `packages/cli/src/tui/skills/learning.ts` — when a turn is proposed as a skill
+- `packages/cli/src/tui/skills/suggestion-ledger.ts` — the unused-proposal count
+- `packages/cli/src/config/user-config.ts` — `/skills save off|on` writing the user config
 - `packages/cli/skills/` — the built-in skills
 - `packages/cli/src/tui/agent.ts` — the catalog handed to each turn
 - `packages/sdk/src/tools/builtins/skill.ts` — the `skill` tool

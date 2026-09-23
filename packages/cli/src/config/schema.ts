@@ -320,6 +320,18 @@ export interface SkillsConfig {
 	 * tier they come from. They stay in listings, marked disabled.
 	 */
 	readonly disabled?: readonly string[]
+	/**
+	 * After a turn that took several steps, the interactive terminal prints
+	 * one dim line proposing to save it as a skill (`/skills save`). Nothing
+	 * is saved without the operator. Default `true`; `false` stops the
+	 * proposals (`/skills save off` writes it to the user config).
+	 */
+	readonly suggest?: boolean
+	/**
+	 * Successful tool calls a turn needs before it is proposed as a skill.
+	 * Default 6.
+	 */
+	readonly suggestMinToolCalls?: number
 }
 
 /** See `NamzuCliConfig.schedule`. */

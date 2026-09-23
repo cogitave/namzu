@@ -42,6 +42,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -174,8 +175,24 @@ import {
 	type SaveSkillRequest,
 	SKILL_CREATOR_SKILL,
 	buildSaveSkillTool,
+	learnSkillPrompt,
 	newSkillPrompt,
 } from '../skills/save.js'
+import {
+	type TurnActivity,
+	SUGGESTIONS_STOPPED_NOTICE,
+	createTurnActivity,
+	judgeSkillSuggestion,
+	observeTurnEvent,
+	skillSuggestionNotice,
+} from './skills/learning.js'
+import {
+	FRESH_LEDGER,
+	admitSuggestion,
+	readSuggestionLedger,
+	writeSuggestionLedger,
+} from './skills/suggestion-ledger.js'
+import { setUserConfigValue } from '../config/user-config.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
 import { checklistProgress } from './Checklist.js'
@@ -575,6 +592,15 @@ type StreamState = {
 	 */
 	reportedOutputTokens?: number
 	streamedChars?: number
+	/**
+	 * What this turn did, for the proposal to save it as a skill. Only an
+	 * operator's own prompt carries it: a goal round and a resumed turn do not.
+	 */
+	learning?: TurnActivity
+	/** Sent by `/skills save` or `/skills new`: already making a skill. */
+	skillFlow?: boolean
+	/** The permission mode the turn started in. */
+	startedInPlanMode?: boolean
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -702,6 +728,8 @@ type QueuedPrompt =
 			readonly kind: 'human'
 			readonly text: string
 			readonly attachments?: readonly MessageAttachment[]
+			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
+			readonly skillFlow?: true
 	  }
 	| {
 			readonly kind: 'goal'
@@ -1890,6 +1918,64 @@ export function App({
 	)
 
 	/**
+	 * The skill proposal's per-conversation facts: whether this conversation
+	 * has proposed one, and whether it has used a skill. Keyed by the
+	 * conversation generation, so `/clear`, `/resume` and a fork start over.
+	 */
+	const learningRef = useRef({ generation: -1, proposed: false, skillUsed: false })
+	/** `/skills save off|on` in this session, over whatever the config files say. */
+	const skillSuggestOverrideRef = useRef<boolean | undefined>(undefined)
+	const conversationLearning = useCallback(() => {
+		if (learningRef.current.generation !== conversationGenRef.current) {
+			learningRef.current = {
+				generation: conversationGenRef.current,
+				proposed: false,
+				skillUsed: false,
+			}
+		}
+		return learningRef.current
+	}, [])
+	/**
+	 * After a turn settles: one dim line proposing to save it as a skill, when
+	 * the turn earned it (`judgeSkillSuggestion`) and the anti-nag ledger lets
+	 * it through. Costs nothing and saves nothing; `/skills save` does that.
+	 */
+	const offerSkillSuggestion = useCallback(
+		(st: StreamState) => {
+			if (!st.learning) return
+			const conversation = conversationLearning()
+			const config = ctxRef.current.skills
+			const verdict = judgeSkillSuggestion(st.learning, {
+				suggest: skillSuggestOverrideRef.current ?? config?.suggest,
+				...(config?.suggestMinToolCalls !== undefined
+					? { minToolCalls: config.suggestMinToolCalls }
+					: {}),
+				planMode: st.startedInPlanMode === true || permissionModeRef.current === 'plan',
+				skillUsedInConversation: conversation.skillUsed,
+				proposedInConversation: conversation.proposed,
+				skillFlowTurn: st.skillFlow === true,
+			})
+			if (!verdict.suggest) return
+			const home = resolveNamzuHome()
+			const admission = admitSuggestion(readSuggestionLedger(home))
+			if (admission.show === 'nothing') return
+			conversation.proposed = true
+			writeSuggestionLedger(home, admission.next)
+			pushMessage(
+				'system',
+				admission.show === 'proposal'
+					? skillSuggestionNotice(verdict.steps, verdict.tools)
+					: SUGGESTIONS_STOPPED_NOTICE,
+				false,
+				'✻',
+				undefined,
+				theme.text.muted,
+			)
+		},
+		[conversationLearning, pushMessage],
+	)
+
+	/**
 	 * `/agents [running|available|batches]`, answered by the delegation UI's
 	 * `agentsSlashCommand` over this session's live monitor and the batches the
 	 * session index holds. A `batches` answer opens a picker immediately with a
@@ -2382,6 +2468,7 @@ export function App({
 					...previous.filter((skill) => skill.name !== info.name),
 					{ name: info.name, body },
 				])
+				conversationLearning().skillUsed = true
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
 				pushMessage(
@@ -2390,7 +2477,7 @@ export function App({
 				)
 			}
 		},
-		[ctx.cwd, ctx.skills, pushMessage],
+		[conversationLearning, ctx.cwd, ctx.skills, pushMessage],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -4870,6 +4957,10 @@ export function App({
 	// events within a turn/stream.
 	const applyEvent = useCallback(
 		(event: AgentEvent, st: StreamState) => {
+			if (st.learning) observeTurnEvent(st.learning, event)
+			if (event.kind === 'tool-start' && event.toolName === SKILL_TOOL_NAME) {
+				conversationLearning().skillUsed = true
+			}
 			const ensureAssistant = () => {
 				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
 				return st.assistantId
@@ -5350,6 +5441,7 @@ export function App({
 								: undefined
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
+					offerSkillSuggestion(st)
 					break
 				}
 				case 'paused':
@@ -5373,7 +5465,15 @@ export function App({
 					break
 			}
 		},
-		[appendToMessage, finalizeMessage, flushStream, pushMessage, writeTaskBlock],
+		[
+			appendToMessage,
+			conversationLearning,
+			finalizeMessage,
+			flushStream,
+			offerSkillSuggestion,
+			pushMessage,
+			writeTaskBlock,
+		],
 	)
 	applyEventRef.current = applyEvent
 
@@ -5526,7 +5626,17 @@ export function App({
 				outcome: null,
 				sessionId: destination,
 				notification: null,
+				...(prompt.kind === 'human'
+					? {
+							learning: createTurnActivity(),
+							...(prompt.skillFlow ? { skillFlow: true } : {}),
+							startedInPlanMode: permissionModeRef.current === 'plan',
+						}
+					: {}),
 			}
+			// A skill activated with /skills <name> stays in the prompt of every
+			// later conversation too; a turn run under one already used a skill.
+			if (st.learning && activeSkills.length > 0) st.learning.skillUsed = true
 			const ac = new AbortController()
 			const turnToken = {}
 			let abnormalTerminal:
@@ -6237,6 +6347,7 @@ export function App({
 			// including the queue — so a command-driven turn is not a second way
 			// to run one.
 			let outgoing = value
+			let skillFlow = false
 			const slash = runSlash(value, slashCtx, hostCommands)
 			if (slash) {
 				switch (slash.kind) {
@@ -6851,7 +6962,8 @@ export function App({
 						activateSkill(slash.name)
 						return
 					}
-					case 'new-skill': {
+					case 'new-skill':
+					case 'save-skill': {
 						const creator = discoverSkills({
 							cwd: ctx.cwd,
 							...(ctx.skills ? { config: ctx.skills } : {}),
@@ -6865,8 +6977,39 @@ export function App({
 						}
 						// Falls through to the queue-or-send a typed message takes, as
 						// `prompt` does below.
-						outgoing = newSkillPrompt(slash.idea)
+						skillFlow = true
+						if (slash.kind === 'new-skill') outgoing = newSkillPrompt(slash.idea)
+						else {
+							outgoing = learnSkillPrompt(slash.name)
+							// The proposal was taken up: this conversation proposes no
+							// more, and the ignored-in-a-row count starts again.
+							conversationLearning().proposed = true
+							const home = resolveNamzuHome()
+							const ledger = readSuggestionLedger(home)
+							if (ledger.unanswered > 0) writeSuggestionLedger(home, { ...ledger, unanswered: 0 })
+						}
 						break
+					}
+					case 'skill-suggestions': {
+						let file: string
+						try {
+							file = setUserConfigValue(['skills', 'suggest'], slash.on)
+						} catch (error) {
+							pushMessage(
+								'system',
+								`Could not save skills.suggest: ${error instanceof Error ? error.message : String(error)}`,
+							)
+							return
+						}
+						skillSuggestOverrideRef.current = slash.on
+						if (slash.on) writeSuggestionLedger(resolveNamzuHome(), FRESH_LEDGER)
+						pushMessage(
+							'system',
+							slash.on
+								? `Skill suggestions are on: after a multi-step task you will be offered /skills save. Saved skills.suggest: true to ${file}.`
+								: `Skill suggestions are off. Saved skills.suggest: false to ${file}; /skills save on turns them back on. /skills save and /skills new still work.`,
+						)
+						return
 					}
 					case 'resume':
 						void doResume()
@@ -7298,6 +7441,7 @@ export function App({
 				kind: 'human',
 				text: outgoing,
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+				...(skillFlow ? { skillFlow: true as const } : {}),
 			}
 			if (mode === 'submit') {
 				const inbox = activeTurnInboxRef.current
@@ -7320,6 +7464,7 @@ export function App({
 			activeSkills,
 			advanceQueueContinuation,
 			applyPermissionMode,
+			conversationLearning,
 			applyReasoningEffort,
 			appLifetime,
 			ctx.cwd,

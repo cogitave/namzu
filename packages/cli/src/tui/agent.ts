@@ -322,6 +322,12 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 			/** A web search or fetch: what it is for, so its row can name it. */
 			readonly web?: WebActivity
+			/**
+			 * The tool declares this call read-only. Absent means it changes
+			 * something, or the tool did not say. Read by the TUI's skill
+			 * suggestion only, never by a permission decision.
+			 */
+			readonly readOnly?: true
 	  }
 	| {
 			readonly kind: 'tool-progress'
@@ -3344,6 +3350,7 @@ export async function createAgentSession(
 		let settled = false
 		let failure: Error | undefined
 		const presenter = createToolPresenter(registry)
+		const readsOnly = declaredReadOnly(registry)
 		// The log the turn appends to, and its checkpoints beside it.
 		const sessionLog = DiskSessionLog.at(paths, { sessionId: scope.sessionId })
 		const outcome = kernelResume({
@@ -3392,7 +3399,7 @@ export async function createAgentSession(
 				while (queue.length > 0) {
 					const next = queue.shift()
 					if (!next) break
-					const mapped = toAgentEvent(next, presenter)
+					const mapped = toAgentEvent(next, presenter, readsOnly)
 					if (mapped) yield mapped
 				}
 				if (settled) break
@@ -4662,6 +4669,7 @@ async function* runTurn({
 	// matching in the first place: `toAgentEvent` is pure over a `SessionEvent`
 	// and could not ask a tool anything, so the host guessed from the name.
 	const presenter = createToolPresenter(tools)
+	const readsOnly = declaredReadOnly(tools)
 	try {
 		const events = query({
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
@@ -4780,7 +4788,7 @@ async function* runTurn({
 					// receipts and reasoning before the next user turn.
 					continue
 				}
-				const mapped = toAgentEvent(event, presenter)
+				const mapped = toAgentEvent(event, presenter, readsOnly)
 				if (!mapped) continue
 				yield mapped
 			}
@@ -4929,6 +4937,23 @@ export function reviewExemptionFor(
 			registry.has(SAVE_SKILL_TOOL_NAME))
 }
 
+/**
+ * A call's own read-only declaration, as the tool states it for this input.
+ * Not a permission answer (that is `isPromptExempt`): it only says whether a
+ * finished turn changed anything, for the TUI's skill suggestion.
+ */
+function declaredReadOnly(
+	registry: Pick<ToolRegistry, 'get'>,
+): (toolName: string, input: unknown) => boolean {
+	return (toolName, input) => {
+		try {
+			return registry.get(toolName)?.isReadOnly?.(input as never) === true
+		} catch {
+			return false
+		}
+	}
+}
+
 /** The exempt roster, sorted, for the surface that has to NAME it. */
 export function promptExemptToolNames(registry: ToolRegistry): readonly string[] {
 	return registry
@@ -4946,7 +4971,12 @@ export const batchNeedsPrompt = batchNeedsReview
  * `null` for events the chat surface doesn't render (iteration markers,
  * checkpoints, plan lifecycle, …). Pure — unit-tested.
  */
-export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): AgentEvent | null {
+export function toAgentEvent(
+	event: SessionEvent,
+	presenter: ToolPresenter,
+	/** Whether a call only reads, from the tool's own declaration; see `tool-start.readOnly`. */
+	readsOnly?: (toolName: string, input: unknown) => boolean,
+): AgentEvent | null {
 	switch (event.type) {
 		case 'hosted_tool': {
 			const common = {
@@ -5023,6 +5053,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 					const web = webActivityFromInput(event.toolName, event.input)
 					return web ? { web } : {}
 				})(),
+				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
 		case 'tool_progress':
 			return {
