@@ -248,7 +248,11 @@ function observeModelSchema(actions: readonly BrowserObserveActionName[]) {
 			},
 			url: { type: 'string', description: 'Absolute http(s) address.' },
 			ref: { type: 'string', description: 'Element ref from the latest snapshot, like e12.' },
-			cursor: { type: 'string', description: 'snapshot: the cursor a previous page returned.' },
+			cursor: {
+				type: 'string',
+				description:
+					'snapshot only: the nextCursor a previous snapshot result gave, to read the next part of a long page. Leave it out to read the page from the top; it is never a URL.',
+			},
 			fullPage: { type: 'boolean' },
 			direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
 			amount: { type: 'integer', description: 'scroll: screens to move (default 1).' },
