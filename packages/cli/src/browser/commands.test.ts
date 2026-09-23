@@ -146,6 +146,7 @@ describe('namzu browser login', () => {
 		expect(await done).toBe(0)
 		expect(h.world.disposed).toBe(1)
 		expect(h.text()).toContain('Done. Profile namzu-test-a keeps what you signed in to')
+		expect(h.text()).toContain('namzu schedule add … --browser namzu-test-a')
 		const profile = new realBrowser.BrowserProfileStore(h.home).get('namzu-test-a')
 		expect(profile?.lastLoginAt).toBeDefined()
 	})

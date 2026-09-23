@@ -41,7 +41,7 @@ namzu browser status work                            # this machine's browser, a
 namzu browser remove work --yes                      # delete it and every sign-in in it
 ```
 
-`login` opens the window at the address (a bare `github.com` works) and returns when you press Enter in the terminal or close the window. It records the sign-in time. Every site may load during a login: you are driving.
+`login` opens the window at the address (a bare `github.com` works) and returns when you press Enter in the terminal or close the window. It records the sign-in time, and says how the TUI (`/browser profile`) and a scheduled job (`--browser <profile>`) use the profile. Every site may load during a login: you are driving.
 
 The TUI uses `browser.defaultProfile` (`default` when unset). `/browser profile <name>` switches for the rest of the session, closing the browser if it was open; the next browser call starts it on the new profile. A project file may not set `defaultProfile`: a profile holds your sign-ins, and a repository must not choose which ones its agent runs under.
 

@@ -251,7 +251,7 @@ async function loginCommand(
 		// A window closed before the profile was written has nothing to mark.
 	}
 	ctx.formatter.print({
-		text: `${how === 'closed' ? 'Window closed' : 'Done'}. Profile ${profile} keeps what you signed in to; the agent uses it when the profile is selected (browser.defaultProfile, or /browser profile ${profile}).`,
+		text: `${how === 'closed' ? 'Window closed' : 'Done'}. Profile ${profile} keeps what you signed in to; the agent uses it when the profile is selected (browser.defaultProfile, or /browser profile ${profile}), and a scheduled job when it is given the profile (namzu schedule add … --browser ${profile}).`,
 	})
 	return EXIT_OK
 }

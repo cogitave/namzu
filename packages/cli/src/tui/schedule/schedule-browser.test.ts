@@ -264,6 +264,14 @@ describe('the model proposing a browser job', () => {
 		expect(enough.said[0]).not.toContain('iteration is one model call')
 	})
 
+	it('says a job does nothing until the scheduler is installed', async () => {
+		const created = host('create')
+		await created.tool.execute(input, {} as never)
+		expect(created.said.join('\n')).toContain(
+			'The scheduler is not installed, so it does not run until you install it: namzu schedule install.',
+		)
+	})
+
 	it('cannot grant every site', async () => {
 		const { tool } = host('create')
 		const refused = await tool.execute(

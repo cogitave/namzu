@@ -28,6 +28,7 @@ import { discoverProviders } from '../../integrations/providers/discover.js'
 import { buildJob, confirmJob, previewLines, runsPerDay } from '../../schedule/build.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy } from '../../schedule/policy.js'
+import { readManifest } from '../../schedule/service/manifest.js'
 import { appendHistory } from '../../schedule/store/history.js'
 import { createJob, deleteJob, findJob, listJobs, updateJob } from '../../schedule/store/jobs.js'
 import { nextFireOf, readState } from '../../schedule/store/state.js'
@@ -241,8 +242,11 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 				confirmJob(entry.job, 'tool-confirmed', new Date(), { paused: options.paused }),
 			)
 			history(job, 'created')
+			// A job with no scheduler to run it does nothing, and the model's
+			// "done" said nothing about that.
+			const installed = readManifest(paths()) !== undefined
 			ui.say(
-				`⏲ Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.`,
+				`⏲ Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
 			return { name: job.name }
 		},

@@ -435,7 +435,9 @@ job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
 
 In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
 lets a model propose a job — always confirmed by you on a screen namzu draws
-from its own computation, never from the model's words. See
+from its own computation, never from the model's words. When no scheduler is
+installed, the line that says the job was created also says it does not run
+until `namzu schedule install`. See
 [Session loops](session-loops.md) for `/loop`, which repeats a prompt inside an
 open session instead.
 
