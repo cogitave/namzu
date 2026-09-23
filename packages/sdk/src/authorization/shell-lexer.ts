@@ -83,6 +83,13 @@ export interface ShellRedirection {
 	readonly fd?: string
 	/** The target word. For a here-document, its delimiter. */
 	readonly target: ShellWord
+	/**
+	 * A here-document's body as written, up to its delimiter line, once the
+	 * lexer has read it: the text the command reads on its input, which is
+	 * a command line of its own when the command is a shell (`bash <<EOF`).
+	 * Absent for every other operator and for a body the line never reached.
+	 */
+	readonly body?: string
 }
 
 /** One simple command. */
@@ -118,6 +125,13 @@ export interface ShellLexResult {
 	 * (`{ a; } > f`) that belong to no single simple command.
 	 */
 	readonly redirections: readonly ShellRedirection[]
+	/**
+	 * Words that belong to no simple command: a `for` or `select` loop's
+	 * variable and the words of its list, and a `case` statement's subject
+	 * and patterns. `for d in ~/x; do rm -r "$d"; done` passes `~/x` to `rm`
+	 * although no command lists it.
+	 */
+	readonly compoundWords: readonly ShellWord[]
 	/** True when {@link commands} may not be everything the line runs. */
 	readonly opaque: boolean
 	/** False when parsing stopped early: a syntax error or an unsupported construct. */
@@ -169,6 +183,7 @@ export function lexShellCommandLine(line: string, options: ShellLexOptions = {})
 	return {
 		commands: context.commands,
 		redirections: context.redirections,
+		compoundWords: context.compoundWords,
 		opaque: context.reasons.size > 0,
 		complete: context.complete,
 		reasons: [...context.reasons],
@@ -178,6 +193,7 @@ export function lexShellCommandLine(line: string, options: ShellLexOptions = {})
 class Context {
 	readonly commands: ShellCommand[] = []
 	readonly redirections: ShellRedirection[] = []
+	readonly compoundWords: ShellWord[] = []
 	readonly reasons = new Set<string>()
 	complete = true
 	/**
@@ -358,6 +374,8 @@ interface PendingHeredoc {
 	readonly delimiter: string
 	readonly stripTabs: boolean
 	readonly quoted: boolean
+	/** The redirection the body belongs to, filled in when it is read. */
+	readonly redirection: { body?: string }
 }
 
 type Last =
@@ -790,6 +808,7 @@ class Parser {
 		}
 		const name = this.takePlainWord()
 		if (name.kind !== 'word') throw this.unexpected(name)
+		this.context.compoundWords.push(name.word)
 		this.newlines()
 		token = this.peek()
 		if (token.kind === 'word' && !token.word.quoted && token.word.value === 'in') {
@@ -807,7 +826,10 @@ class Parser {
 			}
 			for (;;) {
 				token = this.takePlainWord()
-				if (token.kind === 'word') continue
+				if (token.kind === 'word') {
+					this.context.compoundWords.push(token.word)
+					continue
+				}
 				if (token.kind === 'newline' || (token.kind === 'op' && token.op === ';')) break
 				throw this.unexpected(token)
 			}
@@ -854,6 +876,7 @@ class Parser {
 		this.take()
 		const subject = this.takePlainWord()
 		if (subject.kind !== 'word') throw this.unexpected(subject)
+		this.context.compoundWords.push(subject.word)
 		this.newlines()
 		const keyword = this.take()
 		if (keyword.kind !== 'word' || keyword.word.quoted || keyword.word.value !== 'in') {
@@ -887,6 +910,7 @@ class Parser {
 				patterns()
 				const pattern = this.take()
 				if (pattern.kind !== 'word') throw this.unexpected(pattern)
+				this.context.compoundWords.push(pattern.word)
 				const next = this.take()
 				if (next.kind === 'op' && next.op === '|') continue
 				if (next.kind === 'op' && next.op === ')') break
@@ -1114,6 +1138,11 @@ class Parser {
 			// Ubuntu ship).
 			this.context.opaque('quoted or expanding target of >& or <&')
 		}
+		const redirection: { -readonly [K in keyof ShellRedirection]: ShellRedirection[K] } = {
+			operator: operator.op,
+			...(operator.fd !== undefined ? { fd: operator.fd } : {}),
+			target: target.word,
+		}
 		if (operator.op === '<<' || operator.op === '<<-') {
 			if (target.word.value.includes('\n')) {
 				// Bash starts the body at the newline inside the delimiter, so
@@ -1125,13 +1154,10 @@ class Parser {
 					delimiter: target.word.value,
 					stripTabs: operator.op === '<<-',
 					quoted: target.word.quoted,
+					redirection,
 				})
 		}
-		return {
-			operator: operator.op,
-			...(operator.fd !== undefined ? { fd: operator.fd } : {}),
-			target: target.word,
-		}
+		return redirection
 	}
 
 	/**
@@ -1641,7 +1667,9 @@ class Parser {
 			const heredoc = this.heredocs.shift() as PendingHeredoc
 			let i = this.pos
 			const bodyStart = i
+			let bodyEnd = i
 			for (;;) {
+				bodyEnd = i
 				if (i >= src.length) break
 				let line = ''
 				let j = i
@@ -1664,7 +1692,9 @@ class Parser {
 				const test = heredoc.stripTabs ? line.replace(/^\t+/, '') : line
 				i = j
 				if (test === heredoc.delimiter) break
+				bodyEnd = i
 			}
+			heredoc.redirection.body = src.slice(bodyStart, bodyEnd)
 			if (!heredoc.quoted) {
 				const body = src.slice(bodyStart, i)
 				if (/\$[({[]|`/.test(body)) this.heredocBody(body)

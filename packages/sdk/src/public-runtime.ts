@@ -919,6 +919,11 @@ export {
 	AuthorizationGate,
 } from './authorization/index.js'
 
+// The one reader of a bash command line the gate itself uses. A host that
+// writes a `predicate` rule about what a line runs decides on this reading,
+// so its rule and the SDK's own never disagree about where a quote ends.
+export { lexShellCommandLine } from './authorization/shell-lexer.js'
+
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`
 // instance at import time (see each file); `namzu doctor` and any host can

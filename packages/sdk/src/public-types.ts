@@ -262,6 +262,13 @@ export type { AgentBusConfig } from './bus/index.js'
 export type { ToolCallContext } from './authorization/index.js'
 export type { PermissionPreset } from './authorization/index.js'
 export type { EvaluateRuleOptions } from './authorization/rules.js'
+export type {
+	ShellCommand,
+	ShellLexOptions,
+	ShellLexResult,
+	ShellRedirection,
+	ShellWord,
+} from './authorization/shell-lexer.js'
 
 export type {
 	DiskSessionStoreConfig,
