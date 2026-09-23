@@ -122,6 +122,7 @@ export type { PricingSubject } from './manager/session/turn-recorder.js'
 export type {
 	FrontmatterOptions,
 	FrontmatterValue,
+	ParseFrontmatterOptions,
 	ParsedFrontmatter,
 } from './utils/frontmatter.js'
 export type {

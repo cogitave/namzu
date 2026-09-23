@@ -14,6 +14,7 @@ import type {
 	MemoryCliConfig,
 	PluginConfig,
 	SandboxConfig,
+	SkillsConfig,
 	TuiConfig,
 	TurnLimitsConfig,
 	WebConfig,
@@ -109,6 +110,8 @@ export interface TuiContext {
 	readonly mcpServers?: McpServersConfig
 	/** Executable plugins from the trusted, project-aware config. */
 	readonly plugins?: PluginConfig
+	/** See `NamzuCliConfig.skills`. */
+	readonly skills?: SkillsConfig
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
 	/**

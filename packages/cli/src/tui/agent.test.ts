@@ -97,6 +97,21 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('marks a start read-only only when the predicate says so', () => {
+		const start = (toolName: string) =>
+			({
+				type: 'tool_executing',
+				toolUseId,
+				toolName,
+				input: toolName === 'bash' ? { command: 'touch x' } : { file_path: '/etc/hosts' },
+				...env,
+			}) as unknown as SessionEvent
+		const readsOnly = (name: string) => name === 'read'
+		expect(toAgentEvent(start('read'), presenter, readsOnly)).toMatchObject({ readOnly: true })
+		expect(toAgentEvent(start('bash'), presenter, readsOnly)).not.toHaveProperty('readOnly')
+		expect(toAgentEvent(start('read'), presenter)).not.toHaveProperty('readOnly')
+	})
+
 	it('prefers a path field when there is no command', () => {
 		const ev = {
 			type: 'tool_executing',

@@ -23,6 +23,7 @@ import { resolve } from 'node:path'
 import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
 import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 
+import type { SkillsConfig } from '../config/schema.js'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 import { durationMs } from './provider-wait.js'
 
@@ -392,6 +393,7 @@ export function resolveWorkingDirectory(raw: string | null): { cwd: string } | {
 export async function loadSkillsContext(
 	cwd: string,
 	names: readonly string[],
+	config?: SkillsConfig,
 ): Promise<string | undefined> {
 	if (names.length === 0) return undefined
 	try {
@@ -399,8 +401,11 @@ export async function loadSkillsContext(
 			'../skills/store.js'
 		)
 		const wanted = new Set(names)
-		const active = discoverSkills({ cwd })
-			.filter((s) => wanted.has(s.name))
+		// A skill that cannot be used — unreadable, or named in
+		// `skills.disabled` — is skipped rather than allowed to throw the
+		// others away with it.
+		const active = discoverSkills({ cwd, ...(config ? { config } : {}) })
+			.filter((s) => wanted.has(s.name) && s.problem === undefined)
 			.map((s) => ({ name: s.name, body: loadSkillBody(s) }))
 		return composeSkillsPrompt(active) ?? undefined
 	} catch {

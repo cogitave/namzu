@@ -9,6 +9,10 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 import { SessionOperationOwner, createAgentSession } from '../agent.js'
 
+function registryNames(registry: unknown): readonly string[] | undefined {
+	return (registry as { names(): readonly string[] } | undefined)?.names()
+}
+
 const operations = vi.hoisted(() => ({
 	calls: [] as Array<{
 		kind: 'send' | 'compact' | 'resume'
@@ -314,6 +318,8 @@ describe('AgentSession close owns its live work', () => {
 		const session = await createAgentSession(preferences, detected, {
 			cwd,
 			plugins: { enabled: true, allowedScopes: ['project'] },
+			// The plugin's skill alone, without the built-in tier beside it.
+			skills: { builtin: false },
 		})
 		const sendCaller = new AbortController()
 		const resumeCaller = new AbortController()
@@ -349,7 +355,10 @@ describe('AgentSession close owns its live work', () => {
 		const resumeCall = operations.calls.find((call) => call.kind === 'resume')
 		expect(sendCall?.pluginManager).toBeDefined()
 		expect(resumeCall?.pluginManager).toBe(sendCall?.pluginManager)
-		expect(resumeCall?.skillRegistry).toBe(sendCall?.skillRegistry)
+		// Each turn gets its own merged view (file skills gated per turn), over
+		// the same plugin registry: both resolve the plugin's skill.
+		expect(registryNames(resumeCall?.skillRegistry)).toEqual(registryNames(sendCall?.skillRegistry))
+		expect(registryNames(sendCall?.skillRegistry)).toContain('owner__settle')
 		expect(sendCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
 		expect(resumeCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
 		const close = session.close()
@@ -394,9 +403,8 @@ describe('AgentSession close owns its live work', () => {
 			expect(eventIndex, `${event} preceded MCP close`).toBeLessThan(mcpClose)
 			expect(eventIndex, `${event} preceded subagent close`).toBeLessThan(subagentClose)
 		}
-		expect((sendCall?.skillRegistry as { list(): readonly unknown[] } | undefined)?.list()).toEqual(
-			[],
-		)
+		// The turn's view reads the plugin registry live, and close emptied it.
+		expect(registryNames(sendCall?.skillRegistry)).toEqual([])
 		await expect(
 			(
 				sendCall?.pluginManager as

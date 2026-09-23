@@ -13,11 +13,38 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
 export const SKILL_FILENAME = 'SKILL.md'
 
 /**
- * `allowed-tools` may be a YAML list. The Agent Skills format writes it
- * space-separated, comma-separated or as a list, and all three must mean the
- * same grant; the reader joins a list into the comma form.
+ * The frontmatter keys this loader reads.
+ *
+ * Every other key is skipped whole, whatever YAML it is written in, so a
+ * skill written for another agent — `argument-hint: [file]`, a `hooks:`
+ * block, `user-invocable: false` — loads here with those fields ignored
+ * instead of being refused over syntax in a field nothing reads. The keys
+ * listed are still parsed strictly: a value this loader USES is never read
+ * wrongly.
  */
-export const SKILL_FRONTMATTER_OPTIONS = { lists: ['allowed-tools'] } as const
+export const SKILL_FRONTMATTER_KEYS: readonly string[] = Object.freeze([
+	'name',
+	'description',
+	'license',
+	'compatibility',
+	'allowed-tools',
+	'invocation',
+	'disable-model-invocation',
+	'metadata',
+])
+
+const READS_SKILL_KEY = (key: string): boolean => SKILL_FRONTMATTER_KEYS.includes(key)
+
+/**
+ * How this loader reads frontmatter. `allowed-tools` may be a YAML list: the
+ * Agent Skills format writes it space-separated, comma-separated or as a
+ * list, and all three must mean the same grant; the reader joins a list into
+ * the comma form. Keys the loader does not read are skipped whole.
+ */
+export const SKILL_FRONTMATTER_OPTIONS = {
+	lists: ['allowed-tools'],
+	readsKey: READS_SKILL_KEY,
+} as const
 
 /**
  * How this file's errors name themselves. Passed to the shared reader so a
@@ -108,6 +135,30 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 			)
 		}
 		skillMetadata.invocation = invocation
+	}
+
+	// The other common spelling of "the model may not pick this":
+	// `disable-model-invocation: true` is `invocation: operator`. Read here,
+	// at the one parser, so a registry that re-reads the file on every load
+	// cannot lose it — a host-side override would be dropped by the first
+	// freshness reload and the model could then load an operator-only skill.
+	const disableModel = scalarAt(values, 'disable-model-invocation')
+	if (disableModel !== undefined) {
+		if (disableModel !== 'true' && disableModel !== 'false') {
+			// Refused for the reason `invocation` is: `yes` quietly reading as
+			// "not disabled" would put the skill back in front of the model.
+			throw new Error(
+				`${source}: disable-model-invocation must be true or false — got "${disableModel}"`,
+			)
+		}
+		if (disableModel === 'true') {
+			if (skillMetadata.invocation !== undefined && skillMetadata.invocation !== 'operator') {
+				throw new Error(
+					`${source}: disable-model-invocation: true contradicts invocation: ${skillMetadata.invocation}`,
+				)
+			}
+			skillMetadata.invocation = 'operator'
+		}
 	}
 
 	const extra = mappingAt(values, 'metadata')

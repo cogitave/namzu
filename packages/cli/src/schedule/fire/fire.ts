@@ -340,6 +340,7 @@ export async function runFire(
 		withheldTools: withheldTools(job.permissions, policy),
 		...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
 		...(config.plugins ? { plugins: config.plugins } : {}),
+		...(config.skills ? { skills: config.skills } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),
 		...(policy.network && config.web ? { web: config.web } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),

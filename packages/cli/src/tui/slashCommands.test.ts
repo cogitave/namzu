@@ -1159,6 +1159,25 @@ describe('/skills', () => {
 			name: 'release-check',
 		})
 	})
+
+	it('reserves save: a name, off and on', () => {
+		expect(runSlash('/skills save', ctx)).toEqual({ kind: 'save-skill' })
+		expect(runSlash('/skills save todo-report', ctx)).toEqual({
+			kind: 'save-skill',
+			name: 'todo-report',
+		})
+		expect(runSlash('/skills save off', ctx)).toEqual({ kind: 'skill-suggestions', on: false })
+		expect(runSlash('/skills save ON', ctx)).toEqual({ kind: 'skill-suggestions', on: true })
+		expect(runSlash('/skills new', ctx)).toEqual({ kind: 'new-skill', idea: '' })
+	})
+
+	it('refuses a save name the loader would refuse', () => {
+		for (const name of ['Todo Report', 'todo_report', '-x', 'a'.repeat(65)]) {
+			const action = runSlash(`/skills save ${name}`, ctx)
+			expect(action).toMatchObject({ kind: 'message' })
+			expect((action as { content: string }).content).toContain('is not a skill name')
+		}
+	})
 })
 
 describe('/cost and the context', () => {

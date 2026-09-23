@@ -334,6 +334,38 @@ export interface NamzuCliConfig {
 	 * notifications.
 	 */
 	readonly schedule?: ScheduleConfig
+	/**
+	 * Which `SKILL.md` skills a session offers. Absent means every tier,
+	 * built-ins included, with nothing disabled.
+	 */
+	readonly skills?: SkillsConfig
+}
+
+/** See `NamzuCliConfig.skills`. */
+export interface SkillsConfig {
+	/**
+	 * Offer the skills shipped with the CLI (the lowest-precedence tier).
+	 * Default `true`; `false` leaves them out of listings and the model's
+	 * manifest alike.
+	 */
+	readonly builtin?: boolean
+	/**
+	 * Skill names neither the model nor `/skills <name>` may use, whatever
+	 * tier they come from. They stay in listings, marked disabled.
+	 */
+	readonly disabled?: readonly string[]
+	/**
+	 * After a turn that took several steps, the interactive terminal prints
+	 * one dim line proposing to save it as a skill (`/skills save`). Nothing
+	 * is saved without the operator. Default `true`; `false` stops the
+	 * proposals (`/skills save off` writes it to the user config).
+	 */
+	readonly suggest?: boolean
+	/**
+	 * Successful tool calls a turn needs before it is proposed as a skill.
+	 * Default 6.
+	 */
+	readonly suggestMinToolCalls?: number
 }
 
 /** See `NamzuCliConfig.schedule`. */

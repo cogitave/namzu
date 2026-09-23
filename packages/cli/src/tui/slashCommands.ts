@@ -49,6 +49,7 @@ import {
 	permissionModeLabel,
 } from '../permissions/mode.js'
 import { readChangelog, renderReleaseNotes } from '../release-notes.js'
+import { SKILL_NAME_MAX_CHARS, SKILL_NAME_PATTERN } from '../skills/save.js'
 import { ARGUMENTS_TOKEN, type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
 
@@ -123,6 +124,12 @@ export type SlashAction =
 	| { kind: 'plugins'; list: boolean; name?: string }
 	| { kind: 'skill-picker' }
 	| { kind: 'load-skill'; name: string }
+	/** `/skills new [idea]`: start the skill-creator interview. */
+	| { kind: 'new-skill'; idea: string }
+	/** `/skills save [name]`: turn this conversation's work into a skill. */
+	| { kind: 'save-skill'; name?: string }
+	/** `/skills save off|on`: stop or resume proposing skills after a task. */
+	| { kind: 'skill-suggestions'; on: boolean }
 	| { kind: 'resume' }
 	/**
 	 * Close this conversation's paused or interrupted turn without resuming it,
@@ -1019,12 +1026,42 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
-		help: { usage: ['/skills', '/skills list', '/skills <name>'] },
-		description: 'Choose an available skill; use /skills list for the full roster.',
+		help: {
+			usage: [
+				'/skills',
+				'/skills list',
+				'/skills new [what it should do]',
+				'/skills save [name]',
+				'/skills save off|on',
+				'/skills <name>',
+			],
+			details: [
+				'/skills new starts the skill-creator interview; the model drafts a SKILL.md and nothing is saved until you choose where on its confirmation screen.',
+				'/skills save turns what this conversation just did into a skill, generalised and without secrets or tool output, ending on the same confirmation screen.',
+				'/skills save off stops the proposal printed after a multi-step task, in your user config; /skills save on turns it back on.',
+			],
+		},
+		description: 'Choose an available skill; /skills list shows them all, /skills new makes one.',
 		action: (_ctx, args) => {
 			const choice = args.join(' ').trim()
 			if (choice.length === 0) return { kind: 'skill-picker' }
 			if (choice.toLowerCase() === 'list') return { kind: 'list-skills' }
+			if (args[0]?.toLowerCase() === 'new')
+				return { kind: 'new-skill', idea: args.slice(1).join(' ').trim() }
+			if (args[0]?.toLowerCase() === 'save') {
+				const rest = args.slice(1).join(' ').trim()
+				const word = rest.toLowerCase()
+				if (word === 'off' || word === 'on') return { kind: 'skill-suggestions', on: word === 'on' }
+				if (rest.length === 0) return { kind: 'save-skill' }
+				if (!SKILL_NAME_PATTERN.test(rest) || rest.length > SKILL_NAME_MAX_CHARS) {
+					return {
+						kind: 'message',
+						role: 'system',
+						content: `"${rest}" is not a skill name: use lowercase letters, digits and single hyphens, at most ${SKILL_NAME_MAX_CHARS} characters (/skills save release-notes).`,
+					}
+				}
+				return { kind: 'save-skill', name: rest }
+			}
 			return { kind: 'load-skill', name: choice }
 		},
 	},

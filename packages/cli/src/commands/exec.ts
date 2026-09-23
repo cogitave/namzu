@@ -347,6 +347,7 @@ async function execPrint(
 		permissionMode: modeResult.mode,
 		...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
+		...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 		...(ctx.config.web ? { web: ctx.config.web } : {}),
 		...(ctx.config.hooks ? { hooks: ctx.config.hooks } : {}),
 		...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
@@ -418,7 +419,7 @@ async function execPrint(
 		})
 	}
 
-	const extraSystem = await loadSkillsContext(cwd, flags.skills)
+	const extraSystem = await loadSkillsContext(cwd, flags.skills, ctx.config.skills)
 
 	if (resume.kind === 'resumed') {
 		ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages`)

@@ -423,6 +423,7 @@ export {
 	discoverSkills,
 	loadSkill,
 	resolveSkillChain,
+	SKILL_FRONTMATTER_KEYS,
 	SkillRegistry,
 } from './skills/index.js'
 // The one frontmatter reader. `loadSkill` is built on it, and a host reading

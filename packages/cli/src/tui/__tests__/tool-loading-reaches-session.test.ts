@@ -45,6 +45,8 @@ const core = [
 	'write',
 	'web_search',
 	'web_fetch',
+	// Eager so the built-in skills are one call away.
+	'skill',
 ]
 const save = {
 	title: 'Fixture fact',
@@ -147,7 +149,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				// Unchanged by `narrate_work`, which mounts only where an operator
 				// is watching (`askUser`) and so is absent from this headless
 				// session — see the pair of cases below.
-				expect(names(requests[0])).toHaveLength(24)
+				expect(names(requests[0])).toHaveLength(25)
 				expect(JSON.stringify(requests[0].messages)).not.toContain(
 					'Before using a tool listed under',
 				)
@@ -201,6 +203,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				'job',
 				'read',
 				'search_tools',
+				'skill',
 				'wait_for_job',
 				'write',
 			])

@@ -37,6 +37,7 @@
 		"!dist/**/__tests__",
 		"!dist/**/__fixtures__",
 		"!dist/**/test-setup.*",
+		"skills",
 		"README.md",
 		"CHANGELOG.md"
 	],
