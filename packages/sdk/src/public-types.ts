@@ -114,6 +114,7 @@ export type { VendorRates } from './pricing/index.js'
 export type { PricingSubject } from './manager/session/turn-recorder.js'
 export type {
 	FrontmatterValue,
+	ParseFrontmatterOptions,
 	ParsedFrontmatter,
 } from './utils/frontmatter.js'
 export type { Logger } from './utils/logger.js'
