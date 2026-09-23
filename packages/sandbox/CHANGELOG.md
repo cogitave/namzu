@@ -1,5 +1,13 @@
 # @namzu/sandbox
 
+## 20.0.0
+
+### Patch Changes
+
+- Updated dependencies [2e2ea14]
+- Updated dependencies [2e2ea14]
+  - @namzu/sdk@45.0.0
+
 ## 19.0.0
 
 ### Major Changes
