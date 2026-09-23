@@ -123,6 +123,7 @@ async function confirmInTui(
 	const policy = compileJobPolicy(job.permissions, {
 		layers: readPermissionLayers({ cwd: job.folder.canonical }),
 		namzuHome: paths.home,
+		folder: job.folder,
 	})
 	if (policy.diagnostics.length > 0) {
 		ctx.say(`The rules do not compile: ${policy.diagnostics.join('; ')}`)

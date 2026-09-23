@@ -1915,6 +1915,8 @@ function describeRule(rule: AuthorizationRule): string {
 			const where = rule.target === 'both' ? 'name+args' : rule.target
 			return `${verb} ${where} matching ${rule.pattern}`
 		}
+		case 'predicate':
+			return `decide  ${rule.description}`
 		default: {
 			const exhaustive: never = rule
 			return `unrecognised rule: ${JSON.stringify(exhaustive)}`

@@ -200,6 +200,7 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			const policy = compileJobPolicy(job.permissions, {
 				layers: readPermissionLayers({ cwd: job.folder.canonical }),
 				namzuHome: ui.home(),
+				folder: job.folder,
 			})
 			if (policy.diagnostics.length > 0)
 				throw new Error(`The rules do not compile: ${policy.diagnostics.join('; ')}`)

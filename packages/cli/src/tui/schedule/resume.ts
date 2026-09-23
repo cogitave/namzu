@@ -55,7 +55,11 @@ export interface ScheduledPark {
 	 * The provider and model the job's run uses: the job's pin, with the
 	 * model its turn recorded when the job names only a provider.
 	 */
-	readonly model: { readonly provider: string; readonly model?: string; readonly effort?: string }
+	readonly model: {
+		readonly provider: string
+		readonly model?: string
+		readonly effort?: string
+	}
 	/** The parked batch; empty for a handoff park, which has none. */
 	readonly toolCalls: Extract<
 		NonNullable<Awaited<ReturnType<typeof findPendingCheckpoint>>>['pending']['request'],
@@ -330,8 +334,16 @@ export async function chooseHandoffContinuation(
 		header: park.job.name,
 		question: 'Continue the scheduled run?',
 		options: [
-			{ id: CONTINUE, label: 'Continue', description: 'It is done; carry on from here' },
-			{ id: ABANDON, label: 'Abandon', description: 'Stop this run; the job stays scheduled' },
+			{
+				id: CONTINUE,
+				label: 'Continue',
+				description: 'It is done; carry on from here',
+			},
+			{
+				id: ABANDON,
+				label: 'Abandon',
+				description: 'Stop this run; the job stays scheduled',
+			},
 		],
 		multiSelect: false,
 		allowFreeText: false,
@@ -371,7 +383,11 @@ export async function prepareScheduledResume(input: {
 	}
 	const ask = scheduledPermission(input.ask)
 	const layers = readPermissionLayers({ cwd: park.job.folder.canonical })
-	const policy = compileJobPolicy(park.job.permissions, { layers, namzuHome: input.home })
+	const policy = compileJobPolicy(park.job.permissions, {
+		layers,
+		namzuHome: input.home,
+		folder: park.job.folder,
+	})
 	const grant = park.job.permissions.browser
 	const zone = park.job.schedule.kind === 'cron' ? park.job.schedule.tz : hostTimeZone()
 	const resumeWith = (pendingDecision?: HITLResumeDecision): ScheduledResumeParams => ({
@@ -408,7 +424,9 @@ export async function prepareScheduledResume(input: {
 			}
 		}
 		if (choice === 'abandon')
-			return { abandon: 'Scheduled run: the operator abandoned it at a handoff' }
+			return {
+				abandon: 'Scheduled run: the operator abandoned it at a handoff',
+			}
 		return { leave: true }
 	}
 	input.say(
@@ -421,7 +439,10 @@ export async function prepareScheduledResume(input: {
 	})
 	return resumeWith(
 		answer.kind === 'reject'
-			? { action: 'reject_tools', feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK }
+			? {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
+				}
 			: { action: 'approve_tools' },
 	)
 }

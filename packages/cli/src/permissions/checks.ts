@@ -44,7 +44,7 @@
  * deleted.
  */
 
-import { AuthorizationGate, type AuthorizationRule, NOOP_LOGGER } from '@namzu/sdk'
+import { AuthorizationGate, type AuthorizationRule, NOOP_LOGGER, getBuiltinTools } from '@namzu/sdk'
 
 import type { CompileDiagnostic, PermissionEffect } from './rules.js'
 import { isPermissionEffect } from './rules.js'
@@ -119,10 +119,16 @@ export function verifyPermissionChecks(
 			continue
 		}
 
+		// A builtin's command line is read for the shell the tool spawns, as it
+		// is at runtime; the CLI runs commands on the host unless a sandbox is
+		// chosen, and a sandboxed reading is only ever stricter.
+		const builtin = getBuiltinTools().find((tool) => tool.name === check.tool)
+		const commandDialect = builtin?.commandDialect?.({ sandboxed: false })
 		const verdict = gate.evaluate({
 			toolName: check.tool,
 			toolInput: check.input,
 			toolDef: undefined,
+			...(commandDialect !== undefined ? { commandDialect } : {}),
 		})
 		const actual = asEffect(verdict.decision)
 		if (actual === check.expect) continue

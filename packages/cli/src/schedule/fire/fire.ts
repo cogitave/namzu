@@ -257,7 +257,11 @@ export async function runFire(
 			`config cannot be read: ${error instanceof Error ? error.message : String(error)}`,
 		)
 	}
-	const policy = compileJobPolicy(job.permissions, { layers, namzuHome: paths.home })
+	const policy = compileJobPolicy(job.permissions, {
+		layers,
+		namzuHome: paths.home,
+		folder: job.folder,
+	})
 	if (policy.diagnostics.length > 0) {
 		// A rule someone believes is in force and that would be dropped is
 		// worse than not running.

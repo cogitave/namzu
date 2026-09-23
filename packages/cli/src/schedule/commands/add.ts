@@ -327,7 +327,11 @@ async function confirmOnTerminal(
 	changes: readonly string[] = [],
 ): Promise<'cli-tty' | 'cli-noninteractive' | null> {
 	const layers = readPermissionLayers({ cwd: job.folder.canonical })
-	const policy = compileJobPolicy(job.permissions, { layers, namzuHome: paths.home })
+	const policy = compileJobPolicy(job.permissions, {
+		layers,
+		namzuHome: paths.home,
+		folder: job.folder,
+	})
 	if (policy.diagnostics.length > 0) {
 		throw new JobRequestError(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}

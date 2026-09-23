@@ -10,11 +10,18 @@ import type { ToolDefinition } from '../types/tool/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 import { evaluateRule } from './rules.js'
+import type { ShellDialect } from './shell-lexer.js'
 
 export interface ToolCallContext {
 	readonly toolName: string
 	readonly toolInput: unknown
 	readonly toolDef: ToolDefinition | undefined
+	/**
+	 * The shell this call's command line will run in, when the caller knows
+	 * (`ToolDefinition.commandDialect`). Absent, a command line is read in the
+	 * `sh` dialect, which holds whichever shell runs it.
+	 */
+	readonly commandDialect?: ShellDialect
 }
 
 /**
@@ -69,6 +76,8 @@ export function describeRule(rule: AuthorizationRule): string {
 						: 'allowed'
 			return `${verb} by a pattern rule matching the ${where}: ${rule.pattern}`
 		}
+		case 'predicate':
+			return rule.description
 		default: {
 			const exhaustive: never = rule
 			return `matched an unrecognised rule: ${JSON.stringify(exhaustive)}`
@@ -216,6 +225,7 @@ export class AuthorizationGate {
 				ctx.toolDef,
 				this.compiledPatterns.get(i),
 				this.nameSets.get(i),
+				ctx.commandDialect !== undefined ? { commandDialect: ctx.commandDialect } : {},
 			)
 
 			if (decision !== null) {

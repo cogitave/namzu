@@ -1834,6 +1834,11 @@ export class IterationOrchestrator {
 	private rememberUserMessage(message: Message, arriving = true): void {
 		if (!isOperatorUserMessage(message)) return
 		this.latestUserMessage = message
+		// A skill's `allowed-tools` pre-approves for the request that loaded
+		// it. The operator speaking again — a queued message or steering
+		// delivered into this same `query()` — is a new request, and it starts
+		// with nothing pre-approved, exactly as a new turn would.
+		if (arriving) this.ctx.skillGrants?.clear()
 		// The hook field alone does not reach the model. Preserve arrivals in
 		// the compaction state too, before their original message or attached
 		// tool result can be shed. Initial history was already extracted at seed.

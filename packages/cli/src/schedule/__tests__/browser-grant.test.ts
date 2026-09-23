@@ -15,18 +15,17 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import type { PermissionLayer } from '../../config/load.js'
-import {
-	allowsNetwork,
-	compileJobPolicy,
-	expandPermissions,
-	windowsBrowserProfilePatterns,
-	withheldTools,
-} from '../policy.js'
+import { allowsNetwork, compileJobPolicy, expandPermissions, withheldTools } from '../policy.js'
 import type { SchedulePermissionSet } from '../types.js'
 
 const host: BrowserHost = {
 	id: 'fake',
-	capabilities: { engine: 'fake', headless: true, screenshot: true, upload: false },
+	capabilities: {
+		engine: 'fake',
+		headless: true,
+		screenshot: true,
+		upload: false,
+	},
 	async observe() {
 		throw new Error('not called')
 	},
@@ -50,7 +49,11 @@ function decide(rules: readonly AuthorizationRule[], name: string, raw: Record<s
 	)
 	const prepared = registry.get(name) ? registry.prepareExecution(name, raw) : undefined
 	if (!prepared?.success) {
-		return gate.evaluate({ toolName: name, toolInput: raw, toolDef: registry.get(name) }).decision
+		return gate.evaluate({
+			toolName: name,
+			toolInput: raw,
+			toolDef: registry.get(name),
+		}).decision
 	}
 	return gate.evaluate({
 		toolName: name,
@@ -95,7 +98,11 @@ describe('a browser grant', () => {
 
 	it('refuses "*", an empty list, a bad level, a bad profile and a site listed twice', () => {
 		const grant = (sites: Record<string, string>, profile = 'social') =>
-			expandPermissions({ preset: 'read-only', unmatched: 'park', browser: { profile, sites } })
+			expandPermissions({
+				preset: 'read-only',
+				unmatched: 'park',
+				browser: { profile, sites },
+			})
 		expect(() => grant({ '*': 'read' })).toThrow(/every site/)
 		expect(() => grant({})).toThrow(/at least one site/)
 		expect(() => grant({ 'https://a.example': 'deny' })).toThrow(/not read, ask or act/)
@@ -124,7 +131,10 @@ describe('a browser grant', () => {
 			/browser grant/,
 		)
 		expect(() =>
-			expandPermissions({ rules: { browser_act: { '*': 'allow' } }, unmatched: 'park' }),
+			expandPermissions({
+				rules: { browser_act: { '*': 'allow' } },
+				unmatched: 'park',
+			}),
 		).toThrow(/browser grant/)
 	})
 })
@@ -162,7 +172,10 @@ describe('the compiled grant, through the gate', () => {
 		})
 		const compiled = policy(set)
 		expect(
-			decide(compiled.rules, 'browser', { action: 'navigate', url: 'https://a.example/' }),
+			decide(compiled.rules, 'browser', {
+				action: 'navigate',
+				url: 'https://a.example/',
+			}),
 		).toBe('review')
 		expect(
 			decide(compiled.rules, 'browser_act', {
@@ -176,9 +189,12 @@ describe('the compiled grant, through the gate', () => {
 
 	it('denies the browser tools outright when there is no grant', () => {
 		const plain = policy(expandPermissions({ preset: 'edit-in-folder' }))
-		expect(decide(plain.rules, 'browser', { action: 'navigate', url: 'https://a.example/' })).toBe(
-			'deny',
-		)
+		expect(
+			decide(plain.rules, 'browser', {
+				action: 'navigate',
+				url: 'https://a.example/',
+			}),
+		).toBe('deny')
 		expect(decide(plain.rules, 'browser', { action: 'snapshot' })).toBe('deny')
 		expect(
 			decide(plain.rules, 'browser_act', {
@@ -200,7 +216,10 @@ describe('the compiled grant, through the gate', () => {
 		]
 		const compiled = policy(granted, layers)
 		expect(
-			decide(compiled.rules, 'browser', { action: 'navigate', url: 'https://news.example/' }),
+			decide(compiled.rules, 'browser', {
+				action: 'navigate',
+				url: 'https://news.example/',
+			}),
 		).toBe('deny')
 		expect(compiled.lines).toContain(
 			'browser https://news.example: deny (from /home/someone/.namzu-test/config.yaml)',
@@ -217,37 +236,6 @@ describe('the compiled grant, through the gate', () => {
 				'browser any other site: deny',
 				'browser sign-in, CAPTCHA or a code: the run stops and tells you',
 			]),
-		)
-	})
-})
-
-describe("the floor over the Windows browser's profiles", () => {
-	const patterns = windowsBrowserProfilePatterns().map((p) => new RegExp(p))
-	const named = (command: string) => patterns.some((p) => p.test(JSON.stringify({ command })))
-
-	it('fits the gate', () => {
-		for (const p of windowsBrowserProfilePatterns()) expect(p.length).toBeLessThanOrEqual(500)
-	})
-
-	it('names the profile root however a command spells it', () => {
-		expect(named('ls /mnt/c/Users/Arda/AppData/Local/namzu/browser')).toBe(true)
-		expect(named('dir C:\\Users\\Arda\\AppData\\Local\\namzu')).toBe(true)
-		expect(named("cat '/mnt/c/Users/A/appdata/local/NAMZU/x'")).toBe(true)
-		expect(named('type %LOCALAPPDATA%\\namzu\\browser')).toBe(true)
-		expect(named('Get-ChildItem $env:LOCALAPPDATA/namzu')).toBe(true)
-		expect(named('ls ${LOCALAPPDATA}/namzu')).toBe(true)
-	})
-
-	it('leaves other folders alone', () => {
-		expect(named('ls /mnt/c/Users/A/AppData/Local/namzu2')).toBe(false)
-		expect(named('ls /mnt/c/Users/A/AppData/Local/Google')).toBe(false)
-		expect(named('echo namzu')).toBe(false)
-	})
-
-	it('is part of every scheduled run’s rules', () => {
-		const { rules } = policy(expandPermissions({ preset: 'edit-in-folder' }))
-		expect(decide(rules, 'bash', { command: 'cat /mnt/c/Users/A/AppData/Local/namzu/x' })).toBe(
-			'deny',
 		)
 	})
 })

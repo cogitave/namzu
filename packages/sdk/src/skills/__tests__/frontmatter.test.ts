@@ -101,11 +101,28 @@ describe('YAML this reader does not implement', () => {
 				'---',
 				'name: a-skill',
 				'description: Does a thing',
-				'allowed-tools: [Read, Grep]',
+				'compatibility: [node, bun]',
 				'---',
 			].join('\n'),
 		)
 		await expect(loadSkill(path, 'full')).rejects.toThrow(/flow sequence/)
+	})
+
+	it('reads a flow sequence for allowed-tools, which the format writes as a list', async () => {
+		// The one key a list is accepted for: the Agent Skills format writes
+		// `allowed-tools` space-separated, comma-separated or as a list, and
+		// the joined value means what the list did.
+		const path = skill(
+			[
+				'---',
+				'name: a-skill',
+				'description: Does a thing',
+				'allowed-tools: [Read, Grep]',
+				'---',
+			].join('\n'),
+		)
+		const loaded = await loadSkill(path, 'full')
+		expect(loaded.skill.metadata.allowedTools).toBe('Read, Grep')
 	})
 
 	it('names the file and the field it refused', async () => {

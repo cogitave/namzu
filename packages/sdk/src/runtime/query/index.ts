@@ -6,6 +6,7 @@ import {
 	assertBudgetEnforceable,
 } from '../../advisory/index.js'
 import { AuthorizationGate } from '../../authorization/gate.js'
+import { SkillGrantSet } from '../../authorization/skill-grant.js'
 import { repairToolMessageHistory, toolHistoryRepairChanged } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
@@ -1197,8 +1198,13 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			: undefined
 		awaitedJobs?.attach()
 
+		// Turn-scoped, like `toolGrants` below: what a skill loaded in this turn
+		// pre-approves ends with the turn. Shared by the executor, where the
+		// `skill` tool records a grant, and the review phase, which reads it.
+		const skillGrants = new SkillGrantSet()
 		const toolExecutor = ToolingBootstrap.init(
 			{
+				skillGrants,
 				tools: params.tools,
 				sessionId: ctx.sessionId,
 				turnId: ctx.turnId,
@@ -1497,6 +1503,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// Turn-scoped. An approval is a statement about this turn's work;
 			// carrying one into a later turn would be reuse nobody agreed to.
 			toolGrants: new ToolGrantSet(),
+			skillGrants,
 			...(params.reviewAllowedCalls ? { reviewAllowedCalls: params.reviewAllowedCalls } : {}),
 			// Turn-scoped for the same reason. A repeat count carried into a later
 			// run is a claim about work nobody repeated, and a module-level map

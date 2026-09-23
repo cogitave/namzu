@@ -61,6 +61,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	 * hand-written definitions can use.
 	 */
 	commandArgument?: string
+	/** The shell the command argument runs in; see {@link ToolDefinition.commandDialect}. */
+	commandDialect?: ToolDefinition['commandDialect']
 	/** The argument holding a filesystem path; see {@link ToolDefinition.pathArgument}. */
 	pathArgument?: string
 	/** The argument holding a canonical URL; see {@link ToolDefinition.urlArgument}. */
@@ -68,6 +70,35 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	/** The argument asking to leave the sandbox; see {@link ToolDefinition.sandboxEscapeArgument}. */
 	sandboxEscapeArgument?: string
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
+}
+
+/**
+ * The `isDestructive` functions built from a literal `destructive: true`.
+ *
+ * Such a tool is destructive for EVERY input, so no call of it can ever be
+ * approved without review — and a grant that names it (a skill's
+ * `allowed-tools: Write`) would be a promise the review phase never keeps.
+ * Kept here rather than as a field on the definition so the public
+ * `ToolDefinition` shape does not change; see {@link isAlwaysDestructive}.
+ */
+const ALWAYS_DESTRUCTIVE = new WeakSet<object>()
+
+/**
+ * Whether a tool declares every call destructive, whatever the input.
+ *
+ * Known only for a tool built by {@link defineTool} with `destructive: true`.
+ * A hand-written definition, or one whose flag depends on the input, answers
+ * `false`: its calls are still judged one by one, so nothing is lost but an
+ * early warning.
+ */
+export function isAlwaysDestructive(tool: Pick<ToolDefinition, 'isDestructive'>): boolean {
+	return tool.isDestructive !== undefined && ALWAYS_DESTRUCTIVE.has(tool.isDestructive)
+}
+
+function constantDestructive(value: boolean): () => boolean {
+	const fn = () => value
+	if (value) ALWAYS_DESTRUCTIVE.add(fn)
+	return fn
 }
 
 export function defineTool<S extends z.ZodType>(
@@ -86,6 +117,7 @@ export function defineTool<S extends z.ZodType>(
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
 		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
+		...(options.commandDialect !== undefined ? { commandDialect: options.commandDialect } : {}),
 		...(options.pathArgument !== undefined ? { pathArgument: options.pathArgument } : {}),
 		...(options.urlArgument !== undefined ? { urlArgument: options.urlArgument } : {}),
 		...(options.sandboxEscapeArgument !== undefined
@@ -105,7 +137,7 @@ export function defineTool<S extends z.ZodType>(
 		isDestructive:
 			typeof options.destructive === 'function'
 				? options.destructive
-				: () => options.destructive as boolean,
+				: constantDestructive(options.destructive as boolean),
 		isConcurrencySafe: () => options.concurrencySafe,
 
 		async execute(input: TInput, context: ToolContext): Promise<ToolResult> {

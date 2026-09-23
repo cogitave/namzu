@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../../constants/authorization/index.js'
+import type { ShellDialect, ToolDefinition } from '../tool/index.js'
 
 export type GateDecision = 'allow' | 'deny' | 'review'
 
@@ -91,6 +92,46 @@ export type AuthorizationRule =
 			decision: 'allow' | 'deny' | 'review'
 	  }
 	| { type: 'allow_by_tier'; tiers: string[] }
+	| {
+			/**
+			 * A decision the host computes in code, in its place in the list.
+			 *
+			 * A pattern is the wrong tool for a rule about what a command line
+			 * DOES: a regular expression over its text has to re-implement the
+			 * shell's quoting, and every form it misses (`$'…'`, a line
+			 * continuation, a quoted separator) is a way past the rule. A host
+			 * that needs such a rule reads the line with `lexShellCommandLine`
+			 * and decides on the words bash will pass, here.
+			 *
+			 * `decide` returns a decision, or `null` to let the next rule
+			 * decide. A `decide` that throws is read as `deny`: a rule that
+			 * could not reach a verdict must not let the call through.
+			 */
+			type: 'predicate'
+			/**
+			 * What the rule refuses or allows, in words. It is the reason the
+			 * gate reports when this rule decides, so it should tell a model
+			 * whether a different input could fare better.
+			 */
+			description: string
+			decide: AuthorizationPredicate
+	  }
+
+/** The call an `AuthorizationRule` of type `predicate` is asked about. */
+export interface AuthorizationPredicateCall {
+	readonly toolName: string
+	readonly toolInput: unknown
+	readonly toolDef: ToolDefinition | undefined
+	/**
+	 * The shell a command line in this call runs in: the caller's
+	 * (`ToolCallContext.commandDialect`), or `sh` when it did not say, which
+	 * is the reading that holds whichever shell runs it.
+	 */
+	readonly commandDialect: ShellDialect
+}
+
+/** The code behind an `AuthorizationRule` of type `predicate`. */
+export type AuthorizationPredicate = (call: AuthorizationPredicateCall) => GateDecision | null
 
 const AllowReadOnlySchema = z.object({
 	type: z.literal('allow_read_only'),
@@ -134,6 +175,15 @@ const AllowByTierSchema = z.object({
 	type: z.literal('allow_by_tier'),
 	tiers: z.array(z.string()),
 })
+const PredicateSchema = z.object({
+	type: z.literal('predicate'),
+	// A rule that says nothing about itself produces a refusal nobody can
+	// reason about.
+	description: z.string().min(1),
+	decide: z.custom<AuthorizationPredicate>((value) => typeof value === 'function', {
+		message: 'decide must be a function',
+	}),
+})
 
 export const AuthorizationRuleSchema = z.discriminatedUnion('type', [
 	AllowReadOnlySchema,
@@ -144,6 +194,7 @@ export const AuthorizationRuleSchema = z.discriminatedUnion('type', [
 	CustomPatternSchema,
 	ArgumentPatternSchema,
 	AllowByTierSchema,
+	PredicateSchema,
 ])
 
 export const AuthorizationGateConfigSchema = z.object({

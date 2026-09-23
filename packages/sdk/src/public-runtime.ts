@@ -318,6 +318,15 @@ export { deriveTurnStatus } from './types/session/derive-status.js'
 // wide their yes is, instead of choosing between 'this one call' and
 // 'everything for the session'.
 export { ToolGrantSet, toolGrantKeys } from './runtime/query/tool-grants.js'
+// A skill's `allowed-tools` as a turn-scoped pre-approval: the parser, the
+// compiler a host can run against its own registry, the per-turn set, and
+// the one permission-glob dialect the CLI's `[permissions]` table shares.
+export {
+	SKILL_TOOL_NAME_ALIASES,
+	SkillGrantSet,
+	compileSkillGrant,
+	permissionPatternToRegExpSource,
+} from './authorization/skill-grant.js'
 export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
 // `toWireTurnStatus` comes through `./contracts/session/index.js`.
 // Durable turn state: the snapshot a different process picks a turn up from.
@@ -909,6 +918,11 @@ export {
 	evaluateRule,
 	AuthorizationGate,
 } from './authorization/index.js'
+
+// The one reader of a bash command line the gate itself uses. A host that
+// writes a `predicate` rule about what a line runs decides on this reading,
+// so its rule and the SDK's own never disagree about where a quote ends.
+export { lexShellCommandLine } from './authorization/shell-lexer.js'
 
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`

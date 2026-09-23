@@ -107,6 +107,28 @@ describe('a prohibition cannot be smuggled past', () => {
 		'bash -c "git push origin main"',
 		'sh -c "cd /tmp && git push origin main"',
 		'(cd /tmp && git push origin main)',
+		// `$'\\''` is one quoted apostrophe, so the chain after it runs.
+		"echo $'\\'' ; git push origin main #'",
+		// `$$` is the PID, so the apostrophe after it opens a plain quote.
+		"echo $$'\\' ; git push origin main #'",
+		// `$$` then `$'\\''`: an odd run of dollars still ends in an ANSI-C quote.
+		"echo $$$'\\'' ; git push origin main #'",
+		// Quoting that bash removes before it runs anything. The source text
+		// differs from the pattern and the command does not.
+		"'git' push origin main",
+		'g\\it push origin main',
+		'"git" "push" origin main',
+		"$'git' push origin main",
+		"$'\\x67it' push origin main",
+		'GIT_DIR=. git push origin main',
+		'bash "-c" "git push origin main"',
+		"bash -lc 'git push origin main'",
+		'! git push origin main',
+		'time git push origin main',
+		'{ git push origin main; }',
+		'if true; then git push origin main; fi',
+		'cat <<EOF\nx\nEOF\ngit push origin main',
+		'echo "$(git push origin main)"',
 	])('denies %p', (command) => {
 		expect(evaluate([PUSH_RULE], 'bash', { command }).decision).toBe('deny')
 	})
@@ -153,6 +175,17 @@ describe('a permission is a claim about the whole line', () => {
 		expect(result.decision).not.toBe('allow')
 	})
 
+	it('refuses to allow a line whose ANSI-C quote hides the rest', () => {
+		// An operator allow rule read the line the way the skill grant did:
+		// everything after `$'\\''` looked quoted, and bash ran it.
+		for (const command of [
+			"git status $'\\'' ; touch pwned #'",
+			"git status $'\\'' && touch pwned #'",
+		]) {
+			expect(evaluate([ALLOW_STATUS], 'bash', { command }).decision, command).not.toBe('allow')
+		}
+	})
+
 	it('refuses to allow a line that runs something it cannot see', () => {
 		// Command substitution runs a command whose text is not in the line, so
 		// no reading of the line is a reading of what ran.
@@ -165,6 +198,42 @@ describe('a permission is a claim about the whole line', () => {
 		// allow rule quietly stops working on ordinary commands.
 		const result = evaluate([ALLOW_STATUS], 'bash', { command: "git status '$(nothing)'" })
 		expect(result.decision).toBe('allow')
+	})
+})
+
+describe('a path is a path', () => {
+	const ALLOW_SRC: AuthorizationRule = {
+		type: 'argument_pattern',
+		toolNames: ['edit'],
+		argument: 'path',
+		pattern: '^src/',
+		decision: 'allow',
+	}
+
+	function pathTool(name: string): ToolDefinition {
+		return { name, isReadOnly: () => false, pathArgument: 'path' } as unknown as ToolDefinition
+	}
+
+	it('is not read as a command line when the tool declares it a path', () => {
+		// Read as shell, `(auth)` is a syntax error, which is opaque, and an
+		// opaque value withdraws every allow rule. Route groups are ordinary
+		// file names in some frameworks.
+		const result = gate([ALLOW_SRC]).evaluate({
+			toolName: 'edit',
+			toolInput: { path: 'src/app/(auth)/page.tsx' },
+			toolDef: pathTool('edit'),
+		})
+		expect(result.decision).toBe('allow')
+	})
+
+	it('still denies on the whole value', () => {
+		const deny: AuthorizationRule = { ...ALLOW_SRC, pattern: '\\.env$', decision: 'deny' }
+		const result = gate([deny]).evaluate({
+			toolName: 'edit',
+			toolInput: { path: 'src/(x)/.env' },
+			toolDef: pathTool('edit'),
+		})
+		expect(result.decision).toBe('deny')
 	})
 })
 

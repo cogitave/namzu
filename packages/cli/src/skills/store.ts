@@ -87,7 +87,11 @@ interface ParsedSkill {
 export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkill {
 	if (!raw.trimStart().startsWith('---')) return { body: raw.trim() }
 
-	const { values, body } = parseFrontmatter(raw, source)
+	// `allowed-tools` may be a YAML list, as the Agent Skills format writes
+	// it; the kernel's own skill loader accepts the same.
+	const { values, body } = parseFrontmatter(raw, source, {
+		lists: ['allowed-tools'],
+	})
 
 	// A non-scalar `name` or `description` is dropped rather than rendered:
 	// there is no sensible string for a block of indented pairs, and the

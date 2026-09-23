@@ -2,7 +2,17 @@ import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
-import { decomposeCommandLine } from './command-line.js'
+import { decodedCommands, decomposeCommandLine } from './command-line.js'
+import type { ShellDialect } from './shell-lexer.js'
+
+export interface EvaluateRuleOptions {
+	/**
+	 * The shell the tool will run a command-line argument in. Default `sh`:
+	 * every construct bash and a POSIX shell read differently makes the line
+	 * opaque. `ToolDefinition.commandDialect` supplies it for a tool.
+	 */
+	readonly commandDialect?: ShellDialect
+}
 
 export function evaluateRule(
 	rule: AuthorizationRule,
@@ -11,7 +21,11 @@ export function evaluateRule(
 	toolDef: ToolDefinition | undefined,
 	compiledPattern?: RegExp,
 	nameSet?: Set<string>,
+	options: EvaluateRuleOptions = {},
 ): GateDecision | null {
+	// A command line is read for the shell that will run it. Not knowing
+	// which, the reading that holds for every POSIX shell is the safe one.
+	const dialect = options.commandDialect ?? 'sh'
 	switch (rule.type) {
 		case 'allow_read_only': {
 			// A server's own claim about its own tool cannot settle this. See
@@ -106,6 +120,17 @@ export function evaluateRule(
 						: undefined
 			if (subject === undefined) return null
 
+			// A path the tool itself declares is a path, not a command line.
+			// Read as shell, `app/(auth)/page.tsx` is a syntax error, and an
+			// opaque reading would withdraw every allow rule written for it.
+			if (
+				typeof value === 'string' &&
+				toolDef?.pathArgument === rule.argument &&
+				toolDef.commandArgument !== rule.argument
+			) {
+				return compiledPattern.test(subject) ? rule.decision : null
+			}
+
 			// A command line is not one string, and testing it as one is how a
 			// prohibition gets bypassed: `^git push` sees `git push origin main`
 			// and does not see `true; git push origin main`. See
@@ -116,22 +141,27 @@ export function evaluateRule(
 			// line, and cutting it at `&` would make an `allow` for a site
 			// decline every address with a query string. See
 			// `ToolDefinition.urlArgument`.
-			const { segments, opaque } =
-				toolDef?.urlArgument === rule.argument
-					? { segments: [subject], opaque: false }
-					: decomposeCommandLine(subject)
+			const isUrl = toolDef?.urlArgument === rule.argument
+			const { segments, opaque } = isUrl
+				? { segments: [subject], opaque: false }
+				: decomposeCommandLine(subject, dialect)
 
 			if (rule.decision === 'deny' || rule.decision === 'review') {
 				// ANY segment. The whole subject is tested first so an
 				// unanchored deny keeps matching across a boundary, which
-				// splitting alone would have taken away.
+				// splitting alone would have taken away. Then each command's
+				// words as bash passes them, so that `'git' push` is `git push`.
 				//
 				// `review` reads like `deny`, because it is a restriction too: a
 				// rule that asks before `git push` must ask before
 				// `true; git push` as well. Matching too much costs a prompt;
 				// matching too little skips the question the operator asked for.
 				if (compiledPattern.test(subject)) return rule.decision
-				return segments.some((segment) => compiledPattern.test(segment)) ? rule.decision : null
+				if (segments.some((segment) => compiledPattern.test(segment))) return rule.decision
+				if (isUrl) return null
+				return decodedCommands(subject, dialect).some((text) => compiledPattern.test(text))
+					? rule.decision
+					: null
 			}
 
 			// EVERY segment, and nothing that hides one. Permission is a claim
@@ -147,6 +177,22 @@ export function evaluateRule(
 				return 'allow'
 			}
 			return null
+		}
+
+		case 'predicate': {
+			// A rule that throws has not decided the call is safe. Reading the
+			// exception as "no opinion" would let the next rule, or the mode,
+			// approve what this one was written to refuse.
+			try {
+				return rule.decide({
+					toolName,
+					toolInput,
+					toolDef,
+					commandDialect: dialect,
+				})
+			} catch {
+				return 'deny'
+			}
 		}
 
 		default: {
