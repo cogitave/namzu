@@ -190,10 +190,10 @@ describe("ANSI-C quoting, `$'…'`", () => {
 
 	it('reads `$$` as the PID, not the start of an ANSI-C quote', () => {
 		expect(decomposeCommandLine("echo $$'\\' ; git push origin main #'").segments).toContain(
-			'git push origin main #\'',
+			"git push origin main #'",
 		)
 		expect(decomposeCommandLine("echo $$$'\\'' ; git push origin main #'").segments).toContain(
-			'git push origin main #\'',
+			"git push origin main #'",
 		)
 		expect(writesThroughRedirection("echo $$'\\' > ~/.bashrc #'")).toBe(true)
 	})
