@@ -50,6 +50,10 @@ A sandboxed `bash` call can set `dangerously_disable_sandbox: true` to run that 
 | `sandbox.allowEscape` | `true` | Allow a sandboxed `bash` call to ask to leave the sandbox. `false` refuses every such request. |
 | `sandbox.allowUnattendedEscape` | `false` | Grant that request without a prompt when nobody can be asked. |
 
+## The browser
+
+The [browser tools](browser.md) drive a real browser, which runs outside the sandbox whether it is on or off: in WSL, it is the Windows Chrome. What they may open and change is `browser.sites`, compiled to rules the gate applies before the call and checked again by the browser host after every navigation. Only the interactive terminal mounts them.
+
 ## What the model is told
 
 The environment block in the system prompt states the boundary, so the model does not have to infer it from refusals: whether tools run on the host or in a sandbox (and what the sandbox enforces), that a path outside the working directory is asked about rather than refused (or, with nobody to ask, refused and named so `--add-dir` can add it), what a sandbox that confines the file system still shows a command, `/add-dir` for a directory it needs repeatedly, and — only in a sandboxed session that allows it — the per-command escape. A refusal a file tool still returns names the way to widen the boundary instead of ending at "may only reach".

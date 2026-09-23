@@ -10,6 +10,7 @@
 import type { ShellHookEntry, ShellHookEvent, ShellHooksConfig } from '@namzu/sdk'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
+import type { BrowserSitesConfig } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import type { ToolResultScreenConfig } from './tool-result-screens.js'
@@ -102,6 +103,29 @@ export interface CompactionCliConfig {
 	 * memory store. This selects the writer; `memory.recall` controls retrieval.
 	 */
 	readonly consolidate?: boolean
+}
+
+/** See `NamzuCliConfig.browser`. */
+export interface BrowserConfig {
+	/**
+	 * Mount the browser tools in the interactive terminal. Default `true`.
+	 * `exec`, `exec --json`, `drain` and `acp` never mount them; a scheduled
+	 * job gets them only through its own grant.
+	 */
+	readonly enabled?: boolean
+	/**
+	 * The profile the TUI starts on (`default` when absent). A profile holds
+	 * the sites' sign-ins, so a project file may not choose it.
+	 */
+	readonly defaultProfile?: string
+	/** `auto` (default) follows the machine; `windows` forces the Windows browser from WSL; `local` a browser this process launches. */
+	readonly engine?: 'auto' | 'windows' | 'local'
+	/** `auto` (default) shows a window when there is a display; `always` never does; `never` always does. */
+	readonly headless?: 'auto' | 'always' | 'never'
+	/** Site key to level (`deny`, `read`, `ask`, `act`); `*` is every other site, `ask` when absent. */
+	readonly sites?: BrowserSitesConfig
+	/** Leave the browser running when the session ends. Default `false`. */
+	readonly keepOpen?: boolean
 }
 
 /** See `NamzuCliConfig.web`. */
@@ -221,6 +245,16 @@ export interface NamzuCliConfig {
 	 * mounts guarded URL fetching; fetch remains off by default.
 	 */
 	readonly web?: WebConfig
+	/**
+	 * The browser the interactive terminal drives (`browser` and
+	 * `browser_act`), and which sites it may open and change.
+	 *
+	 * Merged across files key by key, and a site any file denies stays
+	 * denied: a project can add sites and narrow them, never reopen one a
+	 * user or managed file closed, and cannot switch the browser on when a
+	 * file above it switched it off. Not settable from the environment.
+	 */
+	readonly browser?: BrowserConfig
 	/**
 	 * Shell commands to run at points in the agent's loop: before or after a
 	 * tool call, when a turn starts or ends. File-only, never from the

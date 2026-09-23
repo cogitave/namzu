@@ -23,7 +23,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { RENAMED_PLUGIN_HOOK_EVENTS, SHELL_HOOK_EVENTS } from '@namzu/sdk'
 
 import { parse as yamlParse } from 'yaml'
@@ -31,10 +31,17 @@ import { parse as yamlParse } from 'yaml'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { isFormatName } from '../output/index.js'
+import {
+	type BrowserSiteLevel,
+	canonicalBrowserSiteKey,
+	isBrowserSiteLevel,
+	narrower,
+} from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import { configMetadataLiteral } from './debug.js'
 import type {
+	BrowserConfig,
 	CompactionCliConfig,
 	PluginConfig,
 	ProfileConfig,
@@ -811,6 +818,7 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return out as HooksConfig
 	},
+	browser: (v, context) => readBrowserConfig(v, context),
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
@@ -1176,6 +1184,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	limits: undefined,
 	// Outbound reach is opted into in the file, never from the environment.
 	web: undefined,
+	// A browser signed in to the operator's sites, and which of them it may
+	// change: a file decision, never a shell's.
+	browser: undefined,
 	// A hook runs a command with the operator's authority; the file is the only
 	// place one may be declared.
 	hooks: undefined,
@@ -1361,6 +1372,12 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 	const provenance: { -readonly [K in keyof NamzuCliConfig]?: ConfigSource } = {}
 	for (const layer of layers) {
 		for (const key of Object.keys(layer.config) as (keyof NamzuCliConfig)[]) {
+			if (key === 'browser' && layer.config.browser) {
+				// Merged, not replaced: see `mergeBrowserConfig`.
+				out.browser = mergeBrowserConfig(out.browser, layer.config.browser, layer.sourceFor(key))
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
 			// Same widened-view assignment as `sanitize`: a cast on the target,
 			// not the value, is what lets a generic key write onto a
 			// heterogeneous mapped type without silently dropping a field this
@@ -1370,4 +1387,136 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 		}
 	}
 	return { config: out, provenance }
+}
+
+// ---------------------------------------------------------------------------
+// browser
+// ---------------------------------------------------------------------------
+
+const BROWSER_KEYS = new Set([
+	'enabled',
+	'defaultProfile',
+	'engine',
+	'headless',
+	'sites',
+	'keepOpen',
+])
+/** `@namzu/browser`'s profile names, restated so reading config does not load Playwright. */
+const BROWSER_PROFILE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+function readBrowserConfig(v: unknown, context: ConfigReaderContext): BrowserConfig {
+	if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+	for (const key of Object.keys(v)) {
+		if (!BROWSER_KEYS.has(key)) {
+			return invalidConfigValue(
+				context,
+				[key],
+				'is not a browser setting (enabled, defaultProfile, engine, headless, sites, keepOpen)',
+			)
+		}
+	}
+	const raw = v as Record<string, unknown>
+	for (const key of ['enabled', 'keepOpen'] as const) {
+		if (raw[key] !== undefined && typeof raw[key] !== 'boolean')
+			return invalidConfigValue(context, [key], 'must be true or false')
+	}
+	if (
+		raw.defaultProfile !== undefined &&
+		(typeof raw.defaultProfile !== 'string' ||
+			raw.defaultProfile.length > 64 ||
+			!BROWSER_PROFILE_NAME.test(raw.defaultProfile))
+	) {
+		return invalidConfigValue(
+			context,
+			['defaultProfile'],
+			'must be a profile name: lowercase letters, digits and single hyphens, at most 64 characters',
+		)
+	}
+	if (raw.engine !== undefined && !['auto', 'windows', 'local'].includes(raw.engine as string))
+		return invalidConfigValue(context, ['engine'], 'must be auto, windows or local')
+	if (raw.headless !== undefined && !['auto', 'always', 'never'].includes(raw.headless as string))
+		return invalidConfigValue(context, ['headless'], 'must be auto, always or never')
+	let sites: Record<string, BrowserSiteLevel> | undefined
+	if (raw.sites !== undefined) {
+		if (!isConfigMapping(raw.sites))
+			return invalidConfigValue(context, ['sites'], 'must be a mapping of site to level')
+		sites = {}
+		for (const [key, level] of Object.entries(raw.sites)) {
+			// Refused, not dropped: a site rule that silently vanished is a deny
+			// the operator believes in and the gate never sees.
+			if (!isBrowserSiteLevel(level))
+				return invalidConfigValue(context, ['sites', key], 'must be deny, read, ask or act')
+			const verdict = canonicalBrowserSiteKey(key)
+			if (!verdict.ok) return invalidConfigValue(context, ['sites', key], verdict.reason)
+			const existing = sites[verdict.key]
+			sites[verdict.key] = existing === undefined ? level : narrower(existing, level)
+		}
+	}
+	return {
+		...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+		...(raw.defaultProfile !== undefined ? { defaultProfile: raw.defaultProfile as string } : {}),
+		...(raw.engine !== undefined ? { engine: raw.engine as BrowserConfig['engine'] } : {}),
+		...(raw.headless !== undefined ? { headless: raw.headless as BrowserConfig['headless'] } : {}),
+		...(sites !== undefined ? { sites } : {}),
+		...(raw.keepOpen !== undefined ? { keepOpen: raw.keepOpen as boolean } : {}),
+	}
+}
+
+function isProjectSource(source: ConfigSource): boolean {
+	return (
+		source.kind === 'project-file' ||
+		(source.kind === 'profile' && basename(source.path) === 'namzu.config.json')
+	)
+}
+
+/**
+ * `browser` from one more layer, over what the layers below it said.
+ *
+ * Merged key by key, the later layer winning, with three exceptions, all in
+ * the direction of less reach:
+ *
+ * - `enabled: false` in any file holds; a later file cannot switch it on.
+ * - `sites` are merged per site. A site any file denies stays denied, and
+ *   once a file has denied every other site (`"*": deny`), a later file's
+ *   new sites are ignored: they would open what that file closed.
+ * - `defaultProfile` is refused in a project file. A profile carries the
+ *   operator's sign-ins, and a repository must not pick which ones its
+ *   agent runs under.
+ */
+export function mergeBrowserConfig(
+	below: BrowserConfig | undefined,
+	layer: BrowserConfig,
+	source: ConfigSource,
+): BrowserConfig {
+	if (layer.defaultProfile !== undefined && isProjectSource(source)) {
+		throw new ConfigValueError(
+			{ kind: 'file', path: 'path' in source ? source.path : 'namzu.config.json' },
+			'browser.defaultProfile',
+			'cannot be set in a project file: a profile holds your sign-ins, so choose it in your user config or with /browser profile',
+		)
+	}
+	if (!below) return layer
+	let sites = below.sites
+	if (layer.sites) {
+		const merged: Record<string, BrowserSiteLevel> = { ...(below.sites ?? {}) }
+		const closed = below.sites?.['*'] === 'deny'
+		for (const [key, level] of Object.entries(layer.sites)) {
+			const existing = merged[key]
+			if (existing === undefined) {
+				if (closed && key !== '*') continue
+				merged[key] = level
+				continue
+			}
+			merged[key] = existing === 'deny' ? 'deny' : level
+		}
+		sites = merged
+	}
+	const enabled =
+		below.enabled === false || layer.enabled === false ? false : (layer.enabled ?? below.enabled)
+	return {
+		...below,
+		...layer,
+		...(enabled !== undefined ? { enabled } : {}),
+		...(sites !== undefined ? { sites } : {}),
+	}
 }

@@ -144,6 +144,7 @@ describe('capabilityCheckId', () => {
 			'sandbox.installed',
 			'files.installed',
 			'computer-use.installed',
+			'browser.installed',
 			'telemetry.installed',
 		])
 		expect(new Set(ids).size).toBe(ids.length)

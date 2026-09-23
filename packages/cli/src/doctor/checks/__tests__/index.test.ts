@@ -16,6 +16,8 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { NAMZU_OPTIONAL_CAPABILITIES, capabilityCheckId } from '../../../context/capabilities.js'
 import { createDoctorRegistry, runDoctor } from '../../registry.js'
 import {
+	browserEngineCheck,
+	browserInstalledCheck,
 	builtInDoctorChecks,
 	computerUseInstalledCheck,
 	filesInstalledCheck,
@@ -41,6 +43,8 @@ describe('every optional capability has exactly one registered check', () => {
 		expect(sandboxInstalledCheck.id).toBe(capabilityCheckId('@namzu/sandbox'))
 		expect(filesInstalledCheck.id).toBe(capabilityCheckId('@namzu/files'))
 		expect(computerUseInstalledCheck.id).toBe(capabilityCheckId('@namzu/computer-use'))
+		expect(browserInstalledCheck.id).toBe('browser.installed')
+		expect(browserEngineCheck.id).toBe('browser.engine')
 		expect(telemetryInstalledCheck.id).toBe(capabilityCheckId('@namzu/telemetry'))
 	})
 })

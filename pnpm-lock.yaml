@@ -95,6 +95,9 @@ importers:
       '@namzu/anthropic':
         specifier: workspace:*
         version: link:../providers/anthropic
+      '@namzu/browser':
+        specifier: workspace:*
+        version: link:../browser
       '@namzu/computer-use':
         specifier: workspace:*
         version: link:../computer-use

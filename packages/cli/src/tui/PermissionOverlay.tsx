@@ -49,6 +49,8 @@ export interface PermissionOverlayProps {
 	readonly rows?: number
 	/** Answers this batch only: no "allow all" is offered (a scheduled run). */
 	readonly batchOnly?: boolean
+	/** Which browser site rule decided each browser call, with the profile and engine. */
+	readonly siteNotes?: readonly string[]
 }
 
 function pathOf(input: unknown): string | undefined {
@@ -215,6 +217,7 @@ export function PermissionOverlay({
 	columns,
 	rows: terminalRows,
 	batchOnly = false,
+	siteNotes = [],
 }: PermissionOverlayProps) {
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
@@ -255,6 +258,11 @@ export function PermissionOverlay({
 			) : null}
 			{escalationNotes.map((note) => (
 				<Text key={note} color={theme.status.error}>
+					{terminalDisplayText(note)}
+				</Text>
+			))}
+			{siteNotes.map((note) => (
+				<Text key={note} color={theme.text.secondary}>
 					{terminalDisplayText(note)}
 				</Text>
 			))}

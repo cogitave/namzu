@@ -237,6 +237,8 @@ import {
 	releasedByApproveAll,
 } from './permission-review.js'
 import { describeTurnInterruption, describeTurnStop } from './turn-interruption.js'
+import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import type { BrowserControl } from '../browser/control.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -289,6 +291,8 @@ export interface AppProps {
 type PendingPermission = ScreenPermissionRequest & {
 	readonly review: string
 	readonly summary: ReturnType<typeof buildPermissionSummary>
+	/** `site rule: <origin> → <level> · profile <p> · <engine>`, one per browser call. */
+	readonly siteNotes?: readonly string[]
 }
 
 export type ExternalEditorAdapter = (request: {
@@ -1426,6 +1430,13 @@ export function App({
 	 * server's child process outlives the object that opened it.
 	 */
 	const previousSessionRef = useRef<AgentSession | null>(null)
+	/** The profile `/browser profile` chose, kept across session rebuilds. */
+	const browserProfileRef = useRef<string | undefined>(undefined)
+	/** The current session's browser, for notices written from event handlers. */
+	const browserControlRef = useRef<BrowserControl | undefined>(undefined)
+	useEffect(() => {
+		browserControlRef.current = session?.browser
+	}, [session])
 	useEffect(() => {
 		const source = session?.subagents
 		setAgentSurface(null)
@@ -3170,6 +3181,18 @@ export function App({
 					...(primary.model ? { model: primary.model } : {}),
 				}
 			}
+			const browserConfig = activeCtx.browser
+			const browserProfile = browserProfileRef.current ?? browserConfig?.defaultProfile
+			const browserOptions = browserConfig
+				? {
+						...(browserProfile ? { profile: browserProfile } : {}),
+						...(browserConfig.engine ? { engine: browserConfig.engine } : {}),
+						...(browserConfig.headless ? { headless: browserConfig.headless } : {}),
+						...(browserConfig.sites ? { sites: browserConfig.sites } : {}),
+						...(browserConfig.keepOpen ? { keepOpen: true } : {}),
+						...(sessionsRef.current ? { home: sessionsRef.current.root } : {}),
+					}
+				: undefined
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
@@ -3182,6 +3205,9 @@ export function App({
 					: {}),
 				...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
 				enableComputerUse: true,
+				// The browser tools, when the config did not switch them off. The
+				// profile is the one `/browser profile` chose, else the config's.
+				...(browserOptions ? { browser: browserOptions } : {}),
 				rules: activeCtx.rules,
 				...(sessionsRef.current
 					? { sessionGoals: sessionsRef.current.goals, conversationSessions: sessionsRef.current }
@@ -4733,10 +4759,11 @@ export function App({
 				})
 			}
 			const summary = buildPermissionSummary(review.text)
+			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {
 				if (permissionResolveRef.current) {
 					permissionQueueRef.current.push({
-						permission: { ...req, review: review.text, summary },
+						permission: { ...req, review: review.text, summary, siteNotes },
 						resolve,
 					})
 					setQueuedPermissionCount(permissionQueueRef.current.length)
@@ -4746,7 +4773,7 @@ export function App({
 				permissionOpenedAtRef.current = Date.now()
 				setPermissionReviewOffset(0)
 				setPermissionDetailsOpen(!summary.complete)
-				setPermission({ ...req, review: review.text, summary })
+				setPermission({ ...req, review: review.text, summary, siteNotes })
 				setState('awaiting-permission')
 				sendTerminalNotification({ kind: 'approval-required' })
 			})
@@ -5316,9 +5343,16 @@ export function App({
 					if (event.handoff) {
 						// Nothing failed and nothing needs approving: a tool needs the
 						// operator to do something first. Continuing is one key.
+						const browser = browserControlRef.current
+						const browserStatus = browser?.status()
+						const browserNotice = describeBrowserHandoff(event.handoff, browserStatus)
+						// Without a window the sign-in happens in `namzu browser
+						// login`, which needs the profile this session holds.
+						if (browserNotice && browser && browserStatus?.headless) void browser.release()
 						pushMessage(
 							'system',
-							`${describeTurnInterruption(event)}\nWhen that is done, press Enter to continue · Esc to stop.`,
+							browserNotice ??
+								`${describeTurnInterruption(event)}\nWhen that is done, press Enter to continue · Esc to stop.`,
 							false,
 							'‖',
 						)
@@ -7228,6 +7262,19 @@ export function App({
 						runConversationExport({ kind: 'file', path: slash.path })
 						return
 					}
+					case 'browser': {
+						const generation = conversationGenRef.current
+						void runBrowserSlash(session?.browser, slash.args, {
+							busy: state !== 'idle' || abortRef.current !== null,
+						}).then((answer) => {
+							// A later session keeps the operator's choice: `/model`
+							// rebuilds the session, and the profile goes with it.
+							if (answer.profile) browserProfileRef.current = answer.profile
+							if (conversationGenRef.current !== generation) return
+							pushMessage('system', answer.text)
+						})
+						return
+					}
 					default: {
 						// Exhaustive on purpose. Without it a `SlashAction` kind added
 						// and not handled here falls out of the switch into the send
@@ -8530,6 +8577,7 @@ export function App({
 								columns={terminal.columns}
 								rows={terminal.rows}
 								batchOnly={permission.batchOnly === true}
+								siteNotes={permission.siteNotes}
 							/>
 						) : null}
 						{textPrompt ? (

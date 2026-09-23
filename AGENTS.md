@@ -17,7 +17,7 @@ Namzu is an AI agent kernel. Its TypeScript SDK exposes the runtime; the CLI is 
 <dependency_direction>
 ```
 sdk  ←  { ag-ui | browser | computer-use | live | lsp | sandbox | telemetry | evals | providers }
-{ sdk | computer-use | files | selected providers }  ←  cli
+{ sdk | browser | computer-use | files | selected providers }  ←  cli
 files  (standalone)
 ```
 

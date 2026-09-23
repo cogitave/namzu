@@ -61,6 +61,7 @@ export const NAMZU_OPTIONAL_CAPABILITIES = [
 	'@namzu/sandbox',
 	'@namzu/files',
 	'@namzu/computer-use',
+	'@namzu/browser',
 	'@namzu/telemetry',
 ] as const
 

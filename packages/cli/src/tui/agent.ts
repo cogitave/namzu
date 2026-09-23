@@ -118,6 +118,7 @@ import {
 	buildSessionGoalTools,
 	compactNow,
 	compactSession,
+	createBrowserTools,
 	createComputerUseTool,
 	createFileReadTracker,
 	createMemoryPromoter,
@@ -145,6 +146,12 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
 import { parse, resolve } from 'node:path'
+import {
+	type BrowserControl,
+	type BrowserSessionOptions,
+	type BrowserStatus,
+	createBrowserControl,
+} from '../browser/control.js'
 import { FileCheckpointStore } from '../checkpoints/store.js'
 import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
 import type {
@@ -772,6 +779,11 @@ export interface ResumePausedParams {
 }
 
 export interface AgentSession {
+	/**
+	 * The browser the `browser` and `browser_act` tools drive, when this
+	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
+	 */
+	readonly browser?: BrowserControl
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	readonly webSearchSummary?: string
@@ -1717,6 +1729,15 @@ export interface AgentSessionOptions {
 	 */
 	readonly enableComputerUse?: boolean
 	/**
+	 * Mount the browser tools (`browser`, `browser_act`) over
+	 * `@namzu/browser`, with this profile, engine and site policy. Only the
+	 * TUI passes it: `exec`, `exec --json`, `drain` and `acp` have nobody at
+	 * a window to sign in or to answer a site review, and must not inherit a
+	 * signed-in browser because the package is installed. Nothing launches
+	 * until the model's first browser call.
+	 */
+	readonly browser?: BrowserSessionOptions
+	/**
 	 * Tools a host adds to this session's own registry — never to a
 	 * sub-agent's, whose registry is built separately. For host capabilities
 	 * that need a person present (the TUI's `schedule` and `session_loop`
@@ -2313,6 +2334,26 @@ export async function createAgentSession(
 			)
 		}
 	}
+	// The browser: mounted for a surface that asked for it, never launched
+	// here. The host detects the engine now and starts the browser on the
+	// model's first call. Parent session only — sub-agents build their own
+	// registries below and never receive it.
+	const browserPackage = capabilities.find((probe) => probe.specifier === '@namzu/browser')
+	let browserControl: BrowserControl | undefined
+	let browserError: Error | undefined
+	if (options.browser && browserPackage?.state === 'present') {
+		try {
+			const { PlaywrightBrowserHost } = await import('@namzu/browser')
+			browserControl = createBrowserControl(PlaywrightBrowserHost, options.browser)
+			registry.register(createBrowserTools(browserControl.host))
+		} catch (error) {
+			browserError = error instanceof Error ? error : new Error(String(error))
+		}
+	}
+	const browserUnavailable =
+		browserError !== undefined
+			? describeError(browserError)
+			: browserControl?.status().unavailableReason
 	// Registered only on the main session path. Sub-agents call
 	// `buildToolRegistry` directly below, so they never receive these tools.
 	// Per-send denial further keeps the schemas out of ordinary human turns.
@@ -2371,6 +2412,9 @@ export async function createAgentSession(
 		sandboxReady: sandbox.provider !== undefined,
 		computerUseReady: computerUseHost !== undefined,
 		...(computerUseError ? { computerUseError } : {}),
+		browserReady: browserControl !== undefined && browserUnavailable === undefined,
+		...(browserControl ? { browser: browserControl.status() } : {}),
+		...(browserUnavailable !== undefined ? { browserUnavailable } : {}),
 	})
 	// URL fetching is separately opt-in and parent-only: children do not
 	// carry its guarded provider. Independent search is shared below because
@@ -2728,6 +2772,7 @@ export async function createAgentSession(
 			const remaining = await Promise.allSettled([
 				mcp.close(),
 				computerUseHost?.dispose(),
+				browserControl?.dispose(),
 				jobRegistry?.killOwner(jobOwner),
 				checkpoints.close(),
 			])
@@ -2871,7 +2916,7 @@ export async function createAgentSession(
 	try {
 		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd, options.hooks)
 	} catch (error) {
-		await Promise.allSettled([mcp.close(), computerUseHost?.dispose()])
+		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(describeError(error))
 	}
 	// The session's own lifecycle, for hooks that set up or tear down
@@ -2950,6 +2995,7 @@ export async function createAgentSession(
 				: undefined,
 			mcp.close(),
 			computerUseHost?.dispose(),
+			browserControl?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
 			checkpoints.close(),
 		])
@@ -3487,12 +3533,16 @@ export async function createAgentSession(
 			return mcp.failed
 		},
 		mcpStatus: () => mcp.current(),
+		...(browserControl ? { browser: browserControl } : {}),
 		configNotices: [
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
 			...(passthroughNotice ? [passthroughNotice] : []),
 			...(computerUseError
 				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
+				: []),
+			...(browserUnavailable !== undefined
+				? [`The browser is unavailable: ${browserUnavailable}`]
 				: []),
 			...unresolvedNotice.map(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
@@ -5460,6 +5510,10 @@ function logCapabilities(
 		readonly sandboxReady: boolean
 		readonly computerUseReady: boolean
 		readonly computerUseError?: Error
+		/** The browser tools are mounted and the engine can run. */
+		readonly browserReady?: boolean
+		readonly browser?: BrowserStatus
+		readonly browserUnavailable?: string
 	},
 ): void {
 	const log = cliLogger()
@@ -5470,7 +5524,9 @@ function logCapabilities(
 					? runtime.sandboxReady
 					: p.specifier === '@namzu/computer-use'
 						? runtime.computerUseReady
-						: p.state === 'present'
+						: p.specifier === '@namzu/browser'
+							? runtime.browserReady === true
+							: p.state === 'present'
 			return `${p.specifier.split('/').pop()} ${present ? 'yes' : 'no'}`
 		})
 		.join(' · ')
@@ -5492,6 +5548,22 @@ function logCapabilities(
 			'namzu.capability.state': probe.state,
 			'namzu.capability.present': probe.state === 'present',
 			...(probe.state === 'present' ? { 'namzu.capability.version': probe.version } : {}),
+		})
+	}
+	if (runtime.browser) {
+		// The engine and profile the browser tools will use; nothing is running yet.
+		log.info('Browser tools mounted', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
+			'namzu.capability.name': '@namzu/browser',
+			'namzu.capability.state': runtime.browserUnavailable === undefined ? 'ready' : 'unavailable',
+			'namzu.capability.present': runtime.browserReady === true,
+			'namzu.browser.engine': runtime.browser.engine,
+			'namzu.browser.profile': runtime.browser.profile,
+			'namzu.browser.headless': runtime.browser.headless,
+			'namzu.browser.site_count': Object.keys(runtime.browser.sites).length,
+			...(runtime.browserUnavailable !== undefined
+				? { 'namzu.browser.unavailable_reason': runtime.browserUnavailable }
+				: {}),
 		})
 	}
 	if (runtime.computerUseError) {

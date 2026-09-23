@@ -49,6 +49,7 @@
 	},
 	"dependencies": {
 		"@namzu/anthropic": "workspace:*",
+		"@namzu/browser": "workspace:*",
 		"@namzu/computer-use": "workspace:*",
 		"@namzu/deepseek": "workspace:^",
 		"@namzu/files": "workspace:*",

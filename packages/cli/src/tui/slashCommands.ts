@@ -78,6 +78,8 @@ export type SlashAction =
 	| TurnLimitsAction
 	| { kind: 'provider-setup' }
 	| { kind: 'goal-picker' }
+	/** `/browser [status] | profile [<name>]`, answered by App against the session's browser. */
+	| { kind: 'browser'; args: readonly string[] }
 	| { kind: 'goal-editor'; edit: boolean }
 	| { kind: 'exit' }
 	/** Empty only the rendered terminal transcript; model context is unchanged. */
@@ -762,6 +764,18 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			],
 		},
 		action: (_ctx, args) => ({ kind: 'host-command', name: 'schedule', args }),
+	},
+	{
+		name: 'browser',
+		description: 'The browser this session drives: engine, profile, site rules; switch profile.',
+		help: {
+			usage: ['/browser', '/browser profile <name>'],
+			details: [
+				'A profile holds your sign-ins; sign in once with `namzu browser login <profile> <url>`.',
+				'Site rules come from `browser.sites` in your config.',
+			],
+		},
+		action: (_ctx, args) => ({ kind: 'browser', args }),
 	},
 	{
 		name: 'loop',

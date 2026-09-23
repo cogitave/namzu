@@ -13,6 +13,7 @@
 	"references": [
 		{ "path": "../sdk" },
 		{ "path": "../computer-use" },
+		{ "path": "../browser" },
 		{ "path": "../telemetry"
 		},
 		{

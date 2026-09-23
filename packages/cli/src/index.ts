@@ -15,6 +15,8 @@ export {
 export type { RunDoctorOptions } from './doctor/registry.js'
 
 export {
+	browserEngineCheck,
+	browserInstalledCheck,
 	builtInDoctorChecks,
 	computerUseInstalledCheck,
 	credentialSourcesCheck,
