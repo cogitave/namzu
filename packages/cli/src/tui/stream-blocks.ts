@@ -135,8 +135,9 @@ export function splitSafeCut(buffer: string): { ready: string; rest: string } {
 			// line that is whole is safe to show.
 			if (lineEnd < buffer.length) cut = lineEnd + 1
 			// Or the last sentence end inside this line, when the line is still
-			// growing and nothing after it has arrived.
-			else {
+			// growing and nothing after it has arrived — never inside a table
+			// row, whose half would draw as a row with half its cells.
+			else if (!line.trimStart().startsWith('|')) {
 				for (const match of line.matchAll(SAFE_CUT)) {
 					const at = offset + match.index + match[0].length
 					if (backticksBalanced(buffer.slice(0, at))) cut = at
@@ -147,7 +148,35 @@ export function splitSafeCut(buffer: string): { ready: string; rest: string } {
 	}
 
 	if (cut < 0) return { ready: '', rest: buffer }
-	return { ready: buffer.slice(0, cut), rest: buffer.slice(cut) }
+	return holdTableHeader(buffer, cut)
+}
+
+const PIPE_ROW = /^\s*\|/
+
+/**
+ * Keep a lone `| a | b |` line back until the line after it has arrived.
+ *
+ * A pipe row is a table's header only once the `|---|` separator follows it;
+ * until then the renderer can only draw it as a paragraph, and released early
+ * it flashes on screen as raw `| a | b |` source and then jumps into a box
+ * when the separator lands. Held one line, it appears as the table it is.
+ * Rows after a recognised header are released as they complete: each is a
+ * whole row of a table already drawn.
+ */
+function holdTableHeader(buffer: string, cut: number): { ready: string; rest: string } {
+	const ready = buffer.slice(0, cut)
+	const lines = ready.split('\n')
+	// `ready` ends at a line end, so its last element is the empty tail.
+	const last = ready.endsWith('\n') ? lines.length - 2 : lines.length - 1
+	let first = last
+	while (first >= 0 && PIPE_ROW.test(lines[first] ?? '')) first -= 1
+	first += 1
+	// Two or more pipe rows are a table (when the second is a separator) or a
+	// paragraph that happens to hold pipes; either way the renderer draws them
+	// as what they will stay.
+	if (last - first + 1 !== 1) return { ready, rest: buffer.slice(cut) }
+	const at = first === 0 ? 0 : lines.slice(0, first).join('\n').length + 1
+	return { ready: buffer.slice(0, at), rest: buffer.slice(at) }
 }
 
 /** An even number of backticks: every inline span that opened has closed. */

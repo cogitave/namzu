@@ -16,6 +16,7 @@ import {
 	checklistInView,
 	estimateRenderedLines,
 	liveWindow,
+	settledBeforeStreaming,
 	transcriptLines,
 } from './live-window.js'
 import type { TranscriptMessage } from './types.js'
@@ -144,6 +145,28 @@ describe('liveWindow', () => {
 		const twice = split(messages, 60, once.settled)
 		expect(twice.settled).toBe(once.settled)
 		expect(twice.rows).toBe(once.rows)
+	})
+})
+
+describe('settledBeforeStreaming', () => {
+	// A launch receipt written while the parent's sentence is still streaming
+	// sits AFTER that sentence in the conversation but before it among the
+	// finalized rows. Settling it would let the sentence land below the floor.
+	const streaming = row({ id: 'sentence', pending: true, content: 'Phase 1 returned' })
+	const conversation = [row({ id: 'a' }), row({ id: 'b' }), streaming, row({ id: 'receipt' })]
+
+	it('never settles past the first row still streaming', () => {
+		expect(settledBeforeStreaming(conversation, 3, 0)).toBe(2)
+		expect(settledBeforeStreaming(conversation, 1, 0)).toBe(1)
+	})
+
+	it('never goes back below what was already printed', () => {
+		expect(settledBeforeStreaming(conversation, 0, 2)).toBe(2)
+		expect(settledBeforeStreaming([row({ id: 'a' })], 0, 1)).toBe(1)
+	})
+
+	it('is the window itself once nothing streams', () => {
+		expect(settledBeforeStreaming(rows(5), 4, 1)).toBe(4)
 	})
 })
 

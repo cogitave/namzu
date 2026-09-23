@@ -18,7 +18,10 @@ const preferences: Preferences = {
 	subagents: { active: [] },
 }
 const sent: Message[][] = []
-const historyMarker = 'EARLIER ANSWER KEPT IN NATIVE HISTORY'
+// Short enough to sit on one row at the narrowest width below (40 columns,
+// less App's padding and the glyph gutter): the check is that the settled
+// answer is printed exactly once, not how a long word wraps.
+const historyMarker = 'EARLIER ANSWER IN HISTORY'
 const draft = 'Check keyboard\nthen compare output'
 const taskSubjects = [
 	'Read the entry point',

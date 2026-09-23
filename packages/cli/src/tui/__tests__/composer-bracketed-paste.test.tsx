@@ -48,3 +48,26 @@ it('inserts a short paste at the cursor without interpreting a pasted return as 
 		await screen.unmount()
 	}
 })
+
+it('keeps type-ahead that arrives in one long read as typed text, not a chip that splits a word', async () => {
+	const onSubmit = vi.fn()
+	const screen = await renderToScreen(<Composer onSubmit={onSubmit} history={[]} />, { cols: 100, rows: 24 })
+	const typed = 'Delegate this to subag'
+	const burst =
+		'ents in two phases. Phase 1: two agents in parallel, each names one colour in a single word. Çok kısa tut.'
+	try {
+		await screen.waitForRender()
+		screen.press(typed)
+		await screen.waitForRender()
+		// Keystrokes queued behind a busy render reach the composer as one chunk
+		// with no bracketed-paste markers.
+		screen.press(burst)
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).not.toContain('Pasted text')
+		screen.press('\r')
+		await screen.waitForRender()
+		expect(onSubmit).toHaveBeenCalledExactlyOnceWith(`${typed}${burst}`, undefined)
+	} finally {
+		await screen.unmount()
+	}
+})

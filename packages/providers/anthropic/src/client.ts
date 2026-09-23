@@ -1113,6 +1113,10 @@ export class AnthropicProvider implements LLMProvider {
 		const searchBlocks = new SearchBlocks()
 		let searchReplayEmitted = false
 		const serverTools = new Map<number, string>()
+		// A hosted search's input arrives as JSON fragments on its own block;
+		// the query is read once the block closes and named on its result.
+		const serverToolInput = new Map<number, string>()
+		const serverQueries = new Map<string, string>()
 		const activeReasoning = new Set<number>()
 		const nativeReasoning = new Map<number, AnthropicReplayBlock>()
 		let replayStateEmitted = false
@@ -1222,6 +1226,7 @@ export class AnthropicProvider implements LLMProvider {
 									content: unknown
 								}
 								const failed = !Array.isArray(result.content)
+								const query = serverQueries.get(result.tool_use_id)
 								yield {
 									id: messageId,
 									delta: {
@@ -1229,6 +1234,8 @@ export class AnthropicProvider implements LLMProvider {
 											id: result.tool_use_id,
 											name: 'web_search',
 											status: failed ? 'failed' : 'completed',
+											...(query ? { query } : {}),
+											...(Array.isArray(result.content) ? { results: result.content.length } : {}),
 										},
 									},
 								}
@@ -1283,7 +1290,11 @@ export class AnthropicProvider implements LLMProvider {
 							const idx = event.index ?? 0
 							const delta = event.delta
 							if (delta) searchBlocks.delta(idx, delta)
-							if (serverTools.has(idx)) break
+							if (serverTools.has(idx)) {
+								if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined)
+									serverToolInput.set(idx, (serverToolInput.get(idx) ?? '') + delta.partial_json)
+								break
+							}
 							if (delta?.type === 'text_delta' && delta.text) {
 								yield { id: messageId, delta: { content: delta.text } }
 							} else if (delta?.type === 'thinking_delta' && delta.thinking !== undefined) {
@@ -1329,7 +1340,14 @@ export class AnthropicProvider implements LLMProvider {
 						}
 						case 'content_block_stop': {
 							searchBlocks.stop(event.index ?? 0)
-							if (serverTools.delete(event.index ?? 0)) break
+							const serverId = serverTools.get(event.index ?? 0)
+							if (serverId !== undefined) {
+								const query = hostedSearchQuery(serverToolInput.get(event.index ?? 0))
+								if (query) serverQueries.set(serverId, query)
+								serverToolInput.delete(event.index ?? 0)
+								serverTools.delete(event.index ?? 0)
+								break
+							}
 							// For tool_use blocks we MUST emit a `toolCallEnd`
 							// signal so the consumer-side aggregator (sdk
 							// runtime/query/iteration) can flush the buffered
@@ -1587,3 +1605,16 @@ export const OFFLINE_MODEL_CATALOGUE: readonly ModelInfo[] = [
 		supportsStreaming: true,
 	},
 ]
+
+/** The `query` a hosted search block's streamed input names, or `undefined`. */
+function hostedSearchQuery(json: string | undefined): string | undefined {
+	if (!json) return undefined
+	try {
+		const input = JSON.parse(json) as { query?: unknown }
+		return typeof input.query === 'string' && input.query.trim().length > 0
+			? input.query.trim()
+			: undefined
+	} catch {
+		return undefined
+	}
+}

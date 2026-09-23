@@ -103,7 +103,7 @@ When you have understood the task, reply with the plan: what you would change, i
  * doctrine did not already name.
  */
 export const CODING_AGENT_ORCHESTRATE_DOCTRINE = `### Orchestrate mode
-This session has orchestrate mode on: treat delegation through \`Agent\` as the default for substantive work, not the exception. Before doing multi-step work yourself, ask whether an independent piece of it — a lookup, a draft, a check — could run as its own delegation, and prefer delegating it when the answer is yes. This changes only how eagerly you reach for \`Agent\` on work you would otherwise do inline; it does not mount a roster or start any delegation by itself.`
+This session has orchestrate mode on: treat delegation through \`Agent\` as the default for substantive work, not the exception. Before doing multi-step work yourself, ask whether an independent piece of it — a lookup, a draft, a check — could run as its own delegation, and prefer delegating it when the answer is yes. This changes only how eagerly you reach for \`Agent\` on work you would otherwise do inline; it does not mount a roster or start any delegation by itself. Agents in the same phase are launched in the same response, each with \`run_in_background: true\` when you mean to wait for them together; a phase is never started one agent at a time.`
 
 export const CODING_AGENT_DOCTRINE_CONTRIBUTION_ID = 'namzu.coding-agent-doctrine'
 

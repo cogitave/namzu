@@ -77,6 +77,17 @@ describe('the coding-agent doctrine', () => {
 		expect(on).not.toBe(off)
 	})
 
+	it('asks for one phase to be launched in one response, never one agent at a time', () => {
+		// A model given "two agents in parallel" and orchestrate mode still
+		// launched them one response apart; the doctrine now says so outright.
+		expect(CODING_AGENT_ORCHESTRATE_DOCTRINE).toContain(
+			'Agents in the same phase are launched in the same response',
+		)
+		expect(CODING_AGENT_ORCHESTRATE_DOCTRINE).toContain('never started one agent at a time')
+		// The delegation text without the mode is untouched by this sentence.
+		expect(CODING_AGENT_DELEGATION_DOCTRINE).not.toContain('same phase')
+	})
+
 	it('never appends the orchestrate text to a sub-agent prompt with delegation off', () => {
 		const child = codingAgentDoctrineContribution({ delegation: false, orchestrate: true }).render(
 			{},

@@ -157,3 +157,30 @@ describe('splitSafeCut — a paragraph that is taking a while', () => {
 		expect(splitSafeCut('')).toEqual({ ready: '', rest: '' })
 	})
 })
+
+describe('a table streamed row by row', () => {
+	it('holds a lone header row until its separator says it is a table', () => {
+		// Released alone, `| a | b |` could only be drawn as a paragraph, and
+		// would flash as source before jumping into a box.
+		expect(splitSafeCut('Net stack\n\n| Katman | Yapı |\n')).toEqual({
+			ready: 'Net stack\n\n',
+			rest: '| Katman | Yapı |\n',
+		})
+		expect(splitSafeCut('| Katman | Yapı |\n')).toEqual({ ready: '', rest: '| Katman | Yapı |\n' })
+		expect(splitSafeCut('| Katman | Yapı |\n|---|---|\n').ready).toBe(
+			'| Katman | Yapı |\n|---|---|\n',
+		)
+	})
+
+	it('releases whole rows of a recognised table and never half of one', () => {
+		const head = '| Katman | Yapı |\n|---|---|\n| Agent | Kendi çekirdeği. '
+		// The row is still arriving; its sentence end is not a place to cut.
+		expect(splitSafeCut(head).ready).toBe('| Katman | Yapı |\n|---|---|\n')
+		expect(splitSafeCut(`${head}Başka. |\n`).ready).toBe(`${head}Başka. |\n`)
+	})
+
+	it('releases a paragraph that merely contains pipes', () => {
+		expect(splitSafeCut('a | b\nc | d\n').ready).toBe('a | b\nc | d\n')
+		expect(splitSafeCut('| x | y\nplain\n').ready).toBe('| x | y\nplain\n')
+	})
+})

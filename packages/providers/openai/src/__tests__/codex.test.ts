@@ -2,7 +2,7 @@ import { EditTool, ProviderRegistry } from '@namzu/sdk'
 import type { ChatCompletionParams, ProviderRoute } from '@namzu/sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { toCodexInput, toCodexTools } from '../codex.js'
+import { toCodexInput, toCodexTools, webSearchDetail } from '../codex.js'
 import { CODEX_CAPABILITIES, CodexProvider, registerCodex } from '../index.js'
 
 const ROUTE: ProviderRoute = {
@@ -833,8 +833,8 @@ it('streams hosted activity without local execution and retains source links and
 		chunks.push(chunk)
 	expect(chunks.flatMap((c) => c.delta.toolCalls ?? [])).toEqual([])
 	expect(chunks.flatMap((c) => c.delta.hostedTool ?? [])).toEqual([
-		{ id: 'search-1', name: 'web_search', status: 'running' },
-		{ id: 'search-1', name: 'web_search', status: 'completed' },
+		{ id: 'search-1', name: 'web_search', status: 'running', query: 'docs' },
+		{ id: 'search-1', name: 'web_search', status: 'completed', query: 'docs' },
 	])
 	const content = chunks.map((c) => c.delta.content ?? '').join('')
 	expect(content).toContain('[Official docs](<https://example.com/docs>)')
@@ -852,4 +852,23 @@ it('streams hosted activity without local execution and retains source links and
 		),
 	).toEqual(output)
 	expect(chunks.at(-1)?.usage?.totalTokens).toBe(20)
+})
+
+describe('webSearchDetail', () => {
+	it('names the query, the opened page and the source count the call reports', () => {
+		expect(webSearchDetail({})).toEqual({})
+		expect(webSearchDetail({ action: null })).toEqual({})
+		expect(webSearchDetail({ action: { type: 'search', query: '  ' } })).toEqual({})
+		expect(
+			webSearchDetail({ action: { type: 'search', query: '', queries: ['first', 'second'] } }),
+		).toEqual({ query: 'first' })
+		expect(
+			webSearchDetail({
+				action: { type: 'search', query: 'OpenClaw runtime', sources: [{ type: 'url', url: 'a' }] },
+			}),
+		).toEqual({ query: 'OpenClaw runtime', results: 1 })
+		expect(
+			webSearchDetail({ action: { type: 'open_page', url: 'https://docs.example.com/a' } }),
+		).toEqual({ url: 'https://docs.example.com/a' })
+	})
 })

@@ -20,6 +20,12 @@ export interface SemanticColors {
 		readonly assistant: string
 		readonly system: string
 		readonly tool: string
+		/**
+		 * The orchestrate session mode's own colour (violet), used wherever the
+		 * mode is named: the effort slider's last stop, the message box's top
+		 * border tag and the footer segment. Never a status colour.
+		 */
+		readonly orchestrate: string
 	}
 	readonly status: {
 		readonly ok: string
@@ -44,6 +50,7 @@ export const theme: SemanticColors = {
 		assistant: 'ansi256(83)',
 		system: 'ansi256(109)',
 		tool: 'ansi256(248)',
+		orchestrate: 'ansi256(141)',
 	},
 	status: {
 		ok: 'ansi256(77)',
@@ -55,3 +62,19 @@ export const theme: SemanticColors = {
 		focus: 'ansi256(83)',
 	},
 }
+
+/**
+ * The still colour run drawn across the message box's top rule while
+ * orchestrate mode is on, applied one cell at a time and repeated. Static by
+ * design: it is never animated, and a renderer without colour draws the plain
+ * rule instead.
+ */
+export const ORCHESTRATE_RULE_COLORS: readonly string[] = [
+	'ansi256(110)',
+	'ansi256(140)',
+	'ansi256(175)',
+	'ansi256(203)',
+	'ansi256(209)',
+	'ansi256(221)',
+	'ansi256(114)',
+]

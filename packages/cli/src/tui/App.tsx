@@ -140,6 +140,7 @@ import {
 	agentWorkflows,
 	maxAgentTranscriptTailOffset,
 } from './AgentExplorer.js'
+import { completionRow, launchReceipt, settleLine } from './agent-transcript-rows.js'
 import { BrandHeader } from './BrandHeader.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
 import { emptyPluginReport, pluginDetails, pluginOption, pluginStartupState } from './plugin-view.js'
@@ -150,9 +151,11 @@ import {
 	suggestionWindowSize,
 } from './Composer.js'
 import { ComposerFrame } from './ComposerFrame.js'
+import { EffortSlider, effortSliderLayout } from './EffortSlider.js'
 import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
+import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
 import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
@@ -202,7 +205,8 @@ import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
-import { checklistInView, liveWindow } from './live-window.js'
+import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import { ViewportBound } from './ViewportBound.js'
 import {
 	type ModelSwitchOutcome,
 	type ModelSwitchRequest,
@@ -506,6 +510,13 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
  */
 const STREAM_RELEASE_MS = 250
 
+/**
+ * How long a batch of delegated agents stays still before its launch receipt
+ * is written. Agents of one response are begun within a few milliseconds of
+ * one another; this is the margin that keeps them on one receipt.
+ */
+const RECEIPT_SETTLE_MS = 250
+
 /** How a turn ended, as the transcript and notifications describe it. */
 type ConversationTurnOutcome = 'completed' | 'stopped' | 'failed' | 'cancelled'
 
@@ -537,6 +548,16 @@ type StreamState = {
 	notification: TerminalNotification | null
 	/** Names this stream's task blocks, so one turn never extends another's. */
 	taskBlockKey?: string
+	/** When this turn began, for the closing line of a turn that delegated. */
+	startedAt?: number
+	/**
+	 * Output tokens the provider has reported for this turn, and characters of
+	 * reply and reasoning streamed since that report. Together they are the
+	 * `↓ 1.1k tokens` on the Working row: the provider's count where it has
+	 * given one, a characters-over-four estimate for what has arrived since.
+	 */
+	reportedOutputTokens?: number
+	streamedChars?: number
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -647,6 +668,8 @@ type RunningTool = ActiveTool & {
 	readonly turnId?: string
 	readonly toolName: string
 	readonly detail?: readonly string[]
+	/** A web search or fetch, named by its query or address. */
+	readonly web?: WebActivity
 }
 
 /**
@@ -1011,6 +1034,16 @@ export function App({
 	 * than as silence. Cleared by the first text or tool call that follows.
 	 */
 	const [thinking, setThinking] = useState<string | null>(null)
+	/** Output tokens of the running turn, for the Working row. See `StreamState`. */
+	const [turnTokens, setTurnTokens] = useState(0)
+	const turnTokensShownAt = useRef(0)
+	const turnTokensTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+	useEffect(
+		() => () => {
+			if (turnTokensTimer.current) clearTimeout(turnTokensTimer.current)
+		},
+		[],
+	)
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly RunningTool[]>([])
@@ -1280,8 +1313,14 @@ export function App({
 				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working',
 			),
 		) ?? workflows.at(-1)
-		const firstPhase = currentWorkflow?.phases[0]
-		const firstAgent = firstPhase?.agents[0]
+		// Opened on the work that is moving: the first phase with a live agent,
+		// and its first live agent, rather than on a phase that finished
+		// minutes ago. With nothing live, the first phase, as before.
+		const live = (agent: SubagentActivity): boolean =>
+			agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working'
+		const firstPhase =
+			currentWorkflow?.phases.find((phase) => phase.agents.some(live)) ?? currentWorkflow?.phases[0]
+		const firstAgent = firstPhase?.agents.find(live) ?? firstPhase?.agents[0]
 		if (!firstPhase || !firstAgent) return false
 		setAgentSurface({
 			kind: 'cockpit',
@@ -1881,12 +1920,70 @@ export function App({
 		[hydrateSavedChildren, pushMessage, setAgentSurface],
 	)
 
+	/**
+	 * Delegated work writes three kinds of row into settled history (see
+	 * `agent-transcript-rows.ts`): a launch receipt per batch, then one
+	 * completion row per agent. Each is exactly-once, gated by its own set,
+	 * and a batch's receipt is always written before any of its completions.
+	 *
+	 * A receipt waits until the batch is whole — no `Agent` call of the turn is
+	 * still starting without a row of its own, and the newest member arrived
+	 * at least {@link RECEIPT_SETTLE_MS} ago — so two agents launched in one
+	 * response read as one launch rather than two. A member that already
+	 * finished forces the receipt out, so it never trails its completion.
+	 */
 	const reportedAgentsRef = useRef(new Set<string>())
+	const reportedBatchesRef = useRef(new Set<string>())
+	const batchSeenAtRef = useRef(new Map<string, { readonly at: number; readonly count: number }>())
+	const [receiptTick, setReceiptTick] = useState(0)
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
+		reportedBatchesRef.current.clear()
+		batchSeenAtRef.current.clear()
 	}, [session])
 	useEffect(() => {
+		void receiptTick
 		const current = session?.subagents?.getSnapshot() ?? []
+		const now = Date.now()
+		const batches = new Map<string, SubagentActivity[]>()
+		for (const agent of subagents) {
+			if (agent.replayed) continue
+			if (!current.some((item) => item.viewId === agent.viewId)) continue
+			const key = JSON.stringify([agent.workflowId, agent.batchId])
+			const members = batches.get(key) ?? []
+			members.push(agent)
+			batches.set(key, members)
+		}
+		const launching = activeTools.some(
+			(tool) =>
+				tool.toolName.toLowerCase() === 'agent' &&
+				!subagents.some(
+					(agent) =>
+						agent.toolUseId === tool.id &&
+						(tool.turnId === undefined || agent.workflowId === tool.turnId),
+				),
+		)
+		let retryIn: number | undefined
+		for (const [key, members] of batches) {
+			if (reportedBatchesRef.current.has(key)) continue
+			// Re-stamped when the batch grows: the settle window runs from its newest member.
+			const previous = batchSeenAtRef.current.get(key)
+			const stamp =
+				previous !== undefined && previous.count === members.length
+					? previous.at
+					: now
+			if (stamp === now) batchSeenAtRef.current.set(key, { at: now, count: members.length })
+			const settledMember = members.some((agent) =>
+				['completed', 'failed', 'cancelled'].includes(agent.status),
+			)
+			const waited = now - stamp
+			if (!settledMember && (launching || waited < RECEIPT_SETTLE_MS)) {
+				retryIn = Math.min(retryIn ?? RECEIPT_SETTLE_MS, Math.max(50, RECEIPT_SETTLE_MS - waited))
+				continue
+			}
+			reportedBatchesRef.current.add(key)
+			pushMessage('tool', launchReceipt(members).content, false, '●', undefined, theme.accent.assistant)
+		}
 		for (const agent of subagents) {
 			if (
 				!current.some(
@@ -1899,22 +1996,36 @@ export function App({
 				continue
 			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) continue
 			if (reportedAgentsRef.current.has(agent.viewId)) continue
+			// Its receipt first, even if that means writing it alone.
+			const key = JSON.stringify([agent.workflowId, agent.batchId])
+			if (!agent.replayed && !reportedBatchesRef.current.has(key)) {
+				reportedBatchesRef.current.add(key)
+				pushMessage(
+					'tool',
+					launchReceipt(batches.get(key) ?? [agent]).content,
+					false,
+					'●',
+					undefined,
+					theme.accent.assistant,
+				)
+			}
 			reportedAgentsRef.current.add(agent.viewId)
-			const completed = agent.status === 'completed'
-			const status = completed
-				? 'Completed'
-				: (agent.latestActivity ?? (agent.status === 'cancelled' ? 'Cancelled' : 'Failed'))
+			const row = completionRow(agent)
 			pushMessage(
 				'tool',
-				`${agent.description} · ${status}`,
+				row.content,
 				false,
-				completed ? '✓' : '✗',
-				undefined,
-				completed ? theme.status.ok : theme.status.error,
-				'ctrl+t · agent details',
+				row.ok ? '✓' : '✗',
+				row.detail.length > 0 ? row.detail : undefined,
+				row.ok ? theme.status.ok : theme.status.error,
+				row.hint,
+				row.detail.length > 0 ? 'agent-result' : undefined,
 			)
 		}
-	}, [subagents, pushMessage, session])
+		if (retryIn === undefined) return
+		const timer = setTimeout(() => setReceiptTick((tick) => tick + 1), retryIn)
+		return () => clearTimeout(timer)
+	}, [subagents, activeTools, pushMessage, session, receiptTick])
 
 	/**
 	 * A delivered `send_message` correction already lands its own row inside
@@ -3552,6 +3663,13 @@ export function App({
 	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
+	// Where the streaming reply stands among the finalized rows: a row written
+	// while it streams is drawn below it, as it will be once it has finished.
+	const streamingAt = messages.findIndex((m) => m.pending)
+	const pendingAt =
+		streamingAt < 0
+			? finalized.length
+			: messages.slice(0, streamingAt).filter((m) => !m.pending).length
 	// Activity and the plan share the terminal with the draft. Collapse the two
 	// lists together only when their full previews would crowd the input area.
 	const fullToolFurniture = activeTools.length === 0 ? 0 : Math.min(activeTools.length, 3) * 2 + 2
@@ -3597,8 +3715,9 @@ export function App({
 	// Freeze the parent's Static floor while it is open; otherwise a parent turn
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
-	if (agentSurface === null && outputViewer === null) settledRef.current = window.settled
-	const renderedSettled = agentSurface === null && outputViewer === null ? window.settled : settledRef.current
+	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
+	if (agentSurface === null && outputViewer === null) settledRef.current = nextSettled
+	const renderedSettled = agentSurface === null && outputViewer === null ? nextSettled : settledRef.current
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -4658,6 +4777,36 @@ export function App({
 					st.assistantId = null
 				}
 			}
+			// Redrawn at most five times a second: a count that changes on every
+			// delta would re-render the live region per token for a figure no
+			// one reads at that rate. A provider report always lands.
+			// A count held back is drawn when the interval ends, so the last one
+			// of a burst is never left unshown while the stream goes quiet.
+			const noteTokens = (force = false) => {
+				const show = () => {
+					turnTokensShownAt.current = Date.now()
+					setTurnTokens((st.reportedOutputTokens ?? 0) + Math.ceil((st.streamedChars ?? 0) / 4))
+				}
+				const wait = 200 - (Date.now() - turnTokensShownAt.current)
+				if (force || wait <= 0) {
+					if (turnTokensTimer.current) clearTimeout(turnTokensTimer.current)
+					turnTokensTimer.current = undefined
+					show()
+				} else if (!turnTokensTimer.current) {
+					turnTokensTimer.current = setTimeout(() => {
+						turnTokensTimer.current = undefined
+						show()
+					}, wait)
+				}
+			}
+			if (event.kind === 'delta' || event.kind === 'reasoning') {
+				st.streamedChars = (st.streamedChars ?? 0) + event.text.length
+				noteTokens()
+			} else if (event.kind === 'usage' && event.outputTokens !== undefined) {
+				st.reportedOutputTokens = event.outputTokens
+				st.streamedChars = 0
+				noteTokens(true)
+			}
 			if (event.kind !== 'usage' && 'budget' in event && event.budget) {
 				const budget = event.budget
 				const own = st.lastUsage
@@ -4735,16 +4884,21 @@ export function App({
 								)
 							: undefined
 					const tool: RunningTool = {
-						...(waitingAgent ? { taskId: waitingAgent.taskId } : {}),
+						...(waitingAgent
+							? { taskId: waitingAgent.taskId, waitingOn: waitingAgent.description }
+							: {}),
 						id: event.toolUseId,
 						...(event.turnId ? { turnId: event.turnId } : {}),
 						toolName: event.toolName,
 						activity: event.activity,
 						label: waitingAgent
 							? `Waiting · ${waitingAgent.description}`
-							: formatToolCall(event.toolName, event.summary, event.standalone),
+							: event.web
+								? webCallTitle(event.web)
+								: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
+						...(event.web ? { web: event.web, progress: webLiveStatus(event.web) } : {}),
 					}
 					activeToolsRef.current = [...activeToolsRef.current, tool]
 					setActiveTools(activeToolsRef.current)
@@ -4835,6 +4989,51 @@ export function App({
 							: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
 						pushMessage('tool', done.label, false, '└', output,
 							theme.text.muted, output.length > 0 ? 'ctrl+o output' : undefined, 'exploration')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					const web = event.web ?? done?.web
+					if (web) {
+						// Two rows, the call and what it came to, drawn as `web` activity:
+						// consecutive ones sit together and the result list stays behind
+						// Ctrl+O, as the reference terminal draws them.
+						const activity: WebActivity = {
+							...web,
+							...(event.web?.target ?? done?.web?.target
+								? { target: event.web?.target ?? done?.web?.target }
+								: {}),
+						}
+						const durationMs =
+							event.durationMs ?? (done ? Date.now() - done.startedAt : undefined)
+						const output = web.hosted ? undefined : event.output
+						pushMessage(
+							'tool',
+							webCallTitle(activity),
+							false,
+							event.isError ? '✗' : '✓',
+							undefined,
+							event.isError ? theme.status.error : theme.status.ok,
+							undefined,
+							'web',
+						)
+						const outputLines = output !== undefined ? output.split('\n') : undefined
+						pushMessage(
+							'tool',
+							event.isError
+								? `failed: ${event.summary}`
+								: webSettledLine(activity, {
+										...(durationMs !== undefined ? { durationMs } : {}),
+										...(activity.kind === 'fetch' && output !== undefined
+											? { bytes: Buffer.byteLength(output, 'utf8') }
+											: {}),
+									}),
+							false,
+							'⎿',
+							outputLines,
+							undefined,
+							outputLines && outputLines.length > 0 ? 'ctrl+o output' : undefined,
+							'web',
+						)
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
@@ -5030,6 +5229,20 @@ export function App({
 					closeAssistant()
 					const stopNotice = describeTurnStop(event.stopReason, event.budget)
 					if (stopNotice) pushMessage('system', stopNotice, false, '■')
+					if (st.startedAt !== undefined) {
+						const since = st.startedAt
+						const delegated = subagentsRef.current.filter(
+							(agent) => agent.replayed !== true && agent.startedAt >= since,
+						)
+						// A turn that delegated always says what its agents came to; one
+						// that did not closes with its time only when it finished, since
+						// a stop or a cancellation has already said how it ended.
+						const closing =
+							delegated.length > 0 || st.completed
+								? settleLine(Date.now() - since, delegated)
+								: undefined
+						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
+					}
 					break
 				}
 				case 'paused':
@@ -5192,8 +5405,13 @@ export function App({
 			tasksRef.current = []
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
+			if (turnTokensTimer.current) clearTimeout(turnTokensTimer.current)
+			turnTokensTimer.current = undefined
+			setTurnTokens(0)
+			turnTokensShownAt.current = 0
 			const st: StreamState = {
 				assistantId: null,
+				startedAt: Date.now(),
 				text: '',
 				conversationMessages: undefined,
 				pending: '',
@@ -7812,8 +8030,12 @@ export function App({
 					)
 					return
 				}
-				if (key.upArrow) {
+				if (key.upArrow || (key.leftArrow && picker.kind === 'reasoning-effort')) {
 					setSelectedChoice((index) => moveChoiceSelection(options, index, 'previous'))
+					return
+				}
+				if (key.rightArrow && picker.kind === 'reasoning-effort') {
+					setSelectedChoice((index) => moveChoiceSelection(options, index, 'next'))
 					return
 				}
 				if (key.downArrow) {
@@ -7903,10 +8125,21 @@ export function App({
 				return
 			}
 			// Small expansions stay in place. Older or oversized bodies open a viewer.
+			//
+			// A settled row cannot be repainted, so its hint keeps saying Ctrl+O
+			// for as long as it is on screen; this press must keep reaching it. The
+			// first press expands the live bodies in place; the next one, while a
+			// settled body sits above them, opens the viewer on the newest settled
+			// body (←/→ reach the rest) and folds the live ones back behind it, so
+			// the press after that expands them again. Only with nothing settled to
+			// open does a second press simply collapse.
 			if (key.ctrl && input === 'o') {
-				const live = messages.filter((m) => !m.pending).slice(settledRef.current)
+				const shown = messages.filter((m) => !m.pending)
+				const live = shown.slice(settledRef.current)
 				const collapsible = live.filter((m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail))
-				const blocks = messages.filter((m) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0)
+				const hasBody = (m: TranscriptMessage) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0
+				const blocks = messages.filter(hasBody)
+				const olderBlock = shown.slice(0, settledRef.current).filter(hasBody).at(-1)
 				const block = collapsible.at(-1) ?? blocks.at(-1)
 				if (!block) {
 					pushMessage('system', 'Nothing to expand yet. Ctrl+O opens retained tool output when available.')
@@ -7915,6 +8148,11 @@ export function App({
 				const expanding = collapsible.some((m) => m.detailExpanded !== true)
 				const ids = new Set(collapsible.map((m) => m.id))
 				const proposed = messages.map((m) => ids.has(m.id) ? { ...m, detailExpanded: expanding } : m)
+				if (!expanding && olderBlock) {
+					setMessages(proposed)
+					setOutputViewer(olderBlock)
+					return
+				}
 				const projected = liveWindow({ messages: proposed.filter((m) => !m.pending), rows: terminal.rows,
 					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture,
 					settled: settledRef.current, raw: rawOutput })
@@ -7997,6 +8235,15 @@ export function App({
 		agentSurface === null
 			? goalStatusLabel(goalStatus, goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false)
 			: null
+	// The effort chooser is a left-to-right slider wherever its stops fit on
+	// one row, and the vertical list everywhere else (see EffortSlider.tsx).
+	const effortSlider =
+		choicePicker?.kind === 'reasoning-effort'
+			? effortSliderLayout(
+					choicePicker.options.map((option) => option.label),
+					Math.max(1, (terminal.columns ?? 80) - 2),
+				)
+			: undefined
 	const statusHint =
 		conversationMutation === 'fork'
 			? 'forking conversation — input is paused'
@@ -8023,7 +8270,9 @@ export function App({
 											: choicePicker
 												? choicePickerSearchable(choicePicker)
 													? 'type to filter · ↑↓ select · enter apply · esc back'
-													: '↑↓ / 1–9 select · enter apply · esc back'
+													: effortSlider
+														? '←/→ adjust · 1–9 select · enter apply · esc back'
+														: '↑↓ / 1–9 select · enter apply · esc back'
 												: copyPicker
 													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
 													: goalStatus && phase === 'ready' && state === 'idle'
@@ -8060,7 +8309,9 @@ export function App({
 		phase !== 'edit' &&
 		phase !== 'picker'
 	return (
-		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
+		// One row short of the terminal, always: see ViewportBound.tsx for the
+		// renderer path a taller frame takes and the scrollback row it costs.
+		<ViewportBound rows={terminal.rows} display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
 				{/* Keep the Static owner mounted through startup pickers. Removing its
 				    ancestor frees Yoga memory that Ink still references during its final flush. */}
@@ -8068,12 +8319,15 @@ export function App({
 					<Transcript
 						messages={finalized}
 						pending={messages.find((m) => m.pending) ?? null}
+						pendingAt={pendingAt}
 						state={state}
 						settled={transcriptOwned ? renderedSettled : 0}
 						resetKey={resetKey}
 						raw={rawOutput}
 						hyperlinks={hyperlinks}
 						showLive={!lifecycleOwnsViewport}
+						// The one column of padding the enclosing box gives every row.
+						staticIndent={1}
 						header={
 							transcriptOwned ? (
 								<BrandHeader
@@ -8145,6 +8399,7 @@ export function App({
 								interruptible={abortRef.current !== null}
 								animate={stdout.isTTY === true && permission === null && textPrompt === null}
 								thinking={thinking}
+								tokens={turnTokens}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.
@@ -8186,6 +8441,20 @@ export function App({
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
+						) : permission === null &&
+						  agentSurface === null &&
+						  outputViewer === null &&
+						  choicePicker?.kind === 'reasoning-effort' &&
+						  effortSlider ? (
+							<EffortSlider
+								title={choicePicker.title}
+								notice={choicePicker.notice}
+								options={choicePicker.options}
+								selected={selectedChoice}
+								layout={effortSlider}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								highest={choicePicker.options.at(-2)?.label === 'default' ? undefined : choicePicker.options.at(-2)?.label}
+							/>
 						) : permission === null && agentSurface === null && outputViewer === null && choicePicker ? (
 							<ChoicePicker
 								busy={'busy' in choicePicker && choicePicker.busy === true}
@@ -8202,6 +8471,7 @@ export function App({
 						) : null}
 						<ComposerFrame
 							working={state === 'thinking' || state === 'tool' || visibleActiveTools.length > 0}
+							{...(orchestrateMode ? { mode: 'orchestrate' } : {})}
 							focus={
 								phase === 'ready' &&
 								state !== 'awaiting-permission' &&
@@ -8332,14 +8602,17 @@ export function App({
 					<AgentNarrationBand lines={narration} />
 				) : null}
 				{showComposerSurface &&
-				permission === null &&
 				agentSurface === null &&
 				outputViewer === null &&
 				liveSubagents.length > 0 ? (
+					// Still drawn while a review is open, reduced to its header line:
+					// the work already approved keeps moving, and the operator
+					// deciding the next launch should be able to see that it does.
 					<AgentTaskPanel
 						agents={liveSubagents}
 						terminalRows={terminal.rows}
 						terminalColumns={terminal.columns}
+						compact={permission !== null}
 					/>
 				) : showComposerSurface && permission === null && agentSurface?.kind === 'cockpit' ? (
 					<AgentCockpit
@@ -8379,7 +8652,7 @@ export function App({
 					/>
 				) : null}
 			</Box>
-		</Box>
+		</ViewportBound>
 	)
 }
 

@@ -105,7 +105,7 @@ export interface ComposerDraft {
 const MIN_SUGGESTIONS = 6
 const MAX_SUGGESTIONS = 12
 const SUGGESTION_FURNITURE_ROWS = 12
-// A single keypress longer than this (with no newline) is treated as a paste.
+// A bracketed paste longer than this (with no newline) is held as a chip rather than typed in.
 const PASTE_THRESHOLD = 80
 // A recalled or branch-restored prompt can be much larger than anything the
 // operator typed one key at a time. Keep the exact source in state, but never
@@ -908,9 +908,15 @@ export function Composer({
 			}
 			if (key.ctrl || key.meta) return
 			if (input.length === 0) return
-			// A multi-line or large chunk arriving in one keypress is a paste —
-			// hold it as an attachment chip instead of flooding the input.
-			if (input.includes('\n') || input.length > PASTE_THRESHOLD) {
+			// A multi-line chunk arriving in one keypress is a paste — hold it as
+			// an attachment chip instead of flooding the input. A long chunk on
+			// ONE line is not: it is what typing looks like when keystrokes queue
+			// up behind a busy render and arrive in a single read. Held as a chip
+			// it was joined back to the typed text with a paragraph break, which
+			// split the word it landed in two ("subag" / "ents") in the message
+			// the model received. A real paste reaches `usePaste` above, where a
+			// long one is still a chip.
+			if (input.includes('\n')) {
 				setPastes((p) => [...p, input])
 				return
 			}

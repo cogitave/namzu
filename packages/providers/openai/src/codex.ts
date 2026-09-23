@@ -535,6 +535,7 @@ export class CodexProvider implements LLMProvider {
 										id: event.item.id,
 										name: 'web_search',
 										status: 'running',
+										...webSearchDetail(event.item),
 									},
 								},
 							}
@@ -581,6 +582,7 @@ export class CodexProvider implements LLMProvider {
 										id: event.item.id,
 										name: 'web_search',
 										status: event.item.status === 'completed' ? 'completed' : 'failed',
+										...webSearchDetail(event.item),
 									},
 								},
 							}
@@ -738,5 +740,40 @@ export class CodexProvider implements LLMProvider {
 		} catch {
 			return false
 		}
+	}
+}
+
+/**
+ * What a hosted search call says about itself: its query, or the page it
+ * opened, and how many sources it listed. Read defensively — the item on
+ * `output_item.added` routinely has no action yet, and a field the service
+ * leaves out stays absent rather than becoming an empty string or a zero.
+ */
+export function webSearchDetail(item: {
+	readonly action?: unknown
+}): { query?: string; url?: string; results?: number } {
+	const action = item.action as
+		| {
+				readonly type?: unknown
+				readonly query?: unknown
+				readonly queries?: unknown
+				readonly sources?: unknown
+				readonly url?: unknown
+		  }
+		| null
+		| undefined
+	if (!action || typeof action !== 'object') return {}
+	const queries = Array.isArray(action.queries)
+		? action.queries.filter((q): q is string => typeof q === 'string' && q.trim().length > 0)
+		: []
+	const query =
+		typeof action.query === 'string' && action.query.trim().length > 0
+			? action.query.trim()
+			: queries[0]?.trim()
+	const url = typeof action.url === 'string' && action.url.length > 0 ? action.url : undefined
+	return {
+		...(query ? { query } : {}),
+		...(url && !query ? { url } : {}),
+		...(Array.isArray(action.sources) ? { results: action.sources.length } : {}),
 	}
 }
