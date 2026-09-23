@@ -371,3 +371,91 @@ describe('a child that is read-only by its file', () => {
 		}
 	})
 })
+
+describe('a read-only launch that names the session model', () => {
+	it('runs on the session provider and never asks the catalogue to resolve it', async () => {
+		// The exemption promises the session's own provider. Resolving the
+		// session model could land on another provider that lists the same id
+		// whenever the session's own listing fails or omits it.
+		const cwd = workdir()
+		const parent = await subagentParentFixture(cwd, TURN)
+		const resolveModel = vi.fn(async () => ({
+			provider: 'openrouter',
+			model: 'session-model',
+		}))
+		const selections: unknown[] = []
+		const runtime = await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
+			cwd,
+			model: 'session-model',
+			buildProvider: (_sessionId, selection) => {
+				selections.push(selection)
+				return new MockLLMProvider({ turns: [{ text: 'looked' }] })
+			},
+			buildTools: builtins,
+			definitions: [],
+			resolveModel: resolveModel as never,
+			resolveResumeHandler: () => async () => ({ action: 'continue' }) as never,
+		})
+		try {
+			const input = {
+				description: 'look',
+				prompt: 'look around',
+				subagent_type: 'explore',
+				model: 'session-model',
+			}
+			expect(runtime.launchesReadOnlyAgent(input)).toBe(true)
+			const result = await runtime.agentTool.execute(input, {
+				sessionId: SESSION,
+				turnId: TURN,
+				abortSignal: new AbortController().signal,
+			} as unknown as ToolContext)
+			expect(result.success).toBe(true)
+			expect(resolveModel).not.toHaveBeenCalled()
+			expect(selections).toEqual([undefined])
+		} finally {
+			await runtime.close()
+		}
+	})
+
+	it('still resolves the session model when a provider is named', async () => {
+		const cwd = workdir()
+		const parent = await subagentParentFixture(cwd, TURN)
+		const resolveModel = vi.fn(async () => ({
+			provider: 'openrouter',
+			model: 'session-model',
+		}))
+		const runtime = await createSubagentRuntime({
+			resolveParent: parent.resolveParent,
+			cwd,
+			model: 'session-model',
+			buildProvider: () => new MockLLMProvider({ turns: [{ text: 'looked' }] }),
+			buildTools: builtins,
+			definitions: [],
+			resolveModel: resolveModel as never,
+			resolveResumeHandler: () => async () => ({ action: 'continue' }) as never,
+		})
+		try {
+			await runtime.agentTool.execute(
+				{
+					description: 'look',
+					prompt: 'look around',
+					subagent_type: 'explore',
+					model: 'session-model',
+					provider: 'openrouter',
+				},
+				{
+					sessionId: SESSION,
+					turnId: TURN,
+					abortSignal: new AbortController().signal,
+				} as unknown as ToolContext,
+			)
+			expect(resolveModel).toHaveBeenCalledWith(
+				{ model: 'session-model', provider: 'openrouter', effort: undefined },
+				expect.anything(),
+			)
+		} finally {
+			await runtime.close()
+		}
+	})
+})

@@ -415,7 +415,9 @@ runs, `3/3 agents · 9.5s · 27.0k tokens · done` (or `failed`, `cancelled`)
 after. Time drops below 70 columns and spend below 100; under 60 only
 `2/3 done` is left, so the workflow's name keeps its room. Each phase row adds
 how long that phase took, and the agent pane is titled by the phase it lists
-(`Phase 2 · 1 agent`) rather than `Agents`.
+(`Phase 2 · 1 agent`) rather than `Agents`. The phase pane's own title is just
+`Phases`: every `N/M` beside it reads done out of total, so it carries no
+cursor position.
 
 Selecting an agent opens its own framed transcript screen. The parent composer
 and live rows are hidden while their state remains mounted. The child view

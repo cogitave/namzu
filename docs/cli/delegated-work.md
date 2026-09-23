@@ -295,7 +295,11 @@ allowance.
 ## Child model selection
 
 `Agent` accepts optional `model`, `provider` and `effort` fields. With no selection,
-the child inherits the session model (or its file-defined agent model). Provider
+the child inherits the session model (or its file-defined agent model). A `model`
+equal to the session's own, with no `provider` or `effort`, is the same as no
+selection: the child runs on the session's provider and the catalogue is not
+consulted, so it never lands on another provider that lists the same id. Over an
+agent file that names another model, it is still a selection. Provider
 and effort overrides require an explicit model. Selection creates a separate
 provider instance and never switches the parent conversation. Explicit provider,
 model and effort are visible in the compact approval plan and its detailed view. The child's tool

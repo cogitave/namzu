@@ -1114,7 +1114,7 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		await waitUntil(
 			screen,
-			() => screen.viewport().join('\n').includes('Phases · 1/2'),
+			() => screen.viewport().join('\n').includes('Phases'),
 			'phase rail missing',
 		)
 		screen.press('\x1b[D')
@@ -1151,17 +1151,19 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		screen.press('\x14')
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'workflow picker missing')
-		expect(screen.viewport().join('\n')).not.toContain('Phases · 1/2')
+		expect(screen.viewport().join('\n')).not.toContain('Phases')
 		screen.press('\r')
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Second agent 1'), 'latest workflow missing')
 		let frame = screen.viewport().join('\n')
-		expect(frame).toContain('Phases · 1/1')
+		expect(frame).toContain('Phases')
+		// The header names the pane; a count here would read as phases done.
+		expect(frame).not.toMatch(/Phases · \d/)
 		expect(frame).toContain('8/8 agents')
 		expect(frame).not.toContain('First agent')
 		screen.press('\r')
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('second workflow cancellation'), 'cancelled transcript missing')
 		screen.press('\x1b')
-		await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases · 1/1'), 'did not return to agents')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Phases'), 'did not return to agents')
 		screen.press('\x1b')
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Workflows · 2/2'), 'did not return to workflows')
 		screen.press('\x1b[A')
@@ -1197,7 +1199,7 @@ describe('Ctrl+T', () => {
 
 		screen.press('\x1b[B')
 		await screen.resize(60, 28)
-		expect(screen.viewport().join('\n')).toContain('Phases · 1/1')
+		expect(screen.viewport().join('\n')).toContain('Phases')
 		expect(screen.viewport().join('\n')).toContain('Beta')
 		await screen.resize(110, 28)
 		screen.press('\r')
@@ -1823,7 +1825,7 @@ describe('agent explorer projection', () => {
 		)
 		mounted = screen
 		const viewport = screen.viewport()
-		const phaseHeading = viewport.findIndex((line) => line.includes('Phases · 1/1'))
+		const phaseHeading = viewport.findIndex((line) => line.includes('Phases'))
 		const agentHeading = viewport.findIndex((line) => line.includes('Research · 1 agent'))
 		const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
 		expect(phaseHeading).toBeGreaterThanOrEqual(0)

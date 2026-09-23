@@ -678,7 +678,9 @@ function PhasePane({
 	return (
 		<>
 			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
-				Phases {phases.length > 0 ? `· ${selected + 1}/${phases.length}` : ''}
+				{/* No count: every `N/M` beside a phase or a workflow reads done out
+				    of total, so a cursor position here would read as progress. */}
+				Phases
 			</Text>
 			{items.map((phase, visibleIndex) => {
 				const active = start + visibleIndex === selected

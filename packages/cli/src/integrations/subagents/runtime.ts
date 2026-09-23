@@ -800,9 +800,25 @@ export async function createSubagentRuntime(
 			}
 			if (!requestedModel && (requestedProvider || requestedEffort))
 				throw new Error('Supply model when selecting a child provider or effort.')
-			if (requestedModel && !opts.resolveModel)
+			const explore = subagent_type === EXPLORE_SUBAGENT
+			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
+			// Naming the session's own model, with no provider or effort, is
+			// inheriting it: the child runs where the parent runs. Resolving it
+			// would let the model catalogue pick any other provider that lists
+			// the same id when the session's own listing fails or omits it, and
+			// `launchesReadOnlyAgent` starts such a launch without review on the
+			// promise that it stays on the session's provider. Over a file that
+			// pins another model, naming the session's model is still a choice
+			// and is resolved as before.
+			const selects =
+				requestedModel !== undefined &&
+				(requestedModel !== opts.model ||
+					requestedProvider !== undefined ||
+					requestedEffort !== undefined ||
+					(fileAgent?.model !== undefined && fileAgent.model !== opts.model))
+			if (selects && !opts.resolveModel)
 				throw new Error('Child model selection is unavailable in this host.')
-			const selection = requestedModel
+			const selection = selects
 				? await opts.resolveModel?.(
 						{
 							model: requestedModel,
@@ -812,8 +828,6 @@ export async function createSubagentRuntime(
 						context.abortSignal,
 					)
 				: undefined
-			const explore = subagent_type === EXPLORE_SUBAGENT
-			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
 			let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
 			const persona = typeof role === 'string' ? role.trim() : ''
 			const dynamic = persona.length > 0 || selection !== undefined
