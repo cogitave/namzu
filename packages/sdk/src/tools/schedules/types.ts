@@ -140,8 +140,12 @@ export interface ScheduleToolHost {
 	/**
 	 * Ask the person. Anything but `create` or `create-paused` — `cancel`, a
 	 * thrown error, a closed screen — means no job.
+	 *
+	 * `signal` fires when the tool's own confirmation deadline elapses or the
+	 * turn is aborted; a host that draws a screen closes it then rather than
+	 * leaving it live after the tool has given up on the answer.
 	 */
-	confirm(request: ScheduleConfirmRequest): Promise<ScheduleConfirmAnswer>
+	confirm(request: ScheduleConfirmRequest, signal?: AbortSignal): Promise<ScheduleConfirmAnswer>
 	/** Create the job the person confirmed. */
 	create(
 		draft: ScheduleJobDraft,
@@ -152,8 +156,12 @@ export interface ScheduleToolHost {
 	list(options: { readonly allFolders: boolean }): Promise<readonly ScheduleJobSummary[]>
 	/** A job by name or id prefix, or undefined. */
 	find(job: string): Promise<ScheduleJobSummary | undefined>
-	/** Ask the person to confirm resuming or deleting a job. */
-	confirmAction(job: ScheduleJobSummary, action: 'resume' | 'delete'): Promise<boolean>
+	/** Ask the person to confirm resuming or deleting a job. See `confirm` on `signal`. */
+	confirmAction(
+		job: ScheduleJobSummary,
+		action: 'resume' | 'delete',
+		signal?: AbortSignal,
+	): Promise<boolean>
 	pause(job: string): Promise<void>
 	resume(job: string): Promise<void>
 	delete(job: string): Promise<void>

@@ -189,30 +189,36 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			return preview
 		},
 
-		async confirm(request: ScheduleConfirmRequest): Promise<ScheduleConfirmAnswer> {
+		async confirm(
+			request: ScheduleConfirmRequest,
+			signal?: AbortSignal,
+		): Promise<ScheduleConfirmAnswer> {
 			const entry = built.get(request.preview)
 			if (!entry) return 'cancel'
 			ui.say(renderConfirmation(request, entry.lines))
-			const answer = await ui.ask({
-				questionId: `schedule:${entry.job.id}`,
-				question: `Create the scheduled job "${entry.job.name}" the model proposed? (details above)`,
-				header: 'Proposed by the model',
-				options: [
-					{ id: 'cancel', label: 'Cancel', description: 'Create nothing' },
-					{
-						id: 'create-paused',
-						label: 'Create paused',
-						description: 'Create it, but do not run it until /schedule resume',
-					},
-					{
-						id: 'create',
-						label: 'Create',
-						description: 'It runs on schedule with the permissions above',
-					},
-				],
-				multiSelect: false,
-				allowFreeText: false,
-			})
+			const answer = await ui.ask(
+				{
+					questionId: `schedule:${entry.job.id}`,
+					question: `Create the scheduled job "${entry.job.name}" the model proposed? (details above)`,
+					header: 'Proposed by the model',
+					options: [
+						{ id: 'cancel', label: 'Cancel', description: 'Create nothing' },
+						{
+							id: 'create-paused',
+							label: 'Create paused',
+							description: 'Create it, but do not run it until /schedule resume',
+						},
+						{
+							id: 'create',
+							label: 'Create',
+							description: 'It runs on schedule with the permissions above',
+						},
+					],
+					multiSelect: false,
+					allowFreeText: false,
+				},
+				signal,
+			)
 			if (answer.kind !== 'answer') return 'cancel'
 			const id = answer.selectedOptionIds[0]
 			return id === 'create' || id === 'create-paused' ? id : 'cancel'
@@ -248,18 +254,21 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			}
 		},
 
-		async confirmAction(job, action) {
-			const answer = await ui.ask({
-				questionId: `schedule-${action}:${job.name}`,
-				question: `${action === 'delete' ? 'Delete' : 'Resume'} the scheduled job "${job.name}" (${job.schedule}, in ${job.folder})? The model asked.`,
-				header: 'Proposed by the model',
-				options: [
-					{ id: 'no', label: 'No', description: 'Leave it as it is' },
-					{ id: 'yes', label: action === 'delete' ? 'Delete it' : 'Resume it', description: '' },
-				],
-				multiSelect: false,
-				allowFreeText: false,
-			})
+		async confirmAction(job, action, signal) {
+			const answer = await ui.ask(
+				{
+					questionId: `schedule-${action}:${job.name}`,
+					question: `${action === 'delete' ? 'Delete' : 'Resume'} the scheduled job "${job.name}" (${job.schedule}, in ${job.folder})? The model asked.`,
+					header: 'Proposed by the model',
+					options: [
+						{ id: 'no', label: 'No', description: 'Leave it as it is' },
+						{ id: 'yes', label: action === 'delete' ? 'Delete it' : 'Resume it', description: '' },
+					],
+					multiSelect: false,
+					allowFreeText: false,
+				},
+				signal,
+			)
 			return answer.kind === 'answer' && answer.selectedOptionIds.includes('yes')
 		},
 

@@ -69,7 +69,7 @@
 			"file": "packages/cli/src/cli.ts",
 			"symbol": "process.stderr.write",
 			"count": 4,
-			"reason": "runCli's top-level catch: source-aware semantic config refusal, a broader config-load failure, and a fatal-error message; all are bootstrap-time paths in the same category as bin.ts. Plus `namzu resume <id>` refusing a scheduled run's conversation from another folder with the command that opens it: a one-line usage refusal before the TUI starts, not a diagnostic."
+			"reason": "runCli's top-level catch: source-aware semantic config refusal, a broader config-load failure, and a fatal-error message; all are bootstrap-time paths in the same category as bin.ts. Plus `namzu resume <id>` of a scheduled run's conversation from another folder: a usage message naming the folder and the command to run there, before any TUI starts."
 		},
 		{
 			"file": "packages/cli/src/commands/doctor.ts",

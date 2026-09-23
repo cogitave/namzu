@@ -1552,8 +1552,8 @@ export function App({
 			},
 			isIdle: () => stateRef.current === 'idle' && abortRef.current === null,
 			say: (text) => scheduleLiveRef.current?.say(text),
-			ask: (question) =>
-				scheduleLiveRef.current?.ask(question) ?? Promise.resolve({ kind: 'skip' as const }),
+			ask: (question, signal) =>
+				scheduleLiveRef.current?.ask(question, signal) ?? Promise.resolve({ kind: 'skip' as const }),
 			askPermission: (request) =>
 				scheduleLiveRef.current?.askPermission(request) ??
 				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
@@ -4787,17 +4787,27 @@ export function App({
 	 * and the tool's promise waits on the row the operator picks. One question
 	 * at a time: the tool is not concurrency-safe, so a second cannot arrive
 	 * while the first is up.
+	 *
+	 * `signal`, when the caller has one (the `schedule` tool's confirmation,
+	 * which waits on a person and so is given the tool's own abort signal),
+	 * is honoured the way `save_skill`'s screen honours the same signal: an
+	 * abort — the tool's own deadline elapsing, or the turn stopping —
+	 * answers as `abort` and takes the picker off screen, rather than
+	 * leaving it live after the tool has already given up on the answer.
 	 */
 	const askQuestion = useCallback<QuestionFn>(
-		(question) =>
+		(question, signal) =>
 			new Promise<QuestionAnswer>((resolve) => {
+				if (signal?.aborted) {
+					resolve({ kind: 'abort' })
+					return
+				}
 				questionRef.current = { question, resolve }
 				const values = [
 					...question.options.map((option) => option.id),
 					...(question.allowFreeText ? [FREE_TEXT_ANSWER] : []),
 				]
-				setSelectedChoice(0)
-				setChoicePicker({
+				const picker: ChoicePickerState = {
 					kind: 'user-question',
 					title: question.question,
 					notice: question.header
@@ -4813,10 +4823,17 @@ export function App({
 							? [{ label: 'Something else…', description: 'Answer in your own words' }]
 							: []),
 					],
-				})
+				}
+				const onAbort = () => {
+					if (choicePickerRef.current === picker) setChoicePicker(null)
+					resolveQuestion({ kind: 'abort' })
+				}
+				signal?.addEventListener('abort', onAbort, { once: true })
+				setSelectedChoice(0)
+				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[sendTerminalNotification, setChoicePicker, setSelectedChoice],
+		[sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
 	)
 
 	/**

@@ -171,7 +171,7 @@ describe('schedule tool', () => {
 		expect(
 			(await tool(yes.host).execute({ action: 'delete', job: 'nightly' }, context)).success,
 		).toBe(true)
-		expect(yes.host.confirmAction).toHaveBeenCalledWith(expect.anything(), 'delete')
+		expect(yes.host.confirmAction).toHaveBeenCalledWith(expect.anything(), 'delete', undefined)
 		const no = fakeHost('cancel')
 		expect(
 			(await tool(no.host).execute({ action: 'resume', job: 'nightly' }, context)).success,

@@ -108,6 +108,7 @@ Occurrences are counted, never enumerated, up to 100 000 (`capped` says when the
 - The host computes the preview (`ScheduleJobPreview`): the canonical folder, the schedule in words, the next fire times, the expanded rules, the budget, the model. The model's words are never shown as fact.
 - `host.confirm()` asks the person. Only `create` or `create-paused` creates a job. `cancel`, a thrown error or a closed screen creates nothing. `resume` and `delete` confirm through `host.confirmAction()`; `pause` does not.
 - `scanSchedulePrompt` flags invisible characters, "ignore previous instructions", secret files and exfiltration shapes. The findings are shown in the confirmation and never block on their own.
+- The tool declares its own `timeoutMs`, thirty minutes, so the executor's two-minute default deadline never cuts a person off mid-read (the same duration `save_skill` uses for the same reason). Both `host.confirm()` and `host.confirmAction()` are given the tool's abort signal; it fires when that deadline elapses or the turn is stopped, and either settles the pending call as `cancel`/`false` and, in a host that draws a screen, closes it — never leaves it on screen after the tool has stopped waiting for the answer.
 
 Register it only where a person can confirm. The CLI registers it in the interactive TUI and never in `exec`, a scheduled run, a sub-agent, a resident worker or ACP.
 

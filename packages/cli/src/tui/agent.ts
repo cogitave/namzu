@@ -588,7 +588,14 @@ export type QuestionAnswer =
 	| { readonly kind: 'skip' }
 	| { readonly kind: 'abort' }
 
-export type QuestionFn = (question: UserQuestion) => Promise<QuestionAnswer>
+/**
+ * `signal`, when the caller has one, fires when it has stopped waiting on the
+ * answer (a tool's own deadline, or the turn aborting); a screen that draws
+ * itself closes on it rather than staying up after nothing can use the reply
+ * any more. Optional and additive: an implementation that ignores it behaves
+ * exactly as before.
+ */
+export type QuestionFn = (question: UserQuestion, signal?: AbortSignal) => Promise<QuestionAnswer>
 
 export interface SendOptions {
 	/** Overrides for this new turn and its built-in children; does not change a parked turn. */
