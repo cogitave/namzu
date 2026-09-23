@@ -413,3 +413,23 @@ describe('schedule tool: browser grant', () => {
 		expect(override.success).toBe(false)
 	})
 })
+
+describe('schedule tool: budget words', () => {
+	it('says a budget is one run’s, and that an iteration is a model step, not a repetition', () => {
+		const t = tool(fakeHost('create').host)
+		const budget = (
+			t.inputSchema as unknown as {
+				shape: {
+					budget: {
+						description?: string
+						unwrap(): { shape: { maxIterations: { description?: string } } }
+					}
+				}
+			}
+		).shape.budget
+		expect(budget.description).toContain('Limits of ONE run')
+		expect(budget.unwrap().shape.maxIterations.description).toContain(
+			'not how many times the job runs',
+		)
+	})
+})

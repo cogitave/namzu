@@ -253,6 +253,17 @@ describe('the model proposing a browser job', () => {
 		expect(job?.confirmation?.surface).toBe('tool-confirmed')
 	})
 
+	it('warns on the confirmation when a run may take too few steps', async () => {
+		const few = host('cancel')
+		await few.tool.execute({ ...input, budget: { maxIterations: 1 } }, {} as never)
+		expect(few.said[0]).toContain(
+			'Warning     1 iteration is one model call with its tool calls; most tasks need more (the default is 50), and a run that runs out stops unfinished',
+		)
+		const enough = host('cancel')
+		await enough.tool.execute(input, {} as never)
+		expect(enough.said[0]).not.toContain('iteration is one model call')
+	})
+
 	it('cannot grant every site', async () => {
 		const { tool } = host('create')
 		const refused = await tool.execute(

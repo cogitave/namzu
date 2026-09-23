@@ -44,6 +44,8 @@ import type { ConfirmationSurface, ScheduleBudget, ScheduleJob } from './types.j
 export const DEFAULT_TOKEN_BUDGET = 500_000
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000
 export const DEFAULT_MAX_ITERATIONS = 50
+/** Below this many iterations a run's preview warns that it may stop unfinished. */
+export const FEW_ITERATIONS = 10
 export const DEFAULT_WAIT_FOR_PROVIDER_MS = 10 * 60_000
 export const DEFAULT_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000
 export const DEFAULT_KEEP_SESSIONS = 20
@@ -286,6 +288,13 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		`Next        ${next.length > 0 ? next.join(' · ') : 'never'}`,
 		`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}${job.model.effort ? ` (${job.model.effort})` : ''}`,
 		`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+		// A proposal once set 1, read as "one post per run": the first run
+		// stopped after its first model call, with nothing done.
+		...(job.budget.maxIterations < FEW_ITERATIONS
+			? [
+					`Warning     ${job.budget.maxIterations} iteration${job.budget.maxIterations === 1 ? '' : 's'} is one model call${job.budget.maxIterations === 1 ? '' : ' each'} with its tool calls; most tasks need more (the default is ${DEFAULT_MAX_ITERATIONS}), and a run that runs out stops unfinished`,
+				]
+			: []),
 		`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
 		...(policy.network ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),

@@ -80,11 +80,24 @@ const inputSchema = z.object({
 		.describe('create: REQUIRED explicit permission set; there is no default'),
 	budget: z
 		.object({
-			maxIterations: z.number().int().positive().optional(),
-			tokenBudget: z.number().int().positive().optional(),
-			timeoutMs: z.number().int().positive().optional(),
+			maxIterations: z
+				.number()
+				.int()
+				.positive()
+				.optional()
+				.describe(
+					'Model steps one run may take (each model call with its tool calls is one step), not how many times the job runs. Omit for the default; a browser task takes 10 or more.',
+				),
+			tokenBudget: z.number().int().positive().optional().describe('Tokens one run may spend'),
+			timeoutMs: z
+				.number()
+				.int()
+				.positive()
+				.optional()
+				.describe('Wall clock of one run, in milliseconds'),
 		})
-		.optional(),
+		.optional()
+		.describe('Limits of ONE run; omit to use the defaults'),
 	job: z.string().optional().describe('pause/resume/delete: job name'),
 	allFolders: z.boolean().optional().describe('list: include jobs of other folders (names only)'),
 })
