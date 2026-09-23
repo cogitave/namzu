@@ -31,7 +31,7 @@ explain why they cannot run and are checked again when selected.
 | `/memory` | Show stored memory (the index and, in its own section, what turns recorded) and curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a typed project memory (`--type user\|feedback\|project\|reference` after `add` picks the type); put `--user` before `add` to append a user fact to the curated file. `/memory import-notes` copies the top-level bullets of the project's curated `MEMORY.md` into typed memory files, skipping any already stored, and never changes that file. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
 | `/plugins` | Inspect plugins, enable/disable them for the idle session, and optionally remember their state after restart. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
-| `/resume` | Resume a past conversation in this project. In a conversation whose last turn is paused or was interrupted, continue that turn under the same turn id, under the current permission mode (plan mode stays read-only). |
+| `/resume` | Resume a past conversation in this project. In a conversation whose last turn is paused or was interrupted, continue that turn under the same turn id, under the current permission mode (plan mode stays read-only). A scheduled run parked on a decision (`⏲ <job> · <time>`) shows the parked call on the permission screen: your answer applies to exactly that batch, and the rest of the turn stays under the job’s rules. |
 | `/abandon` | Close this conversation's paused or interrupted turn without resuming it, so the next prompt starts a new turn. The turn is recorded as failed with reason `abandoned`; nothing it already did is undone. |
 | `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |
@@ -54,6 +54,8 @@ explain why they cannot run and are checked again when selected.
 | `/orchestrate` | Toggle orchestrate mode for this session: /orchestrate [on\|off]. A session setting shown beside effort, not a level of it. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
+| `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
+| `/loop` | Re-send a prompt to this conversation on an interval, between turns: `/loop 10m <prompt>`, `/loop list`, `/loop stop <id>|all`. See [Session loops](session-loops.md). |
 | `/tasks` | Read this conversation's tasks: every open task, and those closed in the current turn. Changing conversations clears the previous selection. |
 | `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents batches` lists past and running batches of delegated agents. |
 

@@ -156,6 +156,8 @@ import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
+import { resolveNamzuHome } from '../integrations/state/home.js'
+import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
 import { checklistProgress } from './Checklist.js'
@@ -178,6 +180,7 @@ import {
 	type AgentEvent,
 	type AgentSession,
 	type PermissionDecision,
+	type PermissionFn,
 	type PermissionRequest,
 	type QuestionAnswer,
 	type QuestionFn,
@@ -815,6 +818,9 @@ export function App({
 	const initialConversationIdRef = useRef(initialCtx.initialConversationId)
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
+	/** For the scheduler integration's loop timer, which reads it outside render. */
+	const stateRef = useRef(state)
+	stateRef.current = state
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	const [session, setSession] = useState<AgentSession | null>(null)
 	// Once a usable session publishes the transcript, temporary lifecycle
@@ -1451,6 +1457,48 @@ export function App({
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<SessionScope | null>(null)
+	/**
+	 * Scheduled jobs and session loops (`./schedule/`). Built once; what it
+	 * reads later — the transcript writer, the question and permission
+	 * screens, the submit path, the session's model — is filled in each
+	 * render through `scheduleLiveRef`.
+	 */
+	const scheduleLiveRef = useRef<{
+		say: (text: string) => void
+		ask: QuestionFn
+		askPermission: PermissionFn
+		submit: (text: string) => void
+		model?: { readonly provider: string; readonly model?: string }
+	} | null>(null)
+	const scheduleRef = useRef<ScheduleIntegration | null>(null)
+	if (scheduleRef.current === null) {
+		scheduleRef.current = createScheduleIntegration({
+			home: () => sessionsRef.current?.root ?? resolveNamzuHome(),
+			cwd: () => ctxRef.current.cwd,
+			extraRoots: () => ctxRef.current.additionalDirectories ?? [],
+			config: () => ctxRef.current,
+			model: () => scheduleLiveRef.current?.model,
+			sessionId: () => (conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined),
+			loopsFile: () => {
+				const sessions = sessionsRef.current
+				const scope = scopeRef.current
+				if (!sessions || !scope || !conversationMaterializedRef.current) return undefined
+				try {
+					return join(sessions.paths.sessionDir({ sessionId: scope.sessionId }), 'loops.json')
+				} catch {
+					return undefined
+				}
+			},
+			isIdle: () => stateRef.current === 'idle' && abortRef.current === null,
+			say: (text) => scheduleLiveRef.current?.say(text),
+			ask: (question) =>
+				scheduleLiveRef.current?.ask(question) ?? Promise.resolve({ kind: 'skip' as const }),
+			askPermission: (request) =>
+				scheduleLiveRef.current?.askPermission(request) ??
+				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
+			submit: (text) => scheduleLiveRef.current?.submit(text),
+		})
+	}
 	/**
 	 * A provider session can be ready before a person has started a conversation.
 	 * The scope still needs a mutable session cursor, but its generated id is
@@ -2986,9 +3034,19 @@ export function App({
 			const scope = await ensureSessions()
 			if (signal?.aborted) return
 			const activeCtx = ctxRef.current
+			const primary = prefs.providers[0]
+			if (primary && scheduleLiveRef.current) {
+				scheduleLiveRef.current.model = {
+					provider: primary.id,
+					...(primary.model ? { model: primary.model } : {}),
+				}
+			}
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
+				// A person is here to confirm: the model may propose scheduled jobs
+				// and session loops (never in exec, a scheduled run or a sub-agent).
+				extraTools: scheduleRef.current?.tools() ?? [],
 				...(activeCtx.structuredOutput ? { structuredOutput: activeCtx.structuredOutput } : {}),
 				...(activeCtx.additionalDirectories
 					? { additionalDirectories: activeCtx.additionalDirectories }
@@ -3693,13 +3751,20 @@ export function App({
 		}
 		pushMessage('system', `Resuming turn ${active.turnId} from its checkpoint.`, false, '▶')
 		try {
+			// A scheduled run parked on a decision: the operator answers the
+			// parked batch here, and the turn continues under the job's rules.
+			const scheduled = active.paused
+				? await scheduleRef.current?.prepareResume(permissionModeRef.current)
+				: undefined
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
-				// The operator's mode, read at every decision like a new turn's:
-				// `/resume` in plan mode stays read-only, and so do its children.
-				permissionMode: permissionModeRef.current,
-				currentPermissionMode: () => permissionModeRef.current,
+				...(scheduled ?? {
+					// The operator's mode, read at every decision like a new turn's:
+					// `/resume` in plan mode stays read-only, and so do its children.
+					permissionMode: permissionModeRef.current,
+					currentPermissionMode: () => permissionModeRef.current,
+				}),
 			})) {
 				applyEventRef.current?.(event, st)
 			}
@@ -6535,6 +6600,7 @@ export function App({
 					case 'none':
 						return
 					case 'host-command': {
+						if (scheduleRef.current?.handleSlash(slash.name, slash.args)) return
 						// Dispatched through the kernel's registry, built with what
 						// THIS session can answer from. The descriptors used for
 						// the merge above carry no store — they are names — so the
@@ -6953,6 +7019,33 @@ export function App({
 	// a ref so selecting a help row re-enters the one ordinary slash-command
 	// path instead of growing a second command executor.
 	commandPickerSubmitRef.current = handleSubmit
+	scheduleLiveRef.current = {
+		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
+		say: (text) => pushMessage('system', text),
+		ask: askQuestion,
+		askPermission: onPermission,
+		submit: (text) => handleSubmit(text),
+	}
+	// Scheduled work since the TUI last looked: one line, after the first
+	// paint, never blocking it. Loops fire when a turn ends, and on their timer.
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			const line = scheduleRef.current?.startupLine()
+			if (line) scheduleLiveRef.current?.say(line)
+		}, 250)
+		return () => {
+			clearTimeout(timer)
+			scheduleRef.current?.dispose()
+		}
+	}, [])
+	useEffect(() => {
+		if (state !== 'idle') return
+		try {
+			scheduleRef.current?.loops.tick()
+		} catch {
+			// A loop that cannot be read never takes the screen down with it.
+		}
+	}, [state])
 
 	// Keep the footer on the same durable goal record the driver mutates. A ref
 	// alone cannot repaint React, so every goal mutation bumps goalDriveVersion;

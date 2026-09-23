@@ -748,6 +748,33 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 		},
 	},
 	{
+		name: 'schedule',
+		description: 'Scheduled jobs that run while namzu is closed: list, confirm, pause, run, add.',
+		help: {
+			usage: [
+				'/schedule',
+				'/schedule confirm|pause|resume|run|remove <job>',
+				'/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>',
+			],
+			details: [
+				'A run waiting for your approval is answered with /resume of its conversation in its folder.',
+				'The scheduler itself is installed with `namzu schedule install`.',
+			],
+		},
+		action: (_ctx, args) => ({ kind: 'host-command', name: 'schedule', args }),
+	},
+	{
+		name: 'loop',
+		description: 'Re-send a prompt to this conversation on an interval, between turns.',
+		help: {
+			usage: ['/loop <interval> <prompt or /command>', '/loop list', '/loop stop <id>|all'],
+			details: [
+				'5m, 1h, or a five-field cron expression. Fires once when idle, never once per missed interval; expires after 7 days.',
+			],
+		},
+		action: (_ctx, args) => ({ kind: 'host-command', name: 'loop', args }),
+	},
+	{
 		name: 'help',
 		description: 'Browse commands, or show usage with /help <command>.',
 		help: {

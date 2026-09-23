@@ -1,6 +1,7 @@
 # CLI
 
 * [Scheduled tasks](scheduled-tasks.md) - Prompts that run later in a folder while namzu is closed: jobs, the required permission set, approvals, missed runs, notifications and history.
+* [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval, between turns.
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
 * [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
 
