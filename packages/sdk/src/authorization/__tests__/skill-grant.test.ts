@@ -4,6 +4,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { loadSkill } from '../../skills/loader.js'
+import { BashTool } from '../../tools/builtins/bash.js'
+import { EditTool } from '../../tools/builtins/edit.js'
+import { JobTool } from '../../tools/builtins/job.js'
+import { buildRunCodeTool } from '../../tools/builtins/run-code.js'
+import { WriteFileTool } from '../../tools/builtins/write-file.js'
+import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { parseFrontmatter } from '../../utils/frontmatter.js'
 import {
 	SkillGrantSet,
@@ -24,7 +30,10 @@ import {
 
 /** A turn's registry: namzu names, with `bash` taking a command line. */
 const resolve: SkillGrantToolResolver = (name) => {
-	const known: Record<string, { name: string; commandArgument?: string }> = {
+	const known: Record<
+		string,
+		{ name: string; commandArgument?: string; alwaysDestructive?: boolean }
+	> = {
 		read: { name: 'read' },
 		write: { name: 'write' },
 		edit: { name: 'edit' },
@@ -33,6 +42,12 @@ const resolve: SkillGrantToolResolver = (name) => {
 		bash: { name: 'bash', commandArgument: 'command' },
 		web_fetch: { name: 'web_fetch' },
 		web_search: { name: 'web_search' },
+		job: { name: 'job' },
+		task_create: { name: 'task_create' },
+		task_update: { name: 'task_update' },
+		task_list: { name: 'task_list' },
+		search_tools: { name: 'search_tools' },
+		run_code: { name: 'run_code', alwaysDestructive: true },
 	}
 	return known[name.toLowerCase()]
 }
@@ -155,6 +170,40 @@ describe('names, as authors write them', () => {
 		expect(grants.coveringSkill({ name: 'read', input: {} })).toBe('demo')
 		expect(grants.coveringSkill({ name: 'bash', input: { command: 'ls' } })).toBeUndefined()
 		expect(grants.coveringSkill({ name: 'write', input: {} })).toBeUndefined()
+	})
+
+	it('maps the background-shell and task-list names onto job and task_*', () => {
+		const { grants, compiled } = granted(
+			'BashOutput KillShell TaskOutput TaskStop TaskCreate TaskUpdate TaskList ToolSearch',
+		)
+		expect(compiled.ignored).toEqual([])
+		for (const name of ['job', 'task_create', 'task_update', 'task_list', 'search_tools']) {
+			expect(grants.coveringSkill({ name, input: {} }), name).toBe('demo')
+		}
+	})
+
+	it('grants nothing for a tool every call of which is destructive, and says why', () => {
+		const { grants, compiled } = granted('Read run_code')
+		expect(compiled.entries.map((entry) => entry.tool)).toEqual(['read'])
+		expect(compiled.ignored).toEqual([
+			{
+				entry: 'run_code',
+				reason:
+					'every `run_code` call is destructive and is always reviewed, so nothing was granted for it',
+			},
+		])
+		expect(grants.coveringSkill({ name: 'run_code', input: {} })).toBeUndefined()
+	})
+
+	it('knows which shipped tools are destructive for every input', () => {
+		// `write` cannot tell a new file from an overwrite by its input, and
+		// `run_code` is the union of whatever it calls; both are always
+		// reviewed. The others decide per call.
+		expect(isAlwaysDestructive(WriteFileTool)).toBe(true)
+		expect(isAlwaysDestructive(buildRunCodeTool())).toBe(true)
+		expect(isAlwaysDestructive(EditTool)).toBe(false)
+		expect(isAlwaysDestructive(BashTool)).toBe(false)
+		expect(isAlwaysDestructive(JobTool)).toBe(false)
 	})
 
 	it('refuses a pattern on a tool without a command line rather than approximating it', () => {

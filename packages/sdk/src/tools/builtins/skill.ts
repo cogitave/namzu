@@ -392,7 +392,9 @@ export const SkillTool = defineTool({
 			start = parsed.offset
 		}
 
-		// Applied before paging so the notice can say what actually happened.
+		// Compiled before paging so the notice can say what the grant is, and
+		// committed only after paging succeeded: a load that fails here gave
+		// the model no instructions, so it must not have approved anything.
 		// Idempotent: a continuation call grants the same entries again, and
 		// the turn's set keeps one copy.
 		let grant: ReturnType<NonNullable<typeof context.grantSkillTools>> | undefined
@@ -418,6 +420,7 @@ export const SkillTool = defineTool({
 				error: `The model-visible tool-output budget is too small to read "${input.name}" safely. Increase maxToolOutputChars and retry.`,
 			}
 		}
+		grant?.commit()
 
 		return {
 			success: true,
@@ -459,7 +462,7 @@ function grantNotice(
 	const lines: string[] = []
 	lines.push(
 		grant.granted.length > 0
-			? `Pre-approved for the rest of this turn: ${grant.granted.join(', ')}. The operator's deny and ask rules, plan mode and strict mode still apply to them.`
+			? `Pre-approved for the rest of this turn: ${grant.granted.join(', ')}. Deny and ask rules, plan and strict mode, and review of destructive calls still apply.`
 			: 'Nothing in allowed-tools could be pre-approved.',
 	)
 	for (const { entry, reason } of grant.ignored) {

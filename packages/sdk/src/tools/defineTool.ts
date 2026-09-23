@@ -68,6 +68,35 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
 }
 
+/**
+ * The `isDestructive` functions built from a literal `destructive: true`.
+ *
+ * Such a tool is destructive for EVERY input, so no call of it can ever be
+ * approved without review — and a grant that names it (a skill's
+ * `allowed-tools: Write`) would be a promise the review phase never keeps.
+ * Kept here rather than as a field on the definition so the public
+ * `ToolDefinition` shape does not change; see {@link isAlwaysDestructive}.
+ */
+const ALWAYS_DESTRUCTIVE = new WeakSet<object>()
+
+/**
+ * Whether a tool declares every call destructive, whatever the input.
+ *
+ * Known only for a tool built by {@link defineTool} with `destructive: true`.
+ * A hand-written definition, or one whose flag depends on the input, answers
+ * `false`: its calls are still judged one by one, so nothing is lost but an
+ * early warning.
+ */
+export function isAlwaysDestructive(tool: Pick<ToolDefinition, 'isDestructive'>): boolean {
+	return tool.isDestructive !== undefined && ALWAYS_DESTRUCTIVE.has(tool.isDestructive)
+}
+
+function constantDestructive(value: boolean): () => boolean {
+	const fn = () => value
+	if (value) ALWAYS_DESTRUCTIVE.add(fn)
+	return fn
+}
+
 export function defineTool<S extends z.ZodType>(
 	options: DefineToolOptions<S>,
 ): ToolDefinition<z.infer<S>> {
@@ -102,7 +131,7 @@ export function defineTool<S extends z.ZodType>(
 		isDestructive:
 			typeof options.destructive === 'function'
 				? options.destructive
-				: () => options.destructive as boolean,
+				: constantDestructive(options.destructive as boolean),
 		isConcurrencySafe: () => options.concurrencySafe,
 
 		async execute(input: TInput, context: ToolContext): Promise<ToolResult> {

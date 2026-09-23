@@ -29,7 +29,7 @@ A skill is repository content, so it ranks below the operator and below the tool
 
 - an operator `deny` rule refuses it (the gate refuses it before review);
 - an operator `ask` rule (`authorization.explicitReview`) names it;
-- the tool declares the call destructive;
+- the tool declares the call destructive (a `bash` line the danger check flags, a `job` kill, a `computer_use` action that changes state);
 - the call carries an escalation, meaning a path outside the working directory or a sandbox escape.
 
 The shipped review policy (`createReviewHandler`) approves a batch without asking only if every call it would have asked about carries that mark. Under `plan` and `strict` it refuses first, so a skill grant never gets past plan mode or an allowlist-only turn. Under `auto` everything was approved already. If one call in the batch is unmarked, the whole batch is asked about. A host that writes its own handler sees the mark and decides for itself. A host that does not want skills to reduce its prompts passes `skillGrants: 'ignore'` to `createReviewHandler` / `createReviewPolicy`, and every call is then asked about as if no skill had been loaded.
@@ -59,13 +59,20 @@ The frontmatter reader accepts a YAML list for `allowed-tools` only (`parseFront
 
 | Written | Tool here |
 | --- | --- |
-| `Read`, `Write`, `Edit`, `MultiEdit` | `read`, `write`, `edit`, `edit` |
+| `Read`, `Edit`, `MultiEdit` | `read`, `edit`, `edit` |
+| `Write` | `write`, which is always destructive, so the entry is ignored (see below) |
 | `Bash`, `Grep`, `Glob`, `LS` | `bash`, `grep`, `glob`, `ls` |
+| `BashOutput`, `KillShell`, `KillBash`, `TaskOutput`, `TaskStop` | `job` |
+| `TaskCreate`, `TaskUpdate`, `TaskList` | `task_create`, `task_update`, `task_list` |
 | `WebFetch`, `WebSearch` | `web_fetch`, `web_search` |
-| `Skill`, `AskUserQuestion`, `LSP` | `skill`, `ask_user_question`, `lsp` |
+| `Skill`, `AskUserQuestion`, `LSP`, `ToolSearch` | `skill`, `ask_user_question`, `lsp`, `search_tools` |
 | `Task`, `Agent` | `create_task` |
 
-Any other name is looked up as written, without regard to case, so `mcp` tool names and host tools work. The `skill` tool reports a name the turn has no tool for as ignored, and that entry grants nothing. It never widens to everything.
+Any other name is looked up as written, without regard to case, so `mcp` tool names and host tools work. The `skill` tool reports a name the turn has no tool for as ignored, and that entry grants nothing. It never widens to everything. `NotebookEdit` and `TaskGet` have no tool here and are ignored.
+
+`job` does both things the background-shell names do, reading output and stopping the job. Granting it for `BashOutput` does not let a kill through without review, because `job` declares `kill` destructive.
+
+**Always-destructive tools grant nothing.** A tool built with `defineTool({ destructive: true })` is destructive for every input, and a destructive call is always reviewed. The shipped `write` is one: its input cannot tell a new file from an overwrite. `run_code` is the other, because its effects are whatever it calls. An entry naming either is reported as ignored ("every `write` call is destructive and is always reviewed") rather than listed as pre-approved, so the model is never told a tool is approved and then asked about every call of it. `Edit` does grant: `edit` decides per call and is not destructive. A hand-written `ToolDefinition` whose `isDestructive` always answers `true` cannot be recognised in advance. Its entry is listed as granted, and each call of it is still reviewed.
 
 **Patterns.** `Bash(<pattern>)` grants only command lines that match. The glob is the one the CLI's `[permissions]` table uses (`permissionPatternToRegExpSource`): `*` is any run of characters and `?` is one character, and a trailing ` *` also matches the bare command. `Bash(git status *)` therefore covers `git status` and `git status -s` but not `git statusx` or `git push`. A line is read as the commands it runs, and every one of them must match, so `git status && git push` is not covered. A line the reader cannot see through, such as a substitution or a heredoc, is not covered either. The legacy form `Bash(npm run test:*)` means `npm run test *`. `Bash(*)` and `Bash` both grant the whole tool.
 
@@ -75,7 +82,7 @@ A pattern is honoured only for a tool that declares a command argument (`command
 
 # What the model is told
 
-The `skill` tool appends one notice to the body. It lists what is pre-approved, any ignored entries with their reasons, and always: "Every other tool remains available and is reviewed as usual; this skill does not limit which tools you may use." Outside a turn (no `ToolContext.grantSkillTools`) it says that the host applies no pre-approval. The manifest shows the field as `<pre_approved_tools>`, not `<allowed_tools>`, because the old tag read as a whitelist.
+The `skill` tool appends one notice to the body. It lists what is pre-approved (and says that deny and ask rules, plan and strict mode, and a call the tool marks destructive still apply), any ignored entries with their reasons, and always: "Every other tool remains available and is reviewed as usual; this skill does not limit which tools you may use." Outside a turn (no `ToolContext.grantSkillTools`) it says that the host applies no pre-approval. The manifest shows the field as `<pre_approved_tools>`, not `<allowed_tools>`, because the old tag read as a whitelist.
 
 # API
 
@@ -84,6 +91,6 @@ The `skill` tool appends one notice to the body. It lists what is pre-approved, 
 | `parseAllowedTools(value)` | Split the frontmatter value into entries. |
 | `compileSkillGrant(entries, { resolveTool, skillDirectory })` | Resolve names and compile patterns against a registry. Returns `{ entries, ignored }`. |
 | `SkillGrantSet` | The per-turn set: `grant(skill, compiled)`, `coveringSkill(call, toolDef)`, `list()`, `size`. |
-| `ToolContext.grantSkillTools` | Supplied by the executor inside a turn. The `skill` tool calls it. |
+| `ToolContext.grantSkillTools` | Supplied by the executor inside a turn. Returns `{ granted, ignored, commit }`. The `skill` tool calls it before paging the body, to write the notice, and calls `commit()` only once a page was produced. A load that fails because the output budget cannot hold one page grants nothing. |
 | `ToolCallSummary.skillGrant` | The review phase's mark on a covered call. |
 | `HITLResumeDecision` `approve_tools.skillGranted` | The ids a policy approved on a skill's word, for the audit trail. |

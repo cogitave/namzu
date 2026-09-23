@@ -96,6 +96,19 @@ export const SKILL_TOOL_NAME_ALIASES: Readonly<Record<string, string>> = Object.
 	task: 'create_task',
 	agent: 'create_task',
 	lsp: 'lsp',
+	toolsearch: 'search_tools',
+	// A background shell's output and its termination are one tool here,
+	// `job`, whatever the ecosystem's release called them. Granting `job`
+	// for `BashOutput` does not grant a kill without review: `job` declares
+	// `kill` destructive, and a destructive call is never skill-approved.
+	bashoutput: 'job',
+	taskoutput: 'job',
+	killshell: 'job',
+	killbash: 'job',
+	taskstop: 'job',
+	taskcreate: 'task_create',
+	taskupdate: 'task_update',
+	tasklist: 'task_list',
 })
 
 /**
@@ -104,9 +117,19 @@ export const SKILL_TOOL_NAME_ALIASES: Readonly<Record<string, string>> = Object.
  * `commandArgument` is what lets a `Bash(<pattern>)` entry be matched against
  * the command line rather than the serialised input.
  */
-export type SkillGrantToolResolver = (
-	name: string,
-) => { readonly name: string; readonly commandArgument?: string } | undefined
+export type SkillGrantToolResolver = (name: string) =>
+	| {
+			readonly name: string
+			readonly commandArgument?: string
+			/**
+			 * Every call of this tool is destructive, whatever its input (the
+			 * shipped `write` and `run_code`). A destructive call is always
+			 * reviewed, so an entry naming such a tool can grant nothing and is
+			 * reported as ignored rather than listed as pre-approved.
+			 */
+			readonly alwaysDestructive?: boolean
+	  }
+	| undefined
 
 /** One compiled entry: a whole tool, or one tool's command line matching a pattern. */
 export interface SkillGrantEntry {
@@ -189,6 +212,13 @@ export function compileSkillGrant(
 		const tool = options.resolveTool(alias ?? written)
 		if (!tool) {
 			ignored.push({ entry, reason: 'this turn has no tool by that name' })
+			continue
+		}
+		if (tool.alwaysDestructive) {
+			ignored.push({
+				entry,
+				reason: `every \`${tool.name}\` call is destructive and is always reviewed, so nothing was granted for it`,
+			})
 			continue
 		}
 

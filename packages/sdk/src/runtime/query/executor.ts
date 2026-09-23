@@ -11,6 +11,7 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
+import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
@@ -709,13 +710,19 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * Record a skill's `allowed-tools` as pre-approvals for the rest of the
-	 * turn, and say what was granted.
+	 * Compile a skill's `allowed-tools` into pre-approvals for the rest of the
+	 * turn, say what they would be, and record them only on `commit()`.
 	 *
 	 * Names resolve against THIS turn's registry, case-insensitively and
 	 * through the Agent Skills aliases (`Read` is `read`, `WebFetch` is
 	 * `web_fetch`), so a grant can only ever name a tool the turn already has.
-	 * An entry that resolves to nothing is reported and grants nothing.
+	 * An entry that resolves to nothing, or to a tool every call of which is
+	 * destructive (and therefore always reviewed), is reported and grants
+	 * nothing.
+	 *
+	 * Two steps because the `skill` tool can still fail after it knows what
+	 * to say — its instructions may not fit the output budget — and a skill
+	 * the model never received must not have approved anything.
 	 */
 	private grantSkillTools(grant: {
 		readonly skill: string
@@ -727,9 +734,10 @@ export class ToolExecutor {
 			readonly entry: string
 			readonly reason: string
 		}[]
+		readonly commit: () => void
 	} {
 		const grants = this.config.skillGrants
-		if (!grants) return { granted: [], ignored: [] }
+		if (!grants) return { granted: [], ignored: [], commit: () => {} }
 		const tools = this.config.tools
 		const byLowerName = new Map<string, string>()
 		for (const name of tools.listNames()) byLowerName.set(name.toLowerCase(), name)
@@ -737,25 +745,30 @@ export class ToolExecutor {
 			resolveTool: (name) => {
 				const registered = byLowerName.get(name.toLowerCase())
 				if (registered === undefined) return undefined
-				const commandArgument = tools.get(registered)?.commandArgument
-				return commandArgument === undefined
-					? { name: registered }
-					: { name: registered, commandArgument }
+				const definition = tools.get(registered)
+				const commandArgument = definition?.commandArgument
+				return {
+					name: registered,
+					...(commandArgument === undefined ? {} : { commandArgument }),
+					...(definition && isAlwaysDestructive(definition) ? { alwaysDestructive: true } : {}),
+				}
 			},
 			...(grant.skillDirectory ? { skillDirectory: grant.skillDirectory } : {}),
 		})
-		grants.grant(grant.skill, compiled)
-		if (compiled.ignored.length > 0) {
-			this.log.warn('Skill allowed-tools entries were ignored', {
-				'namzu.skill.name': grant.skill,
-				'namzu.skill.ignored': compiled.ignored.map((item) => item.entry),
-			})
-		}
 		return {
 			granted: compiled.entries.map((entry) =>
 				entry.pattern === undefined ? entry.tool : entry.declared,
 			),
 			ignored: compiled.ignored,
+			commit: () => {
+				grants.grant(grant.skill, compiled)
+				if (compiled.ignored.length > 0) {
+					this.log.warn('Skill allowed-tools entries were ignored', {
+						'namzu.skill.name': grant.skill,
+						'namzu.skill.ignored': compiled.ignored.map((item) => item.entry),
+					})
+				}
+			},
 		}
 	}
 

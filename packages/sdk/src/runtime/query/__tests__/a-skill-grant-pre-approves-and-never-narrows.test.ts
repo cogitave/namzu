@@ -8,6 +8,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SkillRegistry } from '../../../skills/registry.js'
 import { SkillTool } from '../../../tools/builtins/skill.js'
+import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -88,13 +89,24 @@ function toolsWithBash(ran: string[]): ToolRegistry {
 	return tools
 }
 
-/** One turn: optionally load the skill, then run `command` through bash. */
-function provider(opts: { load: boolean; command: string }) {
+/**
+ * One turn: optionally load the skill, then run `command` through bash, or
+ * make `call` instead. `seen` collects what the model was shown each step.
+ */
+function provider(opts: {
+	load: boolean
+	command: string
+	call?: { name: string; args: Record<string, unknown> }
+	seen?: string[]
+}) {
 	return new MockLLMProvider({
-		nextTurn(_params, index): MockTurn {
+		nextTurn(params, index): MockTurn {
+			opts.seen?.push(JSON.stringify(params.messages))
 			const script: MockTurn[] = [
 				...(opts.load ? [{ toolCalls: [{ name: 'skill', args: { name: 'helper' } }] }] : []),
-				{ toolCalls: [{ name: 'bash', args: { command: opts.command } }] },
+				{
+					toolCalls: [opts.call ?? { name: 'bash', args: { command: opts.command } }],
+				},
 				{ text: 'done' },
 			]
 			return script[index] ?? { text: 'done' }
@@ -109,11 +121,18 @@ async function turn(opts: {
 	command: string
 	mode: ReviewMode
 	prompt: ToolReviewPrompt
+	call?: { name: string; args: Record<string, unknown> }
+	seen?: string[]
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-skill-grant-wd-'))
 	dirs.push(workingDirectory)
 	return drainQuery({
-		provider: provider({ load: opts.load, command: opts.command }),
+		provider: provider({
+			load: opts.load,
+			command: opts.command,
+			...(opts.call ? { call: opts.call } : {}),
+			...(opts.seen ? { seen: opts.seen } : {}),
+		}),
 		tools: opts.tools,
 		skillRegistry: opts.skills,
 		resumeHandler: createReviewHandler({
@@ -209,5 +228,33 @@ describe('a loaded skill through the real turn', () => {
 
 		expect(ran).toEqual([])
 		expect(prompt).not.toHaveBeenCalled()
+	})
+
+	it('`Write` grants nothing, and the model is told so, because every write is reviewed', async () => {
+		// The shipped `write` is destructive for every input, and a
+		// destructive call is never skill-approved. Telling the model "write
+		// is pre-approved" and then prompting anyway would be a promise the
+		// review never keeps.
+		const tools = toolsWithBash([])
+		tools.register(WriteFileTool)
+		const seen: string[] = []
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const result = await turn({
+			tools,
+			skills: await skillsWith('Read Write'),
+			load: true,
+			command: '',
+			call: { name: 'write', args: { path: 'new.txt', content: 'x' } },
+			mode: 'prompt',
+			prompt,
+			seen,
+		})
+
+		expect(result.status, JSON.stringify(result)).toBe('completed')
+		expect(prompt).toHaveBeenCalledOnce()
+		const afterLoad = seen[1] ?? ''
+		expect(afterLoad).toContain('Pre-approved for the rest of this turn: read.')
+		expect(afterLoad).toContain('Ignored allowed-tools entry \\"Write\\"')
+		expect(afterLoad).toContain('is destructive and is always reviewed')
 	})
 })

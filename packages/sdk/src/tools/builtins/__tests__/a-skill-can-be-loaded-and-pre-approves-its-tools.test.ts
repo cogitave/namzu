@@ -54,10 +54,9 @@ interface GrantCall {
 	skillDirectory?: string
 }
 
-/** Records every grant, and answers the way the executor does for a turn with `read` and `grep`. */
+/** Records every COMMITTED grant, and answers the way the executor does for a turn with `read` and `grep`. */
 function granting(calls: GrantCall[]): NonNullable<ToolContext['grantSkillTools']> {
 	return (grant) => {
-		calls.push({ ...grant })
 		const known = new Set(['read', 'grep', 'bash'])
 		const granted: string[] = []
 		const ignored: { entry: string; reason: string }[] = []
@@ -65,7 +64,7 @@ function granting(calls: GrantCall[]): NonNullable<ToolContext['grantSkillTools'
 			if (known.has(entry.toLowerCase())) granted.push(entry.toLowerCase())
 			else ignored.push({ entry, reason: 'this turn has no tool by that name' })
 		}
-		return { granted, ignored }
+		return { granted, ignored, commit: () => calls.push({ ...grant }) }
 	}
 }
 
@@ -321,6 +320,31 @@ describe('allowed-tools grants, and never restricts', () => {
 				skillDirectory: '/skills/reconcile',
 			},
 		])
+	})
+
+	it('grants nothing when the instructions could not be delivered', async () => {
+		// The budget cannot hold even one page, so the model receives no
+		// instructions — and a skill it never read must not have approved
+		// anything for the rest of the turn.
+		const grants: GrantCall[] = []
+		const result = await SkillTool.execute(
+			{ name: 'reconcile' },
+			contextFor(
+				registry([
+					{
+						name: 'reconcile',
+						body: 'B'.repeat(500),
+						allowedTools: 'Read Grep',
+					},
+				]),
+				grants,
+				{ maxToolOutputChars: 40 },
+			),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/too small to read "reconcile"/)
+		expect(grants).toEqual([])
 	})
 
 	it('grants nothing when the skill declares nothing, or declares it empty', async () => {

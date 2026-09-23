@@ -4,6 +4,7 @@ import { AuthorizationGate } from '../../../../authorization/gate.js'
 import { SkillGrantSet } from '../../../../authorization/skill-grant.js'
 import { ActivityStore } from '../../../../store/activity/memory.js'
 import { SkillTool } from '../../../../tools/builtins/skill.js'
+import { WriteFileTool } from '../../../../tools/builtins/write-file.js'
 import type { AuthorizationGateConfig } from '../../../../types/authorization/index.js'
 import type { HITLDecisionRequest, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { TurnId } from '../../../../types/ids/index.js'
@@ -65,7 +66,9 @@ const DEFINITIONS: Record<string, ToolDefinition> = {
 	bash: fakeTool('bash', false, { commandArgument: 'command' }),
 	read: fakeTool('read', true),
 	grep: fakeTool('grep', true),
-	write: fakeTool('write', false),
+	// The shipped tool, not a fake: `write` is destructive for every input,
+	// which is exactly what makes a skill's `Write` grant nothing.
+	write: WriteFileTool as unknown as ToolDefinition,
 }
 
 const SKILLS: Record<string, { allowedTools: string; dirPath: string }> = {

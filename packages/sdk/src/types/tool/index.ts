@@ -501,9 +501,13 @@ export interface ToolContext {
 	 * approved this way is written to the session's audit trail naming the
 	 * skill.
 	 *
-	 * Returns what was granted and what was ignored (an unknown tool name, a
-	 * pattern on a tool without a command line), so the tool can tell the
-	 * model. Absent outside a turn, where there is nothing to grant into.
+	 * Returns what would be granted and what was ignored (an unknown tool
+	 * name, a pattern on a tool without a command line, a tool every call of
+	 * which is destructive), so the tool can tell the model. Nothing is
+	 * recorded until `commit()` is called: the caller commits only once the
+	 * skill's instructions have actually been delivered, so a load that fails
+	 * afterwards leaves no approval behind. Absent outside a turn, where
+	 * there is nothing to grant into.
 	 */
 	grantSkillTools?: (grant: {
 		readonly skill: string
@@ -517,6 +521,8 @@ export interface ToolContext {
 			readonly entry: string
 			readonly reason: string
 		}[]
+		/** Record the grant in the turn. Idempotent. */
+		readonly commit: () => void
 	}
 
 	/**
