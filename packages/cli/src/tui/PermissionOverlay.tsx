@@ -25,7 +25,7 @@ import {
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
-/** The three answers, in the order they are shown and numbered. */
+/** The answers, in the order they are shown and numbered: three, or two for a batch-only prompt. */
 export type PermissionChoice = 0 | 1 | 2
 
 export interface PermissionOverlayProps {
@@ -47,6 +47,8 @@ export interface PermissionOverlayProps {
 	readonly columns?: number
 	/** Live terminal height; the pager shows as much as the screen has room for. */
 	readonly rows?: number
+	/** Answers this batch only: no "allow all" is offered (a scheduled run). */
+	readonly batchOnly?: boolean
 }
 
 function pathOf(input: unknown): string | undefined {
@@ -128,24 +130,52 @@ export function permissionEscalationNotes(toolCalls: readonly PermissionToolCall
 	return notes
 }
 
-/** The three answers; session approval applies to all tools. */
-export function permissionChoices(toolCalls: readonly PermissionToolCall[]): readonly string[] {
-	if (toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')) {
+/** What an answer on the screen does. */
+export type PermissionAnswerKind = 'approve' | 'approve-all' | 'reject'
+
+/**
+ * The answers, in the order they are shown and numbered, with what each
+ * does. Session approval applies to all tools. A `batchOnly` prompt (a
+ * scheduled run's) has no session approval, so it offers none: the screen
+ * never offers an answer it would not honour.
+ */
+export function permissionAnswers(
+	toolCalls: readonly PermissionToolCall[],
+	options: { readonly batchOnly?: boolean } = {},
+): readonly { readonly label: string; readonly kind: PermissionAnswerKind }[] {
+	const agents = toolCalls.length > 0 && toolCalls.every((call) => call.name === 'Agent')
+	const approve = agents
+		? toolCalls.length === 1
+			? 'Start this agent'
+			: `Start these ${toolCalls.length} agents`
+		: 'Yes'
+	const reject = agents ? 'Do not start' : 'No, and tell namzu what to do differently (esc)'
+	if (options.batchOnly) {
 		return [
-			toolCalls.length === 1 ? 'Start this agent' : `Start these ${toolCalls.length} agents`,
-			'Start and allow all tools for this session',
-			'Do not start',
+			{ label: approve, kind: 'approve' },
+			{ label: reject, kind: 'reject' },
 		]
 	}
-	return [
-		'Yes',
-		toolCalls.some((call) => call.escalation?.sandboxEscape === true)
+	const approveAll = agents
+		? 'Start and allow all tools for this session'
+		: toolCalls.some((call) => call.escalation?.sandboxEscape === true)
 			? 'Yes, and allow other tools for this session (not sandbox escapes)'
 			: toolCalls.some((call) => (call.escalation?.outsidePaths?.length ?? 0) > 0)
 				? 'Yes, and allow other tools for this session (not paths outside it)'
-				: 'Yes, allow all tools for this session',
-		'No, and tell namzu what to do differently (esc)',
+				: 'Yes, allow all tools for this session'
+	return [
+		{ label: approve, kind: 'approve' },
+		{ label: approveAll, kind: 'approve-all' },
+		{ label: reject, kind: 'reject' },
 	]
+}
+
+/** The answers' labels, in order. */
+export function permissionChoices(
+	toolCalls: readonly PermissionToolCall[],
+	options: { readonly batchOnly?: boolean } = {},
+): readonly string[] {
+	return permissionAnswers(toolCalls, options).map((answer) => answer.label)
 }
 
 /**
@@ -184,6 +214,7 @@ export function PermissionOverlay({
 	sourceLabel,
 	columns,
 	rows: terminalRows,
+	batchOnly = false,
 }: PermissionOverlayProps) {
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
@@ -197,7 +228,7 @@ export function PermissionOverlay({
 	const first = rows.length === 0 ? 0 : offset + 1
 	const last = Math.min(rows.length, offset + pageRows)
 	const destructive = toolCalls.some((call) => call.isDestructive)
-	const choices = permissionChoices(toolCalls)
+	const choices = permissionChoices(toolCalls, { batchOnly })
 	const escalationNotes = permissionEscalationNotes(toolCalls)
 
 	return (
@@ -259,7 +290,7 @@ export function PermissionOverlay({
 			</Box>
 			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
-					↑↓ select · enter confirm · y / a / n answer · d{' '}
+					↑↓ select · enter confirm · {batchOnly ? 'y / n' : 'y / a / n'} answer · d{' '}
 					{detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}
 				</Text>
 				<Text color={theme.text.muted}>esc decline · ctrl+c decline and stop the turn</Text>

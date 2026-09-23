@@ -156,7 +156,7 @@ import { CopyPicker } from './CopyPicker.js'
 import { EditPromptPicker } from './EditPromptPicker.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { type WebActivity, webCallTitle, webLiveStatus, webSettledLine } from './web-activity.js'
-import { type PermissionChoice, PermissionOverlay } from './PermissionOverlay.js'
+import { type PermissionChoice, PermissionOverlay, permissionAnswers } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
@@ -185,6 +185,8 @@ import {
 	type PermissionDecision,
 	type PermissionFn,
 	type PermissionRequest,
+	type ScreenPermissionFn,
+	type ScreenPermissionRequest,
 	type QuestionAnswer,
 	type QuestionFn,
 	type SessionScope,
@@ -284,7 +286,7 @@ export interface AppProps {
 	readonly terminationExit?: { current: (() => void) | null }
 }
 
-type PendingPermission = PermissionRequest & {
+type PendingPermission = ScreenPermissionRequest & {
 	readonly review: string
 	readonly summary: ReturnType<typeof buildPermissionSummary>
 }
@@ -1505,7 +1507,7 @@ export function App({
 	const scheduleLiveRef = useRef<{
 		say: (text: string) => void
 		ask: QuestionFn
-		askPermission: PermissionFn
+		askPermission: ScreenPermissionFn
 		submit: (text: string) => void
 		model?: { readonly provider: string; readonly model?: string }
 	} | null>(null)
@@ -4665,7 +4667,7 @@ export function App({
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
 	const onPermission = useCallback(
-		(req: PermissionRequest) => {
+		(req: ScreenPermissionRequest) => {
 			const review = buildPermissionReview(req.toolCalls)
 			if (!review.ok) {
 				return Promise.resolve<PermissionDecision>({
@@ -7735,7 +7737,8 @@ export function App({
 				}
 				if (permission && (key.upArrow || key.downArrow)) {
 					const current = permissionChoiceRef.current
-					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(2, current + 1)
+					const last = permissionAnswers(permission.toolCalls, { batchOnly: permission.batchOnly === true }).length - 1
+					const next = key.upArrow ? Math.max(0, current - 1) : Math.min(last, current + 1)
 					setPermissionChoice(next as PermissionChoice)
 					return
 				}
@@ -7773,11 +7776,25 @@ export function App({
 				// the window is what stands between an in-flight Enter and a call
 				// the operator never looked at. Refusals above never wait.
 				if (!approvalIsDeliberate(permissionOpenedAtRef.current, Date.now())) return
-				const numbered = ch === '1' ? 0 : ch === '2' ? 1 : ch === '3' ? 2 : null
+				// The answers on screen, so a digit or Enter means what it is next
+				// to: a batch-only prompt (a scheduled run) has no "allow all", and
+				// neither its `a` nor a `3` answers it.
+				const answers = permissionAnswers(permission?.toolCalls ?? [], {
+					batchOnly: permission?.batchOnly === true,
+				})
+				const numbered = /^[1-9]$/.test(ch) ? Number(ch) - 1 : null
 				const chosen = key.return ? permissionChoiceRef.current : numbered
-				if (ch === 'y' || chosen === 0) resolvePermission({ kind: 'approve' })
-				else if (ch === 'a' || chosen === 1) resolvePermission({ kind: 'approve-all' })
-				else if (chosen === 2) resolvePermission({ kind: 'reject' })
+				const kind =
+					ch === 'y'
+						? 'approve'
+						: ch === 'a'
+							? answers.some((answer) => answer.kind === 'approve-all')
+								? 'approve-all'
+								: undefined
+							: chosen !== null
+								? answers[chosen]?.kind
+								: undefined
+				if (kind) resolvePermission({ kind })
 				return
 			}
 			// The active child count already advertises this key beside Working.
@@ -8427,6 +8444,7 @@ export function App({
 								sourceLabel={permissionSourceLabel}
 								columns={terminal.columns}
 								rows={terminal.rows}
+								batchOnly={permission.batchOnly === true}
 							/>
 						) : null}
 						{textPrompt ? (

@@ -215,9 +215,8 @@ screen. **Approve** runs exactly the parked batch — the model is not asked
 again — and later calls in that turn are asked of you live. **Reject** refuses
 it and the turn continues. The resumed turn stays under **the job's rules**, not
 your folder's: a `deny` in the job holds even if your config allows it. There is
-no "approve all" for a scheduled run: answering "allow all" on its prompt
-approves only the batch on screen, and its later batches are asked one at a
-time.
+no "approve all" for a scheduled run: its prompt offers only **Yes** and **No**
+(`y`, `n`, `1`, `2`), and its later batches are asked one at a time.
 
 The resumed turn runs in the TUI session you answer from, so that session must
 run the way the job does: in the job's folder, with the sandbox on for a job

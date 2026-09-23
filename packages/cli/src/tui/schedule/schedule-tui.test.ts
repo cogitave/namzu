@@ -23,7 +23,11 @@ import { runFire } from '../../schedule/fire/fire.js'
 import { appendHistory, foldHistory, readHistory } from '../../schedule/store/history.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
-import { type PermissionRequest, createAgentSession } from '../agent.js'
+import {
+	type PermissionRequest,
+	type ScreenPermissionRequest,
+	createAgentSession,
+} from '../agent.js'
 import { SessionLoopScheduler } from './loop-host.js'
 import { prepareScheduledResume, scheduledResumeMismatch } from './resume.js'
 import { scheduleStartupLine } from './startup.js'
@@ -108,11 +112,12 @@ describe('answering a parked scheduled run', () => {
 		const { job, run, daemon } = await parkedRun(marker)
 		expect(existsSync(marker)).toBe(false)
 
-		const asked: PermissionRequest[] = []
-		const ask = async (request: PermissionRequest) => {
+		const asked: ScreenPermissionRequest[] = []
+		const ask = async (request: ScreenPermissionRequest) => {
 			asked.push(request)
-			// The parked batch: yes. The next: "allow all", which a scheduled
-			// turn takes as yes for that batch only. The one after: no.
+			// The parked batch: yes. The next: "allow all" — which the screen
+			// does not offer a scheduled turn, and which, arriving anyway, is
+			// taken as yes for that batch only. The one after: no.
 			return asked.length === 1
 				? ({ kind: 'approve' } as const)
 				: asked.length === 2
@@ -175,6 +180,8 @@ describe('answering a parked scheduled run', () => {
 		expect(existsSync(second)).toBe(true)
 		expect(existsSync(third)).toBe(false)
 		expect(asked).toHaveLength(3)
+		// Every prompt was put to the screen as batch-only: no "allow all" on it.
+		expect(asked.every((request) => request.batchOnly === true)).toBe(true)
 
 		await daemon.tick()
 		const record = foldHistory(readHistory(sb.paths, job.id)).find(

@@ -542,6 +542,15 @@ export type PermissionRequest = ToolReviewRequest
 export type PermissionDecision = ToolReviewAnswer
 export type PermissionFn = ToolReviewPrompt
 
+/**
+ * A request the screen answers for its own batch only, with no "allow all"
+ * among the answers. A scheduled run's prompts are these: a scheduled turn
+ * has no session-wide approval, so the screen must not offer one.
+ */
+export type ScreenPermissionRequest = PermissionRequest & { readonly batchOnly?: true }
+/** The permission screen itself, which also takes batch-only requests. */
+export type ScreenPermissionFn = (request: ScreenPermissionRequest) => Promise<PermissionDecision>
+
 /** One question the model put to the operator through `ask_user_question`. */
 export type UserQuestion = Extract<
 	Parameters<ResumeHandler>[0],

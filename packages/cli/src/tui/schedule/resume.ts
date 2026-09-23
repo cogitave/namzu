@@ -11,9 +11,8 @@
  * What the rules cannot carry, the TUI session must already match: the
  * resumed turn runs in THIS session's sandbox (or none), working directory
  * and extra roots, so a session whose execution or roots differ from the
- * job's is refused with the command that opens a matching one. And an "allow
- * all" answered here approves only the batch on screen: a scheduled run has
- * no session-wide approval.
+ * job's is refused with the command that opens a matching one. And the
+ * screen offers no "allow all": a scheduled run has no session-wide approval.
  */
 
 import { realpathSync } from 'node:fs'
@@ -32,7 +31,7 @@ import { compileJobPolicy } from '../../schedule/policy.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
-import type { PermissionFn, ResumePausedParams } from '../agent.js'
+import type { PermissionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
 
 export interface ScheduledPark {
 	readonly job: ScheduleJob
@@ -131,16 +130,19 @@ function matchingResumeCommand(job: ScheduleJob, sessionId: string): string {
 
 /**
  * The operator's permission screen for a scheduled turn: one prompt at a
- * time, and "allow all" answered as "yes" for the batch on screen.
+ * time, each for its own batch only.
  *
- * One at a time because the screen answers every prompt it has queued with
- * an "allow all" given to another; a scheduled turn's later batches would be
- * approved without ever being shown.
+ * Batch-only because a scheduled run has no session-wide approval, so the
+ * screen offers no "allow all" (and an "approve-all" that reached here
+ * anyway is answered as "yes" for the batch on screen). One at a time
+ * because the screen answers every prompt it has queued with an "allow all"
+ * given to another; a scheduled turn's later batches would be approved
+ * without ever being shown.
  */
-function scheduledPermission(ask: PermissionFn): PermissionFn {
+function scheduledPermission(ask: ScreenPermissionFn): PermissionFn {
 	let queue: Promise<unknown> = Promise.resolve()
 	return (request) => {
-		const answer = queue.then(() => ask(request))
+		const answer = queue.then(() => ask({ ...request, batchOnly: true }))
 		queue = answer.catch(() => undefined)
 		return answer.then((decision) =>
 			decision.kind === 'approve-all' ? { kind: 'approve' as const } : decision,
@@ -157,7 +159,7 @@ export async function prepareScheduledResume(input: {
 	readonly sessionId: string
 	readonly operatorMode: PermissionMode
 	readonly environment: ResumeEnvironment
-	readonly ask: PermissionFn
+	readonly ask: ScreenPermissionFn
 	readonly say: (text: string) => void
 }): Promise<
 	| Pick<ResumePausedParams, 'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode'>

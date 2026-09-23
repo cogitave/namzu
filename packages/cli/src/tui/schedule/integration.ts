@@ -12,7 +12,7 @@
 import { type ToolDefinition, buildScheduleTools, buildSessionLoopTools } from '@namzu/sdk'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import type { PermissionMode } from '../../permissions/mode.js'
-import type { PermissionFn, QuestionFn, ResumePausedParams } from '../agent.js'
+import type { QuestionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
 import { type ResumeEnvironment, prepareScheduledResume } from './resume.js'
@@ -32,7 +32,8 @@ export interface ScheduleIntegrationDeps {
 	readonly isIdle: () => boolean
 	readonly say: (text: string) => void
 	readonly ask: QuestionFn
-	readonly askPermission: PermissionFn
+	/** The permission screen; a scheduled turn's prompts are batch-only. */
+	readonly askPermission: ScreenPermissionFn
 	/** Send a prompt as the next turn, as if typed. */
 	readonly submit: (text: string) => void
 }
