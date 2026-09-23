@@ -86,6 +86,10 @@ alone:
 - Name the commands the rules allow, so the run does not wander into calls
   that park or get refused.
 - Put no secrets in the prompt. Point to where a credential lives instead.
+- Write it in the language the user writes to you in, not in English by
+  default: the run answers in the prompt's language, and its summary is what
+  the user reads afterwards. Keep exact values (addresses, commands, text to
+  post) as the user gave them.
 
 Example: "Run `npm outdated --json` in this folder. If any dependency is a
 major version behind, write the list with current and latest versions to

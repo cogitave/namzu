@@ -48,7 +48,7 @@ export const SKILL_CREATOR_SKILL = 'skill-creator'
 export function newSkillPrompt(idea: string): string {
 	const what = idea.trim()
 	return [
-		`Help me create a new skill. Load the ${SKILL_CREATOR_SKILL} skill with the skill tool and follow it: interview me, show me the draft, and save it with save_skill only after I agree.`,
+		`Help me create a new skill. Load the ${SKILL_CREATOR_SKILL} skill with the skill tool and follow it: interview me, show me the draft, and save it with save_skill only after I agree. Write the skill in the language of my own messages, not in English by default (namzu writes this request in English; it does not count).`,
 		what ? `What the skill should do: ${what}` : 'Start by asking what the skill should do.',
 	].join(' ')
 }
@@ -65,6 +65,7 @@ export function learnSkillPrompt(name?: string): string {
 		name
 			? `Name it ${name}.`
 			: 'Choose a short name for the kind of task, not for this instance of it.',
+		'Write the description and instructions in the language of my own earlier messages in this conversation, not in English by default (namzu writes this request in English; it does not count). The name stays lowercase ASCII with dashes.',
 		'The save_skill confirmation screen is my review of the draft: call save_skill with origin "learned" in this turn, without asking me in a reply first. If I cancel, ask what to change.',
 	].join(' ')
 }

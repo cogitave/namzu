@@ -2,6 +2,7 @@
 
 ## 2026-09-23
 
+- **Update** [Skills](cli/skills.md#making-a-skill) and [Scheduled tasks](cli/scheduled-tasks.md#one-run): `/skills save`, `/skills new` and the `skill-creator` skill ask for a skill in the language of the user's own messages, the `schedule-task` skill for a job prompt in the user's language, and a scheduled run for its final answer in the language of the job's prompt; a Turkish-speaking user got an English skill, job prompt and run summary
 - **Update** SDK coding-agent doctrine (`CODING_AGENT_WORKING_DOCTRINE`, `packages/sdk/src/prompt/coding-agent-doctrine.ts`): under "Working with git" the model is told never to change git configuration (`user.name`/`user.email`, hooks, remotes, credential helpers) or other persistent settings without asking, and to tell the user the command when a commit fails for want of an identity; in a live session it set a local identity on its own
 - **Update** [Schedules](sdk/schedules.md#the-tools) and [Scheduled tasks](cli/scheduled-tasks.md#creating-a-job): `ScheduleToolHost.create()` may return `note`, appended to the `schedule` tool's result; the CLI's TUI host uses it to tell the model no scheduler is installed. Only the person was told, and the model answered that a notification would come
 - **Update** [Skills](cli/skills.md#making-a-skill): Esc or Ctrl+C on the save-skill screen cancels the save and no longer also interrupts the turn (`· Interrupted.`); the model is told nothing was written and asks what to change

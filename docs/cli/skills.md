@@ -102,7 +102,10 @@ login` and `--browser-site` included.
 ## Making a skill
 
 `/skills new [what it should do]` in the TUI sends a prompt asking the model
-to load `skill-creator` and interview you. When you agree to its draft, the
+to load `skill-creator` and interview you. The request, like the one `/skills save`
+sends, asks for the skill in the language of your own messages rather than
+in English (the request itself is written by namzu in English), and
+`skill-creator` says the same. When you agree to its draft, the
 model calls `save_skill`, and a screen shows:
 
 - the whole `SKILL.md` exactly as it would be written, invisible and control

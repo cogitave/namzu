@@ -345,6 +345,11 @@ project config matches its pin, every rule compiles, and the pinned provider
 has a credential **as the service sees it**. Any failure is `blocked-config`
 with the reason.
 
+The run's system prompt says nobody is watching, gives the local time, and
+asks for the final answer — the run's record — in the language the job's
+prompt is written in. The `schedule-task` skill asks the model to write a
+proposed job's prompt in the language you write to it in.
+
 A run is not sent the tools its job can never use: a tool a `deny` names
 before any rule could let it through (`bash`, `edit` and `write` under
 `read-only`, the web tools the job does not name, the browser tools without a

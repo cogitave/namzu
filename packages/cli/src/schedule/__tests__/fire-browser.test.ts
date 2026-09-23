@@ -141,6 +141,13 @@ describe('what a scheduled run is told', () => {
 		)
 		expect(unattendedNote('post')).not.toMatch(/browser/)
 	})
+
+	it("asks for the final answer in the job prompt's language", () => {
+		// A Turkish job's run summarised itself in English.
+		expect(unattendedNote('post')).toContain(
+			"Write it in the language the job's prompt is written in, not in English by default.",
+		)
+	})
 })
 
 describe('the tools a browser job’s run is sent', () => {

@@ -51,6 +51,11 @@ Then draft:
   a "Never" list, and an example. Write instructions to the model, in the
   imperative. Keep it short: under about 150 lines. Link to files by path
   rather than pasting them.
+- **language**: write the description and the body in the language the user
+  writes to you in (a Turkish-speaking user gets a Turkish skill), not in
+  English by default. A request namzu itself wrote, such as the one
+  `/skills save` sends, does not count; go by the user's own messages. The
+  name stays lowercase ASCII.
 
 Show the draft in your reply and ask the user to confirm or correct it. After
 they agree, call `save_skill` with `name`, `description`, `body`, a suggested
