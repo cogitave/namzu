@@ -177,6 +177,8 @@ describe('the CLI owns a real plugin runtime', () => {
 		const session = await createAgentSession(preferences, detected, {
 			cwd,
 			plugins: { enabled: true, allowedScopes: ['project'] },
+			// Without the built-in skills, the plugin runtime owns the skill tool.
+			skills: { builtin: false },
 		})
 		try {
 			expect(session.hasProvider, session.errorHint ?? '').toBe(true)

@@ -282,6 +282,7 @@ import {
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
+import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
@@ -2876,7 +2877,13 @@ export async function createAgentSession(
 		...(options.skills ? { config: options.skills } : {}),
 		log: cliLogger(),
 	})
-	if (skillCatalog.hasFileSkills && !registry.has(SkillTool.name)) registry.register(SkillTool)
+	// A session that can save a skill loads it next turn through this tool,
+	// even when it started with none.
+	if (
+		(skillCatalog.hasFileSkills || registry.has(SAVE_SKILL_TOOL_NAME)) &&
+		!registry.has(SkillTool.name)
+	)
+		registry.register(SkillTool)
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
 		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd, options.hooks)
@@ -4901,6 +4908,12 @@ export const AGENT_LAUNCH_TOOL = 'Agent'
  * An operator who wants every launch asked about writes
  * `permissions: { Agent: "ask" }`: an `ask` rule is an explicit review, which
  * no exemption skips.
+ *
+ * `save_skill` (the TUI's alone) is not asked about here either, outside
+ * `strict` and `plan`: its own screen shows the whole file and where it goes,
+ * and asks in every mode, `auto` included. A second question in front of it
+ * would ask the same thing with less on the screen. `strict` and `plan` still
+ * refuse it, and an `ask` or `deny` rule for it still applies.
  */
 export function reviewExemptionFor(
 	mode: PermissionMode,
@@ -4909,7 +4922,11 @@ export function reviewExemptionFor(
 ): (name: string, input: unknown) => boolean {
 	return (name, input) =>
 		isPromptExempt(registry, name, input) ||
-		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input))
+		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
+		(mode !== 'strict' &&
+			mode !== 'plan' &&
+			name === SAVE_SKILL_TOOL_NAME &&
+			registry.has(SAVE_SKILL_TOOL_NAME))
 }
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */

@@ -168,6 +168,14 @@ import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
+import { SaveSkillOverlay } from './SaveSkillOverlay.js'
+import {
+	type SaveSkillAnswer,
+	type SaveSkillRequest,
+	SKILL_CREATOR_SKILL,
+	buildSaveSkillTool,
+	newSkillPrompt,
+} from '../skills/save.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
 import { checklistProgress } from './Checklist.js'
@@ -1545,6 +1553,53 @@ export function App({
 				scheduleLiveRef.current?.askPermission(request) ??
 				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
 			submit: (text) => scheduleLiveRef.current?.submit(text),
+		})
+	}
+	/**
+	 * `save_skill`'s confirmation. The tool is the TUI's alone (never exec, a
+	 * scheduled run or a sub-agent), and its question is this screen, not the
+	 * permission gate, so no permission mode answers it for the operator.
+	 */
+	const [saveSkillPrompt, setSaveSkillPromptState] = useState<{
+		readonly request: SaveSkillRequest
+		readonly resolve: (answer: SaveSkillAnswer) => void
+	} | null>(null)
+	const saveSkillPromptRef = useRef<typeof saveSkillPrompt>(null)
+	const setSaveSkillPrompt = useCallback((next: typeof saveSkillPrompt) => {
+		saveSkillPromptRef.current = next
+		setSaveSkillPromptState(next)
+	}, [])
+	const saveSkillNotifyRef = useRef<(() => void) | null>(null)
+	const saveSkillToolRef = useRef<ReturnType<typeof buildSaveSkillTool> | null>(null)
+	if (saveSkillToolRef.current === null) {
+		saveSkillToolRef.current = buildSaveSkillTool({
+			cwd: () => ctxRef.current.cwd,
+			config: () => ctxRef.current.skills,
+			sessionId: () =>
+				conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
+			confirm: (request, signal) =>
+				new Promise<SaveSkillAnswer>((resolve) => {
+					if (signal?.aborted) {
+						resolve('cancel')
+						return
+					}
+					const entry = {
+						request,
+						resolve: (answer: SaveSkillAnswer) => {
+							signal?.removeEventListener('abort', onAbort)
+							if (saveSkillPromptRef.current === entry) setSaveSkillPrompt(null)
+							resolve(answer)
+						},
+					}
+					const onAbort = () => entry.resolve('cancel')
+					signal?.addEventListener('abort', onAbort, { once: true })
+					setSaveSkillPrompt(entry)
+					saveSkillNotifyRef.current?.()
+				}),
+			saved: ({ name, path }) =>
+				scheduleLiveRef.current?.say(
+					`✎ Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
+				),
 		})
 	}
 	/**
@@ -3176,7 +3231,10 @@ export function App({
 				cwd: activeCtx.cwd,
 				// A person is here to confirm: the model may propose scheduled jobs
 				// and session loops (never in exec, a scheduled run or a sub-agent).
-				extraTools: scheduleRef.current?.tools() ?? [],
+				extraTools: [
+					...(scheduleRef.current?.tools() ?? []),
+					...(saveSkillToolRef.current ? [saveSkillToolRef.current] : []),
+				],
 				...(activeCtx.structuredOutput ? { structuredOutput: activeCtx.structuredOutput } : {}),
 				...(activeCtx.additionalDirectories
 					? { additionalDirectories: activeCtx.additionalDirectories }
@@ -6793,6 +6851,23 @@ export function App({
 						activateSkill(slash.name)
 						return
 					}
+					case 'new-skill': {
+						const creator = discoverSkills({
+							cwd: ctx.cwd,
+							...(ctx.skills ? { config: ctx.skills } : {}),
+						}).find((skill) => skill.name === SKILL_CREATOR_SKILL)
+						if (!creator || creator.problem || creator.invocation === 'operator') {
+							pushMessage(
+								'system',
+								`The ${SKILL_CREATOR_SKILL} skill is not available to the model here${creator?.problem ? ` (${creator.problem})` : ''}. Turn the built-in skills back on (skills.builtin) or write a SKILL.md by hand under ~/.namzu/skills/<name>/.`,
+							)
+							return
+						}
+						// Falls through to the queue-or-send a typed message takes, as
+						// `prompt` does below.
+						outgoing = newSkillPrompt(slash.idea)
+						break
+					}
 					case 'resume':
 						void doResume()
 						return
@@ -7282,6 +7357,7 @@ export function App({
 	// a ref so selecting a help row re-enters the one ordinary slash-command
 	// path instead of growing a second command executor.
 	commandPickerSubmitRef.current = handleSubmit
+	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
 		say: (text) => pushMessage('system', text),
@@ -7662,6 +7738,10 @@ export function App({
 	useInput(
 		(input, key) => {
 			if (outputViewer !== null) return
+			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
+			// may interrupt the turn that is waiting on its answer. A permission
+			// request (an agent's, say) takes the screen over it and gets the keys.
+			if (saveSkillPromptRef.current && permission === null) return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
@@ -8311,7 +8391,9 @@ export function App({
 						? 'starting a fresh conversation — input is paused'
 						: compacting
 							? 'compacting conversation — input is paused'
-							: permission
+							: saveSkillPrompt
+								? 'save skill — ←/→ choose · enter apply · esc cancel'
+								: permission
 								? hintForPhase(phase, state, session?.hasProvider === true)
 								: agentSurface?.kind === 'cockpit'
 									? agentSurface.focus === 'workflows'
@@ -8486,6 +8568,16 @@ export function App({
 								batchOnly={permission.batchOnly === true}
 							/>
 						) : null}
+						{saveSkillPrompt && permission === null ? (
+							<SaveSkillOverlay
+								key={saveSkillPrompt.request.markdown}
+								request={saveSkillPrompt.request}
+								cwd={ctx.cwd}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								onAnswer={saveSkillPrompt.resolve}
+							/>
+						) : null}
 						{textPrompt ? (
 							<TextPrompt
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
@@ -8538,10 +8630,12 @@ export function App({
 								textPrompt === null &&
 								choicePicker === null &&
 								copyPicker === null &&
+								saveSkillPrompt === null &&
 								agentSurface === null && outputViewer === null
 							}
 							hidden={
 								permission !== null ||
+								saveSkillPrompt !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
 								copyPicker !== null ||
@@ -8594,6 +8688,7 @@ export function App({
 								}
 								hidden={
 									permission !== null ||
+									saveSkillPrompt !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
 									copyPicker !== null ||

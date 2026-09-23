@@ -151,7 +151,8 @@ describe('a file skill', () => {
 
 	it('is not offered when the config disables it', async () => {
 		const { provider } = await execJson('Write the release notes for 1.2.0', {
-			skills: { disabled: ['release-notes'] },
+			// Built-ins off too: they would bring the skill tool on their own.
+			skills: { disabled: ['release-notes'], builtin: false },
 		})
 
 		const first = provider.requests[0]

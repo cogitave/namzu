@@ -318,6 +318,8 @@ describe('AgentSession close owns its live work', () => {
 		const session = await createAgentSession(preferences, detected, {
 			cwd,
 			plugins: { enabled: true, allowedScopes: ['project'] },
+			// The plugin's skill alone, without the built-in tier beside it.
+			skills: { builtin: false },
 		})
 		const sendCaller = new AbortController()
 		const resumeCaller = new AbortController()

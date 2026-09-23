@@ -121,6 +121,8 @@ export type SlashAction =
 	| { kind: 'plugins'; list: boolean; name?: string }
 	| { kind: 'skill-picker' }
 	| { kind: 'load-skill'; name: string }
+	/** `/skills new [idea]`: start the skill-creator interview. */
+	| { kind: 'new-skill'; idea: string }
 	| { kind: 'resume' }
 	/**
 	 * Close this conversation's paused or interrupted turn without resuming it,
@@ -1005,12 +1007,19 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'skills',
-		help: { usage: ['/skills', '/skills list', '/skills <name>'] },
-		description: 'Choose an available skill; use /skills list for the full roster.',
+		help: {
+			usage: ['/skills', '/skills list', '/skills new [what it should do]', '/skills <name>'],
+			details: [
+				'/skills new starts the skill-creator interview; the model drafts a SKILL.md and nothing is saved until you choose where on its confirmation screen.',
+			],
+		},
+		description: 'Choose an available skill; /skills list shows them all, /skills new makes one.',
 		action: (_ctx, args) => {
 			const choice = args.join(' ').trim()
 			if (choice.length === 0) return { kind: 'skill-picker' }
 			if (choice.toLowerCase() === 'list') return { kind: 'list-skills' }
+			if (args[0]?.toLowerCase() === 'new')
+				return { kind: 'new-skill', idea: args.slice(1).join(' ').trim() }
 			return { kind: 'load-skill', name: choice }
 		},
 	},

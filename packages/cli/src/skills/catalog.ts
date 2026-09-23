@@ -111,10 +111,14 @@ export interface TurnSkills {
 }
 
 export interface SessionSkillCatalog {
-	/** The file skills registered for the model, highest precedence first. */
+	/** The file skills registered for the model, highest precedence first, as of the last turn. */
 	readonly fileSkills: readonly SkillInfo[]
 	/** Whether the session should carry the `skill` tool for file skills. */
 	readonly hasFileSkills: boolean
+	/**
+	 * Re-read the tiers, then gate and budget for one turn. A skill added,
+	 * replaced or removed since the last turn is reflected here.
+	 */
 	forTurn(input: TurnSkillsInput): Promise<TurnSkills>
 }
 
@@ -127,7 +131,8 @@ export interface SessionSkillCatalogOptions {
 }
 
 /**
- * Discover the file tiers once and register each usable winner's metadata.
+ * Discover the file tiers and register each usable winner's metadata; every
+ * turn discovers again, so the catalog follows the files.
  *
  * A file the kernel loader refuses (a name that does not match its
  * directory, a missing description, a contradictory `invocation`) is left
@@ -144,33 +149,64 @@ export async function createSessionSkillCatalog(
 		...(options.systemDir !== undefined ? { systemDir: options.systemDir } : {}),
 	}
 	const files = new SkillRegistry(options.log)
-	const registered: SkillInfo[] = []
-	const candidates = discoverSkills(discovery)
-		.filter((skill) => skill.problem === undefined && skill.disabled !== true)
-		// Highest precedence first: when the budget runs out, the project's own
-		// skills are the last to lose their description.
-		.sort(
-			(a, b) =>
-				SKILL_TIERS.indexOf(b.tier) - SKILL_TIERS.indexOf(a.tier) || a.name.localeCompare(b.name),
-		)
-	for (const skill of candidates) {
-		try {
-			await files.register(dirname(skill.path), 'metadata')
-			registered.push(skill)
-		} catch (error) {
-			options.log?.warn('skill not offered to the model', {
-				'namzu.skill.name': skill.name,
-				'namzu.skill.path': skill.path,
-				'namzu.skill.reason': error instanceof Error ? error.message : String(error),
-			})
+	let registered: SkillInfo[] = []
+	/** The path each registered name was read from, to notice a new winner. */
+	const registeredPaths = new Map<string, string>()
+	let order: string[] = []
+
+	// Re-run every turn: a skill written while the session runs (`save_skill`,
+	// or the operator's editor) reaches the next turn, a new winner in a
+	// higher tier replaces the one it shadows, and a removed file is dropped.
+	// Discovery reads a handful of small files; a turn costs far more.
+	const sync = async (): Promise<void> => {
+		const candidates = discoverSkills(discovery)
+			.filter((skill) => skill.problem === undefined && skill.disabled !== true)
+			// Highest precedence first: when the budget runs out, the project's own
+			// skills are the last to lose their description.
+			.sort(
+				(a, b) =>
+					SKILL_TIERS.indexOf(b.tier) - SKILL_TIERS.indexOf(a.tier) || a.name.localeCompare(b.name),
+			)
+		const next: SkillInfo[] = []
+		const seen = new Set<string>()
+		for (const skill of candidates) {
+			seen.add(skill.name)
+			if (registeredPaths.get(skill.name) === skill.path) {
+				next.push(skill)
+				continue
+			}
+			try {
+				await files.register(dirname(skill.path), 'metadata')
+				registeredPaths.set(skill.name, skill.path)
+				next.push(skill)
+			} catch (error) {
+				if (registeredPaths.delete(skill.name)) files.unregister(skill.name)
+				options.log?.warn('skill not offered to the model', {
+					'namzu.skill.name': skill.name,
+					'namzu.skill.path': skill.path,
+					'namzu.skill.reason': error instanceof Error ? error.message : String(error),
+				})
+			}
 		}
+		for (const name of [...registeredPaths.keys()]) {
+			if (seen.has(name)) continue
+			registeredPaths.delete(name)
+			files.unregister(name)
+		}
+		registered = next
+		order = next.map((skill) => skill.name)
 	}
-	const order = registered.map((skill) => skill.name)
+	await sync()
 
 	return {
-		fileSkills: registered,
-		hasFileSkills: registered.length > 0,
+		get fileSkills() {
+			return registered
+		},
+		get hasFileSkills() {
+			return registered.length > 0
+		},
 		async forTurn(input) {
+			await sync()
 			const tools = new Set(input.toolNames)
 			const gated = (skill: Skill): boolean =>
 				requiredToolsOf(skill).every((name) => tools.has(name))
