@@ -591,6 +591,14 @@ export class ScheduleDaemon {
 		state = await this.#reconcile(job, state, now)
 		job = readJob(paths, job.id) ?? job
 
+		// A draining daemon does not evaluate. Evaluating would move
+		// `lastEvaluatedAt` past an occurrence it cannot queue, so the daemon
+		// that takes over would never see it: no run, no `missed`, and a
+		// one-shot left active with nothing to fire. Left alone, the successor
+		// evaluates from where this daemon stopped and runs it (late, as a
+		// scheduled or catch-up run under the job's own policy).
+		if (this.#draining) return
+
 		const evaluationState: ScheduleEvaluationState = {
 			...(state.lastEvaluatedAt ? { lastEvaluatedAt: state.lastEvaluatedAt } : {}),
 			...(state.jobRevision !== undefined ? { jobRevision: state.jobRevision } : {}),
@@ -652,7 +660,7 @@ export class ScheduleDaemon {
 					? state.quotaHoldUntil
 					: undefined,
 		})
-		if (decision.fire && !this.#draining) {
+		if (decision.fire) {
 			next = {
 				...next,
 				queued: {

@@ -340,6 +340,44 @@ describe('upgrades', () => {
 		expect(await done).toBe(0)
 		expect(spawned).toHaveLength(1)
 	})
+
+	it("leaves another job's occurrence that comes due during a drain to the daemon that takes over", async () => {
+		holdRuns = true
+		confirmedJob(
+			sb,
+			{ name: 'long', permissions: { preset: 'read-only' } },
+			new Date(clock - 60_000),
+		)
+		const oneShot = confirmedJob(
+			sb,
+			{ name: 'once', when: '2026-09-23T03:10:00Z' },
+			new Date(clock - 60_000),
+		)
+		clock = Date.parse('2026-09-23T03:00:01Z')
+		const first = daemon()
+		await first.claimOwnership()
+		await first.tick()
+		expect(spawned.map((s) => s.job.name)).toEqual(['long'])
+		first.drainAndRestart()
+		clock = Date.parse('2026-09-23T03:10:40Z')
+		await first.tick()
+		expect(spawned.map((s) => s.job.name)).toEqual(['long'])
+		// The long run ends; the draining daemon exits; a fresh one takes over.
+		for (const release of releases.splice(0)) release()
+		await settle(first)
+		await first.releaseOwnership()
+		holdRuns = false
+		clock += 5_000
+		const second = daemon()
+		await second.claimOwnership()
+		await second.tick()
+		await settle(second)
+		expect(spawned.map((s) => s.job.name)).toEqual(['long', 'once'])
+		expect(readJob(sb.paths, oneShot.id)?.state).toBe('completed')
+		expect(
+			foldHistory(readHistory(sb.paths, oneShot.id)).find((r) => r.kind === 'run'),
+		).toMatchObject({ status: 'completed' })
+	})
 })
 
 describe('schedule stop', () => {

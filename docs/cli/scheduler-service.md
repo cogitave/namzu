@@ -146,7 +146,11 @@ endpoint), and, under WSL, a daemon whose Windows task was ended — ending
 
 The daemon checks the installed CLI on every tick. After `npm i -g @namzu/cli`
 or `namzu upgrade` it stops starting runs, waits for the runs it started, and
-exits 0; the supervisor starts the new code.
+exits 0; the supervisor starts the new code. While it waits it does not evaluate
+schedules either, so an occurrence that comes due during the wait is left to the
+daemon that takes over: it runs late, or is recorded as missed under the job's
+catch-up policy, and a one-shot still runs. The wait lasts as long as the
+longest run in progress.
 
 ## Status
 
