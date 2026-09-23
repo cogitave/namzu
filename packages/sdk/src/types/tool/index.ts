@@ -675,6 +675,31 @@ export interface ToolResult {
 	 * must not lose: what its controls do, where things are, what failed.
 	 */
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
+	/**
+	 * This result needs a person before the turn can go on — a sign-in page,
+	 * a CAPTCHA, a second factor, anything the model must not try to answer
+	 * itself.
+	 *
+	 * The result is committed like any other: it reaches the transcript and
+	 * the session log with the rest of its batch. Then, instead of calling
+	 * the model again, the kernel writes a checkpoint and ends the segment
+	 * with `turn_paused` carrying this value. Resuming the turn continues
+	 * from that checkpoint, and the next step is a model call that sees the
+	 * results. Inside a delegated child there is no person to hand to, so
+	 * the child's turn fails with {@link ToolHandoff.reason} instead.
+	 */
+	handoff?: ToolHandoff
+}
+
+/**
+ * A tool's request to stop the turn for a person. See {@link ToolResult.handoff}.
+ */
+export interface ToolHandoff {
+	readonly kind: 'human-required'
+	/** Operator-facing text: what the person has to do before the turn resumes. */
+	readonly reason: string
+	/** Structured facts a host can render or act on, such as an origin or a command. */
+	readonly detail?: Readonly<Record<string, string>>
 }
 
 export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInput> {

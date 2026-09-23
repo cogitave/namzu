@@ -297,6 +297,7 @@ const MAPPING: {
 			...(e.failure ? { failure: e.failure } : {}),
 			...(e.providerError ? { provider_error: e.providerError } : {}),
 			...(e.explanation ? { explanation: e.explanation } : {}),
+			...(e.handoff ? { handoff: e.handoff } : {}),
 		}),
 	},
 
