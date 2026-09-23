@@ -451,9 +451,10 @@ before it with a paragraph break, which split the word it landed in (`subag` /
 `ents`) in the message the model received. A bracketed paste over 80
 characters, and any unbracketed chunk that contains a newline, is still a chip.
 
-A row keeps its column when it settles into scrollback. Settled rows used to
-lose the one column of padding live rows have, so a finished screen mixed rows
-starting at column 0 and column 1.
+A row keeps its column and its wrap when it settles into scrollback. Settled
+rows used to lose the one column of padding live rows have, so a finished
+screen mixed rows starting at column 0 and column 1, and a long settled row
+wrapped two columns wider than it had while live.
 
 The agent browser owns its viewport rather than sharing it with an inactive
 composer. Its navigation stays at the bottom and list capacity grows with the

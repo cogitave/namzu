@@ -63,12 +63,12 @@ export interface TranscriptProps {
 	/**
 	 * Columns of padding the caller's own box puts left of this transcript.
 	 *
-	 * Ink prints `<Static>` output from the static node itself, so an
-	 * ancestor's padding never reaches it: a row drawn live at column 1
-	 * moved to column 0 the moment it settled, and a finished screen mixed
-	 * the two. The settled rows are drawn with this padding themselves, and
-	 * a matching negative right margin keeps their wrap width the width they
-	 * had live.
+	 * Ink lays `<Static>` out as an absolutely positioned node as wide as
+	 * the terminal and prints it from that node, so an ancestor's padding
+	 * never reaches it: a row drawn live at column 1 moved to column 0 the
+	 * moment it settled, and wrapped two columns wider than it had live. The
+	 * settled rows are drawn with this padding on both sides themselves,
+	 * which puts them in the column, and at the width, they had live.
 	 */
 	readonly staticIndent?: number
 }
@@ -120,7 +120,7 @@ export function Transcript({
 						key={row.kind === 'header' ? 'header' : row.message.id}
 						flexDirection="column"
 						paddingLeft={staticIndent}
-						marginRight={-staticIndent}
+						paddingRight={staticIndent}
 					>
 						{row.kind === 'header' ? (
 							<Box>{header}</Box>

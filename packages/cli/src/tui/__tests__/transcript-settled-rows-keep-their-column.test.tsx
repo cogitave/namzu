@@ -1,10 +1,11 @@
 /**
- * A row keeps its column when it settles.
+ * A row keeps its column, and its wrap, when it settles.
  *
- * Ink prints `<Static>` output from the static node, so the one column of
- * padding App gives every row reached the live rows and never the settled
- * ones: a finished screen mixed rows at column 0 and column 1. The settled
- * rows now carry that padding themselves, at the width they had live.
+ * Ink lays `<Static>` out as an absolutely positioned node as wide as the
+ * terminal, so the one column of padding App gives every row reached the
+ * live rows and never the settled ones: a finished screen mixed rows at
+ * column 0 and column 1, and a settled row wrapped two columns wider than it
+ * had live. The settled rows now carry that padding on both sides.
  */
 
 import { Box } from 'ink'
@@ -20,25 +21,26 @@ afterEach(async () => {
 	mounted = undefined
 })
 
-function row(id: string, content: string, glyph = '✓'): TranscriptMessage {
+function row(id: string, content: string, glyph: string): TranscriptMessage {
 	return { id, role: 'tool', content, glyph }
 }
 
-it.each([40, 100])('draws settled and live rows from the same column at %i columns', async (cols) => {
-	// Exactly as wide as a live row's text may be: the terminal, less App's
-	// two padding columns, less the two-column glyph gutter.
-	const full = 'ğ'.repeat(cols - 4)
-	const messages = [
-		row('a', 'İlk satır yerleşti'),
-		row('b', full),
-		row('c', 'Canlı satır', '∴'),
-	]
+it.each([40, 100])('draws a settled row in the column and at the width it had live, at %i columns', async (cols) => {
+	const long = Array.from({ length: 40 }, (_, i) => `sözcük${i}`).join(' ')
+	const messages = [row('settled', long, '✓'), row('live', long, '✓')]
 	mounted = await renderToScreen(
 		<Box flexDirection="column" paddingX={1}>
-			<Transcript messages={messages} pending={null} state="idle" settled={2} resetKey={0} staticIndent={1} />
+			<Transcript messages={messages} pending={null} state="idle" settled={1} resetKey={0} staticIndent={1} />
 		</Box>,
-		{ cols, rows: 12 },
+		{ cols, rows: 40 },
 	)
 	const rows = mounted.viewport().filter((line) => line.trim().length > 0)
-	expect(rows).toEqual([' ✓ İlk satır yerleşti', ` ✓ ${full}`, ' ∴ Canlı satır'])
+	const half = rows.length / 2
+	const settled = rows.slice(0, half)
+	const live = rows.slice(half)
+	// Same rows, same wrap, same column: the settled copy is indistinguishable.
+	expect(settled).toEqual(live)
+	expect(settled[0]).toMatch(/^ ✓ sözcük0 /u)
+	// And nothing reaches the last column, where a terminal would wrap it again.
+	for (const line of rows) expect([...line].length).toBeLessThanOrEqual(cols - 1)
 })
