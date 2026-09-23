@@ -2,6 +2,7 @@
 
 ## 2026-09-23
 
+- **Update** [Schedules](sdk/schedules.md#the-tools) and [Scheduled tasks](cli/scheduled-tasks.md#creating-a-job): `ScheduleToolHost.create()` may return `note`, appended to the `schedule` tool's result; the CLI's TUI host uses it to tell the model no scheduler is installed. Only the person was told, and the model answered that a notification would come
 - **Update** [Skills](cli/skills.md#making-a-skill): Esc or Ctrl+C on the save-skill screen cancels the save and no longer also interrupts the turn (`· Interrupted.`); the model is told nothing was written and asks what to change
 - **Update** [Skills](sdk/skills.md) and [Terminal design](cli/terminal-design.md): the `skill` tool presents a call as `Read skill <name>` or `List skills`, hidden when it succeeds; the TUI printed `Skill({"name":"browser-automation"})` and the first lines of the body. While the screen that saves a skill is up, the Working row reads `Waiting for you` instead of counting on with `esc to interrupt`
 - **Update** [Skills](cli/skills.md#built-in-skills): the built-in `browser-automation` skill says a sign-in page or CAPTCHA pauses the turn by itself and to retry the step once it continues, gives `namzu browser login <profile> <url>`, and says not to pick the profile or route around a declined call; `schedule-task` describes the browser grant (`permissions.browser`, `--browser`, `--browser-site`), one run's budget, the fields to leave unset and the one confirmation screen. The built-in-skills test no longer excuses `namzu browser`

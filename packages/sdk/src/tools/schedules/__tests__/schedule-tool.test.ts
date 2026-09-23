@@ -194,6 +194,19 @@ describe('schedule tool', () => {
 		expect(host.list).toHaveBeenCalledWith({ allFolders: false })
 	})
 
+	it('tells the model what the host says the job still needs', async () => {
+		const { host } = fakeHost('create', {
+			create: vi.fn(async (_d, p) => ({
+				name: p.name,
+				note: 'No scheduler is installed; tell the operator to run namzu schedule install.',
+			})),
+		})
+		const result = await tool(host).execute(createInput as never, {} as never)
+		expect(result.output).toMatch(
+			/^Job "host-name" was created\. .* No scheduler is installed; tell the operator to run namzu schedule install\.$/,
+		)
+	})
+
 	it('presents calls in words without ids or JSON', () => {
 		const t = tool(fakeHost('create').host)
 		const view = t.presentCall?.(createInput as never)

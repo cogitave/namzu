@@ -278,12 +278,13 @@ async function create(
 		}
 	}
 	const created = await host.create(draft, preview, { paused: answer === 'create-paused' })
+	const said =
+		answer === 'create-paused'
+			? `Job "${created.name}" was created paused. The operator can resume it with /schedule.`
+			: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`
 	return {
 		success: true,
-		output:
-			answer === 'create-paused'
-				? `Job "${created.name}" was created paused. The operator can resume it with /schedule.`
-				: `Job "${created.name}" was created. It runs ${preview.schedule}, with nobody watching; results arrive as a notification and a session.`,
+		output: created.note ? `${said} ${created.note}` : said,
 		data: { name: created.name, paused: answer === 'create-paused' },
 	}
 }

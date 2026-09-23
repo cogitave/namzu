@@ -146,12 +146,17 @@ export interface ScheduleToolHost {
 	 * leaving it live after the tool has given up on the answer.
 	 */
 	confirm(request: ScheduleConfirmRequest, signal?: AbortSignal): Promise<ScheduleConfirmAnswer>
-	/** Create the job the person confirmed. */
+	/**
+	 * Create the job the person confirmed. `note`, when given, is appended to
+	 * what the model is told, for what the person must still do before the
+	 * job runs (install a scheduler, say): the model reports the job as set
+	 * up otherwise.
+	 */
 	create(
 		draft: ScheduleJobDraft,
 		preview: ScheduleJobPreview,
 		options: { readonly paused: boolean },
-	): Promise<{ readonly name: string }>
+	): Promise<{ readonly name: string; readonly note?: string }>
 	/** Jobs, the session folder's in full, other folders' without their prompts. */
 	list(options: { readonly allFolders: boolean }): Promise<readonly ScheduleJobSummary[]>
 	/** A job by name or id prefix, or undefined. */

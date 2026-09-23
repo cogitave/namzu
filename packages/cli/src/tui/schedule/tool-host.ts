@@ -299,7 +299,14 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			ui.say(
 				`⏲ Scheduled job ${job.name} created${options.paused ? ' (paused)' : ''}. /schedule lists it.${installed ? '' : ' The scheduler is not installed, so it does not run until you install it: namzu schedule install.'}`,
 			)
-			return { name: job.name }
+			return {
+				name: job.name,
+				...(installed
+					? {}
+					: {
+							note: 'No scheduler is installed on this machine, so the job does not run until the operator runs `namzu schedule install`. Tell them; do not say it will run.',
+						}),
+			}
 		},
 
 		async list(options) {
