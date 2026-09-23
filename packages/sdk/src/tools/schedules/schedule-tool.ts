@@ -1,11 +1,22 @@
 import { z } from 'zod'
-import type { ToolDefinition, ToolResult } from '../../types/tool/index.js'
+import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { presentScheduleCall, presentScheduleResult } from './present.js'
 import { scanSchedulePrompt } from './prompt-scan.js'
 import type { ScheduleJobDraft, ScheduleToolHost } from './types.js'
 
 export const SCHEDULE_TOOL_NAME = 'schedule'
+
+/**
+ * A person reads the whole proposal — the prompt, the rules, the schedule,
+ * the credential source — before answering `create`, `resume` or `delete`.
+ * The executor's `DEFAULT_TOOL_TIMEOUT_MS` (two minutes) is sized for a tool
+ * call, not a person on the other end of a screen, and would abandon the
+ * call out from under them mid-read. `save_skill`
+ * (`packages/cli/src/skills/save.ts`) waits on the same kind of answer and
+ * uses the same thirty minutes, for the same reason.
+ */
+const OPERATOR_CONFIRM_TIMEOUT_MS = 30 * 60_000
 
 const EFFECT = z.enum(['allow', 'ask', 'deny'])
 const NETWORK_TOOLS = ['web_fetch', 'web_search']
@@ -87,7 +98,11 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 	return shellPossible && (draft.permissions.execution ?? 'host') === 'host'
 }
 
-async function create(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
+async function create(
+	host: ScheduleToolHost,
+	input: Input,
+	signal: AbortSignal | undefined,
+): Promise<ToolResult> {
 	const missing = (['name', 'prompt', 'when', 'permissions'] as const).filter(
 		(k) => input[k] === undefined,
 	)
@@ -122,14 +137,21 @@ async function create(host: ScheduleToolHost, input: Input): Promise<ToolResult>
 	}
 	let answer: string
 	try {
-		answer = await host.confirm({
-			preview,
-			promptFindings: scanSchedulePrompt(preview.prompt),
-			proposedBy: 'model',
-		})
+		answer = await host.confirm(
+			{
+				preview,
+				promptFindings: scanSchedulePrompt(preview.prompt),
+				proposedBy: 'model',
+			},
+			signal,
+		)
 	} catch {
 		answer = 'cancel'
 	}
+	// The deadline or the turn can settle `host.confirm` from underneath a
+	// host that resolves optimistically on its own close; never create on an
+	// answer that arrived after the operator was no longer being asked.
+	if (signal?.aborted) answer = 'cancel'
 	if (answer !== 'create' && answer !== 'create-paused') {
 		return {
 			success: false,
@@ -162,6 +184,7 @@ async function lifecycle(
 	host: ScheduleToolHost,
 	input: Input,
 	action: 'pause' | 'resume' | 'delete',
+	signal: AbortSignal | undefined,
 ): Promise<ToolResult> {
 	if (!input.job) return refuse(`${action} needs job (the job's name).`)
 	const job = await host.find(input.job)
@@ -169,10 +192,11 @@ async function lifecycle(
 	if (action !== 'pause') {
 		let confirmed = false
 		try {
-			confirmed = await host.confirmAction(job, action)
+			confirmed = await host.confirmAction(job, action, signal)
 		} catch {
 			confirmed = false
 		}
+		if (signal?.aborted) confirmed = false
 		if (!confirmed) return refuse(`The operator did not confirm; "${job.name}" was not changed.`)
 	}
 	if (action === 'pause') await host.pause(job.name)
@@ -207,14 +231,17 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 			concurrencySafe: false,
 			presentCall: presentScheduleCall,
 			presentResult: presentScheduleResult,
-			async execute(input) {
+			// A person, not a tool, answers `create`/`resume`/`delete`; see
+			// `OPERATOR_CONFIRM_TIMEOUT_MS`.
+			timeoutMs: OPERATOR_CONFIRM_TIMEOUT_MS,
+			async execute(input, context: ToolContext) {
 				switch (input.action) {
 					case 'create':
-						return create(host, input)
+						return create(host, input, context.abortSignal)
 					case 'list':
 						return list(host, input)
 					default:
-						return lifecycle(host, input, input.action)
+						return lifecycle(host, input, input.action, context.abortSignal)
 				}
 			},
 		}),
