@@ -230,9 +230,7 @@ describe('keys the skill loader does not read', () => {
 		// A list in a key the loader reads and does not take as a list is still
 		// refused: a value read wrongly is the failure the refusal exists for.
 		// (`allowed-tools` is read as a list on purpose.)
-		const path = skill(
-			['---', 'name: a-skill', 'description: [d, e]', '---', 'b'].join('\n'),
-		)
+		const path = skill(['---', 'name: a-skill', 'description: [d, e]', '---', 'b'].join('\n'))
 		await expect(loadSkill(path, 'full')).rejects.toThrow(/flow sequence/)
 	})
 
