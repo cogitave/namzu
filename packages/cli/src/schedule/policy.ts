@@ -159,6 +159,19 @@ function caseless(text: string): string {
 	return text.replace(/[a-z]/gi, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`)
 }
 
+/**
+ * {@link caseless}, and also matched when the shell would read it the same
+ * with quotes or backslashes inside: `"schedule"`, `sch''edule`, `n\amzu`.
+ * Not a parser — a variable or an `eval` still gets past it; this is a
+ * tripwire, and the tampered-job hold and the confirmation are the others.
+ */
+function loose(text: string): string {
+	return [...text].map((c) => caseless(c)).join(`["'\\\\]*`)
+}
+
+/** Space between words, with the quotes that may close and open around it. */
+const GAP = `[\\s"'\\\\]+`
+
 /** Rules that keep a scheduled run away from its own scheduler and its own records. */
 export function scheduledRunFloor(namzuHome: string): AuthorizationRule[] {
 	const home = namzuHome.replace(/[\\/]+$/, '')
@@ -167,35 +180,29 @@ export function scheduledRunFloor(namzuHome: string): AuthorizationRule[] {
 	// Followed by a separator or the end of the value, so `/tmp/x` does not
 	// also match a sibling `/tmp/x2`.
 	const homePatterns = [`${escapeRegExp(asJson)}(?=/|\\\\\\\\|")`, '\\$\\{?NAMZU_HOME\\b']
+	// One rule per verb: each word spelled loosely is long, and the gate caps
+	// a pattern at 500 characters.
+	const bash = (pattern: string): AuthorizationRule => ({
+		type: 'argument_pattern',
+		toolNames: ['bash'],
+		argument: 'command',
+		pattern,
+		decision: 'deny',
+	})
 	return [
-		{
-			type: 'argument_pattern',
-			toolNames: ['bash'],
-			argument: 'command',
-			pattern: `${caseless('systemctl')}\\b.*\\b(${caseless('stop')}|${caseless('disable')}|${caseless('mask')}|${caseless('edit')}|${caseless('kill')}|${caseless('revert')})\\b.*${caseless('namzu-scheduler')}`,
-			decision: 'deny',
-		},
-		{
-			type: 'argument_pattern',
-			toolNames: ['bash'],
-			argument: 'command',
-			pattern: `${caseless('launchctl')}\\b.*\\b(${caseless('bootout')}|${caseless('unload')}|${caseless('remove')}|${caseless('disable')})\\b.*${caseless('com.namzu.scheduler')}`,
-			decision: 'deny',
-		},
-		{
-			type: 'argument_pattern',
-			toolNames: ['bash'],
-			argument: 'command',
-			pattern: `${caseless('schtasks')}(\\.${caseless('exe')})?\\b.*/(${caseless('delete')}|${caseless('change')}|${caseless('end')})\\b.*${caseless('namzu')}`,
-			decision: 'deny',
-		},
-		{
-			type: 'argument_pattern',
-			toolNames: ['bash'],
-			argument: 'command',
-			pattern: `\\b(${caseless('pkill')}|${caseless('killall')})\\b.*${caseless('namzu')}|${caseless('namzu')}\\s+${caseless('schedule')}\\s+(${caseless('stop')}|${caseless('uninstall')}|${caseless('remove')}|${caseless('edit')}|${caseless('pause')}|${caseless('confirm')})`,
-			decision: 'deny',
-		},
+		...['stop', 'disable', 'mask', 'edit', 'kill', 'revert'].map((verb) =>
+			bash(`${loose('systemctl')}\\b.*\\b${loose(verb)}\\b.*${loose('namzu-scheduler')}`),
+		),
+		...['bootout', 'unload', 'remove', 'disable'].map((verb) =>
+			bash(`${loose('launchctl')}\\b.*\\b${loose(verb)}\\b.*${loose('com.namzu.scheduler')}`),
+		),
+		bash(
+			`${loose('schtasks')}(\\.${loose('exe')})?\\b.*/(${loose('delete')}|${loose('change')}|${loose('end')})\\b.*${loose('namzu')}`,
+		),
+		bash(`\\b(${loose('pkill')}|${loose('killall')})\\b.*${loose('namzu')}`),
+		...['stop', 'uninstall', 'remove', 'edit', 'pause', 'confirm'].map((verb) =>
+			bash(`${loose('namzu')}${GAP}${loose('schedule')}${GAP}${loose(verb)}`),
+		),
 		...homePatterns.map(
 			(pattern): AuthorizationRule => ({
 				type: 'custom_pattern',

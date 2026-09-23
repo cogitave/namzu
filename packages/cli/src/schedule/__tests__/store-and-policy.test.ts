@@ -273,6 +273,21 @@ describe('what a scheduled run may do', () => {
 		expect(existsSync(sb.home)).toBe(true)
 	})
 
+	it('still denies a scheduler command the shell reads the same with quotes or backslashes', () => {
+		const g = gate(scheduledRunFloor(sb.home))
+		for (const command of [
+			'namzu schedule confirm probe',
+			'namzu "schedule" confirm probe',
+			"namzu 'schedule' 'confirm' probe",
+			'namzu sch""edule con\\firm probe',
+			'NAMZU Schedule Pause probe',
+			'systemctl --user "stop" \'namzu-scheduler\'',
+			'launchctl boot""out gui/501/com.namzu.scheduler',
+		])
+			expect(decide(g, 'bash', { command }), command).toBe('deny')
+		expect(decide(g, 'bash', { command: 'namzu schedule list' })).not.toBe('deny')
+	})
+
 	it('maps unmatched to the review mode', () => {
 		const mode = (unmatched: 'park' | 'deny' | 'allow') =>
 			compileJobPolicy(expandPermissions({ rules: {}, unmatched }), {

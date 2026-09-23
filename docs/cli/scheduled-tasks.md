@@ -62,7 +62,7 @@ token budget), whether it can reach the network, and every rule in force —
 including the denies it inherits from your config files. On a terminal it asks
 you to confirm.
 
-### Nobody but a person confirms a job
+### Only a terminal or the TUI confirms a job
 
 A job is confirmed on a terminal (`add`, `edit`, `confirm`) or in the TUI's
 `/schedule` panel. **Without a terminal nothing is confirmed**: `--yes` from a
@@ -76,6 +76,16 @@ digest of the project's code-running config (below). If the job file is later
 edited by anything but the CLI, the scheduler puts it on hold, records `job
 tampered` in its history and notifies you once. Confirming a job also trusts its
 folder **for that job only**; your `trust.json` is not touched.
+
+These are tripwires, not a lock. "A terminal" means standard input and error
+are terminals, which any program running as you can arrange (`script` gives it
+one), and the digest is a plain hash that such a program can recompute after
+writing a job file itself. They stop a job appearing from a script's or a
+model's ordinary shell call, and an edit that forgets the digest; they do not
+stop a program running under your account that sets out to get past them.
+What does hold against a scheduled run is the rest of this page: a run cannot
+reach `NAMZU_HOME` or the scheduler's commands (the floor below), and nothing
+it asks beyond its rules is approved without you.
 
 A folder may not be `/`, your home directory itself, a folder that contains
 `NAMZU_HOME`, or anything inside `NAMZU_HOME`.
@@ -110,8 +120,9 @@ The rules a run is gated by, in order (the first that matches decides):
    (`systemctl --user stop namzu-scheduler…`, `launchctl bootout
    com.namzu.scheduler…`, `schtasks /Delete … \namzu\…`, `namzu schedule
    stop|remove|edit…`) and any tool argument naming `NAMZU_HOME` are refused.
-   This is a pattern check and best effort; the job digest above is the control
-   that does not depend on patterns;
+   The check reads through shell quoting (`namzu "schedule" confirm` is refused
+   too) but not through variables or `eval`: it is a pattern check and best
+   effort, alongside the digest and the hold above;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;

@@ -8,7 +8,7 @@ New commands, all under `namzu schedule`: `add`, `edit`, `confirm`, `list`, `sho
 
 In the TUI: `/schedule` lists jobs and what needs you and acts on them, `/loop` re-sends a prompt to the open conversation on an interval between turns, the model gets a `schedule` tool (every job it proposes is confirmed by you on a screen namzu computes) and a `session_loop` tool, and one startup line reports scheduled work since you last looked.
 
-A job is confirmed only on a terminal or in the TUI; `schedule add --yes` without a terminal creates it inert. A scheduled run never approves a call on its own: a call its rules do not allow is refused or parks for you, and you answer it later from `/resume` in the job's folder, under the job's rules. Allows come only from the job; every `deny` in your config files still holds.
+A job is confirmed on a terminal or in the TUI; `schedule add --yes` without a terminal (a script, or a model's own shell call) creates it inert. This is a tripwire, not a lock against a program running as you: see "Only a terminal or the TUI confirms a job" in the docs. A scheduled run never approves a call on its own: a call its rules do not allow is refused or parks for you, and you answer it later from `/resume` in the job's folder, under the job's rules. Allows come only from the job; every `deny` in your config files still holds.
 
 Wording only, no behaviour change: `namzu serve` now says namzu has no *server* (it used to say no daemon, which the scheduler made untrue), and `namzu drain --help` no longer says namzu has no daemon. A script matching the old `serve` sentence must match the new one.
 
