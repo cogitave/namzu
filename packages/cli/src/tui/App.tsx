@@ -203,6 +203,7 @@ import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
 import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
+import { ViewportBound } from './ViewportBound.js'
 import {
 	type ModelSwitchOutcome,
 	type ModelSwitchRequest,
@@ -8211,7 +8212,9 @@ export function App({
 		phase !== 'edit' &&
 		phase !== 'picker'
 	return (
-		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
+		// One row short of the terminal, always: see ViewportBound.tsx for the
+		// renderer path a taller frame takes and the scrollback row it costs.
+		<ViewportBound rows={terminal.rows} display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
 				{/* Keep the Static owner mounted through startup pickers. Removing its
 				    ancestor frees Yoga memory that Ink still references during its final flush. */}
@@ -8552,7 +8555,7 @@ export function App({
 					/>
 				) : null}
 			</Box>
-		</Box>
+		</ViewportBound>
 	)
 }
 

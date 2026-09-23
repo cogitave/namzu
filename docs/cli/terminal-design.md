@@ -304,7 +304,9 @@ emoji keep the box straight. A table streaming in is drawn as a table from the
 moment its separator row arrives: a lone `| a | b |` line is held back until
 the line after it shows whether it is a header, a row is released only once
 it is complete, and a line with a pipe after the separator stays a row of the
-table rather than falling out below it as a paragraph.
+table rather than falling out below it as a paragraph. A list item or a
+blockquote ends the table even when it carries a pipe, as a blank line, a
+heading or a fence does: `- a | b` directly under a table is a list item.
 
 ## The model's plan
 
@@ -525,7 +527,13 @@ interrupts the current turn and its children.
 The interface uses the normal terminal buffer so completed output remains in
 native scrollback. Its transcript owner remains mounted through startup and
 provider pickers, with the live rows hidden while a picker owns the screen.
-Only the current work is redrawn. Changing terminal width
+Only the current work is redrawn, and the redrawn region is always at least
+one row shorter than the terminal: a reply, a table or a picker taller than
+that keeps its newest rows on screen and gives way at the top, and the whole
+reply reaches scrollback when it finishes. A region as tall as the terminal
+sends the renderer down a path that clears the screen and replays the session
+on every frame, and that loses the last settled line of a long reply when the
+region shrinks again (`packages/cli/src/tui/ViewportBound.tsx`). Changing terminal width
 keeps the selected agent and the input draft, while model/path text yields to
 the keys needed to leave a prompt. The palette targets dark backgrounds; the
 application does not paint a full-screen background or depend on color alone.

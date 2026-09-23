@@ -67,6 +67,7 @@ export type TableAlign = 'left' | 'center' | 'right'
 const FENCE = /^```(\w*)\s*$/
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*$/
 const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/
+const BLOCKQUOTE = /^\s{0,3}>/
 const TABLE_ROW = /^\s*\|.*\|\s*$/
 const TABLE_SEP = /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
 
@@ -95,14 +96,23 @@ function tableAlign(separator: string): TableAlign[] | undefined {
  * Whether a line continues a table already begun.
  *
  * GitHub's rule, which models follow: after the header and separator, every
- * following line with a pipe in it is a row until a blank line or another
- * block. The row need not close with a pipe — `a | b` is a row — and neither
- * does a row still being typed, which is the reason this is looser than
+ * following line with a pipe in it is a row until a blank line or the start
+ * of another block — a fence, a heading, a list item or a blockquote, each of
+ * which ends the table even when it carries a pipe (`- a | b` is a list item).
+ * The row need not close with a pipe — `a | b` is a row — and neither does a
+ * row still being typed, which is the reason this is looser than
  * {@link TABLE_ROW}: `| 1 | 2` arriving mid-stream stays inside the table it
  * belongs to instead of flashing below it as a paragraph.
  */
 function continuesTable(line: string): boolean {
-	return line.includes('|') && line.trim().length > 0 && !FENCE.test(line) && !HEADING.test(line)
+	return (
+		line.includes('|') &&
+		line.trim().length > 0 &&
+		!FENCE.test(line) &&
+		!HEADING.test(line) &&
+		!BULLET.test(line) &&
+		!BLOCKQUOTE.test(line)
+	)
 }
 
 /**

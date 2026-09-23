@@ -134,6 +134,19 @@ describe('parseMarkdown tables', () => {
 		])
 	})
 
+	it('ends a table at a list item or blockquote that carries a pipe', () => {
+		const table = '| A | B |\n|---|---|\n| 1 | 2 |\n'
+		const afterBullet = parseMarkdown(`${table}- bullet | with pipe`)
+		expect(afterBullet.map((b) => b.type)).toEqual(['table', 'bullet'])
+		expect(afterBullet[0]).toMatchObject({ rows: [['1', '2']] })
+		expect(afterBullet[1]).toMatchObject({ text: 'bullet | with pipe' })
+		expect(parseMarkdown(`${table}1. step | two`).map((b) => b.type)).toEqual(['table', 'bullet'])
+		const afterQuote = parseMarkdown(`${table}> a | b`)
+		expect(afterQuote).toHaveLength(2)
+		expect(afterQuote[0]).toMatchObject({ rows: [['1', '2']] })
+		expect(afterQuote[1]?.type).not.toBe('table')
+	})
+
 	it('reads an escaped pipe as a character of its cell', () => {
 		const [block] = parseMarkdown('| op | meaning |\n|---|---|\n| `a \\| b` | either |')
 		expect(block).toMatchObject({ rows: [['`a | b`', 'either']] })
