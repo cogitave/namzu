@@ -749,6 +749,23 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 */
 	pathArgument?: string
 	/**
+	 * The argument that holds an absolute URL the tool has already
+	 * canonicalised in its input schema — one spelling, no whitespace.
+	 *
+	 * Declared so an `argument_pattern` rule tests the URL whole. Without it
+	 * the rule reads every argument as a possible command line, and a URL's
+	 * query separators (`&`, `;`, `|`) cut it into "segments": an `allow` for
+	 * `^https://github\.com(?:[/?#]|$)` then declined
+	 * `https://github.com/search?q=a&type=code`, because `type=code` is not
+	 * GitHub. A `deny` or `review` is unaffected either way; only an `allow`
+	 * needed every segment to match.
+	 *
+	 * Declare it only for an argument the input schema itself canonicalises
+	 * to a URL. A free-text argument that happens to hold one keeps the
+	 * command-line reading, which is the safe direction to be wrong in.
+	 */
+	urlArgument?: string
+	/**
 	 * The boolean argument by which a call asks to run outside the turn's
 	 * sandbox, when the tool offers that at all (the shipped `bash` does).
 	 *

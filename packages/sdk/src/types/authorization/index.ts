@@ -81,7 +81,14 @@ export type AuthorizationRule =
 			/** The argument key, at the top level of the tool's input. */
 			argument: string
 			pattern: string
-			decision: 'allow' | 'deny'
+			/**
+			 * `review` sends a matching call to the review policy — a person,
+			 * or the turn's mode — instead of deciding it here. It matches as
+			 * `deny` does (any segment of a command line), because it is a
+			 * restriction: a rule that asks before `git push` must also ask
+			 * before `true; git push`.
+			 */
+			decision: 'allow' | 'deny' | 'review'
 	  }
 	| { type: 'allow_by_tier'; tiers: string[] }
 
@@ -121,7 +128,7 @@ const ArgumentPatternSchema = z.object({
 	// fail-open shape this rule type exists to remove.
 	argument: z.string().min(1),
 	pattern: z.string().max(MAX_CUSTOM_PATTERN_LENGTH),
-	decision: z.enum(['allow', 'deny']),
+	decision: z.enum(['allow', 'deny', 'review']),
 })
 const AllowByTierSchema = z.object({
 	type: z.literal('allow_by_tier'),

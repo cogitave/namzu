@@ -54,13 +54,34 @@ The built-in `job` classifies each prepared action: reading/listing owned output
 is exempt by default; stopping work is not. `DefineToolOptions.readOnly` supports
 typed input predicates for other mixed-purpose host tools.
 
-A `custom_pattern` authorization rule can explicitly return `review`. Matching
+A `custom_pattern` or `argument_pattern` authorization rule can explicitly
+return `review` (see [Rules that ask](#rules-that-ask)). Matching
 calls retain `authorization.explicitReview: true` in `ToolCallSummary`, including
 durable review requests. That marker prevents read-only and accept-edits
 exemptions from silently resolving the request. The selected review policy still
 decides: prompt modes ask, strict/plan refuse, and auto or remembered approval
 can approve. Existing scoped tool grants remain prior approval; a deny rule still
 outranks them. Custom hosts providing their own handlers own those decisions.
+
+# Rules that ask
+
+`argument_pattern` takes `decision: 'review'` as well as `allow` and `deny`. A matching call goes to the review policy, marked `explicitReview`, instead of being decided by the gate:
+
+```ts
+import type { AuthorizationRule } from '@namzu/sdk'
+
+const askBeforePush: AuthorizationRule = {
+  type: 'argument_pattern',
+  toolNames: ['bash'],
+  argument: 'command',
+  pattern: '^git push',
+  decision: 'review',
+}
+```
+
+A `review` rule matches the way a `deny` does. The whole value is tested, then every segment of it read as a command line, and any match counts. So the rule also asks about `true; git push`. An `allow` still needs every segment to match and nothing hidden in the line. Rules are first-match, so a `deny` before a `review` still refuses. The reason reads ``sent for review because the `command` argument matched …``. A `custom_pattern` rule with `decision: 'review'` now reads `sent for review by a pattern rule …`; it used to read `allowed by …`.
+
+A tool whose input schema canonicalises an argument to a URL declares it with `ToolDefinition.urlArgument` (`defineTool({ urlArgument })`). A rule on that argument tests the value whole, never as a command line. Without the declaration, `&`, `;` and `|` in a query string cut the value into segments, and an `allow` for a site declined every address with a query string. The `browser` tool declares `url`. See [Browser tools](browser-tools.md#one-spelling-per-address).
 
 # Escalated calls
 

@@ -109,16 +109,29 @@ export function evaluateRule(
 			// A command line is not one string, and testing it as one is how a
 			// prohibition gets bypassed: `^git push` sees `git push origin main`
 			// and does not see `true; git push origin main`. See
-			// `decomposeCommandLine` for the measurement and for why the two
+			// `decomposeCommandLine` for the measurement and for why the
 			// decisions must read the result differently.
-			const { segments, opaque } = decomposeCommandLine(subject)
+			//
+			// An argument the tool declares as a canonical URL is not a command
+			// line, and cutting it at `&` would make an `allow` for a site
+			// decline every address with a query string. See
+			// `ToolDefinition.urlArgument`.
+			const { segments, opaque } =
+				toolDef?.urlArgument === rule.argument
+					? { segments: [subject], opaque: false }
+					: decomposeCommandLine(subject)
 
-			if (rule.decision === 'deny') {
+			if (rule.decision === 'deny' || rule.decision === 'review') {
 				// ANY segment. The whole subject is tested first so an
 				// unanchored deny keeps matching across a boundary, which
 				// splitting alone would have taken away.
-				if (compiledPattern.test(subject)) return 'deny'
-				return segments.some((segment) => compiledPattern.test(segment)) ? 'deny' : null
+				//
+				// `review` reads like `deny`, because it is a restriction too: a
+				// rule that asks before `git push` must ask before
+				// `true; git push` as well. Matching too much costs a prompt;
+				// matching too little skips the question the operator asked for.
+				if (compiledPattern.test(subject)) return rule.decision
+				return segments.some((segment) => compiledPattern.test(segment)) ? rule.decision : null
 			}
 
 			// EVERY segment, and nothing that hides one. Permission is a claim

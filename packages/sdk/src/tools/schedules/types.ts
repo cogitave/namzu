@@ -33,12 +33,42 @@ export interface ScheduleJobDraft {
 		readonly rules?: Readonly<
 			Record<string, ScheduleRuleEffect | Readonly<Record<string, ScheduleRuleEffect>>>
 		>
+		/**
+		 * Browser access for the run. Absent: the `browser` and `browser_act`
+		 * tools are denied. Present: only the listed sites are reachable, at
+		 * the listed level, and every other site is denied — there is no
+		 * catch-all key. The tool refuses this block unless the host sets
+		 * {@link ScheduleToolHost.browserGrants}.
+		 */
+		readonly browser?: ScheduleBrowserGrant
 	}
 	readonly budget?: {
 		readonly maxIterations?: number
 		readonly tokenBudget?: number
 		readonly timeoutMs?: number
 	}
+}
+
+/**
+ * How far a scheduled run may go on one site. `read`: open and read pages,
+ * never change them. `ask`: open and change pages, each change parked for the
+ * operator. `act`: open and change pages without asking.
+ */
+export type ScheduleBrowserSiteLevel = 'read' | 'ask' | 'act'
+
+/** A scheduled job's browser grant. */
+export interface ScheduleBrowserGrant {
+	/** The browser profile the run uses; the operator's, signed in beforehand. */
+	readonly profile: string
+	/**
+	 * Canonical site key (`https://github.com`, `https://*.example.com`,
+	 * `http://localhost:*`) to level. The tool canonicalises the keys the
+	 * model wrote (see `canonicalizeBrowserSitePattern`) before the host sees
+	 * them. Unlisted sites are denied.
+	 */
+	readonly sites: Readonly<Record<string, ScheduleBrowserSiteLevel>>
+	/** Show the browser window during the run. Default: no window. */
+	readonly headed?: boolean
 }
 
 /** What the person confirming is shown. Every field is the host's own computation. */
@@ -98,6 +128,13 @@ export interface ScheduleConfirmRequest {
 }
 
 export interface ScheduleToolHost {
+	/**
+	 * The host can store and enforce {@link ScheduleJobDraft.permissions}
+	 * `.browser`. Absent or false: the tool refuses a draft carrying one,
+	 * rather than let the host drop it and confirm a job the model believes
+	 * can use the browser.
+	 */
+	readonly browserGrants?: boolean
 	/** Validate the draft and compute what the person will be shown. Throws with a message on a refusal. */
 	preview(draft: ScheduleJobDraft): Promise<ScheduleJobPreview>
 	/**

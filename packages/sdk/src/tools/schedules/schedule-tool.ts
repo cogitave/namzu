@@ -1,14 +1,21 @@
 import { z } from 'zod'
 import type { ToolDefinition, ToolResult } from '../../types/tool/index.js'
+import { canonicalizeBrowserSitePattern } from '../builtins/browser-url.js'
 import { defineTool } from '../defineTool.js'
 import { presentScheduleCall, presentScheduleResult } from './present.js'
 import { scanSchedulePrompt } from './prompt-scan.js'
-import type { ScheduleJobDraft, ScheduleToolHost } from './types.js'
+import type {
+	ScheduleBrowserGrant,
+	ScheduleBrowserSiteLevel,
+	ScheduleJobDraft,
+	ScheduleToolHost,
+} from './types.js'
 
 export const SCHEDULE_TOOL_NAME = 'schedule'
 
 const EFFECT = z.enum(['allow', 'ask', 'deny'])
 const NETWORK_TOOLS = ['web_fetch', 'web_search']
+const BROWSER_PROFILE = /^[a-z0-9][a-z0-9-]{0,62}$/
 
 const inputSchema = z.object({
 	action: z
@@ -42,6 +49,21 @@ const inputSchema = z.object({
 				.record(z.string(), z.union([EFFECT, z.record(z.string(), EFFECT)]))
 				.optional()
 				.describe('Extra rules, e.g. {"bash": {"npm test*": "allow"}}'),
+			browser: z
+				.object({
+					profile: z
+						.string()
+						.regex(BROWSER_PROFILE)
+						.describe('Browser profile the operator signed in with, e.g. "work"'),
+					sites: z
+						.record(z.string(), z.enum(['read', 'ask', 'act']))
+						.describe(
+							'Site to level, e.g. {"https://github.com": "read"}. read: open and read only; ask: changes wait for the operator; act: changes run unasked. Unlisted sites are denied; there is no "*".',
+						),
+					headed: z.boolean().optional().describe('Show the browser window; default no window'),
+				})
+				.optional()
+				.describe('Browser access; omit for none'),
 		})
 		.optional()
 		.describe('create: REQUIRED explicit permission set; there is no default'),
@@ -75,9 +97,9 @@ function effectsOf(rule: unknown): string[] {
  */
 function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 	const rules = draft.permissions.rules ?? {}
-	const network = NETWORK_TOOLS.some((t) =>
-		effectsOf(rules[t]).some((e) => e === 'allow' || e === 'ask'),
-	)
+	const network =
+		draft.permissions.browser !== undefined ||
+		NETWORK_TOOLS.some((t) => effectsOf(rules[t]).some((e) => e === 'allow' || e === 'ask'))
 	if (!network) return false
 	const bashEffects = effectsOf(rules.bash)
 	const shellPossible =
@@ -85,6 +107,59 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 			? bashEffects.some((e) => e !== 'deny')
 			: draft.permissions.unmatched !== 'deny'
 	return shellPossible && (draft.permissions.execution ?? 'host') === 'host'
+}
+
+/**
+ * The browser grant with its site keys canonicalised, or why it is refused.
+ * Keys are rewritten so the host, the confirmation and the compiled rules
+ * all see one spelling of each site.
+ */
+function browserGrant(
+	host: ScheduleToolHost,
+	proposed: NonNullable<NonNullable<Input['permissions']>['browser']>,
+): { ok: true; grant: ScheduleBrowserGrant } | { ok: false; error: string } {
+	if (host.browserGrants !== true) {
+		return {
+			ok: false,
+			error:
+				'This host cannot give a scheduled job browser access. Propose the job without permissions.browser, or ask the operator to add it with `namzu schedule add`.',
+		}
+	}
+	const entries = Object.entries(proposed.sites)
+	if (entries.length === 0) {
+		return {
+			ok: false,
+			error:
+				'permissions.browser.sites is empty; list each site the run may open, e.g. {"https://github.com": "read"}.',
+		}
+	}
+	const sites: Record<string, ScheduleBrowserSiteLevel> = {}
+	for (const [key, level] of entries) {
+		if (key.trim() === '*') {
+			return {
+				ok: false,
+				error:
+					'A scheduled job cannot grant every site ("*"); unlisted sites are always denied. List each site.',
+			}
+		}
+		const verdict = canonicalizeBrowserSitePattern(key)
+		if (!verdict.ok) return { ok: false, error: `permissions.browser.sites: ${verdict.reason}` }
+		if (verdict.pattern in sites && sites[verdict.pattern] !== level) {
+			return {
+				ok: false,
+				error: `permissions.browser.sites names ${verdict.pattern} twice with different levels.`,
+			}
+		}
+		sites[verdict.pattern] = level
+	}
+	return {
+		ok: true,
+		grant: {
+			profile: proposed.profile,
+			sites,
+			...(proposed.headed !== undefined ? { headed: proposed.headed } : {}),
+		},
+	}
 }
 
 async function create(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
@@ -96,9 +171,17 @@ async function create(host: ScheduleToolHost, input: Input): Promise<ToolResult>
 			`create needs ${missing.join(', ')}. permissions is required: propose an explicit set (a preset and/or rules, plus unmatched).`,
 		)
 	}
-	const permissions = input.permissions as NonNullable<Input['permissions']>
-	if (!permissions.preset && !permissions.rules) {
-		return refuse('permissions needs a preset or rules; an empty permission set is not a choice.')
+	const proposed = input.permissions as NonNullable<Input['permissions']>
+	if (!proposed.preset && !proposed.rules && !proposed.browser) {
+		return refuse(
+			'permissions needs a preset, rules or a browser grant; an empty permission set is not a choice.',
+		)
+	}
+	let permissions: ScheduleJobDraft['permissions'] = proposed
+	if (proposed.browser) {
+		const grant = browserGrant(host, proposed.browser)
+		if (!grant.ok) return refuse(grant.error)
+		permissions = { ...proposed, browser: grant.grant }
 	}
 	const draft: ScheduleJobDraft = {
 		name: input.name as string,
@@ -111,7 +194,7 @@ async function create(host: ScheduleToolHost, input: Input): Promise<ToolResult>
 	}
 	if (networkWithHostShell(draft)) {
 		return refuse(
-			'A scheduled job proposed here cannot combine web access with a shell on the host. Deny bash, use execution "sandbox", or ask the operator to create it with `namzu schedule add`.',
+			'A scheduled job proposed here cannot combine web or browser access with a shell on the host. Deny bash, use execution "sandbox", or ask the operator to create it with `namzu schedule add`.',
 		)
 	}
 	let preview: Awaited<ReturnType<ScheduleToolHost['preview']>>
@@ -198,7 +281,7 @@ export function buildScheduleTools(host: ScheduleToolHost): ToolDefinition[] {
 		defineTool({
 			name: SCHEDULE_TOOL_NAME,
 			description:
-				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset or rules). Scheduled runs cannot ask questions.",
+				"Manage the operator's scheduled jobs: prompts that run later in a folder, with nobody watching, under an explicit permission set. Use it only when the user asks for something to happen on a schedule. create, resume and delete are confirmed by the operator; pause is not. A job needs name, prompt, when and permissions (unmatched: park or deny, plus a preset, rules or a browser grant). Scheduled runs cannot ask questions.",
 			inputSchema,
 			category: 'custom',
 			permissions: [],

@@ -133,7 +133,7 @@ describe('schedule tool', () => {
 			context,
 		)
 		expect(result.success).toBe(false)
-		expect(result.error).toMatch(/web access/)
+		expect(result.error).toMatch(/web or browser access/)
 		const sandboxed = await tool(host).execute(
 			{
 				...createInput,
@@ -269,5 +269,116 @@ describe('prompt scan', () => {
 		expect(revealHiddenCharacters(`a${ZERO_WIDTH}b${RIGHT_TO_LEFT_OVERRIDE}c`)).toBe(
 			'a<U+200B>b<U+202E>c',
 		)
+	})
+})
+
+describe('schedule tool: browser grant', () => {
+	const browserInput = (browser: unknown, rules: Record<string, unknown> = { bash: 'deny' }) => ({
+		...createInput,
+		permissions: { unmatched: 'deny', rules, browser },
+	})
+	const grantingHost = (answer: unknown = 'create') => {
+		const made = fakeHost(answer)
+		;(made.host as { browserGrants?: boolean }).browserGrants = true
+		return made
+	}
+
+	it('hands the host canonical site keys', async () => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(
+			browserInput({
+				profile: 'work',
+				sites: {
+					'HTTPS://GitHub.com:443/': 'read',
+					'https://*.Example.com': 'ask',
+					'http://localhost:*': 'act',
+				},
+				headed: true,
+			}),
+			context,
+		)
+		expect(result.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.objectContaining({
+				permissions: expect.objectContaining({
+					browser: {
+						profile: 'work',
+						sites: {
+							'https://github.com': 'read',
+							'https://*.example.com': 'ask',
+							'http://localhost:*': 'act',
+						},
+						headed: true,
+					},
+				}),
+			}),
+		)
+	})
+
+	it('is a permission set on its own', async () => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(
+			{
+				...createInput,
+				permissions: {
+					unmatched: 'deny',
+					browser: { profile: 'work', sites: { 'https://github.com': 'read' } },
+				},
+			},
+			context,
+		)
+		expect(result.success).toBe(true)
+	})
+
+	it('refuses a grant the host cannot store, rather than let it be dropped', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			browserInput({ profile: 'work', sites: { 'https://github.com': 'read' } }),
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot give a scheduled job browser access/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		[{ profile: 'work', sites: { '*': 'read' } }, /cannot grant every site/],
+		[{ profile: 'work', sites: {} }, /sites is empty/],
+		[{ profile: 'work', sites: { 'https://github.com/login': 'read' } }, /not a site/],
+		[{ profile: 'work', sites: { 'file:///etc': 'read' } }, /not a site|scheme/],
+		[{ profile: 'work', sites: { 'http://169.254.169.254': 'read' } }, /metadata/],
+		[
+			{ profile: 'work', sites: { 'https://github.com': 'read', 'HTTPS://GITHUB.COM': 'act' } },
+			/twice with different levels/,
+		],
+	])('refuses %j', async (browser, message) => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(browserInput(browser), context)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(message)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses a bad profile name or level in the schema', () => {
+		const t = tool(grantingHost().host)
+		for (const browser of [
+			{ profile: 'Work Profile', sites: { 'https://github.com': 'read' } },
+			{ profile: 'work', sites: { 'https://github.com': 'allow' } },
+			{ profile: 'work', sites: { 'https://github.com': 'deny' } },
+		]) {
+			expect(t.inputSchema.safeParse(browserInput(browser)).success, JSON.stringify(browser)).toBe(
+				false,
+			)
+		}
+	})
+
+	it('counts the browser as network: refused beside a host shell', async () => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(
+			browserInput({ profile: 'work', sites: { 'https://github.com': 'read' } }, { bash: 'ask' }),
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/web or browser access with a shell on the host/)
 	})
 })

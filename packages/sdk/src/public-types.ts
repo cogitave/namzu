@@ -62,6 +62,13 @@ export type * from './types/sandbox/index.js'
 export type * from './types/structured-output/index.js'
 export type * from './types/invocation/index.js'
 export type * from './types/computer-use/index.js'
+export type * from './types/browser/index.js'
+export type { BrowserActToolInput, BrowserToolInput } from './tools/builtins/browser.js'
+export type {
+	BrowserOriginVerdict,
+	BrowserSitePatternVerdict,
+	BrowserUrlVerdict,
+} from './tools/builtins/browser-url.js'
 export type * from './types/authorization/index.js'
 export type * from './types/bus/index.js'
 export type * from './types/probe/index.js'
@@ -645,6 +652,8 @@ export type {
 	ScheduleSpec,
 } from './schedules/index.js'
 export type {
+	ScheduleBrowserGrant,
+	ScheduleBrowserSiteLevel,
 	ScheduleConfirmAnswer,
 	ScheduleConfirmRequest,
 	ScheduleJobDraft,

@@ -50,13 +50,23 @@ export function describeRule(rule: AuthorizationRule): string {
 			// Names the argument, not just the pattern. That is what tells a
 			// model whether a different value could get through — which is the
 			// difference between rewording once and rewording forever.
-			const verb = rule.decision === 'deny' ? 'denied' : 'allowed'
+			const verb =
+				rule.decision === 'deny'
+					? 'denied'
+					: rule.decision === 'review'
+						? 'sent for review'
+						: 'allowed'
 			return `${verb} because the \`${rule.argument}\` argument matched ${rule.pattern} (this rule applies to ${rule.toolNames.join(', ')})`
 		}
 
 		case 'custom_pattern': {
 			const where = rule.target === 'both' ? 'name or arguments' : rule.target
-			const verb = rule.decision === 'deny' ? 'denied' : 'allowed'
+			const verb =
+				rule.decision === 'deny'
+					? 'denied'
+					: rule.decision === 'review'
+						? 'sent for review'
+						: 'allowed'
 			return `${verb} by a pattern rule matching the ${where}: ${rule.pattern}`
 		}
 		default: {

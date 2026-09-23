@@ -63,6 +63,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	commandArgument?: string
 	/** The argument holding a filesystem path; see {@link ToolDefinition.pathArgument}. */
 	pathArgument?: string
+	/** The argument holding a canonical URL; see {@link ToolDefinition.urlArgument}. */
+	urlArgument?: string
 	/** The argument asking to leave the sandbox; see {@link ToolDefinition.sandboxEscapeArgument}. */
 	sandboxEscapeArgument?: string
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
@@ -85,6 +87,7 @@ export function defineTool<S extends z.ZodType>(
 		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
 		...(options.commandArgument !== undefined ? { commandArgument: options.commandArgument } : {}),
 		...(options.pathArgument !== undefined ? { pathArgument: options.pathArgument } : {}),
+		...(options.urlArgument !== undefined ? { urlArgument: options.urlArgument } : {}),
 		...(options.sandboxEscapeArgument !== undefined
 			? { sandboxEscapeArgument: options.sandboxEscapeArgument }
 			: {}),
