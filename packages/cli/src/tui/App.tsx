@@ -201,7 +201,7 @@ import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
 import { editDraftInExternalEditor } from './external-editor.js'
-import { checklistInView, liveWindow } from './live-window.js'
+import { checklistInView, liveWindow, settledBeforeStreaming } from './live-window.js'
 import {
 	type ModelSwitchOutcome,
 	type ModelSwitchRequest,
@@ -3622,8 +3622,9 @@ export function App({
 	// Freeze the parent's Static floor while it is open; otherwise a parent turn
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
-	if (agentSurface === null && outputViewer === null) settledRef.current = window.settled
-	const renderedSettled = agentSurface === null && outputViewer === null ? window.settled : settledRef.current
+	const nextSettled = settledBeforeStreaming(messages, window.settled, settledRef.current)
+	if (agentSurface === null && outputViewer === null) settledRef.current = nextSettled
+	const renderedSettled = agentSurface === null && outputViewer === null ? nextSettled : settledRef.current
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the

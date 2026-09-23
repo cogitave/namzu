@@ -241,6 +241,32 @@ export function liveWindow(input: LiveWindowInput): LiveWindow {
 	return { settled: messages.length - held, rows: height }
 }
 
+/**
+ * The settled floor, held below the first row still streaming.
+ *
+ * The live window counts FINALIZED rows, and a streaming row is not one yet.
+ * A row written while another is still streaming — a delegated agent's launch
+ * receipt or completion, a notice — sits after it in the conversation but
+ * before it in the finalized list. Settling that row early, and then
+ * finalizing the streaming one, inserts a row BELOW the floor: `<Static>`,
+ * which prints only past its count, then prints an already-printed row a
+ * second time and never prints the one that moved in. So nothing after the
+ * first streaming row settles until it has finished.
+ *
+ * `previous` is what has already been printed; the result never goes below
+ * it, because a printed row cannot come back.
+ */
+export function settledBeforeStreaming(
+	messages: readonly TranscriptMessage[],
+	windowSettled: number,
+	previous: number,
+): number {
+	const streaming = messages.findIndex((message) => message.pending)
+	if (streaming < 0) return Math.max(previous, windowSettled)
+	const before = messages.slice(0, streaming).filter((message) => !message.pending).length
+	return Math.max(previous, Math.min(windowSettled, before))
+}
+
 export interface ChecklistViewInput {
 	/** Every transcript row, oldest first, the pending one included: it is on screen too. */
 	readonly messages: readonly TranscriptMessage[]

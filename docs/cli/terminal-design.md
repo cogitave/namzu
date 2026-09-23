@@ -454,7 +454,11 @@ characters, and any unbracketed chunk that contains a newline, is still a chip.
 A row keeps its column and its wrap when it settles into scrollback. Settled
 rows used to lose the one column of padding live rows have, so a finished
 screen mixed rows starting at column 0 and column 1, and a long settled row
-wrapped two columns wider than it had while live.
+wrapped two columns wider than it had while live. Nothing written after a reply that is
+still streaming settles before that reply does: a row written meanwhile (an
+agent's launch receipt, say) used to settle first, and when the reply then
+finished it landed below rows already printed, so one row was printed twice and
+the reply's own sentence never was.
 
 The agent browser owns its viewport rather than sharing it with an inactive
 composer. Its navigation stays at the bottom and list capacity grows with the
