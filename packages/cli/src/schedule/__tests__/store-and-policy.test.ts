@@ -288,6 +288,72 @@ describe('what a scheduled run may do', () => {
 		expect(decide(g, 'bash', { command: 'namzu schedule list' })).not.toBe('deny')
 	})
 
+	it('denies every scheduler command that changes something, however the CLI is reached', () => {
+		const g = gate(scheduledRunFloor(sb.home))
+		for (const command of [
+			'npx @namzu/cli schedule stop',
+			'node /usr/lib/node_modules/@namzu/cli/dist/bin.js schedule confirm x',
+			'node packages/cli/dist/bin.js schedule stop',
+			'namzu schedule resume paused-job',
+			'namzu schedule run-now other-job',
+			'namzu schedule prune --delete --yes',
+			'namzu schedule add --every 1m x',
+			'namzu --home /x schedule start',
+			'namzu schedule --home /x stop',
+			'namzu schedule "stop"',
+			"namzu 'schedule' re''sume x",
+			'true; namzu schedule uninstall',
+			'namzu schedule list && namzu schedule stop',
+		])
+			expect(decide(g, 'bash', { command }), command).toBe('deny')
+		for (const command of [
+			'namzu schedule list',
+			'namzu schedule show nightly',
+			'namzu schedule "status"',
+			'namzu schedule history nightly --json',
+			'namzu schedule logs --job nightly',
+			'echo namzu; ./schedule stop',
+			'npm run scheduled-report',
+		])
+			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
+	})
+
+	it('denies NAMZU_HOME however the path to it is written', () => {
+		const user = join(sb.root, 'user-home')
+		const home = join(user, '.namzu')
+		const g = gate(scheduledRunFloor(home, user))
+		for (const command of [
+			'cat ~/.namzu/schedule/daemon/endpoint.json',
+			'cat $HOME/.namzu/schedule/jobs/a.json',
+			'cat "${HOME}"/.namzu/config.yaml',
+			'cd ~/.namzu/schedule/jobs',
+			'ls ~/.namzu',
+			'ls ~/".namzu"/schedule',
+			`cat ${user}//.namzu/schedule/daemon/endpoint.json`,
+			`cat ${user}/./.namzu/x`,
+			`ls ${home} && true`,
+		])
+			expect(decide(g, 'bash', { command }), command).toBe('deny')
+		expect(decide(g, 'read', { path: `${user}//.namzu/schedule/daemon/endpoint.json` })).toBe(
+			'deny',
+		)
+		for (const command of ['ls ~/.namzu-other', 'cat ~/.namzu.bak', 'ls ~/project/.namzu2'])
+			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
+	})
+
+	it('keeps every floor pattern within the gate’s length limit, which refuses a longer one', () => {
+		const user = join(sb.root, 'user-home')
+		const deep = join(user, ...Array.from({ length: 40 }, (_, i) => `level-${i}`), '.namzu')
+		for (const home of [join(user, '.namzu'), deep]) {
+			const rules = scheduledRunFloor(home, user)
+			for (const rule of rules) {
+				if (rule.type === 'argument_pattern' || rule.type === 'custom_pattern')
+					expect(rule.pattern.length, rule.pattern).toBeLessThanOrEqual(500)
+			}
+			expect(decide(gate(rules), 'bash', { command: `cat ${home}/config.yaml` })).toBe('deny')
+		}
+	})
+
 	it('maps unmatched to the review mode', () => {
 		const mode = (unmatched: 'park' | 'deny' | 'allow') =>
 			compileJobPolicy(expandPermissions({ rules: {}, unmatched }), {

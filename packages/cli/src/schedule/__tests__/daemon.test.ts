@@ -21,7 +21,7 @@ import {
 import { writeRunResult } from '../fire/result.js'
 import { isClaimed } from '../store/claims.js'
 import { foldHistory, readHistory } from '../store/history.js'
-import { createJob, readJob } from '../store/jobs.js'
+import { createJob, deleteJob, readJob } from '../store/jobs.js'
 import { readState } from '../store/state.js'
 import type { ScheduleRunResult, ScheduleRunStatus } from '../types.js'
 import { type Sandbox, confirmedJob, jobRequest, sandbox } from './fixtures.js'
@@ -402,6 +402,66 @@ describe('upgrades', () => {
 		expect(
 			foldHistory(readHistory(sb.paths, oneShot.id)).find((r) => r.kind === 'run'),
 		).toMatchObject({ status: 'completed' })
+	})
+})
+
+describe('a run-now during an upgrade drain', () => {
+	it('is kept on disk and started by the daemon that takes over', async () => {
+		holdRuns = true
+		confirmedJob(
+			sb,
+			{ name: 'long', permissions: { preset: 'read-only' } },
+			new Date(clock - 60_000),
+		)
+		const other = confirmedJob(sb, { name: 'other', when: '0 9 * * *' }, new Date(clock - 60_000))
+		clock = Date.parse('2026-09-23T03:00:01Z')
+		const first = daemon()
+		await first.claimOwnership()
+		await first.tick()
+		first.drainAndRestart()
+		const answer = first.requestRunNow(other.id)
+		expect(answer.ok).toBe(true)
+		expect(answer.message).toMatch(/restarting/)
+		expect(first.requestRunNow(other.id).ok).toBe(false)
+		await first.tick()
+		expect(spawned.map((s) => s.job.name)).toEqual(['long'])
+		for (const release of releases.splice(0)) release()
+		await settle(first)
+		await first.releaseOwnership()
+		holdRuns = false
+		clock += 5_000
+		const second = daemon()
+		await second.claimOwnership()
+		await second.tick()
+		await settle(second)
+		expect(spawned.map((s) => s.job.name)).toEqual(['long', 'other'])
+		const started = spawned[1]
+		const runs = foldHistory(readHistory(sb.paths, other.id)).filter((r) => r.kind === 'run')
+		expect(runs).toHaveLength(1)
+		expect(runs[0]).toMatchObject({ status: 'completed', trigger: 'manual', runId: started?.runId })
+		expect(runs[0]).not.toHaveProperty('scheduledFor')
+		expect(runs[0]).not.toHaveProperty('delayedMs')
+		expect(started?.key).toBe(`manual-${started?.runId}`)
+		expect(readState(sb.paths, other.id).queued).toBeUndefined()
+	})
+})
+
+describe('a job removed while its run goes on', () => {
+	it('gets the run’s end in its history when the run exits', async () => {
+		holdRuns = true
+		const job = confirmedJob(sb, {}, new Date(clock - 60_000))
+		clock = Date.parse('2026-09-23T03:00:01Z')
+		const d = daemon()
+		await d.claimOwnership()
+		await d.tick()
+		expect(spawned).toHaveLength(1)
+		deleteJob(sb.paths, job.id)
+		for (const release of releases.splice(0)) release()
+		await settle(d)
+		const runs = foldHistory(readHistory(sb.paths, job.id)).filter((r) => r.kind === 'run')
+		expect(runs).toHaveLength(1)
+		expect(runs[0]).toMatchObject({ status: 'completed', runId: spawned[0]?.runId })
+		expect(runs[0]).toHaveProperty('endedAt')
 	})
 })
 

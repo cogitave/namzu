@@ -6,8 +6,10 @@
  * 1. the kernel's dangerous-command floor (`gateFor` puts it first; it DENIES,
  *    it never parks — an operator cannot approve `rm -rf /` later);
  * 2. the scheduled-run floor: no command that stops, disables or removes the
- *    scheduler, and no tool argument naming `NAMZU_HOME` (a run cannot rewrite
- *    its own job, its history or the credentials beside them);
+ *    scheduler service, no `schedule` subcommand but a read-only one, and no
+ *    tool argument naming `NAMZU_HOME` by its path, `~/…`, `$HOME/…` or
+ *    `$NAMZU_HOME` (a run cannot rewrite its own job, its history, the
+ *    daemon's endpoint token or the credentials beside them);
  * 3. every `deny` any config file wrote — user, project, managed — each file
  *    read on its own, so a project's allow cannot hide a user's deny;
  * 4. the job's own rules. ALLOWS COME ONLY FROM HERE: no config file can widen
@@ -22,6 +24,7 @@
  * CLI's back is held until someone confirms it.
  */
 
+import { homedir } from 'node:os'
 import type { AuthorizationRule } from '@namzu/sdk'
 import type { PermissionLayer } from '../config/load.js'
 import type { PermissionMode } from '../permissions/mode.js'
@@ -172,16 +175,58 @@ function loose(text: string): string {
 /** Space between words, with the quotes that may close and open around it. */
 const GAP = `[\\s"'\\\\]+`
 
+/** A path separator as it appears in JSON text (`\\` doubled), repeated or with `./` between, as the shell reads it. */
+const SEP = String.raw`[/\\]+(?:\.[/\\]+)*`
+/** Quotes the shell drops around a path segment, as they appear in JSON text. */
+const QUOTES = String.raw`(?:\\"|')*`
+/** Not followed by more of a path segment's name: `/tmp/x` does not match `/tmp/x2`. */
+const SEGMENT_END = '(?![A-Za-z0-9._-])'
+/** The gate refuses a longer pattern (`MAX_CUSTOM_PATTERN_LENGTH`). */
+const MAX_PATTERN = 500
+
+const jsonText = (text: string) => escapeRegExp(JSON.stringify(text).slice(1, -1))
+
+/**
+ * The ways a tool argument names `namzuHome`: its absolute path (with
+ * doubled slashes or `./` in it), `~/…`, `$HOME/…` or `${HOME}/…` (quoted or
+ * not) when it is under the user's home, and `$NAMZU_HOME`. Not `..`, not a
+ * relative path after a `cd`, not a variable: a pattern cannot resolve those.
+ */
+export function namzuHomePatterns(namzuHome: string, userHome: string): string[] {
+	const split = (path: string) => path.split(/[\\/]+/).filter((s) => s.length > 0 && s !== '.')
+	const home = split(namzuHome)
+	// A home so deep the whole path does not fit is matched by as many of its
+	// trailing segments as do: broader, never narrower.
+	let absolute = `${/^[\\/]/.test(namzuHome) ? SEP : ''}${home.map(jsonText).join(SEP)}${SEGMENT_END}`
+	for (let from = 1; absolute.length > MAX_PATTERN && from < home.length; from++)
+		absolute = `${SEP}${home.slice(from).map(jsonText).join(SEP)}${SEGMENT_END}`
+	const patterns = [absolute, String.raw`\$\{?NAMZU_HOME\b`]
+	const user = split(userHome)
+	if (
+		user.length > 0 &&
+		home.length > user.length &&
+		user.every((segment, i) => segment === home[i])
+	) {
+		const below = home
+			.slice(user.length)
+			.map((segment) => `${QUOTES}${jsonText(segment)}${QUOTES}`)
+			.join(SEP)
+		const relative = `(?:~[A-Za-z0-9._-]*|\\$\\{?HOME\\b\\}?)${QUOTES}${SEP}${below}${SEGMENT_END}`
+		if (relative.length <= MAX_PATTERN) patterns.push(relative)
+	}
+	return patterns
+}
+
+/** Scheduler verbs a run may use: they read, they change nothing. */
+const READ_ONLY_VERBS = ['list', 'show', 'status', 'history', 'logs']
+
 /** Rules that keep a scheduled run away from its own scheduler and its own records. */
-export function scheduledRunFloor(namzuHome: string): AuthorizationRule[] {
-	const home = namzuHome.replace(/[\\/]+$/, '')
-	// Tool arguments are matched as JSON text, where a backslash is doubled.
-	const asJson = JSON.stringify(home).slice(1, -1)
-	// Followed by a separator or the end of the value, so `/tmp/x` does not
-	// also match a sibling `/tmp/x2`.
-	const homePatterns = [`${escapeRegExp(asJson)}(?=/|\\\\\\\\|")`, '\\$\\{?NAMZU_HOME\\b']
+export function scheduledRunFloor(
+	namzuHome: string,
+	userHome: string = homedir(),
+): AuthorizationRule[] {
 	// One rule per verb: each word spelled loosely is long, and the gate caps
-	// a pattern at 500 characters.
+	// a pattern at 500 characters (and refuses a longer one).
 	const bash = (pattern: string): AuthorizationRule => ({
 		type: 'argument_pattern',
 		toolNames: ['bash'],
@@ -189,6 +234,14 @@ export function scheduledRunFloor(namzuHome: string): AuthorizationRule[] {
 		pattern,
 		decision: 'deny',
 	})
+	// Any `schedule` subcommand but a read-only one, however the CLI is
+	// reached: `namzu`, `npx @namzu/cli`, `node …/@namzu/cli/dist/bin.js`,
+	// `node packages/cli/dist/bin.js`; options may come between. The verb
+	// must start right after the space and its quotes, so `"list"` cannot be
+	// read as a space followed by a verb `"list"`. Within one command of a
+	// list: `;`, `&` and `|` end the search.
+	const readOnly = READ_ONLY_VERBS.map(caseless).join('|')
+	const scheduleVerb = `[^;&|\\n]*\\b${loose('schedule')}${GAP}(?![\\s"'\\\\])(?!(?:${readOnly})(?![A-Za-z0-9_-]))`
 	return [
 		...['stop', 'disable', 'mask', 'edit', 'kill', 'revert'].map((verb) =>
 			bash(`${loose('systemctl')}\\b.*\\b${loose(verb)}\\b.*${loose('namzu-scheduler')}`),
@@ -200,10 +253,9 @@ export function scheduledRunFloor(namzuHome: string): AuthorizationRule[] {
 			`${loose('schtasks')}(\\.${loose('exe')})?\\b.*/(${loose('delete')}|${loose('change')}|${loose('end')})\\b.*${loose('namzu')}`,
 		),
 		bash(`\\b(${loose('pkill')}|${loose('killall')})\\b.*${loose('namzu')}`),
-		...['stop', 'uninstall', 'remove', 'edit', 'pause', 'confirm'].map((verb) =>
-			bash(`${loose('namzu')}${GAP}${loose('schedule')}${GAP}${loose(verb)}`),
-		),
-		...homePatterns.map(
+		bash(`\\b${loose('namzu')}\\b${scheduleVerb}`),
+		bash(`\\b${loose('bin')}["'\\\\]*\\.["'\\\\]*${loose('js')}\\b${scheduleVerb}`),
+		...namzuHomePatterns(namzuHome, userHome).map(
 			(pattern): AuthorizationRule => ({
 				type: 'custom_pattern',
 				pattern,
@@ -266,7 +318,7 @@ export function compileJobPolicy(
 	]
 	const lines = [
 		'dangerous commands (rm -rf /, mkfs, curl | sh, sudo …): deny, always',
-		'stopping or removing the scheduler, and anything naming NAMZU_HOME: deny',
+		`the scheduler's commands (but ${READ_ONLY_VERBS.join(', ')}), and anything naming NAMZU_HOME: deny`,
 		...denyLines,
 		...Object.entries(set.rules).flatMap(([tool, permission]) => lineFor(tool, permission)),
 		`anything else: ${set.unmatched === 'park' ? 'wait for the operator' : set.unmatched === 'deny' ? 'deny' : 'run without asking'}`,

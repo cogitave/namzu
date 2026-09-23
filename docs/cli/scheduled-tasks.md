@@ -83,9 +83,13 @@ one), and the digest is a plain hash that such a program can recompute after
 writing a job file itself. They stop a job appearing from a script's or a
 model's ordinary shell call, and an edit that forgets the digest; they do not
 stop a program running under your account that sets out to get past them.
-What does hold against a scheduled run is the rest of this page: a run cannot
-reach `NAMZU_HOME` or the scheduler's commands (the floor below), and nothing
-it asks beyond its rules is approved without you.
+What holds against a scheduled run is its permission set: nothing it asks
+beyond its rules is approved without you. The floor below, which refuses the
+scheduler's commands and paths into `NAMZU_HOME`, is a pattern check on the
+same footing as these tripwires: it catches the ordinary ways of writing them,
+not every way. A job whose rules allow `bash` without asking, or that uses
+`unmatched: allow`, can reach whatever your account can if the model sets out
+to; give such a job `execution: sandbox`, or keep `bash` on `ask`.
 
 A folder may not be `/`, your home directory itself, a folder that contains
 `NAMZU_HOME`, or anything inside `NAMZU_HOME`.
@@ -117,12 +121,16 @@ The rules a run is gated by, in order (the first that matches decides):
 1. the dangerous-command floor (`rm -rf /`, `mkfs`, `curl … | sh`, `sudo` …):
    **refused**, always. It never waits for you — an approval cannot open it;
 2. the scheduled-run floor: commands that stop, disable or remove the scheduler
-   (`systemctl --user stop namzu-scheduler…`, `launchctl bootout
-   com.namzu.scheduler…`, `schtasks /Delete … \namzu\…`, `namzu schedule
-   stop|remove|edit…`) and any tool argument naming `NAMZU_HOME` are refused.
-   The check reads through shell quoting (`namzu "schedule" confirm` is refused
-   too) but not through variables or `eval`: it is a pattern check and best
-   effort, alongside the digest and the hold above;
+   service (`systemctl --user stop namzu-scheduler…`, `launchctl bootout
+   com.namzu.scheduler…`, `schtasks /Delete … \namzu\…`), every `namzu
+   schedule` subcommand except `list`, `show`, `status`, `history` and `logs`
+   (however the CLI is reached: `namzu`, `npx @namzu/cli`, `node …/bin.js`),
+   and any tool argument naming `NAMZU_HOME` — by its absolute path (doubled
+   slashes and `./` included), as `~/…`, `$HOME/…` or `${HOME}/…` when it is
+   under your home, or as `$NAMZU_HOME` — are refused. The check reads through
+   shell quoting (`namzu "schedule" confirm` is refused too) but not through
+   variables, aliases, `eval`, `..` or a `cd` followed by a relative path: it
+   is a pattern check and best effort, alongside the digest and the hold above;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;
@@ -252,18 +260,30 @@ namzu schedule history <job> [--json]     # runs, skips and missed occurrences w
 namzu schedule edit <job> [options]       # change it; confirmed again
 namzu schedule pause|resume <job>
 namzu schedule run-now <job>              # through the scheduler, or here when it is not running
-namzu schedule remove <job> [--yes]            # history and run files are kept
+namzu schedule remove <job> [--yes] [--force]  # history and run files are kept
 namzu schedule prune [--older-than 30d] [--delete] # old runs and their sessions, removed jobs' too
 namzu schedule logs [--follow] [--job <name>]
 ```
 
+`remove` refuses a job with a run in progress or waiting for approval unless
+you pass `--force`. A forced removal leaves a running run to finish, and its
+end is still written to the removed job's history; a run waiting for approval
+has its turn closed and is recorded as `cancelled`, since nobody can answer it
+once the job is gone.
+
 `prune` covers removed jobs as well (without `--job`): their run files and run
 sessions older than the cutoff, and their history once no run of theirs is left.
+A removed job's run whose history still shows it open counts as over once its
+result file says so or no process holds its session.
 
 `run-now` with no scheduler running runs the job in your terminal, recorded as
 the job's run in progress exactly as a scheduled run is: a scheduler that
 starts meanwhile does not start the job beside it, and a run that parks waits
-for your approval, holds later occurrences and expires like any other.
+for your approval, holds later occurrences and expires like any other. A run
+stopped by its wall clock, by Ctrl-C, or by closing the terminal is recorded
+(`timed-out`, `interrupted`) before the process exits; one whose process was
+killed outright is settled by the next `run-now` or the scheduler, as soon as
+nothing holds its session.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
 tz, folder, nextFireAt?, lastRun?, activeRun? }] }`; `show` prints `{ "v": 1,

@@ -12,10 +12,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetCliLoggerForTests } from '../../logging.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { findScheduledPark } from '../../tui/schedule/resume.js'
-import { runNowCommand } from '../commands/lifecycle.js'
+import { removeCommand, runNowCommand } from '../commands/lifecycle.js'
 import { ScheduleDaemon } from '../daemon/daemon.js'
+import { sessionFacts } from '../daemon/sessions.js'
 import { foldHistory, readHistory } from '../store/history.js'
-import { readState } from '../store/state.js'
+import { readState, writeState } from '../store/state.js'
 import {
 	DEEPSEEK,
 	type Sandbox,
@@ -115,5 +116,39 @@ describe('a foreground run-now', () => {
 			),
 		).toBe(true)
 		await d.releaseOwnership()
+
+		// Removed with --force: the park nobody can answer any more is closed.
+		expect(
+			await removeCommand(recordingContext(), [job.name, '--home', sb.home, '--yes', '--force']),
+		).toBe(0)
+		const facts = await sessionFacts({
+			home: sb.home,
+			projectSlug: run?.projectSlug as string,
+			sessionId: run?.sessionId as string,
+		})
+		expect(facts?.activeTurn).toBeUndefined()
+		const runs = foldHistory(readHistory(sb.paths, job.id)).filter((r) => r.kind === 'run')
+		expect(runs[0]).toMatchObject({ status: 'cancelled' })
+	})
+
+	it('settles an earlier foreground run whose process is gone, and runs', async () => {
+		const job = confirmedJob(sb, { permissions: { preset: 'read-only' } })
+		const startedAt = new Date(Date.now() - 10 * 60_000).toISOString()
+		writeState(sb.paths, {
+			...readState(sb.paths, job.id),
+			activeRun: {
+				runId: 'dead',
+				key: 'manual-dead',
+				trigger: 'manual',
+				startedAt,
+				daemonEpoch: 'foreground',
+				status: 'running',
+			},
+		})
+		expect(await runNowCommand(recordingContext(), [job.name, '--home', sb.home], { agent })).toBe(
+			0,
+		)
+		const runs = foldHistory(readHistory(sb.paths, job.id)).filter((r) => r.kind === 'run')
+		expect(runs.map((r) => r.status).sort()).toEqual(['completed', 'interrupted'])
 	})
 })

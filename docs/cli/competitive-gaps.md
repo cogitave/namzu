@@ -114,9 +114,11 @@ same ground with these differences, each deliberate:
   (pausing is the operator's intent) and catches up only time the scheduler
   could not run, one run for the most recent occurrence within seven days.
 - Hermes guards the scheduler from its own runs with a lifecycle guard
-  (`cron/lifecycle_guard.py`); namzu has the equivalent pattern floor and, in
-  addition, a confirmation digest over each job, so a job file changed by
-  anything but the CLI is held until a person confirms it.
+  (`cron/lifecycle_guard.py`) that expands `~` and resolves paths; namzu's
+  floor is a narrower pattern check that matches the usual spellings of a path
+  (absolute, `~/…`, `$HOME/…`) and resolves nothing. Namzu adds a confirmation
+  digest over each job, so a job file changed by anything but the CLI is held
+  until it is confirmed again.
 - Both dedupe repeated failures (`cron/incidents.py`) and hold a job during a
   provider quota window (`cron/quota_hold.py`); namzu also pauses a job after
   five failures in a row.

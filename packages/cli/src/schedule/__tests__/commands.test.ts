@@ -154,4 +154,90 @@ describe('prune', () => {
 		expect(existsSync(sb.paths.runResult(kept.id, 'run-kept'))).toBe(false)
 		expect(existsSync(sb.paths.historyOf(kept.id))).toBe(true)
 	})
+
+	it('reaches the run of a job removed with --force while it ran, once the run is over', async () => {
+		const { existsSync } = await import('node:fs')
+		const { appendHistory } = await import('../store/history.js')
+		const { writeRunResult } = await import('../fire/result.js')
+		const { readState, writeState } = await import('../store/state.js')
+		const job = confirmedJob(sb, { name: 'busy' })
+		const startedAt = new Date(Date.now() - 120_000).toISOString()
+		const run = {
+			runId: 'run-busy',
+			key: 'manual-run-busy',
+			trigger: 'manual' as const,
+			startedAt,
+			daemonEpoch: 'e',
+			status: 'running' as const,
+		}
+		writeState(sb.paths, { ...readState(sb.paths, job.id), activeRun: run })
+		appendHistory(sb.paths, job.id, { v: 1, kind: 'run', at: startedAt, ...run })
+		const refused = recordingContext()
+		expect(await removeCommand(refused, ['busy', '--home', sb.home, '--yes'])).toBe(1)
+		expect(refused.out.errors[0]).toMatch(/in progress; pass --force/)
+		expect(
+			await removeCommand(recordingContext(), ['busy', '--home', sb.home, '--yes', '--force']),
+		).toBe(0)
+		// The run finishes after its job is gone, with no scheduler to record it.
+		writeRunResult(sb.paths, {
+			v: 1,
+			kind: 'schedule-run-result',
+			runId: 'run-busy',
+			jobId: job.id,
+			status: 'completed',
+			exitCode: 0,
+			startedAt,
+			endedAt: new Date(Date.now() - 1_000).toISOString(),
+		})
+		expect(
+			await pruneCommand(recordingContext(), [
+				'--home',
+				sb.home,
+				'--older-than',
+				'0s',
+				'--delete',
+				'--yes',
+			]),
+		).toBe(0)
+		expect(existsSync(sb.paths.historyOf(job.id))).toBe(false)
+		expect(existsSync(sb.paths.runResult(job.id, 'run-busy'))).toBe(false)
+	})
+
+	it('records a park removed with --force as cancelled, and prunes it', async () => {
+		const { existsSync } = await import('node:fs')
+		const { appendHistory, foldHistory, readHistory } = await import('../store/history.js')
+		const { readState, writeState } = await import('../store/state.js')
+		const job = confirmedJob(sb, { name: 'parked' })
+		const startedAt = new Date(Date.now() - 120_000).toISOString()
+		const run = {
+			runId: 'run-parked',
+			key: 'k',
+			trigger: 'scheduled' as const,
+			startedAt,
+			daemonEpoch: 'e',
+			status: 'awaiting-approval' as const,
+		}
+		writeState(sb.paths, { ...readState(sb.paths, job.id), activeRun: run })
+		appendHistory(sb.paths, job.id, { v: 1, kind: 'run', at: startedAt, ...run })
+		const refused = recordingContext()
+		expect(await removeCommand(refused, ['parked', '--home', sb.home, '--yes'])).toBe(1)
+		expect(refused.out.errors[0]).toMatch(/waiting for approval; pass --force .* abandoned/)
+		expect(
+			await removeCommand(recordingContext(), ['parked', '--home', sb.home, '--yes', '--force']),
+		).toBe(0)
+		const runs = foldHistory(readHistory(sb.paths, job.id)).filter((r) => r.kind === 'run')
+		expect(runs[0]).toMatchObject({ status: 'cancelled', runId: 'run-parked' })
+		await new Promise((r) => setTimeout(r, 5))
+		expect(
+			await pruneCommand(recordingContext(), [
+				'--home',
+				sb.home,
+				'--older-than',
+				'0s',
+				'--delete',
+				'--yes',
+			]),
+		).toBe(0)
+		expect(existsSync(sb.paths.historyOf(job.id))).toBe(false)
+	})
 })

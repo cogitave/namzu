@@ -443,7 +443,26 @@ export class ScheduleDaemon {
 		if (state.activeRun || state.queued || this.#manual.some((m) => m.jobId === job.id)) {
 			return { ok: false, message: `${job.name} already has a run` }
 		}
-		this.#manual.push({ jobId: job.id, runId: generateScheduleRunId() })
+		const runId = generateScheduleRunId()
+		if (this.#draining) {
+			// This daemon starts nothing more and its memory goes with it: the run
+			// is left queued on disk, for the daemon that takes over.
+			const at = new Date(this.#now()).toISOString()
+			writeState(this.#o.paths, {
+				...state,
+				queued: {
+					key: `${MANUAL_KEY_PREFIX}${runId}`,
+					scheduledFor: at,
+					trigger: 'manual',
+					queuedAt: at,
+				},
+			})
+			return {
+				ok: true,
+				message: `${job.name} queued; the scheduler is restarting for an upgrade and starts it once it is back`,
+			}
+		}
+		this.#manual.push({ jobId: job.id, runId })
 		this.wake()
 		return { ok: true, message: `${job.name} queued` }
 	}
@@ -721,6 +740,19 @@ export class ScheduleDaemon {
 		return true
 	}
 
+	/**
+	 * Settle the job's run in progress if its process is gone, as a tick
+	 * would, without evaluating the schedule. For a foreground `run-now`
+	 * finding a run no scheduler is left to settle.
+	 */
+	async reconcileJob(jobId: string): Promise<ScheduleJobState | undefined> {
+		const job = readJob(this.#o.paths, jobId)
+		if (!job) return undefined
+		const state = await this.#reconcile(job, readState(this.#o.paths, jobId), this.#now())
+		await this.settled()
+		return state
+	}
+
 	/** Finalise or adopt the job's run in progress, if it has one. */
 	async #reconcile(
 		job: ScheduleJob,
@@ -890,27 +922,7 @@ export class ScheduleDaemon {
 		const at = new Date(now).toISOString()
 		const status: ScheduleRunStatus = result.status === 'running' ? 'interrupted' : result.status
 		this.#running.delete(run.runId)
-		appendHistory(paths, job.id, {
-			v: 1,
-			kind: 'run',
-			at,
-			runId: run.runId,
-			key: run.key,
-			trigger: run.trigger,
-			...(run.scheduledFor ? { scheduledFor: run.scheduledFor } : {}),
-			startedAt: run.startedAt,
-			...(status === 'awaiting-approval' ? {} : { endedAt: result.endedAt ?? at }),
-			...(run.delayedMs
-				? { delayedMs: run.delayedMs, delayReason: run.delayReason ?? 'concurrency-cap' }
-				: {}),
-			...(result.sessionId ? { sessionId: result.sessionId } : {}),
-			status,
-			...(result.reason ? { reason: result.reason } : {}),
-			exitCode: result.exitCode,
-			...(result.summary ? { summary: result.summary } : {}),
-			...(result.usage ? { usage: result.usage } : {}),
-			...(result.warnings ? { warnings: result.warnings } : {}),
-		})
+		appendRunRecord(paths, job.id, run, result, at)
 		const current = readState(paths, job.id)
 		const failed =
 			status === 'failed' ||
@@ -1096,8 +1108,13 @@ export class ScheduleDaemon {
 			}
 			const delayReason = this.#delayReasons.get(job.id)
 			this.#delayReasons.delete(job.id)
-			const runId = entry.manual ?? generateScheduleRunId()
-			const key = entry.manual ? `manual-${runId}` : (queued?.key as string)
+			// A manual run queued on disk (during a drain) keeps the run id its key names.
+			const queuedManual =
+				!entry.manual && queued?.trigger === 'manual' && queued.key.startsWith(MANUAL_KEY_PREFIX)
+					? queued.key.slice(MANUAL_KEY_PREFIX.length)
+					: undefined
+			const runId = entry.manual ?? queuedManual ?? generateScheduleRunId()
+			const key = entry.manual ? `${MANUAL_KEY_PREFIX}${runId}` : (queued?.key as string)
 			const trigger: ScheduleRunTrigger = entry.manual ? 'manual' : (queued?.trigger ?? 'scheduled')
 			if (
 				!claimOccurrence(paths, {
@@ -1113,12 +1130,13 @@ export class ScheduleDaemon {
 					writeState(paths, withoutUndefined({ ...readState(paths, job.id), queued: undefined }))
 				continue
 			}
-			const delayedMs = queued ? Math.max(0, now - Date.parse(queued.queuedAt)) : 0
+			const delayedMs =
+				queued && trigger !== 'manual' ? Math.max(0, now - Date.parse(queued.queuedAt)) : 0
 			const run: ActiveRun = withoutUndefined({
 				runId,
 				key,
 				trigger,
-				scheduledFor: queued?.scheduledFor,
+				scheduledFor: trigger === 'manual' ? undefined : queued?.scheduledFor,
 				startedAt: new Date(now).toISOString(),
 				daemonEpoch: this.#o.epoch,
 				status: 'running' as const,
@@ -1202,6 +1220,27 @@ export class ScheduleDaemon {
 					)
 				} else {
 					this.#running.delete(runId)
+					// The job was removed (`remove --force`) while this run went on:
+					// nothing will ever settle it, so its end is written here, where
+					// `prune` finds it.
+					if (!readJob(paths, job.id)) {
+						const result = readRunResult(paths, job.id, runId)
+						appendRunRecord(
+							paths,
+							job.id,
+							run,
+							isFinal(result)
+								? (result as ScheduleRunResult)
+								: {
+										...this.#emptyResult(latest, run),
+										...(result ?? {}),
+										status: 'interrupted',
+										exitCode: 1,
+										reason: 'the run ended without recording a result',
+									},
+							new Date(this.#now()).toISOString(),
+						)
+					}
 				}
 				this.wake()
 			})
@@ -1212,6 +1251,44 @@ export class ScheduleDaemon {
 	async settled(): Promise<void> {
 		await Promise.allSettled(this.#finalizing.splice(0))
 	}
+}
+
+/** A manual run's occurrence key is this and its run id. */
+export const MANUAL_KEY_PREFIX = 'manual-'
+
+/**
+ * Append the record of how a run ended (or parked) to its job's history. A
+ * run still `running` is recorded `interrupted`: the record is final.
+ */
+export function appendRunRecord(
+	paths: SchedulePaths,
+	jobId: string,
+	run: ActiveRun,
+	result: ScheduleRunResult,
+	at: string,
+): void {
+	const status: ScheduleRunStatus = result.status === 'running' ? 'interrupted' : result.status
+	appendHistory(paths, jobId, {
+		v: 1,
+		kind: 'run',
+		at,
+		runId: run.runId,
+		key: run.key,
+		trigger: run.trigger,
+		...(run.scheduledFor ? { scheduledFor: run.scheduledFor } : {}),
+		startedAt: run.startedAt,
+		...(status === 'awaiting-approval' ? {} : { endedAt: result.endedAt ?? at }),
+		...(run.delayedMs
+			? { delayedMs: run.delayedMs, delayReason: run.delayReason ?? 'concurrency-cap' }
+			: {}),
+		...(result.sessionId ? { sessionId: result.sessionId } : {}),
+		status,
+		...(result.reason ? { reason: result.reason } : {}),
+		exitCode: result.exitCode,
+		...(result.summary ? { summary: result.summary } : {}),
+		...(result.usage ? { usage: result.usage } : {}),
+		...(result.warnings ? { warnings: result.warnings } : {}),
+	})
 }
 
 /** Where `schedule stop` leaves its request. See `ScheduleDaemon#stopRequested`. */

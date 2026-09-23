@@ -6,6 +6,7 @@
  */
 
 import { readdirSync, rmSync, statSync } from 'node:fs'
+import { constants as osConstants } from 'node:os'
 import { join } from 'node:path'
 import {
 	NOOP_LOGGER,
@@ -13,21 +14,30 @@ import {
 	asSessionId,
 	generateScheduleRunId,
 	openSessionIndex,
+	releaseHeldSessionLeases,
 } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../../exit-codes.js'
 import { closeSessions, refreshIndex } from '../../integrations/sessions/store.js'
 import { CLI_VERSION } from '../../version.js'
-import { ScheduleDaemon } from '../daemon/daemon.js'
+import { MANUAL_KEY_PREFIX, ScheduleDaemon, appendRunRecord } from '../daemon/daemon.js'
 import { callEndpoint, readEndpoint } from '../daemon/endpoint.js'
+import { abandonParkedTurn, sessionFacts, sessionLeaseLive } from '../daemon/sessions.js'
 import { type FireDependencies, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
 import { claimOccurrence } from '../store/claims.js'
 import { appendHistory, foldHistory, readHistory } from '../store/history.js'
-import { confirmationHolds, deleteJob, findJob, listJobs, updateJob } from '../store/jobs.js'
+import {
+	confirmationHolds,
+	deleteJob,
+	findJob,
+	listJobs,
+	readJob,
+	updateJob,
+} from '../store/jobs.js'
 import { readState, writeState } from '../store/state.js'
-import type { ActiveRun, ScheduleRunResult } from '../types.js'
+import type { ActiveRun, ScheduleHistoryRecord, ScheduleRunResult } from '../types.js'
 import { flag, has, interactive, parseArgs, parseMs, pathsFor } from './args.js'
 import { askYesNo } from './confirm-prompt.js'
 
@@ -95,7 +105,10 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 		const state = readState(paths, job.id)
 		if (state.activeRun && !has(args, 'force')) {
 			ctx.formatter.error({
-				message: `${job.name} has a run ${state.activeRun.status === 'awaiting-approval' ? 'waiting for approval' : 'in progress'}; pass --force to remove the job anyway (the run is left to finish)`,
+				message:
+					state.activeRun.status === 'awaiting-approval'
+						? `${job.name} has a run waiting for approval; pass --force to remove the job anyway (the waiting turn is abandoned)`
+						: `${job.name} has a run in progress; pass --force to remove the job anyway (the run is left to finish)`,
 			})
 			return 1
 		}
@@ -106,7 +119,36 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 			}
 			if (!(await askYesNo(`Remove the scheduled job ${job.name}? Its history is kept.`))) return 1
 		}
+		// A park nobody can answer once the job is gone: its turn is closed and
+		// the run recorded now. A run still going records its own end.
+		const parked = state.activeRun?.status === 'awaiting-approval' ? state.activeRun : undefined
+		if (parked) {
+			const abandoned = await abandonRemovedPark(paths, parked)
+			if (!abandoned.ok) {
+				ctx.formatter.error({ message: `${job.name}: ${abandoned.reason}; not removed` })
+				return 1
+			}
+		}
 		deleteJob(paths, job.id)
+		if (parked) {
+			appendRunRecord(
+				paths,
+				job.id,
+				parked,
+				{
+					v: 1,
+					kind: 'schedule-run-result',
+					runId: parked.runId,
+					jobId: job.id,
+					startedAt: parked.startedAt,
+					...(parked.sessionId ? { sessionId: parked.sessionId } : {}),
+					status: 'cancelled',
+					exitCode: 1,
+					reason: 'the job was removed while the run waited for approval',
+				},
+				new Date().toISOString(),
+			)
+		}
 		appendHistory(paths, job.id, {
 			v: 1,
 			kind: 'job',
@@ -122,8 +164,51 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 	}
 }
 
+const REMOVED_PARK_REASON = 'Scheduled run: the job was removed'
+
+/** Close the parked turn of a job being removed, unless someone is answering it right now. */
+async function abandonRemovedPark(
+	paths: SchedulePaths,
+	run: ActiveRun,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+	if (!run.sessionId || !run.projectSlug || !run.turnId) return { ok: true }
+	const ref = { home: paths.home, projectSlug: run.projectSlug, sessionId: run.sessionId }
+	if (await sessionLeaseLive(ref)) {
+		return { ok: false, reason: 'its waiting run is open in a session right now' }
+	}
+	const facts = await sessionFacts(ref)
+	if (facts?.activeTurn?.turnId !== run.turnId || !facts.activeTurn.paused) return { ok: true }
+	try {
+		await abandonParkedTurn(ref, run.turnId, REMOVED_PARK_REASON)
+		return { ok: true }
+	} catch (error) {
+		return {
+			ok: false,
+			reason: `its waiting turn could not be closed: ${error instanceof Error ? error.message : String(error)}`,
+		}
+	}
+}
+
 /** The epoch a foreground `run-now` records its run under. */
 const FOREGROUND_EPOCH = 'foreground'
+
+/** A daemon that starts nothing: it records and settles a foreground run as a scheduler would. */
+function foregroundRecorder(paths: SchedulePaths): ScheduleDaemon {
+	return new ScheduleDaemon({
+		paths,
+		log: NOOP_LOGGER,
+		version: CLI_VERSION,
+		epoch: FOREGROUND_EPOCH,
+		maxConcurrentRuns: 1,
+		// The operator is at this terminal.
+		notifications: false,
+		spawnFire: () => {
+			throw new Error('a foreground recorder starts no runs')
+		},
+		notify: async () => {},
+		fingerprint: () => '',
+	})
+}
 
 export async function runNowCommand(
 	ctx: CommandContext,
@@ -158,13 +243,20 @@ export async function runNowCommand(
 			ctx.formatter.error({ message: `${job.name} is not active and confirmed` })
 			return 1
 		}
-		const state = readState(paths, job.id)
+		const recorder = foregroundRecorder(paths)
+		let state = readState(paths, job.id)
+		// An earlier foreground run whose process is gone (killed, the terminal
+		// closed) is settled first, as a scheduler would settle it.
+		if (state.activeRun?.daemonEpoch === FOREGROUND_EPOCH)
+			state = (await recorder.reconcileJob(job.id)) ?? state
 		if (state.activeRun) {
-			ctx.formatter.error({ message: `${job.name} already has a run` })
+			ctx.formatter.error({
+				message: `${job.name} already has a run ${state.activeRun.status === 'awaiting-approval' ? 'waiting for approval' : 'in progress'}`,
+			})
 			return 1
 		}
 		const runId = generateScheduleRunId()
-		const key = `manual-${runId}`
+		const key = `${MANUAL_KEY_PREFIX}${runId}`
 		const startedAt = new Date().toISOString()
 		if (
 			!claimOccurrence(paths, {
@@ -200,42 +292,68 @@ export async function runNowCommand(
 			startedAt,
 			status: 'running',
 		})
-		// This terminal's logging stays as the operator set it; a run started by
-		// the daemon writes JSON lines into its log file instead.
-		const code = await runFire(
-			ctx,
-			paths,
-			{ jobId: job.id, runId, key, revision: job.revision, trigger: 'manual' },
-			{ ...fireDeps, keepLogging: true },
-		)
-		const written = readRunResult(paths, job.id, runId)
-		const result: ScheduleRunResult = isFinal(written)
-			? (written as ScheduleRunResult)
-			: {
-					v: 1,
-					kind: 'schedule-run-result',
-					runId,
-					jobId: job.id,
-					startedAt,
-					...(written ?? {}),
-					status: 'interrupted',
-					exitCode: code || 1,
-					reason: 'the run ended without recording a result',
+		// How the run ended is recorded once, whichever way it ends: runFire
+		// returning, its watchdog stopping the process, or a signal.
+		let recorded: Promise<ScheduleRunResult> | undefined
+		const record = (code: number, reason: string): Promise<ScheduleRunResult> => {
+			recorded ??= (async () => {
+				const written = readRunResult(paths, job.id, runId)
+				const result: ScheduleRunResult = isFinal(written)
+					? (written as ScheduleRunResult)
+					: {
+							v: 1,
+							kind: 'schedule-run-result',
+							runId,
+							jobId: job.id,
+							startedAt,
+							...(written ?? {}),
+							status: 'interrupted',
+							exitCode: code || 1,
+							reason,
+						}
+				if (!(await recorder.finalizeRun(job.id, runId, result)) && !readJob(paths, job.id)) {
+					// Removed with --force meanwhile: nothing else will record it.
+					appendRunRecord(paths, job.id, run, result, new Date().toISOString())
 				}
-		await new ScheduleDaemon({
-			paths,
-			log: NOOP_LOGGER,
-			version: CLI_VERSION,
-			epoch: FOREGROUND_EPOCH,
-			maxConcurrentRuns: 1,
-			// The operator is at this terminal.
-			notifications: false,
-			spawnFire: () => {
-				throw new Error('a foreground recorder starts no runs')
-			},
-			notify: async () => {},
-			fingerprint: () => '',
-		}).finalizeRun(job.id, runId, result)
+				return result
+			})()
+			return recorded
+		}
+		const exit = fireDeps.exit ?? ((c: number) => process.exit(c))
+		const onSignal = (signal: NodeJS.Signals): void => {
+			const code = 128 + (osConstants.signals[signal] ?? 1)
+			void record(code, `the run was interrupted (${signal})`)
+				.catch(() => undefined)
+				.then(() => releaseHeldSessionLeases().catch(() => undefined))
+				.finally(() => exit(code))
+		}
+		const handlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map(
+			(signal) => [signal, () => onSignal(signal)] as const,
+		)
+		for (const [signal, handler] of handlers) process.on(signal, handler)
+		let code: number
+		try {
+			// This terminal's logging stays as the operator set it; a run started by
+			// the daemon writes JSON lines into its log file instead.
+			code = await runFire(
+				ctx,
+				paths,
+				{ jobId: job.id, runId, key, revision: job.revision, trigger: 'manual' },
+				{
+					...fireDeps,
+					keepLogging: true,
+					// The watchdog has written `timed-out`; record it before the process goes.
+					exit: (c) => {
+						void record(c, 'the run ended without recording a result')
+							.catch(() => undefined)
+							.finally(() => exit(c))
+					},
+				},
+			)
+		} finally {
+			for (const [signal, handler] of handlers) process.off(signal, handler)
+		}
+		const result = await record(code, 'the run ended without recording a result')
 		ctx.formatter.print({
 			text: `${job.name}: ${result?.status ?? 'interrupted'}${result?.reason ? ` — ${result.reason}` : ''}${result?.sessionId ? `\nsession ${result.sessionId}` : ''}`,
 			status: result?.status,
@@ -291,9 +409,12 @@ export async function pruneCommand(ctx: CommandContext, argv: readonly string[])
 	for (const subject of subjects) {
 		const kept = new Set<string>()
 		const seen = new Set<string>()
-		for (const r of foldHistory(readHistory(paths, subject.id))) {
-			if (r.kind !== 'run') continue
-			seen.add(r.runId)
+		for (const folded of foldHistory(readHistory(paths, subject.id))) {
+			if (folded.kind !== 'run') continue
+			seen.add(folded.runId)
+			// A removed job's run the history still shows open had nobody left to
+			// record its end: its own result, or its session, says whether it did.
+			const r = subject.removed ? await settleRemovedRun(paths, subject.id, folded) : folded
 			if (
 				r.runId === subject.active ||
 				r.status === 'awaiting-approval' ||
@@ -401,6 +522,43 @@ export async function pruneCommand(ctx: CommandContext, argv: readonly string[])
 		text: `Deleted ${doomed.length} runs${emptied.length > 0 ? ` and the history of ${emptied.length} removed jobs` : ''}.`,
 	})
 	return EXIT_OK
+}
+
+type RunRecord = Extract<ScheduleHistoryRecord, { kind: 'run' }>
+
+/**
+ * A removed job's run as it stands, when its history still shows it open:
+ * ended as its result file says, or `interrupted` once no process holds its
+ * session. A park is over: nobody can answer the park of a job that is gone.
+ */
+async function settleRemovedRun(
+	paths: SchedulePaths,
+	jobId: string,
+	r: RunRecord,
+): Promise<RunRecord> {
+	if (r.status !== 'running' && r.status !== 'awaiting-approval') return r
+	const result = readRunResult(paths, jobId, r.runId)
+	if (isFinal(result) && result?.status !== 'awaiting-approval') {
+		return {
+			...r,
+			status: result?.status as RunRecord['status'],
+			endedAt: result?.endedAt ?? r.at,
+			...(result?.sessionId ? { sessionId: result.sessionId } : {}),
+		}
+	}
+	const sessionId = result?.sessionId ?? r.sessionId
+	if (sessionId && result?.projectSlug) {
+		const ref = { home: paths.home, projectSlug: result.projectSlug, sessionId }
+		if (await sessionLeaseLive(ref)) return r
+	} else if (r.status === 'running' && Date.now() - Date.parse(r.startedAt) < 60_000) {
+		return r
+	}
+	const ended = mtimeOf(paths, jobId, r.runId)
+	return {
+		...r,
+		status: r.status === 'awaiting-approval' ? 'cancelled' : 'interrupted',
+		endedAt: new Date(Number.isFinite(ended) ? ended : Date.parse(r.at)).toISOString(),
+	}
 }
 
 /** Job ids with a definition file. */
