@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, ResumePausedParams } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { PAUSED_TURN_LINES } from '../turn-interruption.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 const CONVERSATION = '0ac90d46-4041-4402-8bc7-89c9a8c75f73'
@@ -192,6 +193,11 @@ describe('a turn a tool paused for a person', () => {
 		expect(resumed[0]?.turnId).toBe(PARKED)
 		expect(resumed[0]?.pendingDecision).toBeUndefined()
 		expect(abandoned).toHaveLength(0)
+		await until(
+			() => (harness.lastFrame() ?? '').includes(PAUSED_TURN_LINES.resuming),
+			'the continuing line',
+		)
+		expect(harness.lastFrame() ?? '').not.toContain(PARKED)
 	})
 
 	it('stops on Esc', async () => {
@@ -201,6 +207,11 @@ describe('a turn a tool paused for a person', () => {
 		expect(abandoned[0]).toBe(PARKED)
 		expect(resumed).toHaveLength(0)
 		await until(() => !(harness.lastFrame() ?? '').includes('enter continue'), 'the hint cleared')
+		await until(
+			() => (harness.lastFrame() ?? '').includes('Stopped the paused turn.'),
+			'the stopped line',
+		)
+		expect(harness.lastFrame() ?? '').not.toContain(PARKED)
 	})
 })
 
@@ -231,6 +242,11 @@ describe('namzu resume <id> of a scheduled run a tool paused for a person', () =
 		expect(resumed[0]?.turnId).toBe(PARKED)
 		expect(resumed[0]?.permissionMode).toBe('prompt')
 		expect(abandoned).toHaveLength(0)
+		await until(
+			() => (harness.lastFrame() ?? '').includes(PAUSED_TURN_LINES.resuming),
+			'the continuing line',
+		)
+		expect(harness.lastFrame() ?? '').not.toContain(PARKED)
 	})
 
 	it('abandons the run on Abandon', async () => {
@@ -241,5 +257,11 @@ describe('namzu resume <id> of a scheduled run a tool paused for a person', () =
 		await until(() => abandoned.length > 0, 'the abandoned turn')
 		expect(abandoned[0]).toBe(PARKED)
 		expect(resumed).toHaveLength(0)
+		await until(
+			() => (harness.lastFrame() ?? '').includes(PAUSED_TURN_LINES.abandonedScheduled),
+			'the stopped line',
+		)
+		expect(harness.lastFrame() ?? '').not.toContain(PARKED)
+		expect(harness.lastFrame() ?? '').not.toContain(PAUSED_TURN_LINES.resuming)
 	})
 })

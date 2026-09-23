@@ -139,3 +139,15 @@ function describeHandoff(event: Extract<Interruption, { kind: 'paused' }>): stri
 	rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)
 	return rows.join('\n')
 }
+
+/**
+ * What the terminal says when `/abandon`, `/resume` or a parked scheduled
+ * run's Abandon acts on a paused turn. In words, never the turn's id: an id
+ * is a handle for the log, and "Abandoned turn 0199…" read to a person as an
+ * error code.
+ */
+export const PAUSED_TURN_LINES = {
+	abandoned: 'Stopped the paused turn. Your next message starts a new one in this conversation.',
+	resuming: 'Continuing where it paused…',
+	abandonedScheduled: 'Stopped this run. The job stays scheduled.',
+} as const

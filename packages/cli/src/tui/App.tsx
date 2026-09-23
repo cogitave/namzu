@@ -236,7 +236,11 @@ import {
 	permissionReviewRows,
 	releasedByApproveAll,
 } from './permission-review.js'
-import { describeTurnInterruption, describeTurnStop } from './turn-interruption.js'
+import {
+	PAUSED_TURN_LINES,
+	describeTurnInterruption,
+	describeTurnStop,
+} from './turn-interruption.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import type { BrowserControl } from '../browser/control.js'
 import { moveSelection } from './selection-window.js'
@@ -3867,10 +3871,7 @@ export function App({
 					return
 				}
 				await session.abandonTurn(active.turnId as TurnId, reason)
-				pushMessage(
-					'system',
-					`Abandoned turn ${active.turnId}. The next prompt starts a new turn in this conversation.`,
-				)
+				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
 				pushMessage(
 					'system',
@@ -3913,7 +3914,6 @@ export function App({
 			sessionId: scope.sessionId,
 			notification: null,
 		}
-		pushMessage('system', `Resuming turn ${active.turnId} from its checkpoint.`, false, '▶')
 		let scheduledRun = false
 		try {
 			// A scheduled run parked on a decision: the operator answers the
@@ -3936,10 +3936,13 @@ export function App({
 				scheduledRun = true
 				if (!session.abandonTurn) throw new Error('this session cannot abandon turns')
 				await session.abandonTurn(active.turnId as TurnId, scheduled.abandon)
-				pushMessage('system', `Abandoned turn ${active.turnId}. The job stays scheduled.`)
+				pushMessage('system', PAUSED_TURN_LINES.abandonedScheduled)
 				return true
 			}
 			scheduledRun = scheduled !== undefined
+			// Said once the turn really continues: a scheduled park can still
+			// be left waiting or abandoned above.
+			pushMessage('system', PAUSED_TURN_LINES.resuming, false, '▶')
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
