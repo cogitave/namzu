@@ -15,6 +15,7 @@ import { Command, CommanderError, Option } from 'commander'
 import { BOOT_EVENT_NAMES, EVENT_NAME_ATTRIBUTE, VERSION as SDK_VERSION } from '@namzu/sdk'
 
 import { acpCommand } from './commands/acp.js'
+import { browserCommand } from './commands/browser.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
@@ -62,6 +63,7 @@ import {
 } from './logging.js'
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
+import { compileBrowserSites, withBrowserSiteRules } from './permissions/browser-sites.js'
 import { compilePermissions } from './permissions/rules.js'
 import { CLI_VERSION } from './version.js'
 
@@ -351,6 +353,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		serveCommand,
 		stateCommand,
 		scheduleCommand,
+		browserCommand,
 	]) {
 		registerAll(program, [def], {
 			getContext:
@@ -363,7 +366,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === drainCommand ||
 								def === skillsCommand ||
 								def === upgradeCommand ||
-								def === scheduleCommand
+								def === scheduleCommand ||
+								def === browserCommand
 							? getBootstrapContext
 							: getContext,
 			setExitCode,
@@ -396,6 +400,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
 					resolvedCtx.formatter.error({ message: `${where}: ${d.message}` })
 				}
+				// The browser is the TUI's alone. Its site rules go ahead of the
+				// table, behind any table deny that names a browser tool.
+				const browserConfig = resolvedCtx.config.browser
+				const browserSites =
+					browserConfig?.enabled === false ? undefined : compileBrowserSites(browserConfig?.sites)
+				for (const message of browserSites?.diagnostics ?? []) {
+					resolvedCtx.formatter.error({ message })
+				}
 				const additionalDirectories = [
 					...(resolvedCtx.config.additionalDirectories ?? []),
 					...(launchOpts.addDir ?? []),
@@ -407,11 +419,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					configDebug: resolvedCtx.configDebug,
 					skipPermissions,
 					...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
-					rules: permissions.rules,
+					rules: browserSites
+						? withBrowserSiteRules(permissions.rules, browserSites.rules)
+						: permissions.rules,
+					...(browserSites ? { browser: { ...browserConfig, sites: browserSites.sites } } : {}),
 					logging: resolvedCtx.logging,
 					...(initialConversationId ? { initialConversationId } : {}),
 					...(resolvedCtx.config.mcpServers ? { mcpServers: resolvedCtx.config.mcpServers } : {}),
 					...(resolvedCtx.config.plugins ? { plugins: resolvedCtx.config.plugins } : {}),
+					...(resolvedCtx.config.skills ? { skills: resolvedCtx.config.skills } : {}),
 					...(resolvedCtx.config.web ? { web: resolvedCtx.config.web } : {}),
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),

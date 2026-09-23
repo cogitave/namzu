@@ -510,6 +510,11 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		}
 	}
 
+	if (name === 'browser' && isRecord(input)) {
+		const summary = summarizeBrowserOpen(input)
+		if (summary) return summary
+	}
+
 	if (FORMATTED_TOOLS.has(name)) {
 		// A shape this file formats, in a form it does not know: the formatter
 		// is stale. Exact-first, so nobody reads a projection that merely
@@ -536,6 +541,39 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 		}
 	}
 	return { lines: [`input: ${JSON.stringify(input)}`], complete: true }
+}
+
+/**
+ * A browser navigation, with its address readable: the path and query as a
+ * person writes them (`/wiki/İstanbul`, not `/wiki/%C4%B0stanbul`), and the
+ * address actually sent below it when the two differ. The host stays in its
+ * canonical (punycode) form: that is the part a lookalike would abuse.
+ * Any other browser call keeps the generic every-key listing.
+ */
+function summarizeBrowserOpen(input: Record<string, unknown>): ReadableCallSummary | null {
+	const keys = Object.keys(input)
+	const navigate =
+		input.action === 'navigate' && keys.every((key) => key === 'action' || key === 'url')
+	const newTab =
+		input.action === 'tabs' &&
+		input.op === 'new' &&
+		keys.every((key) => key === 'action' || key === 'op' || key === 'url')
+	if ((!navigate && !newTab) || typeof input.url !== 'string') return null
+	const url = input.url
+	let readable = url
+	try {
+		const parsed = new URL(url)
+		readable = `${parsed.protocol}//${parsed.host}${decodeURI(`${parsed.pathname}${parsed.search}${parsed.hash}`)}`
+	} catch {
+		readable = url
+	}
+	return {
+		lines: [
+			`${newTab ? 'Open in a new tab' : 'Open'}: ${readable}`,
+			...(readable !== url ? [`sent as: ${url}`] : []),
+		],
+		complete: true,
+	}
 }
 
 const PLAIN_TOOL_NAME = /^[\w.:-]+$/u

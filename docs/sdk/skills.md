@@ -10,7 +10,7 @@ generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
 
 # Skills and allowed-tools
 
-A skill is a directory with a `SKILL.md`: YAML frontmatter (`name`, `description`, optional `allowed-tools`, `invocation`, `license`, `compatibility`, `metadata`) and a markdown body. The system prompt lists the skills the model may use. The body reaches the model when it calls the `skill` tool (`SkillTool`, `packages/sdk/src/tools/builtins/skill.ts`) with the skill's listed name. A host registers that tool next to a `SkillRegistry` and passes the registry to `query()` as `skillRegistry`.
+A skill is a directory with a `SKILL.md`: YAML frontmatter (`name`, `description`, optional `allowed-tools`, `invocation`, `license`, `compatibility`, `metadata`) and a markdown body. The system prompt lists the skills the model may use. The body reaches the model when it calls the `skill` tool (`SkillTool`, `packages/sdk/src/tools/builtins/skill.ts`) with the skill's listed name. A host registers that tool next to a `SkillRegistry` and passes the registry to `query()` as `skillRegistry`. The tool presents a call as `Read skill <name>` (`List skills` without a name) and hides a successful result (`presentResult` with `visibility: 'hidden'`), so a host draws one row for it and does not print the body, which is written for the model.
 
 # What allowed-tools means
 

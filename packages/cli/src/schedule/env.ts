@@ -31,6 +31,11 @@ export const CHILD_ENV_ALLOWLIST = [
 	'USERPROFILE',
 	'APPDATA',
 	'LOCALAPPDATA',
+	// A job with `browser.headed` opens a window: X11, Wayland (WSLg sets
+	// both), and the X authority file a display may need.
+	'DISPLAY',
+	'WAYLAND_DISPLAY',
+	'XAUTHORITY',
 ] as const
 
 /** `PATH` without Windows drive mounts: under WSL a failed lookup through `/mnt/c` costs seconds. */

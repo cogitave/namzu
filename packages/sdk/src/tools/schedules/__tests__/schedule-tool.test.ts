@@ -103,6 +103,7 @@ describe('schedule tool', () => {
 			const { host, created } = fakeHost(answer)
 			const result = await tool(host).execute(createInput, context)
 			expect(result.success).toBe(false)
+			expect(result.data).toEqual({ cancelled: true })
 			expect(created).toEqual([])
 		},
 	)
@@ -133,7 +134,7 @@ describe('schedule tool', () => {
 			context,
 		)
 		expect(result.success).toBe(false)
-		expect(result.error).toMatch(/web access/)
+		expect(result.error).toMatch(/web or browser access/)
 		const sandboxed = await tool(host).execute(
 			{
 				...createInput,
@@ -192,6 +193,19 @@ describe('schedule tool', () => {
 		const result = await tool(host).execute({ action: 'list' }, context)
 		expect(result.output).toContain('nightly')
 		expect(host.list).toHaveBeenCalledWith({ allFolders: false })
+	})
+
+	it('tells the model what the host says the job still needs', async () => {
+		const { host } = fakeHost('create', {
+			create: vi.fn(async (_d, p) => ({
+				name: p.name,
+				note: 'No scheduler is installed; tell the operator to run namzu schedule install.',
+			})),
+		})
+		const result = await tool(host).execute(createInput as never, {} as never)
+		expect(result.output).toMatch(
+			/^Job "host-name" was created\. .* No scheduler is installed; tell the operator to run namzu schedule install\.$/,
+		)
 	})
 
 	it('presents calls in words without ids or JSON', () => {
@@ -269,5 +283,178 @@ describe('prompt scan', () => {
 		expect(revealHiddenCharacters(`a${ZERO_WIDTH}b${RIGHT_TO_LEFT_OVERRIDE}c`)).toBe(
 			'a<U+200B>b<U+202E>c',
 		)
+	})
+})
+
+describe('schedule tool: browser grant', () => {
+	const browserInput = (browser: unknown, rules: Record<string, unknown> = { bash: 'deny' }) => ({
+		...createInput,
+		permissions: { unmatched: 'deny', rules, browser },
+	})
+	const grantingHost = (answer: unknown = 'create') => {
+		const made = fakeHost(answer)
+		;(made.host as { browserGrants?: boolean }).browserGrants = true
+		return made
+	}
+
+	it('hands the host canonical site keys', async () => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(
+			browserInput({
+				profile: 'work',
+				sites: {
+					'HTTPS://GitHub.com:443/': 'read',
+					'https://*.Example.com': 'ask',
+					'http://localhost:*': 'act',
+				},
+				headed: true,
+			}),
+			context,
+		)
+		expect(result.success).toBe(true)
+		expect(host.preview).toHaveBeenCalledWith(
+			expect.objectContaining({
+				permissions: expect.objectContaining({
+					browser: {
+						profile: 'work',
+						sites: {
+							'https://github.com': 'read',
+							'https://*.example.com': 'ask',
+							'http://localhost:*': 'act',
+						},
+						headed: true,
+					},
+				}),
+			}),
+		)
+	})
+
+	it('is a permission set on its own', async () => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(
+			{
+				...createInput,
+				permissions: {
+					unmatched: 'deny',
+					browser: { profile: 'work', sites: { 'https://github.com': 'read' } },
+				},
+			},
+			context,
+		)
+		expect(result.success).toBe(true)
+	})
+
+	it('refuses a grant the host cannot store, rather than let it be dropped', async () => {
+		const { host } = fakeHost('create')
+		const result = await tool(host).execute(
+			browserInput({ profile: 'work', sites: { 'https://github.com': 'read' } }),
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/cannot give a scheduled job browser access/)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		[{ profile: 'work', sites: { '*': 'read' } }, /cannot grant every site/],
+		[{ profile: 'work', sites: {} }, /sites is empty/],
+		[{ profile: 'work', sites: { 'https://github.com/login': 'read' } }, /not a site/],
+		[{ profile: 'work', sites: { 'file:///etc': 'read' } }, /not a site|scheme/],
+		[{ profile: 'work', sites: { 'http://169.254.169.254': 'read' } }, /metadata/],
+		[
+			{ profile: 'work', sites: { 'https://github.com': 'read', 'HTTPS://GITHUB.COM': 'act' } },
+			/twice with different levels/,
+		],
+	])('refuses %j', async (browser, message) => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(browserInput(browser), context)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(message)
+		expect(host.preview).not.toHaveBeenCalled()
+	})
+
+	it('refuses a bad profile name or level in the schema', () => {
+		const t = tool(grantingHost().host)
+		for (const browser of [
+			{ profile: 'Work Profile', sites: { 'https://github.com': 'read' } },
+			{ profile: 'work', sites: { 'https://github.com': 'allow' } },
+			{ profile: 'work', sites: { 'https://github.com': 'deny' } },
+		]) {
+			expect(t.inputSchema.safeParse(browserInput(browser)).success, JSON.stringify(browser)).toBe(
+				false,
+			)
+		}
+	})
+
+	it('counts the browser as network: refused beside a host shell', async () => {
+		const { host } = grantingHost()
+		const result = await tool(host).execute(
+			browserInput({ profile: 'work', sites: { 'https://github.com': 'read' } }, { bash: 'ask' }),
+			context,
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/web or browser access with a shell on the host/)
+	})
+
+	it('reads the read-only preset as no shell, and edit-in-folder as one', async () => {
+		const grant = { profile: 'work', sites: { 'https://github.com': 'read' } }
+		const readOnly = await tool(grantingHost().host).execute(
+			{ ...createInput, permissions: { preset: 'read-only', unmatched: 'park', browser: grant } },
+			context,
+		)
+		expect(readOnly.success).toBe(true)
+		const editing = await tool(grantingHost().host).execute(
+			{
+				...createInput,
+				permissions: { preset: 'edit-in-folder', unmatched: 'park', browser: grant },
+			},
+			context,
+		)
+		expect(editing.success).toBe(false)
+		expect(editing.error).toMatch(/web or browser access with a shell on the host/)
+		const override = await tool(grantingHost().host).execute(
+			{
+				...createInput,
+				permissions: {
+					preset: 'read-only',
+					unmatched: 'park',
+					rules: { bash: 'ask' },
+					browser: grant,
+				},
+			},
+			context,
+		)
+		expect(override.success).toBe(false)
+	})
+})
+
+describe('schedule tool: budget words', () => {
+	it('says a budget is one run’s, and that an iteration is a model step, not a repetition', () => {
+		const t = tool(fakeHost('create').host)
+		const budget = (
+			t.inputSchema as unknown as {
+				shape: {
+					budget: {
+						description?: string
+						unwrap(): { shape: { maxIterations: { description?: string } } }
+					}
+				}
+			}
+		).shape.budget
+		expect(budget.description).toContain('Limits of ONE run')
+		expect(budget.unwrap().shape.maxIterations.description).toContain(
+			'not how many times the job runs',
+		)
+		expect(
+			(budget.unwrap().shape as unknown as { tokenBudget: { description?: string } }).tokenBudget
+				.description,
+		).toContain('Every model call resends the whole prompt')
+	})
+})
+
+describe('schedule tool: its own confirmation', () => {
+	it('does not declare delete destructive: the host confirms it on its own screen', () => {
+		const t = tool(fakeHost('create').host)
+		expect(t.isDestructive?.({ action: 'delete', job: 'x' } as never)).toBe(false)
 	})
 })

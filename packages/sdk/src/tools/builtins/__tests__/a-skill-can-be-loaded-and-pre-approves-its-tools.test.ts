@@ -429,3 +429,29 @@ describe('the tool itself', () => {
 		expect(SkillTool.isDestructive?.({ name: 'x' })).toBe(false)
 	})
 })
+
+describe('the row a host draws for a skill call', () => {
+	it('names the skill and leaves the body to the model', () => {
+		const present = (input: unknown) => SkillTool.presentCall?.(input as never)
+		expect(present({ name: 'browser-automation' })).toEqual({
+			kind: 'generic',
+			presentation: 'activity',
+			label: 'Read skill browser-automation',
+		})
+		expect(present({})).toMatchObject({ label: 'List skills' })
+		expect(present({ name: 'x', cursor: 'c' })).toMatchObject({
+			label: 'Read skill x (continued)',
+		})
+		const result = (success: boolean) =>
+			SkillTool.presentResult?.(
+				{ name: 'x' } as never,
+				{
+					success,
+					output: 'body',
+					...(success ? {} : { error: 'no' }),
+				} as never,
+			)
+		expect(result(true)).toMatchObject({ visibility: 'hidden' })
+		expect(result(false)).toBeUndefined()
+	})
+})

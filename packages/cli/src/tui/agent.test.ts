@@ -97,6 +97,21 @@ describe('toAgentEvent', () => {
 		})
 	})
 
+	it('marks a start read-only only when the predicate says so', () => {
+		const start = (toolName: string) =>
+			({
+				type: 'tool_executing',
+				toolUseId,
+				toolName,
+				input: toolName === 'bash' ? { command: 'touch x' } : { file_path: '/etc/hosts' },
+				...env,
+			}) as unknown as SessionEvent
+		const readsOnly = (name: string) => name === 'read'
+		expect(toAgentEvent(start('read'), presenter, readsOnly)).toMatchObject({ readOnly: true })
+		expect(toAgentEvent(start('bash'), presenter, readsOnly)).not.toHaveProperty('readOnly')
+		expect(toAgentEvent(start('read'), presenter)).not.toHaveProperty('readOnly')
+	})
+
 	it('prefers a path field when there is no command', () => {
 		const ev = {
 			type: 'tool_executing',
@@ -211,6 +226,35 @@ describe('toAgentEvent', () => {
 			hidden: true,
 			// The tool's own words for its result travel beside the receipt.
 			resultLabel: 'ok',
+		})
+	})
+
+	it('marks a result the person cancelled on the tool’s own screen', () => {
+		const cancelling = {
+			presentCall: () => ({ kind: 'generic' as const, label: 'Propose skill x' }),
+			presentResult: () => ({
+				kind: 'generic' as const,
+				label: 'Cancelled — nothing was saved',
+				outcome: 'cancelled' as const,
+			}),
+		} satisfies ToolPresenter
+		expect(
+			toAgentEvent(
+				{
+					type: 'tool_completed',
+					toolUseId,
+					toolName: 'save_skill',
+					result: 'The operator cancelled; nothing was written.',
+					isError: true,
+					...env,
+				} as unknown as SessionEvent,
+				cancelling,
+			),
+		).toMatchObject({
+			kind: 'tool-end',
+			isError: true,
+			cancelled: true,
+			resultLabel: 'Cancelled — nothing was saved',
 		})
 	})
 

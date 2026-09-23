@@ -60,6 +60,8 @@ metadata does not turn `Promise.all` into a sequential program.
 
 A generic `ToolCallView` may set `activity: 'exploration'` alongside `presentation: 'activity'`. This is an optional host presentation hint for observations, not an authorization or execution policy. Namzu CLI groups successful annotated calls and keeps their output expandable; errors use the normal failure view. The built-in read, grep and glob tools publish this hint. Custom tools without it retain their existing presentation.
 
+A generic result view may set `outcome: 'cancelled'` when the person declined on the tool's own screen: the call did not succeed, and nothing failed. `save_skill` and the `schedule` tool's `create`, `resume` and `delete` return it for a cancelled confirmation (the `schedule` tool marks the result `data.cancelled`), with a label that says what did not happen (`Cancelled — nothing was saved`, `Cancelled — no job was created`). The CLI draws it as a muted `○` row with that label, not as `✗ … failed:`, and its `tool-end` event carries `cancelled: true`. The model still receives the refusal text.
+
 The planning tools `task_create`, `task_update` and `task_list` present
 themselves in words (`packages/sdk/src/tools/task/present.ts`): an activity
 label such as `Add task · <subject>`, `Start task`, `Complete task` or `Check

@@ -49,6 +49,8 @@ export interface PermissionOverlayProps {
 	readonly rows?: number
 	/** Answers this batch only: no "allow all" is offered (a scheduled run). */
 	readonly batchOnly?: boolean
+	/** Which browser site rule decided each browser call, with the profile and engine. */
+	readonly siteNotes?: readonly string[]
 }
 
 function pathOf(input: unknown): string | undefined {
@@ -57,11 +59,90 @@ function pathOf(input: unknown): string | undefined {
 	return typeof path === 'string' && path.length > 0 ? path : undefined
 }
 
+function actionOf(input: unknown): string | undefined {
+	if (input === null || typeof input !== 'object') return undefined
+	const action = (input as { action?: unknown }).action
+	return typeof action === 'string' ? action : undefined
+}
+
+function originOf(input: unknown): string | undefined {
+	if (input === null || typeof input !== 'object') return undefined
+	const origin = (input as { origin?: unknown }).origin
+	return typeof origin === 'string' && origin.length > 0 ? origin : undefined
+}
+
+/** A browser call in words a person reads at a glance; `undefined` for any other tool. */
+function browserTitle(call: PermissionToolCall): string | undefined {
+	const action = actionOf(call.input)
+	if (call.name === 'browser') {
+		switch (action) {
+			case 'navigate':
+				return 'Open a web page'
+			case 'tabs':
+				return 'Open a web page in a new tab'
+			case 'back':
+				return 'Go back in the browser'
+			case 'forward':
+				return 'Go forward in the browser'
+			case 'reload':
+				return 'Reload the page'
+			default:
+				return 'Use the browser'
+		}
+	}
+	if (call.name === 'browser_act') {
+		const where = originOf(call.input)
+		const verb =
+			action === 'click'
+				? 'Click'
+				: action === 'type'
+					? 'Type'
+					: action === 'fill_form'
+						? 'Fill a form'
+						: action === 'select'
+							? 'Choose an option'
+							: action === 'press'
+								? 'Press a key'
+								: action === 'upload'
+									? 'Upload a file'
+									: action === 'dialog'
+										? 'Answer a dialog'
+										: 'Change the page'
+		return where ? `${verb} on ${where}` : verb
+	}
+	return undefined
+}
+
+function browserQuestion(call: PermissionToolCall): string | undefined {
+	if (call.name === 'browser') {
+		switch (actionOf(call.input)) {
+			case 'navigate':
+			case 'tabs':
+				return 'Do you want to open this page?'
+			case 'back':
+				return 'Do you want to go back?'
+			case 'forward':
+				return 'Do you want to go forward?'
+			case 'reload':
+				return 'Do you want to reload the page?'
+			default:
+				return 'Do you want to use the browser?'
+		}
+	}
+	if (call.name === 'browser_act') {
+		const where = originOf(call.input)
+		return where ? `Do you want to do this on ${where}?` : 'Do you want to change the page?'
+	}
+	return undefined
+}
+
 /** What the box is called, from the batch's shape. */
 export function permissionTitle(toolCalls: readonly PermissionToolCall[]): string {
 	const first = toolCalls[0]
 	if (toolCalls.length === 1 && first) {
 		const path = pathOf(first.input)
+		const browser = browserTitle(first)
+		if (browser) return browser
 		switch (first.name) {
 			case 'bash':
 				return 'Bash command'
@@ -86,6 +167,8 @@ export function permissionQuestion(toolCalls: readonly PermissionToolCall[]): st
 	const first = toolCalls[0]
 	if (toolCalls.length === 1 && first) {
 		const path = pathOf(first.input)
+		const browser = browserQuestion(first)
+		if (browser) return browser
 		switch (first.name) {
 			case 'bash':
 				return 'Do you want to proceed?'
@@ -215,6 +298,7 @@ export function PermissionOverlay({
 	columns,
 	rows: terminalRows,
 	batchOnly = false,
+	siteNotes = [],
 }: PermissionOverlayProps) {
 	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
@@ -255,6 +339,11 @@ export function PermissionOverlay({
 			) : null}
 			{escalationNotes.map((note) => (
 				<Text key={note} color={theme.status.error}>
+					{terminalDisplayText(note)}
+				</Text>
+			))}
+			{siteNotes.map((note) => (
+				<Text key={note} color={theme.text.secondary}>
 					{terminalDisplayText(note)}
 				</Text>
 			))}

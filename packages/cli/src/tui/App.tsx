@@ -42,6 +42,7 @@ import {
 	generateTurnId,
 	isCompactionMessage,
 	kernelHostCommands,
+	SKILL_TOOL_NAME,
 } from '@namzu/sdk'
 import { Box, Text, useApp, useInput, useStdout, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -122,7 +123,14 @@ import {
 	permissionModeDescription,
 	permissionModeLabel,
 } from '../permissions/mode.js'
-import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
+import {
+	NO_SKILLS_FOUND,
+	composeSkillsPrompt,
+	discoverSkills,
+	loadSkillBody,
+	renderSkillRoster,
+	skillTierLabel,
+} from '../skills/store.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import {
 	AgentCockpit,
@@ -161,6 +169,30 @@ import { Picker } from './Picker.js'
 import { ResumePicker } from './ResumePicker.js'
 import { resolveNamzuHome } from '../integrations/state/home.js'
 import { type ScheduleIntegration, createScheduleIntegration } from './schedule/integration.js'
+import { SaveSkillOverlay } from './SaveSkillOverlay.js'
+import {
+	type SaveSkillAnswer,
+	type SaveSkillRequest,
+	SKILL_CREATOR_SKILL,
+	buildSaveSkillTool,
+	learnSkillPrompt,
+	newSkillPrompt,
+} from '../skills/save.js'
+import {
+	type TurnActivity,
+	SUGGESTIONS_STOPPED_NOTICE,
+	createTurnActivity,
+	judgeSkillSuggestion,
+	observeTurnEvent,
+	skillSuggestionNotice,
+} from './skills/learning.js'
+import {
+	FRESH_LEDGER,
+	admitSuggestion,
+	readSuggestionLedger,
+	writeSuggestionLedger,
+} from './skills/suggestion-ledger.js'
+import { setSkillSuggestions } from './skills/suggest-setting.js'
 import { StatusBar } from './StatusBar.js'
 import { isRepeatedNotice } from './notices.js'
 import { checklistProgress } from './Checklist.js'
@@ -236,7 +268,14 @@ import {
 	permissionReviewRows,
 	releasedByApproveAll,
 } from './permission-review.js'
-import { describeTurnInterruption, describeTurnStop } from './turn-interruption.js'
+import {
+	PAUSED_TURN_LINES,
+	describeTurnInterruption,
+	describeTurnStop,
+	handoffContinuationNote,
+} from './turn-interruption.js'
+import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
+import type { BrowserControl } from '../browser/control.js'
 import { moveSelection } from './selection-window.js'
 import {
 	describeShellEscape,
@@ -289,6 +328,8 @@ export interface AppProps {
 type PendingPermission = ScreenPermissionRequest & {
 	readonly review: string
 	readonly summary: ReturnType<typeof buildPermissionSummary>
+	/** `site rule: <origin> → <level> · profile <p> · <engine>`, one per browser call. */
+	readonly siteNotes?: readonly string[]
 }
 
 export type ExternalEditorAdapter = (request: {
@@ -560,6 +601,15 @@ type StreamState = {
 	 */
 	reportedOutputTokens?: number
 	streamedChars?: number
+	/**
+	 * What this turn did, for the proposal to save it as a skill. Only an
+	 * operator's own prompt carries it: a goal round and a resumed turn do not.
+	 */
+	learning?: TurnActivity
+	/** Sent by `/skills save` or `/skills new`: already making a skill. */
+	skillFlow?: boolean
+	/** The permission mode the turn started in. */
+	startedInPlanMode?: boolean
 }
 
 /** Last non-empty assistant text in a durable conversation, newest first. */
@@ -687,6 +737,8 @@ type QueuedPrompt =
 			readonly kind: 'human'
 			readonly text: string
 			readonly attachments?: readonly MessageAttachment[]
+			/** Composed by `/skills save` or `/skills new`; see `StreamState.skillFlow`. */
+			readonly skillFlow?: true
 	  }
 	| {
 			readonly kind: 'goal'
@@ -1190,6 +1242,30 @@ export function App({
 	}, [])
 	const [composerDraft, setComposerDraft] = useState<ComposerDraft | null>(null)
 	const [composerHasDraft, setComposerHasDraft] = useState(false)
+	// A turn a tool paused for a person (`ToolResult.handoff`), while its
+	// notice is the newest thing on screen: Enter continues it, Esc stops it.
+	// The ref is what the key handler reads; the state is what the footer shows.
+	/**
+	 * The stream of the turn running now, so a tool's own screen can close the
+	 * reply it streamed before the tool ran. The kernel hands the tool's start
+	 * to this loop only when its batch settles, so a reply streamed with a
+	 * tool call stays pending while that tool asks the operator something; a
+	 * row written then (the schedule tool's confirmation) cannot reach
+	 * scrollback past the pending reply, and the top of a tall one was cut
+	 * off while the operator was asked about it.
+	 */
+	const liveStreamRef = useRef<StreamState | null>(null)
+	const [handoffPark, setHandoffParkState] = useState<{
+		readonly turnId: string
+		readonly reason?: string
+	} | null>(null)
+	const handoffParkRef = useRef<{ readonly turnId: string; readonly reason?: string } | null>(
+		null,
+	)
+	const setHandoffPark = useCallback((value: { readonly turnId: string; readonly reason?: string } | null) => {
+		handoffParkRef.current = value
+		setHandoffParkState(value)
+	}, [])
 	const composerDraftTokenRef = useRef(0)
 	/** Bounded child session projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
@@ -1417,6 +1493,13 @@ export function App({
 	 * server's child process outlives the object that opened it.
 	 */
 	const previousSessionRef = useRef<AgentSession | null>(null)
+	/** The profile `/browser profile` chose, kept across session rebuilds. */
+	const browserProfileRef = useRef<string | undefined>(undefined)
+	/** The current session's browser, for notices written from event handlers. */
+	const browserControlRef = useRef<BrowserControl | undefined>(undefined)
+	useEffect(() => {
+		browserControlRef.current = session?.browser
+	}, [session])
 	useEffect(() => {
 		const source = session?.subagents
 		setAgentSurface(null)
@@ -1538,6 +1621,60 @@ export function App({
 				scheduleLiveRef.current?.askPermission(request) ??
 				Promise.resolve({ kind: 'reject' as const, feedback: 'Nobody can answer yet.' }),
 			submit: (text) => scheduleLiveRef.current?.submit(text),
+		})
+	}
+	/**
+	 * `save_skill`'s confirmation. The tool is the TUI's alone (never exec, a
+	 * scheduled run or a sub-agent), and its question is this screen, not the
+	 * permission gate, so no permission mode answers it for the operator.
+	 */
+	const [saveSkillPrompt, setSaveSkillPromptState] = useState<{
+		readonly request: SaveSkillRequest
+		readonly resolve: (answer: SaveSkillAnswer) => void
+	} | null>(null)
+	const saveSkillPromptRef = useRef<typeof saveSkillPrompt>(null)
+	const setSaveSkillPrompt = useCallback((next: typeof saveSkillPrompt) => {
+		saveSkillPromptRef.current = next
+		setSaveSkillPromptState(next)
+	}, [])
+	const saveSkillNotifyRef = useRef<(() => void) | null>(null)
+	const saveSkillToolRef = useRef<ReturnType<typeof buildSaveSkillTool> | null>(null)
+	if (saveSkillToolRef.current === null) {
+		saveSkillToolRef.current = buildSaveSkillTool({
+			cwd: () => ctxRef.current.cwd,
+			config: () => ctxRef.current.skills,
+			sessionId: () =>
+				conversationMaterializedRef.current ? scopeRef.current?.sessionId : undefined,
+			confirm: (request, signal) =>
+				new Promise<SaveSkillAnswer>((resolve) => {
+					if (signal?.aborted) {
+						resolve('cancel')
+						return
+					}
+					const entry = {
+						request,
+						resolve: (answer: SaveSkillAnswer) => {
+							signal?.removeEventListener('abort', onAbort)
+							// The screen answers from its own key handler, which Ink calls
+							// before App's (a child subscribes first). Clearing the ref now
+							// would hand the same Esc or Ctrl+C to App, which reads it as
+							// an interrupt of the turn this answer is for. Let the key's
+							// dispatch finish first.
+							queueMicrotask(() => {
+								if (saveSkillPromptRef.current === entry) setSaveSkillPrompt(null)
+							})
+							resolve(answer)
+						},
+					}
+					const onAbort = () => entry.resolve('cancel')
+					signal?.addEventListener('abort', onAbort, { once: true })
+					setSaveSkillPrompt(entry)
+					saveSkillNotifyRef.current?.()
+				}),
+			saved: ({ name, path }) =>
+				scheduleLiveRef.current?.say(
+					`✎ Saved skill ${name} to ${path}. The model is offered it from the next turn; /skills ${name} activates it now.`,
+				),
 		})
 	}
 	/**
@@ -1825,6 +1962,64 @@ export function App({
 			return id
 		},
 		[nextId],
+	)
+
+	/**
+	 * The skill proposal's per-conversation facts: whether this conversation
+	 * has proposed one, and whether it has used a skill. Keyed by the
+	 * conversation generation, so `/clear`, `/resume` and a fork start over.
+	 */
+	const learningRef = useRef({ generation: -1, proposed: false, skillUsed: false })
+	/** `/skills save off|on` in this session, over whatever the config files say. */
+	const skillSuggestOverrideRef = useRef<boolean | undefined>(undefined)
+	const conversationLearning = useCallback(() => {
+		if (learningRef.current.generation !== conversationGenRef.current) {
+			learningRef.current = {
+				generation: conversationGenRef.current,
+				proposed: false,
+				skillUsed: false,
+			}
+		}
+		return learningRef.current
+	}, [])
+	/**
+	 * After a turn settles: one dim line proposing to save it as a skill, when
+	 * the turn earned it (`judgeSkillSuggestion`) and the anti-nag ledger lets
+	 * it through. Costs nothing and saves nothing; `/skills save` does that.
+	 */
+	const offerSkillSuggestion = useCallback(
+		(st: StreamState) => {
+			if (!st.learning) return
+			const conversation = conversationLearning()
+			const config = ctxRef.current.skills
+			const verdict = judgeSkillSuggestion(st.learning, {
+				suggest: skillSuggestOverrideRef.current ?? config?.suggest,
+				...(config?.suggestMinToolCalls !== undefined
+					? { minToolCalls: config.suggestMinToolCalls }
+					: {}),
+				planMode: st.startedInPlanMode === true || permissionModeRef.current === 'plan',
+				skillUsedInConversation: conversation.skillUsed,
+				proposedInConversation: conversation.proposed,
+				skillFlowTurn: st.skillFlow === true,
+			})
+			if (!verdict.suggest) return
+			const home = resolveNamzuHome()
+			const admission = admitSuggestion(readSuggestionLedger(home))
+			if (admission.show === 'nothing') return
+			conversation.proposed = true
+			writeSuggestionLedger(home, admission.next)
+			pushMessage(
+				'system',
+				admission.show === 'proposal'
+					? skillSuggestionNotice(verdict.steps, verdict.tools)
+					: SUGGESTIONS_STOPPED_NOTICE,
+				false,
+				'✻',
+				undefined,
+				theme.text.muted,
+			)
+		},
+		[conversationLearning, pushMessage],
 	)
 
 	/**
@@ -2306,7 +2501,10 @@ export function App({
 
 	const activateSkill = useCallback(
 		(name: string): void => {
-			const info = discoverSkills({ cwd: ctx.cwd }).find((skill) => skill.name === name)
+			const info = discoverSkills({
+				cwd: ctx.cwd,
+				...(ctx.skills ? { config: ctx.skills } : {}),
+			}).find((skill) => skill.name === name)
 			if (!info) {
 				pushMessage('system', `No skill named "${name}". See /skills.`)
 				return
@@ -2317,6 +2515,7 @@ export function App({
 					...previous.filter((skill) => skill.name !== info.name),
 					{ name: info.name, body },
 				])
+				conversationLearning().skillUsed = true
 				pushMessage('system', `Activated skill: ${info.name}`)
 			} catch (error) {
 				pushMessage(
@@ -2325,7 +2524,7 @@ export function App({
 				)
 			}
 		},
-		[ctx.cwd, pushMessage],
+		[conversationLearning, ctx.cwd, ctx.skills, pushMessage],
 	)
 
 	const removeStoredCredential = useCallback(
@@ -3057,6 +3256,23 @@ export function App({
 		)
 	}, [])
 
+	/**
+	 * Close the reply the running turn streamed before a tool took over, as a
+	 * tool's start does. For a tool that shows the operator something of its
+	 * own while it runs: the reply is complete by then (tools run after the
+	 * model's response ends), and left pending it holds every later row out
+	 * of scrollback. Text that arrives later starts a new reply.
+	 */
+	const closeLiveReply = useCallback(() => {
+		const st = liveStreamRef.current
+		if (!st) return
+		flushStream(st)
+		if (st.assistantId) {
+			finalizeMessage(st.assistantId)
+			st.assistantId = null
+		}
+	}, [finalizeMessage, flushStream])
+
 	// Open the SDK session store and select the durable conversation once.
 	// This is an admission gate for every startup, not optional persistence: a
 	// corrupt or split estate must not silently widen into cwd-local state and
@@ -3161,24 +3377,43 @@ export function App({
 					...(primary.model ? { model: primary.model } : {}),
 				}
 			}
+			const browserConfig = activeCtx.browser
+			const browserProfile = browserProfileRef.current ?? browserConfig?.defaultProfile
+			const browserOptions = browserConfig
+				? {
+						...(browserProfile ? { profile: browserProfile } : {}),
+						...(browserConfig.engine ? { engine: browserConfig.engine } : {}),
+						...(browserConfig.headless ? { headless: browserConfig.headless } : {}),
+						...(browserConfig.sites ? { sites: browserConfig.sites } : {}),
+						...(browserConfig.keepOpen ? { keepOpen: true } : {}),
+						...(sessionsRef.current ? { home: sessionsRef.current.root } : {}),
+					}
+				: undefined
 			const s = await createAgentSession(prefs, detectedNow, {
 				scope,
 				cwd: activeCtx.cwd,
 				// A person is here to confirm: the model may propose scheduled jobs
 				// and session loops (never in exec, a scheduled run or a sub-agent).
-				extraTools: scheduleRef.current?.tools() ?? [],
+				extraTools: [
+					...(scheduleRef.current?.tools() ?? []),
+					...(saveSkillToolRef.current ? [saveSkillToolRef.current] : []),
+				],
 				...(activeCtx.structuredOutput ? { structuredOutput: activeCtx.structuredOutput } : {}),
 				...(activeCtx.additionalDirectories
 					? { additionalDirectories: activeCtx.additionalDirectories }
 					: {}),
 				...(sessionsRef.current ? { stateRoot: sessionsRef.current.root } : {}),
 				enableComputerUse: true,
+				// The browser tools, when the config did not switch them off. The
+				// profile is the one `/browser profile` chose, else the config's.
+				...(browserOptions ? { browser: browserOptions } : {}),
 				rules: activeCtx.rules,
 				...(sessionsRef.current
 					? { sessionGoals: sessionsRef.current.goals, conversationSessions: sessionsRef.current }
 					: {}),
 				...(activeCtx.mcpServers ? { mcpServers: activeCtx.mcpServers } : {}),
 				...(activeCtx.plugins ? { plugins: activeCtx.plugins } : {}),
+				...(activeCtx.skills ? { skills: activeCtx.skills } : {}),
 				...(activeCtx.web ? { web: activeCtx.web } : {}),
 				...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 				...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
@@ -3832,10 +4067,7 @@ export function App({
 					return
 				}
 				await session.abandonTurn(active.turnId as TurnId, reason)
-				pushMessage(
-					'system',
-					`Abandoned turn ${active.turnId}. The next prompt starts a new turn in this conversation.`,
-				)
+				pushMessage('system', PAUSED_TURN_LINES.abandoned)
 			} catch (err) {
 				pushMessage(
 					'system',
@@ -3853,7 +4085,10 @@ export function App({
 	 */
 	// `applyEvent` is declared further down; the resume path reads it at call time.
 	const applyEventRef = useRef<((event: AgentEvent, st: StreamState) => void) | null>(null)
-	const resumeActiveTurn = useCallback(async (): Promise<boolean> => {
+	const resumeActiveTurn = useCallback(async (resume?: {
+		/** Continuing a turn a tool paused for a person: what the tool asked for. */
+		readonly handoffReason?: string | undefined
+	}): Promise<boolean> => {
 		const sessions = sessionsRef.current
 		const scope = scopeRef.current
 		if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
@@ -3864,6 +4099,7 @@ export function App({
 			pushMessage('system', 'Wait for the running turn to finish before resuming the parked one.')
 			return true
 		}
+		setHandoffPark(null)
 		const ac = new AbortController()
 		abortRef.current = ac
 		setState('thinking')
@@ -3877,8 +4113,9 @@ export function App({
 			sessionId: scope.sessionId,
 			notification: null,
 		}
-		pushMessage('system', `Resuming turn ${active.turnId} from its checkpoint.`, false, '▶')
+		liveStreamRef.current = st
 		let scheduledRun = false
+		let restoreBrowser: (() => Promise<void>) | undefined
 		try {
 			// A scheduled run parked on a decision: the operator answers the
 			// parked batch here, and the turn continues under the job's rules.
@@ -3890,17 +4127,45 @@ export function App({
 						// The resumed turn runs on the job's provider: one this
 						// session has no credential for is refused before asking.
 						providers: detected.map((item) => item.entry.id),
+						browser: session.browser !== undefined,
 					})
 				: undefined
+			if (scheduled && 'leave' in scheduled) {
+				pushMessage('system', 'The scheduled run stays waiting. /resume asks again.')
+				return true
+			}
+			if (scheduled && 'abandon' in scheduled) {
+				scheduledRun = true
+				if (!session.abandonTurn) throw new Error('this session cannot abandon turns')
+				await session.abandonTurn(active.turnId as TurnId, scheduled.abandon)
+				pushMessage('system', PAUSED_TURN_LINES.abandonedScheduled)
+				return true
+			}
 			scheduledRun = scheduled !== undefined
+			const { browser: jobBrowser, ...scheduledParams } = scheduled ?? {}
+			// A job's browser grant: this turn drives the job's profile, held
+			// to its sites, and the session's own comes back when it ends.
+			if (jobBrowser && session.browser) {
+				restoreBrowser = await session.browser.runAs(jobBrowser)
+				pushMessage(
+					'system',
+					`The browser uses the job’s profile ${jobBrowser.profile} for this run, on its sites only.`,
+				)
+			}
+			// Said once the turn really continues: a scheduled park can still
+			// be left waiting or abandoned above.
+			pushMessage('system', PAUSED_TURN_LINES.resuming, false, '▶')
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
-				...(scheduled ?? {
+				...(scheduled ? scheduledParams : {
 					// The operator's mode, read at every decision like a new turn's:
 					// `/resume` in plan mode stays read-only, and so do its children.
 					permissionMode: permissionModeRef.current,
 					currentPermissionMode: () => permissionModeRef.current,
+					...(resume?.handoffReason
+						? { systemNote: handoffContinuationNote(resume.handoffReason) }
+						: {}),
 				}),
 			})) {
 				applyEventRef.current?.(event, st)
@@ -3922,9 +4187,10 @@ export function App({
 			// completed, failed or cancelled — not at a scheduler's next tick,
 			// which may never come. One that parked again stays waiting.
 			if (scheduledRun) await scheduleRef.current?.settleAnswered()
+			await restoreBrowser?.().catch(() => undefined)
 		}
 		return true
-	}, [detected, finalizeMessage, flushStream, pushMessage, session, state])
+	}, [detected, finalizeMessage, flushStream, pushMessage, session, setHandoffPark, state])
 
 	// `namzu resume <id>` of a scheduled run parked on a decision: what the
 	// notification and `/schedule` tell the operator to run. Continue it once
@@ -4712,10 +4978,11 @@ export function App({
 				})
 			}
 			const summary = buildPermissionSummary(review.text)
+			const siteNotes = browserSiteNotes(req.toolCalls, browserControlRef.current?.status())
 			return new Promise<PermissionDecision>((resolve) => {
 				if (permissionResolveRef.current) {
 					permissionQueueRef.current.push({
-						permission: { ...req, review: review.text, summary },
+						permission: { ...req, review: review.text, summary, siteNotes },
 						resolve,
 					})
 					setQueuedPermissionCount(permissionQueueRef.current.length)
@@ -4725,7 +4992,7 @@ export function App({
 				permissionOpenedAtRef.current = Date.now()
 				setPermissionReviewOffset(0)
 				setPermissionDetailsOpen(!summary.complete)
-				setPermission({ ...req, review: review.text, summary })
+				setPermission({ ...req, review: review.text, summary, siteNotes })
 				setState('awaiting-permission')
 				sendTerminalNotification({ kind: 'approval-required' })
 			})
@@ -4754,6 +5021,7 @@ export function App({
 					resolve({ kind: 'abort' })
 					return
 				}
+				closeLiveReply()
 				questionRef.current = { question, resolve }
 				const values = [
 					...question.options.map((option) => option.id),
@@ -4785,7 +5053,7 @@ export function App({
 				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
+		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
 	)
 
 	/**
@@ -4818,6 +5086,10 @@ export function App({
 	// events within a turn/stream.
 	const applyEvent = useCallback(
 		(event: AgentEvent, st: StreamState) => {
+			if (st.learning) observeTurnEvent(st.learning, event)
+			if (event.kind === 'tool-start' && event.toolName === SKILL_TOOL_NAME) {
+				conversationLearning().skillUsed = true
+			}
 			const ensureAssistant = () => {
 				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
 				return st.assistantId
@@ -5121,6 +5393,21 @@ export function App({
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
+					if (event.cancelled) {
+						// A No on the tool's own screen: the person's answer, not a failure.
+						pushMessage(
+							'tool',
+							done?.label ?? formatToolCall(event.toolName, event.summary),
+							false,
+							'○',
+							undefined,
+							theme.text.muted,
+							event.durationMs !== undefined ? formatElapsed(event.durationMs) : undefined,
+						)
+						pushMessage('tool', event.resultLabel ?? 'Cancelled', false, '⎿')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					const catalogue = !event.isError && event.toolName === 'agent_models' && event.output !== undefined
 						? modelCatalogueView(event.output) : undefined
 					if (catalogue !== undefined) {
@@ -5298,6 +5585,7 @@ export function App({
 								: undefined
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}
+					offerSkillSuggestion(st)
 					break
 				}
 				case 'paused':
@@ -5309,7 +5597,24 @@ export function App({
 					st.outcome = 'stopped'
 					st.queuePauseOutcome = 'paused'
 					st.notification = { kind: 'turn-settled', outcome: 'stopped' }
-					pushMessage('system', describeTurnInterruption(event), false, '‖')
+					if (event.handoff) {
+						// Nothing failed and nothing needs approving: a tool needs the
+						// operator to do something first. Continuing is one key.
+						const browser = browserControlRef.current
+						const browserStatus = browser?.status()
+						const browserNotice = describeBrowserHandoff(event.handoff, browserStatus)
+						// Without a window the sign-in happens in `namzu browser
+						// login`, which needs the profile this session holds.
+						if (browserNotice && browser && browserStatus?.headless) void browser.release()
+						pushMessage(
+							'system',
+							browserNotice ??
+								`${describeTurnInterruption(event)}\nWhen that is done, press Enter to continue · Esc to stop.`,
+							false,
+							'‖',
+						)
+						setHandoffPark({ turnId: event.turnId, reason: event.handoff.reason })
+					} else pushMessage('system', describeTurnInterruption(event), false, '‖')
 					break
 				case 'error':
 					closeAssistant()
@@ -5321,7 +5626,16 @@ export function App({
 					break
 			}
 		},
-		[appendToMessage, finalizeMessage, flushStream, pushMessage, writeTaskBlock],
+		[
+			appendToMessage,
+			conversationLearning,
+			finalizeMessage,
+			flushStream,
+			offerSkillSuggestion,
+			pushMessage,
+			setHandoffPark,
+			writeTaskBlock,
+		],
 	)
 	applyEventRef.current = applyEvent
 
@@ -5474,7 +5788,18 @@ export function App({
 				outcome: null,
 				sessionId: destination,
 				notification: null,
+				...(prompt.kind === 'human'
+					? {
+							learning: createTurnActivity(),
+							...(prompt.skillFlow ? { skillFlow: true } : {}),
+							startedInPlanMode: permissionModeRef.current === 'plan',
+						}
+					: {}),
 			}
+			liveStreamRef.current = st
+			// A skill activated with /skills <name> stays in the prompt of every
+			// later conversation too; a turn run under one already used a skill.
+			if (st.learning && activeSkills.length > 0) st.learning.skillUsed = true
 			const ac = new AbortController()
 			const turnToken = {}
 			let abnormalTerminal:
@@ -6140,6 +6465,8 @@ export function App({
 				)
 				return
 			}
+			// The operator moved on; a parked turn is still there for /resume.
+			setHandoffPark(null)
 			setHistory((prev) => [...prev, value])
 			const selectionIntent = !attachments?.length ? parseModelSelectionIntent(value) : undefined
 			if (selectionIntent) {
@@ -6185,6 +6512,7 @@ export function App({
 			// including the queue — so a command-driven turn is not a second way
 			// to run one.
 			let outgoing = value
+			let skillFlow = false
 			const slash = runSlash(value, slashCtx, hostCommands)
 			if (slash) {
 				switch (slash.kind) {
@@ -6730,24 +7058,16 @@ export function App({
 						// distinction the headless commands get from `--cwd`. They are
 						// the same value today, and were the same value in `exec --json`
 						// too until they were not.
-						const skills = discoverSkills({ cwd: ctx.cwd })
+						const skills = discoverSkills({
+							cwd: ctx.cwd,
+							...(ctx.skills ? { config: ctx.skills } : {}),
+						})
 						if (skills.length === 0) {
-							pushMessage(
-								'system',
-								'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md or ./skills/<name>/SKILL.md.',
-							)
+							pushMessage('system', NO_SKILLS_FOUND)
 							return
 						}
 						const activeNames = new Set(activeSkills.map((s) => s.name))
-						const lines = skills.map((s) =>
-							// A refused skill is shown with its reason rather than hidden.
-							// Dropping it silently would leave someone wondering where a
-							// file they can see on disk went.
-							s.problem
-								? `! ${s.name} — ${s.problem}`
-								: `${activeNames.has(s.name) ? '● ' : '○ '}${s.name} — ${s.description}`,
-						)
-						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
+						pushMessage('system', renderSkillRoster(skills, activeNames))
 						return
 					}
 					case 'plugins': {
@@ -6779,12 +7099,12 @@ export function App({
 						return
 					}
 					case 'skill-picker': {
-						const skills = discoverSkills({ cwd: ctx.cwd })
+						const skills = discoverSkills({
+							cwd: ctx.cwd,
+							...(ctx.skills ? { config: ctx.skills } : {}),
+						})
 						if (skills.length === 0) {
-							pushMessage(
-								'system',
-								'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md or ./skills/<name>/SKILL.md.',
-							)
+							pushMessage('system', NO_SKILLS_FOUND)
 							return
 						}
 						const activeNames = new Set(activeSkills.map((skill) => skill.name))
@@ -6797,7 +7117,7 @@ export function App({
 								label: skill.name,
 								description: skill.problem
 									? `Unavailable: ${skill.problem}`
-									: `${skill.description} · ${skill.source}`,
+									: `${skill.description} · ${skill.source} (${skillTierLabel(skill.tier)})`,
 								current: activeNames.has(skill.name),
 							})),
 						})
@@ -6805,6 +7125,49 @@ export function App({
 					}
 					case 'load-skill': {
 						activateSkill(slash.name)
+						return
+					}
+					case 'new-skill':
+					case 'save-skill': {
+						const creator = discoverSkills({
+							cwd: ctx.cwd,
+							...(ctx.skills ? { config: ctx.skills } : {}),
+						}).find((skill) => skill.name === SKILL_CREATOR_SKILL)
+						if (!creator || creator.problem || creator.invocation === 'operator') {
+							pushMessage(
+								'system',
+								`The ${SKILL_CREATOR_SKILL} skill is not available to the model here${creator?.problem ? ` (${creator.problem})` : ''}. Turn the built-in skills back on (skills.builtin) or write a SKILL.md by hand under ~/.namzu/skills/<name>/.`,
+							)
+							return
+						}
+						// Falls through to the queue-or-send a typed message takes, as
+						// `prompt` does below.
+						skillFlow = true
+						if (slash.kind === 'new-skill') outgoing = newSkillPrompt(slash.idea)
+						else {
+							outgoing = learnSkillPrompt(slash.name)
+							// The proposal was taken up: this conversation proposes no
+							// more, and the ignored-in-a-row count starts again.
+							conversationLearning().proposed = true
+							const home = resolveNamzuHome()
+							const ledger = readSuggestionLedger(home)
+							if (ledger.unanswered > 0) writeSuggestionLedger(home, { ...ledger, unanswered: 0 })
+						}
+						break
+					}
+					case 'skill-suggestions': {
+						// The session follows the choice whatever the files say; the
+						// message says whether a later start will too.
+						skillSuggestOverrideRef.current = slash.on
+						if (slash.on) writeSuggestionLedger(resolveNamzuHome(), FRESH_LEDGER)
+						const profile = ctx.configDebug?.selectedProfile?.name
+						pushMessage(
+							'system',
+							setSkillSuggestions(slash.on, {
+								cwd: ctx.cwd,
+								...(profile ? { profile } : {}),
+							}).message,
+						)
 						return
 					}
 					case 'resume':
@@ -7212,6 +7575,19 @@ export function App({
 						runConversationExport({ kind: 'file', path: slash.path })
 						return
 					}
+					case 'browser': {
+						const generation = conversationGenRef.current
+						void runBrowserSlash(session?.browser, slash.args, {
+							busy: state !== 'idle' || abortRef.current !== null,
+						}).then((answer) => {
+							// A later session keeps the operator's choice: `/model`
+							// rebuilds the session, and the profile goes with it.
+							if (answer.profile) browserProfileRef.current = answer.profile
+							if (conversationGenRef.current !== generation) return
+							pushMessage('system', answer.text)
+						})
+						return
+					}
 					default: {
 						// Exhaustive on purpose. Without it a `SlashAction` kind added
 						// and not handled here falls out of the switch into the send
@@ -7237,8 +7613,16 @@ export function App({
 				kind: 'human',
 				text: outgoing,
 				...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}),
+				...(skillFlow ? { skillFlow: true as const } : {}),
 			}
-			if (mode === 'submit') {
+			// `/skills save` and `/skills new` are turns of their own: steered into
+			// a running turn, they would lose the flag that keeps the skill-making
+			// turn from being proposed as a skill, and the model would read them
+			// mid-task. They wait in the queue for the turn to end.
+			if (skillFlow && activeTurnInboxRef.current) {
+				pushMessage('system', 'Queued: this runs when the current turn ends.')
+			}
+			if (mode === 'submit' && !skillFlow) {
 				const inbox = activeTurnInboxRef.current
 				if (inbox) {
 					const expanded = expandFileMentions(outgoing, ctx.cwd)
@@ -7259,6 +7643,7 @@ export function App({
 			activeSkills,
 			advanceQueueContinuation,
 			applyPermissionMode,
+			conversationLearning,
 			applyReasoningEffort,
 			appLifetime,
 			ctx.cwd,
@@ -7296,9 +7681,13 @@ export function App({
 	// a ref so selecting a help row re-enters the one ordinary slash-command
 	// path instead of growing a second command executor.
 	commandPickerSubmitRef.current = handleSubmit
+	saveSkillNotifyRef.current = () => sendTerminalNotification({ kind: 'approval-required' })
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
-		say: (text) => pushMessage('system', text),
+		say: (text) => {
+			closeLiveReply()
+			pushMessage('system', text)
+		},
 		ask: askQuestion,
 		askPermission: onPermission,
 		submit: (text) => handleSubmit(text),
@@ -7676,6 +8065,10 @@ export function App({
 	useInput(
 		(input, key) => {
 			if (outputViewer !== null) return
+			// The save-skill screen owns its keys, Esc and Ctrl+C included: neither
+			// may interrupt the turn that is waiting on its answer. A permission
+			// request (an agent's, say) takes the screen over it and gets the keys.
+			if (saveSkillPromptRef.current && permission === null) return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
@@ -8187,6 +8580,21 @@ export function App({
 				resetTranscript()
 				return
 			}
+			// A turn a tool paused for a person: Enter on an empty composer
+			// continues it, Esc stops it (the turn is abandoned, like /abandon).
+			if (
+				handoffParkRef.current &&
+				phase === 'ready' &&
+				state === 'idle' &&
+				!abortRef.current &&
+				((key.return && !composerHasDraft) || key.escape)
+			) {
+				const parked = handoffParkRef.current
+				setHandoffPark(null)
+				if (key.return) void resumeActiveTurn({ handoffReason: parked.reason })
+				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
+				return
+			}
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
 			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
 			if (key.escape && (abortRef.current || pendingModelSwitchRef.current)) {
@@ -8325,7 +8733,9 @@ export function App({
 						? 'starting a fresh conversation — input is paused'
 						: compacting
 							? 'compacting conversation — input is paused'
-							: permission
+							: saveSkillPrompt
+								? 'save skill — ←/→ choose · enter apply · esc cancel'
+								: permission
 								? hintForPhase(phase, state, session?.hasProvider === true)
 								: agentSurface?.kind === 'cockpit'
 									? agentSurface.focus === 'workflows'
@@ -8345,6 +8755,8 @@ export function App({
 														: '↑↓ / 1–9 select · enter apply · esc back'
 												: copyPicker
 													? 'copy target open — ↑↓ / 1–9 select · esc cancel'
+													: handoffPark && phase === 'ready' && state === 'idle' && !composerHasDraft
+													? 'enter continue · esc stop'
 													: goalStatus && phase === 'ready' && state === 'idle'
 														? undefined
 														: hintForPhase(
@@ -8467,9 +8879,20 @@ export function App({
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								interruptible={abortRef.current !== null}
-								animate={stdout.isTTY === true && permission === null && textPrompt === null}
+								animate={
+									stdout.isTTY === true &&
+									permission === null &&
+									textPrompt === null &&
+									saveSkillPrompt === null
+								}
 								thinking={thinking}
 								tokens={turnTokens}
+								waitingForYou={
+									choicePicker !== null ||
+									permission !== null ||
+									textPrompt !== null ||
+									saveSkillPrompt !== null
+								}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.
@@ -8498,6 +8921,17 @@ export function App({
 								columns={terminal.columns}
 								rows={terminal.rows}
 								batchOnly={permission.batchOnly === true}
+								siteNotes={permission.siteNotes}
+							/>
+						) : null}
+						{saveSkillPrompt && permission === null ? (
+							<SaveSkillOverlay
+								key={saveSkillPrompt.request.markdown}
+								request={saveSkillPrompt.request}
+								cwd={ctx.cwd}
+								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
+								rows={terminal.rows}
+								onAnswer={saveSkillPrompt.resolve}
 							/>
 						) : null}
 						{textPrompt ? (
@@ -8552,10 +8986,12 @@ export function App({
 								textPrompt === null &&
 								choicePicker === null &&
 								copyPicker === null &&
+								saveSkillPrompt === null &&
 								agentSurface === null && outputViewer === null
 							}
 							hidden={
 								permission !== null ||
+								saveSkillPrompt !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
 								copyPicker !== null ||
@@ -8608,6 +9044,7 @@ export function App({
 								}
 								hidden={
 									permission !== null ||
+									saveSkillPrompt !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
 									copyPicker !== null ||
@@ -8616,8 +9053,11 @@ export function App({
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
 								escapeInterrupts={
-									!compacting &&
-									(state === 'thinking' || state === 'tool' || pendingModelSwitchRef.current !== null)
+									(!compacting &&
+										(state === 'thinking' ||
+											state === 'tool' ||
+											pendingModelSwitchRef.current !== null)) ||
+									(handoffPark !== null && state === 'idle')
 								}
 								onSubmit={handleSubmit}
 								onNotice={(text) => pushMessage('system', text)}

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
+import { compileBrowserSites } from '../permissions/browser-sites.js'
 import type { TuiContext } from '../tui/types.js'
 
 const launchTui = vi.hoisted(() => vi.fn(async (_ctx: TuiContext) => {}))
@@ -51,7 +52,9 @@ describe('configuration provenance reaches the TUI launch', () => {
 
 		expect(launchTui).toHaveBeenCalledOnce()
 		const bootstrap = launchTui.mock.calls[0]![0]
-		expect(bootstrap.rules).toEqual([])
+		// Nothing from the untrusted project; only the browser's default site
+		// rules, which come from no file.
+		expect(bootstrap.rules).toEqual(compileBrowserSites(undefined).rules)
 		const trusted = resolveTrustedProjectContext(bootstrap, cwd)
 		expect(trusted).toEqual(
 			expect.objectContaining({

@@ -78,6 +78,7 @@ import {
 	type ResumeHandler,
 	type ResumeOutcome,
 	type ReviewAnswer,
+	SCHEDULE_TOOL_NAME,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
 	type SessionApprovalPolicy,
@@ -91,7 +92,8 @@ import {
 	type SessionStartedRecord,
 	type SessionTokenBudgetSummary,
 	type Skill,
-	type SkillRegistry,
+	type SkillRegistryRef,
+	SkillTool,
 	type StopReason,
 	type StructuredOutputConfig,
 	type TaskScheduler,
@@ -118,6 +120,7 @@ import {
 	buildSessionGoalTools,
 	compactNow,
 	compactSession,
+	createBrowserTools,
 	createComputerUseTool,
 	createFileReadTracker,
 	createMemoryPromoter,
@@ -135,6 +138,7 @@ import {
 	isReviewExempt,
 	isTurnInProgressError,
 	query,
+	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
 	webGuidanceContribution,
@@ -145,6 +149,12 @@ import { SubprocessComputerUseHost } from '@namzu/computer-use'
 
 import { realpath, stat } from 'node:fs/promises'
 import { parse, resolve } from 'node:path'
+import {
+	type BrowserControl,
+	type BrowserSessionOptions,
+	type BrowserStatus,
+	createBrowserControl,
+} from '../browser/control.js'
 import { FileCheckpointStore } from '../checkpoints/store.js'
 import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
 import type {
@@ -153,6 +163,7 @@ import type {
 	MemoryCliConfig,
 	PluginConfig,
 	SandboxConfig,
+	SkillsConfig,
 	TurnLimitsConfig,
 	WebConfig,
 } from '../config/schema.js'
@@ -278,6 +289,8 @@ import {
 	permissionChangeReason,
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
+import { createSessionSkillCatalog } from '../skills/catalog.js'
+import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
 import { type ModelSwitchRequest, resolveModelSwitch } from './model-switch.js'
@@ -317,6 +330,12 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 			/** A web search or fetch: what it is for, so its row can name it. */
 			readonly web?: WebActivity
+			/**
+			 * The tool declares this call read-only. Absent means it changes
+			 * something, or the tool did not say. Read by the TUI's skill
+			 * suggestion only, never by a permission decision.
+			 */
+			readonly readOnly?: true
 	  }
 	| {
 			readonly kind: 'tool-progress'
@@ -350,6 +369,11 @@ export type AgentEvent =
 			 * needs.
 			 */
 			readonly resultLabel?: string
+			/**
+			 * The person declined on the tool's own screen: the call did not
+			 * succeed, and nothing failed. Drawn neutrally with `resultLabel`.
+			 */
+			readonly cancelled?: boolean
 			/** A web search or fetch, with whatever its result told us (query, result count). */
 			readonly web?: WebActivity
 	  }
@@ -510,6 +534,12 @@ export type AgentEvent =
 			readonly failure?: Extract<SessionEvent, { type: 'turn_paused' }>['failure']
 			readonly providerError?: Extract<SessionEvent, { type: 'turn_paused' }>['providerError']
 			readonly explanation?: Extract<SessionEvent, { type: 'turn_paused' }>['explanation']
+			/**
+			 * A tool asked for a person (`ToolResult.handoff`). The turn's results
+			 * are recorded; continuing it (`resumePaused`) calls the model with
+			 * them, and nothing needs approving first.
+			 */
+			readonly handoff?: Extract<SessionEvent, { type: 'turn_paused' }>['handoff']
 	  }
 	| {
 			readonly kind: 'error'
@@ -770,9 +800,21 @@ export interface ResumePausedParams {
 		readonly model?: string
 		readonly effort?: string
 	}
+	/**
+	 * Words added to the resumed turn's system prompt, as `SendOptions.systemNote`
+	 * is to a new turn's: why the turn goes on now. A turn a tool paused for a
+	 * person resumes with the tool's refusal as its last result, and without a
+	 * note the model read it as final and ended the turn.
+	 */
+	readonly systemNote?: string
 }
 
 export interface AgentSession {
+	/**
+	 * The browser the `browser` and `browser_act` tools drive, when this
+	 * session mounted them (`AgentSessionOptions.browser`). Absent otherwise.
+	 */
+	readonly browser?: BrowserControl
 	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
 	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	readonly webSearchSummary?: string
@@ -1421,6 +1463,9 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	'web_fetch',
 	'search_conversation',
 	'read_conversation',
+	// The skills manifest tells the model to load a skill through this tool;
+	// deferring it would make every skill a two-step search first.
+	'skill',
 	'search_resident_history',
 	'read_resident_history',
 	'search_resident_tools',
@@ -1561,13 +1606,6 @@ function buildToolRegistry(
 	return { registry, memoryStore, memoryDirectory: directory }
 }
 
-/** Refresh plugin skill metadata before each provider operation. */
-async function currentPluginSkills(registry: SkillRegistry): Promise<Skill[]> {
-	const names = registry.list().map((skill) => skill.metadata.name)
-	for (const name of names) await registry.load(name, 'metadata')
-	return registry.list()
-}
-
 export interface AgentSessionOptions {
 	readonly structuredOutput?: StructuredOutputConfig
 	/**
@@ -1650,6 +1688,11 @@ export interface AgentSessionOptions {
 	/** Executable extension runtime. Absent or disabled performs no discovery. */
 	readonly plugins?: PluginConfig
 	/**
+	 * Which `SKILL.md` skills the model is offered (`skills.builtin`,
+	 * `skills.disabled`). Absent offers every tier.
+	 */
+	readonly skills?: SkillsConfig
+	/**
 	 * Judge the answer a turn is about to settle with, and hand it back with
 	 * feedback when it is not good enough.
 	 *
@@ -1717,6 +1760,22 @@ export interface AgentSessionOptions {
 	 * this capability merely because the package is installed.
 	 */
 	readonly enableComputerUse?: boolean
+	/**
+	 * Mount the browser tools (`browser`, `browser_act`) over
+	 * `@namzu/browser`, with this profile, engine and site policy. Only the
+	 * TUI passes it: `exec`, `exec --json`, `drain` and `acp` have nobody at
+	 * a window to sign in or to answer a site review, and must not inherit a
+	 * signed-in browser because the package is installed. Nothing launches
+	 * until the model's first browser call.
+	 */
+	readonly browser?: BrowserSessionOptions
+	/**
+	 * Tools this session's rules refuse whatever their input, left out of its
+	 * registry so their schemas are not sent with every model call. A
+	 * scheduled run passes the tools its job can never use
+	 * (`withheldTools`). A call to one is refused as an unknown tool.
+	 */
+	readonly withheldTools?: readonly string[]
 	/**
 	 * Tools a host adds to this session's own registry — never to a
 	 * sub-agent's, whose registry is built separately. For host capabilities
@@ -2314,6 +2373,26 @@ export async function createAgentSession(
 			)
 		}
 	}
+	// The browser: mounted for a surface that asked for it, never launched
+	// here. The host detects the engine now and starts the browser on the
+	// model's first call. Parent session only — sub-agents build their own
+	// registries below and never receive it.
+	const browserPackage = capabilities.find((probe) => probe.specifier === '@namzu/browser')
+	let browserControl: BrowserControl | undefined
+	let browserError: Error | undefined
+	if (options.browser && browserPackage?.state === 'present') {
+		try {
+			const { PlaywrightBrowserHost } = await import('@namzu/browser')
+			browserControl = createBrowserControl(PlaywrightBrowserHost, options.browser)
+			registry.register(createBrowserTools(browserControl.host))
+		} catch (error) {
+			browserError = error instanceof Error ? error : new Error(String(error))
+		}
+	}
+	const browserUnavailable =
+		browserError !== undefined
+			? describeError(browserError)
+			: browserControl?.status().unavailableReason
 	// Registered only on the main session path. Sub-agents call
 	// `buildToolRegistry` directly below, so they never receive these tools.
 	// Per-send denial further keeps the schemas out of ordinary human turns.
@@ -2372,6 +2451,9 @@ export async function createAgentSession(
 		sandboxReady: sandbox.provider !== undefined,
 		computerUseReady: computerUseHost !== undefined,
 		...(computerUseError ? { computerUseError } : {}),
+		browserReady: browserControl !== undefined && browserUnavailable === undefined,
+		...(browserControl ? { browser: browserControl.status() } : {}),
+		...(browserUnavailable !== undefined ? { browserUnavailable } : {}),
 	})
 	// URL fetching is separately opt-in and parent-only: children do not
 	// carry its guarded provider. Independent search is shared below because
@@ -2729,6 +2811,7 @@ export async function createAgentSession(
 			const remaining = await Promise.allSettled([
 				mcp.close(),
 				computerUseHost?.dispose(),
+				browserControl?.dispose(),
 				jobRegistry?.killOwner(jobOwner),
 				checkpoints.close(),
 			])
@@ -2868,12 +2951,34 @@ export async function createAgentSession(
 	// refusal closes the MCP processes already opened for this candidate before
 	// returning an inert session. Sub-agents were built above from their own
 	// registries, so executable plugins remain a top-level-session capability.
+	// File skills (built-in, ~/.agents, ~/.namzu, and the project's) reach the
+	// model through the kernel's manifest and `skill` tool. Registered BEFORE
+	// the plugin runtime: a runtime that finds the tool already there never
+	// owns it, so disabling the last plugin skill cannot take away the tool
+	// the file skills load through.
+	const skillCatalog = await createSessionSkillCatalog({
+		cwd,
+		...(options.skills ? { config: options.skills } : {}),
+		log: cliLogger(),
+	})
+	// A session that can save a skill loads it next turn through this tool,
+	// even when it started with none.
+	if (
+		(skillCatalog.hasFileSkills || registry.has(SAVE_SKILL_TOOL_NAME)) &&
+		!registry.has(SkillTool.name)
+	)
+		registry.register(SkillTool)
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
 		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd, options.hooks)
 	} catch (error) {
-		await Promise.allSettled([mcp.close(), computerUseHost?.dispose()])
+		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(describeError(error))
+	}
+	// Everything is registered by now but the deferred task tools, which no
+	// caller withholds.
+	for (const name of options.withheldTools ?? []) {
+		if (registry.get(name)) registry.unregister(name)
 	}
 	// The session's own lifecycle, for hooks that set up or tear down
 	// something per session rather than per turn. These two calls belong to no
@@ -2883,6 +2988,15 @@ export async function createAgentSession(
 	// is replaced when the conversation is first made durable — and a hook
 	// given the provisional id could never match it to a turn.
 	const sessionPlugins = pluginRuntime
+	// What one turn's prompt manifest and `skill` tool see: the file skills
+	// gated against the tools registered now, merged with the plugins' own.
+	const turnSkillsFor = (turnModel: string | undefined) =>
+		skillCatalog.forTurn({
+			toolNames: registry.listNames(),
+			contextWindowTokens: resolveContextWindow(options.compaction?.contextWindowTokens, turnModel)
+				.tokens,
+			...(sessionPlugins ? { pluginSkills: sessionPlugins.skills } : {}),
+		})
 	let sessionStarted = false
 	const announceSessionStart = async (): Promise<void> => {
 		if (!sessionPlugins || sessionStarted) return
@@ -2951,6 +3065,7 @@ export async function createAgentSession(
 				: undefined,
 			mcp.close(),
 			computerUseHost?.dispose(),
+			browserControl?.dispose(),
 			jobRegistry?.killOwner(jobOwner),
 			checkpoints.close(),
 		])
@@ -3063,7 +3178,9 @@ export async function createAgentSession(
 		rules,
 		reviewHold,
 		model: pinned,
+		systemNote,
 	}: ResumeDurableParams & {
+		readonly systemNote?: string
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
 		readonly permissionMode?: PermissionMode
@@ -3085,9 +3202,7 @@ export async function createAgentSession(
 			// hold a client the refresh just replaced.
 			await prepareProviderCredential(ownedSignal)
 			const route = await pinnedResumeRoute(pinned, entry.sessionId, ownedSignal)
-			const pluginSkills = pluginRuntime
-				? await currentPluginSkills(pluginRuntime.skills)
-				: undefined
+			const turnSkills = await turnSkillsFor(route?.model ?? model)
 			const curatedMemory = readMemory(undefined, cwd)
 			for (const notice of formatMemoryDiagnostics(curatedMemory)) cliLogger().warn(notice)
 			const storedMemory = await storedMemoryPrompt()
@@ -3110,6 +3225,8 @@ export async function createAgentSession(
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 					environmentPrompt,
 					memoryPrompt,
+					systemNote,
+					turnSkills.overflowNote,
 				]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
@@ -3180,8 +3297,8 @@ export async function createAgentSession(
 					fallbackProviders: route ? [] : fallbackPlan.build(currentToken, entry.sessionId),
 					tools: registry,
 					pluginManager: pluginRuntime?.manager,
-					skillRegistry: pluginRuntime?.skills,
-					skills: pluginSkills,
+					...(turnSkills.registry ? { skillRegistry: turnSkills.registry } : {}),
+					...(turnSkills.manifest ? { skills: turnSkills.manifest } : {}),
 					taskStore: turnTaskStore,
 					...(webCapability ? { web: webCapability } : {}),
 					// The same availability the original turn registered under.
@@ -3314,12 +3431,14 @@ export async function createAgentSession(
 		rules,
 		reviewHold,
 		model: pinned,
+		systemNote,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
 		let settled = false
 		let failure: Error | undefined
 		const presenter = createToolPresenter(registry)
+		const readsOnly = declaredReadOnly(registry)
 		// The log the turn appends to, and its checkpoints beside it.
 		const sessionLog = DiskSessionLog.at(paths, { sessionId: scope.sessionId })
 		const outcome = kernelResume({
@@ -3339,6 +3458,7 @@ export async function createAgentSession(
 			...(rules ? { rules } : {}),
 			...(reviewHold ? { reviewHold } : {}),
 			...(pinned ? { model: pinned } : {}),
+			...(systemNote ? { systemNote } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()
@@ -3368,7 +3488,7 @@ export async function createAgentSession(
 				while (queue.length > 0) {
 					const next = queue.shift()
 					if (!next) break
-					const mapped = toAgentEvent(next, presenter)
+					const mapped = toAgentEvent(next, presenter, readsOnly)
 					if (mapped) yield mapped
 				}
 				if (settled) break
@@ -3488,12 +3608,16 @@ export async function createAgentSession(
 			return mcp.failed
 		},
 		mcpStatus: () => mcp.current(),
+		...(browserControl ? { browser: browserControl } : {}),
 		configNotices: [
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
 			...(passthroughNotice ? [passthroughNotice] : []),
 			...(computerUseError
 				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
+				: []),
+			...(browserUnavailable !== undefined
+				? [`The browser is unavailable: ${browserUnavailable}`]
 				: []),
 			...unresolvedNotice.map(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
@@ -3628,9 +3752,7 @@ export async function createAgentSession(
 						// runs — midnight passes, and the agent checks out a branch itself.
 						// Its text only changes when a fact changes, so it costs a prompt-cache
 						// miss exactly when a hit would have been a stale claim.
-						const pluginSkills = pluginRuntime
-							? await currentPluginSkills(pluginRuntime.skills)
-							: undefined
+						const turnSkills = await turnSkillsFor(model)
 						// One fork after plugin refresh, held through every iteration of
 						// this send. Discovery cannot activate another send's schemas.
 						if (options.toolLoading === 'deferred')
@@ -3733,7 +3855,12 @@ export async function createAgentSession(
 							[
 								NAMZU_IDENTITY,
 								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
-								residentContext ? undefined : NAMZU_DELEGATION_DOCTRINE,
+								// Advice on delegating, for a session that has the Agent tool:
+								// a scheduled run whose job withholds it would only be told how
+								// to use a tool it was not sent.
+								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
+									? undefined
+									: NAMZU_DELEGATION_DOCTRINE,
 								!residentContext && opts?.orchestrate ? NAMZU_ORCHESTRATE_DOCTRINE : undefined,
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
@@ -3747,6 +3874,7 @@ export async function createAgentSession(
 								residentContext ? undefined : memoryPrompt,
 								residentContext ? undefined : opts?.extraSystem,
 								residentContext ? undefined : opts?.systemNote,
+								turnSkills.overflowNote,
 							]
 								.filter((s): s is string => Boolean(s))
 								.join('\n\n') || undefined
@@ -3828,8 +3956,8 @@ export async function createAgentSession(
 								model,
 								tools: runTools,
 								pluginManager: pluginRuntime?.manager,
-								skillRegistry: pluginRuntime?.skills,
-								skills: pluginSkills,
+								skillRegistry: turnSkills.registry,
+								skills: turnSkills.manifest,
 								scope: turnScope,
 								turnId,
 								paths,
@@ -4512,7 +4640,7 @@ interface TurnParams {
 	readonly model: string
 	readonly tools: ToolRegistry
 	readonly pluginManager: PluginLifecycleManager | undefined
-	readonly skillRegistry: SkillRegistry | undefined
+	readonly skillRegistry: SkillRegistryRef | undefined
 	readonly skills: Skill[] | undefined
 	readonly scope: SessionScope
 	/** The id reserved for this turn; the kernel begins the turn under it. */
@@ -4639,6 +4767,7 @@ async function* runTurn({
 	// matching in the first place: `toAgentEvent` is pure over a `SessionEvent`
 	// and could not ask a tool anything, so the host guessed from the name.
 	const presenter = createToolPresenter(tools)
+	const readsOnly = declaredReadOnly(tools)
 	try {
 		const events = query({
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
@@ -4757,7 +4886,7 @@ async function* runTurn({
 					// receipts and reasoning before the next user turn.
 					continue
 				}
-				const mapped = toAgentEvent(event, presenter)
+				const mapped = toAgentEvent(event, presenter, readsOnly)
 				if (!mapped) continue
 				yield mapped
 			}
@@ -4885,6 +5014,14 @@ export const AGENT_LAUNCH_TOOL = 'Agent'
  * An operator who wants every launch asked about writes
  * `permissions: { Agent: "ask" }`: an `ask` rule is an explicit review, which
  * no exemption skips.
+ *
+ * `save_skill` (the TUI's alone) is not asked about here either, outside
+ * `strict` and `plan`: its own screen shows the whole file and where it goes,
+ * and asks in every mode, `auto` included. A second question in front of it
+ * would ask the same thing with less on the screen. `strict` and `plan` still
+ * refuse it, and an `ask` or `deny` rule for it still applies. Neither is
+ * the `schedule` tool's `create`, `resume` or `delete`, for the same reason
+ * (see {@link confirmsItself}).
  */
 export function reviewExemptionFor(
 	mode: PermissionMode,
@@ -4893,7 +5030,44 @@ export function reviewExemptionFor(
 ): (name: string, input: unknown) => boolean {
 	return (name, input) =>
 		isPromptExempt(registry, name, input) ||
-		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input))
+		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
+		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
+		(mode !== 'strict' &&
+			mode !== 'plan' &&
+			name === SAVE_SKILL_TOOL_NAME &&
+			registry.has(SAVE_SKILL_TOOL_NAME))
+}
+
+/**
+ * The `schedule` tool's `create`, `resume` and `delete`: each puts its own
+ * confirmation in front of the operator, drawn from the host's computation,
+ * and changes nothing unless they choose to. A review before it only asked
+ * "Do you want to run schedule?" over the model's raw arguments, and then the
+ * real question came. `pause` and anything else is reviewed as before; `plan`
+ * and `strict` still refuse, and an `ask` or `deny` rule still decides, since
+ * an explicit review is never exempted.
+ */
+export function confirmsItself(name: string, input: unknown): boolean {
+	if (name !== SCHEDULE_TOOL_NAME || typeof input !== 'object' || input === null) return false
+	const action = (input as { action?: unknown }).action
+	return action === 'create' || action === 'resume' || action === 'delete'
+}
+
+/**
+ * A call's own read-only declaration, as the tool states it for this input.
+ * Not a permission answer (that is `isPromptExempt`): it only says whether a
+ * finished turn changed anything, for the TUI's skill suggestion.
+ */
+function declaredReadOnly(
+	registry: Pick<ToolRegistry, 'get'>,
+): (toolName: string, input: unknown) => boolean {
+	return (toolName, input) => {
+		try {
+			return registry.get(toolName)?.isReadOnly?.(input as never) === true
+		} catch {
+			return false
+		}
+	}
 }
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */
@@ -4913,7 +5087,12 @@ export const batchNeedsPrompt = batchNeedsReview
  * `null` for events the chat surface doesn't render (iteration markers,
  * checkpoints, plan lifecycle, …). Pure — unit-tested.
  */
-export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): AgentEvent | null {
+export function toAgentEvent(
+	event: SessionEvent,
+	presenter: ToolPresenter,
+	/** Whether a call only reads, from the tool's own declaration; see `tool-start.readOnly`. */
+	readsOnly?: (toolName: string, input: unknown) => boolean,
+): AgentEvent | null {
 	switch (event.type) {
 		case 'hosted_tool': {
 			const common = {
@@ -4990,6 +5169,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 					const web = webActivityFromInput(event.toolName, event.input)
 					return web ? { web } : {}
 				})(),
+				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
 		case 'tool_progress':
 			return {
@@ -5012,14 +5192,21 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 					},
 				)
 			const detail = viewToLines(view)
-			// Drop only an exact duplicate. A shortened summary cannot replace
-			// the first line's evidence in expanded or raw output.
-			const summary =
-				view.kind === 'terminal' && detail && detail.length > 0
-					? truncate(detail[0] as string, 120)
-					: firstLine(event.result)
+			// The first line is the summary row. It leaves the body only when
+			// the row says all of it: a shortened summary cannot replace the
+			// first line's evidence in expanded or raw output. A first line
+			// up to a few rows long is shown whole, so a note like "A
+			// navigation to … was blocked" is not printed twice, once cut off
+			// on the summary row and again in full underneath.
+			const first =
+				view.kind === 'terminal' && view.output.trim().length > 0
+					? resultToLines(view.output)[0]
+					: undefined
+			const summary = first !== undefined ? resultSummaryLine(first) : firstLine(event.result)
 			const withoutRepeatedSummary =
-				view.kind === 'terminal' && detail?.[0] === summary ? detail.slice(1) : detail
+				first !== undefined && detail?.[0] === first && summarySaysAll(first, summary)
+					? detail.slice(1)
+					: detail
 			return {
 				kind: 'tool-end',
 				output: event.result,
@@ -5030,6 +5217,9 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				summary,
 				...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
 				...(view.kind === 'generic' && view.visibility === 'hidden' ? { hidden: true } : {}),
+				...(event.isError && view.kind === 'generic' && view.outcome === 'cancelled'
+					? { cancelled: true }
+					: {}),
 				...(view.kind === 'generic' && view.label.length > 0 ? { resultLabel: view.label } : {}),
 				...(withoutRepeatedSummary && withoutRepeatedSummary.length > 0
 					? { detail: withoutRepeatedSummary }
@@ -5130,6 +5320,7 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 				...(event.failure ? { failure: event.failure } : {}),
 				...(event.providerError ? { providerError: event.providerError } : {}),
 				...(event.explanation ? { explanation: event.explanation } : {}),
+				...(event.handoff ? { handoff: event.handoff } : {}),
 			}
 		case 'turn_completed':
 			// Carried through rather than dropped: `turn_failed` fires only from
@@ -5336,8 +5527,10 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 		case 'terminal': {
 			if (view.output.trim().length === 0) return undefined
 			const lines = resultToLines(view.output)
-			// A single short line is already the summary — no need to repeat it.
-			return lines.length === 1 && lines[0] === truncate(lines[0] ?? '', 120) ? undefined : lines
+			// A single line the summary row shows whole is not repeated under it.
+			return lines.length === 1 && summarySaysAll(lines[0] ?? '', resultSummaryLine(lines[0] ?? ''))
+				? undefined
+				: lines
 		}
 	}
 }
@@ -5352,6 +5545,24 @@ export function viewToSummary(view: ToolCallView): string {
 		case 'terminal':
 			return truncate(view.command ?? view.output.split('\n')[0] ?? '', 120)
 	}
+}
+
+/**
+ * The longest first line a result's summary row shows whole, about three
+ * terminal rows. Longer, the row shows its first 120 characters and the body
+ * keeps the line.
+ */
+export const RESULT_SUMMARY_WHOLE_MAX = 300
+
+/** A result's summary row for its first line: whole when short enough, else shortened. */
+export function resultSummaryLine(line: string): string {
+	const flat = line.replace(/\s+/g, ' ')
+	return flat.length <= RESULT_SUMMARY_WHOLE_MAX ? flat : truncate(line, 120)
+}
+
+/** The summary row says everything `line` does (whitespace aside). */
+function summarySaysAll(line: string, summary: string): boolean {
+	return line === summary || line.replace(/\s+/g, ' ') === summary
 }
 
 function truncate(value: string, max: number): string {
@@ -5460,6 +5671,10 @@ function logCapabilities(
 		readonly sandboxReady: boolean
 		readonly computerUseReady: boolean
 		readonly computerUseError?: Error
+		/** The browser tools are mounted and the engine can run. */
+		readonly browserReady?: boolean
+		readonly browser?: BrowserStatus
+		readonly browserUnavailable?: string
 	},
 ): void {
 	const log = cliLogger()
@@ -5470,7 +5685,9 @@ function logCapabilities(
 					? runtime.sandboxReady
 					: p.specifier === '@namzu/computer-use'
 						? runtime.computerUseReady
-						: p.state === 'present'
+						: p.specifier === '@namzu/browser'
+							? runtime.browserReady === true
+							: p.state === 'present'
 			return `${p.specifier.split('/').pop()} ${present ? 'yes' : 'no'}`
 		})
 		.join(' · ')
@@ -5492,6 +5709,22 @@ function logCapabilities(
 			'namzu.capability.state': probe.state,
 			'namzu.capability.present': probe.state === 'present',
 			...(probe.state === 'present' ? { 'namzu.capability.version': probe.version } : {}),
+		})
+	}
+	if (runtime.browser) {
+		// The engine and profile the browser tools will use; nothing is running yet.
+		log.info('Browser tools mounted', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
+			'namzu.capability.name': '@namzu/browser',
+			'namzu.capability.state': runtime.browserUnavailable === undefined ? 'ready' : 'unavailable',
+			'namzu.capability.present': runtime.browserReady === true,
+			'namzu.browser.engine': runtime.browser.engine,
+			'namzu.browser.profile': runtime.browser.profile,
+			'namzu.browser.headless': runtime.browser.headless,
+			'namzu.browser.site_count': Object.keys(runtime.browser.sites).length,
+			...(runtime.browserUnavailable !== undefined
+				? { 'namzu.browser.unavailable_reason': runtime.browserUnavailable }
+				: {}),
 		})
 	}
 	if (runtime.computerUseError) {

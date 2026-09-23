@@ -8,7 +8,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { listCommand, listing, showCommand } from '../commands/list.js'
-import { noticeText } from '../daemon/notify.js'
+import { NOTICE_BODY_MAX, noticeText } from '../daemon/notify.js'
 import { resumeCommand, scheduledSessionElsewhere, shellQuote } from '../resume-command.js'
 import { readState, writeState } from '../store/state.js'
 import { type Sandbox, confirmedJob, recordingContext, sandbox } from './fixtures.js'
@@ -83,6 +83,21 @@ describe('the command that answers a park', () => {
 		const body = noticeText('awaiting-approval', job, { at, resumeCommand: long }).body
 		expect(body).not.toContain('cd /')
 		expect(body).toContain(`namzu schedule show ${job.name}`)
+	})
+
+	it('says what a tool needs from the person, and still fits whole', () => {
+		const job = parked()
+		const command = resumeCommand(job, SESSION)
+		const at = new Date('2026-09-23T03:00:00Z')
+		const handoff = 'Sign in to example.test'
+		const body = noticeText('awaiting-approval', job, { at, resumeCommand: command, handoff }).body
+		expect(body).toContain('needs you')
+		expect(body).toContain(handoff)
+		expect(body).not.toContain('approval')
+		const long = 'x'.repeat(400)
+		const cut = noticeText('awaiting-approval', job, { at, resumeCommand: command, handoff: long })
+		expect([...cut.body].length).toBeLessThanOrEqual(NOTICE_BODY_MAX)
+		expect(cut.body).toContain('needs you')
 	})
 })
 

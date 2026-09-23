@@ -715,6 +715,31 @@ export interface ToolResult {
 	 * must not lose: what its controls do, where things are, what failed.
 	 */
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
+	/**
+	 * This result needs a person before the turn can go on — a sign-in page,
+	 * a CAPTCHA, a second factor, anything the model must not try to answer
+	 * itself.
+	 *
+	 * The result is committed like any other: it reaches the transcript and
+	 * the session log with the rest of its batch. Then, instead of calling
+	 * the model again, the kernel writes a checkpoint and ends the segment
+	 * with `turn_paused` carrying this value. Resuming the turn continues
+	 * from that checkpoint, and the next step is a model call that sees the
+	 * results. Inside a delegated child there is no person to hand to, so
+	 * the child's turn fails with {@link ToolHandoff.reason} instead.
+	 */
+	handoff?: ToolHandoff
+}
+
+/**
+ * A tool's request to stop the turn for a person. See {@link ToolResult.handoff}.
+ */
+export interface ToolHandoff {
+	readonly kind: 'human-required'
+	/** Operator-facing text: what the person has to do before the turn resumes. */
+	readonly reason: string
+	/** Structured facts a host can render or act on, such as an origin or a command. */
+	readonly detail?: Readonly<Record<string, string>>
 }
 
 /**
@@ -810,6 +835,23 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * the safe direction to be wrong in.
 	 */
 	pathArgument?: string
+	/**
+	 * The argument that holds an absolute URL the tool has already
+	 * canonicalised in its input schema — one spelling, no whitespace.
+	 *
+	 * Declared so an `argument_pattern` rule tests the URL whole. Without it
+	 * the rule reads every argument as a possible command line, and a URL's
+	 * query separators (`&`, `;`, `|`) cut it into "segments": an `allow` for
+	 * `^https://github\.com(?:[/?#]|$)` then declined
+	 * `https://github.com/search?q=a&type=code`, because `type=code` is not
+	 * GitHub. A `deny` or `review` is unaffected either way; only an `allow`
+	 * needed every segment to match.
+	 *
+	 * Declare it only for an argument the input schema itself canonicalises
+	 * to a URL. A free-text argument that happens to hold one keeps the
+	 * command-line reading, which is the safe direction to be wrong in.
+	 */
+	urlArgument?: string
 	/**
 	 * The boolean argument by which a call asks to run outside the turn's
 	 * sandbox, when the tool offers that at all (the shipped `bash` does).

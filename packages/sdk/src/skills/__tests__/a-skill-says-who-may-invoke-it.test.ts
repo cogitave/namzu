@@ -195,3 +195,46 @@ describe('the frontmatter field', () => {
 		await expect(loadSkill(dir)).rejects.toThrow(/invocation must be one of/)
 	})
 })
+
+describe('disable-model-invocation', () => {
+	// The other common spelling. Read by the loader itself so a
+	// registry's freshness reload cannot drop it.
+	it('true reads as invocation: operator', async () => {
+		const dir = await skillOnDisk('disable-model-invocation: true\n')
+
+		const { skill: loaded } = await loadSkill(dir)
+
+		expect(loaded.metadata.invocation).toBe('operator')
+		expect(isInvocableBy(loaded, 'model')).toBe(false)
+	})
+
+	it('false changes nothing', async () => {
+		const dir = await skillOnDisk('disable-model-invocation: false\n')
+
+		const { skill: loaded } = await loadSkill(dir)
+
+		expect(loaded.metadata.invocation).toBeUndefined()
+	})
+
+	it('agrees with an explicit invocation: operator', async () => {
+		const dir = await skillOnDisk('invocation: operator\ndisable-model-invocation: true\n')
+
+		const { skill: loaded } = await loadSkill(dir)
+
+		expect(loaded.metadata.invocation).toBe('operator')
+	})
+
+	it('REFUSES a contradiction with invocation', async () => {
+		const dir = await skillOnDisk('invocation: both\ndisable-model-invocation: true\n')
+
+		await expect(loadSkill(dir)).rejects.toThrow(/contradicts invocation: both/)
+	})
+
+	it('REFUSES a value that is not true or false', async () => {
+		// `yes` quietly reading as "not disabled" would put the skill in front
+		// of the model.
+		const dir = await skillOnDisk('disable-model-invocation: yes\n')
+
+		await expect(loadSkill(dir)).rejects.toThrow(/must be true or false/)
+	})
+})

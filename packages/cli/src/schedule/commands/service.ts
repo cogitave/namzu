@@ -29,7 +29,7 @@ import { daemonLogPath, daemonLogSink } from '../daemon/log.js'
 import { type FireArgs, parseFireArgs, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult, writeRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
-import { resumeCommand } from '../resume-command.js'
+import { parkedRunWords, resumeCommand } from '../resume-command.js'
 import { detectPlatform } from '../service/detect.js'
 import {
 	ServiceRefusal,
@@ -307,6 +307,8 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 						job: job.name,
 						sessionId: run.sessionId,
 						resumeCommand: resumeCommand(job, run.sessionId),
+						...(run.handoff ? { handoff: { reason: run.handoff.reason } } : {}),
+						waitingFor: parkedRunWords(run),
 					},
 				]
 			: []
@@ -345,8 +347,10 @@ export async function statusCommand(ctx: CommandContext, argv: readonly string[]
 				`Daemon         ${live ? `running, pid ${String(live.pid)}, version ${String(live.version)}${live.standby ? ', on standby' : ''}${live.draining ? ', draining for a restart' : ''}` : heartbeat ? `not answering; last seen ${Math.round((age ?? 0) / 1000)} s ago${heartbeat.standby ? ' (on standby)' : ''}` : 'never started'}`,
 				`Notifications  ${backend.kind}${backend.kind === 'none' ? ` — ${backend.detail}` : ''}${'guessed' in backend ? ' (not reported by the daemon yet; this shell would pick it)' : ''}`,
 				`Jobs           ${payload.jobs.active} active of ${payload.jobs.total}; ${payload.runsInFlight} run(s) in progress`,
-				...awaitingApproval.map(
-					(w) => `Waiting        ${w.job} needs your approval: ${w.resumeCommand}`,
+				...awaitingApproval.map((w) =>
+					w.handoff
+						? `Waiting        ${w.job} ${w.waitingFor}; when that is done: ${w.resumeCommand}`
+						: `Waiting        ${w.job} needs your approval: ${w.resumeCommand}`,
 				),
 				`Log            ${payload.log}`,
 				...pathProblems.map((p) => `Warning        ${p}`),

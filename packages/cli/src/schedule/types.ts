@@ -6,7 +6,7 @@
  * know refuses and names the file; it never rewrites it.
  */
 
-import type { ScheduleJobLifecycle, ScheduleSpec } from '@namzu/sdk'
+import type { ScheduleBrowserGrant, ScheduleJobLifecycle, ScheduleSpec } from '@namzu/sdk'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
 export const SCHEDULE_FORMAT_VERSION = 1
@@ -23,6 +23,15 @@ export interface SchedulePermissionSet {
 	readonly additionalDirectories?: readonly string[]
 	/** Where the rules came from, for display only. */
 	readonly preset?: 'read-only' | 'edit-in-folder' | 'custom'
+	/**
+	 * Browser access. Absent: the `browser` and `browser_act` tools are
+	 * denied. Present: the run drives the browser under `profile` (signed in
+	 * beforehand with `namzu browser login`), reaches only the listed sites
+	 * (canonical keys, never `*`) at their level, and every other site is
+	 * denied. `ask` needs `unmatched: park`: each such call waits for the
+	 * operator. No window unless `headed`.
+	 */
+	readonly browser?: ScheduleBrowserGrant
 }
 
 export interface ScheduleBudget {
@@ -117,6 +126,12 @@ export interface ActiveRun {
 	readonly parkedAt?: string
 	readonly delayedMs?: number
 	readonly delayReason?: 'concurrency-cap' | 'folder-busy'
+	/**
+	 * Set when the run is parked because a tool asked for a person (a
+	 * sign-in, a CAPTCHA) rather than on a batch waiting for approval: what
+	 * the person has to do.
+	 */
+	readonly handoff?: { readonly reason: string }
 }
 
 export interface ScheduleJobState {
@@ -213,6 +228,8 @@ export type ScheduleHistoryRecord =
 				| 'blocked'
 			readonly by: string
 			readonly detail?: string
+			/** For `edited`: the preview lines that differ, `+ added` and `- removed`. */
+			readonly changes?: readonly string[]
 	  }
 
 /** What a fire child leaves behind. Authoritative over its exit code. */
@@ -232,6 +249,12 @@ export interface ScheduleRunResult {
 	readonly usage?: { readonly totalTokens?: number; readonly costUsd?: number }
 	/** A provider asked to be left alone this long. */
 	readonly retryAfterMs?: number
+	/**
+	 * Set on `awaiting-approval` when a tool asked for a person rather than a
+	 * batch waiting for approval: what the person has to do. Continuing the
+	 * run needs no approval, only that.
+	 */
+	readonly handoff?: { readonly reason: string }
 	readonly credentialSource?: string
 	readonly warnings?: readonly string[]
 	readonly startedAt: string

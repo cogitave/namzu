@@ -85,11 +85,12 @@ export const skillsJSONCommand: CommandDef = {
 		'',
 		'Print the skills discovered for a working directory as JSON. Project',
 		'skills come from that directory; user skills come from the home',
-		'directory either way.',
+		'directory either way; system skills ship with the CLI. `source` is',
+		'"system", "user" or "project".',
 		'',
 		'An empty array means no skills were found — it is not an error.',
 	].join('\n'),
-	handler: async ({ rawArgs }) => {
+	handler: async ({ ctx, rawArgs }) => {
 		// Project skills live under the working directory, so a host listing the
 		// skills for one checkout while the process sits in another was shown
 		// the wrong project's chips — and then `exec --json --cwd <that
@@ -102,11 +103,17 @@ export const skillsJSONCommand: CommandDef = {
 		}
 		try {
 			const { discoverSkills } = await import('../skills/store.js')
-			const skills = discoverSkills({ cwd: resolved.cwd }).map((s) => ({
-				name: s.name,
-				description: s.description,
-				source: s.source,
-			}))
+			const skills = discoverSkills({
+				cwd: resolved.cwd,
+				...(ctx.config.skills ? { config: ctx.config.skills } : {}),
+			})
+				// A disabled skill is not offered: `exec --skills` would skip it.
+				.filter((s) => s.disabled !== true)
+				.map((s) => ({
+					name: s.name,
+					description: s.description,
+					source: s.source,
+				}))
 			process.stdout.write(`${JSON.stringify(skills)}\n`)
 		} catch {
 			process.stdout.write('[]\n')

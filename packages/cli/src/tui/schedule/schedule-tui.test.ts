@@ -6,7 +6,7 @@
 
 import { existsSync, mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
-import { NOOP_LOGGER, buildScheduleTools } from '@namzu/sdk'
+import { NOOP_LOGGER, buildScheduleTools, defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 import { __resetCliLoggerForTests } from '../../logging.js'
@@ -27,10 +27,15 @@ import { readState } from '../../schedule/store/state.js'
 import {
 	type PermissionRequest,
 	type ScreenPermissionRequest,
+	type UserQuestion,
 	createAgentSession,
 } from '../agent.js'
 import { SessionLoopScheduler } from './loop-host.js'
-import { prepareScheduledResume, scheduledResumeMismatch } from './resume.js'
+import {
+	type ScheduledResumeParams,
+	prepareScheduledResume,
+	scheduledResumeMismatch,
+} from './resume.js'
 import { scheduleStartupLine } from './startup.js'
 import { createScheduleToolHost } from './tool-host.js'
 
@@ -60,10 +65,64 @@ const agent = {
 	createAgentSession,
 }
 
+const HANDOFF_REASON = 'Sign in to example.test in the browser, then continue.'
+let probeRuns = 0
+
+/** The real session, with one tool that asks for a person. */
+const handoffAgent = {
+	...agent,
+	createAgentSession: ((prefs, detected, options) =>
+		createAgentSession(prefs, detected, {
+			...options,
+			extraTools: [handoffProbe()],
+		})) as typeof createAgentSession,
+}
+
+function handoffProbe() {
+	return defineTool({
+		name: 'sign_in_probe',
+		description: 'Opens a page that turns out to need a sign-in',
+		inputSchema: mcpJsonSchemaToZod({ type: 'object', properties: {} }),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute() {
+			probeRuns++
+			return {
+				success: false,
+				output: 'The page is a sign-in form.',
+				error: 'sign-in required',
+				handoff: {
+					kind: 'human-required' as const,
+					reason: HANDOFF_REASON,
+					detail: { origin: 'https://example.test' },
+				},
+			}
+		},
+	})
+}
+
 /** Run the job once until it parks, as the daemon would, and record the park in its state. */
 async function parkedRun(marker: string) {
 	const job = confirmedJob(sb, { permissions: { preset: 'edit-in-folder' } })
 	responses.push(() => completion({ name: 'bash', input: { command: `touch ${marker}` } }))
+	return await runUntilParked(job, agent)
+}
+
+/** Run a job whose one tool call asks for a person, until it parks. */
+async function handoffParkedRun() {
+	probeRuns = 0
+	const job = confirmedJob(sb, {
+		permissions: { rules: {}, unmatched: 'allow' },
+		allowUnattendedHost: true,
+	})
+	responses.push(() => completion({ name: 'sign_in_probe', input: {} }))
+	return await runUntilParked(job, handoffAgent)
+}
+
+async function runUntilParked(job: ReturnType<typeof confirmedJob>, runAgent: typeof agent) {
 	const d = new ScheduleDaemon({
 		paths: sb.paths,
 		log: NOOP_LOGGER,
@@ -82,7 +141,7 @@ async function parkedRun(marker: string) {
 					revision: req.job.revision,
 					trigger: req.trigger,
 				},
-				{ agent, keepLogging: true },
+				{ agent: runAgent, keepLogging: true },
 			),
 			terminate: () => {},
 		}),
@@ -125,15 +184,17 @@ describe('answering a parked scheduled run', () => {
 					? ({ kind: 'approve-all' } as const)
 					: ({ kind: 'reject', feedback: 'not now' } as const)
 		}
-		const scheduled = await prepareScheduledResume({
+		const scheduled = (await prepareScheduledResume({
 			home: sb.home,
 			sessionId: run.sessionId as string,
 			operatorMode: 'auto',
 			environment: { cwd: sb.project, roots: [], sandboxed: false },
 			ask,
 			say: () => {},
-		})
+		})) as ScheduledResumeParams | undefined
 		expect(scheduled?.pendingDecision).toEqual({ action: 'approve_tools' })
+		// Told the time now: the park may have waited days for this answer.
+		expect(scheduled?.systemNote).toMatch(/^It is now \w+day, .*This is the current local time/)
 		expect(scheduled?.model).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
 		expect(scheduled?.permissionMode).toBe('prompt')
 		expect(asked[0]?.toolCalls[0]?.name).toBe('bash')
@@ -200,6 +261,111 @@ describe('answering a parked scheduled run', () => {
 			(r) => r.kind === 'run' && r.runId === run.runId,
 		)
 		expect(record).toMatchObject({ status: 'completed' })
+	})
+
+	it('offers Continue or Abandon for a run a tool paused for a person, and Continue calls the model with the results', async () => {
+		const { job, run } = await handoffParkedRun()
+		expect(probeRuns).toBe(1)
+		const said: string[] = []
+		const questions: UserQuestion[] = []
+		const asked: ScreenPermissionRequest[] = []
+		const scheduled = await prepareScheduledResume({
+			home: sb.home,
+			sessionId: run.sessionId as string,
+			operatorMode: 'auto',
+			environment: { cwd: sb.project, roots: [], sandboxed: false },
+			ask: async (request) => {
+				asked.push(request)
+				return { kind: 'approve' }
+			},
+			choose: async (question) => {
+				questions.push(question)
+				return { kind: 'answer', selectedOptionIds: ['continue'] }
+			},
+			say: (text) => said.push(text),
+		})
+		// No batch to approve: the choice is all that is asked.
+		expect(asked).toHaveLength(0)
+		expect(questions).toHaveLength(1)
+		expect(questions[0]?.options.map((option) => option.label)).toEqual(['Continue', 'Abandon'])
+		expect(said.join('\n')).toContain(HANDOFF_REASON)
+		expect(said.join('\n')).toContain('site https://example.test')
+		expect(said.join('\n')).not.toContain('origin: ')
+		// The resumed turn is told the person dealt with it, so it tries again.
+		const note = scheduled && 'systemNote' in scheduled ? scheduled.systemNote : undefined
+		expect(note).toContain(`a tool needed a person: ${HANDOFF_REASON}`)
+		expect(note).toContain('Try the step that stopped again')
+		expect(note).toMatch(/It is now \w+day, /)
+		expect(scheduled && 'pendingDecision' in scheduled).toBe(false)
+		expect(scheduled && 'model' in scheduled ? scheduled.model : undefined).toEqual({
+			provider: 'deepseek',
+			model: 'deepseek-chat',
+		})
+
+		const bodies: string[] = []
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>(async (_input, init) => {
+				bodies.push(String(init?.body ?? ''))
+				return completion()
+			}),
+		)
+		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
+		const session = await createAgentSession(
+			{ version: 3, providers: [{ id: 'deepseek' }], subagents: { active: [] } },
+			[DEEPSEEK],
+			{
+				cwd: sb.project,
+				stateRoot: sb.home,
+				conversationSessions: sessions,
+				extraTools: [handoffProbe()],
+				scope: {
+					sessionId: run.sessionId as never,
+					topicId: sessions.topicId,
+					projectId: sessions.projectId,
+					tenantId: sessions.tenantId,
+				},
+			},
+		)
+		try {
+			for await (const event of session.resumePaused({
+				turnId: run.turnId as string,
+				...(scheduled as ScheduledResumeParams),
+			})) {
+				if (event.kind === 'error') throw new Error(event.message)
+			}
+		} finally {
+			await session.close()
+		}
+		// The next step was a model call that saw the tool's result; the tool
+		// did not run again.
+		// The turn's own requests; a history lookup the session makes on the
+		// side is not one.
+		const turnRequests = bodies.filter((body) => body.includes('You are Namzu'))
+		expect(turnRequests).toHaveLength(1)
+		expect(turnRequests[0]).toContain('The page is a sign-in form.')
+		expect(probeRuns).toBe(1)
+		const settled = await settleAnsweredPark(sb.paths, job.id)
+		expect(settled?.lastRun).toMatchObject({ runId: run.runId, status: 'completed' })
+	})
+
+	it('abandons a handoff park when the operator chooses Abandon, and leaves it waiting on Esc', async () => {
+		const { job, run } = await handoffParkedRun()
+		const prepare = (answer: 'continue' | 'abandon' | 'skip') =>
+			prepareScheduledResume({
+				home: sb.home,
+				sessionId: run.sessionId as string,
+				operatorMode: 'auto',
+				environment: { cwd: sb.project, roots: [], sandboxed: false },
+				ask: async () => ({ kind: 'approve' }),
+				choose: async () =>
+					answer === 'skip' ? { kind: 'skip' } : { kind: 'answer', selectedOptionIds: [answer] },
+				say: () => {},
+			})
+		expect(await prepare('skip')).toEqual({ leave: true })
+		expect(readState(sb.paths, job.id).activeRun?.status).toBe('awaiting-approval')
+		const choice = await prepare('abandon')
+		expect(choice && 'abandon' in choice).toBe(true)
 	})
 
 	it('is not a scheduled park for any other session', async () => {
@@ -315,7 +481,12 @@ describe('answering a parked scheduled run', () => {
 	it('names every way a session differs from the job', () => {
 		const other = mkdtempSync(join(sb.osHome, 'extra-'))
 		const job = confirmedJob(sb, {
-			permissions: { preset: 'read-only', execution: 'sandbox', additionalDirectories: [other] },
+			// A job that can run commands: where they run is one of the differences.
+			permissions: {
+				preset: 'edit-in-folder',
+				execution: 'sandbox',
+				additionalDirectories: [other],
+			},
 		})
 		expect(
 			scheduledResumeMismatch(job, { cwd: sb.project, roots: [other], sandboxed: true }),

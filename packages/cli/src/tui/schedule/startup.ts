@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { takeSuppressedCount } from '../../integrations/notifications/desktop/throttle.js'
 import { schedulePaths } from '../../schedule/paths.js'
+import { parkedRunWords } from '../../schedule/resume-command.js'
 import { readManifest } from '../../schedule/service/manifest.js'
 import { writeJsonAtomic } from '../../schedule/store/atomic.js'
 import { readHistory } from '../../schedule/store/history.js'
@@ -41,12 +42,16 @@ export function scheduleStartupLine(
 	let finished = 0
 	const failed: string[] = []
 	const waiting: string[] = []
+	const needsYou: string[] = []
 	const held: string[] = []
 	const failingPaused: string[] = []
 	const hereNow: string[] = []
 	for (const job of jobs) {
 		const state = readState(paths, job.id)
-		if (state.activeRun?.status === 'awaiting-approval') waiting.push(job.name)
+		if (state.activeRun?.status === 'awaiting-approval') {
+			if (state.activeRun.handoff) needsYou.push(`${job.name} ${parkedRunWords(state.activeRun)}`)
+			else waiting.push(job.name)
+		}
 		if (state.activeRun?.status === 'running' && job.folder.canonical === cwd)
 			hereNow.push(job.name)
 		if (job.state === 'pending-confirmation' || (job.state === 'active' && !confirmationHolds(job)))
@@ -63,11 +68,12 @@ export function scheduleStartupLine(
 			}
 		}
 	}
-	if (finished + failed.length > 0 || waiting.length > 0) {
+	if (finished + failed.length > 0 || waiting.length > 0 || needsYou.length > 0) {
 		const bits = [
 			...(finished > 0 ? [`${finished} finished`] : []),
 			...(failed.length > 0 ? [`${failed.length} failed: ${failed.slice(0, 2).join('; ')}`] : []),
 			...(waiting.length > 0 ? [`waiting for approval: ${waiting.join(', ')}`] : []),
+			...needsYou,
 		]
 		parts.push(`Scheduled: ${bits.join(' · ')}`)
 	}

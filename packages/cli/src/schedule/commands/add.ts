@@ -15,10 +15,16 @@ import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import type { PermissionsConfig } from '../../permissions/rules.js'
 import { type JobRequest, JobRequestError, buildJob, confirmJob, previewLines } from '../build.js'
+import {
+	changesBlock,
+	changesSinceConfirmed,
+	confirmationView,
+	describeChanges,
+} from '../changes.js'
 import { isPrivacyProtectedFolder } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
 import { type PermissionInput, compileJobPolicy, isPresetName } from '../policy.js'
-import { appendHistory } from '../store/history.js'
+import { appendHistory, readHistory } from '../store/history.js'
 import { createJob, findJob, updateJob } from '../store/jobs.js'
 import type { ScheduleJob } from '../types.js'
 import {
@@ -57,10 +63,89 @@ export const ADD_FLAGS = [
 	'yes!',
 	'allow-unattended-host!',
 	'notify-summary!',
+	'browser',
+	'browser-site',
+	'browser-headed!',
+	'no-browser!',
 ] as const
 
-function permissionInput(args: ParsedArgs): PermissionInput {
+/**
+ * `--browser <profile>`, `--browser-site <site>=read|ask|act` (repeatable)
+ * and `--browser-headed`, over the grant a job already has (an edit). On an
+ * edit a site is added or its level changed, `<site>=none` takes it off,
+ * and `--no-browser` drops the grant. `undefined`: no grant.
+ */
+export function browserInput(
+	args: ParsedArgs,
+	base?: PermissionInput['browser'],
+): PermissionInput['browser'] | undefined {
+	const profile = flag(args, 'browser')
+	const written = args.flags.get('browser-site') ?? []
+	if (has(args, 'no-browser')) {
+		if (profile !== undefined || written.length > 0 || has(args, 'browser-headed')) {
+			throw new JobRequestError('--no-browser cannot be combined with other --browser flags')
+		}
+		return undefined
+	}
+	if (!base && profile === undefined) {
+		if (written.length > 0 || has(args, 'browser-headed')) {
+			throw new JobRequestError(
+				'--browser-site and --browser-headed need --browser <profile>: the profile you signed in with `namzu browser login`',
+			)
+		}
+		return undefined
+	}
+	const sites: Record<string, string> = { ...(base?.sites ?? {}) }
+	for (const entry of written) {
+		const at = entry.lastIndexOf('=')
+		const site = at > 0 ? entry.slice(0, at).trim() : ''
+		const level = at > 0 ? entry.slice(at + 1).trim() : ''
+		if (!site || !level) {
+			throw new JobRequestError(
+				`--browser-site ${entry}: write <site>=read, <site>=ask or <site>=act, e.g. https://github.com=read`,
+			)
+		}
+		if (level === 'none') {
+			if (!base)
+				throw new JobRequestError(
+					`--browser-site ${entry}: none only takes a site off an existing job`,
+				)
+			const key = Object.keys(sites).find(
+				(k) => k.toLowerCase() === site.toLowerCase().replace(/\/+$/, ''),
+			)
+			if (key === undefined)
+				throw new JobRequestError(`--browser-site ${entry}: the job has no site ${site}`)
+			delete sites[key]
+			continue
+		}
+		sites[site] = level
+	}
+	return {
+		profile: profile ?? (base?.profile as string),
+		sites,
+		...(has(args, 'browser-headed') || base?.headed ? { headed: true } : {}),
+	}
+}
+
+function permissionInput(
+	args: ParsedArgs,
+	baseBrowser?: PermissionInput['browser'],
+): PermissionInput {
 	const value = flag(args, 'permissions')
+	const browser = browserInput(args, baseBrowser)
+	if (!value && browser) {
+		const unmatched = flag(args, 'unmatched')
+		if (unmatched !== 'park' && unmatched !== 'deny' && unmatched !== 'allow') {
+			throw new JobRequestError(
+				'a job with only a browser grant needs --unmatched park|deny|allow (or add --permissions read-only)',
+			)
+		}
+		return {
+			unmatched,
+			browser,
+			...(flag(args, 'execution') === 'sandbox' ? { execution: 'sandbox' as const } : {}),
+		}
+	}
 	if (!value) {
 		throw new JobRequestError(
 			'--permissions is required: read-only, edit-in-folder, or a JSON file with {"rules": {...}, "unmatched": "park"|"deny"|"allow"}',
@@ -75,6 +160,7 @@ function permissionInput(args: ParsedArgs): PermissionInput {
 			unmatched?: unknown
 			execution?: unknown
 			additionalDirectories?: unknown
+			browser?: unknown
 		}
 		try {
 			parsed = JSON.parse(readFileSync(resolve(value), 'utf8'))
@@ -97,8 +183,12 @@ function permissionInput(args: ParsedArgs): PermissionInput {
 			...(Array.isArray(parsed.additionalDirectories)
 				? { additionalDirectories: parsed.additionalDirectories.map(String) }
 				: {}),
+			...(parsed.browser && typeof parsed.browser === 'object'
+				? { browser: parsed.browser as NonNullable<PermissionInput['browser']> }
+				: {}),
 		}
 	}
+	if (browser) input = { ...input, browser }
 	const unmatched = flag(args, 'unmatched')
 	if (unmatched !== undefined) {
 		if (unmatched !== 'park' && unmatched !== 'deny' && unmatched !== 'allow') {
@@ -176,16 +266,24 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 		folder: resolve(flag(args, 'folder') ?? base?.folder.path ?? process.cwd()),
 		...(tz ? { tz } : {}),
 		permissions: has(args, 'permissions')
-			? permissionInput(args)
+			? permissionInput(args, base?.permissions.browser)
 			: base
-				? {
-						rules: base.permissions.rules,
-						unmatched: base.permissions.unmatched,
-						execution: base.permissions.execution,
-						...(base.permissions.additionalDirectories
-							? { additionalDirectories: base.permissions.additionalDirectories }
-							: {}),
-					}
+				? (() => {
+						const browser = browserInput(args, base.permissions.browser)
+						const unmatched = flag(args, 'unmatched')
+						return {
+							rules: base.permissions.rules,
+							unmatched:
+								unmatched === 'park' || unmatched === 'deny' || unmatched === 'allow'
+									? unmatched
+									: base.permissions.unmatched,
+							execution: base.permissions.execution,
+							...(base.permissions.additionalDirectories
+								? { additionalDirectories: base.permissions.additionalDirectories }
+								: {}),
+							...(browser ? { browser } : {}),
+						}
+					})()
 				: permissionInput(args),
 		budget,
 		...(model
@@ -226,6 +324,7 @@ async function confirmOnTerminal(
 	job: ScheduleJob,
 	args: ParsedArgs,
 	verb: string,
+	changes: readonly string[] = [],
 ): Promise<'cli-tty' | 'cli-noninteractive' | null> {
 	const layers = readPermissionLayers({ cwd: job.folder.canonical })
 	const policy = compileJobPolicy(job.permissions, {
@@ -244,6 +343,7 @@ async function confirmOnTerminal(
 			.map((l) => `  ${l}`)
 			.join('\n')}`,
 	)
+	if (changes.length > 0) ctx.formatter.info(changesBlock(changes).join('\n'))
 	if (process.platform === 'darwin' && isPrivacyProtectedFolder(job.folder.canonical)) {
 		ctx.formatter.info(
 			'Warning: this folder is under Documents, Desktop or Downloads; macOS may block the scheduler from reading it until you grant it Files and Folders access.',
@@ -348,7 +448,20 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 			retention: rebuilt.retention,
 			approvalTtlMs: rebuilt.approvalTtlMs,
 		}
-		const surface = await confirmOnTerminal(ctx, paths, candidate, args, 'save')
+		const view = (job: ScheduleJob) =>
+			confirmationView(
+				job,
+				compileJobPolicy(job.permissions, {
+					layers: readPermissionLayers({ cwd: job.folder.canonical }),
+					namzuHome: paths.home,
+				}),
+				now,
+			)
+		const changes = [
+			...changesSinceConfirmed(readHistory(paths, current.id)),
+			...describeChanges(view(current), view(candidate)),
+		]
+		const surface = await confirmOnTerminal(ctx, paths, candidate, args, 'save', changes)
 		if (surface === null) {
 			ctx.formatter.info('Not changed.')
 			return 1
@@ -363,6 +476,7 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 			at: now.toISOString(),
 			action: 'edited',
 			by: surface,
+			...(changes.length > 0 ? { changes } : {}),
 		})
 		ctx.formatter.print({
 			text: `Saved ${next.name} (${next.state}).`,
@@ -395,7 +509,14 @@ export async function confirmCommand(
 	}
 	try {
 		const current = findJob(paths, args.positionals[0])
-		const surface = await confirmOnTerminal(ctx, paths, current, args, 'confirm')
+		const surface = await confirmOnTerminal(
+			ctx,
+			paths,
+			current,
+			args,
+			'confirm',
+			changesSinceConfirmed(readHistory(paths, current.id)),
+		)
 		if (surface !== 'cli-tty') {
 			ctx.formatter.info('Not confirmed.')
 			return 1

@@ -534,6 +534,12 @@ type CoreSessionEvent =
 			providerError?: import('../provider/error.js').ProviderErrorInfo
 			/** Curated operator copy, absent when no catalog rule matched. */
 			explanation?: { id: string; message: string; hint: string }
+			/**
+			 * Present when a tool asked for a person: its `ToolResult.handoff`.
+			 * The results of the batch are already committed; resuming the turn
+			 * calls the model with them.
+			 */
+			handoff?: import('../tool/index.js').ToolHandoff
 	  }
 	/** A paused turn continues from its checkpoint, under the same `turnId`. */
 	| {

@@ -39,6 +39,7 @@ import type {
 	SkillRegistryRef,
 	ToolContext,
 	ToolDispatchOptions,
+	ToolHandoff,
 	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
@@ -489,6 +490,8 @@ export interface ToolCallOutcome {
 	/** Rich form for the model, when the tool supplied one. */
 	content?: ToolResultContent
 	isError?: boolean
+	/** The tool asked for a person; see `ToolResult.handoff`. */
+	handoff?: ToolHandoff
 }
 
 export interface ToolExecutionBatch {
@@ -1446,9 +1449,16 @@ export class ToolExecutor {
 	}
 
 	private resultPresentation(name: string, input: unknown, result: ToolResult) {
-		if (!result.success) return {}
 		try {
 			const view = this.config.tools.get(name)?.presentResult?.(input, result)
+			// A failed call carries one view only: the person's No on the tool's
+			// own screen, which a host draws as cancelled rather than failed and
+			// cannot tell apart from the result text alone.
+			if (!result.success) {
+				return view?.kind === 'generic' && view.outcome === 'cancelled'
+					? { presentation: { kind: 'generic', label: view.label, outcome: 'cancelled' } as const }
+					: {}
+			}
 			if (view?.kind !== 'diff') return {}
 			const serialized = JSON.stringify(view)
 			if (serialized.length > (this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS))
@@ -2004,6 +2014,12 @@ export class ToolExecutor {
 			// a result whose image is unaffected — and a hook that needs it gone
 			// says so with `content`, which wins over both.
 			...(modelContent !== undefined ? { content: modelContent } : {}),
+			// Carried whatever a post-tool hook did to the text: the request is
+			// the tool's statement about the world, not about its output, and a
+			// hook that redacts a sign-in page has not signed anyone in.
+			...(result.handoff !== undefined && !this.config.abortSignal.aborted
+				? { handoff: result.handoff }
+				: {}),
 		}
 	}
 

@@ -132,6 +132,19 @@ export interface FrontmatterOptions {
 	 * way.
 	 */
 	readonly lists?: readonly string[]
+	/**
+	 * The keys the caller reads. When given, a top-level key it answers
+	 * `false` for is skipped whole — its value and every indented line under
+	 * it — and does not appear in the result.
+	 *
+	 * The refusals in {@link UNSUPPORTED_YAML} exist so a value the caller
+	 * USES is never read wrongly. A key nobody reads cannot be read wrongly,
+	 * and refusing the whole file over it made a skill written for another
+	 * tool (`argument-hint: [file]`, a `hooks:` block with a list in it)
+	 * unusable here for the sake of a field this kernel ignores. Absent, every
+	 * key is parsed and refused exactly as before.
+	 */
+	readonly readsKey?: (key: string) => boolean
 }
 
 export interface ParsedFrontmatter {
@@ -153,15 +166,19 @@ export interface ParsedFrontmatter {
 	readonly body: string
 }
 
+/** Optional behaviour for {@link parseFrontmatter}: the same as {@link FrontmatterOptions}. */
+export type ParseFrontmatterOptions = FrontmatterOptions
+
 /**
  * Parse a markdown file's `---` frontmatter.
  *
  * @param raw The file's full contents. LF and CRLF both parse.
  * @param source A label for error messages — a path, or a phrase naming the
  *   file. Used verbatim, so the caller controls how its own errors read.
+ * @param options See {@link FrontmatterOptions}.
  * @throws If the frontmatter is absent, unclosed, or uses YAML this reader
- *   does not implement. It never returns a partial or empty result to stand in
- *   for a file it could not read.
+ *   does not implement in a key the caller reads. It never returns a partial
+ *   or empty result to stand in for a file it could not read.
  */
 export function parseFrontmatter(
 	raw: string,
@@ -198,12 +215,15 @@ export function parseFrontmatter(
 	const blocks = new Map<string, Map<string, string>>()
 	const lists = new Map<string, string[]>()
 	let currentKey: string | undefined
+	// The current top-level key is one the caller does not read: its value
+	// and its indented lines are skipped rather than parsed or refused.
+	let skipping = false
 
 	for (const line of frontmatterRaw.split(LINE_SPLIT)) {
 		if (!line.trim() || line.trimStart().startsWith('#')) continue
 
 		if (/^\s/.test(line)) {
-			if (!currentKey) continue
+			if (!currentKey || skipping) continue
 
 			// A block sequence item. Read as a list when the caller named this
 			// key in `options.lists`; refused, not skipped, everywhere else.
@@ -254,6 +274,12 @@ export function parseFrontmatter(
 		const colonIdx = line.indexOf(':')
 		if (colonIdx === -1) continue
 		const key = line.slice(0, colonIdx).trim()
+		if (options.readsKey && !options.readsKey(key)) {
+			currentKey = key
+			skipping = true
+			continue
+		}
+		skipping = false
 		const value = normalizeScalar(line.slice(colonIdx + 1))
 
 		if (listKeys.has(key) && /^\[.*\]$/.test(value)) {

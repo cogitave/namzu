@@ -107,6 +107,29 @@ export {
 	COMPUTER_USE_TOOL_NAME,
 	createComputerUseTool,
 } from './tools/builtins/computer-use.js'
+// The browser contract: the two tools over a host a separate package
+// provides, and the canonicalisers a host and a site-rule compiler must share
+// with the tools so every party reads one spelling of an address.
+export {
+	BROWSER_ACT_TOOL_NAME,
+	BROWSER_TOOL_NAME,
+	browserHostErrorOf,
+	createBrowserTools,
+	formatBrowserPageHeader,
+	isBrowserCallReadOnly,
+} from './tools/builtins/browser.js'
+export {
+	BROWSER_URL_MAX_LENGTH,
+	canonicalizeBrowserOrigin,
+	canonicalizeBrowserSitePattern,
+	canonicalizeBrowserUrl,
+	isCloudMetadataHost,
+} from './tools/builtins/browser-url.js'
+export {
+	BROWSER_FILL_FORM_MAX_FIELDS,
+	BROWSER_SNAPSHOT_MAX_CHARS,
+	BROWSER_WAIT_MAX_MS,
+} from './types/browser/index.js'
 
 // ─── Domain tool builders ────────────────────────────────────────────────
 

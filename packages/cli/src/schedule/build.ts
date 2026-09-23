@@ -44,6 +44,10 @@ import type { ConfirmationSurface, ScheduleBudget, ScheduleJob } from './types.j
 export const DEFAULT_TOKEN_BUDGET = 500_000
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000
 export const DEFAULT_MAX_ITERATIONS = 50
+/** Below this many iterations a run's preview warns that it may stop unfinished. */
+export const FEW_ITERATIONS = 10
+/** Below this token budget a run's preview warns: one model call resends the whole prompt. */
+export const FEW_TOKENS = 50_000
 export const DEFAULT_WAIT_FOR_PROVIDER_MS = 10 * 60_000
 export const DEFAULT_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000
 export const DEFAULT_KEEP_SESSIONS = 20
@@ -286,9 +290,28 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		`Next        ${next.length > 0 ? next.join(' · ') : 'never'}`,
 		`Model       ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''}${job.model.effort ? ` (${job.model.effort})` : ''}`,
 		`Budget      ${job.budget.tokenBudget.toLocaleString('en-US')} tokens, ${job.budget.maxIterations} iterations, ${duration(job.budget.timeoutMs)} per run`,
+		// A proposal once set 1, read as "one post per run": the first run
+		// stopped after its first model call, with nothing done.
+		...(job.budget.maxIterations < FEW_ITERATIONS
+			? [
+					`Warning     ${job.budget.maxIterations} iteration${job.budget.maxIterations === 1 ? '' : 's'} is one model call${job.budget.maxIterations === 1 ? '' : ' each'} with its tool calls; most tasks need more (the default is ${DEFAULT_MAX_ITERATIONS}), and a run that runs out stops unfinished`,
+				]
+			: []),
+		// A proposal once set 4,000 tokens for a job whose runs each took
+		// about 110,000: every model call resends the whole prompt.
+		...(job.budget.tokenBudget < FEW_TOKENS
+			? [
+					`Warning     ${job.budget.tokenBudget.toLocaleString('en-US')} tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is ${DEFAULT_TOKEN_BUDGET.toLocaleString('en-US')})`,
+				]
+			: []),
 		`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,
 		`Runs on     ${job.permissions.execution === 'host' ? 'this machine (host)' : 'the sandbox'}`,
 		...(policy.network ? ['Network     THIS RUN CAN REACH THE NETWORK'] : []),
+		...(job.permissions.browser
+			? [
+					`Browser     SIGNED IN AS YOU: profile ${job.permissions.browser.profile}, only ${Object.keys(job.permissions.browser.sites).join(', ')}`,
+				]
+			: []),
 		...(job.permissions.unmatched === 'allow'
 			? ['Unmatched   CALLS NO RULE COVERS RUN WITHOUT ASKING']
 			: []),

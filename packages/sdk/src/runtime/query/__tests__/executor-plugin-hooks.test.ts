@@ -150,6 +150,44 @@ describe('ToolExecutor plugin hooks', () => {
 		},
 	)
 
+	it.each([
+		[
+			'a cancellation',
+			{ kind: 'generic', label: 'Cancelled — nothing was saved', outcome: 'cancelled' },
+			true,
+		],
+		['any other view of a failure', { kind: 'generic', label: 'boom' }, false],
+	] as const)(
+		'carries %s of a failed call only when it is the person’s No',
+		async (_name, view, carried) => {
+			const tools = makeToolRegistry(
+				vi.fn(async () => ({ success: false, output: '', error: 'The operator cancelled' })),
+			)
+			vi.mocked(tools.get).mockReturnValue({
+				presentResult: () => view,
+			} as unknown as ToolDefinition)
+			const executor = new ToolExecutor(
+				{
+					sessionId: SESSION_ID,
+					tools,
+					turnId: mockTurnId,
+					workingDirectory: '/tmp',
+					permissionMode: 'auto',
+					env: {},
+					abortSignal: new AbortController().signal,
+				},
+				activityStore,
+				emitEvent,
+				makeLogger(),
+			)
+			await executor.executeBatch(buildResponse('echo', {}))
+			const completed = emitted.find((event) => event.type === 'tool_completed')
+			if (completed?.type !== 'tool_completed') throw new Error('no tool_completed')
+			expect(completed.isError).toBe(true)
+			expect(completed.presentation).toEqual(carried ? view : undefined)
+		},
+	)
+
 	it('preserves tool stdout/stderr when a tool exits unsuccessfully', async () => {
 		const tools = makeToolRegistry(
 			vi.fn(async () => ({

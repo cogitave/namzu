@@ -4,6 +4,7 @@
 * [Session loops](session-loops.md) - `/loop` and the session_loop tool: a prompt the open conversation re-sends to itself on an interval, between turns.
 * [The scheduler service](scheduler-service.md) - Installing the scheduler under systemd, launchd, Windows Task Scheduler and WSL; single owner, upgrades, status, uninstall.
 * [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
+* [The browser](browser.md) - The browser the interactive terminal drives: which browser runs where, profiles and `namzu browser login`, the `browser.sites` rules, the review screen, the pause when a page needs you, and what the controls do not stop.
 
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
 * [Delegated work](delegated-work.md) - Background child sessions, queued corrections, completion, ownership and replay from child logs.
@@ -26,6 +27,7 @@ The operator application.
 * [Turn limits](turn-limits.md) - Limits for interactive and headless turns, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
+* [Skills](skills.md) - Where SKILL.md skills come from and which tier wins a name, how the model is offered them and loads one with the skill tool, the manifest budget, tool gating, and the skills config keys.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.

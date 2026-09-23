@@ -44,7 +44,7 @@ there is no default permission set.
 | `--execution host\|sandbox` | Where commands run. Default `host` |
 | `--tz <zone>` | IANA zone for cron and local times. Default: this machine's, written into the job |
 | `--model <provider>/<model>` | Pinned at creation. Default: your configured primary |
-| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per run. A token budget and a timeout are always set (defaults 500 000 tokens, 30 minutes, or your `limits`) |
+| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per run. A token budget and a timeout are always set (defaults 500 000 tokens, 30 minutes, or your `limits`). An iteration is one model call with its tool calls (default 50); below 10 iterations or 50 000 tokens the confirmation warns that a run may stop unfinished, since every model call resends the whole prompt |
 | `--wait-for-provider 10m` | How long a run waits out a provider pause before giving up |
 | `--approval-ttl 7d` | How long a parked run waits for you before it is abandoned |
 | `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived |
@@ -69,6 +69,12 @@ A job is confirmed on a terminal (`add`, `edit`, `confirm`) or in the TUI's
 script — or from a model's own shell call — writes the job inert
 (`awaiting confirmation`), and the scheduler never runs it until someone runs
 `namzu schedule confirm <name>` on a terminal or confirms it in the TUI.
+
+An edit is confirmed again whole, and above the question it lists what changed
+since the job was last confirmed, `+` for a line added and `-` for one removed
+(`Changed since it was last confirmed`). An edit saved with `--yes` records
+those lines in the job's history (`changes` on its `edited` record), so
+`schedule confirm` and `/schedule confirm` show them too.
 
 The confirmation records a digest of what was confirmed: the prompt, the folder
 and its trust, the permissions, the schedule, the model, the budget, and a
@@ -163,6 +169,25 @@ The rules a run is gated by, in order (the first that matches decides):
      `ls ~/*` is not refused. An assignment standing alone (`D=~/.namzu`)
      reaches no program and is judged where `$D` is used; one passed to a
      command or exported is judged where it stands;
+   - **anything that could name the Windows browser's profiles**,
+     `%LOCALAPPDATA%\namzu`, where namzu keeps the profiles it drives from
+     WSL, with the cookies of every site you signed in to, outside
+     `NAMZU_HOME`. The floor does not know the user folder above it, so it
+     matches the last three segments, `AppData/Local/namzu`, in any letter
+     case and with either slash, wherever they stand (`/mnt/c/Users/<you>/…`,
+     a quoted `C:\Users\<you>\…`, or a job folder that happens to contain
+     them). It reads the same words, redirections, `cd`s and variables as
+     above, with `$LOCALAPPDATA`, `%LOCALAPPDATA%` and `$env:LOCALAPPDATA`
+     spelled out. `namzu2`, `namzu.bak` or `AppData/Roaming/namzu` is another
+     folder. A word with a glob or an unknown variable is refused when its
+     segments could still read `AppData/Local/namzu` and one of them is
+     spelled out (`/mnt/c/Users/*/AppData/Local/nam*`, `…/AppData/Local/*`),
+     or when an unknown variable is followed by a `namzu` segment
+     (`$X/namzu`). An unquoted `C:\Users\…\namzu` is not refused, because
+     bash drops the backslashes and passes `C:Users…namzu`, a file in the
+     current folder. Passed to `cmd.exe` or `powershell.exe`, the same text
+     is something the lexer does not read, and the tripwire below refuses it
+     for naming `namzu`;
    - **what the lexer cannot account for, when it mentions what the floor
      protects.** A line is opaque when it holds a command substitution, a
      function, `[[ … ]]`, arithmetic on a variable, a syntax error or another
@@ -184,7 +209,10 @@ The rules a run is gated by, in order (the first that matches decides):
    Every other tool's arguments are read as text, at any depth: a string
    naming `NAMZU_HOME` by path, as `~/…`, `$HOME/…` or `${HOME}/…`, or as
    `$NAMZU_HOME`, in any letter case, is refused, and so is one that would
-   once a shell dropped its quotes and backslashes (`~/.nam"z"u`).
+   once a shell dropped its quotes and backslashes (`~/.nam"z"u`). So is a
+   string naming the Windows browser's profiles, as a path through
+   `AppData/Local/namzu` with either slash or through `%LOCALAPPDATA%`,
+   `$env:LOCALAPPDATA` or `$LOCALAPPDATA`.
 
    The floor reads a line, not the programs it starts: a script file, a
    `Makefile` target, an npm script or a git hook the run wrote earlier is
@@ -204,11 +232,20 @@ The rules a run is gated by, in order (the first that matches decides):
    generator provokes on purpose; read in the `sh` dialect, where every
    bash-only construct is opaque, the tripwire refused 63% more. None of 158
    ordinary job command lines (builds, tests, git, `find`, loops over files,
-   reads under `~`) was refused;
+   reads under `~`) was refused. The Windows profiles were checked the same
+   way: 27 000 more lines, three in four naming a path near
+   `AppData/Local/namzu` in every spelling above, run with the profile tree
+   at `/mnt/c/Users/u/AppData/Local/namzu` and `LOCALAPPDATA` set to
+   `C:\Users\u\AppData\Local` as a run inherits it. Every one of the 9 068
+   lines whose run reached the scheduler, `NAMZU_HOME` or the profiles
+   (an argument or open file inside them, or the text of one a Windows
+   program would read) was refused;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;
-4. the job's own rules;
+4. the job's own rules, then its [browser grant](#browser-access)'s site
+   rules; `web_fetch` and `web_search` the job does not name, and `browser`
+   and `browser_act` beyond the grant, are denied here;
 5. `unmatched`: `park` holds the call for you, `deny` refuses it, `allow` runs
    it. Even under `allow`, a path outside the folder and a sandbox escape wait
    for you.
@@ -222,6 +259,82 @@ sections that run code or change what may run (`hooks`, `mcpServers`,
 stops before the model with `blocked-config: project config changed since the
 job was confirmed`, and runs again once you confirm the job.
 
+## Browser access
+
+A job can drive a browser, signed in as you, on the sites you list and no
+others. Sign in once in a visible window with
+`namzu browser login <profile> <url>` ([The browser](browser.md#profiles-and-signing-in)),
+then give the job the profile and the sites:
+
+```sh
+namzu browser login social https://social.example/login
+namzu schedule add good-morning --prompt "Post 'Günaydın!' with the time" \
+  --when "every 5m" --permissions read-only --unmatched park \
+  --browser social --browser-site https://social.example=act
+```
+
+`--browser-site <site>=<level>` is repeatable. A site is an origin
+(`https://github.com`, `https://*.example.com`, `http://localhost:*`),
+canonicalised when the job is created; `*` is refused, and every site the job
+does not list is denied.
+
+| Level | Open and read pages | Click, type, fill forms |
+|---|---|---|
+| `read` | yes | no |
+| `ask` | yes | waits for you, as a held call (needs `--unmatched park`) |
+| `act` | yes | yes |
+
+The grant is stored in the job's permission set (`permissions.browser`:
+`profile`, `sites`, `headed`), is part of what a confirmation vouches for, and
+counts as network access (`Network THIS RUN CAN REACH THE NETWORK`). The
+confirmation and `schedule show` add `Browser SIGNED IN AS YOU: profile <p>,
+only <sites>` and one line per site:
+
+```text
+browser: profile social, no window
+browser https://social.example: open, read and change without asking
+browser any other site: deny
+browser sign-in, CAPTCHA or a code: the run stops and tells you
+```
+
+The `[permissions]` rules of a job cannot name `browser` or `browser_act`; the
+grant is the only way in. Without one both tools are denied. A site any config
+file's `browser.sites` denies stays denied, whatever the grant says. Looking
+at the page the browser holds, and `back`, `forward` and `reload`, are
+allowed; the browser itself checks where every navigation lands against the
+same sites. The model's `schedule` tool can propose a grant in the TUI
+(`permissions.browser`); you confirm it on screen like any proposed job. A
+proposal that pairs a browser grant with a shell on the host is refused;
+`read-only` has none.
+
+Before the model is called, a run with a grant checks that the profile exists
+and still has its data, that the browser it was signed in with can start here
+(for the Windows browser from WSL: interop, `powershell.exe` and Chrome or
+Edge, found by a service through `/run/WSL`), and that a window can be shown
+when the job asks for one (`--browser-headed`; `DISPLAY`, `WAYLAND_DISPLAY`
+and `XAUTHORITY` reach the run). Otherwise the run is `blocked-config` with the
+command to fix it, e.g. `browser profile social does not exist; sign in once
+with namzu browser login social https://social.example`. The run never
+switches to another browser: a profile signed in with the Windows Chrome has
+its cookies there. There is no window unless the job has `--browser-headed`.
+
+A page that needs a person — a sign-in form, a second factor, a CAPTCHA — stops
+the run: it parks as `awaiting-approval` with the page's reason, the
+notification says `needs you (since …): <page> is showing a sign-in page; sign in
+again with namzu browser login <profile> <url>`, and `schedule list`,
+`show`, `status` and `/schedule` say `needs you: <reason>` instead of waiting
+for approval. Sign in again with `namzu browser login`, then
+`cd <folder> && namzu resume <session-id>` and choose **Continue**: the turn
+drives the job's profile, held to the job's sites, and your session's own
+profile comes back when it ends. The model is told the same in its system
+prompt: it never types a password or a code and does not look for another way
+in.
+
+`schedule edit` changes the grant: `--browser-site <site>=<level>` adds a site
+or changes its level, `<site>=none` takes one off, `--no-browser` removes the
+grant. Like any edit, it is confirmed again, and a job saved without a
+terminal (`--yes`) is held until you confirm it.
+
 ## One run
 
 The scheduler starts each run as its own process, `namzu schedule __fire`, in
@@ -232,9 +345,31 @@ project config matches its pin, every rule compiles, and the pinned provider
 has a credential **as the service sees it**. Any failure is `blocked-config`
 with the reason.
 
+The run's system prompt says nobody is watching, gives the local time, and
+asks for the final answer — the run's record — in the language the job's
+prompt is written in. The `schedule-task` skill asks the model to write a
+proposed job's prompt in the language you write to it in.
+
+A run is not sent the tools its job can never use: a tool a `deny` names
+before any rule could let it through (`bash`, `edit` and `write` under
+`read-only`, the web tools the job does not name, the browser tools without a
+grant), the background-job tools once `bash` is out, and under
+`unmatched: deny` the agent and memory-writing tools no rule names, with the
+advice on delegating that goes with them. Each model call resends every tool
+schema: a browser job posting once on a small site used six calls of about
+15 000 prompt tokens, about 106 000 tokens a run; without the tools it could
+never call, about 11 500 a call and 78 000 a run. A call to a withheld tool is
+refused as an unknown tool.
+
 The run's system prompt tells the model it is unattended: no questions
 (`ask_user_question` is not offered), calls outside its rules wait or are
-refused, and background jobs end with the run.
+refused, and background jobs end with the run. It also gives the time the run
+started, in the job's zone (`--tz`, else the host's), with its offset: `It is
+now Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul)`, and
+says this is the local time already looked up, not to be fetched with `date`.
+The rest of the prompt carries the date only, and a run with no shell used to
+guess the time in UTC. A parked run continued from the TUI is told the time
+again, as it is then: an answer can come days later.
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
 `blocked-config`, `interrupted`, `approval-expired`. The run enforces its own
@@ -287,12 +422,28 @@ no "approve all" for a scheduled run: its prompt offers only **Yes** and **No**
 
 The resumed turn runs in the TUI session you answer from, so that session must
 run the way the job does: in the job's folder, with the sandbox on for a job
-created with `--execution sandbox` and off for one on the host, and with exactly
+created with `--execution sandbox` and off for one on the host (only for a job
+that can run a command: one whose `bash` is denied, such as `read-only`,
+continues the same either way), and with exactly
 the job's `--add-dir` roots, no more and no fewer, and with a credential for the
 job's provider (`namzu login`, or its API key). A session that differs is
 refused before anything is asked, and the refusal names the difference and the
 command that opens a matching session
 (`cd <folder> && namzu --add-dir <dir> resume <session-id>`).
+
+A run can also park because a tool asked for a person
+([Tool handoff](../sdk/tool-handoff.md)): a sign-in page, say. The results are
+recorded and the model is not called again. The run records `awaiting-approval`
+with the tool's reason as its `reason` and in `handoff.reason`, and the
+notification says `needs you (since …): <reason>` with the command that opens
+it. There is no batch to approve. `namzu resume <session-id>` (or `/resume`)
+shows the reason and offers **Continue** or **Abandon**. Continue resumes the
+turn under the job's rules and on its model, and its next step is a model call
+that sees the results and is told that the person dealt with what the tool
+asked for, with the current time, so it tries the step again instead of
+reading the tool's refusal as final. Abandon closes the turn, and the job stays scheduled.
+Esc leaves the run waiting. The same folder, sandbox, roots and credential
+checks apply as for an approval.
 
 A park nobody answers within `--approval-ttl` (default 7 days) is abandoned:
 the turn is closed, the run is recorded `approval-expired`, and the job runs
@@ -377,13 +528,26 @@ nothing holds its session.
 
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
 tz, folder, nextFireAt?, lastRun?, activeRun?: { status, sessionId?,
-resumeCommand? } }] }`, `resumeCommand` for a run waiting for approval; `show` prints `{ "v": 1,
+resumeCommand?, handoff? } }] }`, `resumeCommand` for a run waiting for
+approval and `handoff: { reason }` for one a tool parked for a person (the
+text list says `needs you: <reason>` for it, not `WAITING FOR APPROVAL`); `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
 "records": [...] }` with records newest first, a run's last status winning.
 
 In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
 lets a model propose a job — always confirmed by you on a screen namzu draws
-from its own computation, never from the model's words. See
+from its own computation, never from the model's words. That screen is the
+only question: the tool's `create`, `resume` and `delete` skip the ordinary
+permission review ("Do you want to run schedule?") in `prompt`, `accept-edits`
+and `auto`, as they draw their own. `plan` and `strict` still refuse them, a
+`schedule: ask` or `deny` rule still applies, and `pause` is reviewed as
+before. Every optional value the model set to something other than what you
+would get by leaving it out — a time zone other than this machine's, a folder
+other than the session's, the sandbox, a budget, a visible browser window —
+is marked on the confirmation: `Chosen by the model, not the default: time
+zone America/New_York, not this machine's Europe/Istanbul`. When no scheduler is
+installed, the line that says the job was created also says it does not run
+until `namzu schedule install`. See
 [Session loops](session-loops.md) for `/loop`, which repeats a prompt inside an
 open session instead.
 

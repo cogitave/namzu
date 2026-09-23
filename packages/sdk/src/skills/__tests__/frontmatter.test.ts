@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import { loadSkill } from '../loader.js'
+import { parseFrontmatter } from '../../utils/frontmatter.js'
+import { SKILL_FRONTMATTER_KEYS, loadSkill } from '../loader.js'
 
 /**
  * The frontmatter reader is a flat key/value splitter, and the documented
@@ -190,5 +191,61 @@ describe('ordinary frontmatter', () => {
 		)
 		const loaded = await loadSkill(path, 'full')
 		expect(loaded.skill.metadata.description).toContain('http://example.com')
+	})
+})
+
+describe('keys the skill loader does not read', () => {
+	// A skill written for another agent carries fields this kernel ignores,
+	// and some of them are lists. Refusing the whole file over syntax in a
+	// field nothing reads made such a skill unusable for no gain.
+	it('are skipped whole, whatever YAML they use', async () => {
+		const path = skill(
+			[
+				'---',
+				'name: a-skill',
+				'description: reviews a pull request',
+				'argument-hint: [pr-number]',
+				'user-invocable: false',
+				'hooks:',
+				'  PreToolUse:',
+				'    - matcher: Bash',
+				'notes: >-',
+				'  folded text',
+				'tags: {a: b}',
+				'---',
+				'',
+				'Body.',
+			].join('\n'),
+		)
+
+		const loaded = await loadSkill(path, 'full')
+		expect(loaded.skill.metadata).toEqual({
+			name: 'a-skill',
+			description: 'reviews a pull request',
+		})
+		expect(loaded.skill.body).toBe('Body.')
+	})
+
+	it('do not relax a key the loader reads', async () => {
+		// A list in a key the loader reads and does not take as a list is still
+		// refused: a value read wrongly is the failure the refusal exists for.
+		// (`allowed-tools` is read as a list on purpose.)
+		const path = skill(['---', 'name: a-skill', 'description: [d, e]', '---', 'b'].join('\n'))
+		await expect(loadSkill(path, 'full')).rejects.toThrow(/flow sequence/)
+	})
+
+	it('names the vocabulary in one exported list', () => {
+		expect(SKILL_FRONTMATTER_KEYS).toContain('allowed-tools')
+		expect(SKILL_FRONTMATTER_KEYS).toContain('disable-model-invocation')
+		expect(SKILL_FRONTMATTER_KEYS).not.toContain('argument-hint')
+	})
+})
+
+describe('parseFrontmatter without readsKey', () => {
+	it('still refuses unsupported YAML in any key', () => {
+		expect(() => parseFrontmatter('---\nfoo: [a]\n---\n', 'x')).toThrow(/flow sequence/)
+		expect(() =>
+			parseFrontmatter('---\nfoo: [a]\n---\n', 'x', { readsKey: (key) => key !== 'foo' }),
+		).not.toThrow()
 	})
 })

@@ -22,6 +22,22 @@ describe('schedule tool presentation', () => {
 		expect(label({ action: 'create', name: 'x'.repeat(200) }).length).toBeLessThan(120)
 	})
 
+	it('shows an operator cancellation as cancelled, not failed', () => {
+		const cancelled = { success: false, output: '', error: 'no', data: { cancelled: true } }
+		expect(presentScheduleResult({ action: 'create' }, cancelled)).toEqual({
+			kind: 'generic',
+			outcome: 'cancelled',
+			label: 'Cancelled — no job was created',
+		})
+		expect(presentScheduleResult({ action: 'delete' }, cancelled)).toMatchObject({
+			outcome: 'cancelled',
+			label: 'Cancelled — nothing changed',
+		})
+		expect(
+			presentScheduleResult({ action: 'create' }, { success: false, output: '', error: 'x' }),
+		).not.toHaveProperty('outcome')
+	})
+
 	it('hides a successful receipt and says why a failure failed', () => {
 		expect(presentScheduleResult({}, { success: true, output: 'ok' })).toMatchObject({
 			visibility: 'hidden',

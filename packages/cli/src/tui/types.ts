@@ -8,11 +8,13 @@ import type { AuthorizationRule } from '@namzu/sdk'
 
 import type { ConfigDebugSnapshot } from '../config/debug.js'
 import type {
+	BrowserConfig,
 	CompactionCliConfig,
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
 	SandboxConfig,
+	SkillsConfig,
 	TuiConfig,
 	TurnLimitsConfig,
 	WebConfig,
@@ -108,8 +110,16 @@ export interface TuiContext {
 	readonly mcpServers?: McpServersConfig
 	/** Executable plugins from the trusted, project-aware config. */
 	readonly plugins?: PluginConfig
+	/** See `NamzuCliConfig.skills`. */
+	readonly skills?: SkillsConfig
 	/** See `NamzuCliConfig.web`. */
 	readonly web?: WebConfig
+	/**
+	 * The browser the session mounts, with canonical site keys and `*`
+	 * filled in. Absent: no browser tools (the config switched it off, or an
+	 * embed did not ask). Its site rules are already in `rules`.
+	 */
+	readonly browser?: BrowserConfig
 	/** See `NamzuCliConfig.hooks`. */
 	readonly hooks?: HooksConfig
 	readonly compaction?: CompactionCliConfig

@@ -522,6 +522,7 @@ export const drainCommand: CommandDef = {
 			...(ctx.config.web ? { web: ctx.config.web } : {}),
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 			...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
+			...(ctx.config.skills ? { skills: ctx.config.skills } : {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
 			// `!== undefined`, not truthiness: an empty list is the operator
 			// turning the default screen OFF, and a falsy check would drop it.

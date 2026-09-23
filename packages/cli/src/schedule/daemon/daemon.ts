@@ -992,6 +992,7 @@ export class ScheduleDaemon {
 					projectSlug: result.projectSlug ?? run.projectSlug,
 					turnId: result.turnId ?? run.turnId,
 					parkedAt: run.parkedAt ?? at,
+					handoff: result.handoff ? { reason: result.handoff.reason } : undefined,
 				}),
 			})
 		} else {
@@ -1073,6 +1074,9 @@ export class ScheduleDaemon {
 					...(result.summary ? { summary: result.summary } : {}),
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
+						: {}),
+					...(tell === 'awaiting-approval' && result.handoff
+						? { handoff: result.handoff.reason }
 						: {}),
 				}),
 			)

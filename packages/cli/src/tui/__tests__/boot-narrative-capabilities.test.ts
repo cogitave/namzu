@@ -126,7 +126,9 @@ describe('the aggregate runtime capability row', () => {
 				record.eventName === 'namzu.capability.detected' && record.severityText === 'info',
 		)
 		expect(opened.sandbox.unconfined).toBeTypeOf('boolean')
-		expect(summary?.body).toBe('sandbox yes · files no · computer-use no · telemetry no')
+		expect(summary?.body).toBe(
+			'sandbox yes · files no · computer-use no · browser no · telemetry no',
+		)
 	})
 
 	it('reports sandbox no by default, since the sandbox is opt-in', async () => {
@@ -139,7 +141,9 @@ describe('the aggregate runtime capability row', () => {
 			(record) =>
 				record.eventName === 'namzu.capability.detected' && record.severityText === 'info',
 		)
-		expect(summary?.body).toBe('sandbox no · files no · computer-use no · telemetry no')
+		expect(summary?.body).toBe(
+			'sandbox no · files no · computer-use no · browser no · telemetry no',
+		)
 	})
 
 	it('reports sandbox no when configuration actually disabled the runtime provider', async () => {
@@ -152,6 +156,8 @@ describe('the aggregate runtime capability row', () => {
 			(record) =>
 				record.eventName === 'namzu.capability.detected' && record.severityText === 'info',
 		)
-		expect(summary?.body).toBe('sandbox no · files no · computer-use no · telemetry no')
+		expect(summary?.body).toBe(
+			'sandbox no · files no · computer-use no · browser no · telemetry no',
+		)
 	})
 })

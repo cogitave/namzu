@@ -1,4 +1,6 @@
-import type { SessionTokenBudgetSummary, StopReason } from '@namzu/sdk'
+import { type SessionTokenBudgetSummary, type StopReason, hostTimeZone } from '@namzu/sdk'
+
+import { currentTimeLine } from '../schedule/fire/unattended-note.js'
 
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -99,6 +101,7 @@ function materiallyDifferent(candidate: string, earlier: readonly string[]): boo
  * SDK catalog did not claim a failure, the provider reason is all we know.
  */
 export function describeTurnInterruption(event: Interruption): string {
+	if (event.kind === 'paused' && event.handoff) return describeHandoff(event)
 	const explained = event.explanation
 	const rawReason = event.kind === 'paused' ? event.reason : event.message
 	const lead = line(explained?.message || rawReason)
@@ -123,4 +126,50 @@ export function describeTurnInterruption(event: Interruption): string {
 	}
 
 	return rows.join('\n')
+}
+
+/**
+ * A turn a tool paused for a person: what the person has to do, and the
+ * facts the tool attached. Nothing failed, so there is no error copy.
+ */
+function describeHandoff(event: Extract<Interruption, { kind: 'paused' }>): string {
+	const handoff = event.handoff
+	const rows = [`Turn paused — needs you: ${line(handoff?.reason ?? event.reason)}`]
+	for (const [key, value] of Object.entries(handoff?.detail ?? {})) {
+		rows.push(`${line(key, 60)}: ${line(value, 240)}`)
+	}
+	rows.push(`Checkpoint preserved: ${line(event.checkpointId, 180)}`)
+	return rows.join('\n')
+}
+
+/**
+ * What the terminal says when `/abandon`, `/resume` or a parked scheduled
+ * run's Abandon acts on a paused turn. In words, never the turn's id: an id
+ * is a handle for the log, and "Abandoned turn 0199…" read to a person as an
+ * error code.
+ */
+export const PAUSED_TURN_LINES = {
+	abandoned: 'Stopped the paused turn. Your next message starts a new one in this conversation.',
+	resuming: 'Continuing where it paused…',
+	abandonedScheduled: 'Stopped this run. The job stays scheduled.',
+} as const
+
+/**
+ * The system note for a turn continued after a tool paused it for a person
+ * (a sign-in, a CAPTCHA). The turn's last result is the tool saying it
+ * needed someone; read alone, it looked final, and a scheduled run the
+ * operator had signed in again for ended with "I couldn't complete the post
+ * because the page showed a sign-in page".
+ */
+export function handoffContinuationNote(
+	reason: string,
+	now: Date = new Date(),
+	tz: string = hostTimeZone(),
+): string {
+	const flat = terminalDisplayText(reason).replace(/\s+/g, ' ').trim()
+	return [
+		`This turn stopped because a tool needed a person: ${flat}. The person has dealt with it and chose to continue.`,
+		'Try the step that stopped again (for a web page, open or reload it and read it again) before deciding it cannot be done. If it still needs a person, say so and stop; never type a password or a code.',
+		currentTimeLine(now, tz),
+	].join('\n')
 }

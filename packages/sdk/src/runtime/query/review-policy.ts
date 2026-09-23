@@ -27,6 +27,7 @@ import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../t
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
 import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
+import { DECLINED_TOOL_CALL_FEEDBACK } from './declined.js'
 
 export type ReviewMode =
 	/** Ask a person. The default when a `prompt` is supplied. */
@@ -333,7 +334,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (answer.kind === 'reject') {
 				return {
 					action: 'reject_tools',
-					feedback: answer.feedback ?? 'User declined to run the proposed tool(s).',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 				}
 			}
 			// "Approve all" still latches for the calls that follow; it never
@@ -355,7 +356,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			if (answer.kind === 'reject') {
 				return {
 					action: 'reject_tools',
-					feedback: answer.feedback ?? 'User declined to run the proposed tool(s).',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 				}
 			}
 			// Latches for the ordinary calls that follow, never for the next path.
@@ -405,7 +406,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 			case 'reject':
 				return {
 					action: 'reject_tools',
-					feedback: answer.feedback ?? 'User declined to run the proposed tool(s).',
+					feedback: answer.feedback ?? DECLINED_TOOL_CALL_FEEDBACK,
 				}
 		}
 	}

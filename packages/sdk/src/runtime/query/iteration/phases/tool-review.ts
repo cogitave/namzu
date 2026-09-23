@@ -3,6 +3,7 @@ import type { ToolCallSummary } from '../../../../types/hitl/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { SessionEvent } from '../../../../types/session/index.js'
 import type { ShellDialect } from '../../../../types/tool/index.js'
+import { DECLINED_TOOL_CALL_FEEDBACK } from '../../declined.js'
 import type { PreparedToolBatch, ToolCallDenials } from '../../executor.js'
 import {
 	awaitProjectInstructionCallback,
@@ -58,7 +59,9 @@ export async function* runToolReview(
 	// skill grants to read it the same way. A test double without the method
 	// leaves it unset, which reads the line for any POSIX shell.
 	const dialectFor = (toolName: string): { commandDialect?: ShellDialect } => {
-		const executor = ctx.toolExecutor as { commandDialect?: (name: string) => ShellDialect }
+		const executor = ctx.toolExecutor as {
+			commandDialect?: (name: string) => ShellDialect
+		}
 		return typeof executor.commandDialect === 'function'
 			? { commandDialect: executor.commandDialect(toolName) }
 			: {}
@@ -448,7 +451,11 @@ export async function* runToolReview(
 			}
 			for (const path of tc.escalation?.outsidePaths ?? []) {
 				await ctx.recorder.recordAudit({
-					what: { action: 'outside_root_access', tool: tc.name, resource: path },
+					what: {
+						action: 'outside_root_access',
+						tool: tc.name,
+						resource: path,
+					},
 					outcome: 'approved',
 					reason: "the turn's review approved this call",
 				})
@@ -465,7 +472,7 @@ export async function* runToolReview(
 			})
 			yield* ctx.drainPending()
 
-			const feedback = reviewDecision.feedback || 'The user rejected this tool call.'
+			const feedback = reviewDecision.feedback || DECLINED_TOOL_CALL_FEEDBACK
 			const denials = new Map(denyAll(feedback))
 			await settleEscalations(denials, undefined)
 			await settle(denials)
@@ -495,7 +502,7 @@ export async function* runToolReview(
 					}
 				}
 				if (mod.action === 'deny' && !denials.has(mod.toolCallId)) {
-					denials.set(mod.toolCallId, 'The user denied this tool call.')
+					denials.set(mod.toolCallId, DECLINED_TOOL_CALL_FEEDBACK)
 				}
 			}
 

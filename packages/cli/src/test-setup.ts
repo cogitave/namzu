@@ -86,8 +86,24 @@ function underRealHome(target: unknown): string | undefined {
 		? absolute
 		: undefined
 }
-function refused(path: string): NodeJS.ErrnoException {
-	leaks.push(path)
+// `~/.agents/skills` is a skill tier every session reads, so reaching it is
+// not a defect — but the developer's own skills must not leak into a test's
+// catalog. Refused as absent, silently: a test that wants that tier passes
+// its own `home`.
+const realAgentsHome = resolve(homedir(), '.agents')
+function underRealAgentsHome(target: unknown): string | undefined {
+	let text: string | undefined
+	if (typeof target === 'string') text = target
+	else if (target instanceof URL && target.protocol === 'file:') text = fileURLToPath(target)
+	else if (Buffer.isBuffer(target)) text = target.toString()
+	if (text === undefined) return undefined
+	const absolute = resolve(text)
+	return absolute === realAgentsHome || absolute.startsWith(`${realAgentsHome}/`)
+		? absolute
+		: undefined
+}
+function refused(path: string, record = true): NodeJS.ErrnoException {
+	if (record) leaks.push(path)
 	const error: NodeJS.ErrnoException = new Error(
 		`ENOENT: a test reached the real application home (${path})`,
 	)
@@ -106,9 +122,10 @@ function refused(path: string): NodeJS.ErrnoException {
 		const original = owner[name]
 		if (typeof original !== 'function') return
 		const wrapped = function (this: unknown, target: unknown, ...rest: unknown[]) {
-			const path = underRealHome(target)
+			const agentsPath = underRealAgentsHome(target)
+			const path = underRealHome(target) ?? agentsPath
 			if (path !== undefined) {
-				const error = refused(path)
+				const error = refused(path, agentsPath === undefined)
 				if (kind === 'exists') return false
 				if (kind === 'async') {
 					const callback = rest.at(-1)

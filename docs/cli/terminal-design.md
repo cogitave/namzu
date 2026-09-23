@@ -228,6 +228,10 @@ used.
 
 Successful built-in file reads, searches and file discovery share an `Explored` heading when consecutive. Each operation keeps its own row and retained output; `Ctrl+O` expands the output, and errors remain explicit ungrouped failures. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
 
+A tool's result is a `⎿` row with the output's first line and, under it, the rest of the output as a collapsible body. A first line of up to 300 characters (`RESULT_SUMMARY_WHOLE_MAX`) is shown whole on the `⎿` row, wrapping if it must, and is not repeated in the body. A longer one is shortened to 120 characters on the row and kept whole as the body's first line, where `Ctrl+O` shows it. A browser action's note (`A navigation to … was blocked before it was sent: …`) used to be printed twice, once cut off and once in full.
+
+A tool that shows the operator something of its own while it runs — the `schedule` tool's confirmation, a question card — first closes the reply the model streamed with the call, as the tool's start would. The kernel hands the loop a tool's start only when its batch settles, and a reply left pending holds every later row out of scrollback: a confirmation taller than the screen was drawn in the redrawable tail with its top cut off, so the job's model, budget and warnings were never on screen while the operator was asked about them.
+
 Model discovery (`agent_models`) shows a compact catalogue: model name and
 provider, exact ID, published context size and effort menu. At most five entries
 appear, with an explicit remaining count. Empty results and unavailable catalogues
@@ -376,8 +380,11 @@ tokens for the turn plus an estimate (characters over four) of the reply and
 reasoning streamed since that report, redrawn at most five times a second; it
 is absent until the model has written something. On a narrow terminal the
 figures after the label are cut with an ellipsis; the label keeps its letters. No extra logo is added to the activity row. This is activity, not percentage
-progress. Short screens retain the same animated label. Animation stops
-for permission and text prompts and disappears when work ends; no success is
+progress. Short screens retain the same animated label. While a question
+for the operator is on screen (a permission review, a job's confirmation, a
+Continue card, the screen that saves a skill, a text prompt) the row reads `Waiting for you · the question
+below` instead, and the time spent there is left out of the elapsed figure
+when work resumes. Animation disappears when work ends; no success is
 inferred from a stopped turn. Decorative motion is disabled for non-interactive
 output, screen readers, `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`.
 Animation ticks update only the live activity region, leaving the input and

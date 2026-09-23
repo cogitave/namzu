@@ -24,12 +24,18 @@
  */
 
 import { hostname } from 'node:os'
-import { TurnCancelled, asSessionId, describeSchedule, releaseHeldSessionLeases } from '@namzu/sdk'
+import {
+	TurnCancelled,
+	asSessionId,
+	describeSchedule,
+	hostTimeZone,
+	releaseHeldSessionLeases,
+} from '@namzu/sdk'
 import { pauseWait } from '../../commands/provider-wait.js'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { resolveTrustedProjectContext } from '../../config/trusted-project-context.js'
-import { summaryOf } from '../../integrations/notifications/desktop/sanitize.js'
+import { sanitizeLine, summaryOf } from '../../integrations/notifications/desktop/sanitize.js'
 import type { Preferences, ProviderId } from '../../integrations/providers/index.js'
 import {
 	closeSessions,
@@ -43,7 +49,7 @@ import { describeTurnInterruption, retryAfterMs } from '../../tui/turn-interrupt
 import { readDaemonEnv } from '../env.js'
 import { checkJobFolder, folderReadable } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
-import { compileJobPolicy } from '../policy.js'
+import { compileJobPolicy, withheldTools } from '../policy.js'
 import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
 import type {
@@ -52,6 +58,7 @@ import type {
 	ScheduleRunStatus,
 	ScheduleRunTrigger,
 } from '../types.js'
+import { type BrowserPreflight, browserPreflight } from './browser-preflight.js'
 import { writeRunResult } from './result.js'
 import { unattendedNote } from './unattended-note.js'
 
@@ -139,6 +146,8 @@ export interface FireDependencies {
 	readonly graceMs?: number
 	/** Test seam: leave the process's logging as it is. */
 	readonly keepLogging?: boolean
+	/** Test seam: whether the job's browser can run (see `browser-preflight.ts`). */
+	readonly browserPreflight?: typeof browserPreflight
 }
 
 /**
@@ -259,6 +268,18 @@ export async function runFire(
 		return blocked(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}
 
+	// ── the browser, when the job has one ─────────────────────────────────
+	const grant = job.permissions.browser
+	let browser: Extract<BrowserPreflight, { ok: true }> | undefined
+	if (grant) {
+		const checked = await (deps.browserPreflight ?? browserPreflight)(grant, paths.home, {
+			env: deps.env ?? process.env,
+		})
+		if (!checked.ok) return blocked(checked.reason)
+		browser = checked
+		warnings.push(...checked.warnings)
+	}
+
 	// ── the provider, as the service sees it ──────────────────────────────
 	const daemonEnv = readDaemonEnv(paths.daemonEnv)
 	warnings.push(...daemonEnv.warnings)
@@ -316,8 +337,10 @@ export async function runFire(
 		},
 		rules: policy.rules,
 		permissionMode: policy.mode,
+		withheldTools: withheldTools(job.permissions, policy),
 		...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
 		...(config.plugins ? { plugins: config.plugins } : {}),
+		...(config.skills ? { skills: config.skills } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),
 		...(policy.network && config.web ? { web: config.web } : {}),
 		...(config.compaction ? { compaction: config.compaction } : {}),
@@ -328,6 +351,27 @@ export async function runFire(
 				: { enabled: false },
 		...(job.permissions.additionalDirectories
 			? { additionalDirectories: [...job.permissions.additionalDirectories] }
+			: {}),
+		...(grant && browser
+			? {
+					browser: {
+						profile: grant.profile,
+						engine: browser.engine,
+						headless: grant.headed ? ('never' as const) : ('always' as const),
+						// The host checks every landing against the same sites the
+						// gate was given: the grant, what a config file denies, and
+						// nothing else.
+						sites: {
+							...grant.sites,
+							...Object.fromEntries(
+								layers.flatMap((layer) => layer.browserDenies ?? []).map((site) => [site, 'deny']),
+							),
+							'*': 'deny',
+						},
+						home: paths.home,
+						mode: 'unattended' as const,
+					},
+				}
 			: {}),
 		limits: {
 			maxIterations: job.budget.maxIterations,
@@ -415,7 +459,11 @@ export async function runFire(
 				signal: abort.signal,
 				permissionMode: policy.mode,
 				reviewHold: { reason: HOLD_REASON },
-				systemNote: unattendedNote(job.name),
+				systemNote: unattendedNote(job.name, {
+					browser: grant !== undefined,
+					now: now(),
+					tz: job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone(),
+				}),
 				...(job.model.effort ? { effort: job.model.effort as never } : {}),
 			}),
 		)
@@ -467,8 +515,13 @@ export async function runFire(
 	const summary = summaryOf(text)
 	const parked = paused as Extract<AgentEvent, { kind: 'paused' }> | null
 	if (parked) {
+		// A tool that asked for a person parks the run the same way a held
+		// batch does: the operator continues it from the TUI. The reason is
+		// what they have to do, so it is recorded as the reason.
+		const handoff = parked.handoff ? sanitizeLine(handoffReason(parked.handoff), 300) : ''
 		return finish('awaiting-approval', 0, {
-			reason: parked.reason,
+			reason: handoff || parked.reason,
+			...(handoff ? { handoff: { reason: handoff } } : {}),
 			...(summary ? { summary } : {}),
 			...withUsage,
 		})
@@ -490,6 +543,20 @@ export async function runFire(
 		})
 	}
 	return finish('completed', 0, { ...(summary ? { summary } : {}), ...withUsage })
+}
+
+/**
+ * What a parked run tells the operator it needs: the tool's reason, and for
+ * the browser the command that signs in again. "http://… is showing a
+ * sign-in page" alone, in a notification and `schedule list`, left what to
+ * do unsaid.
+ */
+export function handoffReason(handoff: {
+	readonly reason: string
+	readonly detail?: Readonly<Record<string, string>>
+}): string {
+	const login = handoff.detail?.tool === 'browser' ? handoff.detail.loginCommand : undefined
+	return login ? `${handoff.reason}; sign in again with ${login}` : handoff.reason
 }
 
 function describeWhen(iso: string, tz: string | undefined): string {

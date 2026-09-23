@@ -300,3 +300,111 @@ describe('a rule that cannot be compiled decides nothing at all', () => {
 		)
 	})
 })
+
+describe('argument_pattern with decision review', () => {
+	const ASK_PUSH: AuthorizationRule = { ...PUSH_RULE, decision: 'review' }
+
+	it('parses as a rule, where it used to be refused by the schema', () => {
+		expect(() => gate([ASK_PUSH])).not.toThrow()
+	})
+
+	it('sends the call it names to review', () => {
+		const result = evaluate([ASK_PUSH], 'bash', { command: 'git push origin main' })
+		expect(result.decision).toBe('review')
+		expect(result.matchedRule).toEqual(ASK_PUSH)
+		expect(result.reason).toMatch(/sent for review because the `command` argument/)
+	})
+
+	it('reads a chain as deny does, so the question cannot be skipped by a prefix', () => {
+		expect(evaluate([ASK_PUSH], 'bash', { command: 'true; git push origin main' }).decision).toBe(
+			'review',
+		)
+		expect(evaluate([ASK_PUSH], 'bash', { command: 'git status' }).matchedRule).toBeNull()
+		const withAllow: AuthorizationGateConfig['rules'] = [
+			ASK_PUSH,
+			{ type: 'allow_by_name', toolNames: ['bash'] },
+		]
+		expect(evaluate(withAllow, 'bash', { command: 'git status' }).decision).toBe('allow')
+		expect(evaluate(withAllow, 'bash', { command: 'echo hi && git push' }).decision).toBe('review')
+	})
+
+	it('is first-match like every rule: a deny before it still refuses', () => {
+		const result = evaluate([PUSH_RULE, ASK_PUSH], 'bash', { command: 'git push' })
+		expect(result.decision).toBe('deny')
+	})
+
+	it('describes a custom_pattern review as a review, not an allowance', () => {
+		const rule: AuthorizationRule = {
+			type: 'custom_pattern',
+			pattern: 'push',
+			target: 'args',
+			decision: 'review',
+		}
+		expect(evaluate([rule], 'bash', { command: 'git push' }).reason).toMatch(/^sent for review/)
+	})
+})
+
+describe('argument_pattern on a declared URL argument', () => {
+	const SITE: AuthorizationRule = {
+		type: 'argument_pattern',
+		toolNames: ['browser'],
+		argument: 'url',
+		pattern: '^https://github\\.com(?:[/?#]|$)',
+		decision: 'allow',
+	}
+	const url = 'https://github.com/search?q=a&type=code;x|y'
+
+	function urlTool(urlArgument?: string): ToolDefinition {
+		return {
+			name: 'browser',
+			isReadOnly: () => false,
+			...(urlArgument ? { urlArgument } : {}),
+		} as unknown as ToolDefinition
+	}
+
+	it('allows an address with query separators when the tool declares the argument a URL', () => {
+		const result = gate([SITE]).evaluate({
+			toolName: 'browser',
+			toolInput: { url },
+			toolDef: urlTool('url'),
+		})
+		expect(result.decision).toBe('allow')
+	})
+
+	it('keeps the command-line reading for a tool that declares nothing', () => {
+		// `&` and `;` cut the value; `type=code` is not GitHub, so the allow
+		// declines. Safe, and the reason the declaration exists.
+		const result = gate([SITE]).evaluate({
+			toolName: 'browser',
+			toolInput: { url },
+			toolDef: urlTool(),
+		})
+		expect(result.decision).toBe('review')
+		expect(result.matchedRule).toBeNull()
+	})
+
+	it('does not read another argument of the same tool as a URL', () => {
+		const onText: AuthorizationRule = { ...SITE, argument: 'text', pattern: '^safe$' }
+		const result = gate([onText]).evaluate({
+			toolName: 'browser',
+			toolInput: { text: 'safe; rm -rf ~' },
+			toolDef: urlTool('url'),
+		})
+		expect(result.decision).toBe('review')
+	})
+
+	it('still refuses a lookalike host', () => {
+		for (const candidate of [
+			'https://github.com.evil.example/',
+			'https://evil.example/?https://github.com',
+			'https://evil.example/#https://github.com/',
+		]) {
+			const result = gate([SITE]).evaluate({
+				toolName: 'browser',
+				toolInput: { url: candidate },
+				toolDef: urlTool('url'),
+			})
+			expect(result.decision, candidate).toBe('review')
+		}
+	})
+})

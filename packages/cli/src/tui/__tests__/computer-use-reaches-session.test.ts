@@ -168,6 +168,8 @@ describe('computer use session reachability', () => {
 				'Agent',
 				'update_memory',
 				'wait_for_task',
+				// The built-in skills are loaded through it.
+				'skill',
 			].sort(),
 		)
 		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function

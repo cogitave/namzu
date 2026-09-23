@@ -16,10 +16,15 @@ import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
-import type { QuestionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
+import type { QuestionFn, ScreenPermissionFn } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
-import { type ResumeEnvironment, findScheduledPark, prepareScheduledResume } from './resume.js'
+import {
+	type ResumeEnvironment,
+	type ScheduledResume,
+	findScheduledPark,
+	prepareScheduledResume,
+} from './resume.js'
 import { scheduleStartupLine } from './startup.js'
 import { createScheduleToolHost } from './tool-host.js'
 
@@ -55,22 +60,17 @@ export interface ScheduleIntegration {
 	 * stop showing it waiting. A turn that parked again stays waiting.
 	 */
 	settleAnswered(): Promise<void>
-	/** Whether the conversation on screen is a scheduled run parked on a decision. */
+	/** Whether the conversation on screen is a scheduled run parked on a decision or a handoff. */
 	isParked(): Promise<boolean>
 	/**
-	 * Ask about a parked scheduled batch. Throws, saying which session would
-	 * match, when `environment` is not how the job runs.
+	 * Ask about a parked scheduled batch, or whether to continue a run a tool
+	 * paused for a person. Throws, saying which session would match, when
+	 * `environment` is not how the job runs.
 	 */
 	prepareResume(
 		operatorMode: PermissionMode,
 		environment: ResumeEnvironment,
-	): Promise<
-		| Pick<
-				ResumePausedParams,
-				'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
-		  >
-		| undefined
-	>
+	): Promise<ScheduledResume | undefined>
 	dispose(): void
 }
 
@@ -182,6 +182,7 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				operatorMode,
 				environment,
 				ask: deps.askPermission,
+				choose: deps.ask,
 				say: deps.say,
 			})
 		},

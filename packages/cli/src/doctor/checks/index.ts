@@ -1,6 +1,7 @@
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 import { capabilityCheckId } from '../../context/capabilities.js'
+import { browserEngineCheck } from './browser.js'
 import { providerChainCheck } from './chain.js'
 import { credentialSourcesCheck } from './credentials.js'
 import { invariantsCheck } from './invariants.js'
@@ -43,6 +44,7 @@ export const computerUseInstalledCheck: DoctorCheck = installedCheck(
 	'@namzu/computer-use',
 	'custom',
 )
+export const browserInstalledCheck: DoctorCheck = installedCheck('@namzu/browser', 'custom')
 
 // NOTE the fix versus the original submission: sandboxInstalledCheck /
 // filesInstalledCheck / computerUseInstalledCheck are NOT repeated here.
@@ -50,6 +52,7 @@ export const computerUseInstalledCheck: DoctorCheck = installedCheck(
 // this aggregation block is a duplicate-export declaration and fails
 // `tsc --build` with TS2323/TS2484 (confirmed by building this exact file).
 export {
+	browserEngineCheck,
 	credentialSourcesCheck,
 	providerChainCheck,
 	providersRegisteredCheck,
@@ -77,6 +80,9 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	sandboxInstalledCheck,
 	filesInstalledCheck,
 	computerUseInstalledCheck,
+	browserInstalledCheck,
+	// After the package check: which browser it would drive here, and how.
+	browserEngineCheck,
 	telemetryInstalledCheck,
 	schedulerCheck,
 	// Last, deliberately: it reports what the pipeline did to the records
