@@ -192,6 +192,9 @@ describe('a turn a tool paused for a person', () => {
 		await until(() => resumed.length > 0, 'the resumed turn')
 		expect(resumed[0]?.turnId).toBe(PARKED)
 		expect(resumed[0]?.pendingDecision).toBeUndefined()
+		// Told why it goes on now; the last result alone read as final.
+		expect(resumed[0]?.systemNote).toContain(`a tool needed a person: ${REASON}`)
+		expect(resumed[0]?.systemNote).toContain('Try the step that stopped again')
 		expect(abandoned).toHaveLength(0)
 		await until(
 			() => (harness.lastFrame() ?? '').includes(PAUSED_TURN_LINES.resuming),

@@ -783,6 +783,13 @@ export interface ResumePausedParams {
 		readonly model?: string
 		readonly effort?: string
 	}
+	/**
+	 * Words added to the resumed turn's system prompt, as `SendOptions.systemNote`
+	 * is to a new turn's: why the turn goes on now. A turn a tool paused for a
+	 * person resumes with the tool's refusal as its last result, and without a
+	 * note the model read it as final and ended the turn.
+	 */
+	readonly systemNote?: string
 }
 
 export interface AgentSession {
@@ -3115,7 +3122,9 @@ export async function createAgentSession(
 		rules,
 		reviewHold,
 		model: pinned,
+		systemNote,
 	}: ResumeDurableParams & {
+		readonly systemNote?: string
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
 		readonly permissionMode?: PermissionMode
@@ -3162,6 +3171,7 @@ export async function createAgentSession(
 					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 					environmentPrompt,
 					memoryPrompt,
+					systemNote,
 				]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
@@ -3366,6 +3376,7 @@ export async function createAgentSession(
 		rules,
 		reviewHold,
 		model: pinned,
+		systemNote,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
@@ -3391,6 +3402,7 @@ export async function createAgentSession(
 			...(rules ? { rules } : {}),
 			...(reviewHold ? { reviewHold } : {}),
 			...(pinned ? { model: pinned } : {}),
+			...(systemNote ? { systemNote } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()

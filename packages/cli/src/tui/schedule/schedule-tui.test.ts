@@ -287,7 +287,13 @@ describe('answering a parked scheduled run', () => {
 		expect(questions).toHaveLength(1)
 		expect(questions[0]?.options.map((option) => option.label)).toEqual(['Continue', 'Abandon'])
 		expect(said.join('\n')).toContain(HANDOFF_REASON)
-		expect(said.join('\n')).toContain('origin: https://example.test')
+		expect(said.join('\n')).toContain('site https://example.test')
+		expect(said.join('\n')).not.toContain('origin: ')
+		// The resumed turn is told the person dealt with it, so it tries again.
+		const note = scheduled && 'systemNote' in scheduled ? scheduled.systemNote : undefined
+		expect(note).toContain(`a tool needed a person: ${HANDOFF_REASON}`)
+		expect(note).toContain('Try the step that stopped again')
+		expect(note).toMatch(/It is now \w+day, /)
 		expect(scheduled && 'pendingDecision' in scheduled).toBe(false)
 		expect(scheduled && 'model' in scheduled ? scheduled.model : undefined).toEqual({
 			provider: 'deepseek',

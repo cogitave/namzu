@@ -337,7 +337,9 @@ notification says `needs you (since …): <reason>` with the command that opens
 it. There is no batch to approve. `namzu resume <session-id>` (or `/resume`)
 shows the reason and offers **Continue** or **Abandon**. Continue resumes the
 turn under the job's rules and on its model, and its next step is a model call
-that sees the results. Abandon closes the turn, and the job stays scheduled.
+that sees the results and is told that the person dealt with what the tool
+asked for, with the current time, so it tries the step again instead of
+reading the tool's refusal as final. Abandon closes the turn, and the job stays scheduled.
 Esc leaves the run waiting. The same folder, sandbox, roots and credential
 checks apply as for an approval.
 

@@ -32,6 +32,7 @@ import {
 	SessionPaths,
 	asSessionId,
 	findPendingCheckpoint,
+	hostTimeZone,
 } from '@namzu/sdk'
 import { readPermissionLayers } from '../../config/load.js'
 import type { PermissionMode } from '../../permissions/mode.js'
@@ -43,6 +44,7 @@ import { readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
 import type { PermissionFn, QuestionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
 import { terminalDisplayText } from '../terminal-display.js'
+import { handoffContinuationNote } from '../turn-interruption.js'
 
 export interface ScheduledPark {
 	readonly job: ScheduleJob
@@ -260,7 +262,7 @@ function scheduledPermission(ask: ScreenPermissionFn): PermissionFn {
 /** What `resumePaused` needs to continue a parked scheduled turn. */
 export type ScheduledResumeParams = Pick<
 	ResumePausedParams,
-	'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
+	'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model' | 'systemNote'
 > & {
 	/**
 	 * For a job with a browser grant: the profile and sites the session's
@@ -300,9 +302,22 @@ export async function chooseHandoffContinuation(
 	if (!handoff) return 'leave'
 	// Read back from the log, so shown as data: one line each.
 	const safe = (text: string) => terminalDisplayText(text).replace(/\s+/g, ' ').trim()
-	const detail = Object.entries(handoff.detail ?? {})
-		.map(([key, value]) => `\n  ${safe(key)}: ${safe(value)}`)
-		.join('')
+	// The browser's details in words; anything else a tool sent, as it sent it.
+	const facts = handoff.detail ?? {}
+	const known = new Set(['tool', 'cause', 'origin', 'profile', 'loginCommand'])
+	const where = [
+		facts.origin ? `site ${safe(facts.origin)}` : '',
+		facts.profile ? `browser profile ${safe(facts.profile)}` : '',
+	].filter(Boolean)
+	const detail = [
+		...(where.length > 0 ? [`\n  ${where.join(' · ')}`] : []),
+		...(facts.loginCommand
+			? [`\n  If you have not signed in again yet: ${safe(facts.loginCommand)}`]
+			: []),
+		...Object.entries(facts)
+			.filter(([key]) => !known.has(key))
+			.map(([key, value]) => `\n  ${safe(key)}: ${safe(value)}`),
+	].join('')
 	say(
 		`⏲ The scheduled job ${park.job.name} stopped because it needs you: ${safe(handoff.reason)}${detail}\nContinue once that is done: the turn goes on under the job’s rules and on its model (${describeModel(park.model)}).`,
 	)
@@ -380,7 +395,16 @@ export async function prepareScheduledResume(input: {
 	})
 	if (park.handoff) {
 		const choice = await chooseHandoffContinuation(park, input.choose, input.say)
-		if (choice === 'continue') return resumeWith()
+		if (choice === 'continue') {
+			return {
+				...resumeWith(),
+				systemNote: handoffContinuationNote(
+					park.handoff.reason,
+					new Date(),
+					park.job.schedule.kind === 'cron' ? park.job.schedule.tz : hostTimeZone(),
+				),
+			}
+		}
 		if (choice === 'abandon')
 			return { abandon: 'Scheduled run: the operator abandoned it at a handoff' }
 		return { leave: true }

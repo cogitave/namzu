@@ -240,6 +240,7 @@ import {
 	PAUSED_TURN_LINES,
 	describeTurnInterruption,
 	describeTurnStop,
+	handoffContinuationNote,
 } from './turn-interruption.js'
 import { browserSiteNotes, describeBrowserHandoff, runBrowserSlash } from './browser-notices.js'
 import type { BrowserControl } from '../browser/control.js'
@@ -1201,9 +1202,14 @@ export function App({
 	// A turn a tool paused for a person (`ToolResult.handoff`), while its
 	// notice is the newest thing on screen: Enter continues it, Esc stops it.
 	// The ref is what the key handler reads; the state is what the footer shows.
-	const [handoffPark, setHandoffParkState] = useState<{ readonly turnId: string } | null>(null)
-	const handoffParkRef = useRef<{ readonly turnId: string } | null>(null)
-	const setHandoffPark = useCallback((value: { readonly turnId: string } | null) => {
+	const [handoffPark, setHandoffParkState] = useState<{
+		readonly turnId: string
+		readonly reason?: string
+	} | null>(null)
+	const handoffParkRef = useRef<{ readonly turnId: string; readonly reason?: string } | null>(
+		null,
+	)
+	const setHandoffPark = useCallback((value: { readonly turnId: string; readonly reason?: string } | null) => {
 		handoffParkRef.current = value
 		setHandoffParkState(value)
 	}, [])
@@ -3889,7 +3895,10 @@ export function App({
 	 */
 	// `applyEvent` is declared further down; the resume path reads it at call time.
 	const applyEventRef = useRef<((event: AgentEvent, st: StreamState) => void) | null>(null)
-	const resumeActiveTurn = useCallback(async (): Promise<boolean> => {
+	const resumeActiveTurn = useCallback(async (resume?: {
+		/** Continuing a turn a tool paused for a person: what the tool asked for. */
+		readonly handoffReason?: string | undefined
+	}): Promise<boolean> => {
 		const sessions = sessionsRef.current
 		const scope = scopeRef.current
 		if (!sessions || !scope || !conversationMaterializedRef.current || !session?.hasProvider)
@@ -3963,6 +3972,9 @@ export function App({
 					// `/resume` in plan mode stays read-only, and so do its children.
 					permissionMode: permissionModeRef.current,
 					currentPermissionMode: () => permissionModeRef.current,
+					...(resume?.handoffReason
+						? { systemNote: handoffContinuationNote(resume.handoffReason) }
+						: {}),
 				}),
 			})) {
 				applyEventRef.current?.(event, st)
@@ -5389,7 +5401,7 @@ export function App({
 							false,
 							'‖',
 						)
-						setHandoffPark({ turnId: event.turnId })
+						setHandoffPark({ turnId: event.turnId, reason: event.handoff.reason })
 					} else pushMessage('system', describeTurnInterruption(event), false, '‖')
 					break
 				case 'error':
@@ -8292,8 +8304,9 @@ export function App({
 				!abortRef.current &&
 				((key.return && !composerHasDraft) || key.escape)
 			) {
+				const parked = handoffParkRef.current
 				setHandoffPark(null)
-				if (key.return) void resumeActiveTurn()
+				if (key.return) void resumeActiveTurn({ handoffReason: parked.reason })
 				else void abandonActiveTurn('The operator stopped the turn a tool paused for them.')
 				return
 			}

@@ -101,7 +101,7 @@ A sign-in page, a second sign-in step, a CAPTCHA, a bot check or an HTTP passwor
   Sign in to https://github.com in the browser window (profile work), then press Enter to continue · Esc to stop.
 ```
 
-Do it in the window and press Enter; the turn continues with the model reading the page again. Esc stops the turn. With no window (headless), namzu closes its browser to free the profile and gives the command instead:
+Do it in the window and press Enter; the turn continues, and the model is told you dealt with it, so it opens or reads the page again rather than taking the sign-in page as the answer. Esc stops the turn. With no window (headless), namzu closes its browser to free the profile and gives the command instead:
 
 ```text
   namzu browser login work https://github.com/login
