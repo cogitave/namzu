@@ -238,6 +238,33 @@ export interface ReviewPolicyOptions {
 	 * in every mode that does not refuse the call outright.
 	 */
 	readonly unattendedSandboxEscape?: 'refuse' | 'allow'
+	/**
+	 * Whether a skill's `allowed-tools` pre-approval stands in for a person.
+	 *
+	 * `'honour'` (the default) approves a batch without asking when every call
+	 * that would be asked about carries `ToolCallSummary.skillGrant`. `'ignore'`
+	 * asks as though no skill had been loaded — the behaviour before
+	 * `allowed-tools` was read as a pre-approval, for a host that does not want
+	 * repository content to reduce its prompts. `plan` and `strict` refuse
+	 * either way.
+	 */
+	readonly skillGrants?: 'honour' | 'ignore'
+}
+
+/**
+ * Whether a skill's `allowed-tools` grant may stand in for a person on this
+ * call: the kernel marked it, and nothing that outranks a skill is present.
+ * The second half repeats what the kernel checked before marking, so a mark
+ * on a persisted or host-built summary cannot carry more than it should.
+ */
+function isSkillGranted(tc: ToolCallSummary): boolean {
+	return (
+		tc.skillGrant !== undefined &&
+		!tc.authorization?.explicitReview &&
+		tc.authorization?.decision !== 'deny' &&
+		!tc.isDestructive &&
+		tc.escalation === undefined
+	)
 }
 
 /** The handler behind `createReviewPolicy`, for a host that wants only the function. */
@@ -337,6 +364,32 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		}
 		if (mode === 'auto' || !prompt || remembered.all) {
 			return { action: 'approve_tools' }
+		}
+		// Every call a person would be asked about is one a skill loaded in
+		// this turn pre-approved (`allowed-tools`). Reached only in `prompt`
+		// and `accept-edits`: `plan` and `strict` refused above, so a skill's
+		// word never outranks either, and the kernel only marks a call no
+		// deny, explicit ask, destructive flag or escalation stands behind.
+		// One unmarked call and the whole batch is asked about, as always.
+		const needsPerson = request.toolCalls.filter(
+			(tc) =>
+				tc.authorization?.explicitReview ||
+				tc.isDestructive ||
+				tc.escalation !== undefined ||
+				!(
+					exempt(tc.name, tc.input) ||
+					(mode === 'accept-edits' && ACCEPT_EDITS_TOOLS.has(tc.name))
+				),
+		)
+		if (
+			options.skillGrants !== 'ignore' &&
+			needsPerson.length > 0 &&
+			needsPerson.every(isSkillGranted)
+		) {
+			return {
+				action: 'approve_tools',
+				skillGranted: needsPerson.map((tc) => tc.id),
+			}
 		}
 		const answer = await prompt({
 			sessionId: request.sessionId,

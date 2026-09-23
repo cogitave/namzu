@@ -318,6 +318,15 @@ export { deriveTurnStatus } from './types/session/derive-status.js'
 // wide their yes is, instead of choosing between 'this one call' and
 // 'everything for the session'.
 export { ToolGrantSet, toolGrantKeys } from './runtime/query/tool-grants.js'
+// A skill's `allowed-tools` as a turn-scoped pre-approval: the parser, the
+// compiler a host can run against its own registry, the per-turn set, and
+// the one permission-glob dialect the CLI's `[permissions]` table shares.
+export {
+	SKILL_TOOL_NAME_ALIASES,
+	SkillGrantSet,
+	compileSkillGrant,
+	permissionPatternToRegExpSource,
+} from './authorization/skill-grant.js'
 export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
 // `toWireTurnStatus` comes through `./contracts/session/index.js`.
 // Durable turn state: the snapshot a different process picks a turn up from.

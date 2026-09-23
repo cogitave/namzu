@@ -1,4 +1,5 @@
 import type { AuthorizationGate } from '../../authorization/gate.js'
+import type { SkillGrantSet } from '../../authorization/skill-grant.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'
@@ -67,6 +68,8 @@ export interface ToolingBootstrapConfig {
 	recordAudit?: (input: AuditEventInput) => Promise<unknown>
 	/** Builds the durable-pause seam for one tool call; see ToolContext.requestPause. */
 	toolPause?: (toolUseId: string) => RequestToolPause
+	/** The turn's skill pre-approvals; see the executor's own field. */
+	skillGrants?: SkillGrantSet
 }
 
 export class ToolingBootstrap {
@@ -130,6 +133,7 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.recordAudit !== undefined ? { recordAudit: config.recordAudit } : {}),
 				...(config.toolPause !== undefined ? { toolPause: config.toolPause } : {}),
+				...(config.skillGrants !== undefined ? { skillGrants: config.skillGrants } : {}),
 			},
 			activityStore,
 			emitEvent,

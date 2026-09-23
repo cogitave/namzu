@@ -6,6 +6,12 @@ import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { subscribeToAbort } from '../../utils/abort.js'
 import { readPositiveIntEnv } from '../../utils/env.js'
+import {
+	bashToolDialect,
+	hostShellSpawn,
+	sandboxShellSpawn,
+	withoutBashStartup,
+} from '../command-shell.js'
 import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
 
@@ -146,13 +152,20 @@ function execHostShell(
 ): Promise<{ stdout: string; stderr: string }> {
 	options.signal?.throwIfAborted()
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, {
+		// bash where the host has it, `/bin/sh` where it does not; the
+		// permission rules read the line in the matching dialect. See
+		// `../command-shell.ts`.
+		const shell = hostShellSpawn(command, options.env)
+		const spawnOptions = {
 			cwd: options.cwd,
-			env: options.env,
-			shell: true,
+			env: shell.env,
 			// killTree's negative PID must never target the caller's own group.
 			detached: process.platform !== 'win32',
-		})
+		}
+		const child =
+			shell.file === undefined
+				? spawn(command, { ...spawnOptions, shell: true })
+				: spawn(shell.file, [...shell.args], spawnOptions)
 		const captures = {
 			stdout: {
 				chunks: [] as Buffer[],
@@ -302,6 +315,8 @@ export const BashTool = defineTool({
 	// so a permission rule about it is a rule about several commands more often
 	// than not. Naming the argument is what lets the gate read it that way.
 	commandArgument: 'command',
+	// The shell that runs it, so the rules read the line as that shell will.
+	commandDialect: bashToolDialect,
 	// The kernel reviews a call that sets it under a sandbox every time and
 	// confirms it only by id; see `ToolDefinition.sandboxEscapeArgument`.
 	sandboxEscapeArgument: 'dangerously_disable_sandbox',
@@ -414,9 +429,12 @@ export const BashTool = defineTool({
 		// builtin doesn't have that requirement today.
 		const onOutput = shellProgress(context.report)
 		if (context.sandbox && !leaveSandbox) {
-			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
+			// bash if the guest has it, `/bin/sh` if not; read in the `sh`
+			// dialect, which holds for both.
+			const launch = sandboxShellSpawn(input.command)
+			const result = await context.sandbox.exec(launch.file, launch.args, {
 				timeout: input.timeout,
-				env: context.env,
+				...(context.env ? { env: withoutBashStartup(context.env) } : {}),
 				// Same reason as the host path below: a Stop must reach the
 				// process, not just the promise waiting on it.
 				signal: context.abortSignal,
