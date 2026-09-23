@@ -38,7 +38,12 @@ import {
 	updateJob,
 } from '../store/jobs.js'
 import { readState, writeState } from '../store/state.js'
-import type { ActiveRun, ScheduleHistoryRecord, ScheduleRunResult } from '../types.js'
+import type {
+	ActiveRun,
+	ScheduleHistoryRecord,
+	ScheduleJobState,
+	ScheduleRunResult,
+} from '../types.js'
 import { flag, has, interactive, parseArgs, parseMs, pathsFor } from './args.js'
 import { askYesNo } from './confirm-prompt.js'
 
@@ -209,6 +214,23 @@ function foregroundRecorder(paths: SchedulePaths): ScheduleDaemon {
 		notify: async () => {},
 		fingerprint: () => '',
 	})
+}
+
+/**
+ * Record the end of a job's parked run that was answered elsewhere (the TUI)
+ * and has since finished, as a scheduler's tick would. A scheduler that
+ * answers is asked to look now instead; with none, it is settled here.
+ * Idempotent: a run is settled only while the job's state still names it as
+ * parked and its turn is over, so a scheduler settling it too finds nothing
+ * left. Returns the job's state afterwards, or `undefined` for no such job.
+ */
+export async function settleAnsweredPark(
+	paths: SchedulePaths,
+	jobId: string,
+): Promise<ScheduleJobState | undefined> {
+	const endpoint = readEndpoint(paths.endpoint)
+	if (endpoint && (await callEndpoint(endpoint, 'reload'))) return readState(paths, jobId)
+	return foregroundRecorder(paths).reconcileJob(jobId)
 }
 
 export async function runNowCommand(

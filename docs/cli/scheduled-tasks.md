@@ -221,7 +221,11 @@ command opens the conversation with the parked call already on the permission
 screen (`/resume` inside the conversation does the same; a turn that is not a
 scheduled run's park waits for `/resume`). **Approve** runs exactly the parked batch — the model is not asked
 again — and later calls in that turn are asked of you live. **Reject** refuses
-it and the turn continues. The resumed turn stays under **the job's rules**, not
+it and the turn continues. When the turn ends in the TUI — completed, failed or
+cancelled — its end is recorded in the job's history and state right then, as a
+scheduler's tick would record it (a running scheduler is asked to look at once
+instead), so `schedule list` and `status` stop showing it waiting; a turn that
+parks again stays waiting. The resumed turn stays under **the job's rules**, not
 your folder's: a `deny` in the job holds even if your config allows it. It also
 runs on **the job's model**: the provider and model the job pins (or, for a job
 that names only a provider, the model its run started on), with no fallback

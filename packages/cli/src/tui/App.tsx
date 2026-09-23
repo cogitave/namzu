@@ -3878,6 +3878,7 @@ export function App({
 			notification: null,
 		}
 		pushMessage('system', `Resuming turn ${active.turnId} from its checkpoint.`, false, '▶')
+		let scheduledRun = false
 		try {
 			// A scheduled run parked on a decision: the operator answers the
 			// parked batch here, and the turn continues under the job's rules.
@@ -3891,6 +3892,7 @@ export function App({
 						providers: detected.map((item) => item.entry.id),
 					})
 				: undefined
+			scheduledRun = scheduled !== undefined
 			for await (const event of session.resumePaused({
 				turnId: active.turnId,
 				signal: ac.signal,
@@ -3916,6 +3918,10 @@ export function App({
 		} finally {
 			if (abortRef.current === ac) abortRef.current = null
 			setState('idle')
+			// A scheduled run answered here records its end in its job now —
+			// completed, failed or cancelled — not at a scheduler's next tick,
+			// which may never come. One that parked again stays waiting.
+			if (scheduledRun) await scheduleRef.current?.settleAnswered()
 		}
 		return true
 	}, [detected, finalizeMessage, flushStream, pushMessage, session, state])

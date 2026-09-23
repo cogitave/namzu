@@ -18,6 +18,7 @@ import {
 	recordingContext,
 	sandbox,
 } from '../../schedule/__tests__/fixtures.js'
+import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
 import { ScheduleDaemon } from '../../schedule/daemon/daemon.js'
 import { runFire } from '../../schedule/fire/fire.js'
 import { appendHistory, foldHistory, readHistory } from '../../schedule/store/history.js'
@@ -249,6 +250,66 @@ describe('answering a parked scheduled run', () => {
 			/runs on deepseek\/deepseek-chat and this session has no credential for deepseek/,
 		)
 		expect(asked).toHaveLength(0)
+	})
+
+	it('records the run’s end in its job once the answered turn is over, with no scheduler, once', async () => {
+		const marker = join(sb.project, 'marker')
+		const { job, run } = await parkedRun(marker)
+		// Still parked: nothing to settle, the run stays waiting.
+		await settleAnsweredPark(sb.paths, job.id)
+		expect(readState(sb.paths, job.id).activeRun?.status).toBe('awaiting-approval')
+
+		const scheduled = await prepareScheduledResume({
+			home: sb.home,
+			sessionId: run.sessionId as string,
+			operatorMode: 'auto',
+			environment: { cwd: sb.project, roots: [], sandboxed: false },
+			ask: async () => ({ kind: 'approve' }),
+			say: () => {},
+		})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>(async () => completion()),
+		)
+		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
+		const session = await createAgentSession(
+			{ version: 3, providers: [{ id: 'deepseek' }], subagents: { active: [] } },
+			[DEEPSEEK],
+			{
+				cwd: sb.project,
+				stateRoot: sb.home,
+				conversationSessions: sessions,
+				scope: {
+					sessionId: run.sessionId as never,
+					topicId: sessions.topicId,
+					projectId: sessions.projectId,
+					tenantId: sessions.tenantId,
+				},
+			},
+		)
+		try {
+			for await (const event of session.resumePaused({
+				turnId: run.turnId as string,
+				...scheduled,
+			})) {
+				if (event.kind === 'error') throw new Error(event.message)
+			}
+		} finally {
+			await session.close()
+		}
+		// No scheduler ticks here: the answer path settles it.
+		const settled = await settleAnsweredPark(sb.paths, job.id)
+		expect(settled?.activeRun).toBeUndefined()
+		expect(settled?.lastRun).toMatchObject({ runId: run.runId, status: 'completed' })
+		// Settling again (a scheduler doing it too) writes nothing more.
+		await settleAnsweredPark(sb.paths, job.id)
+		const runs = readHistory(sb.paths, job.id).filter(
+			(r) => r.kind === 'run' && r.runId === run.runId && r.status === 'completed',
+		)
+		expect(runs).toHaveLength(1)
+		expect(foldHistory(readHistory(sb.paths, job.id)).find((r) => r.kind === 'run')).toMatchObject({
+			status: 'completed',
+		})
 	})
 
 	it('names every way a session differs from the job', () => {

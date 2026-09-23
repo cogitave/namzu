@@ -12,6 +12,10 @@
 import { type ToolDefinition, buildScheduleTools, buildSessionLoopTools } from '@namzu/sdk'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import type { PermissionMode } from '../../permissions/mode.js'
+import { settleAnsweredPark } from '../../schedule/commands/lifecycle.js'
+import { schedulePaths } from '../../schedule/paths.js'
+import { listJobs } from '../../schedule/store/jobs.js'
+import { readState } from '../../schedule/store/state.js'
 import type { QuestionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
@@ -45,6 +49,12 @@ export interface ScheduleIntegration {
 	/** `/schedule` and `/loop`; false for any other name. */
 	handleSlash(name: string, args: readonly string[]): boolean
 	startupLine(): string | undefined
+	/**
+	 * After a parked scheduled turn answered here has run: record the run's
+	 * end in its job, as a scheduler would, so `schedule list` and `status`
+	 * stop showing it waiting. A turn that parked again stays waiting.
+	 */
+	settleAnswered(): Promise<void>
 	/** Whether the conversation on screen is a scheduled run parked on a decision. */
 	isParked(): Promise<boolean>
 	/**
@@ -135,6 +145,21 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				return scheduleStartupLine(value, deps.cwd())
 			} catch {
 				return undefined
+			}
+		},
+		async settleAnswered() {
+			const value = deps.home()
+			const sessionId = deps.sessionId()
+			if (!value || !sessionId) return
+			const paths = schedulePaths(value)
+			try {
+				for (const job of listJobs(paths).jobs) {
+					const run = readState(paths, job.id).activeRun
+					if (run?.status === 'awaiting-approval' && run.sessionId === sessionId)
+						await settleAnsweredPark(paths, job.id)
+				}
+			} catch {
+				// A scheduler settles it on its next tick; the screen is not the place to fail.
 			}
 		},
 		async isParked() {
