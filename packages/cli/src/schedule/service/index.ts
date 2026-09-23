@@ -5,7 +5,7 @@
  * both paths resolved at install: no shell, no PATH lookup, no profile.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, rmdirSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type { SchedulePaths } from '../paths.js'
@@ -241,6 +241,10 @@ export async function installService(
 				}
 			} finally {
 				rmSync(linuxFile, { force: true })
+				// The staging folder, when this install made it and nothing else uses it.
+				try {
+					rmdirSync(linuxDir)
+				} catch {}
 			}
 			const manifest: ServiceManifest = {
 				...base,

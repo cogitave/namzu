@@ -4,8 +4,9 @@
  * at a time, by lease), so a plain replace is enough.
  */
 
+import { nextFireTime } from '@namzu/sdk'
 import type { SchedulePaths } from '../paths.js'
-import type { ScheduleJobState } from '../types.js'
+import type { ScheduleJob, ScheduleJobState } from '../types.js'
 import { readVersioned, writeJsonAtomic } from './atomic.js'
 
 export function emptyState(jobId: string): ScheduleJobState {
@@ -25,6 +26,21 @@ export function readState(paths: SchedulePaths, jobId: string): ScheduleJobState
 
 export function writeState(paths: SchedulePaths, state: ScheduleJobState): void {
 	writeJsonAtomic(paths.stateOf(state.jobId), state)
+}
+
+/**
+ * When an active job fires next: what the scheduler last computed, or — before
+ * it has looked at the job — the spec's own next time. Undefined for a job
+ * that is not active.
+ */
+export function nextFireOf(
+	job: Pick<ScheduleJob, 'state' | 'schedule'>,
+	state: Pick<ScheduleJobState, 'nextFireAt'>,
+	now = new Date(),
+): string | undefined {
+	if (job.state !== 'active') return undefined
+	if (state.nextFireAt && Date.parse(state.nextFireAt) > now.getTime()) return state.nextFireAt
+	return nextFireTime(job.schedule, now)?.toISOString()
 }
 
 /** Drop optional keys whose value is undefined, so a spread can remove a field. */

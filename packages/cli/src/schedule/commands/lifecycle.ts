@@ -159,13 +159,14 @@ export async function runNowCommand(ctx: CommandContext, argv: readonly string[]
 		)
 			return 1
 		ctx.formatter.info(`The scheduler is not running; running ${job.name} here.`)
-		const code = await runFire(ctx, paths, {
-			jobId: job.id,
-			runId,
-			key,
-			revision: job.revision,
-			trigger: 'manual',
-		})
+		// This terminal's logging stays as the operator set it; a run started by
+		// the daemon writes JSON lines into its log file instead.
+		const code = await runFire(
+			ctx,
+			paths,
+			{ jobId: job.id, runId, key, revision: job.revision, trigger: 'manual' },
+			{ keepLogging: true },
+		)
 		const result = readRunResult(paths, job.id, runId)
 		appendHistory(paths, job.id, {
 			v: 1,

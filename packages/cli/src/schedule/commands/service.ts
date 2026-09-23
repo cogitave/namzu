@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { readFileSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CommandContext } from '../../commands/types.js'
@@ -16,11 +16,17 @@ import {
 import { cliLogger, installCliLogging } from '../../logging.js'
 import type { TerminationHandling } from '../../termination.js'
 import { CLI_VERSION } from '../../version.js'
-import { ScheduleDaemon, installedFingerprint, spawnFireProcess } from '../daemon/daemon.js'
+import {
+	ScheduleDaemon,
+	installedFingerprint,
+	requestStop,
+	spawnFireProcess,
+	stopRequestPath,
+} from '../daemon/daemon.js'
 import { callEndpoint, readEndpoint } from '../daemon/endpoint.js'
 import { daemonLogPath, daemonLogSink } from '../daemon/log.js'
 import { type FireArgs, parseFireArgs, runFire } from '../fire/fire.js'
-import { readRunResult, writeRunResult } from '../fire/result.js'
+import { isFinal, readRunResult, writeRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
 import { detectPlatform } from '../service/detect.js'
 import {
@@ -130,6 +136,7 @@ export async function installCommand(
 		return 1
 	}
 	try {
+		requestStop(paths, false)
 		const { manifest, problems, notes } = await installService(
 			{ paths, run: runCommand, env: process.env, version: CLI_VERSION },
 			{ platform, name, program: prog, atBoot: has(args, 'at-boot') },
@@ -151,10 +158,13 @@ export async function installCommand(
 	}
 }
 
+/** Runs still working: started, and without a final result of their own yet. */
 function runsInFlight(paths: SchedulePaths): number {
 	let n = 0
-	for (const job of listJobs(paths).jobs)
-		if (readState(paths, job.id).activeRun?.status === 'running') n++
+	for (const job of listJobs(paths).jobs) {
+		const run = readState(paths, job.id).activeRun
+		if (run?.status === 'running' && !isFinal(readRunResult(paths, job.id, run.runId))) n++
+	}
 	return n
 }
 
@@ -173,6 +183,7 @@ export async function uninstallCommand(
 	const paths = pathsFor(args)
 	const manifest = readManifest(paths)
 	const endpoint = readEndpoint(paths.endpoint)
+	requestStop(paths, true)
 	if (endpoint) await callEndpoint(endpoint, 'stop')
 	if (manifest)
 		await stopService({ paths, run: runCommand, env: process.env, version: CLI_VERSION }, manifest)
@@ -321,6 +332,9 @@ export async function startStopCommand(
 		return EXIT_NO_CONFIG
 	}
 	const context = { paths, run: runCommand, env: process.env, version: CLI_VERSION }
+	// Before the supervisor acts: a standby daemon, or one a Windows task no
+	// longer holds, is reached only through this file.
+	requestStop(paths, verb === 'stop')
 	const problems =
 		verb === 'start' ? await startService(context, manifest) : await stopService(context, manifest)
 	if (verb === 'stop') {
@@ -371,6 +385,12 @@ export async function daemonCommand(ctx: CommandContext, argv: readonly string[]
 		manifest?.windows?.powershell ? { powershell: manifest.windows.powershell } : {},
 	)
 	const bin = installedBin()
+	if (existsSync(stopRequestPath(paths))) {
+		ctx.formatter.error({
+			message: `the scheduler for ${paths.home} was stopped with \`namzu schedule stop\`; \`namzu schedule start\` lets it run again`,
+		})
+		return EXIT_OK
+	}
 	const daemon = new ScheduleDaemon({
 		paths,
 		log,

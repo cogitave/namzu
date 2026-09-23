@@ -262,6 +262,7 @@ export function runsPerDay(spec: ScheduleSpec, now: Date): number {
 }
 
 function duration(ms: number): string {
+	if (ms % 86_400_000 === 0) return `${ms / 86_400_000} d`
 	if (ms % 3_600_000 === 0) return `${ms / 3_600_000} h`
 	if (ms % 60_000 === 0) return `${ms / 60_000} min`
 	return `${Math.round(ms / 1000)} s`

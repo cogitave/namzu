@@ -26,7 +26,7 @@ import {
 	listJobs,
 	updateJob,
 } from '../../schedule/store/jobs.js'
-import { readState } from '../../schedule/store/state.js'
+import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
 import type { QuestionFn } from '../agent.js'
 import { type SessionLoopScheduler, describeLoops } from './loop-host.js'
@@ -90,7 +90,7 @@ export async function listScheduleJobs(ctx: ScheduleCommandContext): Promise<str
 							? ' ● running'
 							: ''
 		lines.push(
-			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${job.state === 'active' ? when(state.nextFireAt, tz) : '—'}${state.lastRun ? ` · last ${state.lastRun.status} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
+			`⏲ ${job.name}  [${job.state}]${mark}\n    ${describeSchedule(job.schedule, { tz })} · next ${when(nextFireOf(job, state), tz)}${state.lastRun ? ` · last ${state.lastRun.status} ${when(state.lastRun.endedAt, tz)}` : ''}\n    ${job.folder.canonical}`,
 		)
 		if (state.activeRun?.status === 'awaiting-approval' && state.activeRun.sessionId) {
 			lines.push(

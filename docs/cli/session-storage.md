@@ -28,7 +28,7 @@ a working directory picks its project; this page says what is on disk.
 │   ├── claims/<job-id>/<key>.json    one per occurrence ever started, published with link
 │   ├── history/<job-id>.jsonl        runs, skips, missed occurrences and job changes
 │   ├── runs/<job-id>/<run-id>.json   each run's result; <run-id>.log beside it is the run's output
-│   ├── daemon/                       lease.<fence>.json, lease.json, endpoint.json, heartbeat.json, notify.json, log/
+│   ├── daemon/                       lease.<fence>.json, lease.json, endpoint.json, heartbeat.json, notify.json, stop.json, log/
 │   ├── daemon.env                    optional KEY=value credentials for scheduled runs (0600)
 │   ├── service.json                  what `namzu schedule install` created
 │   └── seen.json                     when the TUI last summarised scheduled runs

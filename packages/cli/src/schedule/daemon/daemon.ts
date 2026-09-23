@@ -38,7 +38,16 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process'
-import { type FSWatcher, closeSync, openSync, statSync, watch, writeFileSync } from 'node:fs'
+import {
+	type FSWatcher,
+	closeSync,
+	existsSync,
+	openSync,
+	rmSync,
+	statSync,
+	watch,
+	writeFileSync,
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
 	DiskSessionLeaseStore,
@@ -242,6 +251,7 @@ export class ScheduleDaemon {
 	async #acquire(): Promise<'owned' | 'exit75' | 'stopped'> {
 		let announced = false
 		for (;;) {
+			if (this.#stopRequested()) this.#stopping = true
 			if (this.#stopping) return 'stopped'
 			const lease = await this.#leaseStore.claim({
 				holder: this.#o.epoch,
@@ -292,6 +302,7 @@ export class ScheduleDaemon {
 		this.#lastMono = this.#mono()
 		try {
 			for (;;) {
+				if (this.#stopRequested()) this.#stopping = true
 				if (this.#stopping) return 'stopped'
 				if (!(await this.#holdLease())) {
 					this.#o.log.warn('scheduler lost its lease; standing by', {
@@ -320,6 +331,18 @@ export class ScheduleDaemon {
 			}
 			this.#heartbeat()
 		}
+	}
+
+	/**
+	 * `schedule stop` and `uninstall` leave `daemon/stop.json`; `start` and
+	 * `install` remove it. It reaches a daemon the service manager cannot: one
+	 * on standby (it has no endpoint), or one under WSL, whose Windows task
+	 * ending does not end the Linux process. A daemon that finds it exits 0.
+	 */
+	#stopRequested(): boolean {
+		if (!existsSync(stopRequestPath(this.#o.paths))) return false
+		this.#o.log.info('scheduler stop requested', { 'namzu.schedule.epoch': this.#o.epoch })
+		return true
 	}
 
 	#ownRuns(): number {
@@ -1146,6 +1169,22 @@ export class ScheduleDaemon {
 	}
 }
 
+/** Where `schedule stop` leaves its request. See `ScheduleDaemon#stopRequested`. */
+export function stopRequestPath(paths: SchedulePaths): string {
+	return join(paths.daemon, 'stop.json')
+}
+
+/** Ask every daemon of this home, owner or standby, to stop; or clear the request. */
+export function requestStop(paths: SchedulePaths, stop: boolean): void {
+	if (stop)
+		writeJsonAtomic(stopRequestPath(paths), {
+			v: 1,
+			kind: 'schedule-stop',
+			at: new Date().toISOString(),
+		})
+	else rmSync(stopRequestPath(paths), { force: true })
+}
+
 /** Spawn `node <bin> schedule __fire …` with its output going to a log file, not a pipe. */
 export function spawnFireProcess(options: {
 	readonly node: string
@@ -1209,12 +1248,22 @@ export function spawnFireProcess(options: {
 	}
 }
 
-/** The CLI as installed, cheaply: its version file and entry point, by size and time. */
+/**
+ * The CLI as installed, cheaply: its version file, its entry point and the
+ * scheduler's own modules, by size and time. An npm install rewrites every
+ * file; a rebuild rewrites the modules that changed.
+ */
 export function installedFingerprint(bin: string): () => string {
-	const pkg = join(dirname(bin), '..', 'package.json')
+	const dist = dirname(bin)
+	const watched = [
+		join(dist, '..', 'package.json'),
+		bin,
+		join(dist, 'schedule', 'daemon', 'daemon.js'),
+		join(dist, 'schedule', 'fire', 'fire.js'),
+	]
 	return () => {
 		const parts: string[] = []
-		for (const path of [pkg, bin]) {
+		for (const path of watched) {
 			try {
 				const st = statSync(path)
 				parts.push(`${st.size}:${st.mtimeMs}`)

@@ -30,7 +30,7 @@ import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy } from '../../schedule/policy.js'
 import { appendHistory } from '../../schedule/store/history.js'
 import { createJob, deleteJob, findJob, listJobs, updateJob } from '../../schedule/store/jobs.js'
-import { readState } from '../../schedule/store/state.js'
+import { nextFireOf, readState } from '../../schedule/store/state.js'
 import type { ScheduleJob } from '../../schedule/types.js'
 import type { QuestionFn } from '../agent.js'
 
@@ -64,7 +64,7 @@ function summary(job: ScheduleJob, withPrompt: boolean, home: string): ScheduleJ
 		folder: job.folder.canonical,
 		state: job.state,
 		schedule: describeSchedule(job.schedule, { tz }),
-		...(state.nextFireAt && job.state === 'active' ? { nextFireAt: state.nextFireAt } : {}),
+		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastStatus: state.lastRun.status } : {}),
 		...(withPrompt ? { prompt: job.prompt } : {}),
 	}

@@ -135,6 +135,13 @@ of the lease, every scheduled time is claimed with a file only one process can
 create, so a run never starts twice. `schedule daemon --once-or-exit` exits 75
 instead of waiting.
 
+`namzu schedule stop` and `uninstall` also leave `schedule/daemon/stop.json`,
+which every daemon of the home checks at least every 30 seconds and exits on.
+It reaches what the service manager cannot: a daemon on standby (it has no
+endpoint), and, under WSL, a daemon whose Windows task was ended — ending
+`wsl.exe` does not end the Linux process. `start` and `install` remove it; a
+`schedule daemon` started by hand while it is there says so and exits.
+
 ## Upgrades
 
 The daemon checks the installed CLI on every tick. After `npm i -g @namzu/cli`

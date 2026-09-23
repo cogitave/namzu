@@ -15,6 +15,7 @@ import {
 	type FireSpawnRequest,
 	ScheduleDaemon,
 	type SpawnedRun,
+	requestStop,
 } from '../daemon/daemon.js'
 import { writeRunResult } from '../fire/result.js'
 import { isClaimed } from '../store/claims.js'
@@ -338,5 +339,22 @@ describe('upgrades', () => {
 		for (const release of releases.splice(0)) release()
 		expect(await done).toBe(0)
 		expect(spawned).toHaveLength(1)
+	})
+})
+
+describe('schedule stop', () => {
+	it('reaches a daemon on standby, which has no endpoint, through the stop request', async () => {
+		const owner = daemon({ tickMs: 20, standbyPollMs: 20 })
+		clock = Date.now()
+		const ownerDone = owner.run()
+		await new Promise((r) => setTimeout(r, 50))
+		const standby = daemon({ tickMs: 20, standbyPollMs: 20 })
+		const standbyDone = standby.run()
+		await new Promise((r) => setTimeout(r, 60))
+		expect(standby.standby).toBe(true)
+		requestStop(sb.paths, true)
+		expect(await standbyDone).toBe(0)
+		expect(await ownerDone).toBe(0)
+		requestStop(sb.paths, false)
 	})
 })

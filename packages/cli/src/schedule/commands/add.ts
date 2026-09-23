@@ -254,9 +254,8 @@ async function confirmOnTerminal(
 		return 'cli-noninteractive'
 	}
 	if (has(args, 'yes')) return 'cli-noninteractive'
-	return (await askYesNo(`${verb === 'create' ? 'Create' : 'Save'} this scheduled job?`))
-		? 'cli-tty'
-		: null
+	const question = verb === 'create' ? 'Create' : verb === 'confirm' ? 'Confirm' : 'Save'
+	return (await askYesNo(`${question} this scheduled job?`)) ? 'cli-tty' : null
 }
 
 export async function addCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {

@@ -73,6 +73,8 @@ export class SessionLoopScheduler implements SessionLoopHost {
 	#sync(): void {
 		const file = this.#deps.file()
 		if (file === this.#file) return
+		// Loops made before the conversation had a log belong to it once it does.
+		const carried = this.#file === undefined ? this.#loops : []
 		this.#file = file
 		this.#loops = []
 		if (!file) return
@@ -88,6 +90,10 @@ export class SessionLoopScheduler implements SessionLoopHost {
 				)
 			}
 		} catch {}
+		if (carried.length > 0) {
+			this.#loops = [...this.#loops, ...carried].slice(0, MAX_LOOPS)
+			this.#save()
+		}
 	}
 
 	#save(): void {
@@ -106,11 +112,9 @@ export class SessionLoopScheduler implements SessionLoopHost {
 		readonly prompt: string
 		readonly createdBy: 'model' | 'operator'
 	}): Promise<SessionLoop> {
+		// Before the conversation has a log the loop is held here, and saved
+		// beside the log once the first turn creates it.
 		this.#sync()
-		if (!this.#file)
-			throw new Error(
-				'This conversation has not started yet; send a message first, then add a loop.',
-			)
 		if (this.#loops.length >= MAX_LOOPS)
 			throw new Error(`A session holds at most ${MAX_LOOPS} loops.`)
 		const now = new Date(this.#now())

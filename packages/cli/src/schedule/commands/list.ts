@@ -10,7 +10,7 @@ import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import { compileJobPolicy } from '../policy.js'
 import { foldHistory, readHistory } from '../store/history.js'
 import { confirmationHolds, findJob, listJobs } from '../store/jobs.js'
-import { readState } from '../store/state.js'
+import { nextFireOf, readState } from '../store/state.js'
 import type { ScheduleHistoryRecord, ScheduleJob, ScheduleJobState } from '../types.js'
 import { flag, has, parseArgs, parseCount, pathsFor } from './args.js'
 
@@ -55,7 +55,7 @@ export function listing(job: ScheduleJob, state: ScheduleJobState): JobListing {
 		schedule: describeSchedule(job.schedule, { tz: tzOf(job) }),
 		tz: tzOf(job),
 		folder: job.folder.canonical,
-		...(state.nextFireAt && job.state === 'active' ? { nextFireAt: state.nextFireAt } : {}),
+		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastRun: state.lastRun } : {}),
 		...(state.activeRun
 			? {
