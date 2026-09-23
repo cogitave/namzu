@@ -23,6 +23,7 @@ import { historyCommand, providersJSONCommand, skillsJSONCommand } from './comma
 import { loginCommand, logoutCommand } from './commands/login.js'
 import { registerAll } from './commands/registry.js'
 import { residentCommand } from './commands/resident.js'
+import { scheduleCommand } from './commands/schedule.js'
 import { serveCommand } from './commands/serve.js'
 import { skillsCommand } from './commands/skills.js'
 import { stateCommand } from './commands/state.js'
@@ -349,6 +350,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		upgradeCommand,
 		serveCommand,
 		stateCommand,
+		scheduleCommand,
 	]) {
 		registerAll(program, [def], {
 			getContext:
@@ -360,7 +362,8 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 								def === execCommand ||
 								def === drainCommand ||
 								def === skillsCommand ||
-								def === upgradeCommand
+								def === upgradeCommand ||
+								def === scheduleCommand
 							? getBootstrapContext
 							: getContext,
 			setExitCode,

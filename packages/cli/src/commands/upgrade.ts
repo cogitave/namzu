@@ -34,6 +34,11 @@ export interface UpgradeCommandDeps {
 	readonly latestVersion: () => Promise<string>
 	readonly runNpm: (request: NpmUpgradeRequest) => Promise<number>
 	readonly installedVersion: (packageRoot: string) => string
+	/**
+	 * After a verified update: ask a running scheduler to finish its runs and
+	 * restart on the new code. Best effort; the scheduler also notices by itself.
+	 */
+	readonly afterUpgrade?: () => Promise<void>
 }
 
 /**
@@ -100,6 +105,16 @@ const productionDeps: UpgradeCommandDeps = {
 	latestVersion: latestNamzuVersion,
 	runNpm: runNpmUpgrade,
 	installedVersion: readInstalledVersion,
+	afterUpgrade: async () => {
+		const [{ callEndpoint, readEndpoint }, { schedulePaths }, { resolveNamzuHome }] =
+			await Promise.all([
+				import('../schedule/daemon/endpoint.js'),
+				import('../schedule/paths.js'),
+				import('../integrations/state/home.js'),
+			])
+		const endpoint = readEndpoint(schedulePaths(resolveNamzuHome()).endpoint)
+		if (endpoint) await callEndpoint(endpoint, 'drain-and-restart')
+	},
 }
 
 function parseArgs(rawArgs: readonly string[]): { readonly check: boolean } | null {
@@ -252,6 +267,7 @@ export function createUpgradeCommand(deps: UpgradeCommandDeps): CommandDef {
 					updated: true,
 					text: `Updated Namzu ${deps.currentVersion} → ${installed}.`,
 				})
+				await deps.afterUpgrade?.().catch(() => undefined)
 				return EXIT_OK
 			} finally {
 				progress?.stop()

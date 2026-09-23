@@ -1,0 +1,259 @@
+---
+type: Guide
+title: Scheduled tasks
+description: Prompts that run later in a folder while namzu is closed — creating and confirming jobs, the required permission set, what one run is, approvals, missed runs, notifications, history and the limits of the design.
+resource: packages/cli/src/schedule/
+tags: [cli, schedule, automation, permissions]
+status: stable
+generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
+---
+
+# Scheduled tasks
+
+A scheduled job is a prompt that runs later, in a folder, while namzu is closed:
+every night at 03:00, every 30 minutes, once tomorrow at 09:00. Each run is its
+own conversation you can `/resume`, a desktop notification, and a line in the
+job's history. A job runs under a permission set you wrote down when you created
+it, and a call that set does not allow **waits for you or is refused — it is
+never approved on its own**.
+
+Jobs are run by one small scheduler process per `NAMZU_HOME`, installed once as a
+user service. [The scheduler service](scheduler-service.md) covers installing it
+on Linux, macOS, Windows and WSL.
+
+```sh
+namzu schedule install
+namzu schedule add nightly-deps \
+  --prompt "Check for outdated dependencies and summarise what changed." \
+  --when "0 3 * * *" --permissions read-only
+namzu schedule list
+```
+
+## Creating a job
+
+`namzu schedule add <name>` needs a prompt, a schedule and a permission set;
+there is no default permission set.
+
+| Option | Meaning |
+|---|---|
+| `--prompt <text>` / `--prompt-file <file>` | What each run is asked to do |
+| `--when <spec>` | `every 30m`, `every 2h`, `0 9 * * 1-5` (cron), `@daily`, `at 2026-09-24 09:00`, `at 09:00`, `in 2h` |
+| `--permissions <preset \| file.json>` | `read-only`, `edit-in-folder`, or a JSON file (below). Required |
+| `--folder <dir>` | Where the run works. Default: this directory |
+| `--unmatched park\|deny\|allow` | A call no rule covers: wait for you, refuse, or run |
+| `--execution host\|sandbox` | Where commands run. Default `host` |
+| `--tz <zone>` | IANA zone for cron and local times. Default: this machine's, written into the job |
+| `--model <provider>/<model>` | Pinned at creation. Default: your configured primary |
+| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per run. A token budget and a timeout are always set (defaults 500 000 tokens, 30 minutes, or your `limits`) |
+| `--wait-for-provider 10m` | How long a run waits out a provider pause before giving up |
+| `--approval-ttl 7d` | How long a parked run waits for you before it is abandoned |
+| `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived |
+| `--pause-after-failures 5` | Failed runs in a row before the job pauses itself (0: never) |
+| `--add-dir <dir>` | Another directory the file tools may reach |
+| `--notify-summary` | Put the run's one-line summary in its notification |
+| `--paused` | Create it paused |
+| `--yes` | Do not ask. Without a terminal this creates the job **inert** (below) |
+| `--allow-unattended-host` | Required for `--unmatched allow` with host execution |
+
+Before anything is written, `add` shows the job as it will run: the canonical
+folder, the schedule in words with the next three times in the job's zone, the
+model, the budget with the most tokens it can spend in a day (runs per day ×
+token budget), whether it can reach the network, and every rule in force —
+including the denies it inherits from your config files. On a terminal it asks
+you to confirm.
+
+### Nobody but a person confirms a job
+
+A job is confirmed on a terminal (`add`, `edit`, `confirm`) or in the TUI's
+`/schedule` panel. **Without a terminal nothing is confirmed**: `--yes` from a
+script — or from a model's own shell call — writes the job inert
+(`awaiting confirmation`), and the scheduler never runs it until someone runs
+`namzu schedule confirm <name>` on a terminal or confirms it in the TUI.
+
+The confirmation records a digest of what was confirmed: the prompt, the folder
+and its trust, the permissions, the schedule, the model, the budget, and a
+digest of the project's code-running config (below). If the job file is later
+edited by anything but the CLI, the scheduler puts it on hold, records `job
+tampered` in its history and notifies you once. Confirming a job also trusts its
+folder **for that job only**; your `trust.json` is not touched.
+
+A folder may not be `/`, your home directory itself, a folder that contains
+`NAMZU_HOME`, or anything inside `NAMZU_HOME`.
+
+## What a run may do
+
+Presets are expanded when the job is created and stored as rules, so a later
+change to what a preset means never changes an existing job.
+
+| Preset | Rules | Anything else |
+|---|---|---|
+| `read-only` | `read`, `glob`, `grep`, `ls` allowed; `write`, `edit`, `bash`, `web_fetch`, `web_search` denied | denied |
+| `edit-in-folder` | as `read-only`, plus `write` and `edit` allowed and `bash` waits for you | waits for you |
+
+Neither preset reaches the network. A permission file adds rules in the
+`[permissions]` vocabulary of your config:
+
+```json
+{
+  "preset": "edit-in-folder",
+  "rules": { "bash": { "npm test*": "allow", "npm run lint*": "allow", "*": "ask" } },
+  "unmatched": "park",
+  "execution": "host"
+}
+```
+
+The rules a run is gated by, in order (the first that matches decides):
+
+1. the dangerous-command floor (`rm -rf /`, `mkfs`, `curl … | sh`, `sudo` …):
+   **refused**, always. It never waits for you — an approval cannot open it;
+2. the scheduled-run floor: commands that stop, disable or remove the scheduler
+   (`systemctl --user stop namzu-scheduler…`, `launchctl bootout
+   com.namzu.scheduler…`, `schtasks /Delete … \namzu\…`, `namzu schedule
+   stop|remove|edit…`) and any tool argument naming `NAMZU_HOME` are refused.
+   This is a pattern check and best effort; the job digest above is the control
+   that does not depend on patterns;
+3. every `deny` in your user, project and managed config files, each file read
+   on its own. **Allows come only from the job**: a config `allow` never widens
+   a job, and a config `deny` ("we never force-push") always holds;
+4. the job's own rules;
+5. `unmatched`: `park` holds the call for you, `deny` refuses it, `allow` runs
+   it. Even under `allow`, a path outside the folder and a sandbox escape wait
+   for you.
+
+The project's `namzu.config.json` is repository content: a `git pull` in one run
+could add a hook, a tool server, a plugin or a permission before the next. The
+sections that run code or change what may run (`hooks`, `mcpServers`,
+`plugins`, `permissions`, `permissionChecks`, `sandbox`, `web`,
+`additionalDirectories`, `profiles`), the project's `.namzu/commands/` and
+`.namzu/plugins/` are pinned when you confirm. If they change, the next run
+stops before the model with `blocked-config: project config changed since the
+job was confirmed`, and runs again once you confirm the job.
+
+## One run
+
+The scheduler starts each run as its own process, `namzu schedule __fire`, in
+the job's folder, with a new conversation titled `⏲ <job> · <time>`. Before the
+model is called — zero tokens spent — a run checks that the job is still the
+one confirmed, the folder is still the canonical folder it trusted, the
+project config matches its pin, every rule compiles, and the pinned provider
+has a credential **as the service sees it**. Any failure is `blocked-config`
+with the reason.
+
+The run's system prompt tells the model it is unattended: no questions
+(`ask_user_question` is not offered), calls outside its rules wait or are
+refused, and background jobs end with the run.
+
+A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
+`blocked-config`, `interrupted`, `approval-expired`. The run enforces its own
+wall clock (`--timeout`): the turn's limit first, then a minute later the run
+records `timed-out`, gives its session back and exits. A provider pause (a rate
+limit, an outage) is waited out within `--wait-for-provider`, resuming from the
+checkpoint.
+
+### Credentials
+
+A service does not see what your shell exported. A run finds its provider
+credential in namzu's own store (`namzu login`), a provider's own sign-in file,
+or `NAMZU_HOME/schedule/daemon.env` — `KEY=value` lines, mode 0600, read by the
+run and handed to provider discovery only, never put into the environment a
+shell tool inherits. A run that used another program's sign-in (Claude Code,
+Codex, Gemini CLI) records a warning: refreshing that sign-in from the
+scheduler can race the other program's own refresh, so an unattended job is
+better served by a credential of its own.
+
+## Approvals
+
+A call held for you parks the turn: the run records `awaiting-approval`, you get
+a notification, and the job's next occurrences are skipped
+(`previous-run-awaiting-approval`) until it is answered.
+
+Answer it in the TUI, in the job's folder: `/schedule` lists the waiting run,
+and `/resume` of its conversation shows the parked call with the permission
+screen. **Approve** runs exactly the parked batch — the model is not asked
+again — and later calls in that turn are asked of you live. **Reject** refuses
+it and the turn continues. The resumed turn stays under **the job's rules**, not
+your folder's: a `deny` in the job holds even if your config allows it. There is
+no "approve all" for a scheduled run.
+
+A park nobody answers within `--approval-ttl` (default 7 days) is abandoned:
+the turn is closed, the run is recorded `approval-expired`, and the job runs
+again at its next time.
+
+## Missed runs, sleep and clocks
+
+- A run is never started twice for the same scheduled time: each occurrence is
+  claimed when its run starts, with a file only one writer can create.
+- If the scheduler was not running (machine off, logged out, service stopped),
+  **one catch-up run** is made for the most recent missed time within the last
+  7 days, and the others are one `missed` record. Older ones are only recorded.
+  A catch-up says so in its notification ("catch-up run for Tue 03:00, 6 earlier
+  runs missed").
+- A one-shot (`at`, `in`) missed by more than 7 days expires.
+- Occurrences while a job is **paused** are skipped, not caught up.
+- The machine is never woken to run a job.
+- A backward clock change re-runs nothing; a forward one is treated as missed
+  time. Each job keeps its own time zone; `list` warns when it differs from the
+  machine's current zone.
+- Cron follows cronie across DST: a fixed time the clocks skip runs once at the
+  first minute after the gap; a fixed time the clocks repeat runs once; `0 * * *
+  *` runs twice in the repeated hour.
+- Editing a job's schedule never catches up times that belonged to the old one.
+
+## When a job keeps failing
+
+- The same failure is notified once, until it changes or a run succeeds.
+- A provider that asks to be left alone for longer than `--wait-for-provider`
+  puts the job on a quota hold until then (`skipped: quota-hold`).
+- After `--pause-after-failures` (default 5) failed runs in a row the job pauses
+  itself and tells you. `namzu schedule resume <name>` starts it again.
+- Jobs that can change the folder run one at a time per folder; read-only jobs
+  may overlap. At most `schedule.maxConcurrentRuns` (default 2) runs are in
+  progress at once; a run that waited records how long and why.
+
+## Notifications
+
+A notification names the job and what happened — finished, failed, waiting for
+your approval, a catch-up, a job on hold — and nothing the model wrote, unless
+the job asked for its one-line summary (`--notify-summary`). At most one per job
+every ten minutes and twenty a day. `schedule.notifications: false` in your user
+config turns them off. Where they appear: see
+[The scheduler service](scheduler-service.md#notifications).
+
+## Everything else
+
+```sh
+namzu schedule list [--json]              # jobs, next run, last result
+namzu schedule show <job> [--json]        # the job in full, rules and recent history
+namzu schedule history <job> [--json]     # runs, skips and missed occurrences with reasons
+namzu schedule edit <job> [options]       # change it; confirmed again
+namzu schedule pause|resume <job>
+namzu schedule run-now <job>              # through the scheduler, or here when it is not running
+namzu schedule remove <job> [--yes]
+namzu schedule prune [--older-than 30d] [--delete]
+namzu schedule logs [--follow] [--job <name>]
+```
+
+`--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
+tz, folder, nextFireAt?, lastRun?, activeRun? }] }`; `show` prints `{ "v": 1,
+job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
+"records": [...] }` with records newest first, a run's last status winning.
+
+In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
+lets a model propose a job — always confirmed by you on a screen namzu draws
+from its own computation, never from the model's words. See
+[Session loops](session-loops.md) for `/loop`, which repeats a prompt inside an
+open session instead.
+
+## Files
+
+Everything lives under `NAMZU_HOME/schedule/`; [Session storage](session-storage.md)
+lists each file and whether it is safe to delete. Nothing is written in the
+job's folder by the scheduler itself.
+
+## Limits
+
+- Jobs run while you are logged on (macOS, Windows, WSL) or while the systemd
+  user manager runs (Linux; `install --at-boot` keeps it running without a login).
+- No job wakes the machine.
+- There is no chaining, no delivery elsewhere than the notification and the
+  session, and no per-run worktree.

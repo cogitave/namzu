@@ -293,6 +293,21 @@ export interface NamzuCliConfig {
 	 * before a project is trusted, so a project file does not affect it.
 	 */
 	readonly modelCatalogueRefresh?: boolean
+	/**
+	 * The scheduler (`namzu schedule`). Read from the user and managed files
+	 * only: a project file is repo content, and a repository must not be able
+	 * to raise how many unattended runs a machine starts or silence their
+	 * notifications.
+	 */
+	readonly schedule?: ScheduleConfig
+}
+
+/** See `NamzuCliConfig.schedule`. */
+export interface ScheduleConfig {
+	/** Runs of different jobs in progress at once. Default 2. */
+	readonly maxConcurrentRuns?: number
+	/** Desktop notifications for scheduled runs. Default true. */
+	readonly notifications?: boolean
 }
 
 export interface TelemetryConfig {

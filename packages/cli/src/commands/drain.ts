@@ -8,7 +8,8 @@
  * the session's lease, continues the turn under that lease, and gives the
  * lease back.
  *
- * **It is not a daemon, and `namzu serve` still says namzu has no daemon.**
+ * **It is not a daemon.** `namzu serve` still says namzu has no server; the
+ * scheduler daemon (`namzu schedule`) runs scheduled jobs and never drains.
  * That refusal is not weakened by this command, it is the reason for its
  * shape: one bounded pass, exit code says what happened, and whatever the
  * operator already uses to run things periodically runs it again. A turn is
@@ -337,8 +338,9 @@ export const drainCommand: CommandDef = {
 		'',
 		"Take the session's parked or interrupted turn if no worker holds the",
 		'session, continue it from its last checkpoint under the session lease, and',
-		'release the lease. One pass, then exit — namzu has no daemon, and this is a',
-		'command your scheduler runs, not a service.',
+		'release the lease. One pass, then exit — this is a command your own',
+		'scheduler runs, not a service. (namzu’s scheduler daemon runs scheduled',
+		'jobs only, and never resumes past a decision a person has to make.)',
 		'',
 		'Options:',
 		'  --store <dir>         The namzu home whose sessions to drain (NAMZU_HOME)',

@@ -376,6 +376,26 @@ same plugin hooks and skills reach interactive turns, headless turns, durable
 resumes, and ACP sessions; session shutdown settles live work before unloading
 them.
 
+## Scheduled jobs: `namzu schedule`
+
+```bash
+namzu schedule install
+namzu schedule add nightly-deps --prompt "Check for outdated dependencies." \
+  --when "0 3 * * *" --permissions read-only
+namzu schedule status
+```
+
+A scheduled job is a prompt that runs later in a folder while namzu is closed,
+under a permission set you write down when you create it; a call it does not
+allow waits for you or is refused, never approved on its own. Each run is its
+own conversation (`/resume` it), a desktop notification and a line in the job's
+history. One small scheduler per `NAMZU_HOME` runs them, installed as a systemd
+user unit, a launchd agent or a Windows scheduled task (WSL included). A job is
+confirmed by a person on a terminal or in the TUI (`/schedule`); `--yes` from a
+script creates it inert until someone does. See
+[Scheduled tasks](../../docs/cli/scheduled-tasks.md) and
+[The scheduler service](../../docs/cli/scheduler-service.md).
+
 ## Headless use: `namzu exec`
 
 ```bash

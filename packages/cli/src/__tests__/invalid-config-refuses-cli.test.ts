@@ -97,6 +97,6 @@ describe('invalid explicit config reaches the real CLI refusal', () => {
 		})
 
 		expect(result.status).toBe(0)
-		expect(result.stderr).toContain('namzu has no daemon')
+		expect(result.stderr).toContain('namzu has no server')
 	})
 })

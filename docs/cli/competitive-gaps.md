@@ -102,3 +102,23 @@ This review does not attribute ARC scores to any one of these defects. That
 requires a controlled comparison with the same model, effort, budget, tools
 and task state. Deterministic regressions establish individual failures
 without spending model credits.
+
+## Scheduled tasks
+
+Reviewed on 2026-09-23 against Hermes Agent commit
+`5f47c35d37a40fb651e4a00571d03e12b23d11f9`, whose `cron/` package runs agent
+jobs on a schedule. Namzu's [Scheduled tasks](scheduled-tasks.md) now cover the
+same ground with these differences, each deliberate:
+
+- Hermes catches up occurrences missed while a job was paused; namzu skips them
+  (pausing is the operator's intent) and catches up only time the scheduler
+  could not run, one run for the most recent occurrence within seven days.
+- Hermes guards the scheduler from its own runs with a lifecycle guard
+  (`cron/lifecycle_guard.py`); namzu has the equivalent pattern floor and, in
+  addition, a confirmation digest over each job, so a job file changed by
+  anything but the CLI is held until a person confirms it.
+- Both dedupe repeated failures (`cron/incidents.py`) and hold a job during a
+  provider quota window (`cron/quota_hold.py`); namzu also pauses a job after
+  five failures in a row.
+- A job's run never approves a call on its own in namzu: it parks and waits for
+  the operator, who answers the exact parked batch later in the TUI.
