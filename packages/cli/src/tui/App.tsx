@@ -1285,8 +1285,14 @@ export function App({
 				agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working',
 			),
 		) ?? workflows.at(-1)
-		const firstPhase = currentWorkflow?.phases[0]
-		const firstAgent = firstPhase?.agents[0]
+		// Opened on the work that is moving: the first phase with a live agent,
+		// and its first live agent, rather than on a phase that finished
+		// minutes ago. With nothing live, the first phase, as before.
+		const live = (agent: SubagentActivity): boolean =>
+			agent.status === 'starting' || agent.status === 'queued' || agent.status === 'working'
+		const firstPhase =
+			currentWorkflow?.phases.find((phase) => phase.agents.some(live)) ?? currentWorkflow?.phases[0]
+		const firstAgent = firstPhase?.agents.find(live) ?? firstPhase?.agents[0]
 		if (!firstPhase || !firstAgent) return false
 		setAgentSurface({
 			kind: 'cockpit',
@@ -5058,7 +5064,7 @@ export function App({
 						const since = st.startedAt
 						const delegated = subagentsRef.current.filter(
 							(agent) => agent.replayed !== true && agent.startedAt >= since,
-						).length
+						)
 						const closing = settleLine(Date.now() - since, delegated)
 						if (closing) pushMessage('system', closing, false, '✻', undefined, theme.text.muted)
 					}

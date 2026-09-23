@@ -107,7 +107,7 @@ The rail is a borderless tree aligned with the transcript's own gutter, not a
 boxed panel:
 
 ```text
-● Two-phase colour sentence · 1 running · 1 queued · ↓ / ctrl+t
+● Two-phase colour sentence · 1 running · 1 queued · 2.1s · 4.1k tokens · ↓ / ctrl+t
   ├ ● Choose first colour     2.1s   3 tools · 4.1k · gpt-5.6-luna
   │   ⎿ Reading src/index.ts
   └ ◌ Choose second colour    queued
@@ -115,7 +115,9 @@ boxed panel:
 ```
 
 The header's `●` is green while anything runs and becomes `✓` once all have
-settled; the counts separate running from queued. Each agent is one `├`/`└`
+settled; the counts separate running from queued, then say how many are done
+(`2/3 done`, once one is) and, from 96 columns, how long the work has run
+since its first agent started and what it has spent so far. Each agent is one `├`/`└`
 branch with its status glyph (`◌ ● ✓ ✗ ○`), name, elapsed time and, as width
 allows, tool uses, spend and model — tool uses and spend drop first, then the
 model. A running agent's latest activity sits beneath it on a `⎿` line; on a
@@ -126,6 +128,25 @@ is open, reduced to its header line, so the work already approved can be seen
 moving while the next launch is being decided. That header names no key: the
 dialog owns the keyboard, so neither ↓ nor Ctrl+T reaches the rail until it
 closes.
+
+A workflow the model split into several phases (agents sharing a `workflow`
+label with different `phase` labels) stays on the rail as one piece for the
+whole turn, and is drawn by phase:
+
+```text
+● Two-phase colour sentence · 1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t
+  ✓ Phase 1 · 2/2 · 4.0s
+  ● Phase 2 · 0/1
+    └ ● Join the two colours       1.0s                    gpt-5.6-luna
+        ⎿ Working
+```
+
+A settled phase is one line, its count and how long it took; its agents'
+rows are already in the conversation and in Ctrl+T. A live phase is its line
+with its agents beneath it. Under 24 rows a settled phase gives its line up.
+Agents without a workflow label stay grouped by the response that launched
+them, one batch at a time, as before. The rail is empty, and not drawn,
+between phases while no agent is live.
 
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
@@ -157,7 +178,7 @@ and never redrawn; the live state belongs to the rail.
   └ Choose second colour
 ✓ Choose first colour · 1.7s · 9.0k tokens · ctrl+o result · ctrl+t details
 ✗ Choose second colour · failed after 2.9s · Provider refused the request · ctrl+t details
-✻ Worked for 38s · 3 agents
+✻ Worked for 38s · 3 agents in 2 phases · 27.0k tokens
 ```
 
 - **A launch receipt** per batch: the agents one model response launched
@@ -176,8 +197,9 @@ and never redrawn; the live state belongs to the rail.
   reach the others. Ctrl+T opens the agent's whole transcript. The answer is the child's text and is shown as text — terminal
   controls in it are displayed, never obeyed.
 - **A closing line** when a turn that launched agents settles: how long the
-  turn took and how many agents it launched. A turn that delegated nothing adds
-  no line.
+  turn took and how many agents it launched, in how many phases when the model
+  named two or more, what they spent when any reported it, and how many failed
+  when one did. A turn that delegated nothing adds no line.
 
 While the parent does nothing but wait on its agents, the per-call rows under
 `Working` fold into one line, `✻ Waiting for 2 agents to finish` (or
@@ -381,6 +403,16 @@ the child result, so identifiers inside that result remain clearly separate.
 The delegated-work view separates phases and agents with a column divider on
 wide terminals and stacked panes on narrow terminals. Task labels, status and
 elapsed time occupy separate cells; activity text does not repeat the status.
+
+The agent cockpit (Ctrl+T, `/agents`) opens on the phase whose agents are
+still working, and on its first working agent; with nothing live, on the first
+phase. Its header says how far the workflow has got, in the reference
+terminal's terms: `2/3 agents done · 1 running · 7.7s · 18.0k tokens` while it
+runs, `3/3 agents · 9.5s · 27.0k tokens · done` (or `failed`, `cancelled`)
+after. Time drops below 70 columns and spend below 100; under 60 only
+`2/3 done` is left, so the workflow's name keeps its room. Each phase row adds
+how long that phase took, and the agent pane is titled by the phase it lists
+(`Phase 2 · 1 agent`) rather than `Agents`.
 
 Selecting an agent opens its own framed transcript screen. The parent composer
 and live rows are hidden while their state remains mounted. The child view

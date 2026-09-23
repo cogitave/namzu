@@ -167,7 +167,9 @@ not the model calls `wait_for_task`: `✓ <name> · 1.7s · 9.0k tokens`, or
 `✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
 attached to its row, collapsed; Ctrl+O opens it, in place while the row is
 live and in the output viewer once it has settled into history. A turn that launched agents
-ends with `✻ Worked for <time> · <N> agents`. See
+ends with `✻ Worked for <time> · <N> agents`, adding `in <N> phases` when the
+model named two or more, the tokens the agents spent when any reported them,
+and `<N> failed` when one failed. See
 [Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
 the layout. When every running call is a correlated wait, the rows fold into
 one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
@@ -181,6 +183,14 @@ its header line, so agents already approved can be seen working while the next
 launch is decided. The reduced header names no key, since the dialog holds ↓
 and Ctrl+T until it closes. Read-only launches start without a review; see
 [Which launches are asked about](#which-launches-are-asked-about).
+
+A workflow split into phases (one `workflow` label, several `phase` labels)
+stays on the rail as one piece for the whole parent turn and is drawn by
+phase: a settled phase as one line with its count and time, a live one with
+its agents beneath it. The rail's header counts done agents across every
+phase (`2/3 done`), with the time since the first started and the spend so
+far. The agent cockpit opens on the phase that is still working. See
+[Terminal design](terminal-design.md) for both.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same

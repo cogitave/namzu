@@ -9,7 +9,8 @@
  *   with the agents' names beneath it as a `├`/`└` tree;
  * - a completion row per agent: `✓ <name> · 1.7s · 9.0k tokens`, carrying the
  *   agent's final answer as a collapsed body Ctrl+O opens;
- * - a closing line when a turn that delegated settles: `✻ Worked for 38s · 3 agents`.
+ * - a closing line when a turn that delegated settles:
+ *   `✻ Worked for 38s · 3 agents in 2 phases · 27.0k tokens`.
  *
  * Pure so the wording is tested without an App.
  */
@@ -92,10 +93,34 @@ export function completionRow(agent: SubagentActivity, now = Date.now()): Comple
 	return { ok: false, content: `${name} · failed after ${elapsed} · ${reason}`, detail, hint }
 }
 
-/** `Worked for 38s · 3 agents`, or `undefined` for a turn that delegated nothing. */
-export function settleLine(elapsedMs: number, agents: number): string | undefined {
-	if (agents <= 0) return undefined
-	return `Worked for ${formatElapsed(Math.max(0, elapsedMs))} · ${agents} agent${agents === 1 ? '' : 's'}`
+/**
+ * `Worked for 38s · 3 agents in 2 phases · 27.0k tokens`, or `undefined` for
+ * a turn that delegated nothing.
+ *
+ * The phase count appears only when the model named two or more phases, the
+ * tokens only when a child reported spend, and `· 1 failed` only when one
+ * did: the reference closes a workflow with its agent count and spend, and a
+ * failure is worth the words.
+ */
+export function settleLine(
+	elapsedMs: number,
+	agents: readonly SubagentActivity[],
+): string | undefined {
+	if (agents.length <= 0) return undefined
+	const phases = new Set(
+		agents.filter((agent) => agent.phase !== DEFAULT_AGENT_PHASE).map((agent) => agent.phaseId),
+	).size
+	const spent = agents.reduce<number | undefined>(
+		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+		undefined,
+	)
+	const failed = agents.filter((agent) => agent.status === 'failed').length
+	return [
+		`Worked for ${formatElapsed(Math.max(0, elapsedMs))}`,
+		`${agents.length} agent${agents.length === 1 ? '' : 's'}${phases >= 2 ? ` in ${phases} phases` : ''}`,
+		...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+		...(failed > 0 ? [`${failed} failed`] : []),
+	].join(' · ')
 }
 
 /**
