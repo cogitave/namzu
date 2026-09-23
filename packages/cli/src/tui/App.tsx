@@ -3577,6 +3577,13 @@ export function App({
 	}, [activateTrustedProject, pushMessage, runProbe])
 
 	const finalized = messages.filter((m) => !m.pending)
+	// Where the streaming reply stands among the finalized rows: a row written
+	// while it streams is drawn below it, as it will be once it has finished.
+	const streamingAt = messages.findIndex((m) => m.pending)
+	const pendingAt =
+		streamingAt < 0
+			? finalized.length
+			: messages.slice(0, streamingAt).filter((m) => !m.pending).length
 	// Activity and the plan share the terminal with the draft. Collapse the two
 	// lists together only when their full previews would crowd the input area.
 	const fullToolFurniture = activeTools.length === 0 ? 0 : Math.min(activeTools.length, 3) * 2 + 2
@@ -8097,6 +8104,7 @@ export function App({
 					<Transcript
 						messages={finalized}
 						pending={messages.find((m) => m.pending) ?? null}
+						pendingAt={pendingAt}
 						state={state}
 						settled={transcriptOwned ? renderedSettled : 0}
 						resetKey={resetKey}

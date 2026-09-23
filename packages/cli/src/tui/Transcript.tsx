@@ -22,6 +22,18 @@ export interface TranscriptProps {
 	readonly messages: readonly TranscriptMessage[]
 	/** The in-progress streaming message, re-rendered live below the static log. */
 	readonly pending: TranscriptMessage | null
+	/**
+	 * How many of `messages` came before `pending` in the conversation.
+	 *
+	 * A row written while a reply streams — a delegated agent's launch receipt
+	 * or completion, a notice — belongs after that reply. Drawing the reply
+	 * after every finalized row instead put such a row above the text that
+	 * came before it, and the two swapped when the reply finished. The reply is
+	 * drawn at this position, so no row moves once it is on screen. The caller
+	 * keeps every row from here on out of `<Static>` (`settledBeforeStreaming`),
+	 * which is what makes the position reachable. Omitted, the reply is last.
+	 */
+	readonly pendingAt?: number
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	/**
 	 * How many of `messages` have been handed to scrollback.
@@ -87,6 +99,7 @@ type StaticRow =
 export function Transcript({
 	messages,
 	pending,
+	pendingAt,
 	settled,
 	resetKey,
 	raw = false,
@@ -112,6 +125,13 @@ export function Transcript({
 	// The live window is memoised per row so streamed output does not reparse
 	// Markdown in unchanged history. The row that changed is the one that renders.
 	const live = messages.slice(inScrollback)
+	// The streaming reply is drawn where it stands in the conversation (see
+	// `pendingAt`), not after every finalized row. It is never behind the
+	// floor, because the caller holds the floor below it.
+	const at = Math.min(Math.max((pendingAt ?? messages.length) - inScrollback, 0), live.length)
+	const drawn: readonly TranscriptMessage[] = pending
+		? [...live.slice(0, at), pending, ...live.slice(at)]
+		: live
 	return (
 		<Box flexDirection="column">
 			<Static key={resetKey} items={rows}>
@@ -133,32 +153,15 @@ export function Transcript({
 				)}
 			</Static>
 			{showLive
-				? live.map((message, i) =>
-						raw ? (
-							<RawMessageRow
-								key={message.id}
-								message={message}
-								prev={messages[inScrollback + i - 1]}
-							/>
+				? drawn.map((message, i) => {
+						const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
+						return raw ? (
+							<RawMessageRow key={message.id} message={message} prev={prev} />
 						) : (
-							<LiveRow
-								key={message.id}
-								message={message}
-								prev={messages[inScrollback + i - 1]}
-								hyperlinks={hyperlinks}
-							/>
-						),
-					)
+							<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
+						)
+					})
 				: null}
-			{showLive && pending && raw ? (
-				<RawMessageRow message={pending} prev={messages[messages.length - 1]} />
-			) : showLive && pending ? (
-				<MessageRow
-					message={pending}
-					prev={messages[messages.length - 1]}
-					hyperlinks={hyperlinks}
-				/>
-			) : null}
 		</Box>
 	)
 }

@@ -165,6 +165,9 @@ and never redrawn; the live state belongs to the rail.
   model supplied them. A single agent is named inline. The receipt waits until
   the batch is whole, so agents launched in the same response share one
   receipt, and it is always written before any of its agents' completions.
+  It is drawn below the reply that launched it even while that reply is still
+  open: a reviewed batch's events reach the terminal only when the batch
+  finishes, so the reply stays open for the whole of a foreground agent's run.
 - **A completion row** per agent: `✓` or `✗` (so failure reads without colour),
   the elapsed time and, when reported, the spend. The agent's final answer is
   attached collapsed. Ctrl+O opens it in place while the row is still in the
@@ -462,7 +465,11 @@ wrapped two columns wider than it had while live. Nothing written after a reply 
 still streaming settles before that reply does: a row written meanwhile (an
 agent's launch receipt, say) used to settle first, and when the reply then
 finished it landed below rows already printed, so one row was printed twice and
-the reply's own sentence never was.
+the reply's own sentence never was. A reply that is still streaming is also
+drawn where it stands in the conversation, not below every finished row, so a
+row written meanwhile appears under it and neither moves when the reply
+finishes. It used to be drawn last, which put such a row above the text that
+came before it until the turn ended, and then swapped the two.
 
 The agent browser owns its viewport rather than sharing it with an inactive
 composer. Its navigation stays at the bottom and list capacity grows with the

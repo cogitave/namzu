@@ -122,7 +122,7 @@ through that same wrapping and is attributed to the child by name.
 
 Each batch of agents one response launched adds one launch receipt to the main
 transcript, `● Launched 2 agents · <workflow> / <phase>` with the agents named
-beneath it, and each observed agent completion adds one named row, whether or
+beneath it, always below the text of the response that launched them, and each observed agent completion adds one named row, whether or
 not the model calls `wait_for_task`: `✓ <name> · 1.7s · 9.0k tokens`, or
 `✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
 attached to its row, collapsed; Ctrl+O opens it, in place while the row is
