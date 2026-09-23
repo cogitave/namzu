@@ -363,6 +363,8 @@ export async function startService(
 			const agent = manifest.artifacts.find((a) => a.type === 'launchd-agent')
 			if (agent?.type !== 'launchd-agent') return ['no launchd agent in the manifest']
 			const plist = manifest.artifacts.find((a) => a.type === 'file')
+			// `stop` disabled it; a disabled label is not loaded at all.
+			await ctx.run('launchctl', ['enable', `${agent.domain}/${agent.label}`])
 			const booted = await ctx.run('launchctl', [
 				'bootstrap',
 				agent.domain,
@@ -385,7 +387,11 @@ export async function startService(
 	}
 }
 
-/** Stop through the supervisor. A Windows task is DISABLED: ending it alone is undone by its repetition. */
+/**
+ * Stop through the supervisor, and keep it stopped: the systemd unit and the
+ * launchd agent are disabled (else the next login starts them), and a
+ * Windows task is disabled (ending it alone is undone by its repetition).
+ */
 export async function stopService(
 	ctx: ServiceContext,
 	manifest: ServiceManifest,
@@ -396,7 +402,12 @@ export async function stopService(
 		case 'launchd': {
 			const agent = manifest.artifacts.find((a) => a.type === 'launchd-agent')
 			if (agent?.type !== 'launchd-agent') return ['no launchd agent in the manifest']
+			// Disabled as well as booted out: the plist stays in LaunchAgents, and
+			// with RunAtLoad and KeepAlive the next login would start the daemon,
+			// which would find the stop request, exit and be started again.
+			const disabled = await ctx.run('launchctl', ['disable', `${agent.domain}/${agent.label}`])
 			const out = await ctx.run('launchctl', ['bootout', `${agent.domain}/${agent.label}`])
+			if (disabled.code !== 0) return [disabled.stderr.trim() || 'launchctl disable failed']
 			return out.code === 0 ? [] : [out.stderr.trim() || 'launchctl bootout failed']
 		}
 		case 'windows-task':

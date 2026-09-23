@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildJob, confirmJob } from '../build.js'
 import {
 	type DaemonNotice,
+	EXIT_STOP_REQUESTED,
 	type FireSpawnRequest,
 	ScheduleDaemon,
 	type SpawnedRun,
@@ -415,8 +416,11 @@ describe('schedule stop', () => {
 		await new Promise((r) => setTimeout(r, 60))
 		expect(standby.standby).toBe(true)
 		requestStop(sb.paths, true)
-		expect(await standbyDone).toBe(0)
-		expect(await ownerDone).toBe(0)
+		expect(await standbyDone).toBe(EXIT_STOP_REQUESTED)
+		expect(await ownerDone).toBe(EXIT_STOP_REQUESTED)
+		// Started again while the request stands (by hand, or at login): it
+		// exits at once with the code the systemd unit does not restart on.
+		expect(await daemon({ standbyPollMs: 20 }).run()).toBe(EXIT_STOP_REQUESTED)
 		requestStop(sb.paths, false)
 	})
 })

@@ -24,6 +24,7 @@ import {
 	stopRequestPath,
 } from '../daemon/daemon.js'
 import { callEndpoint, readEndpoint } from '../daemon/endpoint.js'
+import { EXIT_STOP_REQUESTED } from '../daemon/exit.js'
 import { daemonLogPath, daemonLogSink } from '../daemon/log.js'
 import { type FireArgs, parseFireArgs, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult, writeRunResult } from '../fire/result.js'
@@ -389,7 +390,7 @@ export async function daemonCommand(ctx: CommandContext, argv: readonly string[]
 		ctx.formatter.error({
 			message: `the scheduler for ${paths.home} was stopped with \`namzu schedule stop\`; \`namzu schedule start\` lets it run again`,
 		})
-		return EXIT_OK
+		return EXIT_STOP_REQUESTED
 	}
 	const daemon = new ScheduleDaemon({
 		paths,

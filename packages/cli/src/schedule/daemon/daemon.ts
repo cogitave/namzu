@@ -82,10 +82,13 @@ import type {
 	ScheduleRunTrigger,
 } from '../types.js'
 import { type EndpointServer, startEndpoint } from './endpoint.js'
+import { EXIT_STOP_REQUESTED } from './exit.js'
 import { pruneDaemonLogs } from './log.js'
 import { type NoticeKind, failureSignature, noticeText } from './notify.js'
 import { archiveOldRuns } from './retention.js'
 import { abandonParkedTurn, sessionFacts, sessionLeaseLive, turnOutcome } from './sessions.js'
+
+export { EXIT_STOP_REQUESTED }
 
 export const LEASE_TTL_MS = 90_000
 export const LEASE_RENEW_MS = 30_000
@@ -164,6 +167,8 @@ export class ScheduleDaemon {
 	/** Runs in progress: ours (with a handle) and adopted ones (without). */
 	readonly #running = new Map<string, Tracked>()
 	#stopping = false
+	/** The stop came from `schedule stop`'s file, not a signal or the endpoint. */
+	#stopRequestedByFile = false
 	#draining = false
 	#standby = false
 	#wake: (() => void) | undefined
@@ -241,10 +246,10 @@ export class ScheduleDaemon {
 		for (;;) {
 			const acquired = await this.#acquire()
 			if (acquired === 'exit75') return 75
-			if (acquired === 'stopped') return 0
+			if (acquired === 'stopped') return this.#stopRequestedByFile ? EXIT_STOP_REQUESTED : 0
 			const outcome = await this.#own()
 			if (outcome === 'standby') continue
-			return 0
+			return this.#stopRequestedByFile ? EXIT_STOP_REQUESTED : 0
 		}
 	}
 
@@ -337,10 +342,12 @@ export class ScheduleDaemon {
 	 * `schedule stop` and `uninstall` leave `daemon/stop.json`; `start` and
 	 * `install` remove it. It reaches a daemon the service manager cannot: one
 	 * on standby (it has no endpoint), or one under WSL, whose Windows task
-	 * ending does not end the Linux process. A daemon that finds it exits 0.
+	 * ending does not end the Linux process. A daemon that finds it exits
+	 * {@link EXIT_STOP_REQUESTED}.
 	 */
 	#stopRequested(): boolean {
 		if (!existsSync(stopRequestPath(this.#o.paths))) return false
+		this.#stopRequestedByFile = true
 		this.#o.log.info('scheduler stop requested', { 'namzu.schedule.epoch': this.#o.epoch })
 		return true
 	}

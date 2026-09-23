@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { detectPlatform } from '../service/detect.js'
-import { installService, stopService, uninstallService } from '../service/index.js'
+import { installService, startService, stopService, uninstallService } from '../service/index.js'
 import { launchdLabel, launchdPlist } from '../service/launchd.js'
 import { readManifest } from '../service/manifest.js'
 import { defaultServiceName } from '../service/names.js'
@@ -41,6 +41,9 @@ describe('systemd', () => {
 		expect(unit).toContain('StartLimitIntervalSec=0')
 		expect(unit).toContain('KillMode=process')
 		expect(unit).toContain('Environment="NAMZU_HOME=/home/a/100%%/.namzu"')
+		// A daemon that finds the stop request exits 80 once, not every ten seconds.
+		expect(unit).toContain('RestartPreventExitStatus=80')
+		expect(unit).toContain('SuccessExitStatus=80')
 	})
 
 	it('installs, then uninstalls exactly what the manifest lists', async () => {
@@ -107,6 +110,57 @@ describe('systemd', () => {
 			),
 		).rejects.toThrow(/npx cache/)
 	})
+})
+
+function stopStartManifest(sb: Sandbox, platform: 'systemd-user' | 'launchd') {
+	return {
+		v: 1 as const,
+		kind: 'schedule-service' as const,
+		platform,
+		name: 'namzu-test',
+		installedAt: '',
+		cliVersion: 't',
+		nodePath: '',
+		binPath: '',
+		namzuHome: sb.home,
+		artifacts:
+			platform === 'launchd'
+				? [
+						{ type: 'file' as const, path: '/Users/a/Library/LaunchAgents/com.namzu.test.plist' },
+						{ type: 'launchd-agent' as const, label: 'com.namzu.test', domain: 'gui/501' },
+					]
+				: [],
+	}
+}
+
+describe('stop keeps the scheduler stopped across a login', () => {
+	for (const platform of ['systemd-user', 'launchd'] as const) {
+		it(`${platform}: stop disables, start enables`, async () => {
+			const calls: string[] = []
+			const run: CommandRunner = async (cmd, args) => {
+				calls.push([cmd, ...args].join(' '))
+				return { code: 0, stdout: '', stderr: '' }
+			}
+			const ctx = { paths: sb.paths, run, env: {}, version: 't' }
+			const manifest = stopStartManifest(sb, platform)
+			expect(await stopService(ctx, manifest)).toEqual([])
+			expect(calls).toEqual(
+				platform === 'systemd-user'
+					? ['systemctl --user disable --now namzu-test.service']
+					: [
+							'launchctl disable gui/501/com.namzu.test',
+							'launchctl bootout gui/501/com.namzu.test',
+						],
+			)
+			calls.length = 0
+			expect(await startService(ctx, manifest)).toEqual([])
+			expect(calls[0]).toBe(
+				platform === 'systemd-user'
+					? 'systemctl --user enable --now namzu-test.service'
+					: 'launchctl enable gui/501/com.namzu.test',
+			)
+		})
+	}
 })
 
 describe('launchd', () => {

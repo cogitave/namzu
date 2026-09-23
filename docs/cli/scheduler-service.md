@@ -58,6 +58,8 @@ ExecStart="/usr/bin/node" "/usr/lib/node_modules/@namzu/cli/dist/bin.js" "schedu
 Environment="NAMZU_HOME=/home/you/.namzu"
 Restart=always
 RestartSec=10
+SuccessExitStatus=80
+RestartPreventExitStatus=80
 KillMode=process
 TimeoutStopSec=20
 
@@ -141,6 +143,14 @@ It reaches what the service manager cannot: a daemon on standby (it has no
 endpoint), and, under WSL, a daemon whose Windows task was ended — ending
 `wsl.exe` does not end the Linux process. `start` and `install` remove it; a
 `schedule daemon` started by hand while it is there says so and exits.
+
+A daemon that exits because of it exits **80**, which the systemd unit names in
+`RestartPreventExitStatus=`: a stopped scheduler started again (by hand, or by
+anything else) exits once instead of being restarted every ten seconds.
+`schedule stop` also keeps the service from starting at the next login: it
+**disables** the systemd unit (`systemctl --user disable --now`), the launchd
+agent (`launchctl disable`, then `bootout`) and the Windows task, and `start`
+enables them again.
 
 ## Upgrades
 

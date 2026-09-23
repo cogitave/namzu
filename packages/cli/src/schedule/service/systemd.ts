@@ -2,8 +2,13 @@
  * Linux: a systemd user unit.
  *
  * `Restart=always` with no start limit: a second daemon waits on standby
- * instead of exiting, so there is no exit loop to guard against, and a daemon
- * that exits 0 after an upgrade is started again on the new code.
+ * instead of exiting, and a daemon that exits 0 after an upgrade is started
+ * again on the new code. The one exit that must not restart is a daemon
+ * finding `schedule stop`'s request: it exits `EXIT_STOP_REQUESTED`, which
+ * `RestartPreventExitStatus=` names (and `SuccessExitStatus=`, so the unit
+ * is inactive rather than failed). `schedule stop` also DISABLES the unit,
+ * and `start` enables it again, so a stopped scheduler is not started at the
+ * next login.
  * `KillMode=process`: stopping or restarting the daemon leaves runs in
  * progress alone; they finish, record their result and the next daemon
  * adopts them.
@@ -12,6 +17,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { EXIT_STOP_REQUESTED } from '../daemon/exit.js'
 import { systemdAssignment, systemdWord } from './quote.js'
 import type { CommandRunner } from './runner.js'
 
@@ -43,6 +49,8 @@ export function systemdUnit(program: ServiceProgram): string {
 		`Environment=${systemdAssignment('NAMZU_HOME', program.namzuHome)}`,
 		'Restart=always',
 		'RestartSec=10',
+		`SuccessExitStatus=${EXIT_STOP_REQUESTED}`,
+		`RestartPreventExitStatus=${EXIT_STOP_REQUESTED}`,
 		'KillMode=process',
 		'TimeoutStopSec=20',
 		'',
@@ -102,13 +110,15 @@ export async function systemdState(name: string, steps: SystemdSteps): Promise<s
 	return result.stdout.trim() || result.stderr.trim() || 'unknown'
 }
 
+/** Enable and start: `stop` disabled it. */
 export async function startSystemd(name: string, steps: SystemdSteps): Promise<string[]> {
-	const result = await systemctl(steps, 'start', `${name}.service`)
+	const result = await systemctl(steps, 'enable', '--now', `${name}.service`)
 	return result.code === 0 ? [] : [result.stderr.trim() || `exit ${result.code}`]
 }
 
+/** Disable and stop, so the next login does not start it again. */
 export async function stopSystemd(name: string, steps: SystemdSteps): Promise<string[]> {
-	const result = await systemctl(steps, 'stop', `${name}.service`)
+	const result = await systemctl(steps, 'disable', '--now', `${name}.service`)
 	return result.code === 0 ? [] : [result.stderr.trim() || `exit ${result.code}`]
 }
 
