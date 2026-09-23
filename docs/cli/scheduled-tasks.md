@@ -131,9 +131,12 @@ The rules a run is gated by, in order (the first that matches decides):
    or as `$NAMZU_HOME` — are refused. The path is matched in any letter case,
    because macOS and a Windows drive read `~/.NAMZU` as `~/.namzu`. The check
    reads through shell quoting and backslash escapes, around a word or inside
-   it, ANSI-C (`$'…'`) and locale (`$"…"`) quoting included
-   (`namzu "schedule" confirm`, `/home/you/".namzu"`, `~/.nam''zu`,
-   `~/.nam\zu`, `~/$'.namzu'` and `sch$'e'dule` are refused too), but not
+   it, ANSI-C (`$'…'`) and locale (`$"…"`) quoting and line continuations (a
+   backslash at the end of a line) included (`namzu "schedule" confirm`,
+   `/home/you/".namzu"`, `~/.nam''zu`, `~/.nam\zu`, `~/$'.namzu'`,
+   `sch$'e'dule` and `~/.nam\` then `zu/…` on the next line are refused too),
+   and a command continued over lines is read as one (`namzu \`, then
+   `schedule stop` on the next line), but not
    through escapes inside ANSI-C quoting (`$'\x2enamzu'`), variables, aliases,
    `eval`, globs (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a
    `cd` followed by a relative path: it is a pattern check and best effort,

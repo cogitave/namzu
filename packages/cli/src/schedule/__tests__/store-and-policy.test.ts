@@ -287,9 +287,27 @@ describe('what a scheduled run may do', () => {
 			'namzu $"schedule" $\'confirm\' probe',
 			"namzu schedule $'list' && namzu schedule $'stop'",
 			"systemctl --user $'stop' namzu-sched$'u'ler",
+			// A line continuation: the shell drops a backslash-newline anywhere.
+			'namzu sche\\\ndule confirm probe',
+			'nam\\\nzu schedule confirm probe',
+			'namzu \\\nschedule \\\nconfirm probe',
+			'namzu \\\n  --home /x \\\n  schedule stop',
+			'node x/bin\\\n.js schedule stop',
+			'systemctl --user \\\nstop namzu-scheduler',
+			'sys\\\ntemctl --user sto\\\np namzu-sched\\\nuler',
+			'launchctl \\\nbootout gui/501/com.namzu.scheduler',
+			'schtasks /Delete \\\n/TN \\namzu\\x /F',
+			'pkill \\\n  namzu',
+			'echo done\nnamzu schedule stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
-		expect(decide(g, 'bash', { command: 'namzu schedule list' })).not.toBe('deny')
+		for (const command of [
+			'namzu schedule list',
+			'namzu schedule \\\nlist',
+			'echo namzu\n./schedule stop',
+			'systemctl --user status namzu-scheduler',
+		])
+			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
 	})
 
 	it('denies every scheduler command that changes something, however the CLI is reached', () => {
@@ -358,6 +376,16 @@ describe('what a scheduled run may do', () => {
 			"cat ~/.nam$'z'u/schedule/daemon/endpoint.json",
 			'cat ~/.nam$"z"u/schedule/daemon/endpoint.json',
 			"cat $HOME/$'.na'mzu/config.yaml",
+			// A line continuation, in a segment, around a separator, in a variable.
+			'cat ~/.nam\\\nzu/schedule/daemon/endpoint.json',
+			`cat ${user}/.nam\\\nzu/x`,
+			`cat ${user}/\\\n.namzu/x`,
+			`cat ${user}\\\n/.namzu/x`,
+			`cat \\\n${user}/.namzu/x`,
+			'cat ~\\\n/.namzu/x',
+			'cat $HOME/\\\n.namzu/x',
+			'cat $HO\\\nME/.namzu/x',
+			'echo $NAMZU\\\n_HOME',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		expect(decide(g, 'read', { path: `${user}//.namzu/schedule/daemon/endpoint.json` })).toBe(
@@ -369,6 +397,8 @@ describe('what a scheduled run may do', () => {
 			'ls ~/project/.namzu2',
 			"ls ~/.nam''zu2",
 			"ls ~/.nam$'z'u2",
+			'ls ~/.nam\\\nzu2',
+			'ls ~/.nam\\nzu',
 		])
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
 	})
@@ -393,6 +423,10 @@ describe('what a scheduled run may do', () => {
 			'$"',
 			"/$''",
 			"$'/",
+			'\\\n',
+			'\\\\\n',
+			'/\\\n',
+			"\\\n'",
 		])
 			for (const prefix of [`cat ${user}`, 'cat ~/.nam', 'cat ~']) {
 				const command = `${prefix}${filler.repeat(20_000)}x`
@@ -400,6 +434,28 @@ describe('what a scheduled run may do', () => {
 				decide(g, 'bash', { command })
 				expect(performance.now() - started, `${prefix} + ${filler}`).toBeLessThan(500)
 			}
+	})
+
+	it('reads a long command that repeats a scheduler word in linear time', () => {
+		const g = gate(scheduledRunFloor(sb.home))
+		for (const filler of [
+			'systemctl ',
+			'systemctl stop ',
+			'launchctl bootout ',
+			'schtasks /Delete ',
+			'pkill ',
+			'namzu ',
+			'namzu schedule ',
+			'bin.js ',
+			';namzu',
+			'namzu \\\n',
+			'\\\n',
+		]) {
+			const command = `${filler.repeat(Math.ceil(160_000 / filler.length))}x`
+			const started = performance.now()
+			decide(g, 'bash', { command })
+			expect(performance.now() - started, filler).toBeLessThan(500)
+		}
 	})
 
 	it('keeps every floor pattern within the gate’s length limit, which refuses a longer one', () => {

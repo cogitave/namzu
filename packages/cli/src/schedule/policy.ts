@@ -163,25 +163,73 @@ function caseless(text: string): string {
 }
 
 /**
+ * What the shell drops between two letters of a word: quotes, a backslash, the
+ * `$` that opens `$'…'` or `$"…"`, and the newline of a line continuation
+ * (`\` at the end of a line). A bare `$` or a bare newline is taken too:
+ * broader, never narrower.
+ */
+const DROPPED = `["'\\\\$\\n]*`
+
+/**
  * {@link caseless}, and also matched when the shell would read it the same
  * with quotes or backslashes inside: `"schedule"`, `sch''edule`, `n\amzu`,
- * `sch$'e'dule` (ANSI-C quoting) and `sch$"e"dule` (locale quoting). A bare
- * `$` is taken too, which the shell would expand: broader, never narrower.
- * Not a parser — a variable or an `eval` still gets past it; this is a
- * tripwire, and the tampered-job hold and the confirmation are the others.
+ * `sch$'e'dule` (ANSI-C quoting), `sch$"e"dule` (locale quoting) and
+ * `sche\<newline>dule` (a line continuation). Not a parser — a variable or an
+ * `eval` still gets past it; this is a tripwire, and the tampered-job hold and
+ * the confirmation are the others.
  */
 function loose(text: string): string {
-	return [...text].map((c) => caseless(c)).join(`["'\\\\$]*`)
+	return [...text].map((c) => caseless(c)).join(DROPPED)
 }
 
-/** Space between words, with the quotes (`'`, `"`, `$'`, `$"`) that may close and open around it. */
+/**
+ * Space between words, with the quotes (`'`, `"`, `$'`, `$"`) that may close
+ * and open around it and a line continuation (`\s` takes its newline).
+ */
 const GAP = `[\\s"'\\\\$]+`
 
 /**
- * A quote the shell drops in a path, as it appears in JSON text: `'`, `"`,
- * and the `$` that opens ANSI-C (`$'…'`) or locale (`$"…"`) quoting.
+ * One character of the same simple command: `;`, `&`, `|` and a newline end
+ * one, a line continuation does not.
  */
-const QUOTE = String.raw`\$?(?:\\"|')`
+const IN_COMMAND = String.raw`(?:\\\n|[^;&|\n])`
+/** Where a simple command starts: the text's start, or a `;`, `&`, `|` or newline that ends the one before. */
+const COMMAND_START = String.raw`(?:^|[;&|]|(?<!\\)\n)`
+
+/**
+ * `words` in this order anywhere in the text, newlines included. Each but the
+ * last is taken at its first place after the one before, inside a lookahead
+ * the match cannot backtrack into, and only from the text's start: `a.*b.*c`
+ * would try every `a` and, for each, every `b`, which is quadratic on a
+ * command that repeats `a`. Taking the first of each loses no match. `words`
+ * must not capture.
+ */
+function inOrder(...words: string[]): string {
+	const last = words.at(-1) ?? ''
+	// `[^]` is any character, a newline included, in fewer characters than
+	// `[\s\S]`: the gate's limit is tight for the launchctl rules.
+	const atomic = words.slice(0, -1).map((word, i) => `(?=([^]*?${word}))\\${i + 1}`)
+	return `^${atomic.join('')}[^]*?${last}`
+}
+
+/**
+ * `word` at its first place in a simple command, and the rest of that command
+ * after it. Every other `word` of the command comes after the first, so a
+ * match from a later one is a match from the first too; trying each would be
+ * quadratic on a command that repeats `word`. `word` must not capture.
+ */
+function firstInCommand(word: string): string {
+	return `${COMMAND_START}(?=(${IN_COMMAND}*?${word}))\\1${IN_COMMAND}*`
+}
+
+/**
+ * What the shell drops in a path, as it appears in JSON text: `'`, `"`, the
+ * `$` that opens ANSI-C (`$'…'`) or locale (`$"…"`) quoting, and a newline
+ * (`\\n`). A line continuation is a backslash (`\\\\`, which {@link SEP} and
+ * {@link INNER_QUOTES} take) and then that newline; a bare newline is taken
+ * too, broader, never narrower.
+ */
+const QUOTE = String.raw`\$?(?:\\"|')|\\n`
 /**
  * Quotes the shell drops in a path. No bare backslash: next to {@link SEP},
  * which takes one, a run of backslashes would backtrack polynomially.
@@ -202,12 +250,22 @@ const SEP = String.raw`[/\\]+(?:(?:${QUOTES}\.${QUOTES}|(?:${QUOTE})+)[/\\]+)*`
  * run (`/./././…`, `/''/''/…`, `\\\\…`) backtracks quadratically.
  */
 const LEAD = String.raw`(?=/|\\(?!"))(?<![/\\]${QUOTES}(?:\.${QUOTES})?)${SEP}`
-/** Inside a segment's name, also an escaping backslash (`.nam\zu`), which JSON doubles. */
+/**
+ * Inside a segment's name, also an escaping backslash (`.nam\zu`), which JSON
+ * doubles, and so a line continuation (`.nam\<newline>zu`).
+ */
 const INNER_QUOTES = String.raw`(?:${QUOTE}|\\\\)*`
 /** Not followed by more of a path segment's name: `/tmp/x` does not match `/tmp/x2`. */
 const SEGMENT_END = '(?![A-Za-z0-9._-])'
 /** The gate refuses a longer pattern (`MAX_CUSTOM_PATTERN_LENGTH`). */
 const MAX_PATTERN = 500
+
+/**
+ * `$NAME` or `${NAME`, as it appears in JSON text, with a line continuation
+ * (`\\\\\\n` there) anywhere in it: the shell drops those before it expands.
+ */
+const variable = (name: string) =>
+	[String.raw`\$`, String.raw`\{?`, ...name].join(String.raw`(?:\\\\\\n)*`)
 
 const jsonText = (text: string) => escapeRegExp(JSON.stringify(text).slice(1, -1))
 
@@ -277,10 +335,10 @@ export function namzuHomePatterns(namzuHome: string, userHome: string): string[]
 		while (name.length > 1 && tail().length > MAX_PATTERN) name = name.slice(0, -1)
 		absolute = tail()
 	}
-	const patterns = [absolute, String.raw`\$\{?NAMZU_HOME\b`]
+	const patterns = [absolute, `${variable('NAMZU_HOME')}\\b`]
 	const user = split(userHome)
 	if (user.length > 0 && home.length > user.length && user.every((name, i) => name === home[i])) {
-		const prefix = `(?:~[A-Za-z0-9._-]*|\\$\\{?HOME\\b\\}?)${QUOTES}${SEP}`
+		const prefix = `(?:~[A-Za-z0-9._-]*|${variable('HOME')}\\b\\}?)${QUOTES}${SEP}`
 		const budget = MAX_PATTERN - prefix.length - SEGMENT_END.length
 		const below = home.slice(user.length)
 		const body = segments(below, budget, true) ?? segments(below, budget, false)
@@ -312,22 +370,31 @@ export function scheduledRunFloor(
 	// `node packages/cli/dist/bin.js`; options may come between. The verb
 	// must start right after the space and its quotes, so `"list"` cannot be
 	// read as a space followed by a verb `"list"`. Within one command of a
-	// list: `;`, `&` and `|` end the search.
+	// list: `;`, `&`, `|` and a newline end the search, a line continuation
+	// does not.
 	const readOnly = READ_ONLY_VERBS.map(caseless).join('|')
-	const scheduleVerb = `[^;&|\\n]*\\b${loose('schedule')}${GAP}(?![\\s"'\\\\$])(?!(?:${readOnly})(?![A-Za-z0-9_-]))`
+	const scheduleVerb = `\\b${loose('schedule')}${GAP}(?![\\s"'\\\\$])(?!(?:${readOnly})(?![A-Za-z0-9_-]))`
 	return [
 		...['stop', 'disable', 'mask', 'edit', 'kill', 'revert'].map((verb) =>
-			bash(`${loose('systemctl')}\\b.*\\b${loose(verb)}\\b.*${loose('namzu-scheduler')}`),
+			bash(inOrder(`${loose('systemctl')}\\b`, `\\b${loose(verb)}\\b`, loose('namzu-scheduler'))),
 		),
 		...['bootout', 'unload', 'remove', 'disable'].map((verb) =>
-			bash(`${loose('launchctl')}\\b.*\\b${loose(verb)}\\b.*${loose('com.namzu.scheduler')}`),
+			bash(
+				inOrder(`${loose('launchctl')}\\b`, `\\b${loose(verb)}\\b`, loose('com.namzu.scheduler')),
+			),
 		),
 		bash(
-			`${loose('schtasks')}(\\.${loose('exe')})?\\b.*/(${loose('delete')}|${loose('change')}|${loose('end')})\\b.*${loose('namzu')}`,
+			inOrder(
+				`${loose('schtasks')}(?:\\.${loose('exe')})?\\b`,
+				`/(?:${loose('delete')}|${loose('change')}|${loose('end')})\\b`,
+				loose('namzu'),
+			),
 		),
-		bash(`\\b(${loose('pkill')}|${loose('killall')})\\b.*${loose('namzu')}`),
-		bash(`\\b${loose('namzu')}\\b${scheduleVerb}`),
-		bash(`\\b${loose('bin')}["'\\\\$]*\\.["'\\\\$]*${loose('js')}\\b${scheduleVerb}`),
+		bash(inOrder(`\\b(?:${loose('pkill')}|${loose('killall')})\\b`, loose('namzu'))),
+		bash(`${firstInCommand(`\\b${loose('namzu')}\\b`)}${scheduleVerb}`),
+		bash(
+			`${firstInCommand(`\\b${loose('bin')}${DROPPED}\\.${DROPPED}${loose('js')}\\b`)}${scheduleVerb}`,
+		),
 		...namzuHomePatterns(namzuHome, userHome).map(
 			(pattern): AuthorizationRule => ({
 				type: 'custom_pattern',
