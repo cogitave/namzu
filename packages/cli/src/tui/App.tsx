@@ -8857,10 +8857,20 @@ export function App({
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								interruptible={abortRef.current !== null}
-								animate={stdout.isTTY === true && permission === null && textPrompt === null}
+								animate={
+									stdout.isTTY === true &&
+									permission === null &&
+									textPrompt === null &&
+									saveSkillPrompt === null
+								}
 								thinking={thinking}
 								tokens={turnTokens}
-								waitingForYou={choicePicker !== null || permission !== null || textPrompt !== null}
+								waitingForYou={
+									choicePicker !== null ||
+									permission !== null ||
+									textPrompt !== null ||
+									saveSkillPrompt !== null
+								}
 							/>
 						) : null}
 						{/* The step the plan is on, while its checklist is out of view.

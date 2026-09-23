@@ -382,7 +382,7 @@ is absent until the model has written something. On a narrow terminal the
 figures after the label are cut with an ellipsis; the label keeps its letters. No extra logo is added to the activity row. This is activity, not percentage
 progress. Short screens retain the same animated label. While a question
 for the operator is on screen (a permission review, a job's confirmation, a
-Continue card, a text prompt) the row reads `Waiting for you · the question
+Continue card, the screen that saves a skill, a text prompt) the row reads `Waiting for you · the question
 below` instead, and the time spent there is left out of the elapsed figure
 when work resumes. Animation disappears when work ends; no success is
 inferred from a stopped turn. Decorative motion is disabled for non-interactive

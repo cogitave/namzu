@@ -256,6 +256,24 @@ export const SkillTool = defineTool({
 	destructive: false,
 	concurrencySafe: true,
 
+	// The body is instructions for the model, often a hundred lines; the
+	// person needs the row that says which skill was read, not the text.
+	presentCall(input: SkillInput) {
+		const name = typeof input?.name === 'string' ? input.name : undefined
+		return {
+			kind: 'generic',
+			presentation: 'activity',
+			label:
+				name === undefined
+					? input?.cursor === undefined
+						? 'List skills'
+						: 'List more skills'
+					: `Read skill ${name}${input.cursor === undefined ? '' : ' (continued)'}`,
+		}
+	},
+	presentResult: (_input: SkillInput, result) =>
+		result.success ? { kind: 'generic', label: 'read', visibility: 'hidden' } : undefined,
+
 	async execute(input: SkillInput, context) {
 		if (!context.skills) {
 			return {
