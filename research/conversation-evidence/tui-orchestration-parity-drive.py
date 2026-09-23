@@ -233,6 +233,16 @@ def main():
                     step.get("timeout", DEFAULT_TIMEOUT),
                     step["label"],
                 )
+            elif op == "key_if":
+                # Press only when the pattern has been seen at all: the same
+                # script drives a build that asks and one that does not.
+                if step["pattern"] in captured.decode("utf-8", errors="ignore"):
+                    data = KEYS.get(step["name"]) or step["name"].encode()
+                    send_raw(data)
+                    result["markersSeen"][step.get("label", step["pattern"])] = True
+                else:
+                    result["markersSeen"][step.get("label", step["pattern"])] = False
+                read_available(step.get("settle", 0.4))
             elif op == "sleep":
                 read_available(step["seconds"])
             else:
