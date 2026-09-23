@@ -7977,6 +7977,8 @@ export function App({
 						raw={rawOutput}
 						hyperlinks={hyperlinks}
 						showLive={!lifecycleOwnsViewport}
+						// The one column of padding the enclosing box gives every row.
+						staticIndent={1}
 						header={
 							transcriptOwned ? (
 								<BrandHeader

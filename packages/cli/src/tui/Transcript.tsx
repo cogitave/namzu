@@ -60,6 +60,17 @@ export interface TranscriptProps {
 	 * the transcript grows. As the first static row it pins to the top.
 	 */
 	readonly header?: ReactNode
+	/**
+	 * Columns of padding the caller's own box puts left of this transcript.
+	 *
+	 * Ink prints `<Static>` output from the static node itself, so an
+	 * ancestor's padding never reaches it: a row drawn live at column 1
+	 * moved to column 0 the moment it settled, and a finished screen mixed
+	 * the two. The settled rows are drawn with this padding themselves, and
+	 * a matching negative right margin keeps their wrap width the width they
+	 * had live.
+	 */
+	readonly staticIndent?: number
 }
 
 const COLLAPSE_LINES = 6
@@ -82,6 +93,7 @@ export function Transcript({
 	hyperlinks = false,
 	showLive = true,
 	header,
+	staticIndent = 0,
 }: TranscriptProps) {
 	const inScrollback = Math.min(Math.max(settled, 0), messages.length)
 	// The banner is row 0 so it prints to the very top of scrollback; messages
@@ -103,20 +115,22 @@ export function Transcript({
 	return (
 		<Box flexDirection="column">
 			<Static key={resetKey} items={rows}>
-				{(row) =>
-					row.kind === 'header' ? (
-						<Box key="header">{header}</Box>
-					) : raw ? (
-						<RawMessageRow key={row.message.id} message={row.message} prev={row.prev} />
-					) : (
-						<MessageRow
-							key={row.message.id}
-							message={row.message}
-							prev={row.prev}
-							hyperlinks={hyperlinks}
-						/>
-					)
-				}
+				{(row) => (
+					<Box
+						key={row.kind === 'header' ? 'header' : row.message.id}
+						flexDirection="column"
+						paddingLeft={staticIndent}
+						marginRight={-staticIndent}
+					>
+						{row.kind === 'header' ? (
+							<Box>{header}</Box>
+						) : raw ? (
+							<RawMessageRow message={row.message} prev={row.prev} />
+						) : (
+							<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
+						)}
+					</Box>
+				)}
 			</Static>
 			{showLive
 				? live.map((message, i) =>
