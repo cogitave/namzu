@@ -1,4 +1,15 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import {
+	DEFAULT_WSL_MOUNT_ROOT,
+	WSL_RUN_DIR,
+	type WslNetworkingMode,
+	findWslInteropSocket,
+	parseNetworkingModeOutput,
+	parseWslConfigNetworkingMode,
+	parseWslMountRoot,
+	wslPathToWindows,
+} from './wsl.js'
 
 /**
  * Which browser runs, where, and whether its window is shown — decided from
@@ -13,10 +24,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
  * | macOS | `local`: Google Chrome if installed, else Playwright's Chromium |
  * | Windows | `local`: Chrome, else Edge, else Playwright's Chromium |
  *
- * The `windows-cdp` engine is not in this build. Detection still returns it
- * where it belongs, with `unavailableReason` saying so and `fallback` holding
- * the plan the WSL row without interop would get; {@link runnableBrowserPlan}
- * takes the fallback unless the caller forced `engine: 'windows'`.
+ * The `windows-cdp` engine starts the Windows browser through `powershell.exe`
+ * and talks CDP to it through that process's standard streams (see
+ * `windows-bridge.ts`), because WSL's NAT networking cannot reach Windows'
+ * `127.0.0.1`. Under mirrored networking it connects directly and keeps the
+ * bridge only to start and stop the browser.
  */
 
 /** `auto` follows the table; `windows` and `local` force one engine. */
@@ -37,12 +49,21 @@ export interface BrowserEnvironmentProbes {
 	readFile(path: string): string | undefined
 	/** Entry names, or `[]` if the directory cannot be read. */
 	listDir(path: string): readonly string[]
+	/** Modification time in ms, or `undefined`. Absent: every file is equally old. */
+	modifiedMs?(path: string): number | undefined
+	/**
+	 * Standard output of a short-lived program, or `undefined` if it failed.
+	 * Absent: nothing is run (`wslinfo` is skipped and `.wslconfig` decides).
+	 */
+	run?(file: string, args: readonly string[]): string | undefined
 }
 
 export interface DetectBrowserEnvironmentOptions {
 	readonly engine?: BrowserEngineSetting
 	readonly headless?: BrowserHeadlessSetting
 	readonly mode?: BrowserRunMode
+	/** Under WSL: which Windows browser to drive. Default Chrome, else Edge. */
+	readonly windowsBrowser?: 'chrome' | 'msedge'
 }
 
 /** A browser this process launches itself, with Playwright. */
@@ -68,8 +89,20 @@ export interface WindowsCdpBrowserPlan {
 	readonly browser: 'chrome' | 'msedge'
 	/** The browser as WSL sees it (`/mnt/c/Program Files/…/chrome.exe`). */
 	readonly executable: string
+	/** The browser as Windows sees it (`C:\Program Files\…\chrome.exe`). */
+	readonly windowsExecutable: string
 	/** `powershell.exe`, absolute, as WSL sees it. */
 	readonly powershell: string
+	/** Where the Windows drives are mounted, with a trailing slash (`/mnt/`). */
+	readonly mountRoot: string
+	/** `mirrored` lets WSL reach Windows' `127.0.0.1` directly; anything else goes through the bridge. */
+	readonly networkingMode: WslNetworkingMode
+	/**
+	 * The interop socket to hand a Windows program as `WSL_INTEROP`, when this
+	 * process has none of its own (a systemd service). Absent when the
+	 * environment's `WSL_INTEROP` works.
+	 */
+	readonly interopSocket?: string
 	readonly headless: boolean
 	readonly display: true
 	readonly warnings: readonly string[]
@@ -79,10 +112,6 @@ export interface WindowsCdpBrowserPlan {
 }
 
 export type BrowserEnginePlan = LocalBrowserPlan | WindowsCdpBrowserPlan
-
-/** Why the `windows-cdp` plan cannot run in this build. */
-export const WINDOWS_CDP_NOT_IMPLEMENTED =
-	'Driving the Windows browser from WSL is not implemented in this build of @namzu/browser.'
 
 /** Probes over the real file system. */
 export const nodeBrowserProbes: BrowserEnvironmentProbes = {
@@ -107,16 +136,82 @@ export const nodeBrowserProbes: BrowserEnvironmentProbes = {
 			return []
 		}
 	},
+	modifiedMs: (path) => {
+		try {
+			return statSync(path).mtimeMs
+		} catch {
+			return undefined
+		}
+	},
+	run: (file, args) => {
+		try {
+			return execFileSync(file, [...args], {
+				encoding: 'utf8',
+				timeout: 3_000,
+				stdio: ['ignore', 'pipe', 'ignore'],
+			})
+		} catch {
+			return undefined
+		}
+	},
 }
 
-const WSL_POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
+const WSL_POWERSHELL_TAIL = 'c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
 
-const WSL_WINDOWS_BROWSERS: readonly { browser: 'chrome' | 'msedge'; path: string }[] = [
-	{ browser: 'chrome', path: '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe' },
-	{ browser: 'chrome', path: '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe' },
-	{ browser: 'msedge', path: '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' },
-	{ browser: 'msedge', path: '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe' },
+/** Where the Windows browsers install, relative to the mount root. */
+const WSL_WINDOWS_BROWSERS: readonly { browser: 'chrome' | 'msedge'; tail: string }[] = [
+	{ browser: 'chrome', tail: 'c/Program Files/Google/Chrome/Application/chrome.exe' },
+	{ browser: 'chrome', tail: 'c/Program Files (x86)/Google/Chrome/Application/chrome.exe' },
+	{ browser: 'msedge', tail: 'c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' },
+	{ browser: 'msedge', tail: 'c/Program Files/Microsoft/Edge/Application/msedge.exe' },
 ]
+
+const WSLINFO = '/usr/bin/wslinfo'
+
+/** Profile folders under `C:\Users` that are not a person's. */
+const NOT_A_USER = new Set(['all users', 'default', 'default user', 'public', 'desktop.ini'])
+
+/**
+ * The VM's networking mode: `wslinfo --networking-mode` when WSL has it;
+ * otherwise the one `.wslconfig` under `C:\Users` (when exactly one user has
+ * one); otherwise `unknown`, which is treated as NAT.
+ */
+export function wslNetworkingMode(
+	probes: BrowserEnvironmentProbes,
+	mountRoot: string = DEFAULT_WSL_MOUNT_ROOT,
+): WslNetworkingMode {
+	if (probes.run && probes.exists(WSLINFO)) {
+		const mode = parseNetworkingModeOutput(probes.run(WSLINFO, ['--networking-mode']))
+		if (mode !== 'unknown') return mode
+	}
+	const users = `${mountRoot}c/Users`
+	const configs = probes
+		.listDir(users)
+		.filter((name) => !NOT_A_USER.has(name.toLowerCase()))
+		.map((name) => `${users}/${name}/.wslconfig`)
+		.filter((path) => probes.exists(path))
+	if (configs.length !== 1) return 'unknown'
+	return parseWslConfigNetworkingMode(probes.readFile(configs[0] as string))
+}
+
+/**
+ * The interop socket to give a Windows program: the environment's
+ * `WSL_INTEROP` when it exists, else one under `/run/WSL`.
+ */
+export function wslInteropSocket(
+	env: NodeJS.ProcessEnv,
+	probes: BrowserEnvironmentProbes,
+): string | undefined {
+	if (env.WSL_INTEROP && probes.exists(env.WSL_INTEROP)) return env.WSL_INTEROP
+	const sockets = probes
+		.listDir(WSL_RUN_DIR)
+		.filter((name) => /^\d+_interop$/.test(name))
+		.map((name) => {
+			const path = `${WSL_RUN_DIR}/${name}`
+			return { path, mtimeMs: probes.modifiedMs?.(path) ?? 0 }
+		})
+	return findWslInteropSocket(sockets)
+}
 
 const LINUX_CHROME = ['/opt/google/chrome/chrome']
 const DARWIN_CHROME = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
@@ -185,7 +280,7 @@ function localPlan(
 	platform: BrowserHostPlatform,
 	env: NodeJS.ProcessEnv,
 	probes: BrowserEnvironmentProbes,
-	options: Required<DetectBrowserEnvironmentOptions>,
+	options: Required<Omit<DetectBrowserEnvironmentOptions, 'windowsBrowser'>>,
 	warnings: string[],
 ): LocalBrowserPlan {
 	const display = platform === 'darwin' || platform === 'win32' ? true : hasDisplay(env)
@@ -227,7 +322,7 @@ export function detectBrowserEnvironment(
 	probes: BrowserEnvironmentProbes = nodeBrowserProbes,
 	options: DetectBrowserEnvironmentOptions = {},
 ): BrowserEnginePlan {
-	const settings: Required<DetectBrowserEnvironmentOptions> = {
+	const settings: Required<Omit<DetectBrowserEnvironmentOptions, 'windowsBrowser'>> = {
 		engine: options.engine ?? 'auto',
 		headless: options.headless ?? 'auto',
 		mode: options.mode ?? 'interactive',
@@ -270,14 +365,28 @@ export function detectBrowserEnvironment(
 
 	// WSL.
 	if (settings.engine === 'local') return localPlan('wsl', env, probes, settings, [])
+	const mountRoot = parseWslMountRoot(probes.readFile('/etc/wsl.conf'))
 	const interop = wslInteropAvailable(env, probes)
-	const powershell = probes.exists(WSL_POWERSHELL) ? WSL_POWERSHELL : undefined
-	const windowsBrowser = WSL_WINDOWS_BROWSERS.find((b) => probes.exists(b.path))
+	const powershellPath = `${mountRoot}${WSL_POWERSHELL_TAIL}`
+	const powershell = probes.exists(powershellPath) ? powershellPath : undefined
+	const installed = WSL_WINDOWS_BROWSERS.map((b) => ({
+		browser: b.browser,
+		path: `${mountRoot}${b.tail}`,
+	})).filter((b) => probes.exists(b.path))
+	const preferred = options.windowsBrowser
+	const windowsBrowser =
+		(preferred ? installed.find((b) => b.browser === preferred) : undefined) ?? installed[0]
+	const warnings: string[] = []
+	if (preferred && windowsBrowser && windowsBrowser.browser !== preferred) {
+		warnings.push(
+			`${preferred === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'} is not installed on Windows; using ${windowsBrowser.browser === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'}.`,
+		)
+	}
 	if (!interop || !powershell || !windowsBrowser) {
 		const why = !interop
 			? 'WSL interop is off, so Windows programs cannot be started'
 			: !powershell
-				? `powershell.exe was not found at ${WSL_POWERSHELL}`
+				? `powershell.exe was not found at ${powershellPath}`
 				: 'no Windows Chrome or Edge was found under C:\\Program Files'
 		if (settings.engine === 'windows') {
 			return {
@@ -292,23 +401,21 @@ export function detectBrowserEnvironment(
 	// The Windows browser has the Windows desktop for a display, whatever
 	// WSLg says; headless follows the setting and the mode alone.
 	const { headless } = headlessFor(settings.headless, settings.mode, true)
-	const fallback =
-		settings.engine === 'windows'
-			? undefined
-			: localPlan('wsl', env, probes, settings, [
-					`${WINDOWS_CDP_NOT_IMPLEMENTED} Using Chromium inside WSL instead; sites see a Linux browser, and a visible window needs WSLg.`,
-				])
+	const socket = wslInteropSocket(env, probes)
+	const windowsExecutable = wslPathToWindows(windowsBrowser.path, mountRoot) as string
 	return {
 		engine: 'windows-cdp',
 		platform: 'wsl',
 		browser: windowsBrowser.browser,
 		executable: windowsBrowser.path,
+		windowsExecutable,
 		powershell,
+		mountRoot,
+		networkingMode: wslNetworkingMode(probes, mountRoot),
+		...(socket !== undefined && socket !== env.WSL_INTEROP ? { interopSocket: socket } : {}),
 		headless,
 		display: true,
-		warnings: [],
-		unavailableReason: WINDOWS_CDP_NOT_IMPLEMENTED,
-		...(fallback ? { fallback } : {}),
+		warnings,
 	}
 }
 

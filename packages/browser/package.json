@@ -52,12 +52,14 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",
-    "test:e2e": "NAMZU_BROWSER_E2E=1 vitest run src/__tests__/e2e",
+    "test:e2e": "NAMZU_BROWSER_E2E=1 vitest run src/__tests__/e2e/host.test.ts",
+    "test:e2e:wsl": "NAMZU_BROWSER_WSL_E2E=1 vitest run src/__tests__/e2e/windows.test.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
   "dependencies": {
-    "playwright-core": "1.63.0"
+    "playwright-core": "1.63.0",
+    "ws": "^8.21.3"
   },
   "peerDependencies": {
     "@namzu/sdk": ">=44.4.0"
@@ -66,6 +68,7 @@
     "@biomejs/biome": "^1.9.4",
     "@namzu/sdk": "workspace:^",
     "@types/node": "^22.19.17",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.5.0",
     "vitest": "^4.1.11"
   }

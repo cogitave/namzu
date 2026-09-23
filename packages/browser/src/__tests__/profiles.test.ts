@@ -1,4 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -70,6 +78,49 @@ describe('BrowserProfileStore', () => {
 		writeFileSync(path, '{')
 		expect(() => store.get('win')).toThrow(/not JSON/)
 		expect(store.list()).toEqual([])
+	})
+
+	it('records a Windows-engine profile by its Windows path, and removes it through the mount', () => {
+		const store = new BrowserProfileStore(home)
+		const mount = join(home, 'mnt')
+		const windowsDir = 'C:\\Users\\Arda\\AppData\\Local\\namzu\\browser\\profiles\\work'
+		const local = join(mount, 'c/Users/Arda/AppData/Local/namzu/browser/profiles/work')
+		mkdirSync(join(local, 'Default'), { recursive: true })
+		writeFileSync(join(local, 'DevToolsActivePort'), '9222\n/devtools/browser/x\n')
+		const now = new Date('2026-09-23T12:00:00Z')
+		const profile = store.ensureWindows('work', 'chrome', windowsDir, now)
+		expect(profile).toEqual({
+			v: 1,
+			name: 'work',
+			engine: 'windows-cdp',
+			userDataDir: windowsDir,
+			browser: 'chrome',
+			createdAt: '2026-09-23T12:00:00.000Z',
+		})
+		// No directory of its own on this side.
+		expect(existsSync(join(home, 'browser', 'profiles', 'work'))).toBe(false)
+		expect(store.ensureWindows('work', 'chrome', windowsDir)).toEqual(profile)
+		expect(() => store.ensureLocal('work', 'chromium')).toThrow(/windows-cdp engine/)
+		expect(store.remove('work', undefined, { mountRoot: `${mount}/` })).toBe(true)
+		expect(existsSync(local)).toBe(false)
+		expect(store.get('work')).toBeUndefined()
+	})
+
+	it('removes a Windows-engine descriptor, never a directory that is not a namzu profile', () => {
+		const store = new BrowserProfileStore(home)
+		const mount = join(home, 'mnt')
+		const precious = join(mount, 'c/Users/Arda/AppData/Local/Google/Chrome/User Data')
+		mkdirSync(precious, { recursive: true })
+		store.ensureWindows(
+			'odd',
+			'chrome',
+			'C:\\Users\\Arda\\AppData\\Local\\Google\\Chrome\\User Data',
+		)
+		expect(store.remove('odd', undefined, { mountRoot: `${mount}/` })).toBe(true)
+		expect(existsSync(precious)).toBe(true)
+		expect(() => store.ensureWindows('odd', 'chrome', 'C:\\x')).not.toThrow()
+		store.ensureLocal('loc', 'chromium')
+		expect(() => store.ensureWindows('loc', 'chrome', 'C:\\x')).toThrow(/local engine/)
 	})
 
 	it('will not remove a profile a live process holds', () => {

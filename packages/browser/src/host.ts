@@ -31,6 +31,8 @@ import {
 	type BrowserEngineSetting,
 	type BrowserHeadlessSetting,
 	type BrowserRunMode,
+	type LocalBrowserPlan,
+	type WindowsCdpBrowserPlan,
 	detectBrowserEnvironment,
 	runnableBrowserPlan,
 } from './detect.js'
@@ -53,6 +55,7 @@ import { BrowserSitePolicy, type BrowserSiteRules, DEFAULT_BROWSER_SITE_RULES } 
 import {
 	type BrowserLease,
 	BrowserLeaseStore,
+	BrowserProfileError,
 	BrowserProfileStore,
 	DEFAULT_BROWSER_PROFILE,
 } from './profiles.js'
@@ -63,6 +66,8 @@ import {
 	locateRef,
 	renderAriaTree,
 } from './snapshot.js'
+import { WindowsBridgeError } from './windows-bridge.js'
+import { type WindowsBrowserConnection, connectWindowsBrowser } from './windows-engine.js'
 
 export interface PlaywrightBrowserHostOptions {
 	/** Profile to run under. Default `default`. Chosen by the operator, never by the model. */
@@ -80,7 +85,10 @@ export interface PlaywrightBrowserHostOptions {
 	readonly mode?: BrowserRunMode
 	/** Site rules for the checks after the fact. Default `{ '*': 'ask' }`. */
 	readonly sites?: BrowserSiteRules
-	/** Leave the browser running when this host is disposed. */
+	/**
+	 * Leave the browser running when this host is disposed. For the Windows
+	 * engine this also leaves it running if this process dies.
+	 */
 	readonly keepOpen?: boolean
 	/** Default 30 000. */
 	readonly navigationTimeoutMs?: number
@@ -94,6 +102,8 @@ export interface PlaywrightBrowserHostOptions {
 	readonly signInAddresses?: BrowserHumanClassifierOptions['signInAddresses']
 	/** The command that opens a visible window for signing in. Default `namzu browser login <profile> <url>`. */
 	readonly loginCommand?: (profile: string, url: string) => string
+	/** Windows engine: how long starting and connecting to the browser may take. Default 60 000. */
+	readonly windowsLaunchTimeoutMs?: number
 }
 
 interface Tab {
@@ -154,7 +164,9 @@ const NON_TYPING_KEYS = new Set(['Tab', 'Shift+Tab', 'Escape', 'Enter'])
 
 /**
  * A {@link BrowserHost} that runs Chromium (or an installed Chrome or Edge)
- * in this process with Playwright, on a persistent profile.
+ * in this process with Playwright, on a persistent profile. Inside WSL it
+ * drives the Windows Chrome or Edge instead, through the PowerShell bridge
+ * (`windows-engine.ts`).
  *
  * Nothing starts at construction: the browser is launched by the first call
  * that needs it, so mounting the tools costs nothing until the model uses
@@ -188,6 +200,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private readonly pager: SnapshotPager
 
 	private context: BrowserContext | undefined
+	private windows: WindowsBrowserConnection | undefined
 	private launching: Promise<BrowserContext> | undefined
 	private lease: BrowserLease | undefined
 	private readonly tabs = new Map<string, Tab>()
@@ -229,9 +242,7 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			snapshotMaxChars: pageChars,
 			...(this.plan.unavailableReason !== undefined
 				? { unavailableReason: this.plan.unavailableReason }
-				: this.plan.engine !== 'local'
-					? { unavailableReason: 'This engine is not implemented in this build.' }
-					: {}),
+				: {}),
 		}
 	}
 
@@ -263,10 +274,33 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const plan = this.plan
 		if (plan.unavailableReason !== undefined)
 			throw new BrowserUnavailableError(plan.unavailableReason)
-		if (plan.engine !== 'local') {
-			throw new BrowserUnavailableError('This engine is not implemented in this build.')
-		}
-		const home = this.options.home ?? resolveNamzuHome({ env: this.options.env ?? process.env })
+		const context =
+			plan.engine === 'local' ? await this.launchLocal(plan) : await this.launchWindows(plan)
+		this.context = context
+		context.setDefaultTimeout(this.options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS)
+		context.setDefaultNavigationTimeout(
+			this.options.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS,
+		)
+		context.on('page', (page) => this.adopt(page))
+		context.on('close', () => this.forget(context))
+		context.browser()?.on('disconnected', () => this.forget(context))
+		// Before a top-level request leaves: a link, script or popup heading for
+		// a site the rules do not allow is stopped here, so its address (and
+		// anything a page smuggled into it) never reaches the network.
+		await context.route(
+			() => true,
+			(route) => this.screen(route),
+		)
+		for (const page of context.pages()) this.adopt(page, false)
+		return context
+	}
+
+	private home(): string {
+		return this.options.home ?? resolveNamzuHome({ env: this.options.env ?? process.env })
+	}
+
+	private async launchLocal(plan: LocalBrowserPlan): Promise<BrowserContext> {
+		const home = this.home()
 		const profiles = new BrowserProfileStore(home)
 		const descriptor = profiles.ensureLocal(this.profile, plan.browser)
 		const lease = new BrowserLeaseStore(home).acquire(this.profile, this.sessionId, {
@@ -289,22 +323,74 @@ export class PlaywrightBrowserHost implements BrowserHost {
 			throw this.launchError(error)
 		}
 		this.lease = lease
-		this.context = context
-		context.setDefaultTimeout(this.options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS)
-		context.setDefaultNavigationTimeout(
-			this.options.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS,
-		)
-		context.on('page', (page) => this.adopt(page))
-		context.on('close', () => this.forget(context))
-		// Before a top-level request leaves: a link, script or popup heading for
-		// a site the rules do not allow is stopped here, so its address (and
-		// anything a page smuggled into it) never reaches the network.
-		await context.route(
-			() => true,
-			(route) => this.screen(route),
-		)
-		for (const page of context.pages()) this.adopt(page, false)
 		return context
+	}
+
+	/**
+	 * The Windows browser, through the PowerShell bridge. The profile lives on
+	 * the Windows side; its descriptor here records where. Leases are shared:
+	 * every namzu process on the profile drives the same browser, and the
+	 * last one to let go closes it.
+	 */
+	private async launchWindows(plan: WindowsCdpBrowserPlan): Promise<BrowserContext> {
+		const home = this.home()
+		const profiles = new BrowserProfileStore(home)
+		const existing = profiles.get(this.profile)
+		if (existing && existing.engine !== 'windows-cdp') {
+			throw new BrowserProfileError(
+				`Browser profile "${this.profile}" belongs to the ${existing.engine} engine, not the Windows browser. Use another profile name.`,
+			)
+		}
+		if (existing && existing.browser !== plan.browser) {
+			throw new BrowserProfileError(
+				`Browser profile "${this.profile}" was made with ${existing.browser}, and this run would use ${plan.browser}. Use another profile name, or the browser the profile was made with.`,
+			)
+		}
+		const lease = new BrowserLeaseStore(home).acquire(this.profile, this.sessionId)
+		let connection: WindowsBrowserConnection
+		try {
+			connection = await connectWindowsBrowser({
+				plan,
+				profile: this.profile,
+				...(existing ? { userDataDir: existing.userDataDir } : {}),
+				closeOnExit: !this.options.keepOpen,
+				env: this.options.env ?? process.env,
+				...(this.options.windowsLaunchTimeoutMs !== undefined
+					? { timeoutMs: this.options.windowsLaunchTimeoutMs }
+					: {}),
+				onDownloadRefused: (name) => {
+					this.notes.push(
+						`A download of ${quoteShort(name)} was cancelled: the browser does not download files.`,
+					)
+				},
+			})
+		} catch (error) {
+			lease.release()
+			throw this.windowsLaunchError(plan, error)
+		}
+		try {
+			profiles.ensureWindows(this.profile, plan.browser, connection.userDataDir)
+		} catch (error) {
+			lease.release()
+			await connection.detach().catch(() => undefined)
+			throw error
+		}
+		this.lease = lease
+		this.windows = connection
+		return connection.context
+	}
+
+	private windowsLaunchError(plan: WindowsCdpBrowserPlan, error: unknown): Error {
+		const name = plan.browser === 'chrome' ? 'Google Chrome' : 'Microsoft Edge'
+		if (error instanceof WindowsBridgeError) {
+			if (error.code === 'browser-exited') return new ProfileBusyError(this.profile, [])
+			return new BrowserUnavailableError(
+				`The Windows ${name} could not be started from WSL: ${error.message}`,
+			)
+		}
+		return new BrowserUnavailableError(
+			`The Windows ${name} was started but could not be driven from WSL: ${firstLine(error)}`,
+		)
 	}
 
 	private launchError(error: unknown): Error {
@@ -334,6 +420,9 @@ export class PlaywrightBrowserHost implements BrowserHost {
 	private forget(context: BrowserContext): void {
 		if (this.context !== context) return
 		this.context = undefined
+		const windows = this.windows
+		this.windows = undefined
+		if (windows) void windows.detach().catch(() => undefined)
 		this.tabs.clear()
 		this.activeTabId = undefined
 		this.pendingDialog = undefined
@@ -354,15 +443,29 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const lease = this.lease
 		this.lease = undefined
 		const last = lease ? lease.release().last : true
-		if (last && !this.options.keepOpen) await this.close()
+		if (last && !this.options.keepOpen) {
+			await this.close()
+			return
+		}
+		// The Windows browser is shared with every other holder of the
+		// profile, or is to stay open: disconnect without closing it.
+		const context = this.context
+		const windows = this.windows
+		if (!context || !windows) return
+		this.windows = undefined
+		this.forget(context)
+		await windows.detach().catch(() => undefined)
 	}
 
 	/** Close the browser now, whatever the leases say. */
 	async close(): Promise<void> {
 		const context = this.context
 		if (!context) return
+		const windows = this.windows
+		this.windows = undefined
 		this.forget(context)
-		await context.close().catch(() => undefined)
+		if (windows) await windows.close().catch(() => undefined)
+		else await context.close().catch(() => undefined)
 	}
 
 	// -------------------------------------------------------------------------

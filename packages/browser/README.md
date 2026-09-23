@@ -3,9 +3,9 @@ type: Reference
 title: "@namzu/browser"
 description: >-
   A browser host for the SDK's browser tools: Chromium driven by Playwright on
-  a persistent profile, accessibility snapshots with element refs, a site
-  policy checked after every navigation, and a stop for anything only a
-  person should do.
+  a persistent profile (the Windows browser when running in WSL),
+  accessibility snapshots with element refs, a site policy checked after
+  every navigation, and a stop for anything only a person should do.
 tags: [readme, package, browser]
 status: draft
 generated: { by: human:bahadirarda, at: 2026-09-23T00:00:00Z }
@@ -21,7 +21,7 @@ generated: { by: human:bahadirarda, at: 2026-09-23T00:00:00Z }
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](https://github.com/cogitave/namzu/blob/main/LICENSE.md)
 
-[Install](#install) · [Usage](#usage) · [What it enforces](#what-it-enforces) · [Documentation](#documentation)
+[Install](#install) · [Usage](#usage) · [WSL](#wsl) · [What it enforces](#what-it-enforces) · [Documentation](#documentation)
 
 </div>
 
@@ -87,9 +87,40 @@ const plan = runnableBrowserPlan(
 console.log(plan.engine, plan.headless, plan.unavailableReason ?? 'ready', plan.warnings)
 ```
 
-Inside WSL with a Windows Chrome or Edge, the plan names the Windows browser
-(`windows-cdp`). This build does not drive it yet, so `runnableBrowserPlan`
-falls back to Chromium inside WSL and says so in `warnings`.
+## WSL
+
+Inside WSL, with interop on and Chrome or Edge installed on Windows, the
+host drives the Windows browser (`windows-cdp`): the window appears on the
+Windows desktop, and sites see a Windows browser. Nothing is installed on
+Windows. The host starts `powershell.exe` through interop with a script that
+starts the browser on a dedicated profile under
+`%LOCALAPPDATA%\namzu\browser\profiles\<name>` with remote debugging on a
+port the browser picks, and relays CDP over the script's standard streams,
+because WSL's default NAT networking cannot reach Windows' `127.0.0.1`.
+Playwright connects to a relay on WSL's `127.0.0.1` at an unguessable path.
+Under mirrored networking the host connects to the browser's port directly
+and uses the relay only if that fails.
+
+```ts
+import { PlaywrightBrowserHost, detectBrowserEnvironment, nodeBrowserProbes } from '@namzu/browser'
+
+// Edge instead of Chrome, headless, for a run nobody watches.
+const plan = detectBrowserEnvironment(process.env, process.platform, nodeBrowserProbes, {
+  mode: 'unattended',
+  windowsBrowser: 'msedge',
+})
+const host = new PlaywrightBrowserHost({ profile: 'reports', plan, windowsLaunchTimeoutMs: 90_000 })
+```
+
+- The operator's own Chrome profile is never used or touched: Chrome 136
+  and later refuse remote debugging on it anyway.
+- Every namzu process on a profile shares one browser. The last one to
+  finish closes it; `keepOpen` leaves it running. If namzu dies, the bridge
+  closes the browser it started, and only that one.
+- A systemd service has no `WSL_INTEROP`; the host hands `powershell.exe` a
+  socket from `/run/WSL`.
+- Adds about 2 ms to a snapshot and 35 ms to a screenshot; a 3.5 MB
+  full-page screenshot takes about a second.
 
 ## What it enforces
 

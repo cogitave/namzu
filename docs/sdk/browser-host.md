@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The browser host
-description: "@namzu/browser's PlaywrightBrowserHost: engine detection, profiles and leases, the site policy checked after every navigation, the human-handoff classifier, snapshot refs and filtering, and what it refuses."
+description: "@namzu/browser's PlaywrightBrowserHost: engine detection, the Windows browser driven from WSL through a PowerShell bridge, profiles and leases, the site policy checked after every navigation, the human-handoff classifier, snapshot refs and filtering, and what it refuses."
 resource: packages/browser/src/host.ts
 tags: [browser, host, playwright, permissions, profiles]
 status: draft
@@ -39,18 +39,19 @@ The constructor launches nothing and touches no file. The first `observe` or `ac
 | `plan` | `detectBrowserEnvironment(env, platform)` | The engine plan; see below. |
 | `engine`, `headless`, `mode` | `auto`, `auto`, `interactive` | Passed to detection when `plan` is absent. |
 | `sites` | `{ '*': 'ask' }` | Site rules for the checks after the fact. |
-| `keepOpen` | `false` | Leave the browser running after `dispose()`. |
+| `keepOpen` | `false` | Leave the browser running after `dispose()`. For the Windows engine, also when this process dies. |
 | `navigationTimeoutMs`, `actionTimeoutMs` | 30 000, 10 000 | Playwright timeouts. |
 | `snapshotMaxChars` | 20 000 | Characters per snapshot page; 20 000 is also the ceiling. |
 | `executablePath` | the plan's browser | Launch this binary instead. |
 | `signInAddresses` | none | More sign-in addresses for the classifier, as `host` or `host/path`. |
 | `loginCommand` | `namzu browser login <profile> <url>` | The command a handoff names. |
+| `windowsLaunchTimeoutMs` | 60 000 | Windows engine: how long starting the browser and connecting to it may take. |
 
 `host.warnings` repeats detection's warnings; `host.running` says whether the browser is up.
 
 ## Where the browser runs
 
-`detectBrowserEnvironment(env, platform, probes, { engine, headless, mode })` returns a plan without launching anything. Every file-system question goes through `probes` (`exists`, `readFile`, `listDir`), so a test can describe any machine.
+`detectBrowserEnvironment(env, platform, probes, { engine, headless, mode, windowsBrowser })` returns a plan without launching anything. Every file-system question goes through `probes` (`exists`, `readFile`, `listDir`, and optionally `modifiedMs` and `run`), so a test can describe any machine.
 
 | Where | Plan |
 | --- | --- |
@@ -64,7 +65,47 @@ WSL is recognised from `WSL_DISTRO_NAME`, `WSL_INTEROP` or the kernel release, b
 
 Headless: `always` is headless and `never` is headed; with no display, `never` makes the plan unavailable. `auto` shows a window only when there is a display (`DISPLAY` or `WAYLAND_DISPLAY` on Linux; always on macOS and Windows) and `mode` is `interactive`. A scheduled run passes `unattended` and runs headless.
 
-**The `windows-cdp` engine is not in this build.** Detection still returns it where it belongs, with `unavailableReason` set to `WINDOWS_CDP_NOT_IMPLEMENTED` and a `fallback`: the local plan the WSL-without-interop row would get, with a warning saying why. `runnableBrowserPlan(plan)` returns that fallback, which is what the host runs. With `engine: 'windows'` there is no fallback, and the host reports the plan's reason through `capabilities.unavailableReason`, so both tools stay mounted and refuse every call with it.
+`runnableBrowserPlan(plan)` returns the plan, or its `fallback` when the plan is unavailable and has one. A plan the host cannot run is reported through `capabilities.unavailableReason`, so both tools stay mounted and refuse every call with it. `engine: 'windows'` outside WSL, or inside WSL without interop, `powershell.exe` or a Windows browser, is such a plan.
+
+## The Windows browser from WSL
+
+Inside WSL, with interop working and Chrome or Edge installed on Windows, the plan is `windows-cdp`: the browser is the Windows one, in the operator's Windows session, and sites see a Windows browser. Chrome is preferred; `windowsBrowser: 'msedge'` asks for Edge (a warning says so when the one asked for is missing and the other is used).
+
+```ts
+import { detectBrowserEnvironment } from '@namzu/browser'
+
+const plan = detectBrowserEnvironment(process.env, process.platform)
+if (plan.engine === 'windows-cdp') {
+  console.log(plan.windowsExecutable, plan.networkingMode, plan.interopSocket ?? 'own WSL_INTEROP')
+}
+```
+
+The plan carries:
+
+| Field | Meaning |
+| --- | --- |
+| `executable`, `windowsExecutable` | the browser as WSL sees it (`/mnt/c/Program Files/…/chrome.exe`) and as Windows does (`C:\Program Files\…\chrome.exe`) |
+| `powershell` | `powershell.exe` by absolute path under the mount root; `PATH` is never searched |
+| `mountRoot` | where the Windows drives are mounted: `[automount] root` of `/etc/wsl.conf`, else `/mnt/` |
+| `networkingMode` | `wslinfo --networking-mode`; without `wslinfo`, the one `.wslconfig` under `C:\Users` (`[wsl2] networkingMode`, NAT when unset); else `unknown` |
+| `interopSocket` | a socket under `/run/WSL` to hand `powershell.exe` as `WSL_INTEROP`, present only when this process has no working `WSL_INTEROP` of its own (a systemd service): `1_interop`, else the newest |
+
+**Why a bridge.** Chrome 136 and later refuse remote debugging on the default profile, so the browser always runs on a dedicated `--user-data-dir`. Under WSL's default NAT networking, WSL cannot reach Windows' `127.0.0.1`, where the debugging port listens, and a headed Chrome ignores `--remote-debugging-address`. So the host starts `powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand <script>` through interop (the script is a string constant, about 6 KB, sent as UTF-16LE base64; its parameters are base64 JSON inside it, so nothing is quoted for PowerShell's parser). The script:
+
+1. reads the profile's `DevToolsActivePort`; if the port it names answers, it attaches to that browser;
+2. otherwise deletes a stale `DevToolsActivePort` and starts the browser with `--user-data-dir=<profile> --remote-debugging-port=0 --no-first-run --no-default-browser-check` (and `--headless=new --window-size=1280,800` when headless) on `about:blank`, then polls `DevToolsActivePort` for the port the browser chose. A browser that exits first means the profile is open in a window started without remote debugging: `ProfileBusyError`;
+3. connects a `ClientWebSocket` to `ws://127.0.0.1:<port>/devtools/browser/<id>` and relays one JSON message per line both ways: a message the browser sends in several frames is assembled before it is written, and a message of many megabytes is one line;
+4. exits when its standard input closes or the browser goes away.
+
+On the WSL side the host listens on `127.0.0.1:0` at a path of 32 random bytes in hex, and Playwright's `connectOverCDP` connects there; every message goes through the bridge. Any other path is answered 404 before a WebSocket is made, a request with an `Origin` header (every web page's WebSocket has one) 403, and a second client 409. Under mirrored networking the host first connects straight to the browser's port, and falls back to the relay if that does not answer within 3 seconds; the bridge still runs, because it is what closes the browser if this process dies.
+
+Playwright points a connected browser's downloads at a temporary directory on the WSL side, a path that means something else on Windows. The host refuses downloads in the browser itself (`Browser.setDownloadBehavior` `deny`) and reports each one, as it does for the local engine.
+
+**Profiles.** A Windows-engine profile's user data is on the Windows side, under `%LOCALAPPDATA%\namzu\browser\profiles\<name>`; its descriptor in `NAMZU_HOME` records `engine: 'windows-cdp'`, the browser and that Windows path. A profile made with Chrome is refused to Edge and the other way round, and a local profile's name is refused to the Windows engine. `BrowserProfileStore.remove` deletes the Windows directory through the drive mount, and only when it is a `…\namzu\browser\profiles\<name>` directory.
+
+**Leases and closing.** Leases on a Windows-engine profile are shared: every namzu process on the profile drives the same browser, attaching through `DevToolsActivePort`. `dispose()` of the last holder closes the browser with CDP `Browser.close`, which lets it save the profile; any other holder, or `keepOpen`, disconnects and leaves it running. If this process dies, the bridge's standard input closes and the bridge closes the browser it started (never one it attached to). If the bridge dies instead, the host starts a second bridge that only attaches and sends `Browser.close`. With `keepOpen` neither happens. The bridge stops nothing by name: its last resort, ten seconds after `Browser.close`, is the process id it started.
+
+**Measured** on WSL 2.7.14 (NAT) with Chrome 153, headless, against the same pages with the local engine: first call (start PowerShell and Chrome, navigate) 1.3–3.7 s; a snapshot of example.com 155 ms against 153 ms locally, of a 20 000-character Wikipedia page 296 ms against 289 ms; a viewport screenshot 69 ms against 34 ms; a full-page screenshot of that page (1264×27299, 3.5 MB PNG) 0.97 s through the bridge (the local headless shell took more than the 10-second action timeout).
 
 ## Profiles and leases
 
@@ -144,7 +185,7 @@ A snapshot longer than a page (`snapshotMaxChars`, at most 20 000) is cut at a l
 
 - Tabs are `t1`, `t2`, … A popup becomes a tab the host owns and does not become active; the result says it opened. A popup whose first load the policy stops never opens.
 - A `beforeunload` prompt is accepted so the approved navigation proceeds, and the result says so. Any other dialog pauses the page: the result says one is open, a snapshot shows its type and text, every other `browser_act` is refused until `browser_act dialog` answers it, and a navigation dismisses it.
-- Downloads are cancelled (`acceptDownloads: false`) and reported by file name.
+- Downloads are cancelled (`acceptDownloads: false`; the Windows engine refuses them in the browser) and reported by file name.
 - `upload` sets a file input directly, or answers the file chooser a click on the element opens.
 
 ## Errors
@@ -163,4 +204,4 @@ An action that fails after it started (a click that timed out after the pointer 
 
 ## Tests
 
-`pnpm --filter @namzu/browser test` runs the unit tests: the classifier over the fixture pages' signals, the policy, detection over injected environments, profiles and leases, snapshot rendering and paging, and the pin. `NAMZU_BROWSER_E2E=1` adds the end-to-end suite, headless, against a local fixture server with two origins (`127.0.0.1` allowed, `localhost` not); it needs the Chromium build in the Playwright cache and downloads nothing. `NAMZU_BROWSER_E2E_HEADED=1` with a display adds a headed run.
+`pnpm --filter @namzu/browser test` runs the unit tests: the classifier over the fixture pages' signals, the policy, detection over injected environments (WSL networking mode, interop socket, mount root, Edge), profiles and leases, snapshot rendering and paging, the pin, the bridge's command-line encoding and line framing (an 8 MB line in odd-sized chunks), the bridge's process protocol against a stand-in, and the relay's refusals. `NAMZU_BROWSER_E2E=1` adds the end-to-end suite, headless, against a local fixture server with two origins (`127.0.0.1` allowed, `localhost` not); it needs the Chromium build in the Playwright cache and downloads nothing. `NAMZU_BROWSER_E2E_HEADED=1` with a display adds a headed run. `NAMZU_BROWSER_WSL_E2E=1` (`pnpm --filter @namzu/browser test:e2e:wsl`) runs the Windows engine on a real WSL machine: the bridge relaying 5 MB and nine-frame messages through PowerShell, headless Chrome through the fixture server (reached through WSL's localhost forwarding), downloads refused, two holders sharing one browser, the bridge killed with and without `keepOpen`, and Edge when installed; `NAMZU_BROWSER_WSL_E2E_HEADED=1` adds a visible window. Its profiles are `namzu-test-e2e-*` and are deleted afterwards.

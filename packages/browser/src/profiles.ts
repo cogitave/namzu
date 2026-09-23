@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { ProfileBusyError } from './errors.js'
+import { DEFAULT_WSL_MOUNT_ROOT, windowsPathToWsl } from './wsl.js'
 
 /**
  * Browser profiles and the leases on them, under `NAMZU_HOME/browser`:
@@ -21,6 +22,11 @@ import { ProfileBusyError } from './errors.js'
  *   profiles/<name>/        the browser's user data directory (0700)
  *   leases/<name>/<pid>-<session>.json
  * ```
+ *
+ * A profile of the Windows engine (WSL driving the Windows browser) keeps its
+ * user data on the Windows side, under
+ * `%LOCALAPPDATA%\namzu\browser\profiles\<name>`; only the descriptor is
+ * here, and its `userDataDir` is that Windows path.
  *
  * A profile is where a site's sign-in lives: the operator signs in once in
  * a visible window, and every later run reuses the cookies. Every directory
@@ -172,6 +178,42 @@ export class BrowserProfileStore {
 		return descriptor
 	}
 
+	/**
+	 * The descriptor of a Windows-engine profile whose user data directory the
+	 * bridge reported, created when it does not exist yet.
+	 */
+	ensureWindows(
+		name: string,
+		browser: string,
+		userDataDir: string,
+		now: Date = new Date(),
+	): BrowserProfileDescriptor {
+		const existing = this.get(name)
+		if (existing) {
+			if (existing.engine !== 'windows-cdp') {
+				throw new BrowserProfileError(
+					`Browser profile "${name}" belongs to the ${existing.engine} engine, not the Windows browser. Use another profile name.`,
+				)
+			}
+			if (existing.userDataDir === userDataDir) return existing
+			const moved = { ...existing, userDataDir }
+			writeJsonAtomic(join(this.root, `${name}.json`), moved)
+			return moved
+		}
+		ensurePrivateDir(join(this.home, 'browser'))
+		ensurePrivateDir(this.root)
+		const descriptor: BrowserProfileDescriptor = {
+			v: 1,
+			name,
+			engine: 'windows-cdp',
+			userDataDir,
+			browser,
+			createdAt: now.toISOString(),
+		}
+		writeJsonAtomic(join(this.root, `${name}.json`), descriptor)
+		return descriptor
+	}
+
 	/** Record a completed sign-in. */
 	markLogin(name: string, now: Date = new Date()): BrowserProfileDescriptor {
 		const existing = this.get(name)
@@ -182,16 +224,29 @@ export class BrowserProfileStore {
 	}
 
 	/**
-	 * Delete the descriptor and, for a local profile, its user data. Refused
+	 * Delete the descriptor and the profile's user data: a local profile's
+	 * directory, or a Windows-engine profile's through the drive mount
+	 * (`mountRoot`, `/mnt/` by default), and only when that directory is a
+	 * namzu profile directory (`…\namzu\browser\profiles\<name>`). Refused
 	 * while any live process holds a lease on it.
 	 */
-	remove(name: string, leases: BrowserLeaseStore = new BrowserLeaseStore(this.home)): boolean {
+	remove(
+		name: string,
+		leases: BrowserLeaseStore = new BrowserLeaseStore(this.home),
+		options: { mountRoot?: string } = {},
+	): boolean {
 		const existing = this.get(name)
 		if (!existing) return false
 		const holders = leases.holders(name)
 		if (holders.length > 0) throw new ProfileBusyError(name, holders)
 		if (existing.engine === 'local') {
 			rmSync(existing.userDataDir, { recursive: true, force: true })
+		} else {
+			const suffix = `\\namzu\\browser\\profiles\\${name}`
+			const local = existing.userDataDir.toLowerCase().endsWith(suffix)
+				? windowsPathToWsl(existing.userDataDir, options.mountRoot ?? DEFAULT_WSL_MOUNT_ROOT)
+				: undefined
+			if (local) rmSync(local, { recursive: true, force: true })
 		}
 		rmSync(join(this.root, `${name}.json`), { force: true })
 		return true

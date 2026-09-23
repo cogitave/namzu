@@ -1,21 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import {
 	type BrowserEnvironmentProbes,
-	WINDOWS_CDP_NOT_IMPLEMENTED,
 	detectBrowserEnvironment,
 	isWsl,
 	runnableBrowserPlan,
 	wslInteropAvailable,
+	wslInteropSocket,
+	wslNetworkingMode,
 } from '../detect.js'
 
 function probes(
 	files: Record<string, string> = {},
 	dirs: Record<string, string[]> = {},
+	extra: Partial<BrowserEnvironmentProbes> = {},
 ): BrowserEnvironmentProbes {
 	return {
 		exists: (path) => path in files || path in dirs,
 		readFile: (path) => files[path],
 		listDir: (path) => dirs[path] ?? [],
+		...extra,
 	}
 }
 
@@ -29,38 +32,148 @@ const RUN_WSL = { '/run/WSL': ['1_interop', '52_interop'] }
 describe('detectBrowserEnvironment: WSL', () => {
 	const full = probes({ ...WSL_KERNEL, ...INTEROP, ...POWERSHELL, ...WIN_CHROME }, RUN_WSL)
 
-	it('plans the Windows browser over CDP, unavailable in this build, with a local fallback', () => {
+	it('plans the Windows browser over CDP, runnable as it is', () => {
 		const plan = detectBrowserEnvironment({ DISPLAY: ':0' }, 'linux', full)
 		expect(plan.engine).toBe('windows-cdp')
 		if (plan.engine !== 'windows-cdp') return
 		expect(plan.browser).toBe('chrome')
 		expect(plan.executable).toBe('/mnt/c/Program Files/Google/Chrome/Application/chrome.exe')
-		expect(plan.unavailableReason).toBe(WINDOWS_CDP_NOT_IMPLEMENTED)
+		expect(plan.windowsExecutable).toBe(
+			'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+		)
+		expect(plan.powershell).toBe('/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe')
+		expect(plan.mountRoot).toBe('/mnt/')
+		expect(plan.unavailableReason).toBeUndefined()
+		expect(plan.fallback).toBeUndefined()
 		expect(plan.headless).toBe(false)
-		expect(plan.fallback?.engine).toBe('local')
-		expect(plan.fallback?.platform).toBe('wsl')
-		expect(plan.fallback?.warnings.join(' ')).toContain('not implemented in this build')
+		expect(runnableBrowserPlan(plan)).toBe(plan)
 	})
 
-	it('runs the fallback unless windows was forced', () => {
-		const auto = runnableBrowserPlan(detectBrowserEnvironment({ DISPLAY: ':0' }, 'linux', full))
-		expect(auto.engine).toBe('local')
-		expect(auto.unavailableReason).toBeUndefined()
-		expect(auto.headless).toBe(false)
+	it('hands a systemd service the /run/WSL socket, and nothing when WSL_INTEROP works', () => {
+		const service = detectBrowserEnvironment({}, 'linux', full)
+		expect(service.engine === 'windows-cdp' && service.interopSocket).toBe('/run/WSL/1_interop')
 
-		const forced = detectBrowserEnvironment({}, 'linux', full, { engine: 'windows' })
-		expect(forced.engine).toBe('windows-cdp')
-		expect(runnableBrowserPlan(forced)).toBe(forced)
-		expect(runnableBrowserPlan(forced).unavailableReason).toBe(WINDOWS_CDP_NOT_IMPLEMENTED)
+		const session = detectBrowserEnvironment(
+			{ WSL_INTEROP: '/run/WSL/52_interop' },
+			'linux',
+			probes(
+				{ ...WSL_KERNEL, ...INTEROP, ...POWERSHELL, ...WIN_CHROME, '/run/WSL/52_interop': '' },
+				RUN_WSL,
+			),
+		)
+		expect(session.engine).toBe('windows-cdp')
+		expect(session.engine === 'windows-cdp' && session.interopSocket).toBeUndefined()
 	})
 
-	it('finds Edge when there is no Chrome', () => {
+	it('picks the newest session socket when there is no 1_interop', () => {
+		const p = probes(
+			{},
+			{ '/run/WSL': ['7_interop', '88_interop', 'not-a-socket'] },
+			{
+				modifiedMs: (path) => (path.endsWith('/7_interop') ? 2_000 : 1_000),
+			},
+		)
+		expect(wslInteropSocket({}, p)).toBe('/run/WSL/7_interop')
+		expect(wslInteropSocket({ WSL_INTEROP: '/gone' }, p)).toBe('/run/WSL/7_interop')
+		expect(wslInteropSocket({}, probes())).toBeUndefined()
+	})
+
+	it('reads the networking mode from wslinfo, then from the one .wslconfig', () => {
+		const withWslinfo = (answer: string | undefined) =>
+			probes({ '/usr/bin/wslinfo': '' }, {}, { run: () => answer })
+		expect(wslNetworkingMode(withWslinfo('mirrored\n'))).toBe('mirrored')
+		expect(wslNetworkingMode(withWslinfo('nat\n'))).toBe('nat')
+
+		const users = { '/mnt/c/Users': ['Public', 'Default', 'Arda', 'desktop.ini'] }
+		const config = '[wsl2]\r\nmemory=24GB\r\nnetworkingMode = mirrored # fast\r\n'
+		expect(
+			wslNetworkingMode(
+				probes({ '/mnt/c/Users/Arda/.wslconfig': config, '/usr/bin/wslinfo': '' }, users, {
+					run: () => undefined,
+				}),
+			),
+		).toBe('mirrored')
+		// No wslinfo to run and no setting: WSL's default, NAT.
+		expect(
+			wslNetworkingMode(probes({ '/mnt/c/Users/Arda/.wslconfig': '[wsl2]\nswap=0\n' }, users)),
+		).toBe('nat')
+		// Two people's settings: which one is ours is not known.
+		expect(
+			wslNetworkingMode(
+				probes(
+					{ '/mnt/c/Users/A/.wslconfig': config, '/mnt/c/Users/B/.wslconfig': config },
+					{ '/mnt/c/Users': ['A', 'B'] },
+				),
+			),
+		).toBe('unknown')
+	})
+
+	it('puts the networking mode in the plan', () => {
 		const plan = detectBrowserEnvironment(
+			{},
+			'linux',
+			probes(
+				{ ...WSL_KERNEL, ...INTEROP, ...POWERSHELL, ...WIN_CHROME, '/usr/bin/wslinfo': '' },
+				RUN_WSL,
+				{
+					run: (file, args) =>
+						file === '/usr/bin/wslinfo' && args[0] === '--networking-mode' ? 'mirrored' : undefined,
+				},
+			),
+		)
+		expect(plan.engine === 'windows-cdp' && plan.networkingMode).toBe('mirrored')
+	})
+
+	it('follows a moved mount root from /etc/wsl.conf', () => {
+		const plan = detectBrowserEnvironment(
+			{},
+			'linux',
+			probes(
+				{
+					...WSL_KERNEL,
+					...INTEROP,
+					'/etc/wsl.conf': '[automount]\nroot = /\noptions = "metadata"\n',
+					'/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe': '',
+					'/c/Program Files/Google/Chrome/Application/chrome.exe': '',
+				},
+				RUN_WSL,
+			),
+		)
+		expect(plan.engine).toBe('windows-cdp')
+		if (plan.engine !== 'windows-cdp') return
+		expect(plan.mountRoot).toBe('/')
+		expect(plan.powershell).toBe('/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe')
+		expect(plan.windowsExecutable).toBe(
+			'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+		)
+	})
+
+	it('finds Edge when there is no Chrome, and uses Edge when asked', () => {
+		const edgeOnly = detectBrowserEnvironment(
 			{},
 			'linux',
 			probes({ ...WSL_KERNEL, ...INTEROP, ...POWERSHELL, ...WIN_EDGE }, RUN_WSL),
 		)
-		expect(plan.engine === 'windows-cdp' && plan.browser).toBe('msedge')
+		expect(edgeOnly.engine === 'windows-cdp' && edgeOnly.browser).toBe('msedge')
+
+		const both = probes(
+			{ ...WSL_KERNEL, ...INTEROP, ...POWERSHELL, ...WIN_CHROME, ...WIN_EDGE },
+			RUN_WSL,
+		)
+		const asked = detectBrowserEnvironment({}, 'linux', both, { windowsBrowser: 'msedge' })
+		expect(asked.engine === 'windows-cdp' && asked.windowsExecutable).toBe(
+			'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+		)
+		expect(asked.warnings).toEqual([])
+
+		const missing = detectBrowserEnvironment(
+			{},
+			'linux',
+			probes({ ...WSL_KERNEL, ...INTEROP, ...POWERSHELL, ...WIN_CHROME }, RUN_WSL),
+			{ windowsBrowser: 'msedge' },
+		)
+		expect(missing.engine === 'windows-cdp' && missing.browser).toBe('chrome')
+		expect(missing.warnings.join(' ')).toMatch(/Microsoft Edge is not installed/)
 	})
 
 	it('recognises WSL from the kernel alone, as under a systemd service', () => {
@@ -113,8 +226,8 @@ describe('detectBrowserEnvironment: WSL', () => {
 
 	it('keeps the Windows plan headless for an unattended run', () => {
 		const plan = detectBrowserEnvironment({ DISPLAY: ':0' }, 'linux', full, { mode: 'unattended' })
+		expect(plan.engine).toBe('windows-cdp')
 		expect(plan.headless).toBe(true)
-		expect(plan.engine === 'windows-cdp' && plan.fallback?.headless).toBe(true)
 	})
 })
 

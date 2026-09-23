@@ -1,13 +1,32 @@
 export { PlaywrightBrowserHost } from './host.js'
 export type { PlaywrightBrowserHostOptions } from './host.js'
 export {
-	WINDOWS_CDP_NOT_IMPLEMENTED,
 	detectBrowserEnvironment,
 	isWsl,
 	nodeBrowserProbes,
 	runnableBrowserPlan,
 	wslInteropAvailable,
+	wslInteropSocket,
+	wslNetworkingMode,
 } from './detect.js'
+export {
+	DEFAULT_WSL_MOUNT_ROOT,
+	findWslInteropSocket,
+	listWslInteropSockets,
+	parseNetworkingModeOutput,
+	parseWslConfigNetworkingMode,
+	parseWslMountRoot,
+	windowsPathToWsl,
+	wslPathToWindows,
+} from './wsl.js'
+export type { WslInteropSocket, WslNetworkingMode } from './wsl.js'
+export {
+	WindowsBridgeError,
+	bridgeArguments,
+	encodePowerShellCommand,
+	parseDevToolsActivePort,
+} from './windows-bridge.js'
+export type { WindowsBridgeParams, WindowsBridgeReady } from './windows-bridge.js'
 export type {
 	BrowserEngineSetting,
 	BrowserEnginePlan,
