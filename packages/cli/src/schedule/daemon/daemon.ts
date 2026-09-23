@@ -706,12 +706,33 @@ export class ScheduleDaemon {
 		}
 	}
 
+	/**
+	 * Record how a run this daemon did not start has ended — a foreground
+	 * `schedule run-now` — exactly as a run it started is recorded. False,
+	 * and nothing written, when the job's state no longer names that run (a
+	 * daemon that adopted it recorded it first).
+	 */
+	async finalizeRun(jobId: string, runId: string, result: ScheduleRunResult): Promise<boolean> {
+		const job = readJob(this.#o.paths, jobId)
+		const run = readState(this.#o.paths, jobId).activeRun
+		if (!job || run?.runId !== runId) return false
+		this.#finalize(job, run, result, this.#now())
+		await this.settled()
+		return true
+	}
+
 	/** Finalise or adopt the job's run in progress, if it has one. */
 	async #reconcile(
 		job: ScheduleJob,
 		state: ScheduleJobState,
 		now: number,
 	): Promise<ScheduleJobState> {
+		// A run adopted earlier that the job no longer names was recorded by
+		// someone else (a foreground `run-now` finishing): stop counting it.
+		for (const [runId, tracked] of this.#running) {
+			if (tracked.jobId === job.id && !tracked.run && state.activeRun?.runId !== runId)
+				this.#running.delete(runId)
+		}
 		const run = state.activeRun
 		if (!run) return state
 		const tracked = this.#running.get(run.runId)

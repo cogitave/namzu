@@ -7,17 +7,20 @@
 
 import { readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { SessionPaths, asSessionId, generateScheduleRunId } from '@namzu/sdk'
+import { NOOP_LOGGER, SessionPaths, asSessionId, generateScheduleRunId } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../../exit-codes.js'
 import { closeSessions, openSessions, refreshIndex } from '../../integrations/sessions/store.js'
+import { CLI_VERSION } from '../../version.js'
+import { ScheduleDaemon } from '../daemon/daemon.js'
 import { callEndpoint, readEndpoint } from '../daemon/endpoint.js'
-import { runFire } from '../fire/fire.js'
-import { readRunResult } from '../fire/result.js'
+import { type FireDependencies, runFire } from '../fire/fire.js'
+import { isFinal, readRunResult } from '../fire/result.js'
 import { claimOccurrence } from '../store/claims.js'
 import { appendHistory, foldHistory, readHistory } from '../store/history.js'
 import { confirmationHolds, deleteJob, findJob, listJobs, updateJob } from '../store/jobs.js'
-import { readState } from '../store/state.js'
+import { readState, writeState } from '../store/state.js'
+import type { ActiveRun, ScheduleRunResult } from '../types.js'
 import { flag, has, interactive, parseArgs, parseMs, pathsFor } from './args.js'
 import { askYesNo } from './confirm-prompt.js'
 
@@ -112,7 +115,15 @@ export async function removeCommand(ctx: CommandContext, argv: readonly string[]
 	}
 }
 
-export async function runNowCommand(ctx: CommandContext, argv: readonly string[]): Promise<number> {
+/** The epoch a foreground `run-now` records its run under. */
+const FOREGROUND_EPOCH = 'foreground'
+
+export async function runNowCommand(
+	ctx: CommandContext,
+	argv: readonly string[],
+	/** Test seam: what the foreground run is given. */
+	fireDeps: Omit<FireDependencies, 'keepLogging'> = {},
+): Promise<number> {
 	const args = parseArgs(argv, ['home'])
 	if (args.unknown.length > 0 || !args.positionals[0]) {
 		ctx.formatter.error({ message: 'usage: namzu schedule run-now <job>' })
@@ -153,36 +164,71 @@ export async function runNowCommand(ctx: CommandContext, argv: readonly string[]
 				jobId: job.id,
 				key,
 				runId,
-				daemonEpoch: 'foreground',
+				daemonEpoch: FOREGROUND_EPOCH,
 				at: startedAt,
 			})
 		)
 			return 1
 		ctx.formatter.info(`The scheduler is not running; running ${job.name} here.`)
+		// Recorded as the job's run in progress, as a daemon's run is: a
+		// scheduler that starts meanwhile adopts it instead of starting the
+		// next occurrence beside it, and a park is found by `/resume`, held
+		// against later occurrences and expired like any other.
+		const run: ActiveRun = {
+			runId,
+			key,
+			trigger: 'manual',
+			startedAt,
+			daemonEpoch: FOREGROUND_EPOCH,
+			status: 'running',
+		}
+		writeState(paths, { ...readState(paths, job.id), activeRun: run })
+		appendHistory(paths, job.id, {
+			v: 1,
+			kind: 'run',
+			at: startedAt,
+			runId,
+			key,
+			trigger: 'manual',
+			startedAt,
+			status: 'running',
+		})
 		// This terminal's logging stays as the operator set it; a run started by
 		// the daemon writes JSON lines into its log file instead.
 		const code = await runFire(
 			ctx,
 			paths,
 			{ jobId: job.id, runId, key, revision: job.revision, trigger: 'manual' },
-			{ keepLogging: true },
+			{ ...fireDeps, keepLogging: true },
 		)
-		const result = readRunResult(paths, job.id, runId)
-		appendHistory(paths, job.id, {
-			v: 1,
-			kind: 'run',
-			at: new Date().toISOString(),
-			runId,
-			key,
-			trigger: 'manual',
-			startedAt,
-			endedAt: result?.endedAt ?? new Date().toISOString(),
-			status: result?.status ?? 'interrupted',
-			exitCode: code,
-			...(result?.sessionId ? { sessionId: result.sessionId } : {}),
-			...(result?.reason ? { reason: result.reason } : {}),
-			...(result?.summary ? { summary: result.summary } : {}),
-		})
+		const written = readRunResult(paths, job.id, runId)
+		const result: ScheduleRunResult = isFinal(written)
+			? (written as ScheduleRunResult)
+			: {
+					v: 1,
+					kind: 'schedule-run-result',
+					runId,
+					jobId: job.id,
+					startedAt,
+					...(written ?? {}),
+					status: 'interrupted',
+					exitCode: code || 1,
+					reason: 'the run ended without recording a result',
+				}
+		await new ScheduleDaemon({
+			paths,
+			log: NOOP_LOGGER,
+			version: CLI_VERSION,
+			epoch: FOREGROUND_EPOCH,
+			maxConcurrentRuns: 1,
+			// The operator is at this terminal.
+			notifications: false,
+			spawnFire: () => {
+				throw new Error('a foreground recorder starts no runs')
+			},
+			notify: async () => {},
+			fingerprint: () => '',
+		}).finalizeRun(job.id, runId, result)
 		ctx.formatter.print({
 			text: `${job.name}: ${result?.status ?? 'interrupted'}${result?.reason ? ` — ${result.reason}` : ''}${result?.sessionId ? `\nsession ${result.sessionId}` : ''}`,
 			status: result?.status,

@@ -246,6 +246,11 @@ namzu schedule prune [--older-than 30d] [--delete]
 namzu schedule logs [--follow] [--job <name>]
 ```
 
+`run-now` with no scheduler running runs the job in your terminal, recorded as
+the job's run in progress exactly as a scheduled run is: a scheduler that
+starts meanwhile does not start the job beside it, and a run that parks waits
+for your approval, holds later occurrences and expires like any other.
+
 `--json` shapes: `list` prints `{ "v": 1, "jobs": [{ id, name, state, schedule,
 tz, folder, nextFireAt?, lastRun?, activeRun? }] }`; `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
