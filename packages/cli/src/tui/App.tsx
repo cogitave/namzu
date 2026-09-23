@@ -1655,7 +1655,14 @@ export function App({
 						request,
 						resolve: (answer: SaveSkillAnswer) => {
 							signal?.removeEventListener('abort', onAbort)
-							if (saveSkillPromptRef.current === entry) setSaveSkillPrompt(null)
+							// The screen answers from its own key handler, which Ink calls
+							// before App's (a child subscribes first). Clearing the ref now
+							// would hand the same Esc or Ctrl+C to App, which reads it as
+							// an interrupt of the turn this answer is for. Let the key's
+							// dispatch finish first.
+							queueMicrotask(() => {
+								if (saveSkillPromptRef.current === entry) setSaveSkillPrompt(null)
+							})
 							resolve(answer)
 						},
 					}
