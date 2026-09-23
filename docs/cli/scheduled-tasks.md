@@ -210,8 +210,9 @@ a notification, and the job's next occurrences are skipped
 (`previous-run-awaiting-approval`) until it is answered.
 
 Answer it in the TUI, in the job's folder: `/schedule` lists the waiting run,
-and `/resume` of its conversation shows the parked call with the permission
-screen. **Approve** runs exactly the parked batch — the model is not asked
+and `namzu resume <session-id>` opens its conversation with the parked call
+already on the permission screen (`/resume` inside the conversation does the
+same; a turn that is not a scheduled run's park waits for `/resume`). **Approve** runs exactly the parked batch — the model is not asked
 again — and later calls in that turn are asked of you live. **Reject** refuses
 it and the turn continues. The resumed turn stays under **the job's rules**, not
 your folder's: a `deny` in the job holds even if your config allows it. There is

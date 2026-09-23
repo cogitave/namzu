@@ -1578,6 +1578,12 @@ export function App({
 	const [goalDriveVersion, setGoalDriveVersion] = useState(0)
 	const [goalStatus, setGoalStatus] = useState<SessionGoal | null>(null)
 	const pendingGoalResumeRef = useRef<string | null>(null)
+	/**
+	 * The conversation `namzu resume <id>` opened, until the screen is ready to
+	 * look at it once: a scheduled run parked on a decision there is continued
+	 * then, so its permission prompt is on screen without typing `/resume`.
+	 */
+	const pendingScheduledResumeRef = useRef<string | null>(null)
 	const wakeGoalDriver = useCallback(() => setGoalDriveVersion((version) => version + 1), [])
 	/**
 	 * Conversation writes in the order the operator produced them.
@@ -3071,6 +3077,7 @@ export function App({
 				? { text: persistedOutput, provenance: 'persisted' }
 				: null
 			pendingGoalResumeRef.current = requestedConversationId
+			pendingScheduledResumeRef.current = requestedConversationId
 			initialConversationIdRef.current = undefined
 			conversationMaterializedRef.current = true
 		} else {
@@ -3909,6 +3916,26 @@ export function App({
 		}
 		return true
 	}, [finalizeMessage, flushStream, pushMessage, session, state])
+
+	// `namzu resume <id>` of a scheduled run parked on a decision: what the
+	// notification and `/schedule` tell the operator to run. Continue it once
+	// the screen is ready, exactly as `/resume` would, so the parked call is on
+	// the permission screen; the job and session checks in `prepareResume`
+	// still refuse a session that does not run as the job does. Any other
+	// parked or interrupted turn is left for the operator's own `/resume`.
+	useEffect(() => {
+		const requested = pendingScheduledResumeRef.current
+		if (!requested || phase !== 'ready' || state !== 'idle' || !session?.hasProvider) return
+		const sessions = sessionsRef.current
+		if (!sessions || scopeRef.current?.sessionId !== requested || abortRef.current) return
+		pendingScheduledResumeRef.current = null
+		void (async () => {
+			const active = await activeConversationTurn(sessions, asSessionId(requested)).catch(() => undefined)
+			if (!active?.paused || !(await scheduleRef.current?.isParked())) return
+			if (scopeRef.current?.sessionId !== requested) return
+			await resumeActiveTurn()
+		})()
+	}, [phase, resumeActiveTurn, session, state])
 
 	const doResume = useCallback(async () => {
 		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)

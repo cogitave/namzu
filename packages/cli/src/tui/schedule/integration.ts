@@ -15,7 +15,7 @@ import type { PermissionMode } from '../../permissions/mode.js'
 import type { QuestionFn, ResumePausedParams, ScreenPermissionFn } from '../agent.js'
 import { runLoopCommand, runScheduleCommand } from './host-commands.js'
 import { SessionLoopScheduler } from './loop-host.js'
-import { type ResumeEnvironment, prepareScheduledResume } from './resume.js'
+import { type ResumeEnvironment, findScheduledPark, prepareScheduledResume } from './resume.js'
 import { scheduleStartupLine } from './startup.js'
 import { createScheduleToolHost } from './tool-host.js'
 
@@ -45,6 +45,8 @@ export interface ScheduleIntegration {
 	/** `/schedule` and `/loop`; false for any other name. */
 	handleSlash(name: string, args: readonly string[]): boolean
 	startupLine(): string | undefined
+	/** Whether the conversation on screen is a scheduled run parked on a decision. */
+	isParked(): Promise<boolean>
 	/**
 	 * Ask about a parked scheduled batch. Throws, saying which session would
 	 * match, when `environment` is not how the job runs.
@@ -130,6 +132,16 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 				return scheduleStartupLine(value, deps.cwd())
 			} catch {
 				return undefined
+			}
+		},
+		async isParked() {
+			const value = deps.home()
+			const sessionId = deps.sessionId()
+			if (!value || !sessionId) return false
+			try {
+				return (await findScheduledPark(value, sessionId)) !== undefined
+			} catch {
+				return false
 			}
 		},
 		async prepareResume(operatorMode, environment) {
