@@ -541,6 +541,12 @@ class Parser {
 				this.take()
 				prefixed = true
 				const option = this.peek()
+				if (option.kind === 'word' && option.word.text.startsWith('-')) {
+					// In POSIX mode, which is how bash runs as `/bin/sh`, `time`
+					// before a word starting with `-` is not a reserved word but
+					// the command `time`. The two modes disagree about what runs.
+					this.context.opaque('time with an option')
+				}
 				if (
 					option.kind === 'word' &&
 					!option.word.quoted &&

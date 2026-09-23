@@ -272,6 +272,8 @@ describe('opacity', () => {
 		['[[ -f x ]] && a', 'conditional expression'],
 		['f() { a; }', 'function definition'],
 		['coproc a', 'coproc'],
+		// POSIX mode, which is bash as `/bin/sh`, runs the command `time` here.
+		['time -p a', 'time with an option'],
 		['shopt -s extglob\na', 'parser setting'],
 		['set -o posix; a', 'parser setting'],
 		['POSIXLY_CORRECT=1 a', 'parser setting'],

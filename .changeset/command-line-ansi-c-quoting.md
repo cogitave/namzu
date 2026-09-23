@@ -11,7 +11,7 @@ What changes for a host:
 - A `deny` rule also matches each command's words after quote removal. `^git push` now denies `'git' push`, `g\it push`, `$'\x67it' push`, `GIT_DIR=. git push`, `bash "-c" "git push"` (the quoted `-c` is still the flag) and `bash -lc 'git push'`. None of these were denied before.
 - A line whose only quoting is an ANSI-C quote is decoded rather than refused: an `allow` rule or a `Bash(<pattern>)` entry that matches `git status $'-s'` now approves it, since it runs `git status -s`. `> $'/dev/nul\x6c'` is `/dev/null` and is not a write.
 - A here-document body is data, not commands, so `cat <<EOF … EOF` is matched as `cat <<EOF`.
-- A line is refused by `allow` (opaque) in some cases it used to approve: a syntax error, `[[ … ]]`, arithmetic on a variable (`$((x))`), `${!x}`, a function definition, `shopt`/`set -o posix`, and two forms bash itself reads two ways (`"$${…"` in double quotes, and a quoted or expanding `>&` target, whose substitution bash 5.2 runs). They now go to review.
+- A line is refused by `allow` (opaque) in some cases it used to approve: a syntax error, `[[ … ]]`, arithmetic on a variable (`$((x))`), `${!x}`, a function definition, `shopt`/`set -o posix`, `time` followed by an option (bash as `/bin/sh` runs the command `time` there), and two forms bash itself reads two ways (`"$${…"` in double quotes, and a quoted or expanding `>&` target, whose substitution bash 5.2 runs). They now go to review.
 - A segment no longer carries a trailing comment: `git push #'` is `git push`.
 - An `argument_pattern` rule on an argument the tool declares as its `pathArgument` tests the whole value and does not read it as shell, so `src/app/(auth)/page.tsx` is not refused as a syntax error.
 

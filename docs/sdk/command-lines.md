@@ -20,7 +20,7 @@ Before this reader there were three hand-written walkers, one per purpose, each 
 
 # What it reads
 
-The lexer follows bash 5 in its default (non-POSIX) mode:
+The lexer follows bash 5, in its default mode and in POSIX mode, which is how bash runs as `/bin/sh` and so how the `bash` tool's command runs where `/bin/sh` is bash. Where the two modes read a line differently (`time -p cmd` is the command `time` in POSIX mode) the line is opaque. It reads:
 
 - quoting: `'…'`, `"…"` (where `\` escapes only `$`, `` ` ``, `"`, `\` and newline), backslash, line continuation, `$'…'` with its escapes decoded (`\n`, `\t`, `\xHH`, `\x{…}`, `\uHHHH`, `\UHHHHHHHH`, `\nnn`, `\cX`, `\'`, `\"`, `\\` and the rest), and `$"…"`;
 - the extent of every expansion: `$name`, the special parameters (`$$ $? $! $# $- $@ $* $0`–`$9`), `${…}` with nested quotes, `$(…)`, `` `…` ``, `$((…))`, `$[…]`, `<(…)`, `>(…)` and bash 5.3's `${ …; }`;
@@ -38,6 +38,7 @@ For each simple command it reports every word as bash passes it, after quote rem
 - arithmetic that names a variable (`$((x))`, `((x))`, `${a[i]}`, `${x:i}`, `${!x}`), because bash evaluates a variable's value as arithmetic, and a value such as `a[$(cmd)]` runs `cmd`; arithmetic on literals is transparent;
 - `[[ … ]]`, whose operands are arithmetic in places;
 - a function definition or `coproc`, whose body runs under a name no rule sees;
+- `time` followed by an option, which the two modes read differently;
 - a command that changes how later text is parsed: `shopt`, `enable`, `set -o posix`, `set -k`, or an assignment to `POSIXLY_CORRECT` or `BASH_COMPAT`;
 - a syntax error or an unterminated quote, and a construct nested past the limit or too costly to read (the lexer is linear in the line, and 200 KB of the shapes that invite re-reading takes about 200 ms at most);
 - two places where bash itself reads a line two ways. Inside double quotes its parser pairs `$$`, so a `(` or `{` after it is text as far as the extent of the string goes, while its expander reads the second `$` as starting `$(…)` or `${…}`: `a "$${x:-"'$(cmd)'"}"` runs `cmd`, which the parse saw single-quoted. And bash 5.2 expands the target of `>&` twice, so `x >&2'$(cmd)'` and `x >&2${v:-'$(cmd)'}` run `cmd` there (5.3 does not). A `$$` followed by `(` or `{` in double quotes, and a `>&` or `<&` target that is quoted or expands, are opaque.
@@ -62,4 +63,4 @@ It is a lexer, not an interpreter. It does not follow `env git push`, `command g
 
 # How it is checked
 
-`packages/sdk/src/authorization/__tests__/shell-lexer-bash.test.ts` asks the bash on the test machine what it runs. PATH names an empty directory, every builtin that could act or stand in for a command is disabled, and `command_not_found_handle` records each argv; each line runs twice, with the handler succeeding and failing, so both sides of `&&` and `||` are seen. Where bash reports a syntax error the lexer must say opaque, and where the lexer does not say opaque every command bash ran must be one it listed, word for word, with a flagged word standing for any run of words. The committed test covers every sequence of up to three tokens over the characters that matter to quoting and control, a seeded random sample and the known cases. Before it landed, the same check ran every sequence of up to five tokens (2.9 million lines) and 500 000 random lines against bash 5.2.21 and 5.3.15 with no mismatch; that is how the two double readings above were found.
+`packages/sdk/src/authorization/__tests__/shell-lexer-bash.test.ts` asks the bash on the test machine what it runs. PATH names an empty directory, every builtin that could act or stand in for a command is disabled, and `command_not_found_handle` records each argv; each line runs twice, with the handler succeeding and failing, so both sides of `&&` and `||` are seen. Where bash reports a syntax error the lexer must say opaque, and where the lexer does not say opaque every command bash ran must be one it listed, word for word, with a flagged word standing for any run of words. The committed test covers every sequence of up to three tokens over the characters that matter to quoting and control, a seeded random sample and the known cases. Before it landed, the same check ran every sequence of up to five tokens (2.9 million lines) and 500 000 random lines against bash 5.2.21 and 5.3.15 with no mismatch, and every sequence of up to four tokens and 160 000 random lines again in POSIX mode; that is how the two double readings above were found.
