@@ -6,7 +6,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { changesSinceConfirmed } from '../changes.js'
 import { addCommand, editCommand } from '../commands/add.js'
+import { readHistory } from '../store/history.js'
 import { findJob } from '../store/jobs.js'
 import { type Sandbox, confirmedJob, recordingContext, sandbox } from './fixtures.js'
 
@@ -143,6 +145,33 @@ describe('schedule edit of a browser grant', () => {
 		expect(after.confirmation).toBeNull()
 		expect(ctx.out.info.join('\n')).toContain(
 			'browser https://news.example: open and read, never change',
+		)
+	})
+
+	it('says what changed since the job was confirmed, and keeps it for the later confirmation', async () => {
+		granted()
+		const ctx = recordingContext()
+		await editCommand(ctx, [
+			'post',
+			'--home',
+			sb.home,
+			'--browser-site',
+			'https://news.example=read',
+			'--yes',
+		])
+		const shown = ctx.out.info.join('\n')
+		expect(shown).toContain('Changed since it was last confirmed')
+		expect(shown).toContain(
+			'  + Browser     SIGNED IN AS YOU: profile social, only http://localhost:8123, https://news.example',
+		)
+		expect(shown).toContain(
+			'  - Browser     SIGNED IN AS YOU: profile social, only http://localhost:8123',
+		)
+		expect(shown).toContain('  + browser https://news.example: open and read, never change')
+		const job = findJob(sb.paths, 'post')
+		// What `schedule confirm` and the TUI will show before asking.
+		expect(changesSinceConfirmed(readHistory(sb.paths, job.id))).toContain(
+			'+ browser https://news.example: open and read, never change',
 		)
 	})
 

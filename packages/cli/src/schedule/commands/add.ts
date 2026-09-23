@@ -15,10 +15,16 @@ import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
 import type { PermissionsConfig } from '../../permissions/rules.js'
 import { type JobRequest, JobRequestError, buildJob, confirmJob, previewLines } from '../build.js'
+import {
+	changesBlock,
+	changesSinceConfirmed,
+	confirmationView,
+	describeChanges,
+} from '../changes.js'
 import { isPrivacyProtectedFolder } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
 import { type PermissionInput, compileJobPolicy, isPresetName } from '../policy.js'
-import { appendHistory } from '../store/history.js'
+import { appendHistory, readHistory } from '../store/history.js'
 import { createJob, findJob, updateJob } from '../store/jobs.js'
 import type { ScheduleJob } from '../types.js'
 import {
@@ -318,6 +324,7 @@ async function confirmOnTerminal(
 	job: ScheduleJob,
 	args: ParsedArgs,
 	verb: string,
+	changes: readonly string[] = [],
 ): Promise<'cli-tty' | 'cli-noninteractive' | null> {
 	const layers = readPermissionLayers({ cwd: job.folder.canonical })
 	const policy = compileJobPolicy(job.permissions, { layers, namzuHome: paths.home })
@@ -332,6 +339,7 @@ async function confirmOnTerminal(
 			.map((l) => `  ${l}`)
 			.join('\n')}`,
 	)
+	if (changes.length > 0) ctx.formatter.info(changesBlock(changes).join('\n'))
 	if (process.platform === 'darwin' && isPrivacyProtectedFolder(job.folder.canonical)) {
 		ctx.formatter.info(
 			'Warning: this folder is under Documents, Desktop or Downloads; macOS may block the scheduler from reading it until you grant it Files and Folders access.',
@@ -436,7 +444,20 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 			retention: rebuilt.retention,
 			approvalTtlMs: rebuilt.approvalTtlMs,
 		}
-		const surface = await confirmOnTerminal(ctx, paths, candidate, args, 'save')
+		const view = (job: ScheduleJob) =>
+			confirmationView(
+				job,
+				compileJobPolicy(job.permissions, {
+					layers: readPermissionLayers({ cwd: job.folder.canonical }),
+					namzuHome: paths.home,
+				}),
+				now,
+			)
+		const changes = [
+			...changesSinceConfirmed(readHistory(paths, current.id)),
+			...describeChanges(view(current), view(candidate)),
+		]
+		const surface = await confirmOnTerminal(ctx, paths, candidate, args, 'save', changes)
 		if (surface === null) {
 			ctx.formatter.info('Not changed.')
 			return 1
@@ -451,6 +472,7 @@ export async function editCommand(ctx: CommandContext, argv: readonly string[]):
 			at: now.toISOString(),
 			action: 'edited',
 			by: surface,
+			...(changes.length > 0 ? { changes } : {}),
 		})
 		ctx.formatter.print({
 			text: `Saved ${next.name} (${next.state}).`,
@@ -483,7 +505,14 @@ export async function confirmCommand(
 	}
 	try {
 		const current = findJob(paths, args.positionals[0])
-		const surface = await confirmOnTerminal(ctx, paths, current, args, 'confirm')
+		const surface = await confirmOnTerminal(
+			ctx,
+			paths,
+			current,
+			args,
+			'confirm',
+			changesSinceConfirmed(readHistory(paths, current.id)),
+		)
 		if (surface !== 'cli-tty') {
 			ctx.formatter.info('Not confirmed.')
 			return 1

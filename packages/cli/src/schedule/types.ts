@@ -228,6 +228,8 @@ export type ScheduleHistoryRecord =
 				| 'blocked'
 			readonly by: string
 			readonly detail?: string
+			/** For `edited`: the preview lines that differ, `+ added` and `- removed`. */
+			readonly changes?: readonly string[]
 	  }
 
 /** What a fire child leaves behind. Authoritative over its exit code. */

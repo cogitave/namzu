@@ -13,12 +13,13 @@ import { describeSchedule, hostTimeZone } from '@namzu/sdk'
 import { readPermissionLayers } from '../../config/load.js'
 import type { NamzuCliConfig } from '../../config/schema.js'
 import { JobRequestError, buildJob, confirmJob, previewLines } from '../../schedule/build.js'
+import { changesBlock, changesSinceConfirmed } from '../../schedule/changes.js'
 import { callEndpoint, readEndpoint } from '../../schedule/daemon/endpoint.js'
 import { schedulePaths } from '../../schedule/paths.js'
 import { compileJobPolicy, isPresetName } from '../../schedule/policy.js'
 import { parkedRunWords, resumeCommand } from '../../schedule/resume-command.js'
 import { readManifest } from '../../schedule/service/manifest.js'
-import { appendHistory } from '../../schedule/store/history.js'
+import { appendHistory, readHistory } from '../../schedule/store/history.js'
 import {
 	confirmationHolds,
 	createJob,
@@ -130,6 +131,7 @@ async function confirmInTui(
 	ctx.say(
 		[
 			...previewLines(job, policy, new Date()),
+			...changesBlock(changesSinceConfirmed(readHistory(paths, job.id))),
 			'Prompt',
 			...job.prompt.split('\n').map((l) => `  │ ${l}`),
 		].join('\n'),

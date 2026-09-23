@@ -70,6 +70,12 @@ script — or from a model's own shell call — writes the job inert
 (`awaiting confirmation`), and the scheduler never runs it until someone runs
 `namzu schedule confirm <name>` on a terminal or confirms it in the TUI.
 
+An edit is confirmed again whole, and above the question it lists what changed
+since the job was last confirmed, `+` for a line added and `-` for one removed
+(`Changed since it was last confirmed`). An edit saved with `--yes` records
+those lines in the job's history (`changes` on its `edited` record), so
+`schedule confirm` and `/schedule confirm` show them too.
+
 The confirmation records a digest of what was confirmed: the prompt, the folder
 and its trust, the permissions, the schedule, the model, the budget, and a
 digest of the project's code-running config (below). If the job file is later

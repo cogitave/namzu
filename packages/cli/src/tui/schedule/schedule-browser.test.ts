@@ -23,6 +23,7 @@ import {
 	recordingContext,
 	sandbox,
 } from '../../schedule/__tests__/fixtures.js'
+import { editCommand } from '../../schedule/commands/add.js'
 import { listCommand, showCommand } from '../../schedule/commands/list.js'
 import { statusCommand } from '../../schedule/commands/service.js'
 import { ScheduleDaemon } from '../../schedule/daemon/daemon.js'
@@ -30,7 +31,7 @@ import { runFire } from '../../schedule/fire/fire.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
 import { createAgentSession } from '../agent.js'
-import { listScheduleJobs } from './host-commands.js'
+import { listScheduleJobs, runScheduleCommand } from './host-commands.js'
 import { prepareScheduledResume, scheduledResumeMismatch } from './resume.js'
 import { scheduleStartupLine } from './startup.js'
 import { createScheduleToolHost } from './tool-host.js'
@@ -341,5 +342,34 @@ describe('the model proposing a browser job', () => {
 		expect(refused.success).toBe(false)
 		expect(refused.error).toMatch(/every site/)
 		expect(listJobs(sb.paths).jobs).toHaveLength(0)
+	})
+})
+
+describe('/schedule confirm after an edit saved without a terminal', () => {
+	it('shows what changed since the job was last confirmed', async () => {
+		confirmedJob(sb, {
+			name: 'post',
+			permissions: { preset: 'read-only', unmatched: 'park', browser: GRANT },
+		})
+		await editCommand(recordingContext(), [
+			'post',
+			'--home',
+			sb.home,
+			'--browser-site',
+			'https://news.example=read',
+			'--yes',
+		])
+		const said: string[] = []
+		await runScheduleCommand(['confirm', 'post'], {
+			home: sb.home,
+			cwd: sb.project,
+			config: {},
+			say: (text) => said.push(text),
+			ask: async () => ({ kind: 'answer', selectedOptionIds: ['cancel'] }),
+		})
+		expect(said.join('\n')).toContain('Changed since it was last confirmed')
+		expect(said.join('\n')).toContain(
+			'  + browser https://news.example: open and read, never change',
+		)
 	})
 })
