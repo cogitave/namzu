@@ -55,7 +55,10 @@ export interface ScheduleIntegration {
 		operatorMode: PermissionMode,
 		environment: ResumeEnvironment,
 	): Promise<
-		| Pick<ResumePausedParams, 'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode'>
+		| Pick<
+				ResumePausedParams,
+				'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
+		  >
 		| undefined
 	>
 	dispose(): void

@@ -8,6 +8,8 @@
  * from the job, not by the folder config the TUI session was built with. The
  * operator's own mode can only make it stricter.
  *
+ * The resumed turn runs on the job's provider and model, not the session's.
+ *
  * What the rules cannot carry, the TUI session must already match: the
  * resumed turn runs in THIS session's sandbox (or none), working directory
  * and extra roots, so a session whose execution or roots differ from the
@@ -37,6 +39,11 @@ export interface ScheduledPark {
 	readonly job: ScheduleJob
 	readonly runId: string
 	readonly turnId: string
+	/**
+	 * The provider and model the job's run uses: the job's pin, with the
+	 * model its turn recorded when the job names only a provider.
+	 */
+	readonly model: { readonly provider: string; readonly model?: string; readonly effort?: string }
 	readonly toolCalls: Extract<
 		NonNullable<Awaited<ReturnType<typeof findPendingCheckpoint>>>['pending']['request'],
 		{ type: 'tool_review' }
@@ -58,14 +65,43 @@ export async function findScheduledPark(
 		})
 		const park = await findPendingCheckpoint(log)
 		if (!park || park.pending.request.type !== 'tool_review') return undefined
+		const turnId = park.pending.request.turnId
+		const recorded = await recordedTurnModel(log, turnId)
+		const model = job.model.model ?? recorded.model
+		const effort = job.model.effort ?? recorded.effort
 		return {
 			job,
 			runId: run.runId,
-			turnId: park.pending.request.turnId,
+			turnId,
+			model: {
+				provider: job.model.provider,
+				...(model ? { model } : {}),
+				...(effort ? { effort } : {}),
+			},
 			toolCalls: park.pending.request.toolCalls,
 		}
 	}
 	return undefined
+}
+
+/** The model and effort a turn's `turn_started` recorded, when it recorded them. */
+async function recordedTurnModel(
+	log: Pick<DiskSessionLog, 'read'>,
+	turnId: string,
+): Promise<{ model?: string; effort?: string }> {
+	try {
+		for await (const { record } of log.read({ mode: 'strict' })) {
+			if (record.type !== 'turn_started' || record.turnId !== turnId) continue
+			const config: Record<string, unknown> = { ...record.config }
+			return {
+				...(typeof config.model === 'string' ? { model: config.model } : {}),
+				...(typeof config.effort === 'string' ? { effort: config.effort } : {}),
+			}
+		}
+	} catch {
+		// An unreadable log leaves the job's own pin; the provider default fills the rest.
+	}
+	return {}
 }
 
 const STRICTER: readonly PermissionMode[] = ['plan', 'strict']
@@ -77,6 +113,12 @@ export interface ResumeEnvironment {
 	readonly roots: readonly string[]
 	/** Whether the session's commands run in a sandbox. */
 	readonly sandboxed: boolean
+	/**
+	 * The providers this session has a credential for, by id; the resumed
+	 * turn runs on the job's. Absent: not checked here (the turn still fails
+	 * without one, after the question).
+	 */
+	readonly providers?: readonly string[]
 }
 
 function canonical(path: string): string {
@@ -113,7 +155,16 @@ export function scheduledResumeMismatch(
 	const missing = [...jobRoots].filter((root) => !sessionRoots.has(root))
 	if (extra.length > 0) reasons.push(`this session also reaches ${extra.join(', ')}`)
 	if (missing.length > 0) reasons.push(`this session does not reach ${missing.join(', ')}`)
+	if (environment.providers && !environment.providers.includes(job.model.provider)) {
+		reasons.push(
+			`the job runs on ${job.model.provider}${job.model.model ? `/${job.model.model}` : ''} and this session has no credential for ${job.model.provider} (sign in with \`namzu login\`, or set its API key)`,
+		)
+	}
 	return reasons
+}
+
+function describeModel(model: ScheduledPark['model']): string {
+	return model.model ? `${model.provider}/${model.model}` : model.provider
 }
 
 function shellQuote(value: string): string {
@@ -162,7 +213,10 @@ export async function prepareScheduledResume(input: {
 	readonly ask: ScreenPermissionFn
 	readonly say: (text: string) => void
 }): Promise<
-	| Pick<ResumePausedParams, 'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode'>
+	| Pick<
+			ResumePausedParams,
+			'pendingDecision' | 'onPermission' | 'rules' | 'permissionMode' | 'model'
+	  >
 	| undefined
 > {
 	const park = await findScheduledPark(input.home, input.sessionId)
@@ -183,7 +237,7 @@ export async function prepareScheduledResume(input: {
 		namzuHome: input.home,
 	})
 	input.say(
-		`⏲ The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and asks you again, one batch at a time.`,
+		`⏲ The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,
 	)
 	const answer = await ask({
 		sessionId: input.sessionId as never,
@@ -199,5 +253,6 @@ export async function prepareScheduledResume(input: {
 		onPermission: ask,
 		rules: policy.rules,
 		permissionMode: STRICTER.includes(input.operatorMode) ? input.operatorMode : policy.mode,
+		model: park.model,
 	}
 }

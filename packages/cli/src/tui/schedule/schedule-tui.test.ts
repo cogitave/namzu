@@ -133,14 +133,17 @@ describe('answering a parked scheduled run', () => {
 			say: () => {},
 		})
 		expect(scheduled?.pendingDecision).toEqual({ action: 'approve_tools' })
+		expect(scheduled?.model).toEqual({ provider: 'deepseek', model: 'deepseek-chat' })
 		expect(scheduled?.permissionMode).toBe('prompt')
 		expect(asked[0]?.toolCalls[0]?.name).toBe('bash')
 
 		// After the parked batch's result, the model asks for two more commands.
+		const requestedModels: unknown[] = []
 		vi.stubGlobal(
 			'fetch',
 			vi.fn<typeof fetch>(async (_input, init) => {
 				const body = String(init?.body ?? '')
+				requestedModels.push((JSON.parse(body) as { model?: unknown }).model)
 				if (!body.includes('call_2'))
 					return completion({ name: 'bash', input: { command: `touch ${second}` }, id: 'call_2' })
 				if (!body.includes('call_3'))
@@ -148,10 +151,15 @@ describe('answering a parked scheduled run', () => {
 				return completion()
 			}),
 		)
-		// The TUI's session for this folder: its own rules would allow bash outright.
+		// The TUI's session for this folder: its own rules would allow bash
+		// outright, and it is on another model than the job's.
 		const sessions = await openSessions(sb.project, { stateRoot: sb.home })
 		const session = await createAgentSession(
-			{ version: 3, providers: [{ id: 'deepseek' }], subagents: { active: [] } },
+			{
+				version: 3,
+				providers: [{ id: 'deepseek', model: 'deepseek-reasoner' }],
+				subagents: { active: [] },
+			},
 			[DEEPSEEK],
 			{
 				cwd: sb.project,
@@ -180,6 +188,9 @@ describe('answering a parked scheduled run', () => {
 		expect(existsSync(second)).toBe(true)
 		expect(existsSync(third)).toBe(false)
 		expect(asked).toHaveLength(3)
+		// Every request of the resumed turn went to the job's model, not the session's.
+		expect(requestedModels.length).toBeGreaterThan(0)
+		expect(new Set(requestedModels)).toEqual(new Set(['deepseek-chat']))
 		// Every prompt was put to the screen as batch-only: no "allow all" on it.
 		expect(asked.every((request) => request.batchOnly === true)).toBe(true)
 
@@ -209,7 +220,12 @@ describe('answering a parked scheduled run', () => {
 		const marker = join(sb.project, 'marker')
 		const { run } = await parkedRun(marker)
 		const asked: PermissionRequest[] = []
-		const attempt = (environment: { cwd: string; roots: string[]; sandboxed: boolean }) =>
+		const attempt = (environment: {
+			cwd: string
+			roots: string[]
+			sandboxed: boolean
+			providers?: string[]
+		}) =>
 			prepareScheduledResume({
 				home: sb.home,
 				sessionId: run.sessionId as string,
@@ -226,6 +242,11 @@ describe('answering a parked scheduled run', () => {
 		)
 		await expect(attempt({ cwd: sb.project, roots: [sb.root], sandboxed: false })).rejects.toThrow(
 			/also reaches/,
+		)
+		await expect(
+			attempt({ cwd: sb.project, roots: [], sandboxed: false, providers: ['anthropic'] }),
+		).rejects.toThrow(
+			/runs on deepseek\/deepseek-chat and this session has no credential for deepseek/,
 		)
 		expect(asked).toHaveLength(0)
 	})

@@ -215,14 +215,18 @@ already on the permission screen (`/resume` inside the conversation does the
 same; a turn that is not a scheduled run's park waits for `/resume`). **Approve** runs exactly the parked batch — the model is not asked
 again — and later calls in that turn are asked of you live. **Reject** refuses
 it and the turn continues. The resumed turn stays under **the job's rules**, not
-your folder's: a `deny` in the job holds even if your config allows it. There is
+your folder's: a `deny` in the job holds even if your config allows it. It also
+runs on **the job's model**: the provider and model the job pins (or, for a job
+that names only a provider, the model its run started on), with no fallback
+chain, whatever model the TUI session is on. There is
 no "approve all" for a scheduled run: its prompt offers only **Yes** and **No**
 (`y`, `n`, `1`, `2`), and its later batches are asked one at a time.
 
 The resumed turn runs in the TUI session you answer from, so that session must
 run the way the job does: in the job's folder, with the sandbox on for a job
 created with `--execution sandbox` and off for one on the host, and with exactly
-the job's `--add-dir` roots, no more and no fewer. A session that differs is
+the job's `--add-dir` roots, no more and no fewer, and with a credential for the
+job's provider (`namzu login`, or its API key). A session that differs is
 refused before anything is asked, and the refusal names the difference and the
 command that opens a matching session
 (`cd <folder> && namzu --add-dir <dir> resume <session-id>`).

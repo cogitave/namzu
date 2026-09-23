@@ -3886,6 +3886,9 @@ export function App({
 						cwd: ctxRef.current.cwd,
 						roots: session.directories?.list() ?? [],
 						sandboxed: session.sandbox.workspace !== 'host',
+						// The resumed turn runs on the job's provider: one this
+						// session has no credential for is refused before asking.
+						providers: detected.map((item) => item.entry.id),
 					})
 				: undefined
 			for await (const event of session.resumePaused({
@@ -3915,7 +3918,7 @@ export function App({
 			setState('idle')
 		}
 		return true
-	}, [finalizeMessage, flushStream, pushMessage, session, state])
+	}, [detected, finalizeMessage, flushStream, pushMessage, session, state])
 
 	// `namzu resume <id>` of a scheduled run parked on a decision: what the
 	// notification and `/schedule` tell the operator to run. Continue it once

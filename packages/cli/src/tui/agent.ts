@@ -747,6 +747,18 @@ export interface ResumePausedParams {
 	readonly rules?: readonly AuthorizationRule[]
 	/** Hold, rather than approve, a later review nobody can answer. See `SendOptions.reviewHold`. */
 	readonly reviewHold?: { readonly reason: string }
+	/**
+	 * The provider and model the resumed turn runs on, in place of the
+	 * session's own, with no fallback chain: a turn another policy started
+	 * (a scheduled job's) continues on the model that policy pinned. `model`
+	 * absent is the provider's default. Refused when this session has no
+	 * credential for `provider`.
+	 */
+	readonly model?: {
+		readonly provider: string
+		readonly model?: string
+		readonly effort?: string
+	}
 }
 
 export interface AgentSession {
@@ -2987,6 +2999,35 @@ export async function createAgentSession(
 		effortNotice = `Reasoning effort levels could not be established for this session: ${describeError(error)}`
 	}
 	/**
+	 * The provider a resumed turn runs on when its caller pinned one (a
+	 * scheduled job's model): built from this session's credential for that
+	 * provider, with no fallback chain, since the job's own run has none.
+	 * `undefined` without a pin.
+	 */
+	const pinnedResumeRoute = async (
+		pin: ResumePausedParams['model'],
+		sessionId: SessionId,
+		signal: AbortSignal,
+	): Promise<
+		| { readonly provider: LLMProvider; readonly model: string; readonly effort?: ReasoningEffort }
+		| undefined
+	> => {
+		if (!pin) return undefined
+		const providerId = pin.provider as ProviderId
+		const found = findDetected(detected, providerId)
+		if (!found)
+			throw new Error(
+				`the turn runs on ${pin.provider}${pin.model ? `/${pin.model}` : ''} and this session has no credential for ${pin.provider}`,
+			)
+		const pinnedModel = pin.model ?? found.entry.defaultModel
+		await ensureRegistered(providerId)
+		const credential = await currentCredentialFor(providerId, signal)
+		const pinnedProvider = constructProvider(providerId, credential, pinnedModel, { sessionId })
+		const effort = pin.effort as ReasoningEffort | undefined
+		if (effort !== undefined) await prepareDelegatedEffort(pinnedProvider, pinnedModel, signal)
+		return { provider: pinnedProvider, model: pinnedModel, ...(effort ? { effort } : {}) }
+	}
+	/**
 	 * The kernel's resume with this session's half of the turn attached: the
 	 * provider, the tools, the working directory, the doctrine — the part a
 	 * checkpoint cannot carry. `resumeDurable` and `resumePaused` differ only
@@ -3006,6 +3047,7 @@ export async function createAgentSession(
 		onPermission,
 		rules,
 		reviewHold,
+		model: pinned,
 	}: ResumeDurableParams & {
 		readonly checkpointId?: CheckpointId
 		readonly listener?: (event: SessionEvent) => void
@@ -3015,6 +3057,7 @@ export async function createAgentSession(
 		readonly onPermission?: PermissionFn
 		readonly rules?: readonly AuthorizationRule[]
 		readonly reviewHold?: { readonly reason: string }
+		readonly model?: ResumePausedParams['model']
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
@@ -3026,6 +3069,7 @@ export async function createAgentSession(
 			// fallback chain has to be built AFTER that so its members do not
 			// hold a client the refresh just replaced.
 			await prepareProviderCredential(ownedSignal)
+			const route = await pinnedResumeRoute(pinned, entry.sessionId, ownedSignal)
 			const pluginSkills = pluginRuntime
 				? await currentPluginSkills(pluginRuntime.skills)
 				: undefined
@@ -3111,8 +3155,8 @@ export async function createAgentSession(
 			const turnTaskStore = selectTaskStore(turnScope)
 			try {
 				return await resumeSession({
-					provider: providerForSession(entry.sessionId),
-					fallbackProviders: fallbackPlan.build(currentToken, entry.sessionId),
+					provider: route?.provider ?? providerForSession(entry.sessionId),
+					fallbackProviders: route ? [] : fallbackPlan.build(currentToken, entry.sessionId),
 					tools: registry,
 					pluginManager: pluginRuntime?.manager,
 					skillRegistry: pluginRuntime?.skills,
@@ -3163,7 +3207,8 @@ export async function createAgentSession(
 						? { sandboxTeardownTimeoutMs: options.sandbox.teardownTimeoutMs }
 						: {}),
 					turnConfig: {
-						model,
+						model: route?.model ?? model,
+						...(route?.effort ? { effort: route.effort } : {}),
 						...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 						...resumedLimits,
@@ -3246,6 +3291,7 @@ export async function createAgentSession(
 		onPermission,
 		rules,
 		reviewHold,
+		model: pinned,
 	}: ResumePausedParams): AsyncIterable<AgentEvent> => {
 		const queue: SessionEvent[] = []
 		let wake: (() => void) | undefined
@@ -3270,6 +3316,7 @@ export async function createAgentSession(
 			...(onPermission ? { onPermission } : {}),
 			...(rules ? { rules } : {}),
 			...(reviewHold ? { reviewHold } : {}),
+			...(pinned ? { model: pinned } : {}),
 			listener: (event) => {
 				queue.push(event)
 				wake?.()
