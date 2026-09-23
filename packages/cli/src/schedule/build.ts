@@ -46,6 +46,8 @@ export const DEFAULT_TIMEOUT_MS = 30 * 60_000
 export const DEFAULT_MAX_ITERATIONS = 50
 /** Below this many iterations a run's preview warns that it may stop unfinished. */
 export const FEW_ITERATIONS = 10
+/** Below this token budget a run's preview warns: one model call resends the whole prompt. */
+export const FEW_TOKENS = 50_000
 export const DEFAULT_WAIT_FOR_PROVIDER_MS = 10 * 60_000
 export const DEFAULT_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000
 export const DEFAULT_KEEP_SESSIONS = 20
@@ -293,6 +295,13 @@ export function previewLines(job: ScheduleJob, policy: CompiledJobPolicy, now: D
 		...(job.budget.maxIterations < FEW_ITERATIONS
 			? [
 					`Warning     ${job.budget.maxIterations} iteration${job.budget.maxIterations === 1 ? '' : 's'} is one model call${job.budget.maxIterations === 1 ? '' : ' each'} with its tool calls; most tasks need more (the default is ${DEFAULT_MAX_ITERATIONS}), and a run that runs out stops unfinished`,
+				]
+			: []),
+		// A proposal once set 4,000 tokens for a job whose runs each took
+		// about 110,000: every model call resends the whole prompt.
+		...(job.budget.tokenBudget < FEW_TOKENS
+			? [
+					`Warning     ${job.budget.tokenBudget.toLocaleString('en-US')} tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is ${DEFAULT_TOKEN_BUDGET.toLocaleString('en-US')})`,
 				]
 			: []),
 		`Ceiling     up to ${perDay} run${perDay === 1 ? '' : 's'} a day × ${job.budget.tokenBudget.toLocaleString('en-US')} tokens = ${(perDay * job.budget.tokenBudget).toLocaleString('en-US')} tokens a day`,

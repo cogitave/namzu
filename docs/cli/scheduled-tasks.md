@@ -44,7 +44,7 @@ there is no default permission set.
 | `--execution host\|sandbox` | Where commands run. Default `host` |
 | `--tz <zone>` | IANA zone for cron and local times. Default: this machine's, written into the job |
 | `--model <provider>/<model>` | Pinned at creation. Default: your configured primary |
-| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per run. A token budget and a timeout are always set (defaults 500 000 tokens, 30 minutes, or your `limits`). An iteration is one model call with its tool calls (default 50); below 10 the confirmation warns that a run may stop unfinished |
+| `--token-budget <n>`, `--max-iterations <n>`, `--timeout 30m` | Per run. A token budget and a timeout are always set (defaults 500 000 tokens, 30 minutes, or your `limits`). An iteration is one model call with its tool calls (default 50); below 10 iterations or 50 000 tokens the confirmation warns that a run may stop unfinished, since every model call resends the whole prompt |
 | `--wait-for-provider 10m` | How long a run waits out a provider pause before giving up |
 | `--approval-ttl 7d` | How long a parked run waits for you before it is abandoned |
 | `--keep-sessions 20` | Completed-run sessions kept visible before older ones are archived |

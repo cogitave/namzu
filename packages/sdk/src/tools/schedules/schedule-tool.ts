@@ -88,7 +88,14 @@ const inputSchema = z.object({
 				.describe(
 					'Model steps one run may take (each model call with its tool calls is one step), not how many times the job runs. Omit for the default; a browser task takes 10 or more.',
 				),
-			tokenBudget: z.number().int().positive().optional().describe('Tokens one run may spend'),
+			tokenBudget: z
+				.number()
+				.int()
+				.positive()
+				.optional()
+				.describe(
+					'Tokens one run may spend in total. Every model call resends the whole prompt (often 10,000-30,000 tokens each), so a run needs far more than its answer; omit for the default.',
+				),
 			timeoutMs: z
 				.number()
 				.int()

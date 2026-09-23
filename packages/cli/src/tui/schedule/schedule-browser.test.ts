@@ -262,6 +262,12 @@ describe('the model proposing a browser job', () => {
 		const enough = host('cancel')
 		await enough.tool.execute(input, {} as never)
 		expect(enough.said[0]).not.toContain('iteration is one model call')
+		expect(enough.said[0]).not.toContain('may not cover even a few model calls')
+		const cheap = host('cancel')
+		await cheap.tool.execute({ ...input, budget: { tokenBudget: 4000 } }, {} as never)
+		expect(cheap.said[0]).toContain(
+			'Warning     4,000 tokens may not cover even a few model calls, each of which resends the whole prompt; a run that runs out stops unfinished (the default is 500,000)',
+		)
 	})
 
 	it('says a job does nothing until the scheduler is installed', async () => {

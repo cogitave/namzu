@@ -431,5 +431,9 @@ describe('schedule tool: budget words', () => {
 		expect(budget.unwrap().shape.maxIterations.description).toContain(
 			'not how many times the job runs',
 		)
+		expect(
+			(budget.unwrap().shape as unknown as { tokenBudget: { description?: string } }).tokenBudget
+				.description,
+		).toContain('Every model call resends the whole prompt')
 	})
 })
