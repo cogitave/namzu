@@ -1202,6 +1202,16 @@ export function App({
 	// A turn a tool paused for a person (`ToolResult.handoff`), while its
 	// notice is the newest thing on screen: Enter continues it, Esc stops it.
 	// The ref is what the key handler reads; the state is what the footer shows.
+	/**
+	 * The stream of the turn running now, so a tool's own screen can close the
+	 * reply it streamed before the tool ran. The kernel hands the tool's start
+	 * to this loop only when its batch settles, so a reply streamed with a
+	 * tool call stays pending while that tool asks the operator something; a
+	 * row written then (the schedule tool's confirmation) cannot reach
+	 * scrollback past the pending reply, and the top of a tall one was cut
+	 * off while the operator was asked about it.
+	 */
+	const liveStreamRef = useRef<StreamState | null>(null)
 	const [handoffPark, setHandoffParkState] = useState<{
 		readonly turnId: string
 		readonly reason?: string
@@ -3087,6 +3097,23 @@ export function App({
 		)
 	}, [])
 
+	/**
+	 * Close the reply the running turn streamed before a tool took over, as a
+	 * tool's start does. For a tool that shows the operator something of its
+	 * own while it runs: the reply is complete by then (tools run after the
+	 * model's response ends), and left pending it holds every later row out
+	 * of scrollback. Text that arrives later starts a new reply.
+	 */
+	const closeLiveReply = useCallback(() => {
+		const st = liveStreamRef.current
+		if (!st) return
+		flushStream(st)
+		if (st.assistantId) {
+			finalizeMessage(st.assistantId)
+			st.assistantId = null
+		}
+	}, [finalizeMessage, flushStream])
+
 	// Open the SDK session store and select the durable conversation once.
 	// This is an admission gate for every startup, not optional persistence: a
 	// corrupt or split estate must not silently widen into cwd-local state and
@@ -3923,6 +3950,7 @@ export function App({
 			sessionId: scope.sessionId,
 			notification: null,
 		}
+		liveStreamRef.current = st
 		let scheduledRun = false
 		let restoreBrowser: (() => Promise<void>) | undefined
 		try {
@@ -4830,6 +4858,7 @@ export function App({
 					resolve({ kind: 'abort' })
 					return
 				}
+				closeLiveReply()
 				questionRef.current = { question, resolve }
 				const values = [
 					...question.options.map((option) => option.id),
@@ -4861,7 +4890,7 @@ export function App({
 				setChoicePicker(picker)
 				sendTerminalNotification({ kind: 'approval-required' })
 			}),
-		[sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
+		[closeLiveReply, sendTerminalNotification, setChoicePicker, setSelectedChoice, resolveQuestion],
 	)
 
 	/**
@@ -5568,6 +5597,7 @@ export function App({
 				sessionId: destination,
 				notification: null,
 			}
+			liveStreamRef.current = st
 			const ac = new AbortController()
 			const turnToken = {}
 			let abnormalTerminal:
@@ -7406,7 +7436,10 @@ export function App({
 	commandPickerSubmitRef.current = handleSubmit
 	scheduleLiveRef.current = {
 		...(scheduleLiveRef.current?.model ? { model: scheduleLiveRef.current.model } : {}),
-		say: (text) => pushMessage('system', text),
+		say: (text) => {
+			closeLiveReply()
+			pushMessage('system', text)
+		},
 		ask: askQuestion,
 		askPermission: onPermission,
 		submit: (text) => handleSubmit(text),
