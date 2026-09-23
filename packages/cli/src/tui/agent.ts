@@ -5068,14 +5068,21 @@ export function toAgentEvent(event: SessionEvent, presenter: ToolPresenter): Age
 					},
 				)
 			const detail = viewToLines(view)
-			// Drop only an exact duplicate. A shortened summary cannot replace
-			// the first line's evidence in expanded or raw output.
-			const summary =
-				view.kind === 'terminal' && detail && detail.length > 0
-					? truncate(detail[0] as string, 120)
-					: firstLine(event.result)
+			// The first line is the summary row. It leaves the body only when
+			// the row says all of it: a shortened summary cannot replace the
+			// first line's evidence in expanded or raw output. A first line
+			// up to a few rows long is shown whole, so a note like "A
+			// navigation to … was blocked" is not printed twice, once cut off
+			// on the summary row and again in full underneath.
+			const first =
+				view.kind === 'terminal' && view.output.trim().length > 0
+					? resultToLines(view.output)[0]
+					: undefined
+			const summary = first !== undefined ? resultSummaryLine(first) : firstLine(event.result)
 			const withoutRepeatedSummary =
-				view.kind === 'terminal' && detail?.[0] === summary ? detail.slice(1) : detail
+				first !== undefined && detail?.[0] === first && summarySaysAll(first, summary)
+					? detail.slice(1)
+					: detail
 			return {
 				kind: 'tool-end',
 				output: event.result,
@@ -5393,8 +5400,10 @@ export function viewToLines(view: ToolResultView): readonly string[] | undefined
 		case 'terminal': {
 			if (view.output.trim().length === 0) return undefined
 			const lines = resultToLines(view.output)
-			// A single short line is already the summary — no need to repeat it.
-			return lines.length === 1 && lines[0] === truncate(lines[0] ?? '', 120) ? undefined : lines
+			// A single line the summary row shows whole is not repeated under it.
+			return lines.length === 1 && summarySaysAll(lines[0] ?? '', resultSummaryLine(lines[0] ?? ''))
+				? undefined
+				: lines
 		}
 	}
 }
@@ -5409,6 +5418,24 @@ export function viewToSummary(view: ToolCallView): string {
 		case 'terminal':
 			return truncate(view.command ?? view.output.split('\n')[0] ?? '', 120)
 	}
+}
+
+/**
+ * The longest first line a result's summary row shows whole, about three
+ * terminal rows. Longer, the row shows its first 120 characters and the body
+ * keeps the line.
+ */
+export const RESULT_SUMMARY_WHOLE_MAX = 300
+
+/** A result's summary row for its first line: whole when short enough, else shortened. */
+export function resultSummaryLine(line: string): string {
+	const flat = line.replace(/\s+/g, ' ')
+	return flat.length <= RESULT_SUMMARY_WHOLE_MAX ? flat : truncate(line, 120)
+}
+
+/** The summary row says everything `line` does (whitespace aside). */
+function summarySaysAll(line: string, summary: string): boolean {
+	return line === summary || line.replace(/\s+/g, ' ') === summary
 }
 
 function truncate(value: string, max: number): string {
