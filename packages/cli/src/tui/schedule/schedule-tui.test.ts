@@ -479,7 +479,12 @@ describe('answering a parked scheduled run', () => {
 	it('names every way a session differs from the job', () => {
 		const other = mkdtempSync(join(sb.osHome, 'extra-'))
 		const job = confirmedJob(sb, {
-			permissions: { preset: 'read-only', execution: 'sandbox', additionalDirectories: [other] },
+			// A job that can run commands: where they run is one of the differences.
+			permissions: {
+				preset: 'edit-in-folder',
+				execution: 'sandbox',
+				additionalDirectories: [other],
+			},
 		})
 		expect(
 			scheduledResumeMismatch(job, { cwd: sb.project, roots: [other], sandboxed: true }),

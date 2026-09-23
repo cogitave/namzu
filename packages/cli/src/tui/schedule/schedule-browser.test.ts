@@ -188,6 +188,22 @@ describe('a browser job parked because a page needs the operator', () => {
 		})
 	})
 
+	it('continues on the host a job whose runs cannot run a command, though it names the sandbox', () => {
+		const job = confirmedJob(sb, {
+			permissions: { preset: 'read-only', unmatched: 'deny', execution: 'sandbox', browser: GRANT },
+		})
+		expect(
+			scheduledResumeMismatch(job, { cwd: sb.project, roots: [], sandboxed: false, browser: true }),
+		).toEqual([])
+		const shell = confirmedJob(sb, {
+			name: 'with-shell',
+			permissions: { preset: 'edit-in-folder', execution: 'sandbox' },
+		})
+		expect(
+			scheduledResumeMismatch(shell, { cwd: sb.project, roots: [], sandboxed: false }),
+		).toEqual([expect.stringMatching(/in a sandbox and this session runs them on the host/)])
+	})
+
 	it('cannot continue in a session without the browser', async () => {
 		const job = confirmedJob(sb, {
 			permissions: { preset: 'read-only', unmatched: 'park', browser: GRANT },

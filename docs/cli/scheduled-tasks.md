@@ -323,7 +323,9 @@ no "approve all" for a scheduled run: its prompt offers only **Yes** and **No**
 
 The resumed turn runs in the TUI session you answer from, so that session must
 run the way the job does: in the job's folder, with the sandbox on for a job
-created with `--execution sandbox` and off for one on the host, and with exactly
+created with `--execution sandbox` and off for one on the host (only for a job
+that can run a command: one whose `bash` is denied, such as `read-only`,
+continues the same either way), and with exactly
 the job's `--add-dir` roots, no more and no fewer, and with a credential for the
 job's provider (`namzu login`, or its API key). A session that differs is
 refused before anything is asked, and the refusal names the difference and the

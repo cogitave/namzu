@@ -212,6 +212,15 @@ export function allowsNetwork(set: SchedulePermissionSet): boolean {
 	)
 }
 
+/**
+ * Whether a run under this set can run a shell command: a `bash` rule that is
+ * not `deny`, or, with no `bash` rule, an `unmatched` that is not `deny`.
+ */
+export function allowsCommands(set: SchedulePermissionSet): boolean {
+	const effects = effectsOf(set.rules.bash)
+	return effects.length > 0 ? effects.some((e) => e !== 'deny') : set.unmatched !== 'deny'
+}
+
 /** Whether a run under this set can change the folder (write, edit, bash, or an unmatched call). */
 export function allowsWrites(set: SchedulePermissionSet): boolean {
 	if (set.unmatched !== 'deny') return true

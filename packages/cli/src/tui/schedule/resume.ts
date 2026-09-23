@@ -37,7 +37,7 @@ import {
 import { readPermissionLayers } from '../../config/load.js'
 import type { PermissionMode } from '../../permissions/mode.js'
 import { schedulePaths } from '../../schedule/paths.js'
-import { compileJobPolicy } from '../../schedule/policy.js'
+import { allowsCommands, compileJobPolicy } from '../../schedule/policy.js'
 import { resumeCommand } from '../../schedule/resume-command.js'
 import { listJobs } from '../../schedule/store/jobs.js'
 import { readState } from '../../schedule/store/state.js'
@@ -204,7 +204,9 @@ export function scheduledResumeMismatch(
 ): string[] {
 	const reasons: string[] = []
 	const wantsSandbox = job.permissions.execution === 'sandbox'
-	if (environment.sandboxed !== wantsSandbox) {
+	// Where commands run matters only to a job that can run one: a browser
+	// job with bash denied continues the same in either session.
+	if (allowsCommands(job.permissions) && environment.sandboxed !== wantsSandbox) {
 		reasons.push(
 			wantsSandbox
 				? 'the job runs commands in a sandbox and this session runs them on the host'
@@ -363,7 +365,7 @@ export async function prepareScheduledResume(input: {
 				? ' with `sandbox.enabled: true` in your config'
 				: ' with the sandbox off (`sandbox.enabled: false`)'
 		throw new Error(
-			`the scheduled job ${park.job.name} is waiting for approval, but its turn must continue as the job runs: ${mismatch.join('; ')}. Answer it from a session that matches: ${resumeCommand(park.job, input.sessionId)}${execution}.`,
+			`the scheduled job ${park.job.name} ${park.handoff ? 'is waiting for you' : 'is waiting for approval'}, but its turn must continue as the job runs: ${mismatch.join('; ')}. ${park.handoff ? 'Continue' : 'Answer'} it from a session that matches: ${resumeCommand(park.job, input.sessionId)}${mismatch.some((reason) => reason.includes('sandbox')) ? execution : ''}.`,
 		)
 	}
 	const ask = scheduledPermission(input.ask)
