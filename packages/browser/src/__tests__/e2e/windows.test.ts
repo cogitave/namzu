@@ -218,6 +218,14 @@ describe.skipIf(!E2E)('the Windows engine from WSL', { timeout: 120_000 }, () =>
 		const clicked = await host.act({ action: 'click', ref, origin, snapshot: true })
 		expect(clicked.snapshot?.page.url).toBe(`${origin}/form.html`)
 		expect(clicked.snapshot?.text).toMatch(/button "Place order"/)
+		// History moves come back from the back-forward cache, which fires no
+		// domcontentloaded: they must return when the page is back, not time out.
+		const started = Date.now()
+		const back = await host.observe({ action: 'back' })
+		expect(back.page?.url).toBe(`${origin}/index.html`)
+		const forward = await host.observe({ action: 'forward' })
+		expect(forward.page?.url).toBe(`${origin}/form.html`)
+		expect(Date.now() - started).toBeLessThan(10_000)
 		const shot = await host.observe({ action: 'screenshot' })
 		expect(shot.screenshot?.mimeType).toBe('image/png')
 		expect(shot.screenshot?.width).toBeGreaterThan(100)

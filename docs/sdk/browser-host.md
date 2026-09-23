@@ -187,6 +187,7 @@ A snapshot longer than a page (`snapshotMaxChars`, at most 20 000) is cut at a l
 - A `beforeunload` prompt is accepted so the approved navigation proceeds, and the result says so. Any other dialog pauses the page: the result says one is open, a snapshot shows its type and text, every other `browser_act` is refused until `browser_act dialog` answers it, and a navigation dismisses it.
 - Downloads are cancelled (`acceptDownloads: false`; the Windows engine refuses them in the browser) and reported by file name.
 - `upload` sets a file input directly, or answers the file chooser a click on the element opens.
+- `back`, `forward` and `reload` return when the navigation commits, after waiting at most 5 seconds for the document: a page restored from the back-forward cache fires no `domcontentloaded`.
 
 ## Errors
 

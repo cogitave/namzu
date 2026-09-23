@@ -120,6 +120,8 @@ interface PendingDialog {
 
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000
 const DEFAULT_ACTION_TIMEOUT_MS = 10_000
+/** How long a history move waits for the document after it committed. */
+const HISTORY_LOAD_WAIT_MS = 5_000
 const SNAPSHOT_PAGE_MAX = 20_000
 /** How long the host lets events (popups, downloads, dialogs) arrive after an action. */
 const EVENT_SETTLE_MS = 150
@@ -763,7 +765,12 @@ export class PlaywrightBrowserHost implements BrowserHost {
 		const tab = await this.activeTab()
 		await this.dismissPendingDialog(tab)
 		tab.status = undefined
-		const options = { waitUntil: 'domcontentloaded' as const }
+		// `commit`, then the document as a bonus: a page restored from the
+		// back-forward cache fires no `domcontentloaded`, so waiting for it
+		// timed out after a history move that had long finished (measured
+		// with the Windows engine: 30 s, then a failure, on a page that was
+		// already back).
+		const options = { waitUntil: 'commit' as const }
 		let response: unknown = true
 		try {
 			response =
@@ -774,6 +781,11 @@ export class PlaywrightBrowserHost implements BrowserHost {
 						: await tab.page.reload(options)
 		} catch (error) {
 			if (!/ERR_BLOCKED_BY_CLIENT|ERR_ABORTED/.test(firstLine(error))) throw error
+		}
+		if (response !== null) {
+			await tab.page
+				.waitForLoadState('domcontentloaded', { timeout: HISTORY_LOAD_WAIT_MS })
+				.catch(() => undefined)
 		}
 		if (response === null && which !== 'reload') {
 			this.notes.push(`There is no page to go ${which} to.`)
