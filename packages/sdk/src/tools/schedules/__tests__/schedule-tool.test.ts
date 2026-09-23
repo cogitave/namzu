@@ -381,4 +381,35 @@ describe('schedule tool: browser grant', () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/web or browser access with a shell on the host/)
 	})
+
+	it('reads the read-only preset as no shell, and edit-in-folder as one', async () => {
+		const grant = { profile: 'work', sites: { 'https://github.com': 'read' } }
+		const readOnly = await tool(grantingHost().host).execute(
+			{ ...createInput, permissions: { preset: 'read-only', unmatched: 'park', browser: grant } },
+			context,
+		)
+		expect(readOnly.success).toBe(true)
+		const editing = await tool(grantingHost().host).execute(
+			{
+				...createInput,
+				permissions: { preset: 'edit-in-folder', unmatched: 'park', browser: grant },
+			},
+			context,
+		)
+		expect(editing.success).toBe(false)
+		expect(editing.error).toMatch(/web or browser access with a shell on the host/)
+		const override = await tool(grantingHost().host).execute(
+			{
+				...createInput,
+				permissions: {
+					preset: 'read-only',
+					unmatched: 'park',
+					rules: { bash: 'ask' },
+					browser: grant,
+				},
+			},
+			context,
+		)
+		expect(override.success).toBe(false)
+	})
 })

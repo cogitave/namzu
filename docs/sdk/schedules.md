@@ -103,7 +103,7 @@ Occurrences are counted, never enumerated, up to 100 000 (`capped` says when the
 `buildScheduleTools(host: ScheduleToolHost)` returns one tool, `schedule`, with actions `create`, `list`, `pause`, `resume` and `delete`. The SDK owns the model-facing contract:
 
 - `create` needs `name`, `prompt`, `when` and `permissions`, and `permissions` needs `unmatched` plus a preset or rules. There is no default permission set.
-- The model can propose `unmatched: 'park'` or `'deny'`, never `'allow'`, and cannot combine `web_fetch`/`web_search` or a browser grant with a shell on the host.
+- The model can propose `unmatched: 'park'` or `'deny'`, never `'allow'`, and cannot combine `web_fetch`/`web_search` or a browser grant with a shell on the host. A shell is possible when a `bash` rule is not `deny`, or, with no `bash` rule, when `unmatched` is not `deny` — except under the `read-only` preset, which denies `bash`.
 - `permissions.browser` (`ScheduleBrowserGrant`: `profile`, `sites` mapping each site to `read`, `ask` or `act`, `headed?`) grants the browser tools on the listed sites only. The tool canonicalises the site keys, refuses `*`, and refuses the block unless the host sets `browserGrants: true`. A preset, rules or a browser grant is required. See [Browser tools](browser-tools.md#the-scheduled-job-grant).
 - The host computes the preview (`ScheduleJobPreview`): the canonical folder, the schedule in words, the next fire times, the expanded rules, the budget, the model. The model's words are never shown as fact.
 - `host.confirm()` asks the person. Only `create` or `create-paused` creates a job. `cancel`, a thrown error or a closed screen creates nothing. `resume` and `delete` confirm through `host.confirmAction()`; `pause` does not.

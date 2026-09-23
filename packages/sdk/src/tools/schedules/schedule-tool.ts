@@ -113,10 +113,12 @@ function networkWithHostShell(draft: ScheduleJobDraft): boolean {
 		NETWORK_TOOLS.some((t) => effectsOf(rules[t]).some((e) => e === 'allow' || e === 'ask'))
 	if (!network) return false
 	const bashEffects = effectsOf(rules.bash)
+	// The read-only preset denies bash; its rules are expanded by the host,
+	// so the draft carries only its name.
 	const shellPossible =
 		bashEffects.length > 0
 			? bashEffects.some((e) => e !== 'deny')
-			: draft.permissions.unmatched !== 'deny'
+			: draft.permissions.preset !== 'read-only' && draft.permissions.unmatched !== 'deny'
 	return shellPossible && (draft.permissions.execution ?? 'host') === 'host'
 }
 
