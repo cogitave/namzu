@@ -131,16 +131,22 @@ The rules a run is gated by, in order (the first that matches decides):
    or as `$NAMZU_HOME` — are refused. The path is matched in any letter case,
    because macOS and a Windows drive read `~/.NAMZU` as `~/.namzu`. The check
    reads through shell quoting and backslash escapes, around a word or inside
-   it (`namzu "schedule" confirm`, `/home/you/".namzu"`, `~/.nam''zu` and
-   `~/.nam\zu` are refused too), but not through variables, aliases, `eval`,
-   globs (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a `cd`
-   followed by a relative path: it is a pattern check and best effort,
+   it, ANSI-C (`$'…'`) and locale (`$"…"`) quoting included
+   (`namzu "schedule" confirm`, `/home/you/".namzu"`, `~/.nam''zu`,
+   `~/.nam\zu`, `~/$'.namzu'` and `sch$'e'dule` are refused too), but not
+   through escapes inside ANSI-C quoting (`$'\x2enamzu'`), variables, aliases,
+   `eval`, globs (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a
+   `cd` followed by a relative path: it is a pattern check and best effort,
    alongside the digest and the hold above. A pattern is at most 500
-   characters, so for a long `NAMZU_HOME` it matches only the trailing
-   segments that fit (a path elsewhere ending the same way is refused too);
-   when even the last segment read with quotes inside it does not fit, the
-   whole path is matched with quotes read only around its segments and inside
-   as many trailing ones as fit;
+   characters, so a long `NAMZU_HOME` is matched more broadly, never more
+   narrowly, in three steps. First by only the trailing segments that fit (a
+   path elsewhere ending the same way is refused too). When even the last
+   segment read with quotes inside it does not fit, by the whole path with
+   quotes read only around its segments and inside as many trailing ones as
+   fit. When the last name does not fit even so (a name of about 80
+   letters or more), by as much of the start of that name as fits, about 85
+   letters, after any separator: every path segment that begins with it is
+   then refused, wherever it is;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;

@@ -164,30 +164,36 @@ function caseless(text: string): string {
 
 /**
  * {@link caseless}, and also matched when the shell would read it the same
- * with quotes or backslashes inside: `"schedule"`, `sch''edule`, `n\amzu`.
+ * with quotes or backslashes inside: `"schedule"`, `sch''edule`, `n\amzu`,
+ * `sch$'e'dule` (ANSI-C quoting) and `sch$"e"dule` (locale quoting). A bare
+ * `$` is taken too, which the shell would expand: broader, never narrower.
  * Not a parser — a variable or an `eval` still gets past it; this is a
  * tripwire, and the tampered-job hold and the confirmation are the others.
  */
 function loose(text: string): string {
-	return [...text].map((c) => caseless(c)).join(`["'\\\\]*`)
+	return [...text].map((c) => caseless(c)).join(`["'\\\\$]*`)
 }
 
-/** Space between words, with the quotes that may close and open around it. */
-const GAP = `[\\s"'\\\\]+`
+/** Space between words, with the quotes (`'`, `"`, `$'`, `$"`) that may close and open around it. */
+const GAP = `[\\s"'\\\\$]+`
 
 /**
- * Quotes the shell drops in a path, as they appear in JSON text. No bare
- * backslash: next to {@link SEP}, which takes one, a run of backslashes would
- * backtrack polynomially.
+ * A quote the shell drops in a path, as it appears in JSON text: `'`, `"`,
+ * and the `$` that opens ANSI-C (`$'…'`) or locale (`$"…"`) quoting.
  */
-const QUOTES = String.raw`(?:\\"|')*`
+const QUOTE = String.raw`\$?(?:\\"|')`
+/**
+ * Quotes the shell drops in a path. No bare backslash: next to {@link SEP},
+ * which takes one, a run of backslashes would backtrack polynomially.
+ */
+const QUOTES = `(?:${QUOTE})*`
 /**
  * A path separator as it appears in JSON text (`\\` doubled), repeated, with
  * `./` or an empty quoted segment (`''`, `""`, `'.'`) between, as the shell
  * reads it: `/home/u/''/.namzu` is `/home/u//.namzu`. What comes between two
  * separators is never empty: `[/\\]+(?:[/\\]+)*` backtracks exponentially.
  */
-const SEP = String.raw`[/\\]+(?:(?:${QUOTES}\.${QUOTES}|(?:\\"|')+)[/\\]+)*`
+const SEP = String.raw`[/\\]+(?:(?:${QUOTES}\.${QUOTES}|(?:${QUOTE})+)[/\\]+)*`
 /**
  * Where a leading {@link SEP} may start: at a `/` or a real backslash (not the
  * one JSON puts before a quote), and not where a separator and what
@@ -197,7 +203,7 @@ const SEP = String.raw`[/\\]+(?:(?:${QUOTES}\.${QUOTES}|(?:\\"|')+)[/\\]+)*`
  */
 const LEAD = String.raw`(?=/|\\(?!"))(?<![/\\]${QUOTES}(?:\.${QUOTES})?)${SEP}`
 /** Inside a segment's name, also an escaping backslash (`.nam\zu`), which JSON doubles. */
-const INNER_QUOTES = String.raw`(?:\\["\\]|')*`
+const INNER_QUOTES = String.raw`(?:${QUOTE}|\\\\)*`
 /** Not followed by more of a path segment's name: `/tmp/x` does not match `/tmp/x2`. */
 const SEGMENT_END = '(?![A-Za-z0-9._-])'
 /** The gate refuses a longer pattern (`MAX_CUSTOM_PATTERN_LENGTH`). */
@@ -308,7 +314,7 @@ export function scheduledRunFloor(
 	// read as a space followed by a verb `"list"`. Within one command of a
 	// list: `;`, `&` and `|` end the search.
 	const readOnly = READ_ONLY_VERBS.map(caseless).join('|')
-	const scheduleVerb = `[^;&|\\n]*\\b${loose('schedule')}${GAP}(?![\\s"'\\\\])(?!(?:${readOnly})(?![A-Za-z0-9_-]))`
+	const scheduleVerb = `[^;&|\\n]*\\b${loose('schedule')}${GAP}(?![\\s"'\\\\$])(?!(?:${readOnly})(?![A-Za-z0-9_-]))`
 	return [
 		...['stop', 'disable', 'mask', 'edit', 'kill', 'revert'].map((verb) =>
 			bash(`${loose('systemctl')}\\b.*\\b${loose(verb)}\\b.*${loose('namzu-scheduler')}`),
@@ -321,7 +327,7 @@ export function scheduledRunFloor(
 		),
 		bash(`\\b(${loose('pkill')}|${loose('killall')})\\b.*${loose('namzu')}`),
 		bash(`\\b${loose('namzu')}\\b${scheduleVerb}`),
-		bash(`\\b${loose('bin')}["'\\\\]*\\.["'\\\\]*${loose('js')}\\b${scheduleVerb}`),
+		bash(`\\b${loose('bin')}["'\\\\$]*\\.["'\\\\$]*${loose('js')}\\b${scheduleVerb}`),
 		...namzuHomePatterns(namzuHome, userHome).map(
 			(pattern): AuthorizationRule => ({
 				type: 'custom_pattern',

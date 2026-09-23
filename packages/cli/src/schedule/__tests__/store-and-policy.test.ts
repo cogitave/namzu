@@ -283,6 +283,10 @@ describe('what a scheduled run may do', () => {
 			'NAMZU Schedule Pause probe',
 			'systemctl --user "stop" \'namzu-scheduler\'',
 			'launchctl boot""out gui/501/com.namzu.scheduler',
+			"namzu sch$'e'dule confirm probe",
+			'namzu $"schedule" $\'confirm\' probe',
+			"namzu schedule $'list' && namzu schedule $'stop'",
+			"systemctl --user $'stop' namzu-sched$'u'ler",
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		expect(decide(g, 'bash', { command: 'namzu schedule list' })).not.toBe('deny')
@@ -347,6 +351,13 @@ describe('what a scheduled run may do', () => {
 			'cat ~/.NAMZU/schedule/daemon/endpoint.json',
 			`cat ${user.toUpperCase()}/.Namzu/x`,
 			`cat \\${user}/.namzu/x`,
+			`cat ${user}/$'.namzu'/schedule/daemon/endpoint.json`,
+			`cat ${user}/$".namzu"/schedule/daemon/endpoint.json`,
+			`cat ${user}/$''/.namzu/x`,
+			"cat ~/$'.namzu'/schedule/daemon/endpoint.json",
+			"cat ~/.nam$'z'u/schedule/daemon/endpoint.json",
+			'cat ~/.nam$"z"u/schedule/daemon/endpoint.json',
+			"cat $HOME/$'.na'mzu/config.yaml",
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		expect(decide(g, 'read', { path: `${user}//.namzu/schedule/daemon/endpoint.json` })).toBe(
@@ -357,6 +368,7 @@ describe('what a scheduled run may do', () => {
 			'cat ~/.namzu.bak',
 			'ls ~/project/.namzu2',
 			"ls ~/.nam''zu2",
+			"ls ~/.nam$'z'u2",
 		])
 			expect(decide(g, 'bash', { command }), command).not.toBe('deny')
 	})
@@ -377,6 +389,10 @@ describe('what a scheduled run may do', () => {
 			"/'.'",
 			'/..',
 			'\\"/',
+			"$'",
+			'$"',
+			"/$''",
+			"$'/",
 		])
 			for (const prefix of [`cat ${user}`, 'cat ~/.nam', 'cat ~']) {
 				const command = `${prefix}${filler.repeat(20_000)}x`
@@ -404,6 +420,10 @@ describe('what a scheduled run may do', () => {
 			}
 			expect(decide(gate(rules), 'bash', { command: `cat ${home}/config.yaml` })).toBe('deny')
 		}
+		// A last name too long to read whole is matched by its start, in any segment.
+		const long = gate(scheduledRunFloor(`/srv/${'a'.repeat(255)}`, user))
+		expect(decide(long, 'bash', { command: `cat /tmp/${'a'.repeat(100)}/x` })).toBe('deny')
+		expect(decide(long, 'bash', { command: `cat /tmp/${'a'.repeat(40)}/x` })).not.toBe('deny')
 	})
 
 	it('maps unmatched to the review mode', () => {
