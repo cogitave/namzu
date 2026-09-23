@@ -89,6 +89,66 @@ describe('delegated model selection', () => {
 			await runtime.close()
 		}
 	})
+	it('inherits the invoking turn’s model when that turn runs on another than the session’s', async () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-turn-model-'))
+		dirs.push(cwd)
+		const parent = await subagentParentFixture(cwd)
+		const session = new MockLLMProvider({ turns: [{ text: 'session provider child' }] })
+		const job = new MockLLMProvider({
+			turns: [{ text: 'job provider child' }, { text: 'job provider child again' }],
+		})
+		const jobModel = { provider: 'codex', model: 'job-model', effort: 'low' as const }
+		const resolveModel = vi.fn(async () => {
+			throw new Error('an inherited model is not resolved again')
+		})
+		const buildProvider = vi.fn((_session, selection) => (selection ? job : session))
+		const runtime = await createSubagentRuntime({
+			cwd,
+			model: 'session-model',
+			resolveParent: parent.resolveParent,
+			buildTools: () => new ToolRegistry(),
+			buildProvider,
+			resolveModel,
+			// A resumed scheduled turn runs on its job's model.
+			resolveTurnModel: (turnId) => (turnId === parent.scope.turnId ? jobModel : undefined),
+		})
+		const context = {
+			sessionId: parent.scope.sessionId,
+			turnId: parent.scope.turnId,
+			workingDirectory: cwd,
+			abortSignal: new AbortController().signal,
+			env: {},
+			log() {},
+		}
+		try {
+			// No model named: the turn's, not the session's.
+			expect(
+				(await runtime.agentTool.execute({ description: 'plain', prompt: 'report' }, context))
+					.success,
+			).toBe(true)
+			// Naming the turn's own model is inheriting it, not a new selection.
+			expect(
+				(
+					await runtime.agentTool.execute(
+						{
+							description: 'named',
+							prompt: 'report',
+							model: 'job-model',
+							subagent_type: 'explore',
+						},
+						context,
+					)
+				).success,
+			).toBe(true)
+			expect(resolveModel).not.toHaveBeenCalled()
+			expect(buildProvider).toHaveBeenCalledWith(parent.scope.sessionId, jobModel)
+			expect(session.requests).toHaveLength(0)
+			expect(job.requests).toHaveLength(2)
+			expect(job.requests[0]).toMatchObject({ model: 'job-model', effort: 'low' })
+		} finally {
+			await runtime.close()
+		}
+	})
 	it('rejects unavailable selections before creating a task', async () => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-invalid-model-'))
 		dirs.push(cwd)

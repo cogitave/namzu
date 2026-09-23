@@ -251,7 +251,11 @@ import { discoverAgentDefinitions } from '../integrations/subagents/definitions.
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import { resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
-import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
+import {
+	type DelegatedModel,
+	type SubagentRuntime,
+	createSubagentRuntime,
+} from '../integrations/subagents/runtime.js'
 import {
 	createSavedAgentHistory,
 	createSavedAgentsStep,
@@ -2392,6 +2396,9 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<TurnId, SessionScope>()
 	const delegationLimits = new Map<TurnId, TurnLimitsConfig>()
+	// A resumed turn that runs on another model than the session's (a
+	// scheduled job's): its children inherit that model, not the session's.
+	const delegationModels = new Map<TurnId, DelegatedModel>()
 	const delegatedInputWaiters = new Map<TurnId, NonNullable<SendOptions['waitForInbound']>>()
 	if (options.residentHistory) {
 		const history = options.residentHistory
@@ -2513,6 +2520,7 @@ export async function createAgentSession(
 			tokenBudget: options.limits?.tokenBudget,
 			maxIterations: options.limits?.maxIterations,
 			resolveLimits: (turnId) => delegationLimits.get(turnId),
+			resolveTurnModel: (turnId) => delegationModels.get(turnId),
 			timeoutMs: options.limits?.timeoutMs,
 			definitions: discovered.definitions,
 			// Children log under the parent's `<session-id>/subagents/`; an
@@ -3152,6 +3160,12 @@ export async function createAgentSession(
 			delegatedReviewAllowedCalls.set(entry.turnId, reviewAllowedCalls)
 			delegationScopes.set(entry.turnId, turnScope)
 			delegationLimits.set(entry.turnId, resumedLimits)
+			if (route && pinned)
+				delegationModels.set(entry.turnId, {
+					provider: pinned.provider,
+					model: route.model,
+					...(route.effort ? { effort: route.effort } : {}),
+				})
 			const turnTaskStore = selectTaskStore(turnScope)
 			try {
 				return await resumeSession({
@@ -3271,6 +3285,7 @@ export async function createAgentSession(
 					delegatedReviewAllowedCalls.delete(entry.turnId)
 					delegationScopes.delete(entry.turnId)
 					delegationLimits.delete(entry.turnId)
+					delegationModels.delete(entry.turnId)
 					await subagentRuntime?.releaseTurn(entry.turnId)
 				}
 			}
