@@ -224,6 +224,7 @@ export async function prepareScheduledResume(input: {
 	const policy = compileJobPolicy(park.job.permissions, {
 		layers: readPermissionLayers({ cwd: park.job.folder.canonical }),
 		namzuHome: input.home,
+		folder: park.job.folder,
 	})
 	input.say(
 		`⏲ The scheduled job ${park.job.name} is waiting for your approval. Approve runs exactly this batch; the rest of the turn stays under the job’s rules and on its model (${describeModel(park.model)}), and asks you again, one batch at a time.`,

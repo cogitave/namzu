@@ -153,6 +153,7 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 		const policy = compileJobPolicy(job.permissions, {
 			layers: readPermissionLayers({ cwd: job.folder.canonical }),
 			namzuHome: paths.home,
+			folder: job.folder,
 		})
 		const tz = tzOf(job)
 		ctx.formatter.print(

@@ -41,8 +41,22 @@ function gate(rules: ReturnType<typeof compileJobPolicy>['rules']) {
 	)
 }
 
-function decide(g: AuthorizationGate, toolName: string, toolInput: unknown): string {
-	return g.evaluate({ toolName, toolInput, toolDef: undefined }).decision
+/**
+ * A `bash` call is read as the host's bash runs it (`commandDialect: 'bash'`),
+ * as the executor asks when the host has bash; `dialect` overrides that.
+ */
+function decide(
+	g: AuthorizationGate,
+	toolName: string,
+	toolInput: unknown,
+	dialect: 'bash' | 'sh' | undefined = toolName === 'bash' ? 'bash' : undefined,
+): string {
+	return g.evaluate({
+		toolName,
+		toolInput,
+		toolDef: undefined,
+		...(dialect ? { commandDialect: dialect } : {}),
+	}).decision
 }
 
 describe('jobs', () => {
@@ -299,12 +313,13 @@ describe('what a scheduled run may do', () => {
 			'schtasks /Delete \\\n/TN \\namzu\\x /F',
 			'pkill \\\n  namzu',
 			'echo done\nnamzu schedule stop',
-			// Broader than the shell, on purpose: the verb is searched past the
-			// end of the command that names the CLI.
-			'echo namzu\n./schedule stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		for (const command of [
+			// The regex floor searched for the verb past the end of the command
+			// that named the CLI, and denied these. The lexer knows where each
+			// command ends: `./schedule` is a program of its own.
+			'echo namzu\n./schedule stop',
 			'namzu schedule list',
 			'namzu schedule \\\nlist',
 			'systemctl --user status namzu-scheduler',
@@ -334,10 +349,11 @@ describe('what a scheduled run may do', () => {
 			'namzu --profile "x&y" schedule run x',
 			'namzu --add-dir a\\;b schedule stop',
 			'node x/bin.js --add-dir ";" schedule stop',
-			'echo namzu; ./schedule stop',
 		])
 			expect(decide(g, 'bash', { command }), command).toBe('deny')
 		for (const command of [
+			// Denied by the regex floor, which searched past the command's end.
+			'echo namzu; ./schedule stop',
 			'namzu schedule list',
 			'namzu schedule show nightly',
 			'namzu schedule "status"',
@@ -485,7 +501,7 @@ describe('what a scheduled run may do', () => {
 		}
 	})
 
-	it('keeps every floor pattern within the gate’s length limit, which refuses a longer one', () => {
+	it('reads a NAMZU_HOME of any length or depth', () => {
 		const user = join(sb.root, 'user-home')
 		const deep = join(user, ...Array.from({ length: 40 }, (_, i) => `level-${i}`), '.namzu')
 		for (const home of [
@@ -496,17 +512,15 @@ describe('what a scheduled run may do', () => {
 			`/srv/${'a'.repeat(255)}`,
 			`/${'.'.repeat(255)}`,
 		]) {
-			const rules = scheduledRunFloor(home, user)
-			for (const rule of rules) {
-				if (rule.type === 'argument_pattern' || rule.type === 'custom_pattern')
-					expect(rule.pattern.length, rule.pattern).toBeLessThanOrEqual(500)
-			}
-			expect(decide(gate(rules), 'bash', { command: `cat ${home}/config.yaml` })).toBe('deny')
+			const g = gate(scheduledRunFloor(home, user))
+			expect(decide(g, 'bash', { command: `cat ${home}/config.yaml` })).toBe('deny')
+			expect(decide(g, 'read', { path: `${home}/config.yaml` })).toBe('deny')
 		}
-		// A last name too long to read whole is matched by its start, in any segment.
+		// The regex floor, capped at 500 characters a pattern, matched a name
+		// too long to spell whole by its start, in any segment, and so denied
+		// this. The path is compared whole now.
 		const long = gate(scheduledRunFloor(`/srv/${'a'.repeat(255)}`, user))
-		expect(decide(long, 'bash', { command: `cat /tmp/${'a'.repeat(100)}/x` })).toBe('deny')
-		expect(decide(long, 'bash', { command: `cat /tmp/${'a'.repeat(40)}/x` })).not.toBe('deny')
+		expect(decide(long, 'bash', { command: `cat /tmp/${'a'.repeat(100)}/x` })).not.toBe('deny')
 	})
 
 	it('maps unmatched to the review mode', () => {

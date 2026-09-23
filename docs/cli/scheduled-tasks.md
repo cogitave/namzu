@@ -120,40 +120,91 @@ The rules a run is gated by, in order (the first that matches decides):
 
 1. the dangerous-command floor (`rm -rf /`, `mkfs`, `curl … | sh`, `sudo` …):
    **refused**, always. It never waits for you — an approval cannot open it;
-2. the scheduled-run floor: commands that stop, disable or remove the scheduler
-   service (`systemctl --user stop namzu-scheduler…`, `launchctl bootout
-   com.namzu.scheduler…`, `schtasks /Delete … \namzu\…`), every `namzu
-   schedule` subcommand except `list`, `show`, `status`, `history` and `logs`
-   (however the CLI is reached: `namzu`, `npx @namzu/cli`, `node …/bin.js`;
-   the subcommand is looked for anywhere after the CLI's name, in a later
-   command of the same line too, because a separator inside a quoted option
-   value such as `namzu --add-dir ';' schedule stop` ends no command, so
-   `echo namzu; ./schedule stop` is refused as well),
-   and any tool argument naming `NAMZU_HOME` — by its absolute path (doubled
-   slashes, `./` and empty quoted segments such as `/home/you/''/.namzu`
-   included), as `~/…`, `$HOME/…` or `${HOME}/…` when it is under your home,
-   or as `$NAMZU_HOME` — are refused. The path is matched in any letter case,
-   because macOS and a Windows drive read `~/.NAMZU` as `~/.namzu`. The check
-   reads through shell quoting and backslash escapes, around a word or inside
-   it, ANSI-C (`$'…'`) and locale (`$"…"`) quoting and line continuations (a
-   backslash at the end of a line) included (`namzu "schedule" confirm`,
-   `/home/you/".namzu"`, `~/.nam''zu`, `~/.nam\zu`, `~/$'.namzu'`,
-   `sch$'e'dule` and `~/.nam\` then `zu/…` on the next line are refused too),
-   and a command continued over lines is read as one (`namzu \`, then
-   `schedule stop` on the next line), but not
-   through escapes inside ANSI-C quoting (`$'\x2enamzu'`), variables, aliases,
-   `eval`, globs (`~/.namz*`), brace expansion (`~/.{namzu,x}`), `..` or a
-   `cd` followed by a relative path: it is a pattern check and best effort,
-   alongside the digest and the hold above. A pattern is at most 500
-   characters, so a long `NAMZU_HOME` is matched more broadly, never more
-   narrowly, in three steps. First by only the trailing segments that fit (a
-   path elsewhere ending the same way is refused too). When even the last
-   segment read with quotes inside it does not fit, by the whole path with
-   quotes read only around its segments and inside as many trailing ones as
-   fit. When the last name does not fit even so (a name of about 80
-   letters or more), by as much of the start of that name as fits, about 85
-   letters, after any separator: every path segment that begins with it is
-   then refused, wherever it is;
+2. the scheduled-run floor (`packages/cli/src/schedule/floor.ts`), which
+   refuses a call that reaches the scheduler or `NAMZU_HOME`. It is one
+   `predicate` rule, and it decides a `bash` command line on the words bash
+   will pass, as the SDK's lexer reads them ([How command lines are
+   read](../sdk/command-lines.md)): quotes removed, `$'…'` decoded, line
+   continuations joined, each simple command on its own, the payload of a
+   nested `bash -c` or `sh -c`, every redirection target, and the words of
+   `for` lists and `case` statements. Quoting is not what it matches, so
+   `n$'\x61'mzu "sch"edule re\` then `move x` on the next line is
+   `namzu schedule remove x`, and `echo 'namzu schedule remove x'` is `echo`
+   with one argument. It refuses:
+   - **the scheduler's own commands**, wherever they stand in a command, so
+     `sudo`, `env`, `nohup` or `timeout` in front changes nothing:
+     `systemctl` with `stop`, `disable`, `mask`, `edit`, `kill`, `revert`,
+     `freeze`, `set-property` or `clean` and a unit naming namzu or a glob
+     (`'namzu*'`), `systemctl isolate` and `exit`; `launchctl` with
+     `bootout`, `unload`, `remove`, `disable`, `kill` or `stop` and a namzu
+     label; `schtasks` with `/Delete`, `/Change` or `/End` (or `-delete` …)
+     and a namzu task, in any order; `pkill` or `killall` with a pattern that
+     could match the daemon (`node`, anything naming namzu, a regular
+     expression, and under `-f` anything in the daemon's command line);
+     `busctl`, `dbus-send` or `gdbus` naming namzu; and every `namzu
+     schedule` subcommand except `list`, `show`, `status`, `history` and
+     `logs`, however the CLI is reached (`namzu`, a path to it, `npx
+     @namzu/cli`, `node …/bin.js`, `node`, `npx`, `bun` …), with options
+     between. A word that expands at runtime (`$VERB`, `"$ARGS"`) counts as
+     any word there, so `namzu schedule "$VERB"` and `namzu $ARGS` are
+     refused;
+   - **anything that resolves into `NAMZU_HOME`**: a word or redirection
+     target whose path is inside it once `~` (where bash expands it: not
+     `'~'/x` or `~"/x"`), `$HOME`, `${HOME}`, `$NAMZU_HOME`, `$PWD` and the
+     variables the line assigns are spelled out and `.` and `..` resolved,
+     anywhere in the word (`--config=/home/you/.namzu/x`), in any letter case
+     (macOS and a Windows drive read `~/.NAMZU` as `~/.namzu`). A relative
+     path is resolved against the job's folder and every directory a `cd` or
+     `pushd` before it names (`cd ~ && rm -rf .namzu`; in a loop, every `cd`
+     in the line). A word with an unknown variable or a glob in it is refused
+     when what comes before the unknown part could lead into `NAMZU_HOME`
+     (`~/.nam*`, `~/$X`, `/$X`), or what comes after it names `NAMZU_HOME`'s
+     last segment (`$X/.namzu/…`). A glob does not match a leading dot, so
+     `ls ~/*` is not refused. An assignment standing alone (`D=~/.namzu`)
+     reaches no program and is judged where `$D` is used; one passed to a
+     command or exported is judged where it stands;
+   - **what the lexer cannot account for, when it mentions what the floor
+     protects.** A line is opaque when it holds a command substitution, a
+     function, `[[ … ]]`, arithmetic on a variable, a syntax error or another
+     construct listed under [When a line is
+     opaque](../sdk/command-lines.md#when-a-line-is-opaque). A command also
+     escapes the reading when its name expands (`$S --user stop …`) or when it
+     runs text as code: a shell the lexer did not follow (`bash` reading its
+     input or a script, `sudo bash -c`, `env -S`), `eval`, `source`, `.`,
+     `xargs`, `watch`, `ssh`, `su`, `python`, `node`, `perl`, `ruby`, `awk`,
+     `sed` and the like. Such a line is refused when its text, with quotes
+     and backslashes dropped, or any decoded word names `namzu`, `schedul`,
+     `systemctl`, `launchctl`, `schtasks`, `pkill`, `killall`, `busctl`,
+     `dbus-send`, `gdbus`, `NAMZU_HOME` or its last segment, or a path into
+     it. Text such a program may run — an argument, a here-string, a
+     here-document's body — is read as a command line of its own, so
+     `echo $'…\x6e…' | sh` is refused when its decoded text would be;
+     otherwise it is not: `echo "$(date)" >> run.log` runs.
+
+   Every other tool's arguments are read as text, at any depth: a string
+   naming `NAMZU_HOME` by path, as `~/…`, `$HOME/…` or `${HOME}/…`, or as
+   `$NAMZU_HOME`, in any letter case, is refused, and so is one that would
+   once a shell dropped its quotes and backslashes (`~/.nam"z"u`).
+
+   The floor reads a line, not the programs it starts: a script file, a
+   `Makefile` target, an npm script or a git hook the run wrote earlier is
+   not read, nor is a variable the environment already holds (`cd "$DIR"`
+   then a relative path), `CDPATH`, or a symbolic link. Those rest on the
+   folder rule and the hold above. The floor's reading was checked against
+   bash 5.3: 75 000 generated lines mixing the scheduler's commands,
+   `NAMZU_HOME` paths and look-alikes in every quoting form, nested
+   `bash -c`, pipes into `sh`, here-documents, loops, `cd` and variables,
+   each run in a sandboxed bash that recorded every command's arguments, its
+   working directory and the files its descriptors opened. Every line whose
+   run reached the scheduler or `NAMZU_HOME` (24 343 of them) was refused. Of
+   the lines whose run reached neither, 10% were refused by the rules above
+   for a value the floor cannot know (an unset variable that could name
+   `NAMZU_HOME`, an exported assignment, a redirection into `NAMZU_HOME` that
+   fails before its command runs) and 26% more by the tripwire, which the
+   generator provokes on purpose; read in the `sh` dialect, where every
+   bash-only construct is opaque, the tripwire refused 63% more. None of 158
+   ordinary job command lines (builds, tests, git, `find`, loops over files,
+   reads under `~`) was refused;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;
