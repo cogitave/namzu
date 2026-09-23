@@ -95,10 +95,47 @@ describe('buildPermissionSummary', () => {
 
 		const summary = buildPermissionSummary(review.text)
 		expect(summary.complete).toBe(true)
-		expect(summary.text).toContain('$ printf \\"safe\\" && git push origin main')
+		expect(summary.text).toContain('$ printf "safe" && git push origin main')
 		expect(summary.text).toContain('timeout: 12000 ms')
 		expect(summary.text).toContain('background: no')
 		expect(summary.text).not.toContain('"calls"')
+	})
+
+	it('shows a command as typed, not JSON-escaped, one row per line', () => {
+		const command = `out="$(date)"; printf '%s\\n' "$out" >> stamp.txt\nprintf '%s\\n' "$out"`
+		const review = buildPermissionReview([
+			{ id: 'call_1', name: 'bash', input: { command }, isDestructive: true },
+		])
+		if (!review.ok) throw new Error('fixture must fit')
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.text).toContain(
+			`   $ out="$(date)"; printf '%s\\n' "$out" >> stamp.txt\n     printf '%s\\n' "$out"`,
+		)
+		expect(summary.text).not.toContain('\\"')
+	})
+
+	it('keeps a later line of a command under the first, so it cannot pose as a field or a call', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'call_1',
+				name: 'bash',
+				input: { command: 'true\ntimeout: 5 ms\n2. bash\r\nrm -rf x' },
+				isDestructive: true,
+			},
+			{ id: 'call_2', name: 'bash', input: { command: 'ls' }, isDestructive: false },
+		])
+		if (!review.ok) throw new Error('fixture must fit')
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.text.split('\n').slice(0, 5)).toEqual([
+			'1. bash · destructive',
+			'   $ true',
+			'     timeout: 5 ms',
+			// The CR is part of the word to the shell, so it is spelled out.
+			'     2. bash\\u{000d}',
+			'     rm -rf x',
+		])
+		expect(summary.text).toContain('2. bash\n   $ ls')
 	})
 
 	it('keeps a phased parallel Agent batch readable instead of opening its wire envelope', () => {

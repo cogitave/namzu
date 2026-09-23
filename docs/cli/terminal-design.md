@@ -619,6 +619,13 @@ UTF-8 byte count and, when available, the changed-region preview. The diff label
 is independent of the path. Final-newline-only changes are explicitly named.
 This display change does not grant permission to overwrite a file.
 
+A command approval shows the command as it would be typed: quotes and
+backslashes verbatim, never JSON-escaped. Each line of a multi-line command is
+its own row, the first after `$ ` and every later one indented under it, so a
+line of the command cannot pass for a field of the prompt or another call. A
+carriage return, and every other control or invisible character, is spelled
+out as `\u{....}`; `d` shows the exact input.
+
 ## Task continuity in the CLI prompt
 
 The CLI identity describes Namzu as an agent kernel with a TypeScript SDK and
