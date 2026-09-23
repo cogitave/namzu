@@ -35,13 +35,15 @@
  * quadratic parse was costing, moved rather than removed.
  *
  * Two, not one, because the block still being written is not always the last
- * segment. A half-typed table row is not yet a table row — `| 1 | 2` has no
- * closing pipe — so it scans as a paragraph of its own, and the table above it
- * becomes the second-to-last segment while still growing a row at a time. One
- * excluded segment would have cached that table once per row, at increasing
- * size. The line being typed can reach back exactly one segment and no further:
- * it can be absorbed by the block above it, and that block is maximal, so there
- * is nothing for it to reach past.
+ * segment. A line still arriving can begin as something of its own and then
+ * turn out to belong to the block above it — a lone `| a | b |` is a paragraph
+ * until the separator under it makes it a table's header — so the block above
+ * the last one can still change. One excluded segment would cache such a block
+ * once per line, at increasing size. The line being typed can reach back
+ * exactly one segment and no further: it can be absorbed by the block above
+ * it, and that block is maximal, so there is nothing for it to reach past.
+ * (A table's half-typed row no longer does even that: every line with a pipe
+ * after the separator is a row of the table, typed or not.)
  *
  * The cost of the wider exclusion is one extra parse per block over the life of
  * the message, against a saving of one per block per token.

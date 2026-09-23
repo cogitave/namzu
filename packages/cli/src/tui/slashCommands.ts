@@ -1788,6 +1788,11 @@ export function renderPermissions(
 			'Destructive calls still require review; the selected mode decides whether to allow, ask or refuse. Plan mode still requires read-only tools.',
 		)
 	}
+	if (effective === 'prompt' || effective === 'accept-edits' || effective === 'plan') {
+		lines.push(
+			'Read-only agents (explore, or an agent file with readOnly: true) on the session model start without asking; each call they make is still reviewed. A permissions rule Agent: "ask" asks about every launch.',
+		)
+	}
 	if (permissions.rules.length > 0) {
 		lines.push(
 			`Rules (${permissions.rules.length}):`,

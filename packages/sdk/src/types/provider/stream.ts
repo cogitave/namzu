@@ -16,6 +16,16 @@ export interface StreamChunk {
 			id: string
 			name: 'web_search'
 			status: 'running' | 'completed' | 'failed'
+			/**
+			 * What the provider searched for, when it says. Often absent on
+			 * `running` and present on the terminal chunk: a provider may decide
+			 * the query while the call is already under way.
+			 */
+			query?: string
+			/** The page the provider opened or searched within, for a page action rather than a query. */
+			url?: string
+			/** How many sources the provider reported for this call. Absent means unknown, not zero. */
+			results?: number
 		}
 
 		content?: string

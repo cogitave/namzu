@@ -36,6 +36,46 @@ like `workflow`, `phase` and `phase_order`: it creates no dependencies,
 barriers or serial execution. The first agent to declare a phase's detail
 sets it; a later sibling in the same phase cannot change it.
 
+## Which launches are asked about
+
+In `prompt` mode (the default with a person at the terminal) an `Agent` call
+that starts a **read-only child on the session's own provider and model**
+starts without the "Start an agent" review. That is:
+
+- `subagent_type: "explore"`, or a project or user agent file with
+  `readOnly: true` (a file that reuses the name `explore` is judged by its own
+  `readOnly`);
+- with no `provider`, no `effort`, and no `model` other than the session's own;
+  and, for an agent file, no `model` in the file other than the session's own.
+
+Starting such a child grants nothing by itself. Its roster holds only tools
+that declare themselves read-only, so a `write` it asks for is not a tool it
+has; and every call it makes is still reviewed under the parent turn's live
+mode, exactly as before — a network tool such as `web_search` included. What
+the operator is no longer asked is whether a reader may start. The cost it can
+run up is bounded by the tree budget the turn already carries.
+
+Every other launch is reviewed as before: a general-purpose agent, an agent
+file without `readOnly: true`, and a read-only agent sent to another provider
+or model or given an effort. A batch that mixes a read-only launch with any of
+those is reviewed as one batch.
+
+By mode:
+
+| Mode | Read-only launch on the session model | Any other launch |
+|---|---|---|
+| `prompt` | starts | asked |
+| `accept-edits` | starts | asked |
+| `plan` | starts (reading is what plan mode is for) | refused with the plan-mode feedback |
+| `strict` | refused unless a rule allows `Agent` | refused unless a rule allows `Agent` |
+| `auto` | starts | starts |
+
+**To keep every launch asked about**, as before this change, add an `ask` rule
+for the tool: `"permissions": { "Agent": "ask" }` in `namzu.config.json` or
+`~/.namzu/config.yaml`. An `ask` rule is an explicit review, which no
+exemption skips; under it `plan` refuses a read-only launch again, as it did
+before. `/permissions` says which launches start without asking.
+
 Reviews identify the requesting agent by its exact child session ID in the activity monitor. If the child has not appeared in the monitor, the full session ID is shown instead of guessing an agent. This attribution stays with each queued review.
 
 Concurrent permission requests are queued in arrival order. The current review
@@ -76,7 +116,7 @@ what was said without opening the child's screen. Each side shows the message
 exactly once, however many times the surface re-renders.
 
 `narrate_work` takes one `line` and shows it to the operator directly above the
-agent rail, outside the rail's border, in the parent's own voice. It starts,
+agent rail, outside the rail's tree, in the parent's own voice. It starts,
 corrects, stops and re-orders nothing: the line is commentary about work the
 rail already reports, and no surface reads it back. Only the three most recent
 lines stay on screen — a further line drops the oldest — each is clipped to one
@@ -120,12 +160,37 @@ presented as trusted narration, which is what wrapping a child's output as
 untrusted exists to prevent. If child narration is ever offered, it goes
 through that same wrapping and is attributed to the child by name.
 
-Each observed agent completion adds one named status row to the main transcript,
-whether or not the model calls `wait_for_task`. A correlated wait shows
-`Waiting · <task name>` while active; its successful protocol response does not
-add a second report to the transcript. Unknown waits and tool errors remain
+Each batch of agents one response launched adds one launch receipt to the main
+transcript, `● Launched 2 agents · <workflow> / <phase>` with the agents named
+beneath it, always below the text of the response that launched them, and each observed agent completion adds one named row, whether or
+not the model calls `wait_for_task`: `✓ <name> · 1.7s · 9.0k tokens`, or
+`✗ <name> · failed after 2.9s · <reason>`. A completed agent's final answer is
+attached to its row, collapsed; Ctrl+O opens it, in place while the row is
+live and in the output viewer once it has settled into history. A turn that launched agents
+ends with `✻ Worked for <time> · <N> agents`, adding `in <N> phases` when the
+model named two or more, the tokens the agents spent when any reported them,
+and `<N> failed` when one failed. See
+[Terminal design](terminal-design.md#delegated-work-in-the-conversation) for
+the layout. When every running call is a correlated wait, the rows fold into
+one `✻ Waiting for N agents to finish` line; a wait beside other work keeps its
+own `Waiting · <task name>` row. Its successful protocol response does not add
+a second report to the transcript. Unknown waits and tool errors remain
 visible. Press Ctrl+T to inspect agent transcripts and results. Failed, cancelled
 and incomplete work keeps its reported status rather than appearing completed.
+
+The automatic rail stays on screen while an approval dialog is open, reduced to
+its header line, so agents already approved can be seen working while the next
+launch is decided. The reduced header names no key, since the dialog holds ↓
+and Ctrl+T until it closes. Read-only launches start without a review; see
+[Which launches are asked about](#which-launches-are-asked-about).
+
+A workflow split into phases (one `workflow` label, several `phase` labels)
+stays on the rail as one piece for the whole parent turn and is drawn by
+phase: a settled phase as one line with its count and time, a live one with
+its agents beneath it. The rail's header counts done agents across every
+phase (`2/3 done`), with the time since the first started and the spend so
+far. The agent cockpit opens on the phase that is still working. See
+[Terminal design](terminal-design.md) for both.
 
 Completion reaches the parent as a task notification. `wait_for_task` retrieves
 the result without launching duplicate work. Background work keeps the same
@@ -199,7 +264,8 @@ the cockpit already drops its other secondary text there.
 Each row in the automatic rail, the agent cockpit and the child transcript
 header shows the child's status, elapsed time, description and — when the
 host reported them — its resolved model and live counters: cumulative spend
-compacted to `42.1k`/`1.38M` and a `· N tools` tool-call count, both drawn
+compacted to `42.1k`/`1.38M` and a `N tools` tool-call count (the rail puts the
+tool count and spend before the model, the cockpit after it), both drawn
 from the same session events the transcript itself renders and never a percentage
 or fill bar. Spend is the child's cumulative usage, not its current context
 size, which is a different number that falls on compaction. A child that has
@@ -229,7 +295,11 @@ allowance.
 ## Child model selection
 
 `Agent` accepts optional `model`, `provider` and `effort` fields. With no selection,
-the child inherits the session model (or its file-defined agent model). Provider
+the child inherits the session model (or its file-defined agent model). A `model`
+equal to the session's own, with no `provider` or `effort`, is the same as no
+selection: the child runs on the session's provider and the catalogue is not
+consulted, so it never lands on another provider that lists the same id. Over an
+agent file that names another model, it is still a selection. Provider
 and effort overrides require an explicit model. Selection creates a separate
 provider instance and never switches the parent conversation. Explicit provider,
 model and effort are visible in the compact approval plan and its detailed view. The child's tool

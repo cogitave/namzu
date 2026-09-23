@@ -66,8 +66,10 @@ omit the internal provenance wrapper; the model and durable raw result retain it
 inside the provider request, without a local-tool approval prompt. The following
 native protocol details apply to that optional backend.
 
-The CLI displays search activity and completion. URL annotations missing from the
-answer's text are appended as a Sources list. Native response items, including
+The CLI displays each search as a row naming its query, with a live `⎿` status
+that settles to the result count and time (see
+[Terminal design](terminal-design.md#web-searches-and-fetches)). URL annotations
+missing from the answer's text are appended as a Sources list. Native response items, including
 search calls and annotations, remain in the assistant's provider replay state;
 matching-route continuation reuses them. Cross-provider continuation retains the
 readable answer and source links, not another provider's private protocol items.
@@ -80,7 +82,12 @@ Drivers explicitly declare `supportsHostedWebSearch` and may refine it with
 that refinement, and fallback chains require support from every selected member.
 Hosted work emits
 `StreamChunk.delta.hostedTool`, translated to durable `hosted_tool` session events
-and `hosted.tool` SSE events. These are observations, never executable tool calls.
+and `hosted.tool` SSE events. Besides `id`, `name` and `status`, a hosted tool
+may carry `query` (what was searched for), `url` (a page the provider opened
+instead of running a query) and `results` (the number of sources it reported);
+each is absent when the provider does not say. Codex reads them from the
+search call's action, Anthropic from the search block's input and its result
+list, Google from the grounding metadata. These are observations, never executable tool calls.
 A2A exposes the resulting answer rather than a separate hosted-activity event.
 
 Once hosted activity begins, provider fallback cannot restart that request on a

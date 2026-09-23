@@ -142,8 +142,30 @@ it is never a `ReasoningEffort` value, so `/effort orchestrate` reports
 `unavailable for this model`, the same refusal `ultracode` gets, because
 neither name is an effort level a provider publishes. When the `/effort`
 picker can open (an exact menu, even an explicitly empty one, is known), the
-mode also appears there as its own row below a rule, visually apart from the
-levels above it. Turning the mode on pins reasoning effort to the model's
+mode also appears there as its own stop, visually apart from the levels.
+
+On a terminal wide enough to hold every stop on one row (at least 60 columns),
+the picker is a left-to-right slider:
+
+```text
+  Faster                                              Smarter
+  ───▲──────────────────────────────────────────┆────────────
+  default   low   medium   high   xhigh   max   ┆ orchestrate
+                                                  max + delegate by default
+```
+
+The stops are `default`, the model's published levels from low to high, and
+then `orchestrate` after a `┆`, in violet, with `<highest level> + delegate by
+default` beneath it, whole: on a terminal where it would run past the right
+edge it moves left to end inside it. The `▲` marks the stop Enter applies; the current setting's
+label is green. ←/→ move it and stop at the ends; ↑/↓ do the same; a digit
+selects a stop directly; Home and End jump to the ends; Enter applies; Esc goes
+back. On the highest level and on `orchestrate` a line says they spend the most
+tokens and time; it wraps rather than being cut, and its rows are kept blank on
+the other stops so the picker does not change height as the caret moves. A narrower terminal, or a menu too long for one row, gets the
+vertical list, with `orchestrate` as its own row below a rule. There is no
+separate key for "this session only": the setting already lasts only for the
+session. Turning the mode on pins reasoning effort to the model's
 highest published level — the last entry of the menu, since every provider
 publishes low-to-high — and strengthens the delegation guidance for future
 turns in this session, from "delegate genuinely independent work" toward
@@ -216,6 +238,11 @@ rule, including when it precedes a broader wildcard `allow`. It also prevents
 automatic read-only exemptions in prompt modes. Omitting a rule keeps the normal
 read-only default. Auto mode and already granted approvals retain their meaning.
 
+`/permissions details` also says, in `prompt`, `accept-edits` and `plan`, that
+a read-only agent (`explore`, or an agent file with `readOnly: true`) on the
+session's model starts without asking, and that a rule `Agent: "ask"` asks
+about every launch. See [Delegated work](delegated-work.md#which-launches-are-asked-about).
+
 ## Goals and task scope
 
 `/goal` opens actions appropriate to the saved goal. `/goal set` and
@@ -286,7 +313,7 @@ terminals place descriptions below labels.
 - **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
 - **Esc** while a turn runs interrupts it. **Ctrl+C** is reserved for exit.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`. It works mid-turn, and the footer is its only reply: nothing is added to the transcript.
-- **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
+- **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies; with the live output already open, the next press opens the newest output that has settled into history. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
 

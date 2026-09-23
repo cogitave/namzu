@@ -297,6 +297,22 @@ export interface SubagentRuntime {
 	 */
 	readonly narrationTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
+	/**
+	 * Whether this `Agent` input starts a child that can only read, on the
+	 * session's own provider and model.
+	 *
+	 * True for `subagent_type: "explore"` and for a file-defined agent whose
+	 * file says `readOnly: true`, and only while the launch names no
+	 * `provider`, no `effort` and no `model` other than the one the child
+	 * would inherit anyway, and the file names no other model either. A
+	 * project file that reuses the name `explore` is judged by its own
+	 * `readOnly`, since that file is what the launch would start.
+	 *
+	 * The host reads this to decide whether the launch itself is asked about;
+	 * nothing the child then does is affected — its calls reach the parent's
+	 * review exactly as before, and its roster has no tool that writes.
+	 */
+	launchesReadOnlyAgent(input: unknown): boolean
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
 	/** Stop every child still owned by this parent session. Idempotent. */
@@ -784,9 +800,25 @@ export async function createSubagentRuntime(
 			}
 			if (!requestedModel && (requestedProvider || requestedEffort))
 				throw new Error('Supply model when selecting a child provider or effort.')
-			if (requestedModel && !opts.resolveModel)
+			const explore = subagent_type === EXPLORE_SUBAGENT
+			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
+			// Naming the session's own model, with no provider or effort, is
+			// inheriting it: the child runs where the parent runs. Resolving it
+			// would let the model catalogue pick any other provider that lists
+			// the same id when the session's own listing fails or omits it, and
+			// `launchesReadOnlyAgent` starts such a launch without review on the
+			// promise that it stays on the session's provider. Over a file that
+			// pins another model, naming the session's model is still a choice
+			// and is resolved as before.
+			const selects =
+				requestedModel !== undefined &&
+				(requestedModel !== opts.model ||
+					requestedProvider !== undefined ||
+					requestedEffort !== undefined ||
+					(fileAgent?.model !== undefined && fileAgent.model !== opts.model))
+			if (selects && !opts.resolveModel)
 				throw new Error('Child model selection is unavailable in this host.')
-			const selection = requestedModel
+			const selection = selects
 				? await opts.resolveModel?.(
 						{
 							model: requestedModel,
@@ -796,8 +828,6 @@ export async function createSubagentRuntime(
 						context.abortSignal,
 					)
 				: undefined
-			const explore = subagent_type === EXPLORE_SUBAGENT
-			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
 			let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
 			const persona = typeof role === 'string' ? role.trim() : ''
 			const dynamic = persona.length > 0 || selection !== undefined
@@ -1309,6 +1339,18 @@ export async function createSubagentRuntime(
 		sendMessageTool,
 		narrationTool,
 		allowedAgentIds: agentTypeIds,
+		launchesReadOnlyAgent(input: unknown): boolean {
+			if (typeof input !== 'object' || input === null) return false
+			const fields = input as Record<string, unknown>
+			if (fields.provider !== undefined || fields.effort !== undefined) return false
+			const inherits = (model: unknown): boolean => model === undefined || model === opts.model
+			if (!inherits(fields.model)) return false
+			const type = fields.subagent_type
+			if (typeof type !== 'string') return false
+			const fileAgent = fileAgents.get(type)
+			if (fileAgent) return fileAgent.readOnly && inherits(fileAgent.model)
+			return type === EXPLORE_SUBAGENT
+		},
 		activity,
 		close,
 	}

@@ -724,7 +724,10 @@ describe('the external draft editor', () => {
 			screen.press('first')
 			screen.press('\n')
 			screen.press('second')
-			screen.press(pasted)
+			// A bracketed paste: long, one line, and marked by the terminal as a
+			// paste, so it is held as a chip. (Unmarked type-ahead of the same
+			// length is typed text — see composer-bracketed-paste.test.tsx.)
+			screen.press(`\x1b[200~${pasted}\x1b[201~`)
 			screen.press('\x16')
 			await screen.waitForRender()
 			expect(screen.viewport().join('\n')).toContain('Image #1')

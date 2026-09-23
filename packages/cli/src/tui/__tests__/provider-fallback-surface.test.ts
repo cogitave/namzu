@@ -146,3 +146,36 @@ it('presents hosted search as a single activity label without a repeated success
 		toAgentEvent({ ...event, tool: { ...event.tool, status: 'failed' } }, presenter),
 	).toMatchObject({ kind: 'tool-end', summary: 'Provider-hosted search failed', isError: true })
 })
+
+it('names a hosted search by its query, and a page action by its address', () => {
+	const event = {
+		type: 'hosted_tool',
+		sessionId: '019a0000-0000-7000-8000-0000000000f1',
+		turnId: (fallbackEvent() as { turnId: string }).turnId,
+		iteration: 1,
+		tool: { id: 'search-1', name: 'web_search', status: 'running', query: 'OpenClaw runtime' },
+	} as unknown as Extract<SessionEvent, { type: 'hosted_tool' }>
+	expect(toAgentEvent(event, presenter)).toMatchObject({
+		kind: 'tool-start',
+		summary: 'Web search("OpenClaw runtime")',
+		web: { kind: 'search', target: 'OpenClaw runtime', hosted: true },
+	})
+	expect(
+		toAgentEvent({ ...event, tool: { ...event.tool, status: 'completed', results: 4 } }, presenter),
+	).toMatchObject({
+		kind: 'tool-end',
+		web: { kind: 'search', target: 'OpenClaw runtime', results: 4 },
+	})
+	expect(
+		toAgentEvent(
+			{
+				...event,
+				tool: { id: 'open-1', name: 'web_search', status: 'running', url: 'https://docs.dev/a' },
+			},
+			presenter,
+		),
+	).toMatchObject({
+		summary: 'Web fetch(https://docs.dev/a)',
+		web: { kind: 'fetch', target: 'https://docs.dev/a' },
+	})
+})

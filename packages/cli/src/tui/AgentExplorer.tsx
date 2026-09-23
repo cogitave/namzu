@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react'
 import stringWidth from 'string-width'
 
 import {
+	DEFAULT_AGENT_PHASE,
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 	type SubagentActivityStatus,
 	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import { formatElapsed } from './LiveActivity.js'
+import { formatCompactCount } from './units.js'
 import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { truncateChoiceText } from './terminal-choice-text.js'
@@ -67,9 +69,9 @@ export interface AgentNarrationBandProps {
 }
 
 /**
- * The parent's own commentary, directly above the rail and OUTSIDE its border.
+ * The parent's own commentary, directly above the rail and outside its tree.
  *
- * Outside is the point. Inside the frame these rows would read as chrome the
+ * Outside is the point. Inside the tree these rows would read as chrome the
  * panel emitted about its agents; above it, unboxed and aligned with the
  * rail's inner text, they read as the turn talking — which is what they are
  * (see {@link SubagentNarrationLine} for why only the parent may write one).
@@ -94,8 +96,8 @@ export interface AgentNarrationBandProps {
 export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
 	if (lines.length === 0) return null
 	return (
-		// paddingX 2 lands the text where the rail's own inner text starts —
-		// past its border and its padding — so the two columns line up.
+		// paddingX 2 lands the text where the rail's title starts — past its
+		// two-cell header glyph — so the two columns line up.
 		<Box flexDirection="column" paddingX={2}>
 			{lines.map((line) => (
 				<Box key={line.id}>
@@ -112,6 +114,12 @@ export interface AgentTaskPanelProps {
 	readonly agents: readonly SubagentActivity[]
 	readonly terminalRows: number
 	readonly terminalColumns: number
+	/**
+	 * Draw the header line only. Used while a review owns the screen: the
+	 * operator still sees that the work they already approved is moving,
+	 * without the rows competing with the question being asked.
+	 */
+	readonly compact?: boolean
 }
 
 /**
@@ -121,12 +129,21 @@ export interface AgentTaskPanelProps {
  * above it and the operator can keep typing while children run. Completed
  * siblings remain until their last live sibling settles, then the whole
  * cohort leaves this projection together.
+ *
+ * Drawn as a borderless tree aligned with the transcript's own gutter — a
+ * header line, then one `├`/`└` branch per agent with its latest activity on
+ * a `⎿` line beneath it — rather than as a boxed panel: the rows are the
+ * turn's live work, not chrome around it.
  */
-export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentTaskPanelProps) {
+export function AgentTaskPanel({
+	agents,
+	terminalRows,
+	terminalColumns,
+	compact = false,
+}: AgentTaskPanelProps) {
 	const now = useLiveNow(true)
+	const activityLines = agentTaskPanelShowsActivity(terminalRows)
 	const pageSize = agentTaskPanelPageSize(terminalRows)
-	const visible = agents.slice(0, pageSize)
-	const hidden = agents.length - visible.length
 	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
 	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
 	const workflowLabel = workflows.length === 1 ? workflows[0] : undefined
@@ -134,72 +151,235 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 	// absent one (every agent still carries the unlabelled default) or a mix
 	// of several distinct labels falls back to a neutral count instead of the
 	// generic default name, which named nothing about THESE agents.
-	const title =
-		workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
-			? workflowLabel
-			: `${agents.length} agent${agents.length === 1 ? '' : 's'} · ${active} running`
+	const labelled = workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
+	const title = labelled
+		? workflowLabel
+		: `${agents.length} agent${agents.length === 1 ? '' : 's'}`
 	const narrow = terminalColumns < 64
 	const showModel = !narrow && terminalColumns >= 76
 	const showCounters = !narrow && terminalColumns >= 96
+	// A workflow the model split into several phases is drawn the way its
+	// phases went: a settled phase is one line (`✓ Phase 1 · 2/2 · 3.9s`), a
+	// live one is its line with its agents beneath it. One phase is drawn as
+	// before, the agents straight under the header.
+	const phases = agentPhases(agents)
+	const phased = phases.length > 1
+	const groups = (phased ? phases : [{ id: 'all', agents } as const]).map((phase) => ({
+		phase: phased ? (phase as AgentPhase) : undefined,
+		agents: [...phase.agents],
+	}))
+	// The page budget is spent on agents of live phases only; a settled
+	// phase costs its one line, and on a short screen not even that.
+	let budget = compact ? 0 : pageSize
+	const drawn = groups.map((group) => {
+		const settled = group.phase !== undefined && isTerminalStatus(group.phase.status)
+		if (settled) return { ...group, settled, visible: [] as SubagentActivity[] }
+		const visible = group.agents.slice(0, Math.max(0, budget))
+		budget -= visible.length
+		return { ...group, settled, visible }
+	})
+	const hidden = compact
+		? 0
+		: drawn.reduce(
+				(sum, group) => sum + (group.settled ? 0 : group.agents.length - group.visible.length),
+				0,
+			)
+	const showSettledPhases = !compact && activityLines
+	const running = agents.filter(
+		(agent) => agent.status === 'working' || agent.status === 'starting',
+	).length
+	const queued = agents.filter((agent) => agent.status === 'queued').length
+	const done = agents.length - active
+	const startedAt = Math.min(...agents.map((agent) => agent.startedAt))
+	const spent = agents.reduce<number | undefined>(
+		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+		undefined,
+	)
+	// Narrow or wide, the count is the reference's `done/total`, the same
+	// figure the cockpit header and each phase line carry, so one moment
+	// never reads as two different numbers.
+	const counts = narrow
+		? `${done}/${agents.length} done${hidden > 0 ? ` +${hidden}` : ''}`
+		: [
+				`${running} running`,
+				...(queued > 0 ? [`${queued} queued`] : []),
+				// The reference's own counter: how much of this workflow is done.
+				...(done > 0 ? [`${done}/${agents.length} done`] : []),
+				...(showCounters
+					? [
+							formatElapsed(Math.max(0, now - startedAt)),
+							...(spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+						]
+					: []),
+				// A review owns the keyboard, so neither key reaches the rail while
+				// the panel is reduced for one: it names no key it cannot keep.
+				...(compact ? [] : ['↓ / ctrl+t']),
+			].join(' · ')
 
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="single"
-			borderColor={theme.border.default}
-			paddingX={1}
-		>
+		<Box flexDirection="column">
 			<Box>
-				<Box flexGrow={1} flexShrink={1}>
+				<Box width={2} flexShrink={0}>
+					<Text color={active > 0 ? theme.accent.assistant : theme.status.ok}>
+						{active > 0 ? '●' : '✓'}
+					</Text>
+				</Box>
+				<Box flexShrink={1} minWidth={0}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
 						{terminalDisplayText(title)}
 					</Text>
 				</Box>
-				<Box flexShrink={0} marginLeft={1}>
-					<Text color={theme.text.muted}>
-						{narrow
-							? `${active}/${agents.length}${hidden > 0 ? ` +${hidden}` : ''}`
-							: `${active} active · ${agents.length} total${hidden > 0 ? ` · +${hidden} more` : ''} · ↓ / ctrl+t`}
-					</Text>
+				<Box flexShrink={0}>
+					<Text color={theme.text.muted}> · {counts}</Text>
 				</Box>
 			</Box>
-			{visible.map((agent) => {
-				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
-				const meta = agentMetaParts(agent, { showModel, showCounters })
+			{drawn.map((group) => {
+				const phase = group.phase
+				if (phase && group.settled && !showSettledPhases) return null
+				const indent = phase ? 4 : 2
 				return (
-					<Box key={agent.viewId}>
-						<Box width={narrow ? 2 : 3} flexShrink={0}>
-							<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
-						</Box>
-						<Box width={narrow ? undefined : 28} flexGrow={narrow ? 1 : 0} flexShrink={1}>
-							<Text color={theme.text.primary} wrap="truncate-end">
-								{oneLine(agent.description || agent.agentId)}
-							</Text>
-						</Box>
-						<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
-							<Text color={theme.text.secondary} wrap="truncate-end">
-								{elapsed}
-								{!narrow && agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
-							</Text>
-						</Box>
-						{meta.length > 0 ? (
-							<Box flexShrink={0} marginLeft={1}>
-								<Text color={theme.text.muted} wrap="truncate-end">
-									{meta.join(' · ')}
-								</Text>
+					<Box key={phase?.id ?? 'all'} flexDirection="column">
+						{phase ? (
+							<Box paddingLeft={2}>
+								<Box width={2} flexShrink={0}>
+									<Text color={statusColor(phase.status)}>{statusGlyph(phase.status)}</Text>
+								</Box>
+								<Box flexShrink={1} minWidth={0}>
+									<Text
+										color={group.settled ? theme.text.secondary : theme.text.primary}
+										wrap="truncate-end"
+									>
+										{oneLine(phase.name)}
+									</Text>
+								</Box>
+								<Box flexShrink={0}>
+									<Text color={theme.text.muted}>
+										{' · '}
+										{phaseProgress(phase)}
+										{group.settled ? ` · ${formatElapsed(phaseElapsed(phase, now))}` : ''}
+									</Text>
+								</Box>
 							</Box>
 						) : null}
+						{group.visible.map((agent, index) => {
+							const last =
+								index === group.visible.length - 1 &&
+								group.agents.length === group.visible.length &&
+								(phase !== undefined || hidden === 0)
+							// Clamped: a child begun after this panel's last clock tick would
+							// otherwise read `-0.0s` until the next one.
+							const elapsed = formatElapsed(
+								Math.max(0, (agent.completedAt ?? now) - agent.startedAt),
+							)
+							const meta = agentRailMetaParts(agent, { showModel, showCounters })
+							const agentRunning = !isTerminalStatus(agent.status)
+							const activity = agentRunning ? railActivity(agent) : undefined
+							return (
+								<Box key={agent.viewId} flexDirection="column">
+									<Box paddingLeft={indent}>
+										<Box width={2} flexShrink={0}>
+											<Text color={theme.text.muted}>{last ? '└' : '├'}</Text>
+										</Box>
+										<Box width={2} flexShrink={0}>
+											<Text color={statusColor(agent.status)}>{statusGlyph(agent.status)}</Text>
+										</Box>
+										<Box
+											width={narrow ? undefined : 28 - (indent - 2)}
+											flexGrow={narrow ? 1 : 0}
+											flexShrink={1}
+										>
+											<Text color={theme.text.primary} wrap="truncate-end">
+												{oneLine(agent.description || agent.agentId)}
+											</Text>
+										</Box>
+										<Box flexGrow={narrow ? 0 : 1} flexShrink={1} marginLeft={1}>
+											<Text color={theme.text.secondary} wrap="truncate-end">
+												{agent.status === 'queued' ? 'queued' : elapsed}
+												{!narrow && !activityLines && activity ? ` · ${activity}` : ''}
+											</Text>
+										</Box>
+										{meta.length > 0 ? (
+											<Box flexShrink={0} marginLeft={1}>
+												<Text color={theme.text.muted} wrap="truncate-end">
+													{meta.join(' · ')}
+												</Text>
+											</Box>
+										) : null}
+									</Box>
+									{activityLines && activity ? (
+										<Box paddingLeft={indent}>
+											<Box width={4} flexShrink={0}>
+												<Text color={theme.text.muted}>{last ? ' ' : '│'}</Text>
+											</Box>
+											<Box flexShrink={1} minWidth={0}>
+												<Text color={theme.text.secondary} wrap="truncate-end">
+													⎿ {activity}
+												</Text>
+											</Box>
+										</Box>
+									) : null}
+								</Box>
+							)
+						})}
 					</Box>
 				)
 			})}
+			{hidden > 0 ? (
+				<Box paddingLeft={2}>
+					<Text color={theme.text.muted}>└ +{hidden} more · ctrl+t</Text>
+				</Box>
+			) : null}
 		</Box>
 	)
 }
 
-/** Rows the compact panel may spend without crowding the composer/footer. */
+/**
+ * Whether each running agent gets its own `⎿ activity` line. On a short
+ * terminal the activity stays inline after the elapsed time instead, so the
+ * rail keeps one row per agent where rows are scarcest.
+ */
+export function agentTaskPanelShowsActivity(terminalRows: number | undefined): boolean {
+	return terminalRows !== undefined && Number.isFinite(terminalRows) && terminalRows >= 24
+}
+
+/**
+ * Agents the compact panel may show without crowding the composer/footer.
+ * An agent costs two rows where activity lines are drawn and one elsewhere,
+ * so the budget in ROWS stays what it was when every agent took one.
+ */
 export function agentTaskPanelPageSize(terminalRows: number | undefined): number {
 	if (terminalRows === undefined || !Number.isFinite(terminalRows)) return 2
-	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / 3)))
+	const rowsPerAgent = agentTaskPanelShowsActivity(terminalRows) ? 2 : 1
+	return Math.max(1, Math.min(4, Math.floor((terminalRows - 12) / (3 * rowsPerAgent))))
+}
+
+/** What the running agent is doing now, or its status when it has said nothing yet. */
+function railActivity(agent: SubagentActivity): string {
+	if (agent.status === 'queued') return 'Waiting for a slot'
+	return distinctActivity(agent) ?? statusLabel(agent.status)
+}
+
+/**
+ * The rail's own ordering: tool uses and spend first, then the model, with
+ * counters dropped first on a narrow screen. The saved marker, when present,
+ * leads for the reason `agentMetaParts` gives.
+ */
+function agentRailMetaParts(
+	agent: SubagentActivity,
+	options: { readonly showModel: boolean; readonly showCounters: boolean },
+): readonly string[] {
+	const parts: string[] = []
+	if (agent.replayed) parts.push('saved')
+	if (options.showCounters) {
+		if (agent.toolCalls !== undefined) {
+			parts.push(`${agent.toolCalls} ${agent.toolCalls === 1 ? 'tool' : 'tools'}`)
+		}
+		if (agent.tokens !== undefined) parts.push(formatCompactCount(agent.tokens))
+	}
+	if (options.showModel && agent.model) {
+		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
+	}
+	return parts
 }
 
 /**
@@ -221,8 +401,14 @@ export function activeSubagentCohorts(
 	return live.filter((agent) => activeCohorts.has(agentCohortKey(agent)))
 }
 
+/**
+ * What stays on the rail together. A labelled workflow is one cohort across
+ * every batch of its parent turn, so a settled Phase 1 is still drawn while
+ * Phase 2 runs; an unlabelled batch is its own cohort, as it always was
+ * (`workflowGroupId` is exactly that split, made by the monitor).
+ */
 function agentCohortKey(agent: SubagentActivity): string {
-	return JSON.stringify([agent.workflowId, agent.batchId])
+	return agent.workflowGroupId
 }
 
 export type AgentCockpitFocus = 'workflows' | 'phases' | 'agents'
@@ -381,7 +567,7 @@ export function AgentCockpit({
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{active} active · {totalWorkflowAgents} total
+						{workflow ? workflowProgress(workflow, now, terminalColumns) : ''}
 					</Text>
 				</Box>
 			</Box>
@@ -401,6 +587,7 @@ export function AgentCockpit({
 						pageSize={compact ? 1 : agentPhasePageSize(terminalRows, wide)}
 						paneWidth={phasePaneWidth ?? Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)}
 						showDetail={!compact}
+						now={now}
 					/>
 				</Box>
 				{sideBySide ? (
@@ -423,12 +610,21 @@ export function AgentCockpit({
 				>
 					<AgentPane
 						agents={phaseAgents}
+						{...(selectedPhase && selectedPhase.name !== DEFAULT_AGENT_PHASE
+							? { phaseName: selectedPhase.name }
+							: {})}
 						selected={selectedAgentIndex}
 						focused={focus === 'agents'}
 						pageSize={compact ? 1 : agentPickerPageSize(terminalRows, wide)}
 						now={now}
 						wide={wide}
 						terminalColumns={terminalColumns}
+						detailWidth={Math.floor(
+							Math.max(
+								2,
+								terminalColumns - COCKPIT_FRAME_COLUMNS - (phasePaneWidth ?? 0) - (sideBySide ? 3 : 0),
+							) / 2,
+						)}
 					/>
 				</Box>
 			</Box>
@@ -448,8 +644,11 @@ function PhasePane({
 	pageSize,
 	paneWidth,
 	showDetail,
+	now,
 }: {
 	readonly phases: readonly AgentPhase[]
+	/** The cockpit's clock, for each phase's first-start-to-last-finish time. */
+	readonly now: number
 	readonly selected: number
 	readonly focused: boolean
 	readonly pageSize: number
@@ -467,6 +666,8 @@ function PhasePane({
 	readonly showDetail: boolean
 }) {
 	const { start, items } = selectionWindow(phases, selected, pageSize)
+	// A narrow pane keeps the count and gives the time up first.
+	const showElapsed = paneWidth >= 28
 	// "Focused" here is the phase carrying the `›` cursor, not which sub-pane
 	// currently holds keyboard focus — the detail stays visible while the
 	// operator drills into that phase's agents.
@@ -478,7 +679,9 @@ function PhasePane({
 	return (
 		<>
 			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
-				Phases {phases.length > 0 ? `· ${selected + 1}/${phases.length}` : ''}
+				{/* No count: every `N/M` beside a phase or a workflow reads done out
+				    of total, so a cursor position here would read as progress. */}
+				Phases
 			</Text>
 			{items.map((phase, visibleIndex) => {
 				const active = start + visibleIndex === selected
@@ -500,7 +703,10 @@ function PhasePane({
 							</Text>
 						</Box>
 						<Box flexShrink={0} marginLeft={1}>
-							<Text color={statusColor(phase.status)}>{phaseProgress(phase)}</Text>
+							<Text color={statusColor(phase.status)}>
+								{phaseProgress(phase)}
+								{showElapsed ? ` · ${formatElapsed(phaseElapsed(phase, now))}` : ''}
+							</Text>
 						</Box>
 					</Box>
 				)
@@ -527,14 +733,23 @@ function PhasePane({
 
 function AgentPane({
 	agents,
+	phaseName,
 	selected,
 	focused,
 	pageSize,
 	now,
 	wide,
 	terminalColumns,
+	detailWidth,
 }: {
 	readonly agents: readonly SubagentActivity[]
+	readonly phaseName?: string
+	/**
+	 * Cells for the status and meta half of a wide row, worked out from the
+	 * pane's width. As `50%` the row came out one cell wider than its pane,
+	 * and its last character sat on the frame's padding, touching the border.
+	 */
+	readonly detailWidth?: number
 	readonly selected: number
 	readonly focused: boolean
 	readonly pageSize: number
@@ -547,8 +762,12 @@ function AgentPane({
 	const showCounters = wide && terminalColumns >= 120
 	return (
 		<>
-			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
-				Agents {agents.length > 0 ? `· ${selected + 1}/${agents.length}` : ''}
+			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold wrap="truncate-end">
+				{/* Titled by the phase it lists, as the reference's panel is: the
+				    operator reads which phase these are without looking left. */}
+				{phaseName !== undefined ? `${oneLine(phaseName)} · ` : ''}
+				{agents.length} {agents.length === 1 ? 'agent' : 'agents'}
+				{agents.length > pageSize ? ` · ${selected + 1}/${agents.length}` : ''}
 			</Text>
 			{items.map((agent, visibleIndex) => {
 				const active = start + visibleIndex === selected
@@ -570,7 +789,7 @@ function AgentPane({
 								{oneLine(agent.description || agent.agentId)}
 							</Text>
 						</Box>
-						<Box marginLeft={1} flexShrink={0} width={wide ? '50%' : undefined}>
+						<Box marginLeft={1} flexShrink={0} width={wide ? detailWidth : undefined}>
 							<Box flexGrow={1} flexShrink={1} minWidth={0}>
 								<Text color={theme.text.secondary} wrap="truncate-end">
 									{statusLabel(agent.status)} ·{' '}
@@ -985,11 +1204,7 @@ function oneLine(text: string): string {
 }
 
 /** `42.1k`, `1.38M`; below 1,000 the exact count is short enough to show plainly. */
-function formatCompactCount(value: number): string {
-	if (value < 1_000) return String(value)
-	if (value < 1_000_000) return `${(value / 1_000).toFixed(1)}k`
-	return `${(value / 1_000_000).toFixed(2)}M`
-}
+export { formatCompactCount }
 
 /**
  * `undefined` when this child has reported neither figure — there is nothing
@@ -1042,6 +1257,43 @@ function phaseStatus(agents: readonly SubagentActivity[]): SubagentActivityStatu
 	if (agents.some((agent) => agent.status === 'starting')) return 'starting'
 	if (agents.some((agent) => agent.status === 'cancelled')) return 'cancelled'
 	return 'completed'
+}
+
+/**
+ * The cockpit's summary of one workflow, in the reference's terms: how many
+ * agents are done, how long it has run, what it has spent, and how it ended
+ * once nothing is left running: `1/3 agents done · 2 running · 5.2s · 18.0k
+ * tokens`, then `3/3 agents · 12s · 27.0k tokens · done` (or `failed`).
+ */
+function workflowProgress(workflow: AgentWorkflow, now: number, columns: number): string {
+	const agents = workflow.agents
+	const running = agents.filter((agent) => !isTerminalStatus(agent.status)).length
+	const done = agents.length - running
+	const ending = workflow.status === 'completed' ? 'done' : workflow.status
+	// The title beside this keeps its room: below 60 columns only the count
+	// and the ending, then the time from 70, the spend from 100.
+	if (columns < 60) return running > 0 ? `${done}/${agents.length} done` : `${done}/${agents.length} · ${ending}`
+	const ends = agents.map((agent) => agent.completedAt ?? now)
+	const elapsed = formatElapsed(Math.max(0, Math.max(...ends) - workflow.startedAt))
+	const spent = agents.reduce<number | undefined>(
+		(sum, agent) => (agent.tokens === undefined ? sum : (sum ?? 0) + agent.tokens),
+		undefined,
+	)
+	const counters = [
+		...(columns >= 70 ? [elapsed] : []),
+		...(columns >= 100 && spent !== undefined ? [`${formatCompactCount(spent)} tokens`] : []),
+	]
+	return (
+		running > 0
+			? [`${done}/${agents.length} agents done`, `${running} running`, ...counters]
+			: [`${done}/${agents.length} agents`, ...counters, ending]
+	).join(' · ')
+}
+
+/** First start to last finish; a phase still running counts to `now`. */
+function phaseElapsed(phase: AgentPhase, now: number): number {
+	const ends = phase.agents.map((agent) => agent.completedAt ?? now)
+	return Math.max(0, Math.max(...ends) - phase.startedAt)
 }
 
 function phaseProgress(phase: AgentPhase): string {

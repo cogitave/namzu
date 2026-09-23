@@ -100,7 +100,7 @@ export function StatusBar({
 			{layout.orchestrate ? (
 				<>
 					<Text color={theme.text.muted}> · </Text>
-					<Text color={theme.text.secondary}>{layout.orchestrate}</Text>
+					<Text color={theme.accent.orchestrate}>{layout.orchestrate}</Text>
 				</>
 			) : null}
 			{layout.cwd ? (

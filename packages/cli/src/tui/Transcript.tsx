@@ -6,12 +6,12 @@
  * streams; the Working row owns the active turn's animation.
  */
 
-import { Box, Static, Text } from 'ink'
+import { Box, Static, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 import { memo } from 'react'
 
 import { Checklist, checklistLine } from './Checklist.js'
-import { Markdown } from './Markdown.js'
+import { ContentWidth, Markdown, WrappedSpans, useContentWidth } from './Markdown.js'
 import { StatusPanel } from './StatusPanel.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -22,6 +22,18 @@ export interface TranscriptProps {
 	readonly messages: readonly TranscriptMessage[]
 	/** The in-progress streaming message, re-rendered live below the static log. */
 	readonly pending: TranscriptMessage | null
+	/**
+	 * How many of `messages` came before `pending` in the conversation.
+	 *
+	 * A row written while a reply streams — a delegated agent's launch receipt
+	 * or completion, a notice — belongs after that reply. Drawing the reply
+	 * after every finalized row instead put such a row above the text that
+	 * came before it, and the two swapped when the reply finished. The reply is
+	 * drawn at this position, so no row moves once it is on screen. The caller
+	 * keeps every row from here on out of `<Static>` (`settledBeforeStreaming`),
+	 * which is what makes the position reachable. Omitted, the reply is last.
+	 */
+	readonly pendingAt?: number
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	/**
 	 * How many of `messages` have been handed to scrollback.
@@ -60,6 +72,17 @@ export interface TranscriptProps {
 	 * the transcript grows. As the first static row it pins to the top.
 	 */
 	readonly header?: ReactNode
+	/**
+	 * Columns of padding the caller's own box puts left of this transcript.
+	 *
+	 * Ink lays `<Static>` out as an absolutely positioned node as wide as
+	 * the terminal and prints it from that node, so an ancestor's padding
+	 * never reaches it: a row drawn live at column 1 moved to column 0 the
+	 * moment it settled, and wrapped two columns wider than it had live. The
+	 * settled rows are drawn with this padding on both sides themselves,
+	 * which puts them in the column, and at the width, they had live.
+	 */
+	readonly staticIndent?: number
 }
 
 const COLLAPSE_LINES = 6
@@ -76,12 +99,14 @@ type StaticRow =
 export function Transcript({
 	messages,
 	pending,
+	pendingAt,
 	settled,
 	resetKey,
 	raw = false,
 	hyperlinks = false,
 	showLive = true,
 	header,
+	staticIndent = 0,
 }: TranscriptProps) {
 	const inScrollback = Math.min(Math.max(settled, 0), messages.length)
 	// The banner is row 0 so it prints to the very top of scrollback; messages
@@ -100,52 +125,49 @@ export function Transcript({
 	// The live window is memoised per row so streamed output does not reparse
 	// Markdown in unchanged history. The row that changed is the one that renders.
 	const live = messages.slice(inScrollback)
+	// The streaming reply is drawn where it stands in the conversation (see
+	// `pendingAt`), not after every finalized row. It is never behind the
+	// floor, because the caller holds the floor below it.
+	const at = Math.min(Math.max((pendingAt ?? messages.length) - inScrollback, 0), live.length)
+	const drawn: readonly TranscriptMessage[] = pending
+		? [...live.slice(0, at), pending, ...live.slice(at)]
+		: live
+	// The text beside the two-column glyph gutter: the terminal less the
+	// caller's padding on both sides, which settled rows draw themselves.
+	const { columns } = useWindowSize()
 	return (
+		<ContentWidth.Provider value={Math.max(10, columns - 2 * staticIndent - 2)}>
 		<Box flexDirection="column">
 			<Static key={resetKey} items={rows}>
-				{(row) =>
-					row.kind === 'header' ? (
-						<Box key="header">{header}</Box>
-					) : raw ? (
-						<RawMessageRow key={row.message.id} message={row.message} prev={row.prev} />
-					) : (
-						<MessageRow
-							key={row.message.id}
-							message={row.message}
-							prev={row.prev}
-							hyperlinks={hyperlinks}
-						/>
-					)
-				}
+				{(row) => (
+					<Box
+						key={row.kind === 'header' ? 'header' : row.message.id}
+						flexDirection="column"
+						paddingLeft={staticIndent}
+						paddingRight={staticIndent}
+					>
+						{row.kind === 'header' ? (
+							<Box>{header}</Box>
+						) : raw ? (
+							<RawMessageRow message={row.message} prev={row.prev} />
+						) : (
+							<MessageRow message={row.message} prev={row.prev} hyperlinks={hyperlinks} />
+						)}
+					</Box>
+				)}
 			</Static>
 			{showLive
-				? live.map((message, i) =>
-						raw ? (
-							<RawMessageRow
-								key={message.id}
-								message={message}
-								prev={messages[inScrollback + i - 1]}
-							/>
+				? drawn.map((message, i) => {
+						const prev = i > 0 ? drawn[i - 1] : messages[inScrollback - 1]
+						return raw ? (
+							<RawMessageRow key={message.id} message={message} prev={prev} />
 						) : (
-							<LiveRow
-								key={message.id}
-								message={message}
-								prev={messages[inScrollback + i - 1]}
-								hyperlinks={hyperlinks}
-							/>
-						),
-					)
+							<LiveRow key={message.id} message={message} prev={prev} hyperlinks={hyperlinks} />
+						)
+					})
 				: null}
-			{showLive && pending && raw ? (
-				<RawMessageRow message={pending} prev={messages[messages.length - 1]} />
-			) : showLive && pending ? (
-				<MessageRow
-					message={pending}
-					prev={messages[messages.length - 1]}
-					hyperlinks={hyperlinks}
-				/>
-			) : null}
 		</Box>
+		</ContentWidth.Provider>
 	)
 }
 
@@ -221,6 +243,7 @@ function MessageRow({
 	// The other roles flow straight into Ink here and need the projection now.
 	const content =
 		message.role === 'assistant' ? message.content : terminalDisplayText(message.content)
+	const width = useContentWidth()
 	const glyph = message.glyph ?? glyphForRole(message.role)
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
 	const glyphColor =
@@ -230,7 +253,13 @@ function MessageRow({
 	// belonging to the call that produced it rather than as free-standing.
 	const exploration = message.activity === 'exploration'
 	const startsExploration = exploration && prev?.activity !== 'exploration'
-	const gap = !prev || message.glyph === '⎿' || (exploration && !startsExploration) ? 0 : 1
+	// Consecutive web searches and fetches read as one burst of work, the way
+	// consecutive exploration steps do: no blank line between one call's `⎿`
+	// line and the next call.
+	const web = message.activity === 'web'
+	const continuesWeb = web && prev?.activity === 'web'
+	const gap =
+		!prev || message.glyph === '⎿' || (exploration && !startsExploration) || continuesWeb ? 0 : 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
 			{startsExploration ? <Text bold color={theme.text.secondary}>Explored</Text> : null}
@@ -247,8 +276,23 @@ function MessageRow({
 							color={contentColorForRole(message.role)}
 							hyperlinks={hyperlinks}
 						/>
-					) : (
+					) : !web && content.length > 0 ? (
+						// Every other row wraps the way a reply does, each row in the
+						// same column (see `markdown-wrap.ts`); a web row is cut instead.
 						<Text color={contentColorForRole(message.role)} wrap="wrap">
+							<WrappedSpans
+								spans={[
+									{ text: content },
+									...(message.meta
+										? [{ text: ` · ${terminalDisplayText(message.meta)}`, muted: true }]
+										: []),
+								]}
+								width={width}
+								color={contentColorForRole(message.role)}
+							/>
+						</Text>
+					) : (
+						<Text color={contentColorForRole(message.role)} wrap={web ? 'truncate-end' : 'wrap'}>
 							{content}
 							{message.meta ? (
 								<Text color={theme.text.muted}> · {terminalDisplayText(message.meta)}</Text>

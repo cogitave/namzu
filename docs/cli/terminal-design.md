@@ -32,7 +32,7 @@ and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
 with its `⏵⏵`/`‖` glyph and, when Shift+Tab actually cycles it here, the
 `(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
 has set one, beside it as `· effort <level>`; [orchestrate mode](slash-commands.md#orchestrate-mode),
-when it is on, beside that as `· orchestrate`; then the working directory. When
+when it is on, beside that as `· orchestrate` in the mode's own violet; then the working directory. When
 the mode is the unremarkable default (`prompt`), the left side shows a quiet
 `shift+tab to cycle` in place of a badge, rather than a line that is present in
 every state and therefore read in none. On the right: an interaction hint or a
@@ -57,6 +57,13 @@ directory left, goal or hint right — that used to sit one blank row below the
 frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
 before.
+
+While orchestrate mode is on, the message box's top border names it on the
+right, `┌─ MESSAGE ──── orchestrate ─┐`, in violet, and the run of `─` before
+it takes a still colour gradient. Nothing on it moves. Where colour is refused
+(`NO_COLOR`, `FORCE_COLOR=0`, `TERM=dumb`) the rule is the plain one, and below
+40 columns the tag is left off the border whole; the footer still names the
+mode there.
 
 Every mark on this line and in the plan is a text-presentation character one
 cell wide by Unicode's own width data: `⏵` (U+23F5) for modes that approve on
@@ -96,9 +103,57 @@ default — that agent's title, plus a `+N` count when the group holds more
 than one — so two unlabelled groups still read as distinct entries rather
 than two identical rows.
 
+The rail is a borderless tree aligned with the transcript's own gutter, not a
+boxed panel:
+
+```text
+● Two-phase colour sentence · 1 running · 1 queued · 2.1s · 4.1k tokens · ↓ / ctrl+t
+  ├ ● Choose first colour     2.1s   3 tools · 4.1k · gpt-5.6-luna
+  │   ⎿ Reading src/index.ts
+  └ ◌ Choose second colour    queued
+      ⎿ Waiting for a slot
+```
+
+The header's `●` is green while anything runs and becomes `✓` once all have
+settled; the counts separate running from queued, then say how many are done
+(`2/3 done`, once one is) and, from 96 columns, how long the work has run
+since its first agent started and what it has spent so far. Below 64 columns
+the counts shrink to that one figure, `2/3 done` (with `+N` for agents the
+rail has no room to draw), the same count the cockpit's header gives at that
+width. Each agent is one `├`/`└`
+branch with its status glyph (`◌ ● ✓ ✗ ○`), name, elapsed time and, as width
+allows, tool uses, spend and model — tool uses and spend drop first, then the
+model. A running agent's latest activity sits beneath it on a `⎿` line; on a
+terminal under 24 rows it stays inline after the elapsed time instead, so each
+agent costs one row where rows are scarcest, and the rail shows half as many
+agents where each costs two. The rail stays on screen while an approval dialog
+is open, reduced to its header line, so the work already approved can be seen
+moving while the next launch is being decided. That header names no key: the
+dialog owns the keyboard, so neither ↓ nor Ctrl+T reaches the rail until it
+closes.
+
+A workflow the model split into several phases (agents sharing a `workflow`
+label with different `phase` labels) stays on the rail as one piece for the
+whole turn, and is drawn by phase:
+
+```text
+● Two-phase colour sentence · 1 running · 2/3 done · 6.5s · 18.0k tokens · ↓ / ctrl+t
+  ✓ Phase 1 · 2/2 · 4.0s
+  ● Phase 2 · 0/1
+    └ ● Join the two colours       1.0s                    gpt-5.6-luna
+        ⎿ Working
+```
+
+A settled phase is one line, its count and how long it took; its agents'
+rows are already in the conversation and in Ctrl+T. A live phase is its line
+with its agents beneath it. Under 24 rows a settled phase gives its line up.
+Agents without a workflow label stay grouped by the response that launched
+them, one batch at a time, as before. The rail is empty, and not drawn,
+between phases while no agent is live.
+
 Between the footer and the rail sits the parent's own narration, when it has
 written any: up to three dim lines, one row each, unboxed and indented to the
-column the rail's own rows start in, so they read as the parent talking rather
+column the rail's title starts in, so they read as the parent talking rather
 than as chrome the panel drew. They are commentary and carry no status —
 status is on the rail below them, in counts and glyphs as everywhere else.
 They never take a row from the rail: its height budget is computed from the
@@ -115,6 +170,60 @@ when no child is live — which is when a line saying what comes next is worth
 the row — and it is hidden by the same full-screen surfaces that hide the
 rail.
 
+## Delegated work in the conversation
+
+Delegated work leaves three kinds of row in the conversation, each written once
+and never redrawn; the live state belongs to the rail.
+
+```text
+● Launched 2 agents · Two-phase colour sentence / Phase 1 (ctrl+t to manage)
+  ├ Choose first colour
+  └ Choose second colour
+✓ Choose first colour · 1.7s · 9.0k tokens · ctrl+o result · ctrl+t details
+✗ Choose second colour · failed after 2.9s · Provider refused the request · ctrl+t details
+✻ Worked for 38s · 3 agents in 2 phases · 27.0k tokens
+```
+
+- **A launch receipt** per batch: the agents one model response launched
+  together, named under one line, with the workflow and phase labels when the
+  model supplied them. A single agent is named inline. The receipt waits until
+  the batch is whole, so agents launched in the same response share one
+  receipt, and it is always written before any of its agents' completions.
+  It is drawn below the reply that launched it even while that reply is still
+  open: a reviewed batch's events reach the terminal only when the batch
+  finishes, so the reply stays open for the whole of a foreground agent's run.
+- **A completion row** per agent: `✓` or `✗` (so failure reads without colour),
+  the elapsed time and, when reported, the spend. The agent's final answer is
+  attached collapsed. Ctrl+O opens it in place while the row is still in the
+  live region; once it has settled into history, the press after the live
+  bodies are open shows the newest settled body in the output viewer, where ←/→
+  reach the others. Ctrl+T opens the agent's whole transcript. The answer is the child's text and is shown as text — terminal
+  controls in it are displayed, never obeyed.
+- **A closing line** when a turn that launched agents settles: how long the
+  turn took and how many agents it launched, in how many phases when the model
+  named two or more, what they spent when any reported it, and how many failed
+  when one did. A turn that delegated nothing closes with its time alone,
+  `✻ Worked for 46s`, when it finished normally and took three seconds or more;
+  a quicker answer, or a turn that was stopped or cancelled (which already says
+  how it ended), adds no line.
+
+While the parent does nothing but wait on its agents, the per-call rows under
+`Working` fold into one line, `✻ Waiting for 2 agents to finish` (or
+`✻ Waiting for <name>` for one). A wait running beside other work keeps every
+row.
+
+After the work ends nothing folds up: the prose, receipts, completion rows,
+final answer and closing line stay. The rail, the waiting line and the
+narration band are live-only and leave when their work settles.
+
+The new marks are text characters one cell wide by Unicode's width data, none
+of them emoji: `●` U+25CF, `⎿` U+23BF, `✻` U+273B, `├ └ │`, and the slider's
+`▲` U+25B2 and `┆` U+2506. `●` is East-Asian *ambiguous*, so a terminal set to
+draw ambiguous characters wide draws it in two cells, as it already did on the
+old rail. `⏺`, `✔` and `✳`, which the reference terminal uses in some builds,
+are emoji code points Windows Terminal can draw as two-cell tiles, and are not
+used.
+
 ## Compact tool activity
 
 Successful built-in file reads, searches and file discovery share an `Explored` heading when consecutive. Each operation keeps its own row and retained output; `Ctrl+O` expands the output, and errors remain explicit ungrouped failures. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
@@ -125,6 +234,79 @@ appear, with an explicit remaining count. Empty results and unavailable catalogu
 are distinct. Ctrl+O expands the original retained JSON; malformed receipts and
 tool failures keep the ordinary output view. This is a TUI projection only and
 does not change the model-facing tool result.
+
+## Web searches and fetches
+
+A web search is one row naming what was searched for and one `⎿` line under
+it; a page fetch is the same shape with the address:
+
+```text
+✓ Web search("OpenClaw agent runtime built on pi-agent-core framework")
+⎿ Did 1 search in 9.0s
+✓ Web search("OpenClaw embedded runtime")
+⎿ Found 3 results in 4.1s
+✓ Web fetch(https://docs.openclaw.ai/agent-runtime-architecture)
+⎿ Received 7.5KB in 1.2s · ctrl+o output
+```
+
+While a call runs, its row under `Working` carries the same `⎿` line as a
+status: `Searching: <query>` (`Searching…` while a provider has not yet said
+what it is searching for) or `Fetching <host>…`. Once it settles the line says
+what it came to: the number of results when the provider or tool reported
+one, `Did 1 search` when it did not, the size of a fetched page, and how long
+it took. Consecutive searches and fetches sit together without a blank line
+between them. The row never wraps: a long query or address is cut at the
+terminal's width with an ellipsis. A fetched page or a search's result list
+stays behind Ctrl+O. Provider-hosted searches (see [Web search](web-search.md))
+are named from the query the provider reports; a provider that opens a page
+rather than running a query is shown as a fetch of that page. A failed call
+keeps `✗` and its `failed: …` line.
+
+## Tables
+
+A markdown table in a reply is drawn as a box of one-cell rule glyphs
+(`┌┬┐ ├┼┤ └┴┘ │ ─`), sized to the terminal: each column gets its widest line
+when everything fits; otherwise columns that need no more than an even share
+keep their width, and the rest share what remains, each at least as wide as
+its longest word (up to 30 cells; a longer word, such as a URL, breaks inside
+its cell). A cell too long for its column wraps inside it, and a rule
+separates every row. Inline markdown in a cell is drawn — bold, `code`, links —
+never shown as `**` or backticks. The header is bold and centred; body cells
+follow the separator row's alignment (`:--`, `:-:`, `--:`).
+
+```text
+┌───────────────────┬──────────────────────────────────────────────────────┐
+│      Katman       │                   Kullanılan yapı                    │
+├───────────────────┼──────────────────────────────────────────────────────┤
+│ Agent core / loop │ OpenClaw’ın kendi çekirdeği: @openclaw/agent-core —  │
+│                   │ agent loop, harness tipleri, mesajlar, compaction    │
+├───────────────────┼──────────────────────────────────────────────────────┤
+│ Runtime facade    │ src/agents/runtime/, @openclaw/runtime               │
+└───────────────────┴──────────────────────────────────────────────────────┘
+```
+
+Where the columns cannot hold their longest words, or a row would wrap to more
+than four lines, the table is drawn as records instead: a `Header: value` line
+per column, wrapped to the full width, with a `─` rule (at most 40 cells)
+between records.
+
+```text
+Katman: Agent core / loop
+Kullanılan yapı: OpenClaw’ın kendi çekirdeği: @openclaw/agent-core — agent
+loop, harness tipleri, mesajlar, compaction yardımcıları
+────────────────────────────────────────
+Katman: Runtime facade
+Kullanılan yapı: src/agents/runtime/, @openclaw/runtime
+```
+
+Widths are terminal cells as `string-width` measures them, so CJK text and
+emoji keep the box straight. A table streaming in is drawn as a table from the
+moment its separator row arrives: a lone `| a | b |` line is held back until
+the line after it shows whether it is a header, a row is released only once
+it is complete, and a line with a pipe after the separator stays a row of the
+table rather than falling out below it as a paragraph. A list item or a
+blockquote ends the table even when it carries a pipe, as a blank line, a
+heading or a fence does: `- a | b` directly under a table is a list item.
 
 ## The model's plan
 
@@ -153,6 +335,12 @@ when no step is open.
 ## Reading the conversation
 
 The `›` mark identifies an operator message and `∴` identifies a Namzu reply.
+Both, and every notice and tool row except a web call's (which is cut, see
+[Web searches and fetches](#web-searches-and-fetches)), are wrapped by Namzu to
+the width beside the gutter, breaking at the
+space between words and dropping it, so every row of a paragraph starts in the
+same column; a word longer than the row (a URL, a path) continues on the next
+row rather than being cut at the edge, and a tab is drawn as four spaces.
 Tool results remain grouped beneath their calls, with expandable output and
 diffs. Color supports the text and symbols: errors, permissions and task states
 retain explicit labels. Raw output remains the original source projection.
@@ -182,7 +370,12 @@ mounted, so drafts
 and attachments survive the transition.
 
 The Working label itself has a repeating green fill and pale leading edge,
-alongside elapsed time. No extra logo is added to the activity row. This is activity, not percentage
+alongside elapsed time and the turn's output so far, `Working (46s · ↓ 1.1k
+tokens · esc to interrupt)`. The count is the provider's reported output
+tokens for the turn plus an estimate (characters over four) of the reply and
+reasoning streamed since that report, redrawn at most five times a second; it
+is absent until the model has written something. On a narrow terminal the
+figures after the label are cut with an ellipsis; the label keeps its letters. No extra logo is added to the activity row. This is activity, not percentage
 progress. Short screens retain the same animated label. Animation stops
 for permission and text prompts and disappears when work ends; no success is
 inferred from a stopped turn. Decorative motion is disabled for non-interactive
@@ -250,7 +443,11 @@ execution and the rule report. Both levels identify the effective current
 behavior and session scope. Settings use named controls and the same effective
 permission value. Internal mode identifiers remain accepted as typed shortcuts.
 The approval prompt spells out when a choice allows all tools for the session.
-Agent launch reviews lead with the task, type and built-in tool capabilities,
+In `prompt`, `accept-edits` and `plan` mode a read-only agent — `explore`, or
+an agent file with `readOnly: true` — that runs on the session's own provider
+and model starts without a review; see
+[Delegated work](delegated-work.md#which-launches-are-asked-about). Every
+other launch is reviewed. Agent launch reviews lead with the task, type and built-in tool capabilities,
 including the default general-purpose type when omitted. A prompt saying
 "only inspect" does not change the displayed tool authority. Role and optional
 workflow/phase labels precede the full instructions, which remain pageable
@@ -297,6 +494,18 @@ The delegated-work view separates phases and agents with a column divider on
 wide terminals and stacked panes on narrow terminals. Task labels, status and
 elapsed time occupy separate cells; activity text does not repeat the status.
 
+The agent cockpit (Ctrl+T, `/agents`) opens on the phase whose agents are
+still working, and on its first working agent; with nothing live, on the first
+phase. Its header says how far the workflow has got, in the reference
+terminal's terms: `2/3 agents done · 1 running · 7.7s · 18.0k tokens` while it
+runs, `3/3 agents · 9.5s · 27.0k tokens · done` (or `failed`, `cancelled`)
+after. Time drops below 70 columns and spend below 100; under 60 only
+`2/3 done` is left, so the workflow's name keeps its room. Each phase row adds
+how long that phase took, and the agent pane is titled by the phase it lists
+(`Phase 2 · 1 agent`) rather than `Agents`. The phase pane's own title is just
+`Phases`: every `N/M` beside it reads done out of total, so it carries no
+cursor position.
+
 Selecting an agent opens its own framed transcript screen. The parent composer
 and live rows are hidden while their state remains mounted. The child view
 uses the available terminal height, identifies the task and its live status,
@@ -318,7 +527,13 @@ interrupts the current turn and its children.
 The interface uses the normal terminal buffer so completed output remains in
 native scrollback. Its transcript owner remains mounted through startup and
 provider pickers, with the live rows hidden while a picker owns the screen.
-Only the current work is redrawn. Changing terminal width
+Only the current work is redrawn, and the redrawn region is always at least
+one row shorter than the terminal: a reply, a table or a picker taller than
+that keeps its newest rows on screen and gives way at the top, and the whole
+reply reaches scrollback when it finishes. A region as tall as the terminal
+sends the renderer down a path that clears the screen and replays the session
+on every frame, and that loses the last settled line of a long reply when the
+region shrinks again (`packages/cli/src/tui/ViewportBound.tsx`). Changing terminal width
 keeps the selected agent and the input draft, while model/path text yields to
 the keys needed to leave a prompt. The palette targets dark backgrounds; the
 application does not paint a full-screen background or depend on color alone.
@@ -369,6 +584,27 @@ text and mark, no body): the second copy is dropped where notices are written,
 since the same sentence twice reads as two events.
 
 
+Typing that arrives in one read — keystrokes queued behind a busy screen, with
+no bracketed-paste markers around them — is typed text, not a paste, however
+long: it goes into the draft at the cursor. It used to become a chip once it
+passed 80 characters, and the chip was joined back to what had been typed
+before it with a paragraph break, which split the word it landed in (`subag` /
+`ents`) in the message the model received. A bracketed paste over 80
+characters, and any unbracketed chunk that contains a newline, is still a chip.
+
+A row keeps its column and its wrap when it settles into scrollback. Settled
+rows used to lose the one column of padding live rows have, so a finished
+screen mixed rows starting at column 0 and column 1, and a long settled row
+wrapped two columns wider than it had while live. Nothing written after a reply that is
+still streaming settles before that reply does: a row written meanwhile (an
+agent's launch receipt, say) used to settle first, and when the reply then
+finished it landed below rows already printed, so one row was printed twice and
+the reply's own sentence never was. A reply that is still streaming is also
+drawn where it stands in the conversation, not below every finished row, so a
+row written meanwhile appears under it and neither moves when the reply
+finishes. It used to be drawn last, which put such a row above the text that
+came before it until the turn ended, and then swapped the two.
+
 The agent browser owns its viewport rather than sharing it with an inactive
 composer. Its navigation stays at the bottom and list capacity grows with the
 terminal height. Returning to the main conversation restores its draft.
@@ -395,7 +631,12 @@ verification and defers concurrency guarantees to runtime metadata.
 
 
 Ctrl+O does not reprint an old result into scrollback. When an expansion cannot
-fit the live region, a bounded output viewer owns that region instead. It
+fit the live region, a bounded output viewer owns that region instead. A body
+that has settled into history keeps its Ctrl+O hint, because a settled row is
+never repainted, so the key keeps reaching it: the first press opens the live
+bodies in place, and the next one, while a settled body sits above them, folds
+them again and opens the viewer on the newest settled body. With nothing
+settled to open, the second press only folds them. It
 paginates physical rows, preserves retained text, and supports left/right output
 navigation. Closing it restores the composer draft. Incoming approvals close the
 viewer so permission input stays reachable. This changes only presentation, not
