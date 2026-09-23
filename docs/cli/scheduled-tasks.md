@@ -169,6 +169,25 @@ The rules a run is gated by, in order (the first that matches decides):
      `ls ~/*` is not refused. An assignment standing alone (`D=~/.namzu`)
      reaches no program and is judged where `$D` is used; one passed to a
      command or exported is judged where it stands;
+   - **anything that could name the Windows browser's profiles**,
+     `%LOCALAPPDATA%\namzu`, where namzu keeps the profiles it drives from
+     WSL, with the cookies of every site you signed in to, outside
+     `NAMZU_HOME`. The floor does not know the user folder above it, so it
+     matches the last three segments, `AppData/Local/namzu`, in any letter
+     case and with either slash, wherever they stand (`/mnt/c/Users/<you>/…`,
+     a quoted `C:\Users\<you>\…`, or a job folder that happens to contain
+     them). It reads the same words, redirections, `cd`s and variables as
+     above, with `$LOCALAPPDATA`, `%LOCALAPPDATA%` and `$env:LOCALAPPDATA`
+     spelled out. `namzu2`, `namzu.bak` or `AppData/Roaming/namzu` is another
+     folder. A word with a glob or an unknown variable is refused when its
+     segments could still read `AppData/Local/namzu` and one of them is
+     spelled out (`/mnt/c/Users/*/AppData/Local/nam*`, `…/AppData/Local/*`),
+     or when an unknown variable is followed by a `namzu` segment
+     (`$X/namzu`). An unquoted `C:\Users\…\namzu` is not refused, because
+     bash drops the backslashes and passes `C:Users…namzu`, a file in the
+     current folder. Passed to `cmd.exe` or `powershell.exe`, the same text
+     is something the lexer does not read, and the tripwire below refuses it
+     for naming `namzu`;
    - **what the lexer cannot account for, when it mentions what the floor
      protects.** A line is opaque when it holds a command substitution, a
      function, `[[ … ]]`, arithmetic on a variable, a syntax error or another
@@ -190,7 +209,10 @@ The rules a run is gated by, in order (the first that matches decides):
    Every other tool's arguments are read as text, at any depth: a string
    naming `NAMZU_HOME` by path, as `~/…`, `$HOME/…` or `${HOME}/…`, or as
    `$NAMZU_HOME`, in any letter case, is refused, and so is one that would
-   once a shell dropped its quotes and backslashes (`~/.nam"z"u`).
+   once a shell dropped its quotes and backslashes (`~/.nam"z"u`). So is a
+   string naming the Windows browser's profiles, as a path through
+   `AppData/Local/namzu` with either slash or through `%LOCALAPPDATA%`,
+   `$env:LOCALAPPDATA` or `$LOCALAPPDATA`.
 
    The floor reads a line, not the programs it starts: a script file, a
    `Makefile` target, an npm script or a git hook the run wrote earlier is
@@ -210,7 +232,14 @@ The rules a run is gated by, in order (the first that matches decides):
    generator provokes on purpose; read in the `sh` dialect, where every
    bash-only construct is opaque, the tripwire refused 63% more. None of 158
    ordinary job command lines (builds, tests, git, `find`, loops over files,
-   reads under `~`) was refused;
+   reads under `~`) was refused. The Windows profiles were checked the same
+   way: 27 000 more lines, three in four naming a path near
+   `AppData/Local/namzu` in every spelling above, run with the profile tree
+   at `/mnt/c/Users/u/AppData/Local/namzu` and `LOCALAPPDATA` set to
+   `C:\Users\u\AppData\Local` as a run inherits it. Every one of the 9 068
+   lines whose run reached the scheduler, `NAMZU_HOME` or the profiles
+   (an argument or open file inside them, or the text of one a Windows
+   program would read) was refused;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;

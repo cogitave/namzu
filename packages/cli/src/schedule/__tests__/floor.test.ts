@@ -168,6 +168,69 @@ describe('NAMZU_HOME', () => {
 	})
 })
 
+describe('the Windows browser’s profiles', () => {
+	// `%LOCALAPPDATA%\namzu`, where namzu keeps the profiles it drives from
+	// WSL. The generated lines behind these were run with the profile tree at
+	// /mnt/c/Users/u/AppData/Local/namzu and LOCALAPPDATA set the way a
+	// scheduled run inherits it, `C:\Users\u\AppData\Local`.
+	it('denies a word or redirection that could name the profile root', () => {
+		denied([
+			'ls /mnt/c/Users/Arda/AppData/Local/namzu/browser',
+			"cat '/mnt/c/Users/A/appdata/local/NAMZU/x'",
+			"ls '/mnt/c/Users/A/App''Data/Local/na'mzu",
+			'ls /mnt/c/Users/A/AppData//Local/./namzu',
+			'ls /mnt/c/Users/A/AppData/Local/../Local/namzu',
+			'tar czf /tmp/x.tgz /mnt/c/Users/A/AppData/Local/namzu',
+			'echo x > /mnt/c/Users/A/AppData/Local/namzu/browser/profiles/work/Cookies',
+			'ls $LOCALAPPDATA/namzu/browser/profiles',
+			'ls "${LOCALAPPDATA}"/namzu',
+			"ls 'C:\\Users\\A\\AppData\\Local\\namzu'",
+			"cmd.exe /c 'type %LOCALAPPDATA%\\namzu\\browser'",
+			"powershell.exe -c 'Remove-Item $env:LOCALAPPDATA\\namzu -Recurse'",
+			'cd /mnt/c/Users/A/AppData/Local && rm -rf namzu',
+			'cd /mnt/c/Users/A/AppData && ls Local/namzu',
+			'D=/mnt/c/Users/A/AppData/Local/namzu; cat $D/x',
+			'for p in /mnt/c/Users/A/AppData/Local/nam; do ls ${p}zu; done',
+			'ls /mnt/c/Users/*/AppData/Local/nam*',
+			'ls /mnt/c/Users/A/AppData/Local/*',
+			'ls /mnt/c/Users/A/$X/namzu',
+		])
+	})
+
+	it('names the profiles as the reason', () => {
+		expect(bash('ls /mnt/c/Users/A/AppData/Local/namzu')).toBe('word names the browser profiles')
+		expect(bash('echo x > $LOCALAPPDATA/namzu/x')).toBe('redirection names the browser profiles')
+	})
+
+	it('does not deny another folder, or what bash reads as another path', () => {
+		allowed([
+			'ls /mnt/c/Users/A/AppData/Local/namzu2',
+			'ls /mnt/c/Users/A/AppData/Local/namzu.bak',
+			'ls /mnt/c/Users/A/AppData/Local/Google',
+			'ls /mnt/c/Users/A/AppData/Roaming/namzu',
+			'cat /mnt/c/Users/A/Documents/report.txt',
+			'grep -rn AppData src',
+			'echo namzu',
+			'ls */*/*',
+			'ls $X/notes',
+			// Unquoted, bash drops the backslashes: `C:UsersAAppDataLocalnamzu`, a file here.
+			'dir C:\\Users\\A\\AppData\\Local\\namzu',
+		])
+	})
+
+	it('denies it in every other tool’s arguments', () => {
+		const call = (toolInput: unknown) =>
+			verdict({ toolName: 'read', toolInput, toolDef: undefined, commandDialect: 'bash' })
+		expect(
+			call({ path: 'C:\\Users\\A\\AppData\\Local\\namzu\\browser\\profiles\\x\\Cookies' }),
+		).toBe('names the browser profiles')
+		expect(call({ path: '/mnt/c/Users/A/AppData/Local/namzu' })).not.toBeNull()
+		expect(call({ path: '%LOCALAPPDATA%\\namzu' })).not.toBeNull()
+		expect(call({ args: ['$env:LOCALAPPDATA/namzu'] })).not.toBeNull()
+		expect(call({ path: '/mnt/c/Users/A/AppData/Local/namzu2/x' })).toBeNull()
+	})
+})
+
 describe('cost', () => {
 	it('stays linear on long lines of the shapes it follows', () => {
 		for (const filler of [
@@ -180,6 +243,8 @@ describe('cost', () => {
 			'namzu schedule list; ',
 			'~/',
 			'$HOME/',
+			'AppData/Local/',
+			'*/Local/',
 		]) {
 			const command = `${filler.repeat(Math.ceil(160_000 / filler.length))}x`
 			const started = performance.now()

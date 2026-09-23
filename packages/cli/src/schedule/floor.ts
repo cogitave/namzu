@@ -5,7 +5,10 @@
  * A scheduled run must not reach its own scheduler — stop, disable or remove
  * the service, or run a `namzu schedule` subcommand that changes something —
  * and must not name `NAMZU_HOME`, where its job, its history, the daemon's
- * endpoint token and the credentials beside them live.
+ * endpoint token and the credentials beside them live, nor the Windows
+ * browser's profile folder (`%LOCALAPPDATA%\namzu`), where namzu keeps the
+ * profiles it drives from WSL with the cookies of every site the operator
+ * signed in to.
  *
  * ## Why this is code and not patterns
  *
@@ -56,10 +59,21 @@
  *   read as a command line of its own, so an escape only the inner shell
  *   undoes does not hide it.
 
+ * - **The Windows browser's profiles**, on the same words, spellings and
+ *   directories: a path whose segments run `AppData/Local/namzu` (any user,
+ *   any drive, `/mnt/c/Users/<you>/…` or `C:\Users\<you>\…`, either slash,
+ *   any letter case), with `%LOCALAPPDATA%`, `$env:LOCALAPPDATA` and
+ *   `$LOCALAPPDATA` spelled out. The user folder above it is not known here,
+ *   so the three segments are what is matched. Where a word holds an unknown
+ *   expansion or a glob, it is denied when its segments could still read
+ *   `AppData/Local/namzu` and one of them is spelled out, or when an unknown
+ *   expansion is followed by a `namzu` segment.
+
  * Every other tool's arguments are strings, not shell: each is searched for
- * NAMZU_HOME by path, in any letter case, with `~`, `$HOME` and
- * `$NAMZU_HOME` spelled out, and once more with shell quotes and backslashes
- * dropped, in case the tool hands it to a shell.
+ * NAMZU_HOME and the browser's profiles by path, in any letter case, with
+ * `~`, `$HOME`, `$NAMZU_HOME` and `%LOCALAPPDATA%` spelled out, and once more
+ * with shell quotes and backslashes dropped, in case the tool hands it to a
+ * shell.
  *
  * Everything here is linear in the input.
  */
@@ -97,14 +111,17 @@ export interface FloorOptions {
 	readonly daemonCommandLine?: string
 }
 
+/** What the floor keeps a run's paths out of. */
+export type FloorProtected = 'NAMZU_HOME' | 'the browser profiles'
+
 /** Why the floor denied a call: for tests and diagnostics. */
 export type FloorReason =
-	| 'names NAMZU_HOME'
+	| `names ${FloorProtected}`
 	| 'scheduler command'
-	| 'word names NAMZU_HOME'
-	| 'assigned value names NAMZU_HOME'
-	| 'redirection names NAMZU_HOME'
-	| 'loop or case word names NAMZU_HOME'
+	| `word names ${FloorProtected}`
+	| `assigned value names ${FloorProtected}`
+	| `redirection names ${FloorProtected}`
+	| `loop or case word names ${FloorProtected}`
 	| 'opaque line mentions a protected name'
 	| 'unread text mentions a protected name'
 	| 'too many spellings'
@@ -133,7 +150,7 @@ export function scheduledRunFloorRule(options: FloorOptions): AuthorizationRule 
 	const floor = new Floor(options)
 	const rule: AuthorizationRule = {
 		type: 'predicate',
-		description: `the scheduled-run floor: a scheduled run may not stop, disable or remove the scheduler, run a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}, or name NAMZU_HOME (${options.namzuHome}) in any argument. It holds for every scheduled run, so rewording the call will not help`,
+		description: `the scheduled-run floor: a scheduled run may not stop, disable or remove the scheduler, run a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}, or name NAMZU_HOME (${options.namzuHome}) or the Windows browser's profile folder (%LOCALAPPDATA%\\namzu) in any argument. It holds for every scheduled run, so rewording the call will not help`,
 		decide: (call) => (floor.verdict(call) === null ? null : 'deny'),
 	}
 	DENY_ONLY.add(rule)
@@ -459,6 +476,87 @@ interface Spelling {
 
 class TooMany extends Error {}
 
+// ---------------------------------------------------------------------------
+// The Windows browser's profiles
+
+/**
+ * The segments that end the path of the Windows browser's profile root,
+ * `%LOCALAPPDATA%\namzu`. The user folder above them is not known here (a
+ * run may name any user's), so these are what a path is matched on.
+ */
+const PROFILE_SEGMENTS = ['appdata', 'local', 'namzu'] as const
+const PROFILE_TAIL = PROFILE_SEGMENTS.join('/')
+/** What `%LOCALAPPDATA%` and `$LOCALAPPDATA` stand for in the checks below. */
+const LOCAL_APP_DATA = 'c:/users/%username%/appdata/local'
+
+/**
+ * Lower-cased `text` with `%LOCALAPPDATA%`, `$env:LOCALAPPDATA`,
+ * `${env:LOCALAPPDATA}`, `$LOCALAPPDATA` and `${LOCALAPPDATA}` spelled out.
+ */
+function spellLocalAppData(text: string): string {
+	return text.includes('localappdata')
+		? text.replace(/%localappdata%|\$\{?(?:env:)?localappdata(?![a-z0-9_])\}?/g, LOCAL_APP_DATA)
+		: text
+}
+
+/** Whether normalized, lower-cased text names the profile root or a path in it. */
+function namesProfile(text: string): boolean {
+	return containsPath(text, PROFILE_TAIL)
+}
+
+/** Characters that stand for text the floor does not know: a glob or an expansion. */
+const WILD = /[*?[$`{]/
+const WILD_RUN = /\$\{[^}]*\}?|\$[a-z0-9_]*|`[^`]*`?|\[[^\]]*\]?|[*?{}]/
+
+/** Whether one path segment with wildcards in it could be `name`: its literal pieces, in order. */
+function mayBe(segment: string, name: string): boolean {
+	if (!WILD.test(segment)) return segment === name
+	const pieces = segment.split(WILD_RUN)
+	const first = pieces[0] as string
+	const last = pieces.at(-1) as string
+	if (!name.startsWith(first) || !name.endsWith(last)) return false
+	let at = first.length
+	for (const piece of pieces.slice(1, -1)) {
+		const found = name.indexOf(piece, at)
+		if (found < 0) return false
+		at = found + piece.length
+	}
+	return at <= name.length - last.length
+}
+
+/**
+ * Whether a normalized path with wildcards in it could run through
+ * `appdata/local/namzu`. Three segments of nothing but wildcards are not
+ * enough: `ls` of three globbed levels in a project is not a way into a Windows profile.
+ */
+function mayNameProfile(text: string): boolean {
+	const segments = text.split('/')
+	for (let i = 0; i + PROFILE_SEGMENTS.length <= segments.length; i++) {
+		const run = segments.slice(i, i + PROFILE_SEGMENTS.length)
+		if (!run.every((segment, k) => mayBe(segment, PROFILE_SEGMENTS[k] as string))) continue
+		if (run.some((segment) => segment.split(WILD_RUN).some((piece) => piece !== ''))) return true
+	}
+	return false
+}
+
+/**
+ * Whether a path stops short inside the profile root's last name
+ * (`…/AppData/Local/nam`), to be finished by an expansion elsewhere.
+ */
+function endsShortOfProfile(path: string): boolean {
+	const segments = path.split('/')
+	const n = segments.length
+	const last = segments[n - 1] as string
+	return (
+		n >= 3 &&
+		segments[n - 3] === 'appdata' &&
+		segments[n - 2] === 'local' &&
+		last !== '' &&
+		last !== 'namzu' &&
+		'namzu'.startsWith(last)
+	)
+}
+
 class Floor {
 	private readonly home: string
 	private readonly homeCore: string
@@ -491,7 +589,8 @@ class Floor {
 			if (typeof value === 'string') line = value
 		}
 		try {
-			if (this.stringsNameHome(input, line)) return 'names NAMZU_HOME'
+			const named = this.stringsName(input, line)
+			if (named !== null) return `names ${named}`
 			if (line !== undefined) return this.lineVerdict(line, call.commandDialect)
 			return null
 		} catch (error) {
@@ -503,7 +602,7 @@ class Floor {
 	// ---- any tool -----------------------------------------------------------
 
 	/** Every string in the input but the command line, searched as text. */
-	private stringsNameHome(input: unknown, line: string | undefined): boolean {
+	private stringsName(input: unknown, line: string | undefined): FloorProtected | null {
 		const stack: unknown[] = [input]
 		let skipped = false
 		while (stack.length > 0) {
@@ -513,14 +612,15 @@ class Floor {
 					skipped = true
 					continue
 				}
-				if (this.textNamesHome(value)) return true
+				if (this.textNamesHome(value)) return 'NAMZU_HOME'
+				if (textNamesProfile(value)) return 'the browser profiles'
 			} else if (Array.isArray(value)) {
 				stack.push(...value)
 			} else if (value !== null && typeof value === 'object') {
 				for (const [key, each] of Object.entries(value)) stack.push(key, each)
 			}
 		}
-		return false
+		return null
 	}
 
 	/**
@@ -624,31 +724,37 @@ class Floor {
 		const seen = new Set<ShellRedirection>()
 		for (const command of reading.commands) {
 			const here = cwd.current()
-			const check = (word: ShellWord) => this.wordNamesHome(word, variables, here, expands)
+			const check = (word: ShellWord) => this.wordNames(word, variables, here, expands)
 			const standalone = command.words.length === command.assignments && !exported
 			for (const [i, word] of command.words.entries()) {
 				if (standalone && i < command.assignments) continue
-				if (check(word)) return 'word names NAMZU_HOME'
+				const named = check(word)
+				if (named !== null) return `word names ${named}`
 				// `X=~/.namzu` as an argument, or exported: the value on its own.
 				const assigned = assignedValue(word)
-				if (assigned && check(assigned.word)) return 'assigned value names NAMZU_HOME'
+				const value = assigned ? check(assigned.word) : null
+				if (value !== null) return `assigned value names ${value}`
 			}
 			for (const redirection of command.redirections) {
 				seen.add(redirection)
-				if (redirectsTo(redirection) && check(redirection.target))
-					return 'redirection names NAMZU_HOME'
+				const named = redirectsTo(redirection) ? check(redirection.target) : null
+				if (named !== null) return `redirection names ${named}`
 			}
 			cwd.after(command, (target) => this.spell(target, variables, cwd.current()), this.userHome)
 		}
 		// A compound command's redirections and words belong to no one
 		// command: every directory the line can be in applies.
 		const anywhere = cwd.current()
-		const check = (word: ShellWord) => this.wordNamesHome(word, variables, anywhere, expands)
-		for (const redirection of reading.redirections)
-			if (!seen.has(redirection) && redirectsTo(redirection) && check(redirection.target))
-				return 'redirection names NAMZU_HOME'
-		for (const word of reading.compoundWords)
-			if (check(word)) return 'loop or case word names NAMZU_HOME'
+		const check = (word: ShellWord) => this.wordNames(word, variables, anywhere, expands)
+		for (const redirection of reading.redirections) {
+			if (seen.has(redirection) || !redirectsTo(redirection)) continue
+			const named = check(redirection.target)
+			if (named !== null) return `redirection names ${named}`
+		}
+		for (const word of reading.compoundWords) {
+			const named = check(word)
+			if (named !== null) return `loop or case word names ${named}`
+		}
 		return null
 	}
 
@@ -742,7 +848,9 @@ class Floor {
 								? { values: [this.home], unknown: false }
 								: name === 'PWD'
 									? { values: cwd.dirs, unknown: cwd.unknown }
-									: (variables.get(name) ?? UNKNOWN)
+									: name === 'LOCALAPPDATA'
+										? localAppData(variables.get(name))
+										: (variables.get(name) ?? UNKNOWN)
 					i += simple[0].length
 					// An unknown value ends every spelling here; a known one
 					// continues each, once per value.
@@ -782,6 +890,53 @@ class Floor {
 		const prefix = dir === '/' ? '/' : `${dir}/`
 		if (!this.home.startsWith(prefix)) return null
 		return this.home.slice(prefix.length).split('/')[0] ?? ''
+	}
+
+	/** What a word names that the floor protects, or null. */
+	private wordNames(
+		word: ShellWord,
+		variables: ReadonlyMap<string, Alternatives>,
+		cwd: Cwd,
+		lineExpands: boolean,
+	): FloorProtected | null {
+		if (this.wordNamesHome(word, variables, cwd, lineExpands)) return 'NAMZU_HOME'
+		if (this.wordNamesProfile(word, variables, cwd, lineExpands)) return 'the browser profiles'
+		return null
+	}
+
+	/**
+	 * The Windows browser's profiles in a word, on the same spellings and
+	 * directories as NAMZU_HOME. The root is known only by its last three
+	 * segments, so a word with an unknown part is denied when its segments
+	 * could still read `appdata/local/namzu` and one of them is spelled out,
+	 * or when an unknown expansion is followed by a `namzu` segment.
+	 */
+	private wordNamesProfile(
+		word: ShellWord,
+		variables: ReadonlyMap<string, Alternatives>,
+		cwd: Cwd,
+		lineExpands: boolean,
+	): boolean {
+		for (const spelling of this.spell(word, variables, cwd)) {
+			const known = spellLocalAppData(spelling.known)
+			const rest = spellLocalAppData(spelling.rest)
+			// Anywhere in the word, and as a relative path from each directory.
+			const bases = isAbsolute(known) ? [''] : ['', ...cwd.dirs]
+			for (const base of bases) {
+				const at = (text: string) => (base === '' ? normalize(text) : join(base, text))
+				if (spelling.stop === 'end') {
+					const path = at(known)
+					if (namesProfile(path)) return true
+					if (lineExpands && endsShortOfProfile(path)) return true
+					continue
+				}
+				// The unknown part stands for any text: `*` does, as a segment's wildcard.
+				if (mayNameProfile(at(`${known}*${rest}`))) return true
+			}
+			// An expansion may hold slashes, and so the whole path above `namzu`.
+			if (spelling.stop === 'unknown' && /(?:^|\/)namzu(?:\/|$)/.test(normalize(rest))) return true
+		}
+		return false
 	}
 
 	private wordNamesHome(
@@ -863,6 +1018,30 @@ function assignedValue(
 			quoted: word.quoted,
 		},
 	}
+}
+
+/** `$LOCALAPPDATA`'s values: the profile root's parent, and whatever the line assigns it. */
+function localAppData(assigned: Alternatives | undefined): Alternatives {
+	return {
+		values: [LOCAL_APP_DATA, ...(assigned?.values ?? [])],
+		unknown: assigned?.unknown ?? false,
+	}
+}
+
+/**
+ * The Windows browser's profiles in free text: a path through
+ * `AppData/Local/namzu` or `%LOCALAPPDATA%\namzu`, in any letter case, either
+ * slash; and again with quotes and backslashes dropped, as a shell would.
+ */
+export function textNamesProfile(text: string): boolean {
+	const plain = lower(text)
+	const unquoted = plain
+		.replace(/\\\n/g, '')
+		.replace(/\$(?=["'])/g, '')
+		.replace(/["']/g, '')
+	for (const variant of [plain, unquoted])
+		if (namesProfile(normalize(spellLocalAppData(variant)))) return true
+	return false
 }
 
 /** Commands that export a variable, or print the environment. */

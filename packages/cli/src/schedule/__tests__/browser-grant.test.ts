@@ -240,6 +240,16 @@ describe('the compiled grant, through the gate', () => {
 	})
 })
 
+describe("the floor over the Windows browser's profiles", () => {
+	it('is part of every scheduled run’s rules', () => {
+		const { rules } = policy(expandPermissions({ preset: 'edit-in-folder' }))
+		expect(decide(rules, 'bash', { command: 'cat /mnt/c/Users/A/AppData/Local/namzu/x' })).toBe(
+			'deny',
+		)
+		expect(decide(rules, 'read', { path: 'C:\\Users\\A\\AppData\\Local\\namzu' })).toBe('deny')
+	})
+})
+
 describe('the tools a run is not sent', () => {
 	it('are those denied by name before anything could allow them, and the strict-only ones', () => {
 		expect(withheldTools(granted, policy(granted))).toEqual([
