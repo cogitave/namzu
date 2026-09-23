@@ -49,7 +49,7 @@ import { describeTurnInterruption, retryAfterMs } from '../../tui/turn-interrupt
 import { readDaemonEnv } from '../env.js'
 import { checkJobFolder, folderReadable } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
-import { compileJobPolicy } from '../policy.js'
+import { compileJobPolicy, withheldTools } from '../policy.js'
 import { computeProjectDigest, projectDigestChanges } from '../store/digest.js'
 import { confirmationHolds, readJob } from '../store/jobs.js'
 import type {
@@ -333,6 +333,7 @@ export async function runFire(
 		},
 		rules: policy.rules,
 		permissionMode: policy.mode,
+		withheldTools: withheldTools(job.permissions, policy),
 		...(config.mcpServers ? { mcpServers: config.mcpServers } : {}),
 		...(config.plugins ? { plugins: config.plugins } : {}),
 		...(config.hooks ? { hooks: config.hooks } : {}),

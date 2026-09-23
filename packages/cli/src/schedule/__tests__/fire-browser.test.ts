@@ -143,6 +143,38 @@ describe('what a scheduled run is told', () => {
 	})
 })
 
+describe('the tools a browser job’s run is sent', () => {
+	it('leaves out every tool the job can never use', async () => {
+		const bodies: string[] = []
+		vi.stubGlobal(
+			'fetch',
+			vi.fn<typeof fetch>(async (_input, init) => {
+				bodies.push(String(init?.body ?? ''))
+				return completion()
+			}),
+		)
+		const job = confirmedJob(sb, {
+			permissions: {
+				preset: 'read-only',
+				unmatched: 'deny',
+				browser: { profile: 'social', sites: { 'http://localhost:8123': 'act' } },
+			},
+		})
+		const { result } = await fire(job, {
+			browserPreflight: async () => ({ ok: true, engine: 'local', warnings: [] }),
+		})
+		expect(result?.status).toBe('completed')
+		const sent = (JSON.parse(bodies[0] as string).tools as { function: { name: string } }[]).map(
+			(tool) => tool.function.name,
+		)
+		expect(sent).toEqual(expect.arrayContaining(['browser', 'browser_act', 'read', 'grep']))
+		for (const never of ['bash', 'edit', 'write', 'web_search', 'job', 'Agent', 'save_memory'])
+			expect(sent).not.toContain(never)
+		// Nor advice on delegating to an Agent tool it was not sent.
+		expect(bodies[0]).not.toContain('### Planning and delegating')
+	})
+})
+
 describe('what a parked browser run says it needs', () => {
 	it('names the sign-in command with the page’s reason', () => {
 		expect(

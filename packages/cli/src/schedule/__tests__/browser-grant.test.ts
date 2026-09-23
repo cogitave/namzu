@@ -20,6 +20,7 @@ import {
 	compileJobPolicy,
 	expandPermissions,
 	windowsBrowserProfilePatterns,
+	withheldTools,
 } from '../policy.js'
 import type { SchedulePermissionSet } from '../types.js'
 
@@ -248,5 +249,42 @@ describe("the floor over the Windows browser's profiles", () => {
 		expect(decide(rules, 'bash', { command: 'cat /mnt/c/Users/A/AppData/Local/namzu/x' })).toBe(
 			'deny',
 		)
+	})
+})
+
+describe('the tools a run is not sent', () => {
+	it('are those denied by name before anything could allow them, and the strict-only ones', () => {
+		expect(withheldTools(granted, policy(granted))).toEqual([
+			'bash',
+			'edit',
+			'job',
+			'wait_for_job',
+			'web_fetch',
+			'web_search',
+			'write',
+		])
+		const strict = expandPermissions({
+			preset: 'read-only',
+			unmatched: 'deny',
+			browser: { profile: 'social', sites: { 'http://localhost:8123': 'act' } },
+		})
+		expect(withheldTools(strict, policy(strict))).toEqual(
+			expect.arrayContaining(['Agent', 'save_memory', 'send_message', 'bash']),
+		)
+		expect(withheldTools(strict, policy(strict))).not.toContain('browser')
+	})
+
+	it('keeps a tool a rule lets through, and the browser without a grant is withheld', () => {
+		const shell = expandPermissions({ preset: 'edit-in-folder' })
+		const kept = withheldTools(shell, policy(shell))
+		expect(kept).not.toContain('bash')
+		expect(kept).not.toContain('job')
+		expect(kept).toEqual(expect.arrayContaining(['browser', 'browser_act', 'web_fetch']))
+		const memory = expandPermissions({
+			preset: 'read-only',
+			unmatched: 'deny',
+			rules: { save_memory: 'allow' },
+		})
+		expect(withheldTools(memory, policy(memory))).not.toContain('save_memory')
 	})
 })

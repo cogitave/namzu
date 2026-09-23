@@ -627,3 +627,76 @@ export function browserGrantLines(
 		'browser sign-in, CAPTCHA or a code: the run stops and tells you',
 	]
 }
+
+/**
+ * Tools refused only by `unmatched: deny`: a write or a delegation that no
+ * exemption lets through when nothing allows it. The agent tools go
+ * together: without `Agent` the rest have nothing to act on.
+ */
+const STRICT_UNREACHABLE = [
+	'Agent',
+	'send_message',
+	'cancel_agent',
+	'wait_for_task',
+	'agent_task_list',
+	'agent_models',
+	'save_memory',
+	'update_memory',
+	'delete_memory',
+] as const
+/** The background-job tools, which manage what `bash` started. */
+const JOB_TOOLS = ['job', 'wait_for_job'] as const
+
+/**
+ * Whether `rule` could let `tool` through (allow it or send it to review).
+ * Unknown shapes answer yes: withholding a tool the run could have used is the
+ * mistake this must not make.
+ */
+function mayReach(rule: AuthorizationRule, tool: string): boolean {
+	switch (rule.type) {
+		case 'deny_by_name':
+		case 'deny_dangerous_patterns':
+			return false
+		case 'allow_by_name':
+			return rule.toolNames.includes(tool)
+		case 'argument_pattern':
+			return rule.decision !== 'deny' && rule.toolNames.includes(tool)
+		case 'custom_pattern': {
+			if (rule.decision === 'deny') return false
+			const named = /^\^([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])/.exec(rule.pattern)
+			return named ? named[1] === tool : true
+		}
+		default:
+			return true
+	}
+}
+
+/**
+ * Tools a scheduled run under this policy can never use, so their schemas
+ * need not be sent with every model call. In a browser job's run, `bash`,
+ * `edit`, `write`, the web tools and the agent and memory tools were about
+ * half of each request, sent six times a run and refused every time they
+ * could have been called.
+ *
+ * A tool is withheld when a `deny_by_name` names it and no rule before it
+ * could let it through; under `unmatched: deny`, also the delegation and
+ * memory-writing tools no rule names; and the background-job tools once
+ * `bash` is withheld.
+ */
+export function withheldTools(
+	set: SchedulePermissionSet,
+	policy: Pick<CompiledJobPolicy, 'rules'>,
+): string[] {
+	const out = new Set<string>()
+	policy.rules.forEach((rule, index) => {
+		if (rule.type !== 'deny_by_name') return
+		const earlier = policy.rules.slice(0, index)
+		for (const tool of rule.toolNames) if (!earlier.some((r) => mayReach(r, tool))) out.add(tool)
+	})
+	if (set.unmatched === 'deny') {
+		for (const tool of STRICT_UNREACHABLE)
+			if (!policy.rules.some((r) => mayReach(r, tool))) out.add(tool)
+	}
+	if (out.has('bash')) for (const tool of JOB_TOOLS) out.add(tool)
+	return [...out].sort()
+}

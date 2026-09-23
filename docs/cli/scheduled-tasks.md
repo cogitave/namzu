@@ -270,6 +270,17 @@ project config matches its pin, every rule compiles, and the pinned provider
 has a credential **as the service sees it**. Any failure is `blocked-config`
 with the reason.
 
+A run is not sent the tools its job can never use: a tool a `deny` names
+before any rule could let it through (`bash`, `edit` and `write` under
+`read-only`, the web tools the job does not name, the browser tools without a
+grant), the background-job tools once `bash` is out, and under
+`unmatched: deny` the agent and memory-writing tools no rule names, with the
+advice on delegating that goes with them. Each model call resends every tool
+schema: a browser job posting once on a small site used six calls of about
+15 000 prompt tokens, about 106 000 tokens a run; without the tools it could
+never call, about 11 500 a call and 78 000 a run. A call to a withheld tool is
+refused as an unknown tool.
+
 The run's system prompt tells the model it is unattended: no questions
 (`ask_user_question` is not offered), calls outside its rules wait or are
 refused, and background jobs end with the run. It also gives the time the run

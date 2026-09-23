@@ -1753,6 +1753,13 @@ export interface AgentSessionOptions {
 	 */
 	readonly browser?: BrowserSessionOptions
 	/**
+	 * Tools this session's rules refuse whatever their input, left out of its
+	 * registry so their schemas are not sent with every model call. A
+	 * scheduled run passes the tools its job can never use
+	 * (`withheldTools`). A call to one is refused as an unknown tool.
+	 */
+	readonly withheldTools?: readonly string[]
+	/**
 	 * Tools a host adds to this session's own registry — never to a
 	 * sub-agent's, whose registry is built separately. For host capabilities
 	 * that need a person present (the TUI's `schedule` and `session_loop`
@@ -2934,6 +2941,11 @@ export async function createAgentSession(
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(describeError(error))
 	}
+	// Everything is registered by now but the deferred task tools, which no
+	// caller withholds.
+	for (const name of options.withheldTools ?? []) {
+		if (registry.get(name)) registry.unregister(name)
+	}
 	// The session's own lifecycle, for hooks that set up or tear down
 	// something per session rather than per turn. These two calls belong to no
 	// turn, so they carry no turn id — nothing is minted to fill the field.
@@ -3802,7 +3814,12 @@ export async function createAgentSession(
 							[
 								NAMZU_IDENTITY,
 								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
-								residentContext ? undefined : NAMZU_DELEGATION_DOCTRINE,
+								// Advice on delegating, for a session that has the Agent tool:
+								// a scheduled run whose job withholds it would only be told how
+								// to use a tool it was not sent.
+								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
+									? undefined
+									: NAMZU_DELEGATION_DOCTRINE,
 								!residentContext && opts?.orchestrate ? NAMZU_ORCHESTRATE_DOCTRINE : undefined,
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
