@@ -283,10 +283,18 @@ describe('Bash(<pattern>) uses the permission-table glob', () => {
 			"git status $'\\'' ; touch pwned #'",
 			"git status $'\\'' && touch pwned #'",
 			"git status $'\\'' > ~/.bashrc #'",
-			"git status $'-s'",
 		]) {
 			expect(grants.coveringSkill(bash(line)), line).toBeUndefined()
 		}
+	})
+
+	it('covers an ANSI-C quote that decodes to an argument of the named command', () => {
+		// This line used to be refused because the quote's escapes were not
+		// decoded. They are now, and `$'-s'` is the argument `-s`: the line is
+		// `git status -s`, one command the entry names.
+		const { grants } = granted('Bash(git status *)')
+		expect(grants.coveringSkill(bash("git status $'-s'"))).toBe('demo')
+		expect(grants.coveringSkill(bash("git status $'\\x3b' rm"))).toBe('demo')
 	})
 
 	it('a whole-tool grant is the tool as it is, redirection included', () => {

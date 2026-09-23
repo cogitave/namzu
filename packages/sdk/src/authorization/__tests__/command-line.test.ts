@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { decomposeCommandLine, writesThroughRedirection } from '../command-line.js'
+import { decodedCommands, decomposeCommandLine, writesThroughRedirection } from '../command-line.js'
 
 /**
  * Two failures, and they are opposites.
@@ -101,11 +101,26 @@ describe('a nested shell', () => {
 		expect(decomposeCommandLine('/bin/bash -c "git push"').segments).toContain('git push')
 	})
 
-	it('does not read a quoted -c as the flag', () => {
-		// Invention. `echo "-c" "git push"` runs one command and prints two
-		// words; decomposing the second would report a command that never runs.
+	it('reads a quoted -c as the flag, because bash removes the quotes first', () => {
+		// Missing. This case used to assert the opposite, reasoning from
+		// `echo "-c"`. But the quotes are gone before bash reads its options:
+		// `bash "-c" "git push"` runs `git push`, and a deny rule for it must
+		// see it.
 		const { segments } = decomposeCommandLine('bash "-c" "git push"')
-		expect(segments).toEqual(['bash "-c" "git push"'])
+		expect(segments).toEqual(['bash "-c" "git push"', 'git push'])
+	})
+
+	it('does not read -c as a flag once the first operand has been seen', () => {
+		// Invention. `bash script -c x` runs `script` with two arguments.
+		expect(decomposeCommandLine('bash script -c "git push"').segments).toEqual([
+			'bash script -c "git push"',
+		])
+	})
+
+	it('reads clustered and long options before -c', () => {
+		expect(decomposeCommandLine('bash -lc "git push"').segments).toContain('git push')
+		expect(decomposeCommandLine('bash -o pipefail -c "git push"').segments).toContain('git push')
+		expect(decomposeCommandLine('bash --norc -c "git push"').segments).toContain('git push')
 	})
 
 	it('is opaque when -c has no payload to read', () => {
@@ -171,9 +186,12 @@ describe("ANSI-C quoting, `$'…'`", () => {
 	// apostrophe. A walker that reads it as a closed quote and an open one
 	// takes the rest of the line for quoted text while the shell runs it.
 	it('sees the command after an escaped quote (missing)', () => {
+		// The segment used to keep the trailing `#'`. It is a comment, and bash
+		// does not pass it to `touch`.
 		const { segments, opaque } = decomposeCommandLine("git status $'\\'' ; touch pwned #'")
-		expect(segments).toContain("touch pwned #'")
-		expect(opaque).toBe(true)
+		expect(segments).toEqual(["git status $'\\''", 'touch pwned'])
+		// The quote is decoded now, so it no longer hides anything.
+		expect(opaque).toBe(false)
 	})
 
 	it('keeps a separator inside the quote inside its command (inventing)', () => {
@@ -181,19 +199,26 @@ describe("ANSI-C quoting, `$'…'`", () => {
 		expect(segments).toEqual(["echo $'a \\' ; b'", 'git push'])
 	})
 
-	it('marks any ANSI-C quote opaque, since its escapes decode at runtime', () => {
-		expect(decomposeCommandLine("echo $'\\x3b'").opaque).toBe(true)
+	it('decodes an ANSI-C quote instead of treating it as opaque', () => {
+		// This used to be opaque because the escapes were not decoded. They
+		// are: `$'\x3b'` is the argument `;`, one command.
+		expect(decomposeCommandLine("echo $'\\x3b'")).toEqual({
+			segments: ["echo $'\\x3b'"],
+			opaque: false,
+		})
+		expect(decodedCommands("echo $'\\x3b' $'\\101\\u0042\\cC'")).toEqual(['echo ; AB\x03'])
 		// Inside single or double quotes `$'` is literal text.
 		expect(decomposeCommandLine("grep 'a$' f").opaque).toBe(false)
 		expect(decomposeCommandLine('echo "$\'"').opaque).toBe(false)
 	})
 
 	it('reads `$$` as the PID, not the start of an ANSI-C quote', () => {
+		// The comment after the command is not part of it.
 		expect(decomposeCommandLine("echo $$'\\' ; git push origin main #'").segments).toContain(
-			"git push origin main #'",
+			'git push origin main',
 		)
 		expect(decomposeCommandLine("echo $$$'\\'' ; git push origin main #'").segments).toContain(
-			"git push origin main #'",
+			'git push origin main',
 		)
 		expect(writesThroughRedirection("echo $$'\\' > ~/.bashrc #'")).toBe(true)
 	})
@@ -205,7 +230,10 @@ describe("ANSI-C quoting, `$'…'`", () => {
 	it('finds a redirection after an escaped quote', () => {
 		expect(writesThroughRedirection("git status $'\\'' > ~/.bashrc #'")).toBe(true)
 		expect(writesThroughRedirection("a $'>' b")).toBe(false)
-		expect(writesThroughRedirection("a > $'/dev/nul\\x6c'")).toBe(true)
+		// Decoded now: the target is `/dev/null`, which is not a write. It
+		// counted as one while the escapes were left undecoded.
+		expect(writesThroughRedirection("a > $'/dev/nul\\x6c'")).toBe(false)
+		expect(writesThroughRedirection("a > $'/etc/passw\\x64'")).toBe(true)
 	})
 })
 

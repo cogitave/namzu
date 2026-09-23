@@ -327,7 +327,8 @@ export class SkillGrantSet {
 	 *
 	 * A pattern entry is matched the way an operator's `allow` pattern is: per
 	 * command, every command in the line must match, and a line the reader
-	 * cannot see through (a substitution, a heredoc) matches nothing. So
+	 * cannot see through (a substitution, `eval`, a line that does not parse)
+	 * matches nothing. So
 	 * `Bash(git status *)` covers `git status -s` and not
 	 * `git status && git push`.
 	 *

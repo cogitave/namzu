@@ -2,7 +2,7 @@ import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
-import { decomposeCommandLine } from './command-line.js'
+import { decodedCommands, decomposeCommandLine } from './command-line.js'
 
 export function evaluateRule(
 	rule: AuthorizationRule,
@@ -106,6 +106,17 @@ export function evaluateRule(
 						: undefined
 			if (subject === undefined) return null
 
+			// A path the tool itself declares is a path, not a command line.
+			// Read as shell, `app/(auth)/page.tsx` is a syntax error, and an
+			// opaque reading would withdraw every allow rule written for it.
+			if (
+				typeof value === 'string' &&
+				toolDef?.pathArgument === rule.argument &&
+				toolDef.commandArgument !== rule.argument
+			) {
+				return compiledPattern.test(subject) ? rule.decision : null
+			}
+
 			// A command line is not one string, and testing it as one is how a
 			// prohibition gets bypassed: `^git push` sees `git push origin main`
 			// and does not see `true; git push origin main`. See
@@ -116,9 +127,11 @@ export function evaluateRule(
 			if (rule.decision === 'deny') {
 				// ANY segment. The whole subject is tested first so an
 				// unanchored deny keeps matching across a boundary, which
-				// splitting alone would have taken away.
+				// splitting alone would have taken away. Then each command's
+				// words as bash passes them, so that `'git' push` is `git push`.
 				if (compiledPattern.test(subject)) return 'deny'
-				return segments.some((segment) => compiledPattern.test(segment)) ? 'deny' : null
+				if (segments.some((segment) => compiledPattern.test(segment))) return 'deny'
+				return decodedCommands(subject).some((text) => compiledPattern.test(text)) ? 'deny' : null
 			}
 
 			// EVERY segment, and nothing that hides one. Permission is a claim
