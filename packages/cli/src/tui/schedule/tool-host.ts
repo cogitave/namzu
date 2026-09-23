@@ -131,7 +131,8 @@ export function chosenByTheModel(
 	const out: string[] = []
 	if (draft.tz !== undefined && draft.tz !== zone)
 		out.push(`time zone ${draft.tz}, not this machine's ${zone}`)
-	if (draft.folder !== undefined && resolve(cwd, draft.folder) !== resolve(cwd))
+	const session = resolve(cwd)
+	if (draft.folder !== undefined && resolve(session, draft.folder) !== session)
 		out.push(`folder ${job.folder.canonical}, not this session's`)
 	if (draft.permissions.execution === 'sandbox')
 		out.push('commands run in the sandbox; the default is this machine')
