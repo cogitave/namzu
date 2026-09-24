@@ -184,7 +184,7 @@ export function describeToolCallFramingViolation(violation: ToolCallFramingViola
  * {@link ToolCallIndexer.placeUnindexedFragment} places such a fragment only
  * when exactly one open call can still accept more text right now (its
  * buffer empty, or not yet a complete JSON value). Once two calls are both
- * in that state — the ordinary shape of an OpenAI-style "open" fragment,
+ * in that state — the ordinary shape of a chat-completions "open" fragment,
  * name and id with empty arguments, sent for one call right after another,
  * before either has streamed any argument text — a later fragment naming
  * neither could belong to either, and there is no field in it that says

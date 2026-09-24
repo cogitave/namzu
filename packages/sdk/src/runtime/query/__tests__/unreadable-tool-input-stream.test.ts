@@ -567,7 +567,7 @@ describe('tool-call framing', () => {
 	})
 
 	it('reports both calls unreadable when both open empty, back to back, before either streams any argument text', async () => {
-		// The standard OpenAI-style wire shape: id+name with EMPTY arguments,
+		// The usual chat-completions wire shape: id+name with EMPTY arguments,
 		// for one call right after another, before either has streamed any
 		// argument text. Checking ambiguity once, when "call_b" opens, and
 		// reading an empty buffer as already complete, let this exact shape
