@@ -403,6 +403,7 @@ export type {
 	ReviewExemption,
 	ReviewMode,
 	ReviewPolicyOptions,
+	ScreenConsentRecord,
 	ToolReviewAnswer,
 	ToolReviewPrompt,
 	ToolReviewRequest,
