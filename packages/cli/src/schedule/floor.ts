@@ -51,13 +51,19 @@
  * - **What the lexer cannot account for** — an opaque line (a command
  *   substitution, `eval`-like constructs, a syntax error, a construct it does
  *   not model), a command whose name expands, or a program that runs text as
- *   code (`sh` reading its input, `sudo bash -c`, `python`, `xargs`, `watch`
- *   …) — is denied when the line's text mentions anything the floor
- *   protects: a scheduler word, `namzu`, NAMZU_HOME's name or a path into it.
- *   That is the tripwire, deliberately textual and cheap. Text such a program
- *   may run — an argument, a here-string, a here-document's body — is also
- *   read as a command line of its own, so an escape only the inner shell
- *   undoes does not hide it.
+ *   code (`sh` reading its input, `sudo bash -c`, `powershell`, `python`,
+ *   `xargs`, `watch` …) — is denied when the line's text holds something that
+ *   could reach what the floor protects (see {@link Floor.tripwire}): a
+ *   `schedule` subcommand that changes something with the CLI or an
+ *   expansion in reach, the scheduler service's name, a service tool with a
+ *   namzu name, a process killer, `NAMZU_HOME` by name or path, or the
+ *   Windows browser's profile folder. That is the tripwire, deliberately
+ *   textual and cheap. The product's name on its own is not in that list: a
+ *   message box saying "Namzu: scheduled job running" reaches nothing, and a
+ *   run that showed one was refused for it. Text such a program may run — an
+ *   argument, a here-string, a here-document's body — is also read as a
+ *   command line of its own, so an escape only the inner shell undoes does
+ *   not hide it.
 
  * - **The Windows browser's profiles**, on the same words, spellings and
  *   directories: a path whose segments run `AppData/Local/namzu` (any user,
@@ -126,12 +132,36 @@ export type FloorReason =
 	| 'unread text mentions a protected name'
 	| 'too many spellings'
 
+/** Why the floor denied a call, and what in it matched. */
+export interface FloorFinding {
+	readonly reason: FloorReason
+	/**
+	 * The rule that matched, in words: the token or word, and the argument,
+	 * redirection or text it stands in. This, not the list of everything the
+	 * floor protects, is what a refusal says.
+	 */
+	readonly detail: string
+}
+
 /** The floor's reason for denying a call, or null: what the rule below decides on. */
 export function scheduledRunFloorVerdict(
 	options: FloorOptions,
 ): (call: AuthorizationPredicateCall) => FloorReason | null {
 	const floor = new Floor(options)
-	return (call) => floor.verdict(call)
+	return (call) => floor.find(call)?.reason ?? null
+}
+
+/** The floor's finding for a call, or null: the reason and what matched. */
+export function scheduledRunFloorFinding(
+	options: FloorOptions,
+): (call: AuthorizationPredicateCall) => FloorFinding | null {
+	const floor = new Floor(options)
+	return (call) => floor.find(call)
+}
+
+/** What a refusal says: the rule that matched, and that another wording will not help. */
+export function floorRefusal(finding: FloorFinding): string {
+	return `the scheduled-run floor refused this call: ${finding.detail}. It holds for every scheduled run, so rewording the call will not help`
 }
 
 /**
@@ -151,7 +181,13 @@ export function scheduledRunFloorRule(options: FloorOptions): AuthorizationRule 
 	const rule: AuthorizationRule = {
 		type: 'predicate',
 		description: `the scheduled-run floor: a scheduled run may not stop, disable or remove the scheduler, run a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}, or name NAMZU_HOME (${options.namzuHome}) or the Windows browser's profile folder (%LOCALAPPDATA%\\namzu) in any argument. It holds for every scheduled run, so rewording the call will not help`,
-		decide: (call) => (floor.verdict(call) === null ? null : 'deny'),
+		decide: (call) => (floor.find(call) === null ? null : 'deny'),
+		// Asked only after `decide` denied, so the reading is done twice for a
+		// refused call and once for every other.
+		describe: (call) => {
+			const finding = floor.find(call)
+			return finding ? floorRefusal(finding) : null
+		},
 	}
 	DENY_ONLY.add(rule)
 	return rule
@@ -219,19 +255,8 @@ const STRING_OPTIONS: Readonly<Record<string, RegExp>> = {
 	env: /^-(?:[a-z]*s[a-z]*|-split-string(?:=.*)?)$/i,
 }
 
-/** Words that, mentioned anywhere in a line the lexer cannot account for, deny it. */
-const SENSITIVE = [
-	'namzu',
-	'schedul',
-	'systemctl',
-	'launchctl',
-	'schtasks',
-	'pkill',
-	'killall',
-	'busctl',
-	'dbus-send',
-	'gdbus',
-]
+/** What a refusal says about a `schedule` verb that is not read-only. */
+const NOT_READ_ONLY = `a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}`
 
 const NAME_CHAR = /[a-z0-9._-]/
 
@@ -244,6 +269,13 @@ function commandName(value: string): string {
 	const cut = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'))
 	const base = lower(cut < 0 ? value : value.slice(cut + 1))
 	return base.endsWith('.exe') ? base.slice(0, -4) : base
+}
+
+/** Text as a refusal quotes it: on one line, cut to `max` characters, in backticks. */
+function shown(text: string, max = 80): string {
+	const flat = text.replace(/\s*\n\s*/g, ' ⏎ ')
+	const cut = [...flat].length > max ? `${[...flat].slice(0, max - 1).join('')}…` : flat
+	return cut.includes('`') ? `\`\` ${cut} \`\`` : `\`${cut}\``
 }
 
 interface Word {
@@ -286,11 +318,12 @@ function wordsOf(command: ShellCommand, catalogue: boolean): Word[] {
 // Scheduler commands
 
 /**
- * Whether one command's words, in order, reach the scheduler. Each role is
- * taken at its first place after the one before; for a question of "is
- * there such a subsequence" that loses nothing, and it is one pass.
+ * Whether one command's words, in order, reach the scheduler, and if so what
+ * they do, in words. Each role is taken at its first place after the one
+ * before; for a question of "is there such a subsequence" that loses
+ * nothing, and it is one pass.
  */
-function reachesScheduler(words: readonly Word[], daemonCommandLine: string): boolean {
+function reachesScheduler(words: readonly Word[], daemonCommandLine: string): string | null {
 	const n = words.length
 	const find = (from: number, test: (w: Word) => boolean): number => {
 		for (let i = from; i < n; i++) if (test(words[i] as Word)) return i
@@ -303,17 +336,19 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): bo
 	// systemctl <verb> <unit>
 	const systemctl = find(0, named('systemctl'))
 	if (systemctl >= 0) {
-		if (find(systemctl + 1, (w) => !w.wild && SYSTEMCTL_VERBS_ALONE.has(w.text)) >= 0) return true
+		if (find(systemctl + 1, (w) => !w.wild && SYSTEMCTL_VERBS_ALONE.has(w.text)) >= 0)
+			return 'stops every service, the scheduler with them'
 		const verb = find(systemctl + 1, (w) => w.wild || SYSTEMCTL_VERBS_WITH_UNIT.has(w.text))
 		// systemctl matches unit names against a glob.
-		if (verb >= 0 && find(verb + 1, (u) => namesNamzu(u) || /[*?[]/.test(u.text)) >= 0) return true
+		if (verb >= 0 && find(verb + 1, (u) => namesNamzu(u) || /[*?[]/.test(u.text)) >= 0)
+			return "stops or disables the scheduler's service"
 	}
 
 	// launchctl <verb> <label or plist>
 	const launchctl = find(0, named('launchctl'))
 	if (launchctl >= 0) {
 		const verb = find(launchctl + 1, (w) => w.wild || LAUNCHCTL_VERBS.has(w.text))
-		if (verb >= 0 && find(verb + 1, namesNamzu) >= 0) return true
+		if (verb >= 0 && find(verb + 1, namesNamzu) >= 0) return "removes the scheduler's launchd agent"
 	}
 
 	// schtasks, whose switches come in any order.
@@ -321,28 +356,29 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): bo
 	if (schtasks >= 0) {
 		const rest = words.slice(schtasks + 1)
 		if (rest.some((w) => w.wild || SCHTASKS_SWITCH.test(w.text)) && rest.some(namesNamzu))
-			return true
+			return "deletes, changes or ends the scheduler's task"
 	}
 
 	// pkill / killall: a pattern that could match the daemon's process.
 	const killer = find(0, (w) => named('pkill')(w) || named('killall')(w))
 	if (killer >= 0) {
+		const kills = "has a pattern that could match the scheduler's process"
 		const full = words
 			.slice(killer + 1)
 			.some((w) => /^-[a-z]*f/.test(w.text) || w.text === '--full')
 		for (let i = killer + 1; i < n; i++) {
 			const w = words[i] as Word
-			if (w.wild) return true
+			if (w.wild) return kills
 			if (w.text.startsWith('-')) continue
-			if (/[.*+?^$|()[\]{}\\]/.test(w.text)) return true
-			if (w.text.includes('namzu') || w.text.includes('schedul')) return true
-			if ('node'.includes(w.text) || (full && daemonCommandLine.includes(w.text))) return true
+			if (/[.*+?^$|()[\]{}\\]/.test(w.text)) return kills
+			if (w.text.includes('namzu') || w.text.includes('schedul')) return kills
+			if ('node'.includes(w.text) || (full && daemonCommandLine.includes(w.text))) return kills
 		}
 	}
 
 	// A D-Bus call to systemd naming the unit.
 	const dbus = find(0, (w) => DBUS_TOOLS.has(commandName(w.text)))
-	if (dbus >= 0 && find(dbus + 1, namesNamzu) >= 0) return true
+	if (dbus >= 0 && find(dbus + 1, namesNamzu) >= 0) return 'calls systemd about a namzu unit'
 
 	// The CLI, by name (`namzu`, a path to it, `npx @namzu/cli`) or through
 	// its entry script or a JavaScript runtime: `schedule` and then anything
@@ -353,24 +389,28 @@ function reachesScheduler(words: readonly Word[], daemonCommandLine: string): bo
 		(w) => CLI_ENTRY.test(commandName(w.text)) || JS_RUNTIMES.has(commandName(w.text)),
 	)
 	// After the CLI's own name, a word that expands may be `schedule stop`.
-	if (strong >= 0 && find(strong + 1, (w) => w.wild) >= 0) return true
+	if (strong >= 0 && find(strong + 1, (w) => w.wild) >= 0)
+		return 'passes the CLI a word that expands at runtime, which could be a `schedule` subcommand'
 	const cli = strong < 0 ? weak : weak < 0 ? strong : Math.min(strong, weak)
 	if (cli >= 0) {
 		for (let i = cli + 1; i < n; i++) {
 			if ((words[i] as Word).text !== 'schedule' || (words[i] as Word).wild) continue
 			const verb = words[i + 1]
 			if (verb === undefined) continue
-			if (verb.wild || !READ_ONLY_VERBS.includes(verb.text)) return true
+			if (verb.wild) return 'runs a `schedule` subcommand that expands at runtime'
+			if (!READ_ONLY_VERBS.includes(verb.text))
+				return `runs \`schedule ${verb.text}\`, ${NOT_READ_ONLY}`
 		}
 	}
-	return false
+	return null
 }
 
 /**
- * Whether a command runs text the lexer did not read as commands: a shell
- * the lexer did not follow, an interpreter, `xargs`, `sudo -s`, `env -S`.
+ * Whether a command runs text the lexer did not read as commands — a shell
+ * the lexer did not follow, an interpreter, `xargs`, `sudo -s`, `env -S` —
+ * and if so which, in words.
  */
-function runsUnreadText(command: ShellCommand): boolean {
+function runsUnreadText(command: ShellCommand): string | null {
 	const words = command.words
 	const head = command.assignments
 	const names = words.map((w) => (w.expands ? '' : commandName(w.value)))
@@ -384,14 +424,18 @@ function runsUnreadText(command: ShellCommand): boolean {
 	for (let i = 0; i < words.length; i++) {
 		const name = names[i] as string
 		if (name === '') continue
-		if (INTERPRETERS.test(name)) return true
-		if (i === head && name === '.') return true
-		if (SHELLS.has(name) && !(i === head && dashC)) return true
+		const program = shown((words[i] as ShellWord).value)
+		if (INTERPRETERS.test(name)) return `${program} runs text as code`
+		if (i === head && name === '.') return '`.` runs a file as commands'
+		if (SHELLS.has(name) && !(i === head && dashC))
+			return `${program} runs commands the floor does not read`
 	}
-	for (const [program, option] of Object.entries(STRING_OPTIONS))
-		if (names.includes(program) && words.some((w) => !w.expands && option.test(w.value)))
-			return true
-	return false
+	for (const [program, option] of Object.entries(STRING_OPTIONS)) {
+		const flag = words.find((w) => !w.expands && option.test(w.value))
+		if (names.includes(program) && flag !== undefined)
+			return `\`${program} ${flag.value}\` runs a string as commands`
+	}
+	return null
 }
 
 // ---------------------------------------------------------------------------
@@ -557,9 +601,60 @@ function endsShortOfProfile(path: string): boolean {
 	)
 }
 
+/** What the tripwire found in text the floor could not read, and why it matters. */
+interface Trip {
+	/** The text that matched, as found. */
+	readonly token: string
+	/** What it can reach, in words. */
+	readonly what: string
+	/** How to find it in a decoded word, when a substring search would find it elsewhere. */
+	readonly pattern?: RegExp
+}
+
+/** `schedule` as a command word: not a path segment, not a longer word (`scheduled`). */
+const SCHEDULE_WORD = /(?:^|[\s,;([{|&=])schedule(?=$|[\s,;)\]}|&])/g
+/** The CLI, the runtimes it can be started through, or its entry script, as a word. */
+const CLI_IN_TEXT =
+	/namzu|bin\.[cm]?js|(?:^|[^a-z0-9_-])(?:node|nodejs|npx|pnpx|bunx|bun|deno|tsx|ts-node|npm|pnpm|yarn)(?![a-z0-9_-])/
+/** An expansion that could hold the CLI's name or path: `$X`, a backtick, `%X%`. */
+const EXPANSION_IN_TEXT = /[$`]|%[a-z_][a-z0-9_]*%/
+/** The scheduler service's names: the unit and task (`namzu-scheduler…`), the launchd label. */
+const SERVICE_NAME_IN_TEXT = /namzu-scheduler[a-z0-9._-]*|com\.namzu\.[a-z0-9._-]*/
+/** Tools that stop, change or remove a service or a scheduled task. */
+const SERVICE_TOOL_IN_TEXT =
+	/(?:^|[^a-z0-9_-])(systemctl|launchctl|schtasks|busctl|dbus-send|gdbus|(?:stop|disable|unregister|set)-scheduledtask|schedule\.service)(?![a-z0-9_-])/
+/** `pkill` and `killall` match a process by pattern, and the scheduler is a `node` process. */
+const PROCESS_KILLER_IN_TEXT = /(?:^|[^a-z0-9_-])(pkill|killall)(?![a-z0-9_-])/
+/** `NAMZU_HOME` by name, in any shell's or language's spelling of a variable. */
+const HOME_VARIABLE_IN_TEXT = /(?:^|[^a-z0-9_])namzu_home(?![a-z0-9_])/
+/** The Windows profile root's parent, spelled as a variable or a known-folder name. */
+const LOCAL_APP_DATA_IN_TEXT =
+	/localappdata|localapplicationdata|(?:^|[^a-z0-9])appdata(?![a-z0-9])/
+/** `namzu` as a path segment or a string of its own. */
+const NAMZU_SEGMENT = /(?:^|[^a-z0-9_.-])namzu(?![a-z0-9_.-])/
+
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** A `schedule` subcommand that is not read-only, in one text, or null. */
+function scheduleSubcommand(text: string): string | null {
+	for (const match of text.matchAll(SCHEDULE_WORD)) {
+		const after = text.slice((match.index ?? 0) + match[0].length)
+		const verb = /^[\s,]*([a-z0-9][a-z0-9_-]*)/.exec(after)?.[1]
+		if (verb !== undefined && READ_ONLY_VERBS.includes(verb)) continue
+		return verb === undefined ? 'schedule' : `schedule ${verb}`
+	}
+	return null
+}
+
 class Floor {
 	private readonly home: string
+	/** NAMZU_HOME as the operator wrote it, for a refusal. */
+	private readonly homeShown: string
 	private readonly homeCore: string
+	/** NAMZU_HOME's last segment, and the default's (`.namzu`), as path segments in text. */
+	private readonly homeSegments: readonly { readonly name: string; readonly pattern: RegExp }[]
 	private readonly userHome: string
 	private readonly folders: readonly string[]
 	private readonly daemonCommandLine: string
@@ -567,18 +662,36 @@ class Floor {
 
 	constructor(options: FloorOptions) {
 		this.home = normalize(lower(options.namzuHome))
+		this.homeShown = options.namzuHome
 		this.userHome = normalize(lower(options.userHome))
 		this.folders = (options.folders ?? []).map((f) => normalize(lower(f)))
 		const last = this.home.split('/').at(-1) ?? ''
 		this.homeCore = last.replace(/^\.+/, '')
+		// A dotted name (`.namzu`) is a path segment wherever it stands; an
+		// undotted one only after a slash, or the product's name would be one.
+		this.homeSegments = [...new Set(['.namzu', last])]
+			.filter((name) => name.replace(/^\.+/, '').length >= 3)
+			.map((name) => ({
+				name,
+				pattern: name.startsWith('.')
+					? new RegExp(`(?:^|[^a-z0-9_.-])${escapeRegExp(name)}(?![a-z0-9_.-])`)
+					: new RegExp(`[/\\\\]${escapeRegExp(name)}(?![a-z0-9_.-])`),
+			}))
 		this.builtinCommands = builtinCommandArguments()
 		this.daemonCommandLine = lower(
 			options.daemonCommandLine ?? `${process.execPath} ${process.argv[1] ?? ''} schedule daemon`,
 		)
 	}
 
-	/** Why the floor denies the call, or null when it does not. */
-	verdict(call: AuthorizationPredicateCall): FloorReason | null {
+	/** What the floor protects, as a refusal names it. */
+	private protectedWords(what: FloorProtected): string {
+		return what === 'NAMZU_HOME'
+			? `NAMZU_HOME (${this.homeShown})`
+			: "the Windows browser's profile folder (%LOCALAPPDATA%\\namzu)"
+	}
+
+	/** Why the floor denies the call and what matched, or null when it does not. */
+	find(call: AuthorizationPredicateCall): FloorFinding | null {
 		const argument = call.toolDef
 			? commandArgumentOf(call.toolDef)
 			: this.builtinCommands.get(call.toolName)
@@ -590,11 +703,19 @@ class Floor {
 		}
 		try {
 			const named = this.stringsName(input, line)
-			if (named !== null) return `names ${named}`
+			if (named !== null)
+				return {
+					reason: `names ${named.what}`,
+					detail: `${named.where} names ${this.protectedWords(named.what)}`,
+				}
 			if (line !== undefined) return this.lineVerdict(line, call.commandDialect)
 			return null
 		} catch (error) {
-			if (error instanceof TooMany) return 'too many spellings'
+			if (error instanceof TooMany)
+				return {
+					reason: 'too many spellings',
+					detail: `a word in the command can be spelled more than ${MAX_ALTERNATIVES} ways once its variables are filled in, and the floor refuses rather than try them all`,
+				}
 			throw error
 		}
 	}
@@ -602,22 +723,35 @@ class Floor {
 	// ---- any tool -----------------------------------------------------------
 
 	/** Every string in the input but the command line, searched as text. */
-	private stringsName(input: unknown, line: string | undefined): FloorProtected | null {
-		const stack: unknown[] = [input]
+	private stringsName(
+		input: unknown,
+		line: string | undefined,
+	): { readonly what: FloorProtected; readonly where: string } | null {
+		const stack: { readonly value: unknown; readonly at: string; readonly key?: boolean }[] = [
+			{ value: input, at: '' },
+		]
 		let skipped = false
 		while (stack.length > 0) {
-			const value = stack.pop()
+			const { value, at, key } = stack.pop() as (typeof stack)[number]
 			if (typeof value === 'string') {
 				if (!skipped && value === line) {
 					skipped = true
 					continue
 				}
-				if (this.textNamesHome(value)) return 'NAMZU_HOME'
-				if (textNamesProfile(value)) return 'the browser profiles'
+				const where = key
+					? `the argument name ${shown(value)}`
+					: at === ''
+						? 'the input'
+						: `the \`${at}\` argument`
+				if (this.textNamesHome(value)) return { what: 'NAMZU_HOME', where }
+				if (textNamesProfile(value)) return { what: 'the browser profiles', where }
 			} else if (Array.isArray(value)) {
-				stack.push(...value)
+				value.forEach((each, i) => stack.push({ value: each, at: `${at}[${i}]` }))
 			} else if (value !== null && typeof value === 'object') {
-				for (const [key, each] of Object.entries(value)) stack.push(key, each)
+				for (const [name, each] of Object.entries(value)) {
+					const path = at === '' ? name : `${at}.${name}`
+					stack.push({ value: name, at: path, key: true }, { value: each, at: path })
+				}
 			}
 		}
 		return null
@@ -646,7 +780,7 @@ class Floor {
 
 	// ---- a command line -----------------------------------------------------
 
-	private lineVerdict(line: string, dialect: 'bash' | 'sh', depth = 0): FloorReason | null {
+	private lineVerdict(line: string, dialect: 'bash' | 'sh', depth = 0): FloorFinding | null {
 		// A line for a shell that may be bash or a POSIX shell is read both
 		// ways, and denied if either reading denies it.
 		const readings =
@@ -658,50 +792,155 @@ class Floor {
 					]
 		const catalogue = /textdomain/i.test(line)
 		const loops = /\b(?:while|until|for|select)\b/.test(line)
-		let unaccounted: FloorReason | null = null
+		let unaccounted: { readonly reason: FloorReason; readonly why: string } | null = null
 		for (const reading of readings) {
-			const reason = this.readingVerdict(reading, catalogue, loops)
-			if (reason !== null) return reason
-			if (reading.opaque) unaccounted ??= 'opaque line mentions a protected name'
-			else if (reading.commands.some(unreadCommand))
-				unaccounted ??= 'unread text mentions a protected name'
+			const finding = this.readingVerdict(reading, catalogue, loops)
+			if (finding !== null) return finding
+			if (reading.opaque) {
+				unaccounted ??= {
+					reason: 'opaque line mentions a protected name',
+					why: `the floor cannot read the line (${reading.reasons[0] ?? 'a construct it does not model'})`,
+				}
+				continue
+			}
+			for (const command of reading.commands) {
+				const unread = unreadCommand(command)
+				if (unread === null) continue
+				unaccounted ??= { reason: 'unread text mentions a protected name', why: unread }
+				break
+			}
 		}
 		if (unaccounted === null) return null
-		if (this.mentionsProtected(line, readings)) return unaccounted
+		const trip = this.tripwire(line, readings)
+		if (trip !== null)
+			return {
+				reason: unaccounted.reason,
+				detail: `${unaccounted.why}, and it holds ${shown(trip.token)} (${trip.what})${whereIn(readings, trip.pattern ?? trip.token)}`,
+			}
 		// Text a program may run as a command line — an argument (`echo '…' |
 		// sh`, `sudo bash -c '…'`), a here-string, a here-document's body —
 		// is read as one, decoded, so what the tripwire looks for cannot hide
 		// behind escapes that only the inner shell undoes.
 		if (depth < MAX_TEXT_DEPTH)
 			for (const text of fedTexts(readings)) {
-				if (this.lineVerdict(text, 'bash', depth + 1) !== null) return unaccounted
+				const inner = this.lineVerdict(text, 'bash', depth + 1)
+				if (inner !== null)
+					return {
+						reason: unaccounted.reason,
+						detail: `${unaccounted.why}, and read as a command line, ${shown(text)}: ${inner.detail}`,
+					}
 			}
 		return null
 	}
 
-	/** The tripwire: the line's text names something the floor protects. */
-	private mentionsProtected(line: string, readings: readonly ShellLexResult[]): boolean {
-		const squashed = lower(line)
-			.replace(/\\\n/g, '')
-			.replace(/["'\\$`]/g, '')
+	/**
+	 * The tripwire, for a line the lexer could not account for: something in
+	 * its text that can reach what the floor protects, or null. Read in the
+	 * line as written, with quotes and expansion marks dropped (and once more
+	 * with backslashes dropped too), and in every word the lexer decoded:
+	 *
+	 * - `NAMZU_HOME` by name (`$NAMZU_HOME`, `%NAMZU_HOME%`,
+	 *   `os.environ['NAMZU_HOME']`), its last segment as a path segment
+	 *   (`.namzu`, always), or a path into it;
+	 * - the Windows browser's profile folder, as a path, or `LOCALAPPDATA` (or
+	 *   `AppData`) with `namzu` as a segment or a string of its own;
+	 * - the scheduler service's name (`namzu-scheduler…`, `com.namzu.…`);
+	 * - a service tool (`systemctl`, `launchctl`, `schtasks`, the D-Bus tools,
+	 *   PowerShell's `*-ScheduledTask`) with `namzu` or a glob in the text,
+	 *   `systemctl isolate` or `exit`; `pkill` or `killall` anywhere, because
+	 *   a pattern can match the scheduler's `node` process without naming it;
+	 * - `schedule` as a command word followed by anything but a read-only
+	 *   verb, when the text also names the CLI (`namzu`, `@namzu/cli`,
+	 *   `bin.js`, a JavaScript runtime) or holds an expansion that could.
+	 *
+	 * Nothing else: the product's name in a string (`MessageBox::Show('Namzu:
+	 * scheduled job running')`) reaches none of them.
+	 */
+	private tripwire(line: string, readings: readonly ShellLexResult[]): Trip | null {
+		const plain = lower(line).replace(/\\\n/g, '')
+		const unquoted = plain.replace(/["'$`]/g, '')
+		const squashed = unquoted.replace(/\\/g, '')
 		const decoded = readings
 			.flatMap((r) => r.commands.flatMap((c) => c.words.map((w) => lower(w.value))))
 			.join(' ')
-		const tokens = [...SENSITIVE, 'namzu_home']
-		if (this.homeCore.length >= 3) tokens.push(this.homeCore)
-		for (const text of [squashed, decoded])
-			if (tokens.some((token) => text.includes(token))) return true
-		return this.textNamesHome(line)
+		const texts = [squashed, unquoted, decoded]
+		const first = (pattern: RegExp): string | null => {
+			for (const text of texts) {
+				const match = pattern.exec(text)
+				if (match) return match[1] ?? match[0].replace(/^[^a-z0-9%.]+/, '')
+			}
+			return null
+		}
+
+		// NAMZU_HOME.
+		if (HOME_VARIABLE_IN_TEXT.test(plain) || first(HOME_VARIABLE_IN_TEXT) !== null)
+			return { token: 'NAMZU_HOME', what: 'the NAMZU_HOME variable' }
+		for (const { name, pattern } of this.homeSegments)
+			if (texts.some((text) => pattern.test(text)))
+				return { token: name, what: "NAMZU_HOME's folder name", pattern }
+		if (this.textNamesHome(line) || this.textNamesHome(decoded))
+			return { token: this.homeShown, what: 'a path into NAMZU_HOME' }
+
+		// The Windows browser's profiles.
+		if (textNamesProfile(line) || textNamesProfile(decoded))
+			return {
+				token: '%LOCALAPPDATA%\\namzu',
+				what: "a path into the Windows browser's profile folder",
+			}
+		const appData = first(LOCAL_APP_DATA_IN_TEXT)
+		if (appData !== null && texts.some((text) => NAMZU_SEGMENT.test(text)))
+			return {
+				token: `${appData} … namzu`,
+				what: "together, the Windows browser's profile folder",
+			}
+
+		// The service.
+		const service = first(SERVICE_NAME_IN_TEXT)
+		if (service !== null) return { token: service, what: "the scheduler service's name" }
+		const tool = first(SERVICE_TOOL_IN_TEXT)
+		if (tool !== null) {
+			if (texts.some((text) => text.includes('namzu')))
+				return { token: `${tool} … namzu`, what: 'a service tool with a namzu name' }
+			if (plain.includes('*'))
+				return { token: `${tool} … *`, what: 'a service tool with a pattern that can match it' }
+			if (tool === 'systemctl') {
+				const all = first(/(?:^|\s)(isolate|exit)(?![a-z0-9_-])/)
+				if (all !== null) return { token: `systemctl ${all}`, what: 'which stops every service' }
+			}
+		}
+		const killer = first(PROCESS_KILLER_IN_TEXT)
+		if (killer !== null)
+			return {
+				token: killer,
+				what: 'which kills by pattern, and the scheduler is a node process a pattern can match',
+			}
+
+		// The CLI's `schedule` subcommands.
+		// `$'…'` and `$"…"` are quotes, not expansions.
+		const cli =
+			texts.some((text) => CLI_IN_TEXT.test(text)) ||
+			EXPANSION_IN_TEXT.test(plain.replace(/\$(?=['"])/g, ''))
+		if (cli)
+			for (const text of [squashed, decoded]) {
+				const subcommand = scheduleSubcommand(text)
+				if (subcommand !== null) return { token: subcommand, what: NOT_READ_ONLY }
+			}
+		return null
 	}
 
 	private readingVerdict(
 		reading: ShellLexResult,
 		catalogue: boolean,
 		loops: boolean,
-	): FloorReason | null {
-		for (const command of reading.commands)
-			if (reachesScheduler(wordsOf(command, catalogue), this.daemonCommandLine))
-				return 'scheduler command'
+	): FloorFinding | null {
+		for (const command of reading.commands) {
+			const does = reachesScheduler(wordsOf(command, catalogue), this.daemonCommandLine)
+			if (does !== null)
+				return {
+					reason: 'scheduler command',
+					detail: `${shown(command.words.map((w) => w.text).join(' '))} ${does}`,
+				}
+		}
 
 		const variables = this.assignments(reading)
 		const expanding = (w: ShellWord) => w.expands && !localeOnly(w.value, catalogue)
@@ -715,6 +954,7 @@ class Floor {
 		const exported = reading.commands.some((c) =>
 			c.words.some((w) => !w.expands && EXPORTING.has(commandName(w.value))),
 		)
+		const names = (what: FloorProtected) => `names ${this.protectedWords(what)}`
 		const cwd = new Directories(this.folders)
 		// In a loop, a `cd` late in the body applies to the next pass's first
 		// command: every command gets every directory the line can reach.
@@ -729,16 +969,28 @@ class Floor {
 			for (const [i, word] of command.words.entries()) {
 				if (standalone && i < command.assignments) continue
 				const named = check(word)
-				if (named !== null) return `word names ${named}`
+				if (named !== null)
+					return {
+						reason: `word names ${named}`,
+						detail: `the argument ${shown(word.text)} ${names(named)}`,
+					}
 				// `X=~/.namzu` as an argument, or exported: the value on its own.
 				const assigned = assignedValue(word)
 				const value = assigned ? check(assigned.word) : null
-				if (value !== null) return `assigned value names ${value}`
+				if (value !== null)
+					return {
+						reason: `assigned value names ${value}`,
+						detail: `the value assigned in ${shown(word.text)} ${names(value)}`,
+					}
 			}
 			for (const redirection of command.redirections) {
 				seen.add(redirection)
 				const named = redirectsTo(redirection) ? check(redirection.target) : null
-				if (named !== null) return `redirection names ${named}`
+				if (named !== null)
+					return {
+						reason: `redirection names ${named}`,
+						detail: `the redirection ${shown(`${redirection.operator} ${redirection.target.text}`)} ${names(named)}`,
+					}
 			}
 			cwd.after(command, (target) => this.spell(target, variables, cwd.current()), this.userHome)
 		}
@@ -749,11 +1001,19 @@ class Floor {
 		for (const redirection of reading.redirections) {
 			if (seen.has(redirection) || !redirectsTo(redirection)) continue
 			const named = check(redirection.target)
-			if (named !== null) return `redirection names ${named}`
+			if (named !== null)
+				return {
+					reason: `redirection names ${named}`,
+					detail: `the redirection ${shown(`${redirection.operator} ${redirection.target.text}`)} ${names(named)}`,
+				}
 		}
 		for (const word of reading.compoundWords) {
 			const named = check(word)
-			if (named !== null) return `loop or case word names ${named}`
+			if (named !== null)
+				return {
+					reason: `loop or case word names ${named}`,
+					detail: `the loop or case word ${shown(word.text)} ${names(named)}`,
+				}
 		}
 		return null
 	}
@@ -948,6 +1208,18 @@ class Floor {
 		return false
 	}
 
+	/** Whether text after an unknown expansion holds NAMZU_HOME's last segment as a path segment. */
+	private restNamesHome(rest: string): boolean {
+		let at = rest.indexOf(this.homeCore)
+		while (at >= 0) {
+			const before = at === 0 ? '' : (rest[at - 1] as string)
+			const after = rest[at + this.homeCore.length] ?? ''
+			if (/^[./\\]?$/.test(before) && !NAME_CHAR.test(after)) return true
+			at = rest.indexOf(this.homeCore, at + 1)
+		}
+		return false
+	}
+
 	private wordNamesHome(
 		word: ShellWord,
 		variables: ReadonlyMap<string, Alternatives>,
@@ -997,11 +1269,12 @@ class Floor {
 				}
 				if (next.startsWith(partial)) return true
 			}
-			if (
-				spelling.stop !== 'end' &&
-				this.homeCore.length >= 3 &&
-				spelling.rest.includes(this.homeCore)
-			)
+			// After the unknown part, NAMZU_HOME's last segment as a path
+			// segment: right after the expansion (`${X}namzu`, where X may end
+			// in `/.`), or after a `.`, `/` or `\` (`$X/.namzu/x`). The name
+			// inside other text (`$(echo namzu)`, `"$USER: namzu done"`) is not
+			// a path.
+			if (spelling.stop !== 'end' && this.homeCore.length >= 3 && this.restNamesHome(spelling.rest))
 				return true
 		}
 		return false
@@ -1153,9 +1426,22 @@ function fedTexts(readings: readonly ShellLexResult[]): string[] {
 	return [...out]
 }
 
-/** A command the lexer listed whose name or payload it could not read. */
-function unreadCommand(command: ShellCommand): boolean {
+/** A command the lexer listed whose name or payload it could not read, in words, or null. */
+function unreadCommand(command: ShellCommand): string | null {
 	const head = command.words[command.assignments]
-	if (head?.expands) return true
+	if (head?.expands) return `the command's name ${shown(head.text)} expands at runtime`
 	return runsUnreadText(command)
+}
+
+/** `, in the argument …` for the first word that holds `token`, or nothing. */
+function whereIn(readings: readonly ShellLexResult[], token: string | RegExp): string {
+	const holds =
+		typeof token === 'string'
+			? (text: string) => text.includes(lower(token))
+			: (text: string) => token.test(text)
+	for (const reading of readings)
+		for (const command of reading.commands)
+			for (const word of command.words)
+				if (holds(lower(word.value))) return `, in the argument ${shown(word.value)}`
+	return ''
 }
