@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { ToolResult } from '../../../types/tool/index.js'
 import { generateTurnId } from '../../../utils/id.js'
@@ -43,19 +43,20 @@ function toolsWithHandoff() {
 		}),
 	)
 	const sibling = vi.fn(async (): Promise<ToolResult> => ({ success: true, output: 'sibling-ok' }))
-	const tools = new ToolRegistry()
-	tools.register({
-		name: 'open_page',
-		description: 'Open a page',
-		inputSchema: z.object({}),
-		execute: signIn,
-	} as unknown as Parameters<ToolRegistry['register']>[0])
-	tools.register({
-		name: 'note',
-		description: 'Take a note',
-		inputSchema: z.object({}),
-		execute: sibling,
-	} as unknown as Parameters<ToolRegistry['register']>[0])
+	const tools = testToolset(
+		{
+			name: 'open_page',
+			description: 'Open a page',
+			inputSchema: z.object({}),
+			execute: signIn,
+		},
+		{
+			name: 'note',
+			description: 'Take a note',
+			inputSchema: z.object({}),
+			execute: sibling,
+		},
+	)
 	return { tools, signIn, sibling }
 }
 
@@ -82,7 +83,7 @@ async function runUntilHandoff() {
 	const { tools, signIn, sibling } = toolsWithHandoff()
 	const common = {
 		provider,
-		tools,
+		toolsets: [tools],
 		agentId: 'agent_handoff',
 		agentName: 'Handoff agent',
 		workingDirectory: process.cwd(),
@@ -187,7 +188,7 @@ describe('a tool that asks for a person', () => {
 		const run = await drainQuery(
 			{
 				provider,
-				tools,
+				toolsets: [tools],
 				...session,
 				parentSessionId: memorySession().sessionId,
 				agentId: 'agent_handoff_child',
