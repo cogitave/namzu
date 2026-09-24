@@ -79,8 +79,8 @@ characters are escaped for the terminal, so it stays on the right cells. `✦`
 emoji, and the state is always also a word or mark (`?`, `(off)`,
 `unavailable …`), so a terminal without colour, or a reader who cannot tell
 the two glyphs apart, loses nothing. The row is one row at every width and
-shortens by steps (full copy from 80 columns, a short form from 60, label and
-key from 40, the label alone below). The border tag and the footer are
+shortens by steps (full copy from 84 terminal columns, a short form from 64,
+label and key from 44, the label alone below). The border tag and the footer are
 unchanged by a trigger: a one-turn effort pin shows in the row and in the
 transcript line under the message (`✦ hypermode (this turn, effort xhigh)`),
 and the footer keeps the session's own effort. The queue line names the armed

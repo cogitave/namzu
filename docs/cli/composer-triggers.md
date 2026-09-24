@@ -115,10 +115,13 @@ else, and the state is always also a word or a mark, never only the glyph:
 ✦ hypermode (effort xhigh) · ✦ save as skill · alt+w drop                       (several)
 ```
 
-Narrower terminals get shorter copy — `✦ hypermode · this turn, effort xhigh ·
-alt+w` from 60 columns, `✦ hypermode · effort xhigh · alt+w` from 40, and
+The full copy needs a terminal of 84 columns (the row has the terminal's width
+less the frame's four cells). Narrower terminals get shorter copy:
+`✦ hypermode · this turn, effort xhigh · alt+w` from 64 columns (an 80×24
+terminal shows this one), `✦ hypermode · effort xhigh · alt+w` from 44, and
 `✦ hypermode` below that; several triggers are counted (`✦ 2 armed · alt+w`,
-`✦ 1 armed · 1 off`). It is always one row.
+`✦ 1 armed · 1 off`). It is always one row, and the state word stays at every
+width (`✧ hypermode?`, `✧ hypermode (off)`).
 
 The armed words are drawn bold and underlined in the trigger colour (sky,
 ANSI 117), a colour of their own: violet stays the session mode's. With colour
