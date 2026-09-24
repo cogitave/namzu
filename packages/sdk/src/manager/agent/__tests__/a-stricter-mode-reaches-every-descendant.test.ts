@@ -10,7 +10,6 @@ import { ReactiveAgent } from '../../../agents/ReactiveAgent.js'
 import { SupervisorAgent } from '../../../agents/SupervisorAgent.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createReviewHandler } from '../../../runtime/query/review-policy.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
@@ -18,7 +17,9 @@ import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js
 import { SessionTokenBudget } from '../../../store/budget/index.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore } from '../../../store/topic/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
 import type {
 	HITLDecisionRequest,
@@ -63,9 +64,8 @@ afterEach(async () => {
 const WRITE = 'touch'
 
 /** A tool that changes something, recording each path it was asked to create. */
-function writeTools(written: string[]): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function writeTools(written: string[]): Toolset {
+	return testToolset(
 		defineTool({
 			name: WRITE,
 			description: 'creates a file',
@@ -81,7 +81,6 @@ function writeTools(written: string[]): ToolRegistry {
 			},
 		}),
 	)
-	return registry
 }
 
 /** Two writes in two batches, then an answer. */
@@ -184,7 +183,7 @@ async function harness() {
 			timeoutMs: 20_000,
 			maxIterations: 5,
 			provider: writerProvider(),
-			tools: writeTools(written),
+			toolsets: [writeTools(written)],
 			systemPrompt: 'write',
 			...(opts.reviewAllowedCalls ? { reviewAllowedCalls: opts.reviewAllowedCalls } : {}),
 		}),
@@ -223,7 +222,7 @@ async function harness() {
 			}),
 			agentIds: ['worker'],
 			agentManager: late.manager,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			systemPrompt: 'You coordinate.',
 		}),
 	} as never)
