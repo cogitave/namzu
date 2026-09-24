@@ -127,6 +127,45 @@ describe('the scheduler’s own commands', () => {
 		])
 	})
 
+	// A second review of that fix found `heads` only ever placed the program
+	// one word after a fixed, one-hop list of wrapper names (`REEXEC_PREFIX`),
+	// so any wrapper with a MANDATORY argument of its own before the program
+	// — `timeout`'s duration, `stdbuf`'s buffering mode, `chrt`'s priority, an
+	// `env VAR=value` pair — put the program at the wrong index and reached
+	// it as an ordinary, unverified argument. `exec` and `command` were not
+	// in the list at all. `programPositions` (`packages/sdk/src/
+	// authorization/program.ts`) replaces the fixed-offset guess with each
+	// wrapper's own real option grammar, and follows a chain of several.
+	it('places the program correctly behind a wrapper that takes its own argument first', () => {
+		denied([
+			'timeout 5 $(echo systemctl) stop namzu-scheduler.service',
+			'timeout -s TERM 5 $(echo systemctl) stop namzu-scheduler.service',
+			'stdbuf -oL $(echo systemctl) stop namzu-scheduler.service',
+			'chrt 0 $(echo systemctl) stop namzu-scheduler.service',
+			'env NODE_ENV=production $(echo systemctl) stop namzu-scheduler.service',
+			'nice -n 10 $(echo systemctl) stop namzu-scheduler.service',
+			'ionice -c2 -n7 $(echo systemctl) stop namzu-scheduler.service',
+			'exec $(echo systemctl) stop namzu-scheduler.service',
+			'command $(echo systemctl) stop namzu-scheduler.service',
+			'timeout 5 $(echo pkill) -f namzu-scheduler',
+			'env NODE_ENV=production $(echo pkill) -f namzu-scheduler',
+			// Chained wrappers, followed all the way through — no longer
+			// stopping after one hop.
+			'sudo nice $(echo systemctl) stop namzu-scheduler.service',
+			'sudo env nice -n 5 $(echo systemctl) stop namzu-scheduler.service',
+		])
+		// A wrapper's idiomatic, attached-short-option spelling must not, on
+		// its own, make an otherwise ordinary command unverifiable: fail
+		// closed on an option this does not model, not on the everyday form
+		// of one it does.
+		allowed([
+			'ionice -c2 -n7 rsync -a /src /dst',
+			'nice -n10 make -j4',
+			'stdbuf -oL grep foo',
+			'taskset -c0-3 make -j4',
+		])
+	})
+
 	it('does not read a wild word as a program name where it plainly is not one', () => {
 		// Negative controls: a literal program name with substitutions only
 		// in its arguments still behaves exactly as before (allowed, or

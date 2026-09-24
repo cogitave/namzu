@@ -37,7 +37,12 @@
  * unattended, full stop.
  */
 
-import { AuthorizationGate, NOOP_LOGGER, lexShellCommandLine } from '@namzu/sdk'
+import {
+	AuthorizationGate,
+	NOOP_LOGGER,
+	lexShellCommandLine,
+	resolveScriptPrograms,
+} from '@namzu/sdk'
 import { sanitizeLine } from '../integrations/notifications/desktop/sanitize.js'
 import type { ScriptCheckPolicy } from './policy.js'
 
@@ -98,19 +103,29 @@ export function verifyScheduledScript(
 		}
 	}
 	// A command whose own name is decided at runtime (`$(echo rm) -rf x`,
-	// `$(echo git) push …`) is not opaque — the lexer read it fine — but no
-	// deny rule can be trusted to have matched it: a pattern written against
-	// the command's real name never sees a name that does not appear as
-	// such anywhere in the script's text. A script confirmed once and never
-	// reviewed live cannot lean on the operator noticing at run time the
-	// way a live call's own review can; this is the same posture as
-	// opaque, and for the same reason — refused rather than guessed at.
-	for (const command of reading.commands) {
-		const head = command.words[command.assignments]
-		if (head?.expands) {
-			return {
-				ok: false,
-				reason: `the command ${shown(command.text)}'s name is decided at runtime, so no rule can verify what it runs; a script whose commands cannot be verified is refused rather than run unattended`,
+	// `env $(echo git) push`, `timeout 5 $(echo systemctl) stop …`) is not
+	// opaque — the lexer read it fine — but no deny rule can be trusted to
+	// have matched it: a pattern written against the command's real name
+	// never sees a name that does not appear as such anywhere in the
+	// script's text, and it never sees one hidden behind a re-exec wrapper's
+	// own name either. `resolveScriptPrograms` is the SDK's one answer to
+	// "where does this script actually exec a program" — it unwraps
+	// `sudo`/`env`/`nice`/`timeout`/… with their real option grammars,
+	// reads `find -exec`'s own clauses, and threads `PATH`/`LD_PRELOAD`/…
+	// poisoning from an earlier command through to later ones, so the same
+	// answer the live `bash` tool's escalation and the scheduled-run floor
+	// use is the one a script is checked against too. A script confirmed
+	// once and never reviewed live cannot lean on the operator noticing at
+	// run time the way a live call's own review can; this is the same
+	// posture as opaque, and for the same reason — refused rather than
+	// guessed at.
+	for (const { command, positions } of resolveScriptPrograms(reading.commands)) {
+		for (const position of positions) {
+			if (position.unknown !== undefined) {
+				return {
+					ok: false,
+					reason: `the command ${shown(command.text)}'s program cannot be verified ahead of time (${position.unknown}); a script whose commands cannot be verified is refused rather than run unattended`,
+				}
 			}
 		}
 	}

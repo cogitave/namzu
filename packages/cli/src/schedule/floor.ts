@@ -95,6 +95,7 @@ import {
 	commandArgumentOf,
 	lexShellCommandLine,
 	nestedShellCommand,
+	programPositions,
 } from '@namzu/sdk'
 
 /** Scheduler verbs a run may use: they read, they change nothing. */
@@ -335,48 +336,44 @@ function wordsOf(command: ShellCommand, catalogue: boolean): Word[] {
 // Scheduler commands
 
 /**
- * Utilities that re-exec their trailing argv unmodified, one level: for
- * `sudo systemctl stop x`, the program name is not the head. Not chained
- * (`sudo nice systemctl …` is not followed past one prefix) and not
- * exhaustive — a prefix this does not name is read at the head only, same
- * as before.
- */
-const REEXEC_PREFIX = new Set([
-	'sudo',
-	'doas',
-	'pkexec',
-	'env',
-	'nice',
-	'ionice',
-	'nohup',
-	'timeout',
-	'setsid',
-	'stdbuf',
-	'chrt',
-])
-
-/**
  * Whether one command's words, in order, reach the scheduler, and if so what
  * they do, in words. Each role is taken at its first place after the one
  * before; for a question of "is there such a subsequence" that loses
  * nothing, and it is one pass.
  */
 function reachesScheduler(
+	command: ShellCommand,
 	words: readonly Word[],
 	daemonCommandLine: string,
-	assignments: number,
 ): string | null {
 	const n = words.length
 	const find = (from: number, test: (w: Word, i: number) => boolean): number => {
 		for (let i = from; i < n; i++) if (test(words[i] as Word, i)) return i
 		return -1
 	}
-	// Where a program name could stand: the head itself (after any leading
-	// `X=1` assignments), and the word right after a utility that re-execs
-	// its trailing argv unmodified.
-	const heads = new Set<number>([assignments])
-	const head = words[assignments]
-	if (head && !head.wild && REEXEC_PREFIX.has(commandName(head.text))) heads.add(assignments + 1)
+	// Where a program name could stand: `programPositions` — the SDK's one
+	// answer to "where does this command actually exec a program" — unwraps
+	// a chain of re-exec wrappers (`sudo`, `env`, `nice`, `timeout`, …) with
+	// each one's own real option grammar, rather than assuming the program
+	// sits right after the wrapper's name (`timeout 5 prog`, `stdbuf -oL
+	// prog` and `ionice -c2 -n7 prog` all take at least one word of their
+	// own first). `words`/`command.words` share indices, so a resolved
+	// position's word maps straight back to one. A position `programPositions`
+	// could not resolve because that word ITSELF expands (`sudo
+	// $(echo systemctl) stop x`) still carries the word, so it becomes a
+	// head here too — same as before, just correctly placed after however
+	// many wrapper words came first. A position it could not resolve for a
+	// structural reason with no wild word of its own (an option a wrapper
+	// does not recognise, `eval`/`source`/`.`, too many wrappers) carries no
+	// word and adds nothing here; that gap is not this fix's scope — an
+	// interpreter or unread construct is the tripwire's and
+	// `runsUnreadText`'s job, not this one's.
+	const heads = new Set<number>()
+	for (const position of programPositions(command)) {
+		if (position.word === undefined) continue
+		const idx = command.words.indexOf(position.word)
+		if (idx >= 0) heads.add(idx)
+	}
 	// A wild (expanding) word in one of those positions cannot be read as
 	// NOT being the tool in question — a substring check on its raw,
 	// unevaluated text (`$(echo pk)ill`) is defeated by gluing a literal
@@ -1029,11 +1026,7 @@ class Floor {
 				}
 		}
 		for (const command of reading.commands) {
-			const does = reachesScheduler(
-				wordsOf(command, catalogue),
-				this.daemonCommandLine,
-				command.assignments,
-			)
+			const does = reachesScheduler(command, wordsOf(command, catalogue), this.daemonCommandLine)
 			if (does !== null)
 				return {
 					reason: 'scheduler command',

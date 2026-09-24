@@ -20,7 +20,7 @@ interface VerificationAwareContext extends IterationContext {
 /** Why an escalated call cannot be waved through by the rule that would otherwise allow it. */
 function escalationReason(escalation: ToolCallSummary['escalation']): string {
 	if (escalation?.unknownProgram !== undefined) {
-		return `the program this runs is decided at runtime: \`${escalation.unknownProgram}\``
+		return `this call's program cannot be verified ahead of time (${escalation.unknownProgram})`
 	}
 	if (escalation?.sandboxEscape) return "this call asks to run outside the turn's sandbox"
 	if (escalation?.outsidePaths?.length)

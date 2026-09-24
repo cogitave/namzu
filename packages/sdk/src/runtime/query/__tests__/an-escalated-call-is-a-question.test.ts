@@ -635,9 +635,9 @@ describe('a command whose own program name is decided at runtime', () => {
 		})
 
 		expect(prompt).toHaveBeenCalledTimes(1)
-		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({
-			unknownProgram: '$(echo echo)',
-		})
+		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation?.unknownProgram).toMatch(
+			/decided at runtime: \$\(echo echo\)/,
+		)
 		expect(text).toContain('HOST_RAN')
 		expect(audit).toContainEqual(
 			expect.objectContaining({ action: 'unknown_program', tool: 'bash', outcome: 'approved' }),
@@ -698,6 +698,56 @@ describe('a command whose own program name is decided at runtime', () => {
 		})
 
 		expect(text).toContain('HOST_RAN')
+	})
+
+	// A second review found the escalation only ever looked at the lexed
+	// command's literal head word, so a re-exec wrapper with its own
+	// mandatory argument (`env VAR=value`, `nice -n 10`, `timeout 5`) or a
+	// chain of several put the real program one or more words past the
+	// head and slipped through unescalated. `resolveScriptPrograms`
+	// (`packages/sdk/src/authorization/program.ts`) unwraps the wrapper
+	// with its real option grammar instead of assuming the program sits
+	// right after the wrapper's own name.
+	it.each([
+		['env $(echo echo) HOST_RAN', 'env, no leading assignment'],
+		['env NODE_ENV=production $(echo echo) HOST_RAN', 'env with a VAR=value pair first'],
+		['nice -n 10 $(echo echo) HOST_RAN', 'nice with -n VALUE'],
+		['timeout 5 $(echo echo) HOST_RAN', 'timeout, whose duration is mandatory'],
+		['command $(echo echo) HOST_RAN', 'the `command` builtin'],
+		['exec $(echo echo) HOST_RAN', 'the `exec` builtin'],
+		['sudo env nice -n 5 $(echo echo) HOST_RAN', 'a chain of three wrappers'],
+	])('is escalated behind a re-exec wrapper: %s (%s)', async (command) => {
+		const { text } = await unknownProgramThroughQuery({
+			command,
+			resumeHandler: createReviewHandler({ mode: 'auto' }),
+		})
+
+		expect(text).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+		expect(text).not.toContain('HOST_RAN')
+	})
+
+	it('is escalated for eval, source and the dot builtin, which run text as code, not a program by name', async () => {
+		for (const command of [
+			'eval "$(echo echo HOST_RAN)"',
+			'source /tmp/does-not-exist-either-way.sh',
+		]) {
+			const { text } = await unknownProgramThroughQuery({
+				command,
+				resumeHandler: createReviewHandler({ mode: 'auto' }),
+			})
+			expect(text, command).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+			expect(text, command).not.toContain('HOST_RAN')
+		}
+	})
+
+	it('is escalated once an earlier command in the same call poisons PATH for the rest', async () => {
+		const { text } = await unknownProgramThroughQuery({
+			command: 'export PATH=$(echo /tmp/evil); echo HOST_RAN',
+			resumeHandler: createReviewHandler({ mode: 'auto' }),
+		})
+
+		expect(text).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+		expect(text).not.toContain('HOST_RAN')
 	})
 })
 

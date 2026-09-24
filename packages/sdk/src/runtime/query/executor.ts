@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
+import { resolveScriptPrograms } from '../../authorization/program.js'
 import { lexShellCommandLine } from '../../authorization/shell-lexer.js'
 import { type SkillGrantSet, compileSkillGrant } from '../../authorization/skill-grant.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
@@ -875,10 +876,15 @@ export class ToolExecutor {
 	}
 
 	/**
-	 * The raw text of a command whose own program name is decided at
-	 * runtime, in a tool's `commandArgument`, or undefined. Checked whether
-	 * or not the turn is sandboxed: a program nobody can name before it runs
-	 * is exactly as unverifiable inside a sandbox as outside one.
+	 * Why a command's own program name is not knowable ahead of running it,
+	 * in a tool's `commandArgument`, or undefined. Reads every command's
+	 * {@link resolveScriptPrograms}, which unwraps re-exec wrappers (`sudo`,
+	 * `env`, `nice`, `timeout`, …) with their real option grammars rather
+	 * than assuming the program sits right after the wrapper's name, and
+	 * threads `PATH`/`LD_PRELOAD`/… poisoning from an earlier command through
+	 * to later ones. Checked whether or not the turn is sandboxed: a program
+	 * nobody can name before it runs is exactly as unverifiable inside a
+	 * sandbox as outside one.
 	 */
 	private unknownProgramOf(
 		tool: { commandArgument?: string; commandDialect?: ToolDefinition['commandDialect'] },
@@ -890,9 +896,10 @@ export class ToolExecutor {
 		if (typeof value !== 'string') return undefined
 		const dialect = tool.commandDialect?.({ sandboxed }) ?? 'sh'
 		const reading = lexShellCommandLine(value, { dialect })
-		for (const command of reading.commands) {
-			const head = command.words[command.assignments]
-			if (head?.expands) return head.text
+		for (const { command, positions } of resolveScriptPrograms(reading.commands)) {
+			for (const position of positions) {
+				if (position.unknown !== undefined) return `${command.text}: ${position.unknown}`
+			}
 		}
 		return undefined
 	}

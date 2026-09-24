@@ -98,8 +98,8 @@ export interface CommandLineDecomposition {
 	readonly opaque: boolean
 }
 
-/** Commands whose argument is code assembled at runtime. */
-const RUNTIME_EVALUATORS = new Set(['eval', 'source', '.'])
+/** Commands whose argument is code assembled at runtime. Shared with `program.ts`. */
+export const RUNTIME_EVALUATORS = new Set(['eval', 'source', '.'])
 
 /**
  * Width limit. A line past it is reported opaque rather than truncated: a

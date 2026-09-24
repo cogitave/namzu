@@ -931,6 +931,23 @@ export {
 	nestedShellCommand,
 } from './authorization/shell-lexer.js'
 
+// Where a command line actually execs a program — unwrapping `sudo`, `env`,
+// `nice`, `timeout` and the rest of a re-exec chain with their own real
+// option grammars, rather than assuming the program sits right after the
+// wrapper's name. The live `bash` tool's escalation, the CLI's
+// scheduled-run floor and its script check all read this the same way, so
+// `env $(echo git) push` and `timeout 5 $(echo systemctl) stop …` cannot be
+// verified by one and missed by another.
+export {
+	DYNAMIC_RESOLUTION_VARIABLES,
+	hasPoisoningPrefix,
+	poisonedProgramPosition,
+	poisonsLaterCommands,
+	programPositions,
+	resolveScriptPrograms,
+} from './authorization/program.js'
+export type { CommandProgramPositions, ProgramPosition } from './authorization/program.js'
+
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`
 // instance at import time (see each file); `namzu doctor` and any host can

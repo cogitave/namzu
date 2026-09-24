@@ -204,7 +204,10 @@ The rules a run is gated by, in order (the first that matches decides):
    `namzu schedule remove x`, and `echo 'namzu schedule remove x'` is `echo`
    with one argument. It refuses:
    - **the scheduler's own commands**, wherever they stand in a command, so
-     `sudo`, `env`, `nohup` or `timeout` in front changes nothing:
+     `sudo`, `env`, `nice`, `ionice`, `nohup`, `setsid`, `timeout`, `stdbuf`,
+     `chrt`, `taskset`, `time`, `command`, `builtin` or `exec` in front
+     changes nothing, and neither does a chain of several
+     (`sudo env nice -n 5 systemctl stop namzu-scheduler`):
      `systemctl` with `stop`, `disable`, `mask`, `edit`, `kill`, `revert`,
      `freeze`, `set-property` or `clean` and a unit naming namzu or a glob
      (`'namzu*'`), `systemctl isolate` and `exit`; `launchctl` with
@@ -217,9 +220,19 @@ The rules a run is gated by, in order (the first that matches decides):
      schedule` subcommand except `list`, `show`, `status`, `history` and
      `logs`, however the CLI is reached (`namzu`, a path to it, `npx
      @namzu/cli`, `node …/bin.js`, `node`, `npx`, `bun` …), with options
-     between. A word that expands at runtime (`$VERB`, `"$ARGS"`) counts as
-     any word there, so `namzu schedule "$VERB"` and `namzu $ARGS` are
-     refused;
+     between. Each wrapper's own real option grammar decides where the
+     program actually starts — `timeout 5 …`, `stdbuf -oL …`, `chrt 0 …` and
+     `env VAR=value …` all take at least one word of their own first, not
+     the word right after the wrapper's name — through
+     `programPositions`/`resolveScriptPrograms`
+     (`packages/sdk/src/authorization/program.ts`), the same reader
+     [Crossing the tool boundary](../sdk/escalations.md)'s `unknownProgram`
+     escalation and `verifyScheduledScript` use, so the three cannot
+     disagree about where a program sits. A word that expands at runtime
+     (`$VERB`, `"$ARGS"`) counts as any word in the position a program name
+     could occupy there — the head, or wherever a wrapper's own grammar puts
+     it — so `namzu schedule "$VERB"`, `namzu $ARGS` and
+     `timeout 5 $(echo systemctl) stop namzu-scheduler` are refused;
    - **anything that resolves into `NAMZU_HOME`**: a word or redirection
      target whose path is inside it once `~` (where bash expands it: not
      `'~'/x` or `~"/x"`), `$HOME`, `${HOME}`, `$NAMZU_HOME`, `$PWD` and the
@@ -265,10 +278,12 @@ The rules a run is gated by, in order (the first that matches decides):
      `${var:-…}`-style default value that turns out ambiguous — quoting it
      rules this out), or another construct listed under [When a line is
      opaque](../sdk/command-lines.md#when-a-line-is-opaque). A word that
-     expands in the position a command's own PROGRAM NAME would stand (the
-     head, or right after `sudo`/`env`/a similar one-level prefix) is read
-     as possibly being `systemctl`/`launchctl`/`schtasks`/`pkill`/`killall`/a
-     D-Bus tool, whatever its raw text actually is —
+     expands in a position `programPositions` resolves a command's own
+     PROGRAM NAME to (the head, or wherever a re-exec wrapper's own real
+     option grammar puts it after unwrapping the whole chain — not just one
+     hop past a fixed list of names) is read as possibly being
+     `systemctl`/`launchctl`/`schtasks`/`pkill`/`killall`/a D-Bus tool,
+     whatever its raw text actually is —
      `$(echo pk)ill -f node` is checked the same as `pkill -f node`, since a
      substring check on the unevaluated text (`$(echo pk)ill` never contains
      `pkill` as one run of letters) is not a way to rule the tool out. A
@@ -438,6 +453,26 @@ abbreviation of it, `-e`, `-en`, …) is refused outright, always, in both a
 script and a live call: its payload is base64, so nothing in it can be
 read as text, and the tripwire proves nothing about what it decodes to.
 Use `-Command '<literal text>'` instead, which the floor can still read.
+
+Before either floor, `verifyScheduledScript` checks every command the script
+lexes into with `resolveScriptPrograms`
+(`packages/sdk/src/authorization/program.ts`) for a program name that cannot
+be resolved to a literal word — the same reader the live agent path's
+`unknownProgram` escalation and the scheduled-run floor use, so a script
+cannot pass a check a live call of the same text would be asked about. A
+command whose program is a substitution or a variable (`$(echo rm) -rf x`),
+hidden behind a re-exec wrapper with its own real option grammar
+(`env $(echo git) push`, `timeout 5 $(echo systemctl) stop …`), `eval`,
+`source` or `.` (which run text as code, not a program by name, even when
+their argument is a literal, static path — nothing here inspects a sourced
+file's contents), an `xargs` program that is a shell or built from its
+input, or a command running after an earlier assignment to `PATH`,
+`LD_PRELOAD`, `LD_LIBRARY_PATH`, `BASH_ENV`, `ENV` or `IFS` in the same
+script, is refused outright, naming the command and why: no `deny` rule —
+the job's own or a config file's — could have been trusted to have matched
+a name that never appears as such anywhere in the script's text, and a
+script confirmed once and never reviewed live cannot lean on an operator
+noticing at run time the way a live call's own review can.
 
 A config file's `deny` rules are not part of the job's confirmation digest
 (only the job's OWN `permissions` are), so a `deny` added to a user,

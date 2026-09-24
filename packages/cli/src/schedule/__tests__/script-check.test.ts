@@ -204,7 +204,7 @@ describe('one call, whole text, for the floor; per command for deny rules', () =
 		]) {
 			const result = verifyScheduledScript(body, 'bash', gitPush)
 			expect(result.ok, body).toBe(false)
-			expect(result.reason, body).toMatch(/name is decided at runtime/)
+			expect(result.reason, body).toMatch(/decided at runtime/)
 		}
 		const rm = policyFor({ rules: { bash: { 'rm*': 'deny' } } })
 		for (const body of [
@@ -214,7 +214,49 @@ describe('one call, whole text, for the floor; per command for deny rules', () =
 		]) {
 			const result = verifyScheduledScript(body, 'bash', rm)
 			expect(result.ok, body).toBe(false)
-			expect(result.reason, body).toMatch(/name is decided at runtime/)
+			expect(result.reason, body).toMatch(/decided at runtime/)
+		}
+	})
+
+	// A second review of that fix (ff376614/fb52e632) found it only ever
+	// looked at the command's literal head word, so one extra word in front
+	// — a re-exec wrapper with its own mandatory argument, `eval`/`source`/
+	// `.`, or an earlier assignment to PATH — defeated it just as completely
+	// as the substitution the first review found. `resolveScriptPrograms`
+	// (`packages/sdk/src/authorization/program.ts`) is the fix: it unwraps
+	// the wrapper with its real option grammar and threads a poisoned
+	// resolution environment from one command to the next, so this check
+	// sees the same answer the live `bash` tool's escalation and the
+	// scheduled-run floor do.
+	it('refuses a program name hidden behind a re-exec wrapper, eval/source/., or a poisoned PATH', () => {
+		const gitPush = policyFor({ rules: { bash: { 'git push*': 'deny' } } })
+		for (const body of [
+			'env $(echo git) push origin main',
+			'env NODE_ENV=production $(echo git) push origin main',
+			'command $(echo git) push origin main',
+			'exec $(echo git) push origin main',
+			'nice $(echo git) push origin main',
+			'nice -n 10 $(echo git) push origin main',
+			'timeout 5 $(echo git) push origin main',
+			'stdbuf -oL $(echo git) push origin main',
+			'sudo env nice -n 5 $(echo git) push origin main',
+		]) {
+			const result = verifyScheduledScript(body, 'bash', gitPush)
+			expect(result.ok, body).toBe(false)
+			expect(result.reason, body).toMatch(/decided at runtime/)
+		}
+		for (const body of ['eval "$X"', 'source "$X"', '. "$X"']) {
+			const result = verifyScheduledScript(body, 'bash', gitPush)
+			expect(result.ok, body).toBe(false)
+			expect(result.reason, body).toMatch(/reads its argument as code to run/)
+		}
+		for (const body of [
+			'export PATH=$(echo /tmp/evil); git push origin main',
+			'PATH=/tmp/evil git push origin main',
+		]) {
+			const result = verifyScheduledScript(body, 'bash', gitPush)
+			expect(result.ok, body).toBe(false)
+			expect(result.reason, body).toMatch(/cannot be trusted to resolve/)
 		}
 	})
 
