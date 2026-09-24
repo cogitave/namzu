@@ -173,10 +173,19 @@ function formatUsageLine(usage: SystemEventUsage | undefined): string | undefine
  * a value it did not author into, and a value carrying the bare
  * `</system-event>` should not survive even where `wrapUntrusted` itself has
  * no reason to look for it.
+ *
+ * `options.generateNonce` is forwarded to this inner `wrapUntrusted` call —
+ * the same generator `formatSystemEvent`'s own outer nonce uses, called
+ * again for the body's independent nonce. Without this, a caller that
+ * injected a generator to make an event's rendering fully deterministic
+ * (tests, mainly) got a real `crypto.randomBytes` nonce on the body anyway,
+ * silently, because nothing here read the option it was given.
  */
-function renderBody(body: SystemEventBody | undefined): string {
+function renderBody(body: SystemEventBody | undefined, options: FormatSystemEventOptions): string {
 	if (!body || body.content.length === 0) return '(no output)'
-	return neutralizeSystemEventDelimiter(wrapUntrusted(body.envelope, body.content))
+	return neutralizeSystemEventDelimiter(
+		wrapUntrusted(body.envelope, body.content, { generateNonce: options.generateNonce }),
+	)
 }
 
 /**
@@ -205,7 +214,7 @@ export function formatSystemEvent(
 	options: FormatSystemEventOptions = {},
 ): string {
 	const usageLine = formatUsageLine(event.usage)
-	const renderedBody = renderBody(event.body)
+	const renderedBody = renderBody(event.body, options)
 	const summary = neutralizeSystemEventDelimiter(event.summary)
 	const source = neutralizeSystemEventDelimiter(event.source)
 	const more = neutralizeSystemEventDelimiter(event.more ?? 'none')

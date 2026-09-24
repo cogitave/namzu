@@ -380,4 +380,41 @@ describe('formatSystemEvent', () => {
 		expect(rendered.startsWith('<system-event-safe0000 ')).toBe(true)
 		expect(rendered.endsWith('</system-event-safe0000>')).toBe(true)
 	})
+
+	it('forwards `generateNonce` to the nested wrapUntrusted call for the body, so a body render is fully deterministic too', () => {
+		const draws: string[] = []
+		const fixed = (): string => {
+			const nonce = `fixed${draws.length.toString().padStart(3, '0')}`
+			draws.push(nonce)
+			return nonce
+		}
+		const rendered = formatSystemEvent(
+			{
+				kind: 'peer-message',
+				id: 'sess_1',
+				status: 'queued',
+				summary: 'hi',
+				source: 'alice',
+				body: {
+					envelope: { kind: 'peer-message', provenance: 'p' },
+					content: 'hello there',
+				},
+			},
+			{ generateNonce: fixed },
+		)
+
+		// Both the outer <system-event-…> frame and the inner
+		// <namzu-untrusted-…> body frame draw from the SAME injected
+		// generator: two draws total, not one real crypto-random draw for the
+		// body left ungoverned by the option the caller gave.
+		expect(draws).toHaveLength(2)
+		const outerNonce = /^<system-event-([\w-]+) /.exec(rendered)?.[1]
+		const innerNonce = /<namzu-untrusted-([\w-]+) /.exec(rendered)?.[1]
+		expect(outerNonce).toBeDefined()
+		expect(innerNonce).toBeDefined()
+		expect(draws).toContain(outerNonce)
+		expect(draws).toContain(innerNonce)
+		expect(outerNonce).not.toBe(innerNonce)
+		expect(rendered.endsWith(`</system-event-${outerNonce}>`)).toBe(true)
+	})
 })

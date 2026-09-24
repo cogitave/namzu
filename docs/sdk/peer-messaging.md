@@ -136,17 +136,29 @@ told apart from an uncorrelated one (see `notice`, above).
 
 Each of the two outstanding tables (deliveries, subscriptions) is bounded and
 expiring, independently: at most `MAX_OUTSTANDING_PEERS` (256) distinct peers
-tracked at once, oldest-registered evicted first to make room for a new one;
-at most `MAX_OUTSTANDING_PER_PEER` (64) outstanding relationships counted for
-any one peer, further registrations for that peer past the cap a no-op; and
-`OUTSTANDING_EXPIRY_MS` (24h, matching the design's `notify_when_idle`
-subscription expiry, §1.7) of no activity before an entry is swept on its
-own, refreshed on every registration for that peer. `maxOutstandingPeers`,
+tracked at once, the least-recently-used evicted first to make room for a new
+one; at most `MAX_OUTSTANDING_PER_PEER` (64) outstanding relationships
+counted for any one peer, further registrations for that peer past the cap a
+no-op; and `OUTSTANDING_EXPIRY_MS` (24h, matching the design's
+`notify_when_idle` subscription expiry, §1.7) of no activity before an entry
+is swept on its own, refreshed on every registration for that peer.
+"Least-recently-used", not merely "registered first": a fresh registration
+for a peer already tracked, or a notice successfully consumed against one,
+both count as activity and move that peer out of eviction's way — an earlier
+version mutated the entry in place without moving it, so a busy peer touched
+twice could be evicted ahead of one touched only once. `maxOutstandingPeers`,
 `maxOutstandingPerPeer`, `outstandingExpiryMs` and `now` (an injectable clock)
 are `createPeerEndpoint` options, primarily for tests. Without a bound, a
 session dealt with by hundreds of peers that never send the notice back would
 grow these tables without limit; without an expiry, a peer that crashed or
 simply never answers would pin its entry forever.
+
+A `logger` option (discarded when absent) receives one `warn`, at most once
+per `(table, peer session id)` pair per minute, whenever a registration is
+dropped at the per-peer cap or a peer is evicted to stay under the
+peer-count cap — naming which table and which peer, never any message
+content, since capacity is the only thing either table has to say about
+itself.
 
 
 `verifySender` does not just answer yes or no: on success it returns the
@@ -242,6 +254,12 @@ byte-for-byte, in any script, any dash, any invisible character included —
 none of it needs to be recognized as "the keyword spelled differently"
 because the real boundary is not the keyword at all. The attacker cannot
 spell a tag it has not seen.
+
+`formatSystemEvent`'s own `generateNonce` also governs the body's nested
+`wrapUntrusted` call, not only the outer frame — a fix landed the same day
+the option was: the two draws come from the one generator a caller supplied,
+so injecting one makes an event WITH a body render fully deterministically
+too, not just its outer tag.
 
 The cheap ASCII keyword match (approach 1 above) is kept as defense in
 depth alongside the nonce — belt and suspenders for a downstream reader that
