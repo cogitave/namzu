@@ -45,6 +45,7 @@ The kernel.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.
 * [Advisory context](advisory-context.md) - Public trajectory records, source attribution, bounded text and consultation limits.
 * [Answer verification](verification.md) - Command-backed review, cancellation, interrupted checks and honest completion boundaries.
+* [Asking the user a question](user-questions.md) - The `ask_user_question` tool: its input, the `recommended` flag on an option, how a recommendation marker written into a label is taken out in any language, what the host is handed and the answer the model reads back.
 * [Tool handoff](tool-handoff.md) - How a tool stops the turn for a person: `ToolResult.handoff`, the checkpoint and `turn_paused` after the batch is committed, resuming, and why a delegated child fails instead.
 * [Pinned facts](pinned-facts.md) - How a tool puts a fact into the turn's working memory by key, so it stays in front of the model across compaction.
 * [Structured memory](memory.md) - Typed records, one Markdown file per memory with a generated index, store isolation, cross-process coordination, lexical search, lifecycle tools and bounded optional recall.

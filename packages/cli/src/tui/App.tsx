@@ -5051,6 +5051,9 @@ export function App({
 						...question.options.map((option) => ({
 							label: option.label,
 							description: option.description ?? '',
+							// A badge, not label text: the SDK already took any
+							// "(Recommended)" the model wrote out of the label.
+							...(option.recommended === true ? { recommended: true } : {}),
 						})),
 						...(question.allowFreeText
 							? [{ label: 'Something else…', description: 'Answer in your own words' }]
