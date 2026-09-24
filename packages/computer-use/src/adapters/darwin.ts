@@ -7,7 +7,9 @@ import type {
 	ComputerUseCapabilities,
 	ComputerUseResult,
 	DisplayGeometry,
+	DisplayInfo,
 	Point,
+	ScreenshotResult,
 } from '@namzu/sdk'
 import { hasExecutable, runCommand, runCommandOrThrow } from '../util/spawn.js'
 import { ActionCapabilityError, type Adapter, AdapterUnavailableError } from './types.js'
@@ -126,6 +128,17 @@ async function probe(): Promise<ProbeResult> {
 export class DarwinAdapter implements Adapter {
 	readonly capabilities: ComputerUseCapabilities
 	private readonly hasCliclick: boolean
+	/**
+	 * The main display in points (what cliclick and System Events take),
+	 * read once from system_profiler.
+	 */
+	private logical: DisplayGeometry | undefined
+	/**
+	 * Captured pixels per point on the main display: 2 on a Retina panel,
+	 * whatever "Looks like" resolution is chosen. Learned from a capture, so
+	 * it is the backing store's own ratio, not the panel's native one.
+	 */
+	private pixelsPerPoint: number | undefined
 
 	private constructor(probeResult: ProbeResult) {
 		this.hasCliclick = probeResult.hasCliclick
@@ -186,7 +199,25 @@ export class DarwinAdapter implements Adapter {
 			throw new Error('DarwinAdapter: missing pixel/resolution fields in system_profiler output')
 		}
 		const scaleFactor = physical.width > 0 ? physical.width / logical.width : 1
-		return { width: logical.width, height: logical.height, scaleFactor }
+		this.logical = { width: logical.width, height: logical.height, scaleFactor }
+		return this.logical
+	}
+
+	/**
+	 * `screencapture` writes physical pixels and every input tool here takes
+	 * points. The host contract is physical pixels both ways, so points are
+	 * converted at this boundary: a click aimed at pixel (2000, 1000) of a
+	 * Retina capture is sent as point (1000, 500).
+	 */
+	private async scale(): Promise<number> {
+		if (this.pixelsPerPoint !== undefined) return this.pixelsPerPoint
+		const logical = this.logical ?? (await this.getDisplayGeometry())
+		return logical.scaleFactor > 0 ? logical.scaleFactor : 1
+	}
+
+	private async toPoints(pixel: Point): Promise<Point> {
+		const scale = await this.scale()
+		return { x: Math.round(pixel.x / scale), y: Math.round(pixel.y / scale) }
 	}
 
 	async execute(action: ComputerUseAction): Promise<ComputerUseResult> {
@@ -227,21 +258,30 @@ export class DarwinAdapter implements Adapter {
 
 	// --- screenshot ---------------------------------------------------------
 
-	private async screenshot() {
+	private async screenshot(): Promise<ScreenshotResult> {
 		const tmpPath = join(tmpdir(), `namzu-cu-${randomUUID()}.png`)
+		let data: Buffer
 		try {
-			await runCommandOrThrow('screencapture', ['-t', 'png', '-x', tmpPath])
-			const data = await readFile(tmpPath)
-			const dims = decodePngDims(data)
-			return {
-				data,
-				mimeType: 'image/png' as const,
-				width: dims.width,
-				height: dims.height,
-			}
+			// `-m`: the main display only, the one every input tool here addresses.
+			await runCommandOrThrow('screencapture', ['-t', 'png', '-x', '-m', tmpPath])
+			data = await readFile(tmpPath)
 		} finally {
 			await unlink(tmpPath).catch(() => undefined)
 		}
+		const dims = decodePngDims(data)
+		const logical = this.logical ?? (await this.getDisplayGeometry().catch(() => undefined))
+		const scaleFactor = logical && logical.width > 0 ? dims.width / logical.width : 1
+		this.pixelsPerPoint = scaleFactor
+		const display: DisplayInfo = {
+			id: 'main',
+			x: 0,
+			y: 0,
+			width: dims.width,
+			height: dims.height,
+			scaleFactor,
+			primary: true,
+		}
+		return { data, mimeType: 'image/png', width: dims.width, height: dims.height, display }
 	}
 
 	// --- cursor position (requires cliclick) --------------------------------
@@ -264,13 +304,15 @@ export class DarwinAdapter implements Adapter {
 				`DarwinAdapter: unexpected cliclick output "${result.stdout.toString('utf8')}"`,
 			)
 		}
-		return { x, y }
+		const scale = await this.scale()
+		return { x: Math.round(x * scale), y: Math.round(y * scale) }
 	}
 
 	// --- mouse --------------------------------------------------------------
 
-	private async mouseMove(to: Point) {
+	private async mouseMove(pixel: Point) {
 		if (this.hasCliclick) {
+			const to = await this.toPoints(pixel)
 			await runCommandOrThrow('cliclick', [`m:${to.x},${to.y}`])
 			return
 		}
@@ -281,13 +323,14 @@ export class DarwinAdapter implements Adapter {
 		)
 	}
 
-	private async mouseClick(at: Point, button: 'left' | 'right' | 'middle') {
+	private async mouseClick(pixel: Point, button: 'left' | 'right' | 'middle') {
 		if (button === 'middle')
 			throw new ActionCapabilityError(
 				'mouse_click',
 				'mouse',
 				'middle-click is not supported by this macOS adapter',
 			)
+		const at = await this.toPoints(pixel)
 		if (this.hasCliclick) {
 			const prefix = button === 'right' ? 'rc' : 'c'
 			await runCommandOrThrow('cliclick', [`${prefix}:${at.x},${at.y}`])
@@ -304,7 +347,7 @@ export class DarwinAdapter implements Adapter {
 		await runCommandOrThrow('osascript', ['-e', script])
 	}
 
-	private async mouseDrag(from: Point, to: Point) {
+	private async mouseDrag(fromPixel: Point, toPixel: Point) {
 		if (!this.hasCliclick) {
 			throw new ActionCapabilityError(
 				'mouse_drag',
@@ -312,6 +355,8 @@ export class DarwinAdapter implements Adapter {
 				'install `cliclick` (brew install cliclick) to enable drag on macOS',
 			)
 		}
+		const from = await this.toPoints(fromPixel)
+		const to = await this.toPoints(toPixel)
 		await runCommandOrThrow('cliclick', [`dd:${from.x},${from.y}`, `du:${to.x},${to.y}`])
 	}
 

@@ -203,7 +203,7 @@ invalid empty enum on provider transports, and refuses all execution.
 | Windows / WSL | Screenshot, cursor, move, click, drag, scroll, text and keys. |
 | X11 | Screenshot depends on maim; input and cursor depend on xdotool. |
 | Wayland | Screenshot depends on grim; mouse actions on ydotool; keyboard on wtype or ydotool. Cursor position is unavailable. Daemon permissions are checked by the underlying operation, not established by binary detection. |
-| macOS | Screenshot and keyboard use system tools. Move, drag and cursor require cliclick; scroll is unavailable. Without cliclick only left clicks are supported; with it left/right clicks are supported. Drag supports only the left button. |
+| macOS | Screenshot (main display, physical pixels) and keyboard use system tools. Move, drag and cursor require cliclick; scroll is unavailable. Without cliclick only left clicks are supported; with it left/right clicks are supported. Drag supports only the left button. Pointer coordinates are converted from the capture's pixels to points at the adapter, so a Retina click lands where the screenshot showed. |
 
 macOS middle-click and non-left drag requests are refused even when the adapter
 is invoked directly. They must never become a triple click or a left drag. The
