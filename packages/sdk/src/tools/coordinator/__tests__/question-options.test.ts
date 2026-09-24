@@ -350,8 +350,8 @@ describe('comparing labels, the same on every host', () => {
 
 	it('takes a marker off two flagged options that differ only in Turkish letter case', () => {
 		// "İ" lowercases to "i" plus a combining dot everywhere but a Turkish
-		// host, so a comparison that followed the host's locale kept both
-		// markers here and removed both there.
+		// host, so a comparison that followed the host's locale would keep
+		// both markers on one host and remove both on the other.
 		for (const flagged of [
 			['Lint (ÖNERİLEN)', 'Tests (Önerilen)'],
 			['Lint (TAVSİYE EDİLEN)', 'Tests (Tavsiye edilen)'],

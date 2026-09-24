@@ -82,15 +82,16 @@ function trailingGroup(label: string): TrailingGroup | null {
  * A label or a group's text as two options are compared by: letter case and
  * runs of whitespace aside, and the same on every host.
  *
- * `toLocaleLowerCase()` with no locale follows the host's `LANG`/`LC_ALL`,
- * so the same model output compared differently on a Turkish host (where
- * "İ" lowercases to "i") and elsewhere (where it lowercases to "i" plus a
- * combining dot, U+0307), and a resumed turn on another machine could quote a
- * label the person was never shown. `toLowerCase()` is Unicode's default
- * mapping, the same in every locale; the letters whose lowercase depends on
- * the language are then matched by explicit rules: "İ", "I", "ı" and "i" are
- * one letter, and so are "ß", "ẞ" and "ss". The label itself is never
- * rewritten by this; it only decides whether two texts are the same.
+ * Not `toLocaleLowerCase()`: with no locale it follows the host's
+ * `LANG`/`LC_ALL`, so the same model output would compare differently on a
+ * Turkish host (where "İ" lowercases to "i") and elsewhere (where it
+ * lowercases to "i" plus a combining dot, U+0307), and a turn resumed on
+ * another machine could quote a label the person was never shown.
+ * `toLowerCase()` is Unicode's default mapping, the same in every locale;
+ * the letters whose lowercase depends on the language are then matched by
+ * explicit rules: "İ", "I", "ı" and "i" are one letter, and so are "ß", "ẞ"
+ * and "ss". The label itself is never rewritten by this; it only decides
+ * whether two texts are the same.
  */
 export function foldForComparison(text: string): string {
 	return (

@@ -8,10 +8,10 @@ import { describe, expect, it } from 'vitest'
  *
  * Whether two options carry the same marker, or whether taking one off would
  * repeat another option's label, is a comparison "letter case aside". Made
- * with `toLocaleLowerCase()`, it followed the host's `LANG`/`LC_ALL`: on a
- * Turkish host "ÖNERİLEN" and "Önerilen" matched and both markers came off; on
- * any other host both stayed. A turn resumed on a worker with another locale
- * could then quote a label the person was never shown.
+ * with `toLocaleLowerCase()`, it would follow the host's `LANG`/`LC_ALL`: on a
+ * Turkish host "ÖNERİLEN" and "Önerilen" would match and both markers come
+ * off; on any other host both would stay. A turn resumed on a worker with
+ * another locale could then quote a label the person was never shown.
  *
  * A process's default locale is fixed when it starts, so this cannot be
  * asserted in-process: each locale needs its own `node`. It reads the built
