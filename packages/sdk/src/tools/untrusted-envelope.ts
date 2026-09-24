@@ -35,7 +35,19 @@
  *    `</namzu-untrusted>` would otherwise close the block early, and
  *    everything the attacker wrote after it would read as unlabelled — which
  *    is to say, as instructions. Matching is case-insensitive because a model
- *    reads `</NAMZU-UNTRUSTED>` as the same tag.
+ *    reads `</NAMZU-UNTRUSTED>` as the same tag — and, since a matching defect
+ *    fixed 2026-09-24 in the sibling `<system-event>` envelope
+ *    (`runtime/system-events.ts`) turned out to be pre-existing here too, the
+ *    text is folded for Unicode lookalikes first (`utils/confusable-text.ts`):
+ *    NFKC normalization, dropped zero-width/bidi-control/variation-selector
+ *    characters, every Unicode dash and space mapped to its ASCII form. An
+ *    ASCII, literal `/namzu-untrusted/gi` reads `namzu` and `untrusted` joined
+ *    by U+2011 NON-BREAKING HYPHEN — visually indistinguishable from the ASCII
+ *    hyphen — as ordinary text and lets it forge a second, fake close; folding
+ *    first closes that bypass before the keyword match ever runs. The folded,
+ *    defanged spelling is what content is emitted in — an exotic character
+ *    that does not survive folding is not restored, an acceptable fidelity
+ *    loss for text this envelope already says not to trust.
  * 2. **There is no already-wrapped fast path.** Checking whether content
  *    "looks wrapped" and skipping is attacker-forgeable: text that merely
  *    begins with the opening tag would then pass through with no framing at
@@ -45,6 +57,17 @@
  * name containing a quote would otherwise rewrite the tag it appears in.
  */
 
+import { neutralizeConfusableKeyword } from '../utils/confusable-text.js'
+
+const CLOSING_TOKEN_KEYWORD = 'namzu-untrusted'
+
+/**
+ * The exact ASCII token, used only to detect whether a candidate body still
+ * carries a live, un-neutralized delimiter ({@link untrustedEnvelopeBody}'s
+ * nested-block check below) — an invariant check on THIS module's own
+ * output, which is always the folded, defanged spelling, so the literal
+ * ASCII form is exactly what a genuine escape would look like.
+ */
 const CLOSING_TOKEN = /namzu-untrusted/gi
 
 /**
@@ -56,9 +79,13 @@ const CLOSING_TOKEN = /namzu-untrusted/gi
  * reader scanning for the substring would all find it again. `namzu_untrusted`
  * shares no substring with the real delimiter while staying legible, which is
  * the property that actually matters here.
+ *
+ * Folds Unicode lookalikes first (see the module doc comment above) so a
+ * confusable dash, a fullwidth spelling, or a zero-width/bidi character
+ * hidden inside the token cannot walk through a literal-byte match.
  */
 export function neutralizeEnvelopeDelimiter(content: string): string {
-	return content.replace(CLOSING_TOKEN, 'namzu_untrusted')
+	return neutralizeConfusableKeyword(content, CLOSING_TOKEN_KEYWORD)
 }
 
 /**
