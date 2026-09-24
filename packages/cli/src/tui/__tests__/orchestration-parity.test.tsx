@@ -1,7 +1,7 @@
 /**
  * The delegated-work surfaces aligned with the reference terminal: the
  * borderless rail tree, the rows delegated work leaves in the conversation,
- * the folded waiting line, the effort slider and the orchestrate tag on the
+ * the folded waiting line, the effort slider and the hypermode tag on the
  * message box. Each is checked at a comfortable width, at 40 columns, and
  * with Turkish text, whose dotted/dotless i and cedilla letters are the
  * cheapest way to catch a width or case-folding assumption.
@@ -411,10 +411,10 @@ describe('the waiting line', () => {
 })
 
 describe('the effort slider', () => {
-	const labels = ['default', 'low', 'medium', 'high', 'xhigh', 'max', 'orchestrate']
+	const labels = ['default', 'low', 'medium', 'high', 'xhigh', 'max', 'max + hypermode (workflows)']
 	const options = labels.map((label, index) => ({
 		label,
-		description: '',
+		description: index === 6 ? 'Off · delegates to parallel agents by default' : '',
 		current: index === 3,
 	}))
 
@@ -423,19 +423,19 @@ describe('the effort slider', () => {
 		expect(layout?.separator).toBeGreaterThan(layout?.starts[5] ?? 0)
 		expect(layout?.starts[6]).toBe((layout?.separator ?? 0) + 2)
 		expect(effortSliderLayout(labels, 59)).toBeUndefined()
-		const eight = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'orchestrate']
+		const eight = ['default', 'none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultra + hypermode (workflows)']
 		expect(effortSliderLayout(eight, 60)).toBeUndefined()
 		expect(effortSliderLayout(eight, 100)).toBeDefined()
 	})
 
 	it.each([
 		{ selected: 3, stop: 'high' },
-		{ selected: 6, stop: 'orchestrate' },
+		{ selected: 6, stop: 'max + hypermode (workflows)' },
 	])('puts the caret under the $stop stop', async ({ selected, stop }) => {
 		const layout = effortSliderLayout(labels, 98)
 		if (!layout) throw new Error('fixture must fit')
 		mounted = await renderToScreen(
-			<EffortSlider title="Reasoning for gpt-5.6-luna" options={options} selected={selected} layout={layout} columns={98} highest="max" />,
+			<EffortSlider title="Reasoning for gpt-5.6-luna" options={options} selected={selected} layout={layout} columns={98} />,
 			{ cols: 100, rows: 12 },
 		)
 		const rows = mounted.viewport()
@@ -446,9 +446,9 @@ describe('the effort slider', () => {
 		expect(caret).toBeGreaterThanOrEqual(start)
 		expect(caret).toBeLessThan(start + stop.length)
 		const text = rows.join('\n')
-		expect(text).toContain('max + delegate by default')
+		expect(text).toContain('Off · delegates to parallel agents by default')
 		expect(text).toContain('←/→ adjust')
-		expect(text).not.toContain('effort orchestrate')
+		expect(text).not.toContain('effort hypermode')
 		expect(text.includes('Spends the most tokens')).toBe(selected === 6)
 	})
 
@@ -460,12 +460,13 @@ describe('the effort slider', () => {
 		const heights: number[] = []
 		for (const selected of [0, 6]) {
 			mounted = await renderToScreen(
-				<EffortSlider title="t" options={options} selected={selected} layout={layout} columns={columns} highest="max" />,
+				<EffortSlider title="t" options={options} selected={selected} layout={layout} columns={columns} />,
 				{ cols: 80, rows: 16 },
 			)
 			const rows = mounted.viewport()
 			const text = rows.join('\n')
-			expect(text).toContain('max + delegate by default')
+			expect(text).toContain('max + hypermode (workflows)')
+			expect(text).toContain('Off · delegates to parallel agents by default')
 			expect(rows.every((row) => stringWidth(row.trimEnd()) <= 78)).toBe(true)
 			if (selected === 6) {
 				const flat = rows.map((row) => row.trim()).join(' ')
@@ -480,37 +481,37 @@ describe('the effort slider', () => {
 		expect(heights[0]).toBe(heights[1])
 	})
 
-	it('draws orchestrate in its own violet', async () => {
+	it('draws hypermode in its own violet', async () => {
 		const layout = effortSliderLayout(labels, 98)
 		if (!layout) throw new Error('fixture must fit')
 		mounted = await renderToScreen(
-			<EffortSlider title="t" options={options} selected={0} layout={layout} columns={98} highest="max" />,
+			<EffortSlider title="t" options={options} selected={0} layout={layout} columns={98} />,
 			{ cols: 100, rows: 12},
 		)
-		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m[^\u001b]*orchestrate/u)
+		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141m[^\u001b]*max \+ hypermode \(workflows\)/u)
 	})
 })
 
-describe('orchestrate on the message box and the footer', () => {
+describe('hypermode on the message box and the footer', () => {
 	it('tags the top border, and leaves it plain below 40 columns', async () => {
 		mounted = await renderToScreen(
-			<ComposerFrame focus mode="orchestrate">
+			<ComposerFrame focus mode="hypermode">
 				<></>
 			</ComposerFrame>,
 			{ cols: 60, rows: 6 },
 		)
 		const top = mounted.viewport().find((row) => row.includes('MESSAGE')) ?? mounted.viewport().join('\n')
-		expect(top).toMatch(/^┌─ MESSAGE ─+ orchestrate ─┐$/u)
+		expect(top).toMatch(/^┌─ MESSAGE ─+ hypermode ─┐$/u)
 		expect([...top]).toHaveLength(60)
 		await mounted.unmount()
 		mounted = await renderToScreen(
-			<ComposerFrame focus mode="orchestrate">
+			<ComposerFrame focus mode="hypermode">
 				<></>
 			</ComposerFrame>,
 			{ cols: 39, rows: 6 },
 		)
 		const narrow = mounted.viewport().find((row) => row.includes('MESSAGE')) ?? ''
-		expect(narrow).not.toContain('orchestrate')
+		expect(narrow).not.toContain('hypermode')
 		expect([...narrow]).toHaveLength(39)
 	})
 
@@ -520,7 +521,7 @@ describe('orchestrate on the message box and the footer', () => {
 		vi.stubEnv('TERM', 'xterm-256color')
 		try {
 			mounted = await renderToScreen(
-				<ComposerFrame focus mode="orchestrate">
+				<ComposerFrame focus mode="hypermode">
 					<></>
 				</ComposerFrame>,
 				{ cols: 80, rows: 6 },
@@ -531,14 +532,14 @@ describe('orchestrate on the message box and the footer', () => {
 			await mounted.unmount()
 			vi.stubEnv('NO_COLOR', '1')
 			mounted = await renderToScreen(
-				<ComposerFrame focus mode="orchestrate">
+				<ComposerFrame focus mode="hypermode">
 					<></>
 				</ComposerFrame>,
 				{ cols: 80, rows: 6 },
 			)
 			const plain = mounted.writes().join('')
 			expect(plain).not.toContain('38;5;110m')
-			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+ orchestrate ─┐/u)
+			expect(mounted.viewport().join('\n')).toMatch(/┌─ MESSAGE ─+ hypermode ─┐/u)
 		} finally {
 			vi.unstubAllEnvs()
 		}
@@ -546,9 +547,9 @@ describe('orchestrate on the message box and the footer', () => {
 
 	it('names the mode in violet in the footer', async () => {
 		mounted = await renderToScreen(
-			<StatusBar cwd="/çalışma" provider="codex" model="gpt-5.6-luna" effort="max" orchestrate state="idle" />,
+			<StatusBar cwd="/çalışma" provider="codex" model="gpt-5.6-luna" effort="max" hypermode state="idle" />,
 			{ cols: 100, rows: 3},
 		)
-		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141morchestrate/u)
+		expect(mounted.writes().join('')).toMatch(/\u001b\[38;5;141mhypermode/u)
 	})
 })

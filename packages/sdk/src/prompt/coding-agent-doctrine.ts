@@ -97,14 +97,20 @@ When you have understood the task, reply with the plan: what you would change, i
 
 /**
  * Appended after {@link CODING_AGENT_DELEGATION_DOCTRINE} only for a host
- * session that has an orchestration mode turned on. See
- * {@link CodingAgentDoctrineOptions.orchestrate}: this text is a stronger
+ * session that has hypermode (its multi-agent mode) turned on. See
+ * {@link CodingAgentDoctrineOptions.hypermode}: this text is a stronger
  * restatement of the existing delegation rule, not a new capability — it
  * creates no roster, starts no work by itself, and names no tool the base
  * doctrine did not already name.
  */
-export const CODING_AGENT_ORCHESTRATE_DOCTRINE = `### Orchestrate mode
-This session has orchestrate mode on: treat delegation through \`Agent\` as the default for substantive work, not the exception. Before doing multi-step work yourself, ask whether an independent piece of it — a lookup, a draft, a check — could run as its own delegation, and prefer delegating it when the answer is yes. This changes only how eagerly you reach for \`Agent\` on work you would otherwise do inline; it does not mount a roster or start any delegation by itself. Agents in the same phase are launched in the same response, each with \`run_in_background: true\` when you mean to wait for them together; a phase is never started one agent at a time.`
+export const CODING_AGENT_HYPERMODE_DOCTRINE = `### Hypermode
+This session has hypermode on: treat delegation through \`Agent\` as the default for substantive work, not the exception. Before doing multi-step work yourself, ask whether an independent piece of it — a lookup, a draft, a check — could run as its own delegation, and prefer delegating it when the answer is yes. This changes only how eagerly you reach for \`Agent\` on work you would otherwise do inline; it does not mount a roster or start any delegation by itself. Agents in the same phase are launched in the same response, each with \`run_in_background: true\` when you mean to wait for them together; a phase is never started one agent at a time.`
+
+/**
+ * @deprecated Renamed {@link CODING_AGENT_HYPERMODE_DOCTRINE}; the mode it
+ * describes is now called hypermode. Same value. Removed in the next major.
+ */
+export const CODING_AGENT_ORCHESTRATE_DOCTRINE = CODING_AGENT_HYPERMODE_DOCTRINE
 
 export const CODING_AGENT_DOCTRINE_CONTRIBUTION_ID = 'namzu.coding-agent-doctrine'
 
@@ -116,14 +122,20 @@ export interface CodingAgentDoctrineOptions {
 	 */
 	delegation?: boolean
 	/**
-	 * Append {@link CODING_AGENT_ORCHESTRATE_DOCTRINE} after the delegation
-	 * rules, for a host session whose operator turned on an orchestration
-	 * mode. Default `false`, and ignored when `delegation` is `false` — a
-	 * sub-agent prompt never carries delegation guidance of any strength.
+	 * Append {@link CODING_AGENT_HYPERMODE_DOCTRINE} after the delegation
+	 * rules, for a host session whose operator turned hypermode on. Default
+	 * `false`, and ignored when `delegation` is `false` — a sub-agent prompt
+	 * never carries delegation guidance of any strength.
 	 * Display/prompt-only: it creates no scheduling, no roster and no kernel
 	 * behaviour change, the same guarantee the `workflow`/`phase` labels on
 	 * `agent_pending` make. With this left at its default the rendered text
 	 * is byte-identical to before this option existed.
+	 */
+	hypermode?: boolean
+	/**
+	 * @deprecated Renamed {@link CodingAgentDoctrineOptions.hypermode}. Still
+	 * honoured: either flag set to `true` appends the text. Removed in the
+	 * next major.
 	 */
 	orchestrate?: boolean
 }
@@ -140,8 +152,8 @@ export function codingAgentDoctrineContribution(
 	const text = [
 		CODING_AGENT_WORKING_DOCTRINE,
 		options.delegation === false ? undefined : CODING_AGENT_DELEGATION_DOCTRINE,
-		options.delegation !== false && options.orchestrate
-			? CODING_AGENT_ORCHESTRATE_DOCTRINE
+		options.delegation !== false && (options.hypermode || options.orchestrate)
+			? CODING_AGENT_HYPERMODE_DOCTRINE
 			: undefined,
 	]
 		.filter((part): part is string => Boolean(part))

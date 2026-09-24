@@ -51,7 +51,8 @@ explain why they cannot run and are checked again when selected.
 | `/status` | Show model, permissions, workspace and latest cost. `/status details` expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future turns: /effort [level\|default]. |
-| `/orchestrate` | Toggle orchestrate mode for this session: /orchestrate [on\|off]. A session setting shown beside effort, not a level of it. |
+| `/hypermode` | Toggle hypermode for this session: /hypermode [on\|off]. A session setting shown beside effort, not a level of it: effort pinned to the highest level, and independent work delegated to parallel agents by default. |
+| `/orchestrate` | Deprecated alias of `/hypermode`, from before the mode was renamed. It prints a line saying so, then does what `/hypermode` does. It will be removed in a later major version. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
 | `/schedule` | List [scheduled jobs](scheduled-tasks.md) and what needs you: a run waiting for approval, a job waiting for confirmation or on hold. `/schedule confirm|pause|resume|run|remove <job>` acts on one; `/schedule add <name> "<when>" <read-only|edit-in-folder> <prompt…>` creates one after showing it. |
@@ -137,36 +138,46 @@ published menu, marking unsupported values unavailable. Preview is not applicati
 provider. See [OpenAI reasoning menus](../sdk/openai-reasoning.md) for Astra's
 different API and subscription menus.
 
-### Orchestrate mode
+### Hypermode
 
-`/orchestrate` (`/orchestrate on`, `/orchestrate off`, or no argument to toggle)
+`/hypermode` (`/hypermode on`, `/hypermode off`, or no argument to toggle)
 turns a session setting on or off, layered above effort rather than inside it —
-it is never a `ReasoningEffort` value, so `/effort orchestrate` reports
+it is never a `ReasoningEffort` value, so `/effort hypermode` reports
 `unavailable for this model`, the same refusal `ultracode` gets, because
 neither name is an effort level a provider publishes. When the `/effort`
 picker can open (an exact menu, even an explicitly empty one, is known), the
 mode also appears there as its own stop, visually apart from the levels.
 
-On a terminal wide enough to hold every stop on one row (at least 60 columns),
-the picker is a left-to-right slider:
+The mode was called orchestrate mode before; `/orchestrate` still works, prints
+`/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode;
+/orchestrate will be removed in a later major version.`, and then does exactly
+what `/hypermode` does. `/effort orchestrate` is refused as before.
+
+On a terminal wide enough to hold every stop on one row (at least 60 columns,
+and as wide as the labels need — about 70 for a four-level menu), the picker
+is a left-to-right slider:
 
 ```text
-  Faster                                              Smarter
-  ───▲──────────────────────────────────────────┆────────────
-  default   low   medium   high   xhigh   max   ┆ orchestrate
-                                                  max + delegate by default
+  Faster                                                          Smarter
+  ───▲────────────────────────────────────┆──────────────────────────────
+  default   low   medium   high   xhigh   ┆ xhigh + hypermode (workflows)
+                                   Off · delegates to parallel agents by default
 ```
 
 The stops are `default`, the model's published levels from low to high, and
-then `orchestrate` after a `┆`, in violet, with `<highest level> + delegate by
-default` beneath it, whole: on a terminal where it would run past the right
-edge it moves left to end inside it. The `▲` marks the stop Enter applies; the current setting's
+then the hypermode stop after a `┆`, in violet. Its label names the level the
+mode pins, then the mode — `xhigh + hypermode (workflows)` for a model whose
+menu ends at `xhigh`, `max + hypermode (workflows)` for one that ends at `max`
+— and beneath it, whole, its one-line description with whether it is on:
+`Off · delegates to parallel agents by default`. On a terminal where the
+description would run past the right edge it moves left to end inside it. The
+`▲` marks the stop Enter applies; the current setting's
 label is green. ←/→ move it and stop at the ends; ↑/↓ do the same; a digit
 selects a stop directly; Home and End jump to the ends; Enter applies; Esc goes
-back. On the highest level and on `orchestrate` a line says they spend the most
+back. On the highest level and on the hypermode stop a line says they spend the most
 tokens and time; it wraps rather than being cut, and its rows are kept blank on
 the other stops so the picker does not change height as the caret moves. A narrower terminal, or a menu too long for one row, gets the
-vertical list, with `orchestrate` as its own row below a rule. There is no
+vertical list, with the same label and description as its own row below a rule. There is no
 separate key for "this session only": the setting already lasts only for the
 session. Turning the mode on pins reasoning effort to the model's
 highest published level — the last entry of the menu, since every provider
@@ -177,7 +188,7 @@ roster and starts no delegation by itself. When the current model or a usable
 fallback publishes no exact effort menu, the mode still turns on and still
 strengthens delegation guidance, but pins nothing, and says so. The status
 line reads the level and the mode together, for example `effort high ·
-orchestrate`, and `orchestrate` alone when no level is pinned — never a
+hypermode`, and `hypermode` alone when no level is pinned — never a
 fabricated sixth effort value. Like effort, the mode is in-memory and
 per-session; it is not saved to preferences. A model switch resets an
 explicit effort override to the new model's default as it always has, but

@@ -179,7 +179,7 @@ import { type CapabilityProbe, probeCapabilities } from '../context/capabilities
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_ORCHESTRATE_DOCTRINE,
+	NAMZU_HYPERMODE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
@@ -644,12 +644,12 @@ export interface SendOptions {
 	readonly effort?: ReasoningEffort
 	/**
 	 * Strengthen delegation guidance toward delegating by default for this
-	 * turn, for a session whose orchestrate mode (`/orchestrate`) is on.
-	 * Default `false`; appends `NAMZU_ORCHESTRATE_DOCTRINE` after the
+	 * turn, for a session whose hypermode (`/hypermode`) is on.
+	 * Default `false`; appends `NAMZU_HYPERMODE_DOCTRINE` after the
 	 * delegation doctrine and never on its own. Display/prompt-only — creates
 	 * no roster and starts no delegation by itself.
 	 */
-	readonly orchestrate?: boolean
+	readonly hypermode?: boolean
 	/**
 	 * How this turn resolves review requests no declarative rule decided.
 	 * Overrides the session default for this turn only.
@@ -3870,7 +3870,7 @@ export async function createAgentSession(
 								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
-								!residentContext && opts?.orchestrate ? NAMZU_ORCHESTRATE_DOCTRINE : undefined,
+								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change

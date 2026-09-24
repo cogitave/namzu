@@ -853,7 +853,7 @@ describe('/effort', () => {
 		if (invalid?.kind === 'message') expect(invalid.content).toContain('none|low|medium|high|xhigh')
 	})
 
-	it('never resolves the orchestrate mode name as an effort token', () => {
+	it('never resolves the hypermode name, or its old name, as an effort token', () => {
 		// The mode is a session setting layered above effort, not a level the
 		// provider published — /effort must refuse it exactly like any other
 		// unpublished token, the same guarantee it gives `ultracode` today.
@@ -865,9 +865,11 @@ describe('/effort', () => {
 				levels: ['none', 'low', 'medium', 'high', 'xhigh'],
 			},
 		})
-		const result = runSlash('/effort orchestrate', ctx)
-		expect(result?.kind).toBe('message')
-		if (result?.kind === 'message') expect(result.content).toContain('none|low|medium|high|xhigh')
+		for (const token of ['hypermode', 'orchestrate']) {
+			const result = runSlash(`/effort ${token}`, ctx)
+			expect(result?.kind).toBe('message')
+			if (result?.kind === 'message') expect(result.content).toContain('none|low|medium|high|xhigh')
+		}
 	})
 
 	it('can restore the provider default even when no exact menu is known', () => {
@@ -901,26 +903,43 @@ describe('/effort', () => {
 	})
 })
 
-describe('/orchestrate', () => {
+describe('/hypermode', () => {
 	it('toggles with no argument', () => {
-		expect(runSlash('/orchestrate', context())).toEqual({
-			kind: 'orchestrate-mode',
-			enabled: 'toggle',
-		})
+		expect(runSlash('/hypermode', context())).toEqual({ kind: 'hypermode', enabled: 'toggle' })
 	})
 
 	it('sets an explicit state', () => {
-		expect(runSlash('/orchestrate on', context())).toEqual({
-			kind: 'orchestrate-mode',
-			enabled: true,
-		})
-		expect(runSlash('/orchestrate off', context())).toEqual({
-			kind: 'orchestrate-mode',
-			enabled: false,
-		})
+		expect(runSlash('/hypermode on', context())).toEqual({ kind: 'hypermode', enabled: true })
+		expect(runSlash('/hypermode off', context())).toEqual({ kind: 'hypermode', enabled: false })
 	})
 
 	it('rejects anything else as a usage error', () => {
+		const result = runSlash('/hypermode maybe', context())
+		expect(result?.kind).toBe('message')
+		if (result?.kind === 'message') expect(result.content).toContain('Usage: /hypermode [on|off]')
+	})
+})
+
+describe('/orchestrate, the deprecated alias of /hypermode', () => {
+	it('does what /hypermode does, marked as the alias so App can say it is deprecated', () => {
+		expect(runSlash('/orchestrate', context())).toEqual({
+			kind: 'hypermode',
+			enabled: 'toggle',
+			via: 'orchestrate',
+		})
+		expect(runSlash('/orchestrate on', context())).toEqual({
+			kind: 'hypermode',
+			enabled: true,
+			via: 'orchestrate',
+		})
+		expect(runSlash('/orchestrate off', context())).toEqual({
+			kind: 'hypermode',
+			enabled: false,
+			via: 'orchestrate',
+		})
+	})
+
+	it('rejects anything else with its own usage line', () => {
 		const result = runSlash('/orchestrate maybe', context())
 		expect(result?.kind).toBe('message')
 		if (result?.kind === 'message') expect(result.content).toContain('Usage: /orchestrate [on|off]')
