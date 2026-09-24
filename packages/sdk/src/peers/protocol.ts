@@ -151,6 +151,14 @@ export const NoticeRequestSchema = z
 		protocol: z.literal(PEER_PROTOCOL_VERSION),
 		op: z.literal('notice'),
 		token: z.string().min(1),
+		/**
+		 * The sender's asserted identity, checked the same way `deliver` and
+		 * `subscribe_idle` check theirs (§1.3): the recipient's endpoint runs it
+		 * through `verifySender` before calling `onNotice`. A notice with no
+		 * `from` — the shape this protocol shipped with first — is not a
+		 * well-formed request at all, the same as a `deliver` with no `from`.
+		 */
+		from: PeerFromSchema,
 		kind: z.enum(['idle', 'exited', 'delivery']),
 		about: PeerNoticeAboutSchema,
 		/** Only meaningful, and only ever set, when `kind === 'delivery'`. */

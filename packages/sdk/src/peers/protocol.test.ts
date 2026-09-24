@@ -163,6 +163,7 @@ describe('NoticeRequestSchema', () => {
 				protocol: PEER_PROTOCOL_VERSION,
 				op: 'notice',
 				token: 't'.repeat(32),
+				from: validFrom,
 				kind,
 				about,
 			}).success,
@@ -175,6 +176,7 @@ describe('NoticeRequestSchema', () => {
 				protocol: PEER_PROTOCOL_VERSION,
 				op: 'notice',
 				token: 't'.repeat(32),
+				from: validFrom,
 				kind: 'delivery',
 				about,
 				outcome,
@@ -189,7 +191,20 @@ describe('NoticeRequestSchema', () => {
 				protocol: PEER_PROTOCOL_VERSION,
 				op: 'notice',
 				token: 't'.repeat(32),
+				from: validFrom,
 				kind: 'started',
+				about,
+			}).success,
+		).toBe(false)
+	})
+
+	it('refuses a notice with no `from`: it must be verified the same as deliver and subscribe_idle', () => {
+		expect(
+			NoticeRequestSchema.safeParse({
+				protocol: PEER_PROTOCOL_VERSION,
+				op: 'notice',
+				token: 't'.repeat(32),
+				kind: 'idle',
 				about,
 			}).success,
 		).toBe(false)

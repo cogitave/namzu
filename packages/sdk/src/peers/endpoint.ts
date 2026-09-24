@@ -21,6 +21,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs'
 import { type Socket, createServer } from 'node:net'
+import { basename } from 'node:path'
 import { parsePeerAddress } from './address.js'
 import { pingPeer } from './client.js'
 import {
@@ -38,6 +39,7 @@ import {
 	type SubscribeIdleRequest,
 	type SubscribeIdleResponse,
 } from './protocol.js'
+import type { PeerRecord } from './record.js'
 import { isPeerRecordLive, readPeerRecord } from './registry.js'
 
 export class PeerEndpointError extends Error {
@@ -64,12 +66,23 @@ export interface CreatePeerEndpointOptions {
 	) => Promise<SubscribeIdleResponse> | SubscribeIdleResponse
 	readonly onNotice: (request: NoticeRequest) => Promise<void> | void
 	/**
-	 * Default: the sender's registry record exists, is live
-	 * ({@link isPeerRecordLive}), and its address equals `from.address`
-	 * (design §1.3) — so a process cannot claim to be a session it does not
-	 * own without also owning that session's live record.
+	 * Verify a sender's asserted identity, and return the identity the
+	 * recipient should actually use — which is never simply `from` handed
+	 * back, because a value the recipient uses for a decision (`mode`,
+	 * `kind`) or shows the operator (`name`, `ref`) must come from something
+	 * the sender does not control on this one connection. `false` refuses.
+	 *
+	 * Default ({@link defaultVerifySender}): the sender's registry record
+	 * exists, is live ({@link isPeerRecordLive}), its `address` equals
+	 * `from.address`, and its `permissionMode`/`kind` equal `from.mode`/
+	 * `from.kind` (design §1.3) — so a process cannot claim to be a session
+	 * it does not own, and a session cannot claim a mode or kind other than
+	 * the one it registered. The identity returned on success is built
+	 * entirely from the record: `name` is the record's own display name
+	 * (`title`, or the last path segment of `cwd` when unset), never the
+	 * wire's `from.name`.
 	 */
-	readonly verifySender?: (from: PeerFrom) => Promise<boolean> | boolean
+	readonly verifySender?: (from: PeerFrom) => Promise<PeerFrom | false> | PeerFrom | false
 	/** Default 2000ms; override for tests so a deadline test does not have to wait 2 real seconds. */
 	readonly readDeadlineMs?: number
 	/** Default 16; override for tests. */
@@ -84,19 +97,76 @@ export interface PeerEndpoint {
 	readonly address: string
 	/** Refuse new connections and destroy remaining sockets before resolving. */
 	close(): Promise<void>
+	/**
+	 * Record that THIS session sent a `deliver` to `peerSessionId` and so
+	 * expects a `delivery` notice back about it. A `notice` naming a peer
+	 * with no outstanding delivery is refused (§1.3): a session that never
+	 * dealt with this recipient cannot manufacture an outcome for a message
+	 * that was never sent. Counted, not boolean — several messages to the
+	 * same peer may be outstanding at once, and each accepted notice
+	 * consumes exactly one.
+	 */
+	registerOutstandingDelivery(peerSessionId: string): void
+	/**
+	 * Record that THIS session subscribed (directly, or via
+	 * `deliver.subscribeIdle`) to `peerSessionId`'s idle/exit notice. An
+	 * `idle`/`exited` notice naming a peer with no outstanding subscription
+	 * is refused, the same reasoning as {@link registerOutstandingDelivery}.
+	 */
+	registerOutstandingSubscription(peerSessionId: string): void
+}
+
+/** The record's display name: its own `title` when set, else the last path segment of `cwd`. */
+function peerRecordDisplayName(record: PeerRecord): string {
+	const title = record.title?.trim()
+	return title && title.length > 0 ? title : basename(record.cwd)
+}
+
+/** The identity a verified sender's record backs — never the wire's own claim. */
+function peerFromRecord(record: PeerRecord): PeerFrom {
+	return {
+		sessionId: record.sessionId,
+		ref: record.ref,
+		name: peerRecordDisplayName(record),
+		address: record.address,
+		mode: record.permissionMode,
+		kind: record.kind,
+	}
 }
 
 function defaultVerifySender(
 	sessionsDir: string | undefined,
 	livenessPingTimeoutMs: number | undefined,
-): (from: PeerFrom) => Promise<boolean> {
+): (from: PeerFrom) => Promise<PeerFrom | false> {
 	return async (from) => {
 		if (!sessionsDir) return false
 		const record = readPeerRecord(sessionsDir, from.sessionId)
 		if (!record) return false
 		if (record.address !== from.address) return false
-		return isPeerRecordLive(record, { pingTimeoutMs: livenessPingTimeoutMs })
+		// A sender's own record is the only thing worth trusting for a value
+		// the recipient uses to decide anything (the mode-mismatch hold gate)
+		// or to show the operator: the wire's claim is refused outright rather
+		// than silently corrected, so a session cannot launder a lower-trust
+		// mode or kind into a higher-trust one just by asserting it here.
+		if (record.permissionMode !== from.mode) return false
+		if (record.kind !== from.kind) return false
+		if (!(await isPeerRecordLive(record, { pingTimeoutMs: livenessPingTimeoutMs }))) return false
+		return peerFromRecord(record)
 	}
+}
+
+/** A per-peer count of outstanding relationships this session is owed a notice for. */
+function bumpOutstanding(counts: Map<string, number>, peerSessionId: string): void {
+	counts.set(peerSessionId, (counts.get(peerSessionId) ?? 0) + 1)
+}
+
+/** Consume one outstanding relationship, if any is on record; `false` when there is none to correlate to. */
+function consumeOutstanding(counts: Map<string, number>, peerSessionId: string): boolean {
+	const remaining = counts.get(peerSessionId) ?? 0
+	if (remaining <= 0) return false
+	if (remaining === 1) counts.delete(peerSessionId)
+	else counts.set(peerSessionId, remaining - 1)
+	return true
 }
 
 /** Unlink `path` only if it is a socket owned by `uid` and nothing answers it. */
@@ -163,6 +233,8 @@ export async function createPeerEndpoint(
 
 	const sockets = new Set<Socket>()
 	let closing = false
+	const outstandingDeliveries = new Map<string, number>()
+	const outstandingSubscriptions = new Map<string, number>()
 
 	const server = createServer((socket) => {
 		socket.on('error', () => {})
@@ -210,11 +282,12 @@ export async function createPeerEndpoint(
 						socket.destroy()
 						return
 					}
-					if (!(await verifySender(request.from))) {
+					const verifiedFrom = await verifySender(request.from)
+					if (!verifiedFrom) {
 						respond({ status: 'refused', reason: 'sender identity could not be verified' })
 						return
 					}
-					respond(await options.onDeliver(request))
+					respond(await options.onDeliver({ ...request, from: verifiedFrom }))
 					return
 				}
 				case 'subscribe_idle': {
@@ -222,11 +295,12 @@ export async function createPeerEndpoint(
 						socket.destroy()
 						return
 					}
-					if (!(await verifySender(request.from))) {
+					const verifiedFrom = await verifySender(request.from)
+					if (!verifiedFrom) {
 						respond({ status: 'refused' })
 						return
 					}
-					respond(await options.onSubscribeIdle(request))
+					respond(await options.onSubscribeIdle({ ...request, from: verifiedFrom }))
 					return
 				}
 				case 'notice': {
@@ -234,7 +308,37 @@ export async function createPeerEndpoint(
 						socket.destroy()
 						return
 					}
-					await options.onNotice(request)
+					const verifiedFrom = await verifySender(request.from)
+					if (!verifiedFrom) {
+						respond({ ok: false })
+						return
+					}
+					// A session only ever reports a notice about ITSELF (§1.3): the
+					// object of a `delivery` notice is "the peer your message went
+					// to", and of an `idle`/`exited` notice, "the peer you
+					// subscribed to" — in both cases the notifier, never a third
+					// session it has no standing to speak for.
+					if (verifiedFrom.sessionId !== request.about.sessionId) {
+						respond({ ok: false })
+						return
+					}
+					// And it must correlate to a relationship THIS session actually
+					// has with that peer — a message it sent, or a subscription it
+					// made — not merely to a verified, live, honestly-registered
+					// sender with no dealings with this recipient at all.
+					const correlated =
+						request.kind === 'delivery'
+							? consumeOutstanding(outstandingDeliveries, verifiedFrom.sessionId)
+							: consumeOutstanding(outstandingSubscriptions, verifiedFrom.sessionId)
+					if (!correlated) {
+						respond({ ok: false })
+						return
+					}
+					await options.onNotice({
+						...request,
+						from: verifiedFrom,
+						about: { ...request.about, name: verifiedFrom.name, ref: verifiedFrom.ref },
+					})
 					respond({ ok: true })
 					return
 				}
@@ -280,5 +384,12 @@ export async function createPeerEndpoint(
 			server.close(() => resolve())
 		})
 
-	return { address: options.address, close }
+	return {
+		address: options.address,
+		close,
+		registerOutstandingDelivery: (peerSessionId) =>
+			bumpOutstanding(outstandingDeliveries, peerSessionId),
+		registerOutstandingSubscription: (peerSessionId) =>
+			bumpOutstanding(outstandingSubscriptions, peerSessionId),
+	}
 }

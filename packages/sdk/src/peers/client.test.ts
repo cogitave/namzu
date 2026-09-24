@@ -166,10 +166,18 @@ describe('PeerClient', () => {
 			socket.end(`${JSON.stringify({ ok: true })}\n`)
 		})
 		const client = new PeerClient()
+		const from = {
+			sessionId: 'sess-b',
+			ref: 'bbbbbb',
+			name: 'bob',
+			address: 'uds:/tmp/b.sock',
+			mode: 'default',
+			kind: 'tui' as const,
+		}
 		await expect(
 			client.notice(
 				{ address: `uds:${path}`, token: 't' },
-				{ kind: 'idle', about: { sessionId: 'sess-b', name: 'bob', ref: 'bbbbbb' } },
+				{ kind: 'idle', from, about: { sessionId: 'sess-b', name: 'bob', ref: 'bbbbbb' } },
 			),
 		).resolves.toEqual({ kind: 'responded', ok: true })
 	})

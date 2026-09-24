@@ -51,9 +51,17 @@ describe('formatPeerMessage', () => {
 
 describe('formatPeerNotice', () => {
 	const about = { sessionId: 'sess-2', name: 'bob', ref: '112233' }
+	const noticeFrom: PeerFrom = {
+		sessionId: 'sess-2',
+		ref: '112233',
+		name: 'bob',
+		address: 'uds:/run/namzu/sess-2.sock',
+		mode: 'default',
+		kind: 'tui',
+	}
 
 	it('renders an idle notice as kind idle-notice, status idle', () => {
-		const notice: PeerNoticePayload = { kind: 'idle', about }
+		const notice: PeerNoticePayload = { kind: 'idle', from: noticeFrom, about }
 		const rendered = formatPeerNotice(notice)
 		expect(rendered.startsWith('<system-event kind="idle-notice" id="sess-2" status="idle">')).toBe(
 			true,
@@ -63,7 +71,7 @@ describe('formatPeerNotice', () => {
 	})
 
 	it('renders an exited notice as kind peer-notice, status exited', () => {
-		const notice: PeerNoticePayload = { kind: 'exited', about }
+		const notice: PeerNoticePayload = { kind: 'exited', from: noticeFrom, about }
 		const rendered = formatPeerNotice(notice)
 		expect(
 			rendered.startsWith('<system-event kind="peer-notice" id="sess-2" status="exited">'),
@@ -76,7 +84,7 @@ describe('formatPeerNotice', () => {
 		['held', "held for the operator's approval"],
 		['refused', 'was refused'],
 	] as const)('renders a delivery notice with outcome %s', (outcome, expectedSubstring) => {
-		const notice: PeerNoticePayload = { kind: 'delivery', about, outcome }
+		const notice: PeerNoticePayload = { kind: 'delivery', from: noticeFrom, about, outcome }
 		const rendered = formatPeerNotice(notice)
 		expect(
 			rendered.startsWith(`<system-event kind="delivery-notice" id="sess-2" status="${outcome}">`),
@@ -85,7 +93,7 @@ describe('formatPeerNotice', () => {
 	})
 
 	it('defaults an outcome-less delivery notice to refused', () => {
-		const notice: PeerNoticePayload = { kind: 'delivery', about }
+		const notice: PeerNoticePayload = { kind: 'delivery', from: noticeFrom, about }
 		const rendered = formatPeerNotice(notice)
 		expect(rendered).toContain('status="refused"')
 	})
@@ -93,6 +101,7 @@ describe('formatPeerNotice', () => {
 	it('wraps detail text as the untrusted body when present', () => {
 		const notice: PeerNoticePayload = {
 			kind: 'delivery',
+			from: noticeFrom,
 			about,
 			outcome: 'refused',
 			detail: 'the operator declined',
@@ -103,7 +112,7 @@ describe('formatPeerNotice', () => {
 	})
 
 	it('shows the literal placeholder when there is no detail', () => {
-		const notice: PeerNoticePayload = { kind: 'idle', about }
+		const notice: PeerNoticePayload = { kind: 'idle', from: noticeFrom, about }
 		expect(formatPeerNotice(notice)).toContain('\n(no output)\n')
 	})
 })
@@ -121,6 +130,7 @@ describe('isOperatorUserMessage stays false for peer-message and peer-notice', (
 		const message = createRuntimeContextMessage(
 			formatPeerNotice({
 				kind: 'idle',
+				from,
 				about: { sessionId: 'sess-2', name: 'bob', ref: '112233' },
 			}),
 			'peer-notice',
