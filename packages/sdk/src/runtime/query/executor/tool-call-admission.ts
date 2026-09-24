@@ -650,6 +650,10 @@ function unseenOutput(error: ToolInputError): string | undefined {
  *   is told to send less before it, with no advice about the call. Otherwise
  *   the call itself is to carry less: {@link sizeAdvice}, and the tool's
  *   `truncatedInputHint`.
+ * - Cut off by the context window (`finishDetail: 'context_window'`): the
+ *   call is to carry less, {@link sizeAdvice} and the tool's
+ *   `truncatedInputHint`, with nothing about reasoning or what came before
+ *   it: the window is the conversation's length, not this response's.
  * - Cut off by the stream ending: the declared budgets, if any, or just to
  *   send the call again, and the tool's `truncatedInputHint`.
  * - Stopped by a content filter: no advice. Sending less does not get past a
