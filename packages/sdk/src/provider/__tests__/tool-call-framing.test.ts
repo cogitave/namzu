@@ -5,9 +5,10 @@ import { collectChatCompletion } from '../collect-chat-completion.js'
 import { describeToolCallFramingViolation, toolCallFramingViolation } from '../tool-call-framing.js'
 
 /**
- * Two calls on one index had their arguments joined, and arguments before a
- * call's id were dropped in the turn loop and kept here. Both aggregators now
- * refuse the stream, in the same words.
+ * Two calls on one index had their arguments joined. Both aggregators now
+ * refuse that stream, in the same words. Arguments before a call's id were
+ * dropped in the turn loop and kept here; both keep them now, since the index
+ * says whose they are.
  */
 
 async function* chunks(...list: StreamChunk[]): AsyncIterable<StreamChunk> {
@@ -24,17 +25,14 @@ describe('toolCallFramingViolation', () => {
 		})
 	})
 
-	it('names arguments that arrive before any id', () => {
-		expect(toolCallFramingViolation(undefined, { index: 0, function: { arguments: '{' } })).toEqual(
-			{ kind: 'fragment_before_id', index: 0 },
-		)
+	it('accepts the same id again, an id arriving with the arguments, and arguments before the id', () => {
+		expect(toolCallFramingViolation({ id: 'a' }, { index: 0, id: 'a' })).toBeUndefined()
+		expect(
+			toolCallFramingViolation(undefined, { index: 0, function: { arguments: '{' } }),
+		).toBeUndefined()
 		expect(
 			toolCallFramingViolation({ id: '' }, { index: 0, function: { arguments: '{' } }),
-		).toEqual({ kind: 'fragment_before_id', index: 0 })
-	})
-
-	it('accepts the same id again, an id arriving with the arguments, and a name before the id', () => {
-		expect(toolCallFramingViolation({ id: 'a' }, { index: 0, id: 'a' })).toBeUndefined()
+		).toBeUndefined()
 		expect(
 			toolCallFramingViolation(undefined, { index: 0, id: 'a', function: { arguments: '{' } }),
 		).toBeUndefined()
@@ -43,17 +41,14 @@ describe('toolCallFramingViolation', () => {
 		).toBeUndefined()
 	})
 
-	it('describes each violation in one sentence', () => {
+	it('describes the violation in one sentence', () => {
 		expect(
 			describeToolCallFramingViolation({ kind: 'index_reused', index: 1, openId: 'a', newId: 'b' }),
 		).toBe('the stream reused tool-call index 1 for call "b" while call "a" held it')
-		expect(describeToolCallFramingViolation({ kind: 'fragment_before_id', index: 3 })).toBe(
-			"the stream sent arguments for tool-call index 3 before naming the call's id",
-		)
 	})
 })
 
-describe('collectChatCompletion refuses a stream that breaks the framing', () => {
+describe('collectChatCompletion and tool-call framing', () => {
 	it('does not join two calls that share an index', async () => {
 		await expect(
 			collectChatCompletion(
@@ -73,15 +68,30 @@ describe('collectChatCompletion refuses a stream that breaks the framing', () =>
 		)
 	})
 
-	it('does not keep arguments sent before the id', async () => {
-		await expect(
-			collectChatCompletion(
-				chunks(
-					{ id: 'r', delta: { toolCalls: [{ index: 0, function: { arguments: '{"a":1}' } }] } },
-					{ id: 'r', delta: { toolCalls: [{ index: 0, id: 'a', function: { name: 'x' } }] } },
-				),
+	it('keeps arguments sent before the id, and fills the id in when it arrives', async () => {
+		// What it did before the framing check was added; refusing it turned a
+		// response it assembled correctly into an error.
+		const response = await collectChatCompletion(
+			chunks(
+				{
+					id: 'r',
+					delta: { toolCalls: [{ index: 0, function: { name: 'x', arguments: '{"a":' } }] },
+				},
+				{
+					id: 'r',
+					delta: { toolCalls: [{ index: 0, id: 'call_1', function: { arguments: '1}' } }] },
+				},
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
 			),
-		).rejects.toThrow("before naming the call's id")
+		)
+		expect(response.finishReason).toBe('tool_calls')
+		expect(
+			response.message.toolCalls?.map((call) => [
+				call.id,
+				call.function.name,
+				call.function.arguments,
+			]),
+		).toEqual([['call_1', 'x', '{"a":1}']])
 	})
 
 	it('still assembles well-framed parallel calls', async () => {

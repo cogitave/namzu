@@ -31,6 +31,16 @@ export interface StreamChunk {
 		content?: string
 		/** Identity and phase of this content fragment, when the provider supplies them. */
 		textPart?: Omit<import('../message/index.js').AssistantTextPart, 'text'>
+		/**
+		 * Fragments of tool calls. `index` is what groups them: every fragment
+		 * of one call carries the same index, and no other call in the
+		 * response uses it. The call's `id` and `function.name` may arrive on
+		 * any of its fragments, including after arguments; arguments that
+		 * arrive first are kept for the call at their index. The turn loop gives
+		 * a call whose id never arrives, here or on `toolCallEnd`, an id of its
+		 * own. A second id on an index another call holds is refused, by the
+		 * turn loop and by `collectChatCompletion`.
+		 */
 		toolCalls?: Array<{
 			index: number
 			id?: string

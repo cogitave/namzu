@@ -118,22 +118,31 @@ The built-in tools that take long text declare it: `write` (`content`), `edit`
 budget and its own hint. Any other tool, such as a question or plan tool, gets
 no size advice and no file-writing advice.
 
-## A stream that breaks tool-call framing
+## Tool-call framing
 
-Every driver promises one call per `index` and the call's id before its
-arguments. The turn loop and `collectChatCompletion` refuse a stream that
-breaks either promise:
+A stream groups a call's fragments by `index`. The turn loop and
+`collectChatCompletion` both rely on that, and on nothing else:
 
-- a second call id on an index another call holds, whose arguments used to be
-  appended to the first call's;
-- arguments before the call's id, which used to be dropped.
-
-The turn loop throws a `ProviderRequestError` with `kind: 'server'`. Its
-`detail` names the violation, for example
-`the stream reused tool-call index 0 for call "call_b" while call "call_a" held it`.
-Tool calls are not recovered from such a stream. `collectChatCompletion`
-throws an `Error` with the same sentence. The same id repeated on every
-fragment is accepted.
+- Arguments that arrive before the call's id are kept for the call at their
+  index. The id is filled in when it arrives. `collectChatCompletion` always
+  did this. The turn loop used to drop such fragments with a warning, so what
+  was left failed to parse and the call was reported as cut off. It now keeps
+  them and sends them in one `tool_input_delta` right after
+  `tool_input_started`, once the call's id and name are both known. No
+  `tool_input_delta` comes before its call's `tool_input_started`.
+- A second call id on an index another call holds is refused. The second
+  call's arguments used to be appended to the first call's, which left one
+  call that no tool could run. The turn loop throws a `ProviderRequestError`
+  with `kind: 'server'`, and `collectChatCompletion` throws an `Error`. Both
+  name the violation, for example
+  `the stream reused tool-call index 0 for call "call_b" while call "call_a" held it`.
+  Tool calls are not recovered from such a stream. The same id repeated on
+  every fragment is accepted.
+- A call whose id never arrives, on a fragment or on the block close
+  (`toolCallEnd`), is given one by the turn loop when the stream ends, and
+  announced then. It used to reach the executor with an empty id, which no
+  tool result can name, and without its arguments. `collectChatCompletion`
+  returns such a call with an empty `id`, as it always has.
 
 ## Finish reasons from the drivers
 

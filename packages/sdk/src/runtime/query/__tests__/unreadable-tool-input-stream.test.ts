@@ -14,10 +14,10 @@ import { PARTIAL_ARGUMENTS_EVENT_LIMIT } from '../iteration/tool-input.js'
  * cut off, and the finish reason the stream reported was recorded and never
  * read. A model that wrote malformed JSON on a response that finished
  * normally was told its call had been cut off and to send less, which does
- * nothing for malformed JSON. And a stream that put two calls on one index,
- * or sent arguments before the call's id, was absorbed: the second call's
- * arguments appended to the first's, or the fragment dropped — so the buffer
- * that failed to parse was not even what the model sent.
+ * nothing for malformed JSON. And a stream that put two calls on one index
+ * had the second call's arguments appended to the first's, and arguments
+ * sent before the call's id were dropped — so the buffer that failed to parse
+ * was not even what the model sent.
  */
 
 const TURN_ID = '99b1ceae-1a8b-4b07-b56e-327eae34f058' as TurnId
@@ -227,7 +227,7 @@ describe('unreadable tool input is classified from how the response ended', () =
 	})
 })
 
-describe('a stream that breaks tool-call framing is refused', () => {
+describe('tool-call framing', () => {
 	it('refuses a second call id on an index another call holds, instead of joining their arguments', async () => {
 		const { error, events } = await run([
 			open(0, 'call_a'),
@@ -250,8 +250,11 @@ describe('a stream that breaks tool-call framing is refused', () => {
 		expect(events.at(-1)).toMatchObject({ type: 'message_completed', stopReason: 'refusal' })
 	})
 
-	it('refuses arguments sent before the call id, instead of dropping them', async () => {
-		const { error, events } = await run([
+	it('keeps arguments sent before the call id, and announces them once the id arrives', async () => {
+		// The index says whose arguments these are. They used to be dropped
+		// with a warning, and what was left failed to parse and was reported
+		// as a cut-off call.
+		const { error, result, events } = await run([
 			{
 				id: 'c',
 				delta: { toolCalls: [{ index: 0, function: { name: 'ask', arguments: '{"q"' } }] },
@@ -260,11 +263,71 @@ describe('a stream that breaks tool-call framing is refused', () => {
 			finish('tool_calls'),
 		])
 
-		expect(isProviderRequestError(error)).toBe(true)
-		expect(error).toMatchObject({
-			detail: "the stream sent arguments for tool-call index 0 before naming the call's id",
-		})
-		expect(events.some((e) => e.type === 'tool_input_completed')).toBe(false)
+		expect(error).toBeUndefined()
+		const call = result?.response.message.toolCalls?.[0]
+		expect(call).toMatchObject({ id: 'call_1', function: { name: 'ask', arguments: '{"q":"x"}' } })
+		expect(call?.metadata).toBeUndefined()
+		const lifecycle = events
+			.filter((e) => e.type.startsWith('tool_input_'))
+			.map((e) => [e.type, e.type === 'tool_input_delta' ? e.partialJson : undefined])
+		expect(lifecycle).toEqual([
+			['tool_input_started', undefined],
+			['tool_input_delta', '{"q":"x"}'],
+			['tool_input_completed', undefined],
+		])
+	})
+
+	it('announces no delta before the call, when the name arrives after the arguments', async () => {
+		const { result, events } = await run([
+			args(0, '{"q":', 'call_1'),
+			{ id: 'c', delta: { toolCalls: [{ index: 0, function: { name: 'ask' } }] } },
+			args(0, '"x"}'),
+			finish('tool_calls'),
+		])
+
+		expect(events.filter((e) => e.type.startsWith('tool_input_')).map((e) => e.type)).toEqual([
+			'tool_input_started',
+			'tool_input_delta',
+			'tool_input_delta',
+			'tool_input_completed',
+		])
+		expect(result?.response.message.toolCalls?.[0]?.function.arguments).toBe('{"q":"x"}')
+	})
+
+	it('takes the id from the block close when no fragment carried it', async () => {
+		const { error, result } = await run([
+			{ id: 'c', delta: { toolCalls: [{ index: 0, function: { name: 'ask', arguments: '{}' } }] } },
+			close(0, 'call_1'),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		expect(result?.response.message.toolCalls?.[0]).toMatchObject({ id: 'call_1' })
+	})
+
+	it('gives a call whose id never arrives one, and runs it with all its arguments', async () => {
+		// It used to reach the executor with an empty id, which no result can
+		// name, and without the arguments dropped for arriving before it.
+		const { error, result, events } = await run([
+			{
+				id: 'c',
+				delta: { toolCalls: [{ index: 0, function: { name: 'ask', arguments: '{"q":' } }] },
+			},
+			args(0, '"x"}'),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		const call = result?.response.message.toolCalls?.[0]
+		expect(call?.id).toMatch(/\S/)
+		expect(call?.function).toEqual({ name: 'ask', arguments: '{"q":"x"}' })
+		const lifecycle = events.filter((e) => e.type.startsWith('tool_input_'))
+		expect(lifecycle.map((e) => e.type)).toEqual([
+			'tool_input_started',
+			'tool_input_delta',
+			'tool_input_completed',
+		])
+		expect(lifecycle.every((e) => 'toolUseId' in e && e.toolUseId === call?.id)).toBe(true)
 	})
 
 	it('does not recover tool calls from a stream it refused', async () => {

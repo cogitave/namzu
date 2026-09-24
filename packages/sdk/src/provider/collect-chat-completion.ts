@@ -19,10 +19,12 @@ import { describeToolCallFramingViolation, toolCallFramingViolation } from './to
  * - ordinary text is concatenated in delta order; identified public text
  *   items are preserved and explicit final-answer items select the settled text;
  * - tool calls are bucketed by `index` into the existing
- *   `Array<{ id, function: { name, arguments } }>` shape. A stream that puts
- *   a second call id on an index, or sends arguments before a call's id, is
- *   refused with an error naming the violation, as the turn loop refuses it:
- *   the second call's arguments used to be appended to the first's;
+ *   `Array<{ id, function: { name, arguments } }>` shape. Arguments that
+ *   arrive before the call's id belong to the call at their index and are
+ *   kept; the id is filled in when it arrives. A stream that puts a second
+ *   call id on an index is refused with an error naming the violation, as
+ *   the turn loop refuses it: the second call's arguments used to be
+ *   appended to the first's, which left one call no tool could run;
  * - reasoning blocks are bucketed by `index` the same way, because the
  *   assembled message is the thing a caller replays and
  *   {@link ReasoningBlock} is documented as replayed verbatim. This was

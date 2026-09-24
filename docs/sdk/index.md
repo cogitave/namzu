@@ -29,7 +29,7 @@ The kernel.
 * [Model prices, and what an absent one means](model-prices.md) - Optional per-million rates on ModelInfo, why a driver omits a rate it never learned, and how a reader renders the absence.
 
 * [Tool execution barriers](tool-execution.md) - Explicit batch ordering while independent read segments remain parallel.
-* [Unreadable tool input](unreadable-tool-input.md) - Streamed tool arguments that do not parse: truncated or malformed by finish reason, what the model and host are told, and refused tool-call framing.
+* [Unreadable tool input](unreadable-tool-input.md) - Streamed tool arguments that do not parse: truncated or malformed by finish reason, what the model and host are told, and how tool-call fragments are grouped.
 * [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.
 
 * [Run the kernel](quick-start.md) - An offline SDK turn, real tool execution, conversation identity and where the session is recorded.

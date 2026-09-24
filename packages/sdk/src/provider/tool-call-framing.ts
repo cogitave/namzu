@@ -3,27 +3,28 @@ import type { StreamChunk } from '../types/provider/stream.js'
 type ToolCallDelta = NonNullable<StreamChunk['delta']['toolCalls']>[number]
 
 /**
- * A stream that broke the tool-call framing every driver promises: one call
- * per `index`, and the call's id before any of its arguments.
+ * A stream that broke tool-call framing: a second call id on an `index`
+ * another call holds.
  *
- * Both used to be absorbed. A new id on an open index was ignored and its
- * arguments appended to the other call's, and a fragment before the id was
- * dropped with a warning. Either way the buffer that reached `JSON.parse` was
- * not what the model sent, the parse failed, and the model was told its call
- * had been cut off — for a fault in the stream, not in anything it wrote.
+ * The index is what groups a call's fragments, so after this no buffer can be
+ * trusted to hold one call's arguments. The second call's arguments used to be
+ * appended to the first's; the buffer that reached `JSON.parse` was then not
+ * what the model sent, and the model was told its call had been cut off.
+ *
+ * Nothing else about a call's framing is a violation. Arguments that arrive
+ * before the call's id belong to the call at their index and are kept, and a
+ * call whose id never arrives is still one call.
  */
-export type ToolCallFramingViolation =
-	| {
-			readonly kind: 'index_reused'
-			readonly index: number
-			readonly openId: string
-			readonly newId: string
-	  }
-	| { readonly kind: 'fragment_before_id'; readonly index: number }
+export interface ToolCallFramingViolation {
+	readonly kind: 'index_reused'
+	readonly index: number
+	readonly openId: string
+	readonly newId: string
+}
 
 /**
- * What is wrong with this tool-call delta, given the call already open at its
- * index, or `undefined` when nothing is.
+ * Whether this tool-call delta puts a new call on an index another call
+ * holds, or `undefined` when it does not.
  *
  * The same id repeated on every fragment is fine: some wires send it each
  * time. Only a different one is a second call.
@@ -35,18 +36,10 @@ export function toolCallFramingViolation(
 	if (open?.id && delta.id && delta.id !== open.id) {
 		return { kind: 'index_reused', index: delta.index, openId: open.id, newId: delta.id }
 	}
-	if (delta.function?.arguments && !open?.id && !delta.id) {
-		return { kind: 'fragment_before_id', index: delta.index }
-	}
 	return undefined
 }
 
 /** One sentence naming the violation, for an error's detail. */
 export function describeToolCallFramingViolation(violation: ToolCallFramingViolation): string {
-	switch (violation.kind) {
-		case 'index_reused':
-			return `the stream reused tool-call index ${violation.index} for call "${violation.newId}" while call "${violation.openId}" held it`
-		case 'fragment_before_id':
-			return `the stream sent arguments for tool-call index ${violation.index} before naming the call's id`
-	}
+	return `the stream reused tool-call index ${violation.index} for call "${violation.newId}" while call "${violation.openId}" held it`
 }
