@@ -9,11 +9,13 @@ exercise the official `@ag-ui/client` `HttpAgent` at the same version.
 pnpm add @namzu/ag-ui @namzu/sdk zod@^3
 ```
 
-Node.js 20 or later and `@namzu/sdk >=44.0.0` are required.
+Node.js 20 or later, `@namzu/sdk >=45.1.0` and `zod` 3 are required.
 
-**Compatibility.** `@namzu/ag-ui` before 1.0.0 breaks on `@namzu/sdk >=44`,
-where the kernel's run events were renamed. Use `@namzu/ag-ui >=1` with
-`@namzu/sdk` 44.
+**Compatibility.** `@namzu/ag-ui` 2 ends a paused turn's run with an AG-UI
+interrupt (`RUN_FINISHED` with `outcome.type: "interrupt"`) and serves
+`resume`; 1.x ended it with `RUN_ERROR` code `NAMZU_TURN_PAUSED`.
+`@namzu/ag-ui` before 1.0.0 breaks on `@namzu/sdk >=44`, where the kernel's
+run events were renamed.
 
 ## Connect your existing kernel configuration
 
@@ -31,8 +33,9 @@ export function createAGUIHandler(createQuery: AGUIQueryFactory) {
 
 Mount the returned handler at your application's agent endpoint. `handle`
 accepts JSON `RunAgentInput` over POST and returns `text/event-stream`. The
-factory receives `{ input, signal, ui, request? }`; `request` is present for
-HTTP handling and absent when the host iterates `adapter.run()` directly. An existing host query
+factory receives `{ input, signal, ui, interrupts, frontendTools, request?,
+session?, continuation? }`; `request` is present for HTTP handling and absent
+when the host iterates `adapter.run()` directly. An existing host query
 configuration supplies providers, model, tools, stores, permissions, and native
 tenant/project/topic/session identity.
 
@@ -58,7 +61,7 @@ inside `createQuery`. The adapter publishes a bounded, detached `MESSAGES_SNAPSH
 before native query events. This affects the client display only; select model
 history independently. Calls after the factory returns are rejected to preserve
 active message and tool lifecycles. State and custom events can still stream
-throughout the turn. This does not enable interrupt resumption.
+throughout the turn.
 
 ## Consume events directly
 
@@ -89,6 +92,56 @@ Backend tools can capture the factory's `ui` and publish snapshots through
 application events through `ui.custom(name, value)`. State is isolated per
 request; persist it in your application when continuity is required.
 
+## Ask the client
+
+A turn that needs the client ends its run with interrupts, and the next run
+answers them in `resume`. Send reviews and questions to the client through the
+handlers on the factory's context:
+
+```ts
+import { AGUIAdapter, type AGUITurnContext, type QueryParams } from '@namzu/ag-ui'
+import { ToolRegistry, buildAskUserQuestionTool } from '@namzu/sdk'
+
+/** Your authorized scope, provider and stores for the request's thread. */
+type HostParams = (
+  context: AGUITurnContext,
+) => Promise<Omit<QueryParams, 'tools' | 'resumeHandler'>>
+
+export function createInteractiveHandler(hostParams: HostParams) {
+  const adapter = new AGUIAdapter({
+    frontendTools: { allow: ['pick_color'] },
+    async createQuery(context) {
+      const tools = new ToolRegistry()
+      tools.register(buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }))
+      for (const tool of context.frontendTools) tools.register(tool)
+      return {
+        ...(await hostParams(context)),
+        tools,
+        resumeHandler: context.interrupts.resumeHandler,
+      }
+    },
+  })
+  return (request: Request): Promise<Response> => adapter.handle(request)
+}
+```
+
+`interrupts.resumeHandler` turns a tool review that needs a person into
+`tool_call` interrupts (answered `{ approved, editedArgs?, reason? }`) and a
+question into an `input_required` interrupt (answered `{ selected?, text? }`).
+`interrupts.prompt` plugs the same into `createReviewHandler`. A tool's
+`ToolResult.handoff` becomes a `namzu:handoff` interrupt. Answers are checked
+against host-owned records: an unknown, foreign, answered, expired, incomplete
+or malformed `resume` ends with `RUN_ERROR` and applies nothing. A paused turn
+is continued from its checkpoint with `resumeSession`, which needs the
+session's `sessionLog` in the parameters; a question waits inside its tool in
+the process that asked it. Records live in memory unless you pass
+`interrupts.store`.
+
+Tools the client declares in `RunAgentInput.tools` are refused unless
+`frontendTools` admits them. An admitted tool the host registers is called by
+the model; the run ends as complete with the call unanswered, and the
+client's `tool` message on the next run is its result.
+
 ## Supported surface
 
 | Capability | Behavior |
@@ -96,9 +149,9 @@ request; persist it in your application when continuity is required.
 | Text and backend tools | Native message/call IDs, streamed arguments, results, and iteration steps |
 | Final outcome and usage | Successful result and per-message token usage; unsuccessful stops use `RUN_ERROR` |
 | State and application events | Snapshots, validated JSON patches, and named custom events |
-| Frontend tools | Nonempty request `tools` is rejected with HTTP 422 |
-| AG-UI approval resume | Nonempty `resume` is rejected with HTTP 422 |
-| Native pause | `namzu.turn.paused` custom event followed by `RUN_ERROR` code `NAMZU_TURN_PAUSED`; native resumption (`resumeSession`) remains host-owned |
+| Frontend tools | Admitted by `frontendTools`; otherwise request `tools` is rejected with HTTP 422 |
+| Interrupts and resume | Reviews, questions, handoffs and resumable pauses end the run with `outcome.type: "interrupt"`; `resume` continues the same native turn |
+| New input with open interrupts | `RUN_ERROR` code `AGUI_INTERRUPT_PENDING` |
 | Concurrent runs on a thread | `RUN_ERROR` code `NAMZU_TURN_IN_PROGRESS`; the active turn is untouched |
 | Transport | POST with JSON input and SSE output; no protobuf, SSE replay, or AG-UI reconnect endpoint |
 | Internal events | Child sessions, prompts, raw events, reasoning, and provider signatures are not forwarded |
@@ -115,8 +168,10 @@ deliberately public HTTP error.
 
 For CopilotKit, register an `HttpAgent` pointing at this endpoint in a
 `@copilotkit/runtime/v2` agent registry, then connect the React provider to
-that runtime. See the [integration guide](../../docs/sdk/ag-ui.md) for the
-admission example, compatibility limits, and linked official configuration.
-The repository tests `HttpAgent`; it does not claim a tested React deployment.
+that runtime; `useInterrupt` answers interrupts and `useFrontendTool` runs
+admitted frontend tools. See the [integration guide](../../docs/sdk/ag-ui.md)
+for the admission example, interrupt payloads, error codes and compatibility
+limits. The repository tests `HttpAgent`; a CopilotKit 1.73.3 page was
+driven by hand against it, and is not part of the repository.
 
 Licensed under [FSL-1.1-MIT](LICENSE.md).

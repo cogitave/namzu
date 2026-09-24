@@ -1,10 +1,11 @@
 ---
 type: Guide
 title: AG-UI clients
-description: Expose the Namzu kernel through AG-UI SSE with explicit host authentication, history admission, backend tools, and request-owned UI state.
+description: Expose the Namzu kernel through AG-UI SSE with explicit host authentication, history admission, backend and frontend tools, interrupts and resume, and request-owned UI state.
 resource: packages/ag-ui/src/index.ts
-tags: [sdk, ag-ui, copilotkit, streaming, tools]
+tags: [sdk, ag-ui, copilotkit, streaming, tools, hitl, interrupts]
 status: stable
+generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 ---
 
 # AG-UI clients
@@ -14,16 +15,19 @@ clients such as the official `HttpAgent`. It is an optional leaf package:
 the host supplies a trusted SDK query configuration, and the adapter runs
 `query` with that configuration.
 
-Install `@namzu/ag-ui` 1.x, `@namzu/sdk >=44.0.0`, and the SDK's Zod v3 peer in a
-Node.js 20+ ESM application. The adapter pins `@ag-ui/core` and
-`@ag-ui/encoder` to `0.0.59`. Tests use the official `@ag-ui/client` at
-`0.0.59` to parse SSE, verify event order, and rebuild messages and state.
+Install `@namzu/ag-ui` 2.x, `@namzu/sdk >=45.1.0`, and the SDK's Zod v3 peer in a
+Node.js 20+ ESM application. `zod` is a peer of `@namzu/ag-ui` too, because
+the frontend tools it builds carry a Zod input schema. The adapter pins
+`@ag-ui/core` and `@ag-ui/encoder` to `0.0.59`. Tests use the official
+`@ag-ui/client` at `0.0.59` to parse SSE, verify event order, and rebuild
+messages and state.
 
 ## Resolve scope and admit history
 
 `new AGUIAdapter({ createQuery })` takes an `AGUIQueryFactory`. Its context
-contains `input: RunAgentInput`, `signal: AbortSignal`, `ui: AGUITurnUI`, and
-`request?: Request`. The HTTP handler supplies `request`; `run(input)` does
+contains `input: RunAgentInput`, `signal: AbortSignal`, `ui: AGUITurnUI`,
+`interrupts`, `frontendTools`, `request?: Request`, `session?` and
+`continuation?`. The HTTP handler supplies `request`; `run(input)` does
 not. The factory returns `QueryParams` or a promise of them.
 
 This example accepts an application-owned resolver. That resolver must
@@ -80,20 +84,27 @@ never uses it as a Namzu id; the wire echoes the external `threadId` and run
 id verbatim on every `RUN_*` event. The endpoint requires nonempty external
 IDs without requiring UUID syntax.
 
-A session has one active turn at a time. A second request on a thread whose
-session still has a turn running or paused ends with `RUN_ERROR` code
-`NAMZU_TURN_IN_PROGRESS` and leaves the active turn untouched; the kernel
-refuses it with `TurnInProgressError`, which `isTurnInProgressError`
-recognises. Never cast external IDs to Namzu ID types, use them
+A session has one active turn at a time. New input on a thread with open
+interrupts ends with `RUN_ERROR` code `AGUI_INTERRUPT_PENDING` before the host
+is asked for anything (see [Interrupts](#interrupts)). Any other second
+request on a thread whose session still has a turn running or paused ends
+with `RUN_ERROR` code `NAMZU_TURN_IN_PROGRESS` and leaves the active turn
+untouched; the kernel refuses it with `TurnInProgressError`, which
+`isTurnInProgressError` recognises. Never cast external IDs to Namzu ID types, use them
 directly as filesystem paths, or turn `forwardedProps` into authorization.
 
 All request fields remain untrusted after schema validation, including
-`messages`, `state`, `context`, and `forwardedProps`. The adapter leaves
-history admission and persistence to the host. A server storing canonical
-history should authorize new input and combine it with stored history
-instead of treating an echoed browser transcript as evidence of earlier
-tool execution. Avoid appending both a full browser transcript and the same
-stored transcript.
+`messages`, `state`, `context`, `tools`, `resume` and `forwardedProps`. The
+adapter leaves history admission and persistence to the host. A server
+storing canonical history should authorize new input and combine it with
+stored history instead of treating an echoed browser transcript as evidence
+of earlier tool execution. Avoid appending both a full browser transcript
+and the same stored transcript.
+
+`context.signal` belongs to the turn the request starts: it aborts when the
+request is cancelled while a run is reading the turn, and it does not abort
+because a request that ended with an interrupt later closes. Passing it on as
+`params.signal` is safe.
 
 ## Convert admitted messages
 
@@ -119,9 +130,10 @@ Tool rounds must be complete and unambiguous. Each call needs a unique ID
 and valid JSON arguments, followed by exactly one matching result
 before another conversational message. Display-only activity/reasoning
 messages may occur between these parts. Duplicate message/call IDs,
-unmatched results, and unresolved calls are rejected. This supports complete
-historical backend tool rounds; it does not enable frontend execution or
-approval resume.
+unmatched results, and unresolved calls are rejected. This converts complete
+historical tool rounds; it neither answers an interrupt nor delivers a
+frontend tool's result, which the adapter does itself (see
+[Interrupts](#interrupts) and [Frontend tools](#frontend-tools)).
 
 An inline document can be admitted without giving the server a URL to fetch:
 
@@ -178,12 +190,6 @@ message or tool lifecycle could remove the object that later deltas refer to.
 State and custom-event publication remain available during execution. Like other
 UI events, a snapshot is request-scoped and does not persist conversation history.
 
-Initial history reconciliation is tested against the official `HttpAgent` over
-Fetch/SSE. It is not an interrupt-boundary snapshot or resume implementation.
-The [AG-UI interrupt contract](https://docs.ag-ui.com/concepts/interrupts) also
-requires boundary state, correlated responses and replay-safe resolution; these
-remain separate work.
-
 ## Publish state and application events
 
 Each factory invocation receives its own `AGUITurnUI`, initialized with a
@@ -215,11 +221,224 @@ and prototype mutation paths are rejected. `custom` queues a named `CUSTOM`
 event. Values must be JSON; invalid values, queue overflow, and oversize
 events throw before changing state. Updates are delivered while the native
 source runs, including a slow backend tool. No initial snapshot is emitted
-automatically.
+automatically; a run that ends with an interrupt sends a `STATE_SNAPSHOT` of
+the turn's state, when it has one, before its `RUN_FINISHED`.
 
-The capability closes when its request settles or is canceled. Retaining it
-for another request does not create durable state. Persist state explicitly
-on the host and authorize state supplied on the next request.
+The capability closes when its turn settles or its request is cancelled. A
+turn that waits inside a tool for the client (a question, a frontend call)
+keeps the capability its tools were built with, so a tool that runs after the
+answer still publishes, into whichever run is reading the turn by then.
+Retaining it for another turn does not create durable state. Persist state
+explicitly on the host and authorize state supplied on the next request.
+
+## Interrupts
+
+A turn that needs something only the client can give ends its AG-UI run with
+`RUN_FINISHED` whose `outcome` is `{ type: 'interrupt', interrupts }`, per
+the [AG-UI interrupt contract](https://docs.ag-ui.com/concepts/interrupts).
+The next run on the thread carries the answers in `RunAgentInput.resume`,
+one entry per interrupt, and continues the same native turn.
+
+| Native cause | `reason` | `toolCallId` | `resume` payload when `resolved` | `cancelled` |
+| --- | --- | --- | --- | --- |
+| A tool call the review policy puts to a person | `tool_call` | the call | `{ approved: boolean, editedArgs?: object, reason?: string }` (and `confirmSandboxEscape?: boolean` for a call that asks to leave the sandbox) | refuses the call |
+| `ask_user_question`, or `ToolContext.requestPause` in any tool | `input_required` | the asking call, when the client saw it | `{ selected?: string[], text?: string }`: option ids from `metadata.namzu.options`, and text when `allowFreeText`; a bare string is text | the tool reads "the user did not answer" |
+| `ToolResult.handoff` (sign-in, CAPTCHA, a takeover of the desktop) | `namzu:handoff` | — | anything; "done, carry on" | the turn is closed (`abandonTurn`) |
+| A plan the policy put to the client | `confirmation` | — | `{ approved: boolean, feedback?: string }` | the turn is closed |
+| A cadence checkpoint the host's policy paused on | `confirmation` | — | `{ approved: boolean, feedback?: string }` | the turn is closed |
+| Any other pause (a provider fault the turn can resume from) | `namzu:paused` | — | anything; try again | the turn is closed |
+
+Each interrupt carries `responseSchema` where the answer has a shape,
+`expiresAt` when it has a deadline, and `metadata.namzu` with what a UI needs:
+the tool name and the exact input under review, `destructive`, a sandbox
+escape or the paths outside the working directory; a question's header,
+options, `multiSelect` and `allowFreeText`; a handoff's `detail`. `editedArgs`
+replaces the call's arguments whole. The kernel prepares and authorizes the
+edited input again, so an authorization rule that routes the new value to
+review refuses it rather than run it on an approval given for different
+arguments. A refusal's `reason` reaches the model when every call of the batch
+was refused; a refusal among approvals reaches it as the standard declined
+message.
+
+### Ask the client
+
+Nothing is sent to the client unless the host says so, through the handlers
+on `context.interrupts`:
+
+- `interrupts.resumeHandler` is a `ResumeHandler` that asks the client
+  whenever a person is needed: questions become `input_required`
+  interrupts, a tool review goes through the prompt-mode review policy over
+  `params.tools` (trusted reads run, everything else is asked about), a plan
+  approval is asked about, and a cadence checkpoint continues.
+- `interrupts.prompt` is a `ToolReviewPrompt` for `createReviewHandler` and
+  `createReviewPolicy`, so any mode, exemption and skill-grant rule the host
+  already uses decides, and the client is the person it asks.
+
+A host's own handler that answers `pause` for a review, a plan or a
+checkpoint gets the same interrupts; the adapter reads the parked request
+from the turn, or from the session log when the handler was swapped
+mid-turn.
+
+```ts
+import {
+  AGUIAdapter,
+  type AGUITurnContext,
+  type QueryParams,
+} from '@namzu/ag-ui'
+import { ToolRegistry, buildAskUserQuestionTool, createReviewHandler } from '@namzu/sdk'
+
+/** The host's own scope for a thread, including the session log a resume needs. */
+type ThreadScope = (
+  context: AGUITurnContext,
+) => Promise<Omit<QueryParams, 'tools' | 'resumeHandler' | 'messages'>>
+
+export function createInteractiveEndpoint(scope: ThreadScope, hostTools: ToolRegistry) {
+  const adapter = new AGUIAdapter({
+    interrupts: { ttlMs: 15 * 60_000 },
+    frontendTools: { allow: ['pick_color'] },
+    async createQuery(context) {
+      const tools = hostTools.fork()
+      // A question waits no longer than its tool's own deadline.
+      tools.register({
+        ...buildAskUserQuestionTool({ resumeHandler: context.interrupts.resumeHandler }),
+        timeoutMs: 15 * 60_000,
+      })
+      for (const tool of context.frontendTools) tools.register(tool)
+      const review = createReviewHandler({
+        mode: 'accept-edits',
+        prompt: context.interrupts.prompt,
+        registry: tools,
+      })
+      return {
+        ...(await scope(context)),
+        tools,
+        messages: [],
+        resumeHandler: (request) =>
+          request.type === 'tool_review' ? review(request) : context.interrupts.resumeHandler(request),
+      }
+    },
+  })
+  return (request: Request): Promise<Response> => adapter.handle(request)
+}
+```
+
+On a request that answers interrupts or frontend calls, `context.continuation`
+names the session and turn being continued (`kind: 'resume'` or
+`'tool-results'`). `createQuery` still runs, so the host authorizes the
+thread as for any request; the adapter refuses the request
+(`AGUI_THREAD_MISMATCH`) when the returned `sessionId` is not the turn's.
+The returned `messages` are not read.
+
+### Two ways a turn waits
+
+A review, a plan, a checkpoint, a handoff or a provider fault **pauses** the
+native turn: it writes a checkpoint and ends with `turn_paused`. Its answer is
+applied by `resumeSession`, which continues exactly that checkpoint with the
+answer as the native decision (`approve_tools`, `modify_tools`,
+`reject_tools`, `approve_plan`, `continue`), under the same turn id. Nothing
+is held in memory between the runs, so this works from another process when
+the interrupt records live in a shared store (below). It needs the session's
+`sessionLog` (and, when it is not the default beside the log,
+`checkpointStore`) in the `QueryParams` of the resuming request; without them
+the request is refused with `AGUI_RESUME_UNAVAILABLE`. A refusal of a pause
+that has no calls to refuse — a cancelled handoff, a rejected plan — closes
+the turn with `abandonTurn` and ends the run with `RUN_ERROR` code
+`NAMZU_TURN_ABANDONED`; the thread then takes new input.
+
+A question, and a frontend tool's result, **wait inside a tool**. The tool's
+park is recorded against a checkpoint, but the turn is not paused: it keeps
+running in the process that raised the interrupt, and the answer is handed to
+the waiting tool. That process must serve the answer, which the default
+in-memory store already implies. The wait lasts `interrupts.ttlMs` (10 minutes
+when unset), never longer than 5 seconds before the asking tool's own
+deadline (`ToolDefinition.timeoutMs`, else `QueryParams.toolTimeoutMs`, else
+the SDK's 2 minutes). When it expires, or the tool stops waiting on its own,
+the interrupt expires, the turn is cancelled and the thread takes new input.
+An interrupt whose turn is not held by this process — after a restart, or on
+another replica — is refused as `AGUI_INTERRUPT_STALE` and closed, so it no
+longer blocks the thread.
+
+### What a resume may not do
+
+The interrupt id is minted by the adapter and is the only id the client sees.
+A resume entry's `interruptId` is looked up in the host's records and used for
+nothing else: the session, turn and checkpoint come from the record. These are
+refused before the host is asked for anything, as a stream that opens with
+`RUN_STARTED` and ends with `RUN_ERROR`:
+
+| Code | Meaning |
+| --- | --- |
+| `AGUI_INTERRUPT_UNKNOWN` | No interrupt with that id was raised on this thread. An id from another thread reads the same. |
+| `AGUI_INTERRUPT_RESOLVED` | Already answered. A replayed resume, and the loser of two concurrent ones, get this; the answer is applied once. |
+| `AGUI_INTERRUPT_EXPIRED` | Past `expiresAt`. An expired interrupt can still be `cancelled`, which is how a thread moves past it. |
+| `AGUI_RESUME_INCOMPLETE` | The run's other interrupts are not answered. They stay open. |
+| `AGUI_RESUME_INVALID` | An interrupt is answered twice in one resume, or answers span runs. |
+| `AGUI_RESUME_PAYLOAD_INVALID` | The payload is not the shape the interrupt asked for. The interrupt stays open. |
+| `AGUI_INTERRUPT_PENDING` | New input without `resume` on a thread with open interrupts. |
+| `AGUI_INTERRUPT_STALE` | The turn is no longer waiting for the answer. |
+| `AGUI_THREAD_MISMATCH` | The host resolved the thread to another session. |
+| `AGUI_RESUME_UNAVAILABLE` | A paused turn cannot be resumed without its session log. |
+
+Interrupt records live in an `AGUIInterruptStore`
+(`interrupts.store`). The default, `InMemoryAGUIInterruptStore`, keeps up to
+10,000 records in this adapter. A host whose threads must survive a restart,
+or that runs several replicas, supplies a store in its own database;
+`settle` has to be atomic, because it is what makes an answer apply once.
+
+At the boundary the adapter sends `STATE_SNAPSHOT` of the turn's state, when
+it has one, before `RUN_FINISHED`. It sends no `MESSAGES_SNAPSHOT`: display history belongs to
+the host, which can publish one through `ui.setInitialMessages`.
+
+## Frontend tools
+
+A client declares the tools it runs in `RunAgentInput.tools`. Without the
+`frontendTools` option every request that declares one is refused with 422
+`UNSUPPORTED_FRONTEND_TOOLS`, as before. With it, the declared tools the
+host admits become SDK tool definitions on `context.frontendTools`:
+
+```ts
+import { AGUIAdapter, type AGUIQueryFactory } from '@namzu/ag-ui'
+
+export function createClientToolEndpoint(createQuery: AGUIQueryFactory) {
+  return new AGUIAdapter({
+    createQuery,
+    frontendTools: {
+      // Or a predicate over the declaration.
+      allow: ['pick_color', 'navigate'],
+      // A declared tool outside the list: 'refuse' (422, the default) or 'omit'.
+      unlisted: 'omit',
+    },
+  })
+}
+```
+
+The host registers the ones it wants in `params.tools`; a definition it does
+not register is never offered to the model. A name must be 1 to 64 letters,
+digits, `_` or `-`, and unique. The client's `parameters` are shown to the
+model as the tool's input schema, unchanged. The definitions are `readOnly`,
+because the server only waits, so the review policy lets them through; a
+`review` or `deny` authorization rule naming the tool still applies, and a
+call the gate denies never reaches the client.
+
+The round trip follows the
+[AG-UI frontend tool rules](https://docs.ag-ui.com/concepts/tools), which
+are not interrupts:
+
+1. The model calls the tool. The run streams `TOOL_CALL_START`,
+   `TOOL_CALL_ARGS` and `TOOL_CALL_END` and ends with `RUN_FINISHED`,
+   outcome `success`, the call unanswered. The turn waits inside the tool.
+2. The client runs the tool and sends its next run with a `tool` message for
+   that `toolCallId`. `content` is the result; `error`, or
+   `metadata.namzu.isError: true`, marks it failed.
+3. The adapter hands the result to the waiting tool, and the run goes on with
+   the model reading it. The server sends no `TOOL_CALL_RESULT` for the call:
+   the client already has one.
+
+A run on the thread without that `tool` message is refused as
+`AGUI_TOOL_RESULT_REQUIRED`. The result is the client's own word, taken once:
+once applied, the same `tool` message in a later run's history is ordinary
+history.
+Other messages that arrive with the result do not reach the waiting turn.
 
 ## Read outcomes and enforce limits
 
@@ -234,14 +453,17 @@ owns routing, authentication, CORS, and persistence.
 | `maxRequestBytes` | 4,194,304 (4 MiB) | HTTP body, including chunked input |
 | `maxEventBytes` | 1,048,576 (1 MiB) | JSON event/state size; adapter minimum is 256 |
 | `maxPendingEvents` | 128 | Queued application state/custom events per request |
+| `interrupts.ttlMs` | 10 minutes for a turn waiting in a tool; none for a paused turn | How long an interrupt can be answered |
 
 All limits must be positive safe integers. Native events are consumed with
 bounded demand. The adapter combines HTTP and iterator cancellation with any
 signal the trusted query factory supplied. Disconnect or early consumption
-termination aborts the native turn and drains its iterator cleanup.
+termination while a run is reading the turn aborts the native turn and drains
+its iterator cleanup. A connection that closes after its run ended with an
+interrupt, or with a frontend call unanswered, cancels nothing.
 
-Invalid wire schemas, nonempty frontend `tools`, and nonempty `resume`
-arrays produce HTTP 422 before a turn starts. Invalid JSON state values or
+Invalid wire schemas and nonempty frontend `tools` without `frontendTools`
+produce HTTP 422 before a turn starts. Invalid JSON state values or
 initial state exceeding `maxEventBytes` also produce 422 before the query
 factory runs. Bad JSON request bodies produce 400,
 oversize bodies 413, unsupported content types 415, unsupported response
@@ -264,11 +486,7 @@ Final-answer consumers must use
 Budget exhaustion, cancellation, guardrail stops, other unsuccessful native
 stop reasons, and native failure produce `RUN_ERROR`, with code
 `NAMZU_TURN_CANCELED` for a cancellation and `NAMZU_TURN_ERROR` otherwise. A
-native pause emits `CUSTOM` named `namzu.turn.paused`, with a checkpoint ID
-when available, followed by `RUN_ERROR` code `NAMZU_TURN_PAUSED`. That
-describes the pause; it does not advertise AG-UI interrupt resumption. The
-host separately owns native checkpoint authorization and resumption
-(`resumeSession`, same turn id).
+native pause produces an interrupt (see [Interrupts](#interrupts)).
 
 Open text, tool-input, and iteration lifecycles close before terminal events.
 Unexpected EOF produces `NAMZU_STREAM_INCOMPLETE`. Repeated completed
@@ -277,14 +495,21 @@ can be completed from its aggregate. A conflicting aggregate produces
 `NAMZU_MESSAGE_CONTENT_MISMATCH`. Truncated tool arguments retain their raw
 fragments and carry `metadata.namzu.inputTruncated` on `TOOL_CALL_END`;
 the normalized fallback object is not presented as the original call.
-Backend tool failures carry `metadata.namzu.isError` on their result.
+Backend tool failures carry `metadata.namzu.isError` on their result. A run
+that continues a turn does not announce again the calls an earlier run
+announced; their results arrive against the original ids.
 
-`AGUIEventMapper` exposes `start`, `map`, `finish`, `fail`, and `ended` for
-hosts that already consume native `SessionEvent` streams. Supply the external
-thread and run ids, and the native turn id when it is known; events from a
-child session (`lineage.depth > 0`) are filtered out, so a child's terminal
-event never ends its parent. Each mapper owns one AG-UI run. Private prompts,
-reasoning/signatures, raw internal events, and child sessions are omitted.
+`AGUIEventMapper` exposes `start`, `map`, `finish`, `fail`, `interrupt`,
+`yieldToClient`, `announceTool`, `paused` and `ended` for hosts that already
+consume native `SessionEvent` streams. Supply the external thread and run ids,
+and the native turn id when it is known; events from a child session
+(`lineage.depth > 0`) are filtered out, so a child's terminal event never ends
+its parent. `turn_paused` ends mapping and sets `paused`; end the run with
+`interrupt(interrupts)`, or `finish()` reports `RUN_ERROR` code
+`NAMZU_TURN_PAUSED`. `carriedToolCalls` and `suppressedResults` continue a
+turn in a later run. Each mapper owns one AG-UI run. Private prompts,
+reasoning/signatures, raw internal events, checkpoint ids and child sessions
+are omitted.
 
 `MESSAGES_SNAPSHOT` built from the session comes from `foldSessionMessages`,
 so it shows the answer after any guardrail, review or structured-output
@@ -295,7 +520,7 @@ rewrite, never the raw model text the log keeps for audit.
 CopilotKit's runtime accepts AG-UI agent instances and proxies their streams
 to the frontend. Register an official `HttpAgent` pointing at the Namzu
 endpoint. This sketch requires CopilotKit in the application; it is not
-compiled as a Namzu dependency or claimed as a tested React app. See the
+compiled as a Namzu dependency. See the
 official [runtime configuration](https://docs.copilotkit.ai/agno/backend/copilot-runtime)
 and [AG-UI proxy flow](https://docs.copilotkit.ai/strands/backend/ag-ui).
 
@@ -316,32 +541,56 @@ export const GET = handler
 export const POST = handler
 ```
 
-For the v2 multi-route handler, configure `CopilotKit` from
+For the v2 multi-route handler, configure `CopilotKitProvider` from
 `@copilotkit/react-core/v2` with `runtimeUrl="/api/copilotkit"` and
 `useSingleEndpoint={false}`. The registered `default` agent is the default
 for the prebuilt UI. Configure and authenticate the runtime-to-agent
-connection on the host. Frontend tool registrations that populate
-`RunAgentInput.tools` are unsupported and receive 422.
+connection on the host.
+
+In the page, `useInterrupt({ render })` renders an interrupt and answers it
+with `resolve(payload)` or `cancel()`; `useFrontendTool({ name, parameters,
+handler })` registers a frontend tool, and CopilotKit runs the handler and
+sends the next run with its result. Admit those tools with `frontendTools`.
+For a `tool_call` interrupt CopilotKit also appends a `tool` message holding
+the resume payload (`{"approved":true}`) to its own transcript, beside the
+server's real result; keep model history on the server rather than
+rebuilding it from that transcript.
 
 This release supports backend tools, text, steps, shared-state events,
-custom events, final outcomes, and usage. It does not implement frontend
-tool execution, AG-UI approval/resume, protobuf transport, SSE replay,
-an AG-UI connect/reconnect endpoint, or subagent-tree projection. A
-CopilotKit deployment must choose features consistent with that surface.
+custom events, final outcomes, usage, interrupts and resume, and frontend
+tools. It does not implement protobuf transport, SSE replay, an AG-UI
+connect/reconnect endpoint, subagent-tree projection, or the
+`pendingToolCallIds` and `cancelled` outcomes newer than `@ag-ui/core`
+`0.0.59`.
 
 ## Source comparison and validation
 
-The implementation is Namzu's own TypeScript adapter. Design review used
-Pydantic AI's AG-UI history/lifecycle separation at
-[`a1a42986ca10f5693cf83c9c414e1b57d01f837e`](https://github.com/pydantic/pydantic-ai/tree/a1a42986ca10f5693cf83c9c414e1b57d01f837e/pydantic_ai_slim/pydantic_ai/ui/ag_ui)
-and CopilotKit's runtime/client integration at
-[`078260605a2ccfa0042fb4d835f36f0c4960fdc6`](https://github.com/CopilotKit/CopilotKit/tree/078260605a2ccfa0042fb4d835f36f0c4960fdc6/packages/runtime).
-The AG-UI protocol source inspected was
-[`bb34bb684cecfaa54d3ceb4e8f0d4d1c9f46929a`](https://github.com/ag-ui-protocol/ag-ui/tree/bb34bb684cecfaa54d3ceb4e8f0d4d1c9f46929a).
+The implementation is Namzu's own TypeScript adapter. The interrupt and
+frontend-tool round trips follow the AG-UI 1.0 specification at
+[`e62b348680c41f52a5ea0ed4eb714a6600066fa1`](https://github.com/ag-ui-protocol/ag-ui/tree/e62b348680c41f52a5ea0ed4eb714a6600066fa1/docs/spec/1.0),
+whose [frontend tool rules](https://github.com/ag-ui-protocol/ag-ui/blob/e62b348680c41f52a5ea0ed4eb714a6600066fa1/docs/spec/1.0/events/tool-calls.mdx)
+say a frontend call ends a completed run, answered by history, and are not an
+interrupt. Pydantic AI's AG-UI adapter at
+[`f8a5fe56ff6978ee33aaac32e23b88fb93258d4a`](https://github.com/pydantic/pydantic-ai/tree/f8a5fe56ff6978ee33aaac32e23b88fb93258d4a/pydantic_ai_slim/pydantic_ai/ui/ag_ui)
+does the same (frontend tools are external deferred calls; only approvals
+become interrupts), and its approval payload (`approved`, `editedArgs`,
+`reason`; `cancelled` refuses) is the one used here. Unlike it, Namzu refuses
+a well-formed id that names no open interrupt instead of ignoring it.
+CopilotKit's `useInterrupt` and `useFrontendTool` were read at
+[`35766aac0e285f381a880b5fd8ed9e6411024482`](https://github.com/CopilotKit/CopilotKit/tree/35766aac0e285f381a880b5fd8ed9e6411024482/packages/react-core/src/v2/hooks).
 
 Repository tests cover conversion and request rejection, state isolation and
 patch validation, streamed lifecycle ordering, tool argument/result
 continuity, privacy filtering, bounded payload failures, cancellation, and
-the actual official `HttpAgent` against the Fetch/SSE boundary. These tests
-establish interoperability for the supported features; CopilotKit's React
-components and a deployed runtime were not exercised.
+the actual official `HttpAgent` against the Fetch/SSE boundary for approval,
+denial, edited arguments, cancelled approvals, duplicate, concurrent,
+foreign-thread, unknown, incomplete, malformed, expired and stale resumes,
+questions (answered, free text, cancelled, expired), handoffs (continued and
+cancelled), a provider fault, a host's own cadence pause, state across an
+interrupt, and frontend tools (answered, failed, missing result, denied by
+the gate, admission). A CopilotKit 1.73.3 React page (`CopilotKitProvider`,
+`CopilotChat`, `useInterrupt`, `useFrontendTool`) was driven in headless
+Chromium against a local endpoint with a scripted model, once with the
+`HttpAgent` handed to the provider directly and once through
+`CopilotRuntime` with `InMemoryAgentRunner`: an approval, a frontend tool and
+a question each completed. That page is not part of the repository.
