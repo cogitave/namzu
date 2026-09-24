@@ -17,6 +17,7 @@ import type { SessionId, TurnId } from '../../types/ids/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { generateCheckpointId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
+import { questionOptions } from './question-options.js'
 
 /** Internal identity shared by the builder and the agent authority boundary. */
 export const ASK_USER_QUESTION_TOOL_NAME = 'ask_user_question' as const
@@ -50,11 +51,16 @@ const askUserQuestionModelInputSchema: Record<string, unknown> = {
 					label: {
 						type: 'string',
 						description:
-							'Concise option label. Put the recommended option first and append " (Recommended)".',
+							'Concise option label, plain text: no "(Recommended)" or other parenthesised note at the end, in any language.',
 					},
 					description: {
 						type: 'string',
 						description: 'Optional one-line explanation of what changes if selected.',
+					},
+					recommended: {
+						type: 'boolean',
+						description:
+							'True on the option you recommend; put that option first. The host shows the recommendation, so never write it into the label.',
 					},
 				},
 				required: ['label'],
@@ -96,7 +102,7 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 	return defineTool({
 		name: ASK_USER_QUESTION_TOOL_NAME,
 		description:
-			'Ask the user ONE question ONLY when you are blocked on a decision that is genuinely theirs to make — one you cannot resolve from their request, your tools, the files you can read, or sensible defaults. The question must be the genuinely undecidable thing in THIS task. Never ask for information a tool can discover (do not ask what you can read, list, or search), never re-ask what the conversation already answers, and never ask meta-questions like "Shall I proceed?" — plan ratification goes through approve_plan. Provide 2-4 genuinely distinct options derived from the actual context — concrete paths, never generic placeholders (for example, asked to prepare a presentation, ask "Who is the audience?" with options like Board / Engineering team / Customer); keep labels short (1-5 words) and give each option a one-line description of what practically changes if it is chosen. Put your recommended option FIRST and append " (Recommended)" to its label. Set multiSelect: true only when several options can apply at once. A free-text "Something else" escape hatch is always shown automatically — do not add your own "Other" option. Ask ONE question per call and prefer at most one question per assistant turn; if several decisions block you, ask only the ones that materially change your next actions, in sequence — most work needs at most 2-3 questions, so prefer proceeding on stated defaults over interrogating the user. Never invent answers or synthetic content on the user\'s behalf unless they explicitly asked for a random/test scenario. The answer arrives as this tool\'s result; if the result says the user did not answer, do not ask this or any other question again — proceed on your best judgment without assuming consent.',
+			'Ask the user ONE question ONLY when you are blocked on a decision that is genuinely theirs to make — one you cannot resolve from their request, your tools, the files you can read, or sensible defaults. The question must be the genuinely undecidable thing in THIS task. Never ask for information a tool can discover (do not ask what you can read, list, or search), never re-ask what the conversation already answers, and never ask meta-questions like "Shall I proceed?" — plan ratification goes through approve_plan. Provide 2-4 genuinely distinct options derived from the actual context — concrete paths, never generic placeholders (for example, asked to prepare a presentation, ask "Who is the audience?" with options like Board / Engineering team / Customer); keep labels short (1-5 words) and give each option a one-line description of what practically changes if it is chosen. If you recommend an option, put it FIRST and set recommended: true on it; the host marks it for the user, so never write "(Recommended)" or any translation of it into a label, and never end a label with a parenthesised note (put qualifiers in the description). Set multiSelect: true only when several options can apply at once. A free-text "Something else" escape hatch is always shown automatically — do not add your own "Other" option. Ask ONE question per call and prefer at most one question per assistant turn; if several decisions block you, ask only the ones that materially change your next actions, in sequence — most work needs at most 2-3 questions, so prefer proceeding on stated defaults over interrogating the user. Never invent answers or synthetic content on the user\'s behalf unless they explicitly asked for a random/test scenario. The answer arrives as this tool\'s result; if the result says the user did not answer, do not ask this or any other question again — proceed on your best judgment without assuming consent.',
 		inputSchema: z
 			.object({
 				question: z
@@ -117,13 +123,19 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 									.min(1)
 									.max(80)
 									.describe(
-										'Concise option label (1-5 words). Recommended option goes first with " (Recommended)" appended.',
+										'Concise option label (1-5 words), plain text: no "(Recommended)" or other parenthesised note at the end.',
 									),
 								description: z
 									.string()
 									.max(300)
 									.optional()
 									.describe('One line on what practically changes if this option is chosen.'),
+								recommended: z
+									.boolean()
+									.optional()
+									.describe(
+										'True on the option you recommend; put it first. Never write the recommendation into the label.',
+									),
 							})
 							.strict(),
 					)
@@ -145,7 +157,7 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 		modelInputSchema: structuredClone(askUserQuestionModelInputSchema),
 		enforceModelInput: true,
 		validationErrorHint:
-			'Required shape: {"question":"...?","options":[{"label":"First (Recommended)","description":"What changes"},{"label":"Second","description":"What changes"}]}. "options" must be a JSON array of 2-4 objects, never a string.',
+			'Required shape: {"question":"...?","options":[{"label":"First","description":"What changes","recommended":true},{"label":"Second","description":"What changes"}]}. "options" must be a JSON array of 2-4 objects, never a string.',
 		category: 'custom',
 		permissions: [],
 		readOnly: true,
@@ -171,17 +183,16 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 				}
 			}
 
-			const questionOptions: UserQuestionOption[] = options.map((opt, i) => ({
-				id: `opt_${i + 1}`,
-				label: opt.label,
-				...(opt.description !== undefined ? { description: opt.description } : {}),
-			}))
+			// Labels without a recommendation marker, in any language, and the
+			// recommendation as a field: what the host shows and what the
+			// answer below quotes back to the model.
+			const shownOptions = questionOptions(options)
 
 			const questionData = {
 				questionId: toolUseId,
 				question,
 				...(header !== undefined ? { header } : {}),
-				options: questionOptions,
+				options: shownOptions,
 				multiSelect,
 				allowFreeText,
 			}
@@ -248,13 +259,16 @@ export function buildAskUserQuestionTool(config: AskUserQuestionToolOptions): To
 				return noAnswer
 			}
 
-			const stripRecommended = (label: string) =>
-				label.replace(/\s*\(recommended\)\s*$/i, '').trim()
-
+			// The label the user saw, never a marker: `questionOptions` took it
+			// out. Whether it was the recommended option is a field of its own.
 			const selected = decision.selectedOptionIds
-				.map((id) => questionOptions.find((opt) => opt.id === id))
+				.map((id) => shownOptions.find((opt) => opt.id === id))
 				.filter((opt): opt is UserQuestionOption => opt !== undefined)
-				.map((opt) => ({ id: opt.id, label: stripRecommended(opt.label) }))
+				.map((opt) => ({
+					id: opt.id,
+					label: opt.label,
+					...(opt.recommended === true ? { recommended: true } : {}),
+				}))
 
 			const freeText = decision.freeText?.trim() ?? ''
 

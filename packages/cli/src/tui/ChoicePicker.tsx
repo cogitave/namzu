@@ -10,6 +10,8 @@ export interface ChoicePickerOption {
 	readonly description: string
 	readonly current?: boolean
 	readonly default?: boolean
+	/** The asker's recommendation (`ask_user_question`'s `recommended`), drawn as `[recommended]`. */
+	readonly recommended?: boolean
 	readonly disabledReason?: string
 	readonly selectedDescription?: string
 	readonly searchText?: string
@@ -66,7 +68,13 @@ export function ChoicePicker({
 	const { start, items: visible } = selectionWindow(options, selected, pageSize)
 	const count = `${selectedOption ? selected + 1 : 0}/${options.length}`
 	const markerFor = (option: ChoicePickerOption) =>
-		[option.current ? '[current]' : '', option.default ? '[default]' : ''].filter(Boolean).join(' ')
+		[
+			option.current ? '[current]' : '',
+			option.default ? '[default]' : '',
+			option.recommended ? '[recommended]' : '',
+		]
+			.filter(Boolean)
+			.join(' ')
 	const markerWidth = Math.max(0, ...visible.map((option) => choiceDisplayWidth(markerFor(option))))
 	const rowWidth = Math.max(1, contentWidth - 4)
 	const labelWidth = stacked
@@ -147,7 +155,13 @@ export function ChoicePicker({
 							</Box>
 							{markerWidth > 0 ? (
 								<Box width={markerWidth + 1} flexShrink={0} paddingLeft={1}>
-									<Text color={option.current ? theme.accent.assistant : theme.text.muted}>
+									<Text
+										color={
+											option.current || option.recommended
+												? theme.accent.assistant
+												: theme.text.muted
+										}
+									>
 										{markers}
 									</Text>
 								</Box>

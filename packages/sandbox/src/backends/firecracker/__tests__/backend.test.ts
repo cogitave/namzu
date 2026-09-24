@@ -784,7 +784,7 @@ describe.skipIf(process.platform !== 'linux')('buildFirecrackerBackend terminal 
 })
 
 // ---------------------------------------------------------------------------
-// Cert-injection seam (ses_051 P4 Track C) — the orchestrator returns a WIRE
+// Cert-injection seam — the orchestrator returns a WIRE
 // `mtls` handle (host/port/sandboxId, NO certs); the consumer injects the
 // client CA/cert/key via `config.mtls`, which `normalizeHandle` MERGES onto
 // the handle before the transport dials the relay. Certs NEVER transit the
@@ -826,6 +826,19 @@ describe('normalizeHandle (mtls cert injection)', () => {
 		expect(() => normalizeHandle(WIRE_MTLS, 1024, undefined)).toThrow(
 			/no client cert material was injected/,
 		)
+	})
+
+	it('names the config field that fixes it, and nothing a particular host defines', () => {
+		// The message is read by every installer, so the remedy it gives has to
+		// be this package's own config field rather than one host's variables.
+		let message = ''
+		try {
+			normalizeHandle(WIRE_MTLS, 1024, undefined)
+		} catch (error) {
+			message = (error as Error).message
+		}
+		expect(message).toContain('pass `mtls: { ca, cert, key }`')
+		expect(message).not.toMatch(/[A-Z][A-Z0-9]*_[A-Z0-9_]+/)
 	})
 
 	it('leaves vsock + unix handles untouched (cert material is ignored)', () => {
