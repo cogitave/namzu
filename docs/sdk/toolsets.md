@@ -148,6 +148,17 @@ those subscriptions, so a change three layers down still reaches a
 listener on the outermost combined toolset, and cleanup at that outer
 layer reaches all the way in.
 
+A combined toolset has exactly one `availability` to report, so its inputs
+must agree: combining an `active` toolset with one wrapped in
+`deferred(...)` throws, naming both sources, instead of silently reporting
+the deferred side's tools as `active` (there being nowhere on the returned
+`Toolset` to say otherwise). Inputs that all agree — every one active, or
+every one `deferred` — combine as before, and the combined toolset carries
+`availability: 'deferred'` when every input does. A caller with a genuine
+eager/deferred split keeps the two halves as separate entries in its own
+`toolsets` array instead of combining them — see the two bug fixes
+`query()` and `SupervisorAgent` needed for exactly this, below.
+
 ## `ToolManager`: the runtime-owned resolver of toolsets
 
 `ToolManager` (`packages/sdk/src/toolsets/manager.ts`) is built once from a

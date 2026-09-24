@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { liveToolset, tool } from './__fixtures__/toolsets.js'
 import { ToolsetConflictError, combineToolsets } from './combine.js'
 import { toolset } from './toolset.js'
-import { prefixed } from './wrappers.js'
+import { deferred, prefixed } from './wrappers.js'
 
 describe('combineToolsets', () => {
 	it('merges tools from every toolset, in toolset order then tool order', () => {
@@ -29,6 +29,40 @@ describe('combineToolsets', () => {
 		const source = { id: 'mcp:all', kind: 'mcp_server' as const, name: 'All' }
 		const combined = combineToolsets(source, [toolset('a', [])])
 		expect(combined.source).toBe(source)
+	})
+
+	describe('availability', () => {
+		it('has no availability field when combining plain (active) toolsets, same as one alone', () => {
+			const combined = combineToolsets('all', [toolset('a', [tool('read')]), toolset('b', [])])
+			expect(combined.availability).toBeUndefined()
+		})
+
+		it('reports "deferred" when every input agrees it is deferred', () => {
+			const combined = combineToolsets('all', [
+				deferred(toolset('a', [tool('read')])),
+				deferred(toolset('b', [tool('write')])),
+			])
+			expect(combined.availability).toBe('deferred')
+		})
+
+		it('refuses to merge an active toolset with a deferred one', () => {
+			// The bug this guards: a merged Toolset has exactly one
+			// `availability` field, so silently combining a mix would report
+			// the deferred side's tools as active — the read-only floor
+			// `ToolManager.availability` provides would then never apply to
+			// them. Refusing is what `runtime/query/index.ts` itself relies
+			// on combineToolsets doing when a caller reintroduces the mix it
+			// deliberately keeps as two separate array entries.
+			const a = toolset('a', [tool('read')])
+			const b = deferred(toolset('b', [tool('write')]))
+			expect(() => combineToolsets('all', [a, b])).toThrow(/"a" is active and "b" is deferred/)
+		})
+
+		it('names the umbrella id and both disagreeing sources in the refusal', () => {
+			const a = toolset('a', [tool('read')])
+			const b = deferred(toolset('b', [tool('write')]))
+			expect(() => combineToolsets('mixed-umbrella', [a, b])).toThrow(/mixed-umbrella/)
+		})
 	})
 
 	describe('conflict detection', () => {
