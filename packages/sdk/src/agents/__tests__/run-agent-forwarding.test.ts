@@ -69,7 +69,7 @@ describe('runAgent forwards what the kernel takes', () => {
 			}),
 			model: 'mock-model',
 			prompt: 'clean up',
-			tools,
+			toolsets: [tools],
 			authorizationGate: {
 				enabled: true,
 				rules: [{ type: 'deny_by_name', toolNames: ['delete_everything'] }],

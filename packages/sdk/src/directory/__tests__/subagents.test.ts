@@ -130,7 +130,9 @@ describe('deriving supervisor options', () => {
 
 		const researcher = delegates.find((d) => d.id === 'researcher')
 		expect(researcher?.systemPrompt).toBe('You research.')
-		expect(researcher?.tools.has('search')).toBe(true)
+		expect(
+			researcher?.toolsets.flatMap((entry) => entry.tools()).some((tool) => tool.name === 'search'),
+		).toBe(true)
 	})
 
 	it('refuses a project with no delegates', async () => {

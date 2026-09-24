@@ -45,7 +45,9 @@ describe('turning a manifest into runAgent options', () => {
 		expect(options.streamIdleTimeoutMs).toBe(4321)
 		expect(options.maxRequestRichContentBytes).toBe(7654)
 		expect(options.attachmentResolveTimeoutMs).toBe(2468)
-		expect(options.tools?.has('a')).toBe(true)
+		expect(
+			options.toolsets?.flatMap((entry) => entry.tools()).some((tool) => tool.name === 'a'),
+		).toBe(true)
 	})
 
 	it('points the working directory at the project, not the host', async () => {

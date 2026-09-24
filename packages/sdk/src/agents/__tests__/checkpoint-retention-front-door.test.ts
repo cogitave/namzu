@@ -61,7 +61,7 @@ async function checkpointsLeft(pruneKeepLast?: number): Promise<number> {
 		{ messages: [createUserMessage('probe six times')], workingDirectory: root },
 		{
 			provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-			tools,
+			toolsets: [tools],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 10_000,

@@ -6,12 +6,12 @@ import { MockLLMProvider } from '../provider/mock.js'
 import { ToolExecutor } from '../runtime/query/executor.js'
 import { IterationOrchestrator } from '../runtime/query/iteration/index.js'
 import { ActivityStore } from '../store/activity/memory.js'
+import type { ToolManager } from '../toolsets/manager.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { HITLResumeDecision } from '../types/hitl/index.js'
 import type { TurnId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { SessionEvent } from '../types/session/index.js'
-import type { ToolRegistryContract } from '../types/tool/index.js'
 import { generateSessionId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
 
@@ -73,11 +73,11 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		has: vi.fn(() => true),
 		sourceOf: vi.fn(() => ({ id: 'host', kind: 'host_tool' as const })),
 		listNames: vi.fn(() => Object.keys(defs)),
-		getAvailability: vi.fn(() => 'active'),
+		availability: vi.fn(() => 'active'),
 		toLLMTools: vi.fn(() => []),
 		register: vi.fn(),
 		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+	} as unknown as ToolManager
 
 	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,

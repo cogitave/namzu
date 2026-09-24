@@ -31,7 +31,6 @@ function makeLogger(): never {
 function makeManager(hookTimeoutMs?: number) {
 	return new PluginLifecycleManager({
 		pluginRegistry: {} as never,
-		toolRegistry: {} as never,
 		scopeRoots: { project: process.cwd(), user: process.cwd() },
 		log: makeLogger(),
 		...(hookTimeoutMs !== undefined ? { hookTimeoutMs } : {}),
