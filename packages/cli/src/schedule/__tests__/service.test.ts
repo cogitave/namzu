@@ -20,7 +20,7 @@ import {
 	taskXml,
 	taskXmlBytes,
 } from '../service/windows-task.js'
-import { isEphemeralBin, wslTaskDefinition } from '../service/wsl.js'
+import { isEphemeralBin, windowsTools, wslTaskDefinition } from '../service/wsl.js'
 import { type Sandbox, sandbox } from './fixtures.js'
 
 let sb: Sandbox
@@ -265,6 +265,64 @@ describe('Windows Task Scheduler', () => {
 		expect(calls[0]).toBe(
 			'/mnt/c/Windows/System32/schtasks.exe /Change /TN \\namzu\\namzu-test /DISABLE',
 		)
+	})
+})
+
+describe('a moved WSL mount root', () => {
+	const moved = windowsTools('/win/c/Windows/System32')
+	const manifest = {
+		v: 1 as const,
+		kind: 'schedule-service' as const,
+		platform: 'wsl-windows-task' as const,
+		name: 'namzu-test-wsl-arch',
+		installedAt: '',
+		cliVersion: 't',
+		nodePath: '',
+		binPath: '',
+		namzuHome: '',
+		artifacts: [{ type: 'windows-task' as const, taskPath: '\\namzu\\namzu-test-wsl-arch' }],
+		windows: {
+			taskPath: '\\namzu\\namzu-test-wsl-arch',
+			schtasks: '/win/c/Windows/System32/schtasks.exe',
+		},
+	}
+
+	it('puts every Windows program under it', () => {
+		expect(moved).toEqual({
+			mountRoot: '/win/',
+			drive: '/win/c',
+			systemRoot: '/win/c/Windows',
+			cmd: '/win/c/Windows/System32/cmd.exe',
+			schtasks: '/win/c/Windows/System32/schtasks.exe',
+			powershell: '/win/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe',
+			whoami: '/win/c/Windows/System32/whoami.exe',
+			conhost: '/win/c/Windows/System32/conhost.exe',
+			wsl: '/win/c/Windows/System32/wsl.exe',
+		})
+		expect(windowsTools('/c/Windows/System32')).toMatchObject({ mountRoot: '/', drive: '/c' })
+		expect(windowsTools('/mnt/c/Windows/System32')).toMatchObject({
+			mountRoot: '/mnt/',
+			drive: '/mnt/c',
+		})
+	})
+
+	it('starts schtasks.exe and PowerShell in C: under it, not in /mnt/c', async () => {
+		const calls: { cmd: string; cwd: string | undefined }[] = []
+		const run: CommandRunner = async (cmd, _args, options) => {
+			calls.push({ cmd, cwd: options?.cwd })
+			return /Query/.test(_args.join(' '))
+				? { code: 1, stdout: '', stderr: 'not found' }
+				: { code: 0, stdout: '', stderr: '' }
+		}
+		const ctx = { paths: sb.paths, run, env: {}, version: 't', tools: moved }
+		await stopService(ctx, { ...manifest, namzuHome: sb.home })
+		const { writeManifest } = await import('../service/manifest.js')
+		writeManifest(sb.paths, { ...manifest, namzuHome: sb.home })
+		expect((await uninstallService(ctx)).problems).toEqual([])
+		expect(calls.length).toBeGreaterThan(3)
+		for (const call of calls) expect(call.cwd).toBe('/win/c')
+		// No PowerShell recorded at install: the one under the moved root.
+		expect(calls.map((c) => c.cmd)).toContain(moved.powershell)
 	})
 })
 

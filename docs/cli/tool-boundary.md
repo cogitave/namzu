@@ -62,8 +62,8 @@ The environment block in the system prompt states the boundary, so the model doe
 
 On Windows Subsystem for Linux (detected from `WSL_DISTRO_NAME` or `WSL_INTEROP`) the model is also told:
 
-- the Windows drives mounted under `/mnt/<letter>` (`C:\Users` is `/mnt/c/Users`; `wslpath` converts), and that a file tool reaching them asks first like any other outside path;
-- that Windows programs start from the shell through WSL interop by their `.exe` name — `powershell.exe -NoProfile -Command ...`, `cmd.exe /c ...` — and that `cmd.exe` started from a Linux directory warns about UNC paths and falls back to `C:\Windows`;
+- the Windows drives mounted under `/mnt/<letter>` (`C:\Users` is `/mnt/c/Users`; `wslpath` converts), or under the root `[automount] root` in `/etc/wsl.conf` names, which the note's paths then use, and that a file tool reaching them asks first like any other outside path;
+- that Windows programs start from the shell through WSL interop by their `.exe` name — `powershell.exe -NoProfile -Command ...`, `cmd.exe /c ...` — that `explorer.exe` exits 1 even when it succeeds, and that `cmd.exe` started from a Linux directory warns about UNC paths and falls back to `C:\Windows`;
 - when interop is off (no `WSL_INTEROP` and no `/proc/sys/fs/binfmt_misc/WSLInterop`), that `.exe` programs cannot be started;
 - in a sandboxed session, that the drives and the programs on them are not mounted, so they need `/add-dir` or the escape.
 

@@ -19,7 +19,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { detectWsl } from '../../context/environment.js'
+import { detectWsl, readWslMountRoot, wslSystem32 } from '../../context/environment.js'
 import { gdbusArguments, notifySendArguments } from './desktop/freedesktop.js'
 import { osascriptArguments } from './desktop/macos.js'
 import { sanitizeLine } from './desktop/sanitize.js'
@@ -45,6 +45,8 @@ export interface BackendProbe {
 	readonly which?: (name: string) => string | undefined
 	/** `powershell.exe` under WSL, as recorded at install. */
 	readonly powershell?: string
+	/** Where WSL mounts the Windows drives; absent reads `/etc/wsl.conf`. */
+	readonly mountRoot?: string
 	/** The kernel release (`/proc/sys/kernel/osrelease`); WSL's names Microsoft. */
 	readonly osRelease?: () => string | undefined
 	/** WSL's interop sockets (`/run/WSL/*_interop`), each with its modification time. */
@@ -108,8 +110,6 @@ export function findInteropSocket(
 	return [...sockets].sort((a, b) => b.mtimeMs - a.mtimeMs)[0]?.path
 }
 
-const WSL_POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
-
 /** Pick the backend this machine supports. */
 export function selectDesktopBackend(probe: BackendProbe = {}): DesktopBackend {
 	const platform = probe.platform ?? process.platform
@@ -133,7 +133,8 @@ export function selectDesktopBackend(probe: BackendProbe = {}): DesktopBackend {
 			env: (base, title, body) => toastEnvironment(base, title, body, false),
 		}
 	}
-	const wsl = detectWsl(env, { exists })
+	const mountRoot = probe.mountRoot ?? readWslMountRoot()
+	const wsl = detectWsl(env, { exists, list: () => [], mountRoot })
 	// A systemd user service in WSL gets neither WSL_DISTRO_NAME nor
 	// WSL_INTEROP, so the environment alone does not say this is WSL; the
 	// kernel does. Without this, such a daemon picked the Linux session bus,
@@ -156,7 +157,9 @@ export function selectDesktopBackend(probe: BackendProbe = {}): DesktopBackend {
 					: 'WSL interop is disabled ([interop] enabled=false in /etc/wsl.conf), so Windows notifications cannot be shown',
 			}
 		}
-		const powershell = probe.powershell ?? WSL_POWERSHELL
+		// Under the drive mount root `/etc/wsl.conf` sets, `/mnt/` by default.
+		const powershell =
+			probe.powershell ?? `${wslSystem32(mountRoot)}/WindowsPowerShell/v1.0/powershell.exe`
 		if (!exists(powershell)) return { kind: 'none', detail: `${powershell} was not found` }
 		const found = env.WSL_INTEROP ? undefined : socket
 		return {
@@ -168,7 +171,7 @@ export function selectDesktopBackend(probe: BackendProbe = {}): DesktopBackend {
 				...toastEnvironment(base, title, body, true),
 				...(found ? { WSL_INTEROP: found } : {}),
 			}),
-			cwd: '/mnt/c',
+			cwd: `${mountRoot}c`,
 		}
 	}
 	const bus =
