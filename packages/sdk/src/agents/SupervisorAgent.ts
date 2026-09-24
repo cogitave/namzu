@@ -4,7 +4,6 @@ import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-p
 import { CompletionInbox } from '../scheduler/completion-inbox.js'
 import { LocalTaskScheduler } from '../scheduler/local.js'
 import { ASK_USER_QUESTION_TOOL_NAME, buildCoordinatorTools } from '../tools/coordinator/index.js'
-import { combineToolsets } from '../toolsets/combine.js'
 import { toolset } from '../toolsets/toolset.js'
 import { deferred, filtered } from '../toolsets/wrappers.js'
 import type {
@@ -306,11 +305,16 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					: coordinatorDeferredTools
 				).push(tool)
 			}
-			const coordinatorToolset = combineToolsets('supervisor:coordinator', [
+			// Two SEPARATE toolsets, not `combineToolsets`'d into one — see
+			// `runtime/query/index.ts`'s identical fix: a merged toolset has no
+			// single `availability` of its own, so `ToolManager` would read
+			// EVERY coordinator tool back as `'active'`, silently dropping
+			// `runtimeToolOverrides`' deferred half.
+			const toolsets = [
+				...callerToolsets,
 				toolset('supervisor:coordinator:active', coordinatorActiveTools),
 				deferred(toolset('supervisor:coordinator:deferred', coordinatorDeferredTools)),
-			])
-			const toolsets = [...callerToolsets, coordinatorToolset]
+			]
 
 			const childInvocationState = deriveChildState(
 				config.invocationState ?? { tenantId },

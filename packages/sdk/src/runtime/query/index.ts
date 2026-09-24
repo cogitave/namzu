@@ -39,7 +39,6 @@ import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
 import { createStructuredOutputTool } from '../../tools/builtins/structuredOutput.js'
 import { buildTaskTools } from '../../tools/task/index.js'
-import { combineToolsets } from '../../toolsets/combine.js'
 import { ToolManager } from '../../toolsets/manager.js'
 import { toolset } from '../../toolsets/toolset.js'
 import type { Toolset } from '../../toolsets/types.js'
@@ -1104,11 +1103,19 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// `search_tools` is added only when something could actually be
 		// deferred — one of the runtime tools above, or a caller toolset that
 		// declared itself `deferred(...)`. Nothing deferred means nothing for
-		// a search to load, so it is never added at all.
+		// a search to load, so it is never added at all. And only when the
+		// caller does not already provide a tool under that name: a caller
+		// that mounts its OWN discovery tool (a connector named `search_tools`,
+		// deliberately) owns that name, and adding a second contributor here
+		// would be a `ToolsetConflictError` naming both sources for a name
+		// query() itself introduced, not the caller's honest collision.
 		const callerHasDeferredToolset = params.toolsets.some(
 			(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
 		)
-		if (runtimeDeferredTools.length > 0 || callerHasDeferredToolset) {
+		const callerHasSearchTools = params.toolsets.some((ts) =>
+			ts.tools().some((tool) => tool.name === SearchToolsTool.name),
+		)
+		if ((runtimeDeferredTools.length > 0 || callerHasDeferredToolset) && !callerHasSearchTools) {
 			addRuntimeTool(SearchToolsTool, 'active')
 		}
 
@@ -1123,12 +1130,18 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 
 		for (const tool of advisoryToolDefs) addRuntimeTool(tool, 'active')
 
-		const runtimeToolset = combineToolsets('runtime', [
-			toolset('runtime:active', runtimeActiveTools),
-			deferred(toolset('runtime:deferred', runtimeDeferredTools)),
-		])
+		// Two SEPARATE entries, not `combineToolsets`'d into one: `Toolset.availability`
+		// is a single value for the whole toolset, and `ToolManager` derives each
+		// name's default availability from whichever ARRAY ENTRY served it — a
+		// merged toolset has no one availability to report, so every tool
+		// inside it (both halves) would read back as the untyped default,
+		// `'active'`, silently dropping every override this turn just computed.
 		const toolManager = new ToolManager({
-			toolsets: [...params.toolsets, runtimeToolset],
+			toolsets: [
+				...params.toolsets,
+				toolset('runtime:active', runtimeActiveTools),
+				deferred(toolset('runtime:deferred', runtimeDeferredTools)),
+			],
 			...(params.toolResultGuardrails !== undefined
 				? { resultGuardrails: params.toolResultGuardrails }
 				: {}),
