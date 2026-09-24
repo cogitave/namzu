@@ -242,12 +242,13 @@ export function collectObservedPaths(
  * The recorded arguments and nothing else. A receipt names the path too, but it
  * names it inside a sentence a path may itself contain, in a spelling that
  * differs between the host and sandbox branches, and compaction clears receipts
- * while it never clears a call. A call the provider stream cut off mid-JSON
- * carries `{}` here: `function.arguments` is normalized to that and the raw
- * buffer moves to `metadata.partialArguments`, which is what the model was
- * saying rather than what ran — a `repairToolCall` hook may have rewritten the
- * arguments before execution. So a truncated call is attributable to nothing,
- * and the walk treats it as such. So is a call whose arguments run past
+ * while it never clears a call. A call whose arguments could not be read, cut
+ * off mid-JSON or malformed, carries `{}` here: `function.arguments` is
+ * normalized to that and the raw buffer moves to `metadata.partialArguments`,
+ * which is what the model was saying rather than what ran — a
+ * `repairToolCall` hook may have rewritten the arguments before execution. So
+ * an unreadable call is attributable to nothing, and the walk treats it as
+ * such. So is a call whose arguments run past
  * {@link MAX_ATTRIBUTION_UNITS}, which this does not read at all.
  *
  * Answered once per pass and remembered. The path collection and the walk ask
@@ -270,7 +271,7 @@ function declaredPath(call: ToolCall, attributions: PathAttributions): string | 
  *
  * One function because a middle hop is not a lesser claim than the last one.
  * A chain whose second edit was cleared by compaction, or came back an error,
- * or arrived truncated, reconstructs nothing at all — so the whole path is
+ * or arrived with arguments that could not be read, reconstructs nothing at all — so the whole path is
  * withheld rather than emitted as the part still visible, which would name a
  * body the model cannot rebuild.
  *

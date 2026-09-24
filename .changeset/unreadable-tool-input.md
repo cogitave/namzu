@@ -16,6 +16,8 @@ A tool call whose streamed arguments do not parse is now reported as **truncated
 
 `inputTruncated` is still set on every unreadable call, cut off or malformed, as before. Code that reads it keeps working. Read `inputError.reason` to tell the two apart.
 
+**Logs.** The info record for a call a `repairToolCall` hook repaired read "Repaired a tool call whose input stream was truncated" for a malformed call too. It now reads "Repaired a tool call whose arguments could not be read" and carries `namzu.runtime.input_error_reason` (`truncated`, `malformed`, or `unknown` for a call recorded without a reason); update a filter that matches the old text.
+
 **Advisor records.** The conversation records an SDK advisor is given marked every unreadable call `argumentsIncomplete: true`, a malformed one included. That flag now marks only a call the response was cut off inside; a malformed call carries `argumentsMalformed: true`, and a call recorded without a reason `argumentsUnreadable: true`.
 
 **Tool-call framing.** A stream that puts a second call id on a tool-call `index` now fails the turn's model call with a `ProviderRequestError` (`kind: 'server'`, which pauses the turn), and `collectChatCompletion` throws an `Error`. Both name the violation. Before, the second call's arguments were appended to the first's, which left one call no tool could run. A custom driver that sends parallel calls on one index must give each call its own index.

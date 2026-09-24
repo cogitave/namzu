@@ -359,10 +359,12 @@ export async function repairTruncatedCall(
 		{ reason: 'invalid_json', message: unreadableToolCallMessage(host, toolCall, toolName) },
 	)
 	if (repair) {
-		host.log.info('Repaired a tool call whose input stream was truncated', {
+		// Unreadable is not the same as cut off: the reason says which.
+		host.log.info('Repaired a tool call whose arguments could not be read', {
 			[NAMZU.TURN_ID]: host.config.turnId,
 			[GENAI.TOOL_NAME]: toolName,
 			'namzu.runtime.partial_length': partial.length,
+			'namzu.runtime.input_error_reason': toolCall.metadata?.inputError?.reason ?? 'unknown',
 		})
 	}
 	return repair

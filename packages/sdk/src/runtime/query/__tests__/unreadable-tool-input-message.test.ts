@@ -309,7 +309,11 @@ function makeLogger(): Logger {
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-function makeExecutor(registry: ToolRegistry, extra: Partial<ToolExecutorConfig> = {}) {
+function makeExecutor(
+	registry: ToolRegistry,
+	extra: Partial<ToolExecutorConfig> = {},
+	logger: Logger = makeLogger(),
+) {
 	return new ToolExecutor(
 		{
 			tools: registry,
@@ -323,7 +327,7 @@ function makeExecutor(registry: ToolRegistry, extra: Partial<ToolExecutorConfig>
 		},
 		new ActivityStore(TURN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		() => Promise.resolve(),
-		makeLogger(),
+		logger,
 	)
 }
 
@@ -405,6 +409,30 @@ describe('the executor answers an unreadable call from its reason and its tool',
 		expect(output).toContain('was cut off: the response reached its output token limit')
 		expect(output).toContain('keep `content` under 12000 characters')
 		expect(output).toContain(WriteFileTool.truncatedInputHint)
+	})
+
+	it('logs a repaired call as unreadable, with its reason, not as a truncated stream', async () => {
+		const registry = new ToolRegistry()
+		registry.register(question)
+		const info = vi.fn()
+		const logger = {
+			info,
+			warn: vi.fn(),
+			error: vi.fn(),
+			debug: vi.fn(),
+			child: () => logger,
+		} as unknown as Logger
+		await makeExecutor(
+			registry,
+			{ repairToolCall: () => ({ arguments: '{"question":"Which one?","options":["a","b"]}' }) },
+			logger,
+		).executeBatch(
+			unreadable('ask_user_question', malformed, '{"question":"Which one?","options":["a" "b"]}'),
+		)
+
+		const repaired = info.mock.calls.find(([body]) => String(body).startsWith('Repaired'))
+		expect(repaired?.[0]).toBe('Repaired a tool call whose arguments could not be read')
+		expect(repaired?.[1]).toMatchObject({ 'namzu.runtime.input_error_reason': 'malformed' })
 	})
 
 	it('offers a repairer the same message it would have sent the model', async () => {
