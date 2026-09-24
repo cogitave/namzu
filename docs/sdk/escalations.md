@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Crossing the tool boundary
-description: How a turn turns a file tool's path outside its roots, or a command outside its sandbox, into a reviewed question instead of a refusal — QueryParams.outsideRootAccess and sandboxEscape, ToolCallSummary.escalation, confirmedEscalations, and the audit records.
+description: How a turn turns a file tool's path outside its roots, a command outside its sandbox, or a command whose own program name is decided at runtime, into a reviewed question instead of a refusal — QueryParams.outsideRootAccess and sandboxEscape, ToolCallSummary.escalation, confirmedEscalations, and the audit records.
 resource: packages/sdk/src/runtime/query/executor.ts
 tags: [sdk, hitl, permissions, sandbox, files]
 status: stable
@@ -11,6 +11,8 @@ generated: { by: process:claude-code, at: 2026-09-22T00:00:00Z }
 # Crossing the tool boundary
 
 A turn has two boundaries a tool call can reach past: the **roots** its file tools resolve against (`workingDirectory` and `additionalDirectories`), and, on a sandboxed turn, the **sandbox**. By default both are refusals the tool returns. A host can make either a question asked before the call runs.
+
+A third escalation is not a boundary a host opts into crossing — it is always checked, on every turn, for every tool that declares `ToolDefinition.commandArgument`: a command whose own PROGRAM NAME cannot be read before it runs.
 
 ```ts sketch
 query({
@@ -29,6 +31,7 @@ Both default to `'refuse'`, and `ReactiveAgentConfig` carries the same two field
 
 - `outsidePaths` — only with `outsideRootAccess: 'review'`, only on a turn **without** a sandbox, and only for a tool that declares `ToolDefinition.pathArgument` (the shipped file tools declare `'path'`). The path is outside when `resolveWithinAnyReal` — the resolver the tools run — refuses it, so review and execution agree about symlinks. `pathOutsideRoots(roots, candidate)` is that check.
 - `sandboxEscape: true` — only with `sandboxEscape: 'review'`, only on a turn **with** a sandbox, and only when the tool's `ToolDefinition.sandboxEscapeArgument` is `true` in the input (the shipped `bash` declares `'dangerously_disable_sandbox'`).
+- `unknownProgram` — for any tool that declares `ToolDefinition.commandArgument` (the shipped `bash` declares `'command'`), sandboxed or not, with no `QueryParams` opt-in: the command's `commandArgument` is lexed in the tool's `ToolDefinition.commandDialect`, and if any of its commands' own head word — the program name, after any leading `X=1` assignments — is an expansion (`$(echo rm) -rf x`, `` `echo git` push``, a bare variable `$X push`, or a variable in the program's path, `"$HOME"/bin/tool`) rather than a literal word, the raw text of that head is `unknownProgram`. An expansion anywhere else in the command — an argument — does not set it: only the program-name word does, since flagging every expanding argument would put a review in front of nearly every call. No `deny` rule written against the program's real name can be trusted to have matched a name that never appears as such anywhere in the call's own text (`"git push*": deny` does not see `$(echo git) push origin main`), which is what this exists to catch.
 
 ## What review does with it
 
@@ -41,6 +44,8 @@ An escalated call is always routed to the turn's `resumeHandler`:
 For `outsidePaths`, `createReviewHandler` asks its `prompt` in every mode that got that far — `auto` and a remembered "approve all" included, since both were answers about tools given before the path was named. `strict` refuses it. `plan` asks about a batch in which every call only reads (exempt, not destructive, no explicit review, no escape), since reading is what plan mode is for, and refuses any batch that would change something with `PLAN_MODE_REFUSAL`. With no `prompt` it refuses the batch with `OUTSIDE_ROOTS_UNATTENDED_REFUSAL`; a host with nobody to ask widens the roots up front with `additionalDirectories` instead. An `approve-all` answer to such a prompt latches for ordinary calls, never for the next path.
 
 For `sandboxEscape` an approval is not enough. The decision must list the call's id in `confirmedEscalations` (on `approve_tools` or `modify_tools`); a call it does not list is refused and the rest of the batch runs. `createReviewHandler` fills it only after its `prompt` said yes — it asks in every mode that got that far, `auto` and a remembered "approve all" included — or, with no `prompt`, when `unattendedSandboxEscape: 'allow'`. Otherwise it refuses the batch with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL`. A host's own handler that answers `approve_tools` to everything therefore cannot release an escape by accident.
+
+For `unknownProgram`, `createReviewHandler` asks its `prompt` in every mode that got that far — `auto` and a remembered "approve all" included, the same as `outsidePaths` — naming why: "the program this runs is decided at runtime: `<the head's raw text>`". A plain `approve` is enough; there is no per-id confirmation the way `sandboxEscape` needs, and no `unattendedSandboxEscape`-style opt-in — an operator who wants an unattended turn to run such a command can only write the program name literally. With no `prompt` it refuses the batch with `UNKNOWN_PROGRAM_UNATTENDED_REFUSAL`. A `deny` rule still refuses the call outright, even one that could not have matched the hidden name itself (a rule that denies the tool by name, or a broader pattern an unrelated word in the command satisfies).
 
 ## What the tool is handed
 
@@ -65,6 +70,8 @@ Each crossing is an audit record in the session log:
 | `outside_root_access` | `refused` | The decision refused the call (`reject_tools`, or a denial in `modify_tools`); `resource` is the path. |
 | `sandbox_escape` | `approved` | A reviewer confirmed the escape for the call. |
 | `sandbox_escape` | `refused` | The decision refused the call, did not confirm the escape, or a resume could not apply it. |
+| `unknown_program` | `approved` | The turn's review approved a call whose program name is decided at runtime; `resource` is the head word's raw text. |
+| `unknown_program` | `refused` | The decision refused the call, or nobody could be asked; `resource` is the head word's raw text. |
 
 `AuditOutcome` gained `'approved'` for these; `replayAudit` skips it, since it is one action inside a turn, not the turn's verdict.
 

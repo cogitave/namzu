@@ -26,6 +26,7 @@ import {
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
 	STRICT_MODE_REFUSAL,
 	type ToolReviewPrompt,
+	UNKNOWN_PROGRAM_UNATTENDED_REFUSAL,
 	createReviewHandler,
 } from '../review-policy.js'
 
@@ -550,6 +551,153 @@ describe('a command outside the sandbox', () => {
 		expect(text).toContain(SANDBOX_ESCAPE_NOT_APPROVED)
 		expect(text).not.toContain('HOST_RAN')
 		expect(sandbox.exec).not.toHaveBeenCalled()
+	})
+})
+
+/**
+ * A security review of the command-substitution fix (668557ae) found that a
+ * `deny` rule written against a command's real name (`"git push*": deny`)
+ * never sees one produced by a substitution or a variable
+ * (`$(echo git) push`), since the name never appears as such anywhere in
+ * the call's text. The kernel now escalates any bash call whose lexed
+ * command's own program-name word expands, the same unconditional lane a
+ * sandbox escape already gets: no allow rule, remembered grant or
+ * `auto`/unattended mode approves it, and a `deny` rule still refuses it
+ * outright.
+ */
+async function unknownProgramThroughQuery(input: {
+	readonly command: string
+	readonly resumeHandler: ResumeHandler
+	readonly rules?: AuthorizationRule[]
+}) {
+	const base = await mkdtemp(join(tmpdir(), 'namzu-unknown-program-'))
+	dirs.push(base)
+	const tools = new ToolRegistry()
+	tools.register(BashTool)
+	const call: MockTurn = {
+		toolCalls: [{ id: 'b1', name: 'bash', args: { command: input.command } }],
+		finishReason: 'tool_calls',
+	}
+	const sessionId = generateSessionId()
+	const sessionLog = new InMemorySessionLog({ sessionId })
+	const result = await drainQuery({
+		provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
+		tools,
+		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
+		agentId: 'a',
+		agentName: 'A',
+		messages: [createUserMessage('run it')],
+		workingDirectory: base,
+		...(input.rules
+			? {
+					authorizationGate: {
+						enabled: true,
+						allowReadOnlyTools: false,
+						denyDangerousPatterns: false,
+						logDecisions: false,
+						rules: input.rules,
+					},
+				}
+			: {}),
+		resumeHandler: input.resumeHandler,
+		sessionId: sessionId as SessionId,
+		sessionLog,
+		...ids,
+	} as QueryParams)
+	return { text: toolTexts(result.messages).join('\n'), audit: await auditOf(sessionLog) }
+}
+
+describe('a command whose own program name is decided at runtime', () => {
+	it('is never approved by auto mode with nobody to ask: the batch is refused', async () => {
+		const { text, audit } = await unknownProgramThroughQuery({
+			command: '$(echo echo) HOST_RAN',
+			resumeHandler: createReviewHandler({ mode: 'auto' }),
+		})
+
+		expect(text).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+		expect(text).not.toContain('HOST_RAN')
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'unknown_program',
+				tool: 'bash',
+				outcome: 'refused',
+				reason: UNKNOWN_PROGRAM_UNATTENDED_REFUSAL,
+			}),
+		)
+	})
+
+	it('is not approved by an allow rule covering the tool, and asks instead', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { text, audit } = await unknownProgramThroughQuery({
+			command: '$(echo echo) HOST_RAN',
+			rules: [{ type: 'allow_by_name', toolNames: ['bash'] }],
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt }),
+		})
+
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(prompt.mock.calls[0]?.[0].toolCalls[0]?.escalation).toEqual({
+			unknownProgram: '$(echo echo)',
+		})
+		expect(text).toContain('HOST_RAN')
+		expect(audit).toContainEqual(
+			expect.objectContaining({ action: 'unknown_program', tool: 'bash', outcome: 'approved' }),
+		)
+	})
+
+	it('is refused by a deny rule without anyone being asked, even though the pattern never sees the real name', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { text, audit } = await unknownProgramThroughQuery({
+			command: '$(echo echo) HOST_RAN',
+			rules: [{ type: 'deny_by_name', toolNames: ['bash'] }],
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt }),
+		})
+
+		expect(prompt).not.toHaveBeenCalled()
+		expect(text).toMatch(/Blocked by the authorization gate/)
+		expect(text).not.toContain('HOST_RAN')
+		expect(audit).toContainEqual(
+			expect.objectContaining({
+				action: 'unknown_program',
+				tool: 'bash',
+				outcome: 'refused',
+				reason: expect.stringMatching(/Blocked by the authorization gate/),
+			}),
+		)
+	})
+
+	it('is asked about, names why, and runs once a person approves', async () => {
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'approve' }))
+		const { text } = await unknownProgramThroughQuery({
+			command: '$(echo echo) HOST_RAN',
+			resumeHandler: createReviewHandler({ mode: 'prompt', prompt }),
+		})
+
+		expect(prompt).toHaveBeenCalledTimes(1)
+		expect(text).toContain('HOST_RAN')
+	})
+
+	it('is not escalated by an ordinary, argument-level expansion — only the program name', async () => {
+		// Argument-level expansion alone must not flood reviews: `echo` is
+		// literal, `$(date)` is only an argument.
+		const prompt = vi.fn<ToolReviewPrompt>(async () => ({ kind: 'reject', feedback: 'no' }))
+		const { text } = await unknownProgramThroughQuery({
+			command: 'echo $(date)',
+			rules: [{ type: 'allow_by_name', toolNames: ['bash'] }],
+			resumeHandler: createReviewHandler({ mode: 'auto', prompt }),
+		})
+
+		// Allowed by the rule, approved by auto, never asked: no escalation.
+		expect(prompt).not.toHaveBeenCalled()
+		expect(text).not.toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+	})
+
+	it('treats a literal program name as ordinary, whatever its arguments do', async () => {
+		const { text } = await unknownProgramThroughQuery({
+			command: 'echo HOST_RAN',
+			resumeHandler: createReviewHandler({ mode: 'auto' }),
+		})
+
+		expect(text).toContain('HOST_RAN')
 	})
 })
 

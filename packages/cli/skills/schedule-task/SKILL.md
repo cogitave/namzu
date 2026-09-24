@@ -101,6 +101,24 @@ count="$(cat /tmp/error-count.txt)"
 or, when only a yes/no matters, test directly (`grep -q ERROR file &&
 ...`) rather than counting into a variable at all.
 
+**Put the program name in literal text; use substitutions only in
+arguments.** A command whose OWN NAME is decided at runtime —
+`$(echo git) push origin main`, `` `echo rm` -rf x``, or a variable holding
+it (`$X push`) — is refused outright, naming the command, even though the
+script is otherwise readable: no `deny` rule written against the real
+program name (`"git push*": "deny"`) can be trusted to see one that never
+appears as that name anywhere in the script's own text. This is not a
+narrower version of the substitution support above — it applies however
+plain the intent looks, because a script confirmed once is never reviewed
+again the way a live call is. Write the program name literally and put
+whatever needs computing in the arguments instead:
+
+```bash
+git push origin main                     # fine: the name is literal
+$(echo git) push origin main             # refused: the name is not
+git push origin "$(cat branch-name.txt)" # fine: only the argument is computed
+```
+
 ## 1. The permission set (required, no default)
 
 Start from the smallest set that can do the job.

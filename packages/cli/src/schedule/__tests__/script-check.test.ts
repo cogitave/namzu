@@ -188,6 +188,45 @@ describe('one call, whole text, for the floor; per command for deny rules', () =
 		expect(result.reason).toMatch(/command substitution/)
 	})
 
+	// A security review of the command-substitution fix (668557ae) found
+	// that a command whose OWN NAME comes from a substitution defeats a
+	// `deny` rule written against the real name, since the name never
+	// appears as such anywhere in the script's text: `git push*` never
+	// matches `$(echo git) push origin main`'s command text. Refused at
+	// confirm time, the same posture as opaque, naming the command.
+	it('refuses a command whose own name is decided at runtime, even where the script otherwise reads clean', () => {
+		const gitPush = policyFor({ rules: { bash: { 'git push*': 'deny' } } })
+		expect(ok('git push origin main', 'bash', gitPush)).toBe(false) // sanity: the literal case is denied
+		for (const body of [
+			'$(echo git) push origin main',
+			'`echo git` push origin main',
+			'X=$(echo git); $X push origin main',
+		]) {
+			const result = verifyScheduledScript(body, 'bash', gitPush)
+			expect(result.ok, body).toBe(false)
+			expect(result.reason, body).toMatch(/name is decided at runtime/)
+		}
+		const rm = policyFor({ rules: { bash: { 'rm*': 'deny' } } })
+		for (const body of [
+			'$(echo rm) -rf /tmp/x',
+			'$(echo r)m -rf /tmp/x',
+			'$(echo r)"m" -rf /tmp/x',
+		]) {
+			const result = verifyScheduledScript(body, 'bash', rm)
+			expect(result.ok, body).toBe(false)
+			expect(result.reason, body).toMatch(/name is decided at runtime/)
+		}
+	})
+
+	it('does not refuse a literal command name with substitutions only in its arguments', () => {
+		// Negative control: the fix is about the command's own NAME, not
+		// about a script using substitutions at all (already proven safe
+		// above) or about the specific commands the review's probes named.
+		expect(ok('git push origin "$(cat branch-name.txt)"')).toBe(true)
+		expect(ok('rm -rf "$(echo /tmp/x)"')).toBe(true)
+		expect(ok('echo "$(date)"')).toBe(true)
+	})
+
 	it('a deny rule wins even though nothing needs to allow the rest', () => {
 		const policy = policyFor({ rules: { bash: { 'curl*': 'deny' } } })
 		expect(ok(`cat ${HOME}/config.yaml`, 'bash', policy)).toBe(false)

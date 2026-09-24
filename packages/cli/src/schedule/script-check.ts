@@ -97,6 +97,23 @@ export function verifyScheduledScript(
 			reason: `the script cannot be verified line-for-line (${reading.reasons[0] ?? 'a construct the lexer does not model'}); a script that cannot be read is refused rather than run unattended`,
 		}
 	}
+	// A command whose own name is decided at runtime (`$(echo rm) -rf x`,
+	// `$(echo git) push …`) is not opaque — the lexer read it fine — but no
+	// deny rule can be trusted to have matched it: a pattern written against
+	// the command's real name never sees a name that does not appear as
+	// such anywhere in the script's text. A script confirmed once and never
+	// reviewed live cannot lean on the operator noticing at run time the
+	// way a live call's own review can; this is the same posture as
+	// opaque, and for the same reason — refused rather than guessed at.
+	for (const command of reading.commands) {
+		const head = command.words[command.assignments]
+		if (head?.expands) {
+			return {
+				ok: false,
+				reason: `the command ${shown(command.text)}'s name is decided at runtime, so no rule can verify what it runs; a script whose commands cannot be verified is refused rather than run unattended`,
+			}
+		}
+	}
 	// The floor (and the kernel's own dangerous-command patterns) read the
 	// WHOLE script at once, exactly as they would a live call's command
 	// line: both track state across commands (a `cd` earlier in the script,

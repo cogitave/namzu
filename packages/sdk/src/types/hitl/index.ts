@@ -165,6 +165,19 @@ export interface ToolCallEscalation {
 	 * `confirmedEscalations`.
 	 */
 	sandboxEscape?: true
+	/**
+	 * The raw, as-written text of a command whose PROGRAM NAME (the head of
+	 * one of its lexed commands, after any leading `X=1` assignments) is
+	 * decided at runtime — a substitution (`$(echo rm) -rf x`), a variable
+	 * (`$X push`), or a variable in the program's path (`"$HOME"/bin/tool`).
+	 *
+	 * No rule can be trusted to have matched a program whose name never
+	 * appears as such anywhere in the call's own text: `git push.*` does not
+	 * see `$(echo git) push`. Present only for a tool that declares
+	 * `commandArgument`. Argument-level expansion alone does not set this —
+	 * only the word that names the program itself.
+	 */
+	unknownProgram?: string
 }
 
 export interface ToolModification {

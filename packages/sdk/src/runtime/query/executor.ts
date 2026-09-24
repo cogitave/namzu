@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import type { Span } from '@opentelemetry/api'
 import type { AuthorizationGate } from '../../authorization/gate.js'
+import { lexShellCommandLine } from '../../authorization/shell-lexer.js'
 import { type SkillGrantSet, compileSkillGrant } from '../../authorization/skill-grant.js'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
@@ -38,6 +39,7 @@ import type {
 	ShellDialect,
 	SkillRegistryRef,
 	ToolContext,
+	ToolDefinition,
 	ToolDispatchOptions,
 	ToolHandoff,
 	ToolRegistryContract,
@@ -863,11 +865,36 @@ export class ToolExecutor {
 			sandboxed &&
 			tool.sandboxEscapeArgument !== undefined &&
 			input[tool.sandboxEscapeArgument] === true
-		if (!outsidePaths && !sandboxEscape) return undefined
+		const unknownProgram = this.unknownProgramOf(tool, input, sandboxed)
+		if (!outsidePaths && !sandboxEscape && unknownProgram === undefined) return undefined
 		return {
 			...(outsidePaths ? { outsidePaths } : {}),
 			...(sandboxEscape ? { sandboxEscape: true as const } : {}),
+			...(unknownProgram !== undefined ? { unknownProgram } : {}),
 		}
+	}
+
+	/**
+	 * The raw text of a command whose own program name is decided at
+	 * runtime, in a tool's `commandArgument`, or undefined. Checked whether
+	 * or not the turn is sandboxed: a program nobody can name before it runs
+	 * is exactly as unverifiable inside a sandbox as outside one.
+	 */
+	private unknownProgramOf(
+		tool: { commandArgument?: string; commandDialect?: ToolDefinition['commandDialect'] },
+		input: Record<string, unknown>,
+		sandboxed: boolean,
+	): string | undefined {
+		if (tool.commandArgument === undefined) return undefined
+		const value = input[tool.commandArgument]
+		if (typeof value !== 'string') return undefined
+		const dialect = tool.commandDialect?.({ sandboxed }) ?? 'sh'
+		const reading = lexShellCommandLine(value, { dialect })
+		for (const command of reading.commands) {
+			const head = command.words[command.assignments]
+			if (head?.expands) return head.text
+		}
+		return undefined
 	}
 
 	/** Re-prepare only calls whose raw input a reviewer actually changed. */
