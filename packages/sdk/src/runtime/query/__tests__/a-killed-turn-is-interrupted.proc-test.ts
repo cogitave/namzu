@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionPaths } from '../../../session/paths.js'
 import { DiskSessionLog } from '../../../store/session-log/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId, TurnId } from '../../../types/ids/index.js'
-import { createUserMessage } from '../../../types/message/index.js'
+import { type AssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import { TurnInProgressError } from '../../../types/session/turn.js'
 import {
 	generateProjectId,
@@ -173,6 +174,51 @@ describe('a turn whose process was killed', () => {
 			)
 			.find((record) => record.type === 'turn_failed')
 		expect(failed).toMatchObject({ turnId: killed.ids.turnId, failure: { code: 'interrupted' } })
+	}, 60_000)
+
+	it('does not duplicate a tool call across an abandon and a further live send', async () => {
+		// The exact shape this reproduces: turn 1 dies mid tool call (a real
+		// SIGKILL, so its result is synthesized as an interruption, never a
+		// durable one). Turn 2 abandons it and makes its OWN tool call. A
+		// third, live send in the SAME process then reuses turn 2's own
+		// settled `messages` (carrying the ids `TurnRecorder` stamped onto
+		// them) exactly as a host is told it may. Neither the dead turn's
+		// tool call nor turn 2's own may appear twice.
+		const killed = await killedTurn()
+		const echoTools = new ToolRegistry()
+		echoTools.register({
+			name: 'echo',
+			description: 'echo',
+			inputSchema: z.object({}),
+			execute: async () => ({ success: true, output: 'ok' }),
+		})
+		const turn2 = await drainQuery({
+			...params(
+				killed,
+				new MockLLMProvider({
+					turns: [
+						{ toolCalls: [{ id: 'turn2-echo', name: 'echo', args: {} }] },
+						{ text: 'turn two reply' },
+					],
+				}),
+			),
+			tools: echoTools,
+			abandonInterrupted: true,
+			messages: [createUserMessage('continue after the crash')],
+		})
+		expect(turn2.status).toBe('completed')
+
+		const turn3 = await drainQuery({
+			...params(killed, new MockLLMProvider({ responseText: 'turn three reply' })),
+			messages: [...turn2.messages, createUserMessage('third message')],
+		})
+
+		expect(turn3.status).toBe('completed')
+		const toolCallIds = turn3.messages
+			.filter((message): message is AssistantMessage => message.role === 'assistant')
+			.flatMap((message) => message.toolCalls?.map((call) => call.id) ?? [])
+		expect(toolCallIds.filter((id) => id === 'turn2-echo')).toHaveLength(1)
+		expect(toolCallIds.filter((id) => id === 'c1')).toHaveLength(1)
 	}, 60_000)
 
 	it('continues the same turn when it is resumed from its checkpoint', async () => {

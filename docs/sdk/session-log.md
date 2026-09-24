@@ -321,6 +321,46 @@ in the log for audit only. A checkpoint's context is the fold of the log up to
 its `throughSeq`, which equals the session's fold at that point because no
 other turn can interleave.
 
+## A host's cached messages
+
+Every message `query()` folds from the log, or records fresh, carries
+`Message.id`: the `message` record's own id, or a `message_replaced` record's
+`targetMessageId` when an override rewrote it in place (§ above). It appears
+on `Turn.messages`, on the messages `onConversationMessages` reports, and on a
+checkpoint's restored messages — everywhere a host is handed messages back. A
+message a host constructs itself (a fresh prompt) has no id; the kernel is the
+only writer of this field, never a caller.
+
+A host is free to cache what it is given and pass it back as `query()`'s next
+`messages`, in whole or in part — this is how an interactive session and a
+resumed one both work. Each message in that cache reconciles independently,
+by id where one is present:
+
+- **no id** — new input, kept in order, unless it exactly matches the next
+  unclaimed message of the log's own fold (a value comparison, ignoring
+  `id`), in which case it is that fold member read back, and is dropped so
+  the turn does not see it twice. A host that never adopted `Message.id` at
+  all — every message it resends carries none — gets exactly this value-based
+  matching against the WHOLE fold, the same reconciliation a session log
+  without per-message ids has always had.
+- **a known id, unedited** — already durable; dropped, because the fold
+  supplies it from wherever a compaction has since put it. A message before a
+  compaction that summarized it away is still known this way: the log
+  remembers every id it ever gave out, not only the current fold.
+- **a known id, edited** — refused with `stale_cached_history`
+  (`details.kind: 'edited'`): a message read from history must not be
+  mutated before it is sent back.
+- **an id this log never recorded** — refused with `stale_cached_history`
+  (`details.kind: 'foreign'`): a host must never mint its own id, only
+  replay one the kernel gave it in this same session.
+
+Both refusals name the message id and fail the turn before any provider call;
+retrying with the same cache cannot help. The way out is to pass only new
+messages (no id), or to re-read history from the session instead of reusing a
+stale copy. Nothing here concatenates a caller's cache after the log's own
+fold — a durable message is always dropped, never appended a second time —
+which is what makes replaying a whole cached conversation safe.
+
 ## Documents beside the log
 
 Each has `v` and `kind`, and an unknown version is refused, never migrated.

@@ -726,6 +726,31 @@ export async function forkConversation(
 	return { id, title, copied: messages.length }
 }
 
+/**
+ * Content equality ignoring the durable id a message's own record carries.
+ *
+ * A message read twice from the SAME conversation names the same id both
+ * times, so this only matters where it stops being the same conversation:
+ * a fork's copy is a brand new record for the same content, under a new
+ * id, in the new conversation's own log — the kernel names it, and that
+ * name being new is the point, not a sign the content itself changed.
+ */
+function sameMessageContent(a: Message, b: Message): boolean {
+	const { id: _a, ...restA } = a
+	const { id: _b, ...restB } = b
+	return isDeepStrictEqual(
+		JSON.parse(JSON.stringify(restA)) as unknown,
+		JSON.parse(JSON.stringify(restB)) as unknown,
+	)
+}
+
+function sameMessageSequence(a: readonly Message[], b: readonly Message[]): boolean {
+	return (
+		a.length === b.length &&
+		a.every((message, index) => sameMessageContent(message, b[index] as Message))
+	)
+}
+
 export interface ForkBeforeUserResult {
 	readonly id: SessionId
 	readonly title: string
@@ -769,7 +794,7 @@ export async function forkConversationBeforeUser(
 	if (messageIndex < 0 || selected?.role !== 'user') {
 		throw new Error('The selected user message no longer exists in this conversation.')
 	}
-	if (!isDeepStrictEqual(selected, expected)) {
+	if (!sameMessageContent(selected, expected)) {
 		throw new Error(
 			'The conversation changed after the prompt was selected. Nothing was forked; open the editor again from the current history.',
 		)
@@ -795,7 +820,7 @@ async function writeFork(
 	const id = await startConversation(s)
 	await seedConversationHistory(s, id, copiedMessages)
 	const copiedBack = await loadConversation(s, id)
-	if (!isDeepStrictEqual(copiedBack, [...copiedMessages])) {
+	if (!sameMessageSequence(copiedBack, copiedMessages)) {
 		throw new Error(`The forked conversation did not preserve its exact copied history (${id}).`)
 	}
 	const title = nextForkName(await takenTitles(s), source)

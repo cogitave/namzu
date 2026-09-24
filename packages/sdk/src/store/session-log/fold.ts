@@ -27,6 +27,26 @@ import type { SpillRef } from './spill.js'
  * reports, not instructions.
  */
 
+/**
+ * `message` stamped with `id`, without mutating it: a message read back
+ * from the log may be a live object another reader holds too (an in-memory
+ * record's own `content`), and only a fresh copy is safe to hand to a
+ * caller. `id` always wins over anything already on `message` — a stored
+ * `content.id` is leftover from wherever that exact object came from
+ * before it was recorded here (a different session's turn, replayed into
+ * this one by a test fixture or an import), never this record's own name
+ * for it. `undefined` clears it instead: a compaction summary member, or
+ * anything else this log never gave a per-message id.
+ */
+export function withMessageId<M extends Message>(message: M, id: MessageId | undefined): M {
+	if (message.id === id) return message
+	if (id === undefined) {
+		const { id: _dropped, ...rest } = message
+		return rest as M
+	}
+	return { ...message, id }
+}
+
 /** One message of the folded context. */
 export interface FoldedMessage {
 	/** Absent for a compaction summary message, which has no record of its own. */
@@ -214,12 +234,10 @@ export async function foldSessionMessages(
 		out.push(...(JSON.parse(text) as Message[]))
 	}
 	for (const entry of fold.entries()) {
-		if (entry.spill === undefined) {
-			out.push(entry.message)
-			continue
-		}
-		const text = await (options.readSpill ?? spillMissing)(entry.spill)
-		out.push(JSON.parse(text) as Message)
+		const message = entry.spill
+			? (JSON.parse(await (options.readSpill ?? spillMissing)(entry.spill)) as Message)
+			: entry.message
+		out.push(withMessageId(message, entry.messageId))
 	}
 	return out
 }

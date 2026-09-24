@@ -20,6 +20,16 @@ import { ProviderError, classifyProviderError } from '../provider/errors.js'
 export type NamzuErrorCode =
 	/** The turn was set up wrong — missing model, contradictory options. Retrying cannot help. */
 	| 'invalid_config'
+	/**
+	 * A caller's cached prior messages disagree with this session's log: a
+	 * message the log recorded under one id now carries different content
+	 * (edited), or carries an id this log never recorded (foreign).
+	 * `details.messageId` and `details.kind` (`'edited' | 'foreign'`) narrow
+	 * it. Retrying with the same messages cannot help; the host must pass
+	 * only its new messages, or re-read history from the session instead of
+	 * reusing a cached copy.
+	 */
+	| 'stale_cached_history'
 	/** The upstream model call failed. `details.providerCode` narrows it. */
 	| 'provider_error'
 	/** A tool could not be executed or resolved. */

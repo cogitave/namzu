@@ -340,11 +340,14 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		expect(sentUsers?.[0]?.content).toContain('image omitted')
 		expect(sentUsers?.[1]?.attachments).toEqual([document])
 		expect(hookRequests[0]).toEqual(provider.requests[0]?.messages)
-		expect(messages).toEqual(original)
+		// The kernel now stamps a recorded message with the id its record was
+		// given — on this exact object, per `BaseMessage.id` — so `messages`
+		// (the caller's own array) gains `id` but is otherwise unchanged.
+		expect(messages.map(({ id: _id, ...rest }) => rest)).toEqual(original)
 		expect(
-			settled.messages.filter(
-				(message) => message.role !== 'system' && message.role !== 'assistant',
-			),
+			settled.messages
+				.filter((message) => message.role !== 'system' && message.role !== 'assistant')
+				.map(({ id: _id, ...rest }) => rest),
 		).toEqual([original[0], original[2]])
 	})
 

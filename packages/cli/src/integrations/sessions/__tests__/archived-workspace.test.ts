@@ -50,7 +50,11 @@ describe('an archived conversation', () => {
 
 		await archiveConversation(sessions, id)
 
-		expect(await loadConversation(sessions, id)).toEqual([original])
+		// `recordTurn` (a fixture standing in for the kernel's own recorder)
+		// writes `original` under a fresh id without stamping it back onto this
+		// object, the way the real turn recorder does.
+		const [loaded] = await loadConversation(sessions, id)
+		expect(loaded).toMatchObject(original)
 		expect(await listRecent(sessions)).toEqual([])
 		await expect(loadResumableConversation(sessions, id)).rejects.toThrow(/archived and read-only/i)
 		await expect(requireWritableConversation(sessions, id, 'start turn')).rejects.toThrow(

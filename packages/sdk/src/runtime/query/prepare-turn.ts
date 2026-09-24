@@ -1,10 +1,15 @@
+import { isDeepStrictEqual } from 'node:util'
 import { drainQueuedMessages } from '../../agents/handle.js'
 import {
 	type ToolHistoryRepairReport,
 	repairToolMessageHistory,
 	toolHistoryRepairChanged,
 } from '../../compaction/dangling.js'
-import { type RecordedMessage, readFoldedHistory } from '../../manager/session/turn-recorder.js'
+import {
+	type RecordedMessage,
+	readEverRecordedMessages,
+	readFoldedHistory,
+} from '../../manager/session/turn-recorder.js'
 import { resolveModelPricing } from '../../pricing/index.js'
 import { isCallerAbortError } from '../../provider/errors.js'
 import {
@@ -17,6 +22,7 @@ import { withProviderRetry } from '../../provider/retry.js'
 import { withTokenBudget } from '../../provider/token-budget.js'
 import { resolveAttachments } from '../../store/attachment/index.js'
 import type { SessionTokenBudget } from '../../store/budget/index.js'
+import type { SessionLog } from '../../store/session-log/index.js'
 import { NAMZU } from '../../telemetry/attributes.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import type { TaskScheduler } from '../../types/agent/scheduler.js'
@@ -44,7 +50,6 @@ import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import {
 	awaitProjectInstructionCallback,
 	collapseProjectInstructionSnapshots,
-	isProjectInstructionMessage,
 	replaceProjectInstructionSnapshot,
 } from './project-instructions.js'
 import type { PromptCache } from './prompt-cache.js'
@@ -549,7 +554,9 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 		const history: RecordedMessage[] = params.resumeFromCheckpoint
 			? []
 			: await readFoldedHistory(storage.log)
-		const input = withoutRecordedPrefix(params.messages, history)
+		const input = params.resumeFromCheckpoint
+			? []
+			: await reconcileCallerMessages(params.messages, history, storage.log)
 		const seeded: Message[] = queuedForThisRun.length > 0 ? [...queuedForThisRun, ...input] : input
 		let resolvedInitialMessages: Message[]
 		let attachmentResolutionCancelled = false
@@ -578,9 +585,17 @@ export async function prepareTurn(params: QueryParams): Promise<PreparedTurn> {
 			const preparationSignal = params.signal ?? new AbortController().signal
 			let snapshot: UserMessage | null | undefined
 			try {
+				// `ProjectInstructionCallbackContext.messages` promises "the
+				// messages accepted before this callback starts" — the durable
+				// history this turn folds from the log, not only what THIS turn
+				// itself is contributing. Without the fold's own project-instruction
+				// snapshot (from an earlier turn of the SAME session) in view, a
+				// host that discovers a nested scope from a tool call could never
+				// re-derive which files to re-read on the next turn, once the
+				// message that named them was reconciled away as already durable.
 				const prepared = await awaitProjectInstructionCallback(preparationSignal, () =>
 					params.projectInstructionContext?.prepareInitialSnapshot?.({
-						messages: [...resolvedInitialMessages],
+						messages: [...history.map((entry) => entry.message), ...resolvedInitialMessages],
 						signal: preparationSignal,
 					}),
 				)
@@ -845,43 +860,95 @@ function projectRecordedHistory(
 }
 
 /**
- * `messages` without the leading run of messages the session log already
- * holds, compared by value. A host that passes only the new input is
- * unaffected; one that passes the whole conversation adds only its tail.
- *
- * A project-instruction snapshot is skipped on both sides rather than
- * compared, for the same reason a system message already is: it is not
- * conversation content, and the log holds one PER TURN while a settled
- * turn's own `messages` — what {@link collapseProjectInstructionSnapshots}
- * leaves it, and what a host is told it may cache and pass back in — keeps
- * only the newest. Comparing them positionally would fail on the second
- * live send of any session with more than one, at the first message a
- * turn's own snapshot's turn shed: the whole array would then be kept
- * unstripped and concatenated after the log's own fold, duplicating every
- * message the two shared — including one turn's own tool calls, which
- * `validateToolCallIds` then correctly refuses as an unsafe rewrite.
+ * Deep-equal ignoring `id`: two copies of one message may disagree only on
+ * which record named it. Each side is round-tripped through JSON first —
+ * "canonical" — so an `undefined`-valued own property (a field a driver or
+ * the recorder set explicitly, as opposed to one never mentioned) does not
+ * read as a difference: `isDeepStrictEqual` alone treats `{ x: undefined }`
+ * and `{}` as unequal, and the durable record went through the same
+ * round trip when it was written.
  */
-function withoutRecordedPrefix(
+function sameMessageContent(a: Message, b: Message): boolean {
+	const { id: _a, ...restA } = a
+	const { id: _b, ...restB } = b
+	return isDeepStrictEqual(
+		JSON.parse(JSON.stringify(restA)) as unknown,
+		JSON.parse(JSON.stringify(restB)) as unknown,
+	)
+}
+
+/** A `stale_cached_history` refusal: which half of "the log disagrees" this is. */
+function staleCachedHistoryError(kind: 'edited' | 'foreign', message: Message): NamzuError {
+	const id = message.id
+	return new NamzuError({
+		code: 'stale_cached_history',
+		message:
+			kind === 'edited'
+				? `A cached message carries id ${id}, but its content no longer matches what this session's log recorded under that id. A message read from history must not be edited before it is sent back: pass only new messages (with no id), or re-read history from the session instead of reusing a cached copy.`
+				: `A cached message carries id ${id}, which this session's log never recorded. A host must not mint its own id for a message: pass only messages this session's log gave an id (unedited), or new messages with no id.`,
+		details: { messageId: id, kind, role: message.role },
+	})
+}
+
+/**
+ * `messages` reconciled against this session's log, by id rather than by
+ * position: a message already durable under its id is dropped (the log's
+ * own fold supplies it, from wherever compaction has since put it); a
+ * message with no id is new input, kept in order — unless it exactly
+ * matches the next unclaimed member of the log's own fold, in which case it
+ * is that member, read back, and is dropped too.
+ *
+ * A message whose id the log never recorded, or whose content no longer
+ * matches what the log recorded under it, is refused outright
+ * (`stale_cached_history`): a host that edits a message before resending it,
+ * or mints its own id, gets a named refusal instead of a silently rewritten
+ * or duplicated conversation. `BaseMessage.id` documents the contract this
+ * enforces: the kernel stamps it, and only the kernel does.
+ *
+ * A host that passes only its new input, or the whole conversation exactly
+ * as `Turn.messages`/`onConversationMessages` gave it back, is unaffected
+ * either way — this is what makes both tolerated. So is one that never
+ * adopted `.id` at all: a caller whose OWN serialization boundary drops a
+ * field it does not know about resends every message with no id, and gets
+ * back exactly the value-based reconciliation this replaced, matched
+ * against the WHOLE fold in order rather than only its no-id members —
+ * because nothing it sends claims an id, there is no id-carrying entry it
+ * could wrongly steal. A caller that attaches an id to at least one message
+ * is trusted to attach one wherever it means "this is already durable": its
+ * OWN no-id members then match only a no-id fold entry (a compaction
+ * summary, or a message record predating per-message ids), never claim an
+ * idded one by value alone — a modern client that meant to resend a durable
+ * message unmodified says so with its id, and one that omits it is kept as
+ * new sooner than silently swallowed.
+ */
+async function reconcileCallerMessages(
 	messages: readonly Message[],
 	history: readonly RecordedMessage[],
-): Message[] {
-	const ignorable = (message: Message): boolean =>
-		message.role === 'system' || isProjectInstructionMessage(message)
-	const recorded = history.filter((entry) => !ignorable(entry.message))
-	let matched = 0
-	let r = 0
+	log: SessionLog,
+): Promise<Message[]> {
+	const hasId = messages.some((message) => message.id !== undefined)
+	const recordedById = hasId ? await readEverRecordedMessages(log) : undefined
+	const candidateHistory = (
+		hasId ? history.filter((entry) => entry.messageId === undefined) : history
+	).map((entry) => entry.message)
+	let historyCursor = 0
+	const kept: Message[] = []
 	for (const message of messages) {
-		if (ignorable(message)) {
-			matched++
-			continue
+		const id = message.id
+		if (id !== undefined) {
+			const recorded = recordedById?.get(id)
+			if (recorded === undefined) throw staleCachedHistoryError('foreign', message)
+			if (!sameMessageContent(recorded, message)) throw staleCachedHistoryError('edited', message)
+			continue // already durable: the fold supplies it
 		}
-		const next = recorded[r]
-		if (!next || JSON.stringify(next.message) !== JSON.stringify(message)) break
-		r++
-		matched++
+		const next = candidateHistory[historyCursor]
+		if (next !== undefined && sameMessageContent(next, message)) {
+			historyCursor++
+			continue // a fold member (no-id-only once the caller uses ids, or the whole fold otherwise), read back
+		}
+		kept.push(message)
 	}
-	if (r === 0) return [...messages]
-	return messages.slice(matched)
+	return kept
 }
 
 /**
