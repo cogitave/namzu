@@ -110,10 +110,12 @@ from; zoom never starts a new coordinate space.
 `list_windows` and `focus_window` are offered only when the host declares
 `windows` and implements both methods. The list gives each window's id,
 title, application, pid, focus and where it sits on the latest screenshot,
-inside an untrusted-content frame (`<namzu-untrusted kind="desktop-windows">`):
-a title is whatever the application shows, a web page's title in a browser
-window included. `focus_window` fails when the window in front afterwards is
-not the one asked for, and says which one is.
+inside an untrusted-content frame (`<namzu-untrusted-<nonce> kind="desktop-windows">`,
+the real closing tag bound to a per-render nonce nothing in the title can
+predict — see [Cross-session peer messaging](peer-messaging.md#the-real-delimiter-is-a-per-render-nonce-not-a-fixed-keyword)
+for why): a title is whatever the application shows, a web page's title in a
+browser window included. `focus_window` fails when the window in front
+afterwards is not the one asked for, and says which one is.
 
 ## A window's controls
 
@@ -129,7 +131,7 @@ it as indented text, one control per line:
 ```text
 UI snapshot u2 of window 0x3c40f70: 51 controls shown, 36 with a ref you can pass to ui_act. Refs are valid until the next ui_snapshot.
 @(x, y) is a control's centre on screenshot s2, for a click when ui_act cannot reach it.
-<namzu-untrusted kind="desktop-ui" window="0x3c40f70">
+<namzu-untrusted-7f3a9c21 kind="desktop-ui" window="0x3c40f70">
 …
 Application "ApplicationFrameHost"
 Window "Hesap Makinesi"
@@ -137,7 +139,7 @@ Window "Hesap Makinesi"
   [e43] Text "Ekran değeri 1,000" [invoke] @(81, 71)
   [e65] Button "Beş" [invoke] @(64, 188)
   [e72] Button "Sıfır" (disabled) [invoke] @(64, 236)
-</namzu-untrusted>
+</namzu-untrusted-7f3a9c21>
 ```
 
 - Only a control the host can act on gets a ref. Refs count up across

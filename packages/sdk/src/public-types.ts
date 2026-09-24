@@ -688,6 +688,7 @@ export type {
 // ─── system events + peer messaging (@experimental) ───────────────────────
 
 export type {
+	FormatSystemEventOptions,
 	SystemEvent,
 	SystemEventBody,
 	SystemEventKind,
