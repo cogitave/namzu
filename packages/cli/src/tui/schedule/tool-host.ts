@@ -9,6 +9,7 @@
  * `confirmation.surface: tool-confirmed`.
  */
 
+import { realpathSync } from 'node:fs'
 import { isAbsolute, relative, resolve } from 'node:path'
 import {
 	type ScheduleConfirmAnswer,
@@ -65,7 +66,17 @@ function within(root: string, path: string): boolean {
 	return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
-function summary(job: ScheduleJob, withPrompt: boolean, home: string): ScheduleJobSummary {
+/** The session's folder as a job records its own: canonical, symbolic links resolved. */
+function canonicalCwd(cwd: string): string {
+	try {
+		return realpathSync(cwd)
+	} catch {
+		return resolve(cwd)
+	}
+}
+
+/** A job as the tool reports it; `here` when it runs in the session's folder, which alone shows its prompt. */
+function summary(job: ScheduleJob, here: boolean, home: string): ScheduleJobSummary {
 	const tz = job.schedule.kind === 'cron' ? job.schedule.tz : hostTimeZone()
 	const state = readState(schedulePaths(home), job.id)
 	return {
@@ -75,7 +86,7 @@ function summary(job: ScheduleJob, withPrompt: boolean, home: string): ScheduleJ
 		schedule: describeSchedule(job.schedule, { tz }),
 		...(nextFireOf(job, state) ? { nextFireAt: nextFireOf(job, state) } : {}),
 		...(state.lastRun ? { lastStatus: state.lastRun.status } : {}),
-		...(withPrompt ? { prompt: job.prompt } : {}),
+		...(here ? { prompt: job.prompt, inSessionFolder: true } : {}),
 	}
 }
 
@@ -309,17 +320,21 @@ export function createScheduleToolHost(ui: ScheduleUi): ScheduleToolHost {
 			}
 		},
 
-		async list(options) {
-			const cwd = ui.cwd()
-			return listJobs(paths())
-				.jobs.filter((job) => options.allFolders || job.folder.canonical === cwd)
-				.map((job) => summary(job, job.folder.canonical === cwd, ui.home()))
+		// Every job, whatever `allFolders` says: a model that has just created
+		// a job in another folder, and does not pass `allFolders`, was told
+		// "No scheduled jobs." while `namzu schedule list` showed it. The
+		// session folder's are marked, and only theirs carry the prompt.
+		async list() {
+			const cwd = canonicalCwd(ui.cwd())
+			return listJobs(paths()).jobs.map((job) =>
+				summary(job, job.folder.canonical === cwd, ui.home()),
+			)
 		},
 
 		async find(ref) {
 			try {
 				const job = findJob(paths(), ref)
-				return summary(job, job.folder.canonical === ui.cwd(), ui.home())
+				return summary(job, job.folder.canonical === canonicalCwd(ui.cwd()), ui.home())
 			} catch {
 				return undefined
 			}

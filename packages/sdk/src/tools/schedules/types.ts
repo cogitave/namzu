@@ -114,6 +114,12 @@ export interface ScheduleJobSummary {
 	readonly lastStatus?: string
 	/** Present only for jobs in the session's own folder. */
 	readonly prompt?: string
+	/**
+	 * True for a job whose folder is the session's own. A host that lists
+	 * other folders' jobs sets it so the model can tell them apart; the tool
+	 * marks such a job `(this folder)`.
+	 */
+	readonly inSessionFolder?: boolean
 }
 
 /** What the person answered to a proposed job. */
@@ -157,7 +163,14 @@ export interface ScheduleToolHost {
 		preview: ScheduleJobPreview,
 		options: { readonly paused: boolean },
 	): Promise<{ readonly name: string; readonly note?: string }>
-	/** Jobs, the session folder's in full, other folders' without their prompts. */
+	/**
+	 * Jobs, the session folder's in full, other folders' without their
+	 * prompts. `allFolders: false` lets a host list only the session
+	 * folder's; a host may list every job regardless, marking the session
+	 * folder's with {@link ScheduleJobSummary.inSessionFolder}. The tool says
+	 * "No scheduled jobs." when this returns none, so a host that filters
+	 * says so only for its folder.
+	 */
 	list(options: { readonly allFolders: boolean }): Promise<readonly ScheduleJobSummary[]>
 	/** A job by name or id prefix, or undefined. */
 	find(job: string): Promise<ScheduleJobSummary | undefined>

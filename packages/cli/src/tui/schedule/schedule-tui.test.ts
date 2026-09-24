@@ -4,7 +4,7 @@
  * timing, and the startup line.
  */
 
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { NOOP_LOGGER, buildScheduleTools, defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -501,12 +501,12 @@ describe('answering a parked scheduled run', () => {
 })
 
 describe('the schedule tool’s host', () => {
-	function host(answer: string) {
+	function host(answer: string, cwd = () => sb.project) {
 		const said: string[] = []
 		const questions: { options: { id: string }[] }[] = []
 		const h = createScheduleToolHost({
 			home: () => sb.home,
-			cwd: () => sb.project,
+			cwd,
 			extraRoots: () => [],
 			model: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
 			config: () => ({}),
@@ -551,6 +551,35 @@ describe('the schedule tool’s host', () => {
 		const { tool } = host('skip')
 		expect((await tool.execute(input, {} as never)).success).toBe(false)
 		expect(listJobs(sb.paths).jobs).toHaveLength(0)
+	})
+
+	it('lists every job, whatever folder it runs in, and marks the session folder’s', async () => {
+		// The operator's trial: the TUI ran in the home directory, the model
+		// created a job in a folder below it, and `list` (no `allFolders`)
+		// said "No scheduled jobs." while `namzu schedule list` showed it.
+		const below = join(sb.project, 'scheduled-test')
+		mkdirSync(below)
+		const { tool } = host('create')
+		expect((await tool.execute({ ...input, folder: below }, {} as never)).success).toBe(true)
+		confirmedJob(sb, { name: 'here', folder: sb.project })
+		const listed = await tool.execute({ action: 'list' }, {} as never)
+		expect(listed.output).not.toMatch(/No scheduled jobs/)
+		const jobs = (
+			listed.data as { jobs: { name: string; prompt?: string; inSessionFolder?: boolean }[] }
+		).jobs
+		expect(jobs.map((j) => j.name).sort()).toEqual(['here', 'proposed'])
+		expect(jobs.find((j) => j.name === 'here')).toMatchObject({ inSessionFolder: true })
+		expect(jobs.find((j) => j.name === 'here')?.prompt).toBeDefined()
+		const proposed = jobs.find((j) => j.name === 'proposed')
+		expect(proposed?.prompt).toBeUndefined()
+		expect(proposed?.inSessionFolder).toBeUndefined()
+		expect(listed.output).toMatch(/^here · .*\(this folder\)$/m)
+		expect(listed.output).toMatch(/^proposed · .*scheduled-test$/m)
+		// Reached through a symbolic link, the session folder is still the job's.
+		const link = join(sb.root, 'link')
+		symlinkSync(sb.project, link)
+		const viaLink = await host('create', () => link).tool.execute({ action: 'list' }, {} as never)
+		expect(viaLink.output).toMatch(/^here · .*\(this folder\)$/m)
 	})
 
 	it('refuses a folder the CLI would refuse, and lists other folders without prompts', async () => {

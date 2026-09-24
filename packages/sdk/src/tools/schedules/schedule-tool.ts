@@ -295,7 +295,7 @@ async function list(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
 	if (jobs.length === 0) return { success: true, output: 'No scheduled jobs.', data: { jobs: [] } }
 	const lines = jobs.map(
 		(j) =>
-			`${j.name} · ${j.state} · ${j.schedule}${j.nextFireAt ? ` · next ${j.nextFireAt}` : ''}${j.lastStatus ? ` · last ${j.lastStatus}` : ''} · ${j.folder}`,
+			`${j.name} · ${j.state} · ${j.schedule}${j.nextFireAt ? ` · next ${j.nextFireAt}` : ''}${j.lastStatus ? ` · last ${j.lastStatus}` : ''} · ${j.folder}${j.inSessionFolder ? ' (this folder)' : ''}`,
 	)
 	return { success: true, output: lines.join('\n'), data: { jobs } }
 }

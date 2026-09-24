@@ -599,7 +599,13 @@ other than the session's, the sandbox, a budget, a visible browser window —
 is marked on the confirmation: `Chosen by the model, not the default: time
 zone America/New_York, not this machine's Europe/Istanbul`. When no scheduler is
 installed, the line that says the job was created also says it does not run
-until `namzu schedule install`. See
+until `namzu schedule install`. The tool's `list` shows every job in
+`NAMZU_HOME`, whatever folder it runs in and whatever `allFolders` says, as
+`namzu schedule list` does; the jobs of the session's own folder are marked
+`(this folder)` and are the only ones whose prompt the model is given. It used
+to list only the session folder's jobs unless the model passed `allFolders`,
+so a model that had just created a job in a folder below the session's was
+told "No scheduled jobs.". See
 [Session loops](session-loops.md) for `/loop`, which repeats a prompt inside an
 open session instead.
 

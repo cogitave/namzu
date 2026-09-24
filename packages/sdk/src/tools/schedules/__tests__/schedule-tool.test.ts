@@ -195,6 +195,19 @@ describe('schedule tool', () => {
 		expect(host.list).toHaveBeenCalledWith({ allFolders: false })
 	})
 
+	it('marks the jobs a host says run in the session’s folder', async () => {
+		const { host } = fakeHost('create', {
+			list: vi.fn(async () => [
+				{ name: 'here', folder: '/s', state: 'active', schedule: 'daily', inSessionFolder: true },
+				{ name: 'there', folder: '/t', state: 'active', schedule: 'daily' },
+			]),
+		})
+		const result = await tool(host).execute({ action: 'list' }, context)
+		expect(result.output).toBe(
+			'here · active · daily · /s (this folder)\nthere · active · daily · /t',
+		)
+	})
+
 	it('tells the model what the host says the job still needs', async () => {
 		const { host } = fakeHost('create', {
 			create: vi.fn(async (_d, p) => ({
