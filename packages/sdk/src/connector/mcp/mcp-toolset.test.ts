@@ -117,6 +117,35 @@ describe('mcpToolset', () => {
 	})
 
 	describe('policy', () => {
+		it('reports current refusals for tools, prompts and resources as their lists change', async () => {
+			const server = scriptedMcpServer({
+				serverName: 'demo',
+				tools: [echoTool, { ...echoTool, name: 'blocked' }],
+				prompts: [{ name: 'blocked', arguments: [] }],
+				resources: [{ uri: 'file:///blocked', name: 'blocked' }],
+			})
+			await server.client.connect()
+			const events: Array<{ kind: string; refused: readonly { name: string; reason: string }[] }> =
+				[]
+			const ts = await mcpToolset(server.client, {
+				deny: ['blocked'],
+				onRefused: ({ kind, refused }) => events.push({ kind, refused }),
+			})
+			expect(events).toEqual(
+				expect.arrayContaining([
+					{ kind: 'tools', refused: [{ name: 'blocked', reason: 'denied' }] },
+					{ kind: 'prompts', refused: [{ name: 'blocked', reason: 'denied' }] },
+					{ kind: 'resources', refused: [{ name: 'blocked', reason: 'denied' }] },
+				]),
+			)
+
+			const changed = waitForChange(ts[0].onChange)
+			server.setTools([echoTool])
+			server.fireListChanged('tools')
+			await changed
+			expect(events.at(-1)).toEqual({ kind: 'tools', refused: [] })
+		})
+
 		it('never admits a denied tool name', async () => {
 			const server = scriptedMcpServer({
 				serverName: 'demo',

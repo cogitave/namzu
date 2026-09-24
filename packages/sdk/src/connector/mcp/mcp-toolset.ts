@@ -103,6 +103,13 @@ export interface MCPToolsetOptions {
 	 * snapshot either way, exactly like any other change.
 	 */
 	readonly onDrift?: (event: { serverName: string; clientId: string; drift: MCPToolDrift }) => void
+	/** Current tool, prompt and resource names refused by this server's policy. */
+	readonly onRefused?: (event: {
+		serverName: string
+		clientId: string
+		kind: 'tools' | 'prompts' | 'resources'
+		refused: readonly { name: string; reason: 'not_allowed' | 'denied' }[]
+	}) => void
 	/**
 	 * How this toolset recovers a dropped connection. `{ enabled: false }`
 	 * turns this off — for a caller that already runs its own
@@ -301,6 +308,7 @@ export async function mcpToolset(
 	const discovery = new MCPToolDiscovery([client], {
 		policies: { [serverName]: { allow: options.allow, deny: options.deny } },
 		onDrift: options.onDrift,
+		onRefused: options.onRefused,
 		logger: options.logger,
 	})
 
