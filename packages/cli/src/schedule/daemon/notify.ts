@@ -6,6 +6,7 @@
  * (`notify.includeSummary`), and then only as one sanitised line.
  */
 
+import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import { callsWords } from '../fire/calls.js'
 import type { ScheduleCallTally, ScheduleJob } from '../types.js'
 
@@ -103,9 +104,13 @@ export function noticeText(
 			}
 			const head = `check failed at ${when}: `
 			const room = NOTICE_BODY_MAX - [...head].length
-			const reason = [...extra.reason]
+			// The reason can quote the script's own (untrusted) output; make it
+			// safe for a notification the same way a refused call's reason
+			// already is, even though its own producer already should have.
+			const safeReason = sanitizeLine(extra.reason, 1_000)
+			const reason = [...safeReason]
 			const said =
-				reason.length <= room ? extra.reason : `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
+				reason.length <= room ? safeReason : `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
 			return { title, body: fit(`${head}${said}`, `check failed at ${when}`) }
 		}
 		case 'timed-out':
@@ -190,7 +195,9 @@ export function scriptSummaryOf(result: {
 	for (let i = lines.length - 1; i >= 0; i--) {
 		const line = lines[i] as string
 		const looksLikeContract = line.startsWith('{') && line.endsWith('}')
-		if (!looksLikeContract) return line
+		// The script's own stdout is untrusted, exactly like a model's answer
+		// is: made safe the same way, before it ever reaches a notification.
+		if (!looksLikeContract) return sanitizeLine(line, 200)
 	}
 	return undefined
 }

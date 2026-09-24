@@ -12,7 +12,18 @@
  * than one line of stdout that independently parses as JSON (ambiguous —
  * which one is the answer?) are all refused the same way, by the caller,
  * as `check-failed`.
+ *
+ * The gate script's stdout is UNTRUSTED — it is runtime output, not
+ * anything an operator confirmed — and a parse failure quotes a slice of
+ * it in the `reason` this module returns, which reaches the operator on
+ * `schedule show`/`history` and a desktop notification. `shown()` runs it
+ * through the same `sanitizeLine()` a notification already uses for the
+ * model's own text, so a gate script cannot put control characters or a
+ * terminal escape sequence on the operator's screen through a malformed
+ * contract line.
  */
+
+import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 
 export interface WakeGateResult {
 	readonly wake: boolean
@@ -24,10 +35,9 @@ export type WakeGateOutcome =
 	| { readonly ok: true; readonly result: WakeGateResult }
 	| { readonly ok: false; readonly reason: string }
 
-/** Text as a refusal quotes it: one line, cut to fit, in backticks. */
+/** Untrusted text as a refusal quotes it: sanitized, one line, cut to fit, in backticks. */
 function shown(text: string, max = 200): string {
-	const flat = text.replace(/\s*\n\s*/g, ' ⏎ ')
-	const cut = [...flat].length > max ? `${[...flat].slice(0, max - 1).join('')}…` : flat
+	const cut = sanitizeLine(text, max)
 	return cut.includes('`') ? `\`\` ${cut} \`\`` : `\`${cut}\``
 }
 

@@ -7,6 +7,7 @@ import { describeSchedule, hostTimeZone } from '@namzu/sdk'
 import type { CommandContext } from '../../commands/types.js'
 import { readPermissionLayers } from '../../config/load.js'
 import { EXIT_OK, EXIT_USAGE } from '../../exit-codes.js'
+import { sanitizeLine } from '../../integrations/notifications/desktop/sanitize.js'
 import { callsCount, callsLine } from '../fire/calls.js'
 import { compileJobPolicy } from '../policy.js'
 import { parkedRunWords, resumeCommand } from '../resume-command.js'
@@ -138,8 +139,15 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 
 function describeRecord(r: ScheduleHistoryRecord, tz: string): string {
 	switch (r.kind) {
-		case 'run':
-			return `${when(r.startedAt, tz)}  run ${r.status}${r.trigger !== 'scheduled' ? ` (${r.trigger})` : ''}${r.delayedMs ? `, waited ${Math.round(r.delayedMs / 1000)} s for ${r.delayReason === 'folder-busy' ? 'the folder' : 'a slot'}` : ''}${r.reason ? `: ${r.reason}` : ''}${r.summary ? ` — ${r.summary}` : ''}${callsLine(r) ? `\n      ${callsLine(r)}` : ''}${r.sessionId ? `\n      session ${r.sessionId}` : ''}`
+		case 'run': {
+			// `reason`/`summary` can carry a script's or a wake-gate's own
+			// (untrusted) output; made safe for this text view the same way a
+			// desktop notification already is, even though the producers of
+			// both fields should already have.
+			const reason = r.reason ? sanitizeLine(r.reason, 1_000) : undefined
+			const summary = r.summary ? sanitizeLine(r.summary, 1_000) : undefined
+			return `${when(r.startedAt, tz)}  run ${r.status}${r.trigger !== 'scheduled' ? ` (${r.trigger})` : ''}${r.delayedMs ? `, waited ${Math.round(r.delayedMs / 1000)} s for ${r.delayReason === 'folder-busy' ? 'the folder' : 'a slot'}` : ''}${reason ? `: ${reason}` : ''}${summary ? ` — ${summary}` : ''}${callsLine(r) ? `\n      ${callsLine(r)}` : ''}${r.sessionId ? `\n      session ${r.sessionId}` : ''}`
+		}
 		case 'skip':
 			return `${when(r.at, tz)}  skipped ${r.count > 1 ? `${r.count} occurrences` : when(r.scheduledFor, tz)}: ${r.reason}`
 		case 'missed':

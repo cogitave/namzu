@@ -38,6 +38,7 @@
  */
 
 import { AuthorizationGate, NOOP_LOGGER, lexShellCommandLine } from '@namzu/sdk'
+import { sanitizeLine } from '../integrations/notifications/desktop/sanitize.js'
 import type { ScriptCheckPolicy } from './policy.js'
 
 export interface ScriptCheckResult {
@@ -48,10 +49,15 @@ export interface ScriptCheckResult {
 
 const MAX_SHOWN = 240
 
-/** Text as a refusal quotes it: one line, cut to fit, in backticks. */
+/**
+ * Text as a refusal quotes it: sanitized (this can be the job's own
+ * confirmed script text, but a fresh re-verification at `__fire` runs this
+ * over CURRENT config files, and `fire.ts`'s `blocked-config` reason reaches
+ * `schedule show`/`history` and a desktop notification), one line, cut to
+ * fit, in backticks.
+ */
 function shown(text: string, max = MAX_SHOWN): string {
-	const flat = text.replace(/\s*\n\s*/g, ' ⏎ ')
-	const cut = [...flat].length > max ? `${[...flat].slice(0, max - 1).join('')}…` : flat
+	const cut = sanitizeLine(text, max)
 	return cut.includes('`') ? `\`\` ${cut} \`\`` : `\`${cut}\``
 }
 

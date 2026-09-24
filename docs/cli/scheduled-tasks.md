@@ -711,6 +711,11 @@ quote the script's own output) once `--notify-summary` is set. At most one per j
 every ten minutes and twenty a day, except the ones that need you — a run
 waiting for your approval, an approval that expired, a job on hold, waiting for
 confirmation or paused after failures — which are always sent.
+Any of the script's or wake-gate's own output quoted in a notification, or in
+`schedule show`/`history`'s text view, is untrusted — it is runtime output,
+not anything you confirmed — and is stripped of control characters, terminal
+escape sequences and invisible characters before it is shown; `--json` output
+is unaffected and stays raw.
 `schedule.notifications: false` in your user
 config turns them off. Where they appear: see
 [The scheduler service](scheduler-service.md#notifications).
