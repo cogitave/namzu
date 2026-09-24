@@ -52,6 +52,27 @@ const unreadable = {
 	partialArguments: '{"q": True}',
 } as unknown as SessionEvent
 
+/**
+ * The executor still runs the synthetic "answer, don't call the tool" path
+ * for an unreadable call, so it still emits `tool_executing` /
+ * `tool_completed` for it (`executor.ts`'s `executeSingle`, the
+ * `inputTruncated === true` branch) — the card lifecycle closes rather than
+ * leaving a UI card orphaned in `streaming_input`. That event arrives from
+ * the STREAM's `tool_input_completed`, always after it: the model's
+ * response, and with it the unreadable classification, is settled before the
+ * executor is ever handed the call. A host reading events line by line, as
+ * `namzu exec --json` does, needs `tool-input-unreadable` before `tool-start`
+ * for the same call to show why the call was never really run instead of a
+ * bare failure with no explanation.
+ */
+const executing = {
+	type: 'tool_executing',
+	turnId,
+	toolUseId: 'call_bad',
+	toolName: 'ask_user_question',
+	input: {},
+} as unknown as SessionEvent
+
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
@@ -59,6 +80,7 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 		query: (params: QueryParams) =>
 			(async function* () {
 				yield unreadable
+				yield executing
 				yield {
 					type: 'turn_completed',
 					turnId,
@@ -136,5 +158,16 @@ describe('an unreadable tool call', () => {
 			inputError,
 			partialArguments: '{"q": True}',
 		})
+		// Not just present: it must reach the host in time to explain the
+		// `tool-start` a host would otherwise show with no context for why the
+		// call that follows never really ran. Asserted on the actual mapped
+		// event order, not inferred from reading `executor.ts`.
+		const unreadableIndex = events.findIndex((event) => event.kind === 'tool-input-unreadable')
+		const startIndex = events.findIndex(
+			(event) => event.kind === 'tool-start' && event.toolUseId === 'call_bad',
+		)
+		expect(unreadableIndex).toBeGreaterThanOrEqual(0)
+		expect(startIndex).toBeGreaterThanOrEqual(0)
+		expect(unreadableIndex).toBeLessThan(startIndex)
 	})
 })
