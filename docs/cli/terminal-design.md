@@ -429,8 +429,8 @@ attachments mounted beneath the overlay.
 
 The common choice row separates the label, current/default markers,
 description and unavailable reason. A question from the model marks the
-option it recommends with `[recommended]` in the same marker column; the
-label itself carries no "(Recommended)" in any language (see
+option it recommends with `[recommended]` in the same marker column, from the
+option's `recommended` flag rather than its label (see
 [Asking the user a question](../sdk/user-questions.md)). It measures terminal display width rather
 than JavaScript string length. Narrow screens put the description beneath the
 label and reduce the visible page to leave room for navigation. The selected

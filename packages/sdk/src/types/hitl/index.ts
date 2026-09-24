@@ -177,10 +177,11 @@ export interface UserQuestionOption {
 	id: string
 	/**
 	 * The label as shown and as the answer quotes it. `ask_user_question`
-	 * takes a recommendation marker the model wrote out of habit
-	 * ("(Recommended)", "(Önerilen)", …) out of it and sets `recommended`
-	 * instead, so a host never has to parse a label to find the
-	 * recommendation.
+	 * takes out of it a recommendation marker the model wrote out of habit:
+	 * "(Recommended)" on any option, and "(Önerilen)", "(Empfohlen)", … on
+	 * the option it flagged. The recommendation is `recommended`, so a host
+	 * never has to parse a label to find it. An option the model did not flag
+	 * keeps its label as written.
 	 */
 	label: string
 	description?: string

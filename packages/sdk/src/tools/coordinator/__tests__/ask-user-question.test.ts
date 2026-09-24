@@ -372,25 +372,55 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 		['Vorstand (Empfohlen)', 'Vorstand'],
 		['董事会（推荐）', '董事会'],
 	])(
-		'never records the marker of %j, flagged or not, in the answer the model reads',
+		'never records the marker of %j on the flagged option in the answer the model reads',
 		async (label, clean) => {
-			for (const flag of [{ recommended: true }, {}]) {
-				const { result } = await executeAsk({
-					decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
-					input: {
-						question: 'Who is the audience?',
-						options: [{ label, ...flag }, { label: 'Engineering team' }],
-					},
-				})
-				expect(result.output).toBe(`User answered "Who is the audience?": "${clean}"`)
-				expect(result.data).toEqual({
+			const { result } = await executeAsk({
+				decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+				input: {
 					question: 'Who is the audience?',
-					selected: [{ id: 'opt_1', label: clean, recommended: true }],
-					answered: true,
-				})
-			}
+					options: [{ label, recommended: true }, { label: 'Engineering team' }],
+				},
+			})
+			expect(result.output).toBe(`User answered "Who is the audience?": "${clean}"`)
+			expect(result.data).toEqual({
+				question: 'Who is the audience?',
+				selected: [{ id: 'opt_1', label: clean, recommended: true }],
+				answered: true,
+			})
 		},
 	)
+
+	it.each([
+		['with the flag left out', {}],
+		['with recommended: false', { recommended: false }],
+	])('shows and records an unflagged first option exactly as written, %s', async (_, flag) => {
+		// Recommending is optional: a first option nobody flagged is not the
+		// recommendation, and "(AWS)" is part of what the person chose.
+		const { requests, result } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+			input: {
+				question: 'Where should it run?',
+				options: [
+					{ label: 'Cloud (AWS)', ...flag },
+					{ label: 'On-premises', ...flag },
+				],
+			},
+		})
+		const request = requests[0]
+		if (!request || request.type !== 'user_question') {
+			throw new Error('expected a user_question request')
+		}
+		expect(request.question.options).toEqual([
+			{ id: 'opt_1', label: 'Cloud (AWS)' },
+			{ id: 'opt_2', label: 'On-premises' },
+		])
+		expect(result.output).toBe('User answered "Where should it run?": "Cloud (AWS)"')
+		expect(result.data).toEqual({
+			question: 'Where should it run?',
+			selected: [{ id: 'opt_1', label: 'Cloud (AWS)' }],
+			answered: true,
+		})
+	})
 
 	it('records no recommendation on an option the model did not recommend', async () => {
 		const { result } = await executeAsk({

@@ -89,10 +89,53 @@ describe('questionOptions', () => {
 		expect(recommended(options)).toEqual(['opt_1', 'opt_2'])
 	})
 
-	it('reads an unflagged first option with a localised marker as the recommendation, as the old prompt taught', () => {
-		const options = questionOptions([{ label: 'Kurul (Önerilen)' }, { label: 'Mühendisler' }])
-		expect(labels(options)).toEqual(['Kurul', 'Mühendisler'])
-		expect(recommended(options)).toEqual(['opt_1'])
+	it.each([
+		['with the flag left out', {}],
+		['with recommended: false', { recommended: false }],
+	])('keeps the qualifier of an unflagged first option and recommends nothing, %s', (_, flag) => {
+		// Recommending is optional, so a first option the model did not flag
+		// is not a recommendation, and its trailing group is a qualifier.
+		for (const label of [
+			'Cloud (AWS)',
+			'Tabs (current)',
+			'Use cache (Redis)',
+			'Kurul (Önerilen)',
+		]) {
+			const options = questionOptions([
+				{ label, ...flag },
+				{ label: 'On-premises', ...flag },
+			])
+			expect(options).toEqual([
+				{ id: 'opt_1', label },
+				{ id: 'opt_2', label: 'On-premises' },
+			])
+		}
+	})
+
+	it('never overrides an explicit recommended: false, not even for an English marker', () => {
+		const options = questionOptions([
+			{ label: 'Board (Recommended)', recommended: false },
+			{ label: 'Engineers (Empfohlen) (Recommended)', recommended: false },
+			{ label: 'Customers' },
+		])
+		// "(Recommended)" is never part of a name, so it still comes off; the
+		// flag the model set is what says whether the option is recommended.
+		expect(options).toEqual([
+			{ id: 'opt_1', label: 'Board' },
+			{ id: 'opt_2', label: 'Engineers (Empfohlen)' },
+			{ id: 'opt_3', label: 'Customers' },
+		])
+	})
+
+	it('reads a trailing group only on the option flagged true, when another is explicitly false', () => {
+		const options = questionOptions([
+			{ label: 'Cloud (Önerilen)', recommended: true },
+			{ label: 'On-premises', recommended: false },
+		])
+		expect(options).toEqual([
+			{ id: 'opt_1', label: 'Cloud', recommended: true },
+			{ id: 'opt_2', label: 'On-premises' },
+		])
 	})
 
 	it('removes both a localised and an English marker from one label', () => {
@@ -132,7 +175,7 @@ describe('questionOptions', () => {
 		expect(labels(options)).toEqual([label, 'Other'])
 	})
 
-	it('never infers a recommendation from an option other than the first', () => {
+	it('keeps a group on a later unflagged option too', () => {
 		const options = questionOptions([{ label: 'Board' }, { label: 'Engineers (Önerilen)' }])
 		expect(labels(options)).toEqual(['Board', 'Engineers (Önerilen)'])
 		expect(recommended(options)).toEqual([])

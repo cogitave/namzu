@@ -33,11 +33,11 @@ The schema is closed: an option carries `label`, optional `description` and opti
 
 ## Markers a model still writes
 
-A model used to be told to append " (Recommended)" to the label, and one answering in the user's language wrote "(Önerilen)" or "(Empfohlen)" instead. The tool takes such a marker out of the label before the host sees it and records the recommendation as the flag:
+A model used to be told to append " (Recommended)" to the label, and one answering in the user's language wrote "(Önerilen)" or "(Empfohlen)" instead. The tool takes such a marker out of the label before the host sees it; the flag, not the label, says which option is recommended:
 
-- "(Recommended)" at the end of any option's label, in any letter case, is a marker, and marks that option recommended.
-- A trailing parenthesised group of one to three words of letters, in ASCII `( )` or full-width `（ ）` parentheses, is a marker on the recommended option: the one the model flagged or, when it flagged none, the first. It is removed only when no other option's label ends in a parenthesised group and the label left over is not another option's. "Postgres (managed)" / "Postgres (self-hosted)" keep their groups, as does "Postgres (managed)" next to "Postgres". A group with digits or symbols (`(v2)`, `(~5 min)`) is never a marker.
-- A marker found on an unflagged first option makes that option recommended, which is what the old instruction meant by it. A group on any later unflagged option is left alone.
+- "(Recommended)" at the end of any option's label, in any letter case, is a marker. It is removed, and the option is recommended unless the model set `recommended: false` on it: the flag is the model's word, and the English marker counts only where the flag is absent.
+- On a recommended option, a trailing parenthesised group of one to three words of letters, in ASCII `( )` or full-width `（ ）` parentheses, is taken for the marker a model writes next to the flag out of habit. It is removed only when no other option's label ends in a parenthesised group and the label left over is not another option's. "Postgres (managed)" / "Postgres (self-hosted)" keep their groups, as does "Postgres (managed)" next to "Postgres". A group with digits or symbols (`(v2)`, `(~5 min)`) is never a marker. The tool tells the model to put qualifiers in the description, so a flagged "Use cache (Redis)" arrives as "Use cache".
+- An option the model did not flag, first or not, arrives exactly as written and is never made recommended by its label. Recommending is optional, so "Cloud (AWS)" or "Tabs (current)" on an unflagged first option is a qualifier, and `recommended: false` is never overridden. A localised marker written without the flag stays in the label: the tool cannot tell it from a qualifier.
 
 ## What the host is handed
 

@@ -12,19 +12,21 @@
  * still writes out of habit is removed here, in any language:
  *
  * - "(Recommended)" at the end of a label, in any letter case, is a marker on
- *   whichever option carries it.
- * - Otherwise the recommended option is the one the model flagged, or, when it
- *   flagged none, the first — where the recommendation has always gone. A
- *   trailing parenthesised group of one to three words on it, in ASCII or
- *   full-width parentheses, is its marker when no other option's label ends in
- *   such a group and removing it leaves a label no other option has. The model
- *   is told never to end a label in a parenthesised note, so on a compliant
- *   call that group is a marker; the two conditions keep a qualifier the
- *   options share ("Postgres (managed)" / "Postgres (self-hosted)") and one
- *   that is all that tells two options apart.
- *
- * A recommendation inferred from a marker is recorded as `recommended: true`,
- * so a host renders it the same way as a flagged one.
+ *   whichever option carries it: it comes off, and the option is recommended
+ *   unless the model set `recommended: false` on it. The field is the model's
+ *   word; the English marker speaks only where the field is absent.
+ * - On a recommended option, a trailing parenthesised group of one to three
+ *   words, in ASCII or full-width parentheses, is the marker a model writes
+ *   out of habit next to the flag, when no other option's label ends in such a
+ *   group and removing it leaves a label no other option has. The model is
+ *   told never to end a label in a parenthesised note, so on a compliant call
+ *   that group is a marker; the two conditions keep a qualifier the options
+ *   share ("Postgres (managed)" / "Postgres (self-hosted)") and one that is
+ *   all that tells two options apart.
+ * - Nothing else is a recommendation. Recommending is optional, so an option
+ *   the model did not flag, first or not, keeps its trailing group
+ *   ("Cloud (AWS)", "Tabs (current)") and is never marked recommended because
+ *   of one; `recommended: false` is never overridden.
  */
 
 import type { UserQuestionOption } from '../../types/hitl/index.js'
@@ -59,7 +61,7 @@ function trailingGroup(label: string): TrailingGroup | null {
 
 interface Working {
 	label: string
-	recommended: boolean
+	readonly recommended: boolean
 	readonly description: string | undefined
 }
 
@@ -76,13 +78,16 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 		const english = group !== null && ENGLISH_MARKER.test(group.text)
 		return {
 			label: english && group.base !== '' ? group.base : label,
-			recommended: option.recommended === true || english,
+			// An explicit `false` stands even against the English marker.
+			recommended: option.recommended ?? english,
 			description: option.description,
 		}
 	})
 
-	const flagged = working.filter((option) => option.recommended)
-	const candidates = flagged.length > 0 ? flagged : working.slice(0, 1)
+	// Only a recommended option can carry a localised marker. An unflagged
+	// one is left as written: its group is as likely "(AWS)" as "(Önerilen)",
+	// and guessing turned a qualifier into a recommendation.
+	const candidates = working.filter((option) => option.recommended)
 	const qualifiedElsewhere = working.some(
 		(option) => !candidates.includes(option) && trailingGroup(option.label) !== null,
 	)
@@ -96,7 +101,6 @@ export function questionOptions(options: readonly AuthoredQuestionOption[]): Use
 			)
 			if (clashes) continue
 			candidate.label = group.base
-			candidate.recommended = true
 		}
 	}
 
