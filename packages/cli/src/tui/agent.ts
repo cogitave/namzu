@@ -5029,8 +5029,8 @@ export const AGENT_LAUNCH_TOOL = 'Agent'
  * and asks in every mode, `auto` included. A second question in front of it
  * would ask the same thing with less on the screen. `strict` and `plan` still
  * refuse it, and an `ask` or `deny` rule for it still applies. Neither is
- * the `schedule` tool's `create`, `resume` or `delete`, for the same reason
- * (see {@link confirmsItself}).
+ * the `schedule` tool's `create`, `update`, `resume` or `delete`, for the
+ * same reason (see {@link confirmsItself}).
  */
 export function reviewExemptionFor(
 	mode: PermissionMode,
@@ -5048,7 +5048,7 @@ export function reviewExemptionFor(
 }
 
 /**
- * The `schedule` tool's `create`, `resume` and `delete`: each puts its own
+ * The `schedule` tool's `create`, `update`, `resume` and `delete`: each puts its own
  * confirmation in front of the operator, drawn from the host's computation,
  * and changes nothing unless they choose to. A review before it only asked
  * "Do you want to run schedule?" over the model's raw arguments, and then the
@@ -5059,7 +5059,7 @@ export function reviewExemptionFor(
 export function confirmsItself(name: string, input: unknown): boolean {
 	if (name !== SCHEDULE_TOOL_NAME || typeof input !== 'object' || input === null) return false
 	const action = (input as { action?: unknown }).action
-	return action === 'create' || action === 'resume' || action === 'delete'
+	return action === 'create' || action === 'update' || action === 'resume' || action === 'delete'
 }
 
 /**

@@ -122,6 +122,33 @@ describe('dispatch', () => {
 		expect(notices[0]?.body).not.toContain('done')
 	})
 
+	it('says a completed run had a call refused: history, state and the notification', async () => {
+		const refusal = {
+			count: 1,
+			first: { tool: 'bash', reason: 'the scheduled-run floor refused this call: …' },
+		}
+		outcome = () => ({ status: 'completed', summary: 'done', refusedCalls: refusal })
+		const job = confirmedJob(sb, {}, new Date(clock - 60_000))
+		const d = daemon()
+		await d.claimOwnership()
+		clock = Date.parse('2026-09-23T03:00:02Z')
+		await d.tick()
+		await settle(d)
+		const runs = foldHistory(readHistory(sb.paths, job.id)).filter((r) => r.kind === 'run')
+		expect(runs[0]).toMatchObject({ status: 'completed', refusedCalls: refusal })
+		const state = readState(sb.paths, job.id)
+		expect(state.lastRun).toMatchObject({ status: 'completed', refusedCalls: 1 })
+		// Still a completed run: no failure is counted.
+		expect(state.counters).toMatchObject({ failures: 0, failureStreak: 0 })
+		// The reason can quote the model's command, and the job did not ask
+		// for its summary on the lock screen: the tool is named instead.
+		expect(notices.map((n) => n.body)).toEqual([
+			expect.stringMatching(
+				/^done at .+, but 1 call was refused \(bash\); namzu schedule show nightly says why$/,
+			),
+		])
+	})
+
 	it('a run waiting for a slot is not claimed, and after a restart it runs exactly once', async () => {
 		holdRuns = true
 		const created = new Date(clock - 60_000)

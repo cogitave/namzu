@@ -115,6 +115,19 @@ export type AuthorizationRule =
 			 */
 			description: string
 			decide: AuthorizationPredicate
+			/**
+			 * The reason for THIS call, when `decide` returned a decision: what
+			 * in the input matched, and where. The gate reports it instead of
+			 * {@link description}. Absent, returning `null` or throwing, the
+			 * gate reports `description`.
+			 *
+			 * A rule that refuses on several grounds and reports one fixed
+			 * sentence leaves the model, and the person reading the refusal,
+			 * to guess which ground it was. A scheduled run's refusal listed
+			 * everything the rule protects when one word of the command had
+			 * matched.
+			 */
+			describe?: (call: AuthorizationPredicateCall) => string | null
 	  }
 
 /** The call an `AuthorizationRule` of type `predicate` is asked about. */
@@ -183,6 +196,14 @@ const PredicateSchema = z.object({
 	decide: z.custom<AuthorizationPredicate>((value) => typeof value === 'function', {
 		message: 'decide must be a function',
 	}),
+	// Named here so the gate's own parse keeps it: zod strips what a schema
+	// does not name.
+	describe: z
+		.custom<(call: AuthorizationPredicateCall) => string | null>(
+			(value) => typeof value === 'function',
+			{ message: 'describe must be a function' },
+		)
+		.optional(),
 })
 
 export const AuthorizationRuleSchema = z.discriminatedUnion('type', [
