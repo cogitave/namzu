@@ -1,11 +1,11 @@
 ---
 type: Reference
 title: The review policy
-description: The five modes a turn resolves tool review under, which calls skip review, asking once per session before the screen is shared, and how a host supplies the person to ask.
+description: The five modes a turn resolves tool review under, which calls skip review, a tool's own unconditional requiresApproval declaration, asking once per session before the screen is shared, and how a host supplies the person to ask.
 resource: packages/sdk/src/runtime/query/review-policy.ts
 tags: [sdk, hitl, permissions]
 status: stable
-generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 ---
 
 # The review policy
@@ -50,7 +50,7 @@ A plan-approval request is approved and every other checkpoint continues. An ans
 
 # Which calls skip review
 
-`isReviewExempt(registry, name, input)` says yes for a tool that declares itself read-only and is trusted to say so (`isTrustedReadOnly`, the authorization gate's own predicate) and for the bookkeeping writes in `REVIEW_EXEMPT_WRITES`: `task_create`, `task_update`, `update_goal`. It says no for a `network` tool even when read-only, because the request leaves the machine to an address the model chose, and for a tool the registry does not know. `batchNeedsReview` is the batch rule: any explicit review request, destructive call or non-exempt call means the batch is reviewed.
+`isReviewExempt(registry, name, input)` says yes for a tool that declares itself read-only and is trusted to say so (`isTrustedReadOnly`, the authorization gate's own predicate) and for the bookkeeping writes in `REVIEW_EXEMPT_WRITES`: `task_create`, `task_update`, `update_goal`. It says no for a `network` tool even when read-only, because the request leaves the machine to an address the model chose, and for a tool the registry does not know. `batchNeedsReview` is the batch rule: any explicit review request, destructive call, `requiresApproval` call or non-exempt call means the batch is reviewed.
 
 The built-in `job` classifies each prepared action: reading/listing owned output
 is exempt by default; stopping work is not. `DefineToolOptions.readOnly` supports
@@ -96,3 +96,20 @@ A skill loaded earlier in the turn can pre-approve calls through its `allowed-to
 # Escalated calls
 
 A call carrying `ToolCallSummary.escalation` — a path outside the turn's roots, or a request to leave the sandbox — is always reviewed: `batchNeedsReview` is true for it and `accept-edits` does not approve it alone. A path outside the roots is asked about in every mode that does not refuse it, `auto` and a remembered `approve-all` included, and refused with `OUTSIDE_ROOTS_UNATTENDED_REFUSAL` when there is no `prompt`. A sandbox escape is asked about in every mode that does not refuse it, `auto` and a remembered `approve-all` included, and approved only with its id in `confirmedEscalations`; with no `prompt` it is refused with `SANDBOX_ESCAPE_UNATTENDED_REFUSAL` unless `unattendedSandboxEscape: 'allow'`. See [Crossing the tool boundary](escalations.md).
+
+# A call the tool itself declares always needs approval
+
+`ToolDefinition.requiresApproval(input)` (`defineTool({ requiresApproval })`) is a tool author's own declaration that this exact call needs a person's approval, independent of destructiveness and of how the host configured its rules. It exists for a call that is sensitive for a reason other than being destructive — it costs money, it leaves an audit trail somewhere else, it is policy-sensitive — so an author stops having to misdeclare `isDestructive` on a call that does not destroy anything just to get a review the host might not otherwise configure.
+
+**How it differs from `isDestructive`, plainly**: `isDestructive` is real, but it is not unconditional. A gate `allow` rule (`allow_by_name`, `allow_by_category`, an `argument_pattern` matching the call, …) still lets a destructive call straight through — the rule outranks it — and so does `auto` mode or an unattended turn once the batch clears the gate: nothing in `batchNeedsReview`'s `isDestructive` check stops the `mode === 'auto' || !prompt || remembered.all` catch-all from approving it. A host that assumed `isDestructive` alone was an unconditional "always ask a human" guarantee never had one.
+
+`requiresApproval` is that unconditional guarantee, wired the same way `escalation` (a sandbox escape, a path outside the turn's roots) already is, not the way `isDestructive` is:
+
+- **Survives a gate `allow` rule.** `runToolReview` forces the gate's decision back to `review` for a `requiresApproval` call the same way it already does for an escalated one — before the `allAllowed` shortcut can settle the batch without ever reaching a person. A `deny` rule is untouched: this can only ADD a review, never remove one a rule closed.
+- **Asked about in every mode that reaches it** — `prompt`, `accept-edits`, `auto` (with a `prompt` present) — in its own unconditional branch in `createReviewHandler`, ahead of the `mode === 'auto' || !prompt || remembered.all` catch-all that a destructive call can fall through. A remembered `approve-all` does not silence it: the latch was an answer given about ordinary calls, before this one's requirement existed.
+- **Refused, not silently approved, when nobody can be asked** — `auto` or any mode with no `prompt` — with `REQUIRES_APPROVAL_UNATTENDED_REFUSAL`.
+- **Refused outright under `strict`**, like everything `strict` does not have an explicit rule for, without ever reaching the ask.
+- **Refused under `plan`** when the call would mutate, like any other change; a call that only reads is asked about rather than silently approved as the read it is (the read-only/`accept-edits` exemptions do not cover it either).
+- **No grant, skill grant or `accept-edits` exemption covers it.** A skill's `allowed-tools`, a remembered `ToolGrantSet` entry, and `accept-edits`'s `edit`/`write` fast path all decline to approve it on their own — the kernel never even marks such a call `skillGrant`, and the accept-edits and toolGrants shortcuts each check the flag before taking effect.
+
+Never populated from a connected server's own MCP annotations (`mcpToolToToolDefinition` does not set it, whatever the server's `_meta` claims): a server cannot demand, or waive, its own review requirement. It is host/plugin-trust-boundary metadata, like `capturesScreen`.

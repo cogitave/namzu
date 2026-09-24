@@ -948,6 +948,52 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	capturesScreen?(input: TInput): boolean
 
 	/**
+	 * This call always needs a person's approval, whatever the host's rules
+	 * say and whatever mode the turn is running in.
+	 *
+	 * Distinct from {@link isDestructive}, and stronger. A destructive call
+	 * is still let through by a gate `allow` rule (`allow_by_name`,
+	 * `allow_by_category`, …) and by `auto` mode or an unattended turn — the
+	 * rule and the mode both outrank it. This flag cannot be outranked either
+	 * way: it survives an `allow` rule the same way an escalation does (the
+	 * decision is forced back to review before the rule's `allow` ever
+	 * settles anything), and it is asked about, or refused when nobody can
+	 * be asked, in every mode — `auto` and a remembered "approve all"
+	 * included — the same way a sandbox escape or a path outside the turn's
+	 * roots is. No grant, skill grant or `accept-edits` exemption covers it.
+	 * A `deny` rule still wins: this flag can only ADD a review, never open
+	 * one a rule closed.
+	 *
+	 * For a call that is sensitive for a reason other than being
+	 * destructive — it costs money, it leaves an audit trail somewhere else,
+	 * it is policy-sensitive — rather than a tool author reaching for
+	 * `isDestructive` on a call that does not destroy anything, just to get
+	 * the review a host might not otherwise configure. See
+	 * `docs/sdk/review-policy.md`.
+	 *
+	 * Never populated from a connected server's own wire annotations
+	 * (`mcpToolToToolDefinition` does not set it): a server cannot demand,
+	 * or waive, its own review requirement. It is host/plugin-trust-boundary
+	 * metadata, like {@link capturesScreen}.
+	 */
+	requiresApproval?(input: TInput): boolean
+
+	/**
+	 * Free-form, tool-author-declared data for filtering and behaviour
+	 * customization — never a classification the runtime itself reads.
+	 *
+	 * Not sent to the model: unlike {@link outputSchema}, which is shown in
+	 * the description precisely so the model can act on it, this is for a
+	 * host, a capability or a toolset wrapper to read back, with
+	 * `matchesToolSelector` (`tools/roster.ts`) or by hand. A connected
+	 * server's own annotations that have nowhere else to land — its
+	 * `title`, `idempotentHint`, `openWorldHint`, and any `_meta` it
+	 * attached — arrive here (`mcpToolToToolDefinition`); `isReadOnly` and
+	 * `isDestructive` keep the two hints that already have a typed home.
+	 */
+	metadata?: Readonly<Record<string, unknown>>
+
+	/**
 	 * Opt-in ordering boundary in a direct model tool-call batch. Earlier
 	 * calls settle before this call starts; later calls wait for this call
 	 * to settle (including failed results). Defaults to false. Independent
@@ -974,43 +1020,6 @@ export interface ToolDefinition<TInput = unknown> extends ToolPresentation<TInpu
 	 * label shown to a human both need the server's own answer.
 	 */
 	provenance?: ToolProvenance
-
-	/**
-	 * Free-form data about this tool, for filtering and composition —
-	 * never sent to the model.
-	 *
-	 * Unlike {@link outputSchema}, which is shown but not validated, this is
-	 * not shown at all: it exists so a toolset wrapper or a permission rule
-	 * can target "every tool tagged `experimental`" without maintaining a
-	 * parallel name list. Field addition coordinated with plan.md item A2
-	 * (`packages/sdk/src/toolsets/`); declared here so item A1's
-	 * `withMetadata`/`filtered` wrappers have a real field to write and
-	 * match against ahead of A2 landing its own consumers of it.
-	 */
-	metadata?: Readonly<Record<string, unknown>>
-
-	/**
-	 * This call must be approved every time, in every mode, with no
-	 * grant/accept-edits exemption and no way for a `deny` rule to be
-	 * outrun by it.
-	 *
-	 * Mode-proof like {@link ToolContext.sandboxEscapeApproved}'s consent
-	 * requirement: present (`true`, or a predicate of the input that
-	 * returns `true`) means the call is refused when nobody can approve it
-	 * and otherwise always asked, never silently allowed by mode or memory.
-	 * A `deny` permission rule still wins over this. Field addition
-	 * coordinated with plan.md item A2, which owns the enforcement path in
-	 * `registry/tool/execute.ts`; `requireApproval(toolset, selector?)`
-	 * (item A1, `packages/sdk/src/toolsets/`) only sets this field on the
-	 * tools it selects and enforces nothing itself.
-	 */
-	// `unknown`, not `TInput`: a function-typed property (unlike the
-	// method-shorthand `isReadOnly?(input: TInput)` above) is checked
-	// contravariantly, so a `TInput`-typed predicate would make
-	// `ToolDefinition<Concrete>` stop being assignable to
-	// `ToolDefinition<unknown>` — which every generic consumer of a tool
-	// list relies on. A predicate that needs the narrowed shape casts.
-	requiresApproval?: boolean | ((input: unknown) => boolean)
 }
 
 export interface ToolProvenance {

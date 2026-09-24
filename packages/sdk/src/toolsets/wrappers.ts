@@ -1,3 +1,4 @@
+import { matchesToolSelector } from '../tools/roster.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import { matchesSourceIdGlob } from './source-glob.js'
 import type { ToolFilterSelector, ToolPredicate, Toolset, ToolsetAvailability } from './types.js'
@@ -92,33 +93,12 @@ function toPredicate(ts: Toolset, selector: ToolFilterSelector | ToolPredicate):
 		const keepEverything = matchesSourceIdGlob(ts.source.id, objectSelector.sourceIdGlob)
 		return () => keepEverything
 	}
+	// The deep-match itself (nested plain objects recursed, arrays compared
+	// elementwise) is `matchesToolSelector`'s (`tools/roster.ts`) — the same
+	// rule a permission `by_source`/metadata rule matches by, so a metadata
+	// selector means the same thing wherever it is written.
 	const pattern = objectSelector.metadata
-	return (tool) => tool.metadata !== undefined && metadataIncludes(tool.metadata, pattern)
-}
-
-/**
- * Deep-match: every key in `pattern` must be present and equal on `actual`,
- * recursing into nested plain objects and comparing arrays elementwise (see
- * plan.md gaps/no-open-metadata-and-selector.md for the selector design this
- * generalizes). A `pattern` value that is neither a plain object nor an
- * array must match `actual` exactly (`Object.is`).
- */
-function metadataIncludes(actual: Readonly<Record<string, unknown>>, pattern: Readonly<Record<string, unknown>>): boolean {
-	return Object.entries(pattern).every(([key, expected]) => valueIncludes(actual[key], expected))
-}
-
-function valueIncludes(actual: unknown, expected: unknown): boolean {
-	if (isPlainObject(expected) && isPlainObject(actual)) {
-		return metadataIncludes(actual as Record<string, unknown>, expected as Record<string, unknown>)
-	}
-	if (Array.isArray(expected) && Array.isArray(actual)) {
-		return actual.length === expected.length && expected.every((item, index) => valueIncludes(actual[index], item))
-	}
-	return Object.is(actual, expected)
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value)
+	return (tool) => matchesToolSelector(pattern, tool)
 }
 
 /**
@@ -134,15 +114,17 @@ export function deferred(ts: Toolset): Toolset {
  * Mark the tools `selector` admits (every tool, when omitted) as needing
  * approval every time they are called.
  *
- * Sets `ToolDefinition.requiresApproval` and nothing else — this wrapper
- * does not enforce approval; that is item A2's job in
- * `registry/tool/execute.ts`. A toolset built with this wrapper carries the
- * declaration; a runtime that has not landed A2 yet simply has an unread
- * field on the tools it executes.
+ * Sets `ToolDefinition.requiresApproval` to a predicate that always answers
+ * `true`, and nothing else — this wrapper does not enforce approval itself;
+ * that is `runtime/query/review-policy.ts`'s job, which reads the field this
+ * writes. `requiresApproval` is declared as `(input: TInput) => boolean`
+ * (method-shorthand, like `isReadOnly`), not a plain boolean, so every tool
+ * this wrapper marks gets the same always-true predicate rather than a
+ * second field shape to check for.
  */
 export function requireApproval(ts: Toolset, selector?: ToolFilterSelector | ToolPredicate): Toolset {
 	const predicate = selector ? toPredicate(ts, selector) : () => true
-	return mapTools(ts, (tool) => (predicate(tool) ? { ...tool, requiresApproval: true } : tool))
+	return mapTools(ts, (tool) => (predicate(tool) ? { ...tool, requiresApproval: () => true } : tool))
 }
 
 /**

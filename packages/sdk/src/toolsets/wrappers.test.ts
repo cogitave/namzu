@@ -148,14 +148,14 @@ describe('deferred', () => {
 describe('requireApproval', () => {
 	it('sets requiresApproval on every tool when no selector is given', () => {
 		const ts = requireApproval(toolset('demo', [tool('read'), tool('write')]))
-		expect(ts.tools().every((t) => t.requiresApproval === true)).toBe(true)
+		expect(ts.tools().every((t) => t.requiresApproval?.(undefined) === true)).toBe(true)
 	})
 
 	it('sets requiresApproval only on the tools a selector admits', () => {
 		const ts = requireApproval(toolset('demo', [tool('read'), tool('write')]), ['write'])
 		const byName = Object.fromEntries(ts.tools().map((t) => [t.name, t.requiresApproval]))
 		expect(byName.read).toBeUndefined()
-		expect(byName.write).toBe(true)
+		expect(byName.write?.(undefined)).toBe(true)
 	})
 })
 

@@ -57,20 +57,21 @@ the tool carried.
   their mapped value; a tool whose name is not a key keeps its name.
 - `filtered(toolset, selector)` — keeps only the tools a selector (or a
   plain predicate function) admits. A selector is an array of tool names,
-  `{ metadata }` (a deep-match against `ToolDefinition.metadata`: every key
-  in the pattern must be present and equal, or, for a nested plain object,
-  recursively matched; an array matches an array of the same length whose
-  elements deep-match pairwise), or `{ sourceIdGlob }`. The glob form is
+  `{ metadata }` (matched with `matchesToolSelector`, `tools/roster.ts`: a
+  deep-match against `ToolDefinition.metadata` — every key in the pattern
+  must be present and equal, or, for a nested plain object, recursively
+  matched; an array matches an array of the same length whose elements
+  deep-equal pairwise), or `{ sourceIdGlob }`. The glob form is
   all-or-nothing per toolset: it tests the *toolset's own* `source.id`
   against the pattern (see below), not a per-tool source, so it keeps
   every tool when the toolset's source matches and none when it does not.
 - `deferred(toolset)` — sets `availability` to `'deferred'` without
   touching the tools themselves.
 - `requireApproval(toolset, selector?)` — sets
-  `ToolDefinition.requiresApproval` on the tools `selector` admits (every
-  tool, when omitted). This only declares the requirement; enforcing it —
-  asking every mode, refusing when unattended, letting a `deny` rule still
-  win — is a runtime concern outside this module.
+  `ToolDefinition.requiresApproval` to an always-`true` predicate on the
+  tools `selector` admits (every tool, when omitted). This only declares
+  the requirement; asking every mode, refusing when unattended and letting
+  a `deny` rule still win is `runtime/query/review-policy.ts`'s job.
 - `withMetadata(toolset, metadata)` — merges `metadata` onto every tool,
   keeping whatever metadata a tool already carries (a key in the argument
   overwrites the same key already there).
@@ -133,6 +134,9 @@ layer reaches all the way in.
 
 `ToolRegistry` (`packages/sdk/src/registry/tool/execute.ts`) does not yet
 take a `Toolset`; a toolset built with this module is a value a caller
-holds until a later item wires it in. `requiresApproval` and `metadata` on
-`ToolDefinition` are declared for this module's wrappers to set and match
-on, but nothing in `registry/tool/execute.ts` enforces or reads them yet.
+holds until a later item wires it in. `requiresApproval` (a predicate of
+the tool's input, set by `requireApproval` as always-`true`) and
+`metadata` on `ToolDefinition` are enforced and matched outside this
+module — see [The review policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval)
+and `matchesToolSelector` (`packages/sdk/src/tools/roster.ts`), which
+`filtered`'s `{ metadata }` selector defers to.
