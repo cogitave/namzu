@@ -16,7 +16,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import { CONNECT_TIMEOUT_MS, connectMcpServers, transportFor } from '../servers.js'
+import {
+	CONNECT_TIMEOUT_MS,
+	connectMcpServers,
+	expandEnvRefsInRecord,
+	transportFor,
+} from '../servers.js'
 
 let dir: string
 const origins: TestOrigin[] = []
@@ -564,5 +569,100 @@ describe('a spec that is not a server', () => {
 
 		expect(typeof transport).not.toBe('string')
 		expect((transport as { cwd?: string }).cwd).toBe(dir)
+	})
+})
+
+describe('${VAR} expansion in env and headers values', () => {
+	it('expands a bare ${VAR} reference against the given environment', () => {
+		const result = expandEnvRefsInRecord({ TOKEN: '${API_TOKEN}' }, { API_TOKEN: 'secret-1' })
+		expect(result).toEqual({ TOKEN: 'secret-1' })
+	})
+
+	it('expands a reference embedded inside a larger string', () => {
+		const result = expandEnvRefsInRecord(
+			{ Authorization: 'Bearer ${API_TOKEN}' },
+			{ API_TOKEN: 'secret-1' },
+		)
+		expect(result).toEqual({ Authorization: 'Bearer secret-1' })
+	})
+
+	it('leaves a value with no ${VAR} reference untouched', () => {
+		const result = expandEnvRefsInRecord({ NAME: 'literal' }, {})
+		expect(result).toEqual({ NAME: 'literal' })
+	})
+
+	it('refuses a reference to a variable that is not set, naming it', () => {
+		const result = expandEnvRefsInRecord({ TOKEN: '${MISSING_TOKEN}' }, {})
+		expect(typeof result).toBe('string')
+		expect(result).toContain('MISSING_TOKEN')
+		expect(result).toContain('not set')
+	})
+
+	it('does not support a ${VAR:-default} fallback — the whole value is treated as the variable name search', () => {
+		// No `:-default` syntax at all: a colon inside the braces is just not a
+		// valid identifier character, so this is read as an unset reference
+		// rather than one that falls back to a default.
+		const result = expandEnvRefsInRecord({ TOKEN: '${MISSING:-fallback}' }, { MISSING: 'x' })
+		expect(result).toEqual({ TOKEN: '${MISSING:-fallback}' })
+	})
+
+	it('transportFor expands env values for a stdio server', () => {
+		const transport = transportFor({ command: 'node', env: { TOKEN: '${API_TOKEN}' } }, dir, {
+			API_TOKEN: 'secret-1',
+		} as NodeJS.ProcessEnv)
+		expect(typeof transport).not.toBe('string')
+		expect((transport as { env?: Record<string, string> }).env).toEqual({ TOKEN: 'secret-1' })
+	})
+
+	it('transportFor expands header values for an http server', () => {
+		const transport = transportFor(
+			{ url: 'https://example.invalid/mcp', headers: { 'X-Token': '${API_TOKEN}' } },
+			dir,
+			{ API_TOKEN: 'secret-1' } as NodeJS.ProcessEnv,
+		)
+		expect(typeof transport).not.toBe('string')
+		expect((transport as { headers?: Record<string, string> }).headers).toEqual({
+			'X-Token': 'secret-1',
+		})
+	})
+
+	it('transportFor refuses a stdio server whose env references an unset variable', () => {
+		const transport = transportFor(
+			{ command: 'node', env: { TOKEN: '${MISSING_TOKEN}' } },
+			dir,
+			{} as NodeJS.ProcessEnv,
+		)
+		expect(typeof transport).toBe('string')
+		expect(transport).toContain('MISSING_TOKEN')
+	})
+
+	it('command, args, url and cwd are passed through literally, never expanded', () => {
+		const transport = transportFor({ command: '${NOT_EXPANDED}', args: ['${ALSO_NOT}'] }, dir, {
+			NOT_EXPANDED: 'x',
+			ALSO_NOT: 'y',
+		} as NodeJS.ProcessEnv)
+		expect(typeof transport).not.toBe('string')
+		expect((transport as { command?: string }).command).toBe('${NOT_EXPANDED}')
+		expect((transport as { args?: string[] }).args).toEqual(['${ALSO_NOT}'])
+	})
+
+	it('connectMcpServers fails the whole server, by name, when a header references an unset variable', async () => {
+		const mcp = await connectMcpServers(
+			{
+				secure: {
+					url: 'https://example.invalid/mcp',
+					headers: { Authorization: 'Bearer ${MISSING_MCP_TOKEN_TEST_ONLY_XYZ}' },
+				},
+			},
+			{ cwd: dir },
+		)
+		try {
+			expect(mcp.connected).toEqual([])
+			expect(mcp.failed).toHaveLength(1)
+			expect(mcp.failed[0]?.name).toBe('secure')
+			expect(mcp.failed[0]?.reason).toContain('MISSING_MCP_TOKEN_TEST_ONLY_XYZ')
+		} finally {
+			await mcp.close()
+		}
 	})
 })

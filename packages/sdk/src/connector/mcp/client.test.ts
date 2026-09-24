@@ -33,7 +33,9 @@ interface Harness {
 	failTransport(err: Error): void
 }
 
-function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } = {}): Harness {
+function harness(
+	opts: { autoInitialize?: boolean; requestTimeoutMs?: number; instructions?: string } = {},
+): Harness {
 	const sent: MCPJsonRpcMessage[] = []
 	let onMessage: ((m: MCPJsonRpcMessage) => void) | undefined
 	let onClose: (() => void) | undefined
@@ -62,7 +64,11 @@ function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } =
 					onMessage?.({
 						jsonrpc: '2.0',
 						id: message.id,
-						result: { serverInfo: { name: 'fake', version: '1' }, capabilities: {} },
+						result: {
+							serverInfo: { name: 'fake', version: '1' },
+							capabilities: {},
+							...(opts.instructions !== undefined ? { instructions: opts.instructions } : {}),
+						},
 					}),
 				)
 			}
@@ -176,5 +182,21 @@ describe('MCPClient — server-initiated requests are answered, not dropped', ()
 		expect(seen).toHaveBeenCalledWith('notifications/tools/list_changed', {})
 		// A notification must NOT be answered.
 		expect(h.sent).toHaveLength(0)
+	})
+})
+
+describe('MCPClient — legacy `initialize` instructions', () => {
+	it('captures the server-provided instructions string into client state', async () => {
+		const h = harness({ instructions: 'Call `search` before `write`.' })
+		await h.client.connect()
+
+		expect(h.client.getState().serverInstructions).toBe('Call `search` before `write`.')
+	})
+
+	it('leaves serverInstructions unset when the server sends none', async () => {
+		const h = harness()
+		await h.client.connect()
+
+		expect(h.client.getState().serverInstructions).toBeUndefined()
 	})
 })

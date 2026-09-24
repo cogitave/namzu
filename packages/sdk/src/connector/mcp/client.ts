@@ -119,6 +119,7 @@ export class MCPClient {
 	private status: MCPConnectionStatus = 'disconnected'
 	private serverInfo?: { name: string; version?: string }
 	private serverCapabilities?: MCPServerCapabilities
+	private serverInstructions?: string
 	private era?: McpEra
 	private connectedAt?: number
 	private error?: string
@@ -312,6 +313,7 @@ export class MCPClient {
 
 		this.serverInfo = result.serverInfo
 		this.serverCapabilities = result.capabilities
+		this.serverInstructions = result.instructions
 
 		await this.notify('notifications/initialized', {})
 
@@ -486,6 +488,7 @@ export class MCPClient {
 		const result = this.modernInitializeResult(era.version, resolution.discover)
 		this.serverInfo = result.serverInfo
 		this.serverCapabilities = result.capabilities
+		this.serverInstructions = result.instructions
 
 		this.status = 'connected'
 		this.connectedAt = Date.now()
@@ -509,6 +512,9 @@ export class MCPClient {
 	 * not name itself is reported under the name the operator gave it.
 	 * Inventing a placeholder like "unknown" would put a word in the
 	 * server's mouth in the one field a person reads to identify it.
+	 *
+	 * `instructions` is left unset: the modern era has no `initialize`
+	 * round trip, so there is nothing in a `DiscoverResult` to carry it.
 	 */
 	private modernInitializeResult(
 		version: McpModernVersion,
@@ -558,6 +564,7 @@ export class MCPClient {
 			status: this.status,
 			serverInfo: this.serverInfo,
 			serverCapabilities: this.serverCapabilities,
+			serverInstructions: this.serverInstructions,
 			connectedAt: this.connectedAt,
 			error: this.error,
 		}

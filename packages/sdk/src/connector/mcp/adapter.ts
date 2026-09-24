@@ -469,6 +469,21 @@ export function mcpToolToToolDefinition(
 	 * never lowers it. See `isTrustedReadOnly`.
 	 */
 	readOnlyHintTrusted = false,
+	/**
+	 * In-loop retry budget for every tool this server contributes. Unset
+	 * (the default) keeps today's behaviour byte-for-byte: `maxRetries`
+	 * absent on the returned `ToolDefinition`, so the executor's own
+	 * default (0) applies.
+	 *
+	 * Even with this set, a failure is only retried if `execute` also
+	 * marked it {@link ToolResult.retryable}, which below is true only for
+	 * the two outcomes this adapter already knows never reached the
+	 * server's side effect (`mcp_tool_input_required`,
+	 * `mcp_tool_missing_client_capability`) — never for
+	 * `mcp_tool_outcome_unknown` or a raw transport error, where whether
+	 * the call landed is exactly what is not known.
+	 */
+	maxRetries?: number,
 ): ToolDefinition {
 	const inputSchema = mcpJsonSchemaToZod(tool.inputSchema)
 	const toolName = `mcp_${serverName}_${tool.name}`
@@ -504,6 +519,7 @@ export function mcpToolToToolDefinition(
 			: {}),
 		category: 'network',
 		permissions: ['network_access'],
+		...(maxRetries === undefined ? {} : { maxRetries }),
 		// Reports what the SERVER said, faithfully. The outbound re-export
 		// and the destructive label a human is shown both need the server's
 		// own answer; whether a gate may act on it is decided separately, by
@@ -550,6 +566,12 @@ export function mcpToolToToolDefinition(
 							success: false,
 							output: '',
 							error: `MCP tool "${tool.name}" on server "${serverName}" asked for input this client has no way to supply${requested.length > 0 ? ` (${requested.join(', ')})` : ''}.`,
+							// No side effect is known to have happened (see the
+							// comment above), so a retry — of this tool, or a
+							// different approach entirely — is safe. Only
+							// meaningful when the definition also opted into
+							// `maxRetries`; see this function's parameter.
+							retryable: true,
 							data: {
 								code: 'mcp_tool_input_required',
 								server: serverName,
@@ -572,6 +594,10 @@ export function mcpToolToToolDefinition(
 							success: false,
 							output: '',
 							error: `MCP tool "${tool.name}" on server "${serverName}" requires client capabilities this client did not declare${requiredCapabilities.length > 0 ? ` (${requiredCapabilities.join(', ')})` : ''}.`,
+							// The server refused before running the tool, so
+							// nothing ran; safe to retry the same way
+							// `mcp_tool_input_required` above is.
+							retryable: true,
 							data: {
 								code: 'mcp_tool_missing_client_capability',
 								server: serverName,
