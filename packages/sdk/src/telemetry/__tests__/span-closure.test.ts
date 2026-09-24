@@ -11,7 +11,9 @@ import { z } from 'zod'
 //
 // `vi.mock` is hoisted above every import here, so the static form still
 // receives the mocked `runtime-accessors`.
-import { ToolRegistry } from '../../registry/tool/execute.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { ToolManager } from '../../toolsets/manager.js'
+import { deferred } from '../../toolsets/wrappers.js'
 
 /**
  * A span that never ends is a trace that never closes, and the export is
@@ -95,12 +97,16 @@ afterEach(() => {
 
 describe('a tool span closes however the call leaves', () => {
 	it('closes on the ordinary path', async () => {
-		const tools = new ToolRegistry()
-		tools.register({
-			name: 'echo',
-			description: 'echo',
-			inputSchema: z.object({}),
-			execute: async () => ({ success: true, output: 'ok' }),
+		const tools = new ToolManager({
+			toolsets: [
+				testToolset({
+					name: 'echo',
+					description: 'echo',
+					inputSchema: z.object({}),
+					execute: async () => ({ success: true, output: 'ok' }),
+				}),
+			],
+			messages: () => [],
 		})
 
 		await tools.execute('echo', {}, toolContext())
@@ -110,14 +116,18 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when the tool throws', async () => {
-		const tools = new ToolRegistry()
-		tools.register({
-			name: 'boom',
-			description: 'boom',
-			inputSchema: z.object({}),
-			execute: async () => {
-				throw new Error('kaboom')
-			},
+		const tools = new ToolManager({
+			toolsets: [
+				testToolset({
+					name: 'boom',
+					description: 'boom',
+					inputSchema: z.object({}),
+					execute: async () => {
+						throw new Error('kaboom')
+					},
+				}),
+			],
+			messages: () => [],
 		})
 
 		await tools.execute('boom', {}, toolContext())
@@ -126,12 +136,16 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when input validation refuses the call', async () => {
-		const tools = new ToolRegistry()
-		tools.register({
-			name: 'strict',
-			description: 'strict',
-			inputSchema: z.object({ required: z.string() }),
-			execute: async () => ({ success: true, output: 'ok' }),
+		const tools = new ToolManager({
+			toolsets: [
+				testToolset({
+					name: 'strict',
+					description: 'strict',
+					inputSchema: z.object({ required: z.string() }),
+					execute: async () => ({ success: true, output: 'ok' }),
+				}),
+			],
+			messages: () => [],
 		})
 
 		await tools.execute('strict', { wrong: 1 }, toolContext())
@@ -140,16 +154,19 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when the tool is not active', async () => {
-		const tools = new ToolRegistry()
-		tools.register(
-			{
-				name: 'later',
-				description: 'later',
-				inputSchema: z.object({}),
-				execute: async () => ({ success: true, output: 'ok' }),
-			},
-			'deferred',
-		)
+		const tools = new ToolManager({
+			toolsets: [
+				deferred(
+					testToolset({
+						name: 'later',
+						description: 'later',
+						inputSchema: z.object({}),
+						execute: async () => ({ success: true, output: 'ok' }),
+					}),
+				),
+			],
+			messages: () => [],
+		})
 
 		await tools.execute('later', {}, toolContext())
 
@@ -157,7 +174,7 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when the registry does not hold the name at all', async () => {
-		const tools = new ToolRegistry()
+		const tools = new ToolManager({ toolsets: [], messages: () => [] })
 
 		// `getOrThrow` sat OUTSIDE the try that owned the finally, so this
 		// path — the one where the model invents a tool name — opened a span

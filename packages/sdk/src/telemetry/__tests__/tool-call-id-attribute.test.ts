@@ -7,9 +7,11 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { GENAI } from '../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { fixtureId } from '../../test-support/ids.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { ToolManager } from '../../toolsets/manager.js'
+import type { Toolset } from '../../toolsets/types.js'
 import { createUserMessage } from '../../types/message/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 
@@ -88,15 +90,17 @@ afterEach(async () => {
 
 const toolSpans = () => spans.filter((s) => s.name.startsWith('namzu.tool.execute '))
 
-function registerPing(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register({
+function registerPing(): Toolset {
+	return testToolset({
 		name: 'ping',
 		description: 'answers',
 		inputSchema: z.object({}),
 		execute: async () => ({ success: true, output: 'pong' }),
 	})
-	return tools
+}
+
+function pingManager(): ToolManager {
+	return new ToolManager({ toolsets: [registerPing()], messages: () => [] })
 }
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -125,7 +129,7 @@ describe('the tool-call id attribute is spelled the way the registry spells it',
 
 describe('the tool span carries the id of the call it is about', () => {
 	it('stamps it when the executor supplies one', async () => {
-		await registerPing().execute('ping', {}, context({ toolUseId: 'toolu_direct' }))
+		await pingManager().execute('ping', {}, context({ toolUseId: 'toolu_direct' }))
 
 		expect(toolSpans()).toHaveLength(1)
 		expect(toolSpans()[0]?.attributes['gen_ai.tool.call.id']).toBe('toolu_direct')
@@ -136,7 +140,7 @@ describe('the tool span carries the id of the call it is about', () => {
 		// a turn. Setting the attribute to `undefined` would reach the
 		// exporter as a present key with no value, which is worse than an
 		// absent one: a query for "spans missing the id" would not find it.
-		await registerPing().execute('ping', {}, context())
+		await pingManager().execute('ping', {}, context())
 
 		expect(toolSpans()).toHaveLength(1)
 		expect(toolSpans()[0]?.attributes).not.toHaveProperty('gen_ai.tool.call.id')
@@ -164,7 +168,7 @@ describe('the tool span carries the id of the call it is about', () => {
 					{ text: 'done' },
 				],
 			}),
-			tools: registerPing(),
+			toolsets: [registerPing()],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 30_000,
