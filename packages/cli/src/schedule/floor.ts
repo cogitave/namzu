@@ -466,9 +466,7 @@ function encodedCommandCall(
 	for (let i = command.assignments; i < words.length; i++) {
 		const word = words[i] as ShellWord
 		if (word.expands || !POWERSHELL_NAMES.has(commandName(word.value))) continue
-		const flag = words
-			.slice(i + 1)
-			.find((w) => !w.expands && ENCODED_COMMAND_FLAG.test(w.value))
+		const flag = words.slice(i + 1).find((w) => !w.expands && ENCODED_COMMAND_FLAG.test(w.value))
 		if (flag !== undefined) return { program: word, flag }
 	}
 	return null

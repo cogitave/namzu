@@ -39,7 +39,8 @@ import type { SchedulePaths } from './paths.js'
 import { type CompiledJobPolicy, type PermissionInput, expandPermissions } from './policy.js'
 import { computeProjectDigest } from './store/digest.js'
 import { JOB_NAME, jobSecurityDigest } from './store/jobs.js'
-import type { ConfirmationSurface, ScheduleBudget, ScheduleJob } from './types.js'
+import type { ConfirmationSurface, ScheduleBudget, ScheduleJob, ScheduleRunKind } from './types.js'
+import { jobFormatVersion } from './types.js'
 
 export const DEFAULT_TOKEN_BUDGET = 500_000
 export const DEFAULT_TIMEOUT_MS = 30 * 60_000
@@ -52,9 +53,14 @@ export const DEFAULT_WAIT_FOR_PROVIDER_MS = 10 * 60_000
 export const DEFAULT_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000
 export const DEFAULT_KEEP_SESSIONS = 20
 export const DEFAULT_PAUSE_AFTER_FAILURES = 5
+/** Separate from `budget.timeoutMs`, which governs the agent phase, not the script. */
+export const DEFAULT_SCRIPT_TIMEOUT_MS = 2 * 60_000
+/** Q4's number: a paragraph of "what changed", independent of the notification's own cap. */
+export const DEFAULT_WAKE_GATE_CONTEXT_CHARS = 4_000
 
 export interface JobRequest {
 	readonly name: string
+	/** Unused (kept empty) for a pure `script` job; the agent's instruction otherwise. */
 	readonly prompt: string
 	readonly when: string
 	/** A spec already parsed (an edit that keeps its schedule); `when` is then ignored. */
@@ -73,6 +79,16 @@ export interface JobRequest {
 	readonly createdBy: ScheduleJob['createdBy']
 	/** Only the CLI's `--allow-unattended-host` sets this. */
 	readonly allowUnattendedHost?: boolean
+	/** Absent: `'agent'`, unchanged from before this field existed. */
+	readonly runKind?: ScheduleRunKind
+	/** Required when `runKind` is `'script'` or `'script+agent'` (the wake-gate). */
+	readonly script?: {
+		readonly body: string
+		readonly shell: 'bash' | 'sh'
+		readonly timeoutMs?: number
+	}
+	/** `runKind: 'script+agent'` only. */
+	readonly wakeGate?: { readonly maxContextChars?: number }
 }
 
 export class JobRequestError extends Error {
@@ -128,7 +144,23 @@ export function buildJob(
 			`"${request.name}" is not a job name: lowercase letters, digits and dashes, starting with a letter or digit`,
 		)
 	}
-	if (!request.prompt.trim()) throw new JobRequestError('the prompt is empty')
+	const runKind = request.runKind ?? 'agent'
+	if (runKind === 'agent' && request.script !== undefined) {
+		throw new JobRequestError('an agent job has no script; pass --kind script or script+agent')
+	}
+	if (runKind !== 'agent' && !request.script?.body.trim()) {
+		throw new JobRequestError(
+			runKind === 'script' ? 'the script is empty' : 'the wake-gate script is empty',
+		)
+	}
+	// A pure `script` job's prompt is unused; `script+agent`'s is the agent
+	// phase's instruction, needed exactly as an `agent` job's is.
+	if (runKind !== 'script' && !request.prompt.trim()) {
+		throw new JobRequestError('the prompt is empty')
+	}
+	if (request.wakeGate !== undefined && runKind !== 'script+agent') {
+		throw new JobRequestError('a wake-gate only applies to a script+agent job')
+	}
 	const permissions = (() => {
 		try {
 			return expandPermissions(request.permissions)
@@ -143,6 +175,16 @@ export function buildJob(
 	) {
 		throw new JobRequestError(
 			'unmatched: allow with execution on the host lets an unattended run do anything no rule forbids; pass --allow-unattended-host to mean it, or use --execution sandbox',
+		)
+	}
+	if (runKind === 'script' && permissions.unmatched === 'park') {
+		throw new JobRequestError(
+			'a pure script job cannot use unmatched: park; nothing can wait for the operator while a script runs. Use unmatched: deny or allow (the floor and the job’s own rules still decide everything the script tries), or make this a script+agent job if a person should review something first',
+		)
+	}
+	if (runKind !== 'agent' && permissions.execution === 'sandbox') {
+		throw new JobRequestError(
+			`execution: sandbox is not yet supported for a ${runKind} job's script phase; use execution: host (a follow-up may add sandboxed scripts)`,
 		)
 	}
 	const folder = checkJobFolder(request.folder, {
@@ -187,9 +229,18 @@ export function buildJob(
 	}
 	if (budget.timeoutMs > 2_147_483_647 - 60_000)
 		throw new JobRequestError('the timeout is too long')
+	if (
+		request.script &&
+		request.script.timeoutMs !== undefined &&
+		(!Number.isSafeInteger(request.script.timeoutMs) || request.script.timeoutMs <= 0)
+	) {
+		throw new JobRequestError(
+			'the script timeout must be a whole number of milliseconds above zero',
+		)
+	}
 	const at = context.now.toISOString()
 	return {
-		v: 1,
+		v: jobFormatVersion({ runKind }),
 		kind: 'schedule-job',
 		id: generateScheduleJobId(),
 		name: request.name,
@@ -197,7 +248,26 @@ export function buildJob(
 		createdAt: at,
 		updatedAt: at,
 		createdBy: request.createdBy,
-		prompt: request.prompt,
+		prompt: runKind === 'script' ? '' : request.prompt,
+		...(runKind !== 'agent'
+			? {
+					runKind,
+					script: {
+						body: (request.script as NonNullable<JobRequest['script']>).body,
+						shell: (request.script as NonNullable<JobRequest['script']>).shell,
+						timeoutMs:
+							(request.script as NonNullable<JobRequest['script']>).timeoutMs ??
+							DEFAULT_SCRIPT_TIMEOUT_MS,
+					},
+				}
+			: {}),
+		...(runKind === 'script+agent'
+			? {
+					wakeGate: {
+						maxContextChars: request.wakeGate?.maxContextChars ?? DEFAULT_WAKE_GATE_CONTEXT_CHARS,
+					},
+				}
+			: {}),
 		folder: { path: request.folder, canonical: folder.canonical },
 		trust: null,
 		schedule: spec,
@@ -262,6 +332,9 @@ export function editedJob(current: ScheduleJob, rebuilt: ScheduleJob): ScheduleJ
 	return {
 		...current,
 		prompt: rebuilt.prompt,
+		runKind: rebuilt.runKind,
+		script: rebuilt.script,
+		wakeGate: rebuilt.wakeGate,
 		folder: rebuilt.folder,
 		schedule: rebuilt.schedule,
 		permissions: rebuilt.permissions,

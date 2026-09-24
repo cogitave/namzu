@@ -31,9 +31,10 @@ import {
 import { isPrivacyProtectedFolder } from '../folder.js'
 import type { SchedulePaths } from '../paths.js'
 import { type PermissionInput, compileJobPolicy, isPresetName } from '../policy.js'
+import { verifyScheduledScript } from '../script-check.js'
 import { appendHistory, readHistory } from '../store/history.js'
 import { createJob, findJob, updateJob } from '../store/jobs.js'
-import type { ScheduleJob } from '../types.js'
+import type { ScheduleJob, ScheduleRunKind } from '../types.js'
 import {
 	type ParsedArgs,
 	flag,
@@ -74,7 +75,29 @@ export const ADD_FLAGS = [
 	'browser-site',
 	'browser-headed!',
 	'no-browser!',
+	'kind',
+	'script',
+	'script-file',
+	'shell',
+	'script-timeout',
 ] as const
+
+const RUN_KINDS: readonly ScheduleRunKind[] = ['agent', 'script', 'script+agent']
+
+function isRunKind(value: string): value is ScheduleRunKind {
+	return (RUN_KINDS as readonly string[]).includes(value)
+}
+
+/** `--script`/`--script-file`, mutually exclusive, mirroring `--prompt`/`--prompt-file`. */
+function scriptBodyOf(args: ParsedArgs): string | undefined {
+	const inline = flag(args, 'script')
+	const file = flag(args, 'script-file')
+	if (inline !== undefined && file !== undefined) {
+		throw new JobRequestError('pass --script or --script-file, not both')
+	}
+	if (file !== undefined) return readFileSync(resolve(file), 'utf8')
+	return inline
+}
 
 /**
  * `--browser <profile>`, `--browser-site <site>=read|ask|act` (repeatable)
@@ -264,10 +287,42 @@ function requestFrom(args: ParsedArgs, name: string, base?: ScheduleJob): JobReq
 	const model = flag(args, 'model')
 	const effort = flag(args, 'effort')
 	const tz = flag(args, 'tz') ?? (base?.schedule.kind === 'cron' ? base.schedule.tz : undefined)
+	const kindFlag = flag(args, 'kind')
+	if (kindFlag !== undefined && !isRunKind(kindFlag)) {
+		throw new JobRequestError(`--kind is ${RUN_KINDS.join(', ')}`)
+	}
+	const runKind: ScheduleRunKind = kindFlag ?? base?.runKind ?? 'agent'
+	const shellFlag = flag(args, 'shell')
+	if (shellFlag !== undefined && shellFlag !== 'bash' && shellFlag !== 'sh') {
+		throw new JobRequestError('--shell is bash or sh')
+	}
+	const scriptGiven = has(args, 'script') || has(args, 'script-file')
+	const scriptBody = scriptGiven ? scriptBodyOf(args) : base?.script?.body
+	const shell = shellFlag ?? base?.script?.shell
+	if (runKind !== 'agent' && shell === undefined) {
+		throw new JobRequestError('--shell bash|sh is required for a script or script+agent job')
+	}
+	const scriptTimeoutMs =
+		parseMs('--script-timeout', flag(args, 'script-timeout')) ?? base?.script?.timeoutMs
+	const prompt = ((): string => {
+		if (has(args, 'prompt') || has(args, 'prompt-file')) return promptOf(args)
+		if (base) return base.prompt
+		if (runKind === 'script') return ''
+		return promptOf(args)
+	})()
 	return {
 		name,
-		prompt:
-			flag(args, 'prompt') || flag(args, 'prompt-file') || !base ? promptOf(args) : base.prompt,
+		prompt,
+		...(runKind !== 'agent'
+			? {
+					runKind,
+					script: {
+						body: scriptBody ?? '',
+						shell: shell as 'bash' | 'sh',
+						...(scriptTimeoutMs !== undefined ? { timeoutMs: scriptTimeoutMs } : {}),
+					},
+				}
+			: {}),
 		when: flag(args, 'when') ?? '',
 		...(!flag(args, 'when') && !flag(args, 'tz') && base ? { spec: base.schedule } : {}),
 		folder: resolve(flag(args, 'folder') ?? base?.folder.path ?? process.cwd()),
@@ -342,14 +397,35 @@ async function confirmOnTerminal(
 	if (policy.diagnostics.length > 0) {
 		throw new JobRequestError(`permission rules do not compile: ${policy.diagnostics.join('; ')}`)
 	}
+	// Fail closed before anything is shown: a script that cannot be verified,
+	// or that the job's own rules do not allow as one command, never reaches
+	// a preview or a confirmation prompt. Re-verified at every `__fire`
+	// through the same digest that already re-checks the prompt.
+	if (job.runKind && job.runKind !== 'agent' && job.script) {
+		const checked = verifyScheduledScript(job.script.body, job.script.shell, policy)
+		if (!checked.ok) {
+			throw new JobRequestError(
+				`the ${job.runKind === 'script' ? 'script' : 'wake-gate script'} was refused: ${checked.reason}`,
+			)
+		}
+	}
 	const now = new Date()
 	ctx.formatter.info(previewLines(job, policy, now).join('\n'))
-	ctx.formatter.info(
-		`Prompt\n${job.prompt
+	const indented = (text: string) =>
+		text
 			.split('\n')
 			.map((l) => `  ${l}`)
-			.join('\n')}`,
-	)
+			.join('\n')
+	if (job.runKind && job.runKind !== 'agent' && job.script) {
+		ctx.formatter.info(
+			`${job.runKind === 'script' ? 'Script' : 'Wake-gate script'} (exactly as it will run, ${job.script.shell}, verified clean)\n${indented(job.script.body)}`,
+		)
+	}
+	if (job.prompt.trim()) {
+		ctx.formatter.info(
+			`${job.runKind === 'script+agent' ? 'Prompt (used only when the wake-gate says wake: true)' : 'Prompt'}\n${indented(job.prompt)}`,
+		)
+	}
 	if (changes.length > 0) ctx.formatter.info(changesBlock(changes).join('\n'))
 	if (process.platform === 'darwin' && isPrivacyProtectedFolder(job.folder.canonical)) {
 		ctx.formatter.info(

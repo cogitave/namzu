@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 
 import { join } from 'node:path'
 import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { JobRequestError, buildJob, confirmJob, runsPerDay } from '../build.js'
+import { JobRequestError, buildJob, confirmJob, editedJob, runsPerDay } from '../build.js'
 import { compileJobPolicy, expandPermissions, scheduledRunFloor } from '../policy.js'
 import { ScheduleFormatError, publishExclusive, readVersioned } from '../store/atomic.js'
 import { claimOccurrence, isClaimed } from '../store/claims.js'
@@ -258,6 +258,130 @@ describe('building a job', () => {
 			1_440,
 		)
 		expect(runsPerDay({ kind: 'cron', expr: '0 9 * * 1-5', tz: 'UTC' }, now)).toBe(1)
+	})
+})
+
+describe('building a script/script+agent job', () => {
+	const build = (over: Parameters<typeof jobRequest>[1] = {}) =>
+		buildJob(jobRequest(sb, over), {
+			paths: sb.paths,
+			config: {},
+			now: new Date(),
+			osHome: sb.osHome,
+		})
+
+	it('an agent job is built exactly as before: v:1, no runKind, no script', () => {
+		const job = build()
+		expect(job.v).toBe(1)
+		expect(job.runKind).toBeUndefined()
+		expect(job.script).toBeUndefined()
+	})
+
+	it('a script job requires a non-empty script, and its prompt is unused', () => {
+		expect(() => build({ runKind: 'script' })).toThrow(/script is empty/)
+		const job = build({
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		expect(job.prompt).toBe('')
+		expect(job.runKind).toBe('script')
+		expect(job.script).toEqual({ body: 'echo hi', shell: 'bash', timeoutMs: 120_000 })
+		expect(job.v).toBe(2)
+	})
+
+	it('a script+agent job requires both a gate script and a prompt', () => {
+		expect(() =>
+			build({ runKind: 'script+agent', script: { body: 'echo hi', shell: 'bash' }, prompt: '  ' }),
+		).toThrow(/prompt is empty/)
+		const job = build({
+			runKind: 'script+agent',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'park' },
+		})
+		expect(job.prompt).not.toBe('')
+		expect(job.wakeGate).toEqual({ maxContextChars: 4_000 })
+	})
+
+	it('an agent job cannot carry a script, and a wake-gate needs script+agent', () => {
+		expect(() => build({ script: { body: 'echo hi', shell: 'bash' } })).toThrow(/no script/)
+		expect(() =>
+			build({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				wakeGate: { maxContextChars: 10 },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			}),
+		).toThrow(/wake-gate only applies to a script\+agent job/)
+	})
+
+	it('refuses unmatched: park on a pure script job: nothing can wait for the operator', () => {
+		expect(() =>
+			build({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'park' },
+			}),
+		).toThrow(/unmatched: park/)
+	})
+
+	it('refuses execution: sandbox for a script/script+agent job in v1', () => {
+		expect(() =>
+			build({
+				runKind: 'script',
+				script: { body: 'echo hi', shell: 'bash' },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny', execution: 'sandbox' },
+			}),
+		).toThrow(/execution: sandbox is not yet supported/)
+	})
+
+	it('editedJob preserves runKind/script when the edit does not touch them', () => {
+		const current = build({
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+		})
+		const rebuilt = build({
+			runKind: 'script',
+			script: { body: 'echo hi', shell: 'bash' },
+			permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			when: '0 4 * * *',
+		})
+		const edited = editedJob(current, rebuilt)
+		expect(edited.runKind).toBe('script')
+		expect(edited.script).toEqual(current.script)
+	})
+})
+
+describe('the script digest', () => {
+	it('two jobs differing only in script.body produce different security digests', () => {
+		const base = (body: string) =>
+			buildJob(
+				jobRequest(sb, {
+					runKind: 'script',
+					script: { body, shell: 'bash' },
+					permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+				}),
+				{ paths: sb.paths, config: {}, now: new Date(), osHome: sb.osHome },
+			)
+		const a = confirmJob(base('echo one'), 'cli-tty', new Date())
+		const b = confirmJob(base('echo two'), 'cli-tty', new Date())
+		expect(a.confirmation?.digest).not.toBe(b.confirmation?.digest)
+	})
+
+	it('editing the confirmed script invalidates confirmationHolds, like editing the prompt', () => {
+		const built = buildJob(
+			jobRequest(sb, {
+				runKind: 'script',
+				script: { body: 'echo one', shell: 'bash' },
+				permissions: { rules: { bash: 'allow' }, unmatched: 'deny' },
+			}),
+			{ paths: sb.paths, config: {}, now: new Date(), osHome: sb.osHome },
+		)
+		const confirmed = confirmJob(built, 'cli-tty', new Date())
+		expect(confirmationHolds(confirmed)).toBe(true)
+		const tampered = { ...confirmed, script: { ...confirmed.script, body: 'echo tampered' } }
+		expect(confirmationHolds(tampered as never)).toBe(false)
 	})
 })
 
