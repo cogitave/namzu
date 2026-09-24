@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { SessionPaths, slugForCwd } from '../../session/paths.js'
 import { DiskSessionLog, InMemorySessionLog } from '../../store/session-log/index.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { getBuiltinTools } from '../../tools/builtins/index.js'
 import { generateSessionId } from '../../utils/id.js'
 import { runAgent } from '../runAgent.js'
@@ -23,8 +23,7 @@ it.each([false, true])(
 		const cwd = join(root, 'workspace')
 		await mkdir(cwd)
 		await writeFile(join(cwd, 'note.txt'), 'Current source.')
-		const tools = new ToolRegistry()
-		tools.register(getBuiltinTools().filter((t) => t.name === 'read'))
+		const tools = testToolset(getBuiltinTools().filter((t) => t.name === 'read'))
 		const home = join(root, 'home')
 		const paths = new SessionPaths({ home, slug: slugForCwd(await realpath(cwd)) })
 		const sessionId = generateSessionId()

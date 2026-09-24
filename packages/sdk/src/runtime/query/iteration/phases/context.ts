@@ -12,6 +12,7 @@ import type { ResolvedProviderCapabilities } from '../../../../provider/capabili
 import type { ServingMember } from '../../../../provider/fallback.js'
 import type { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
+import type { ToolManager } from '../../../../toolsets/manager.js'
 import type { TaskScheduler } from '../../../../types/agent/scheduler.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
@@ -30,7 +31,6 @@ import type {
 } from '../../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../../types/structured-output/index.js'
 import type { TaskStore } from '../../../../types/task/index.js'
-import type { ToolRegistryContract } from '../../../../types/tool/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import type { AwaitedJobs } from '../../../jobs/awaited-jobs.js'
 import type { CheckpointManager } from '../../checkpoint.js'
@@ -96,7 +96,7 @@ export interface IterationContext {
 
 	/** Demand a schema-validated final answer. See QueryParams.structuredOutput. */
 	readonly structuredOutput?: StructuredOutputConfig
-	readonly tools: ToolRegistryContract
+	readonly tools: ToolManager
 	readonly allowedTools?: string[]
 	readonly recorder: TurnRecorder
 	readonly toolExecutor: ToolExecutor

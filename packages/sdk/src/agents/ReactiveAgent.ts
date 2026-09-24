@@ -70,7 +70,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				basePrompt: config.basePrompt,
 				provider: config.provider,
 				...(config.budget ? { budget: config.budget } : {}),
-				tools: config.tools,
+				toolsets: config.toolsets,
 				...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
 				...(config.attachmentResolveTimeoutMs !== undefined
 					? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }

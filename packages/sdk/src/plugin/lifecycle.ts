@@ -17,6 +17,8 @@ import type { PluginRegistry } from '../registry/plugin/index.js'
 import { loadSkill } from '../skills/loader.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import { resolveWithinReal } from '../tools/paths.js'
+import type { Toolset } from '../toolsets/types.js'
+import { deferred } from '../toolsets/wrappers.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginDefinition,
@@ -31,7 +33,7 @@ import type {
 } from '../types/plugin/index.js'
 import { assertPluginHookEvent } from '../types/plugin/index.js'
 import type { SessionEvent } from '../types/session/index.js'
-import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.js'
+import type { ToolDefinition } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
@@ -88,7 +90,6 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 
 export interface PluginLifecycleManagerConfig {
 	pluginRegistry: PluginRegistry
-	toolRegistry: ToolRegistryContract
 	/**
 	 * Filesystem authorities for each plugin scope.
 	 *
@@ -151,7 +152,29 @@ export interface PluginLifecycleManagerConfig {
 
 export class PluginLifecycleManager {
 	private pluginRegistry: PluginRegistry
-	private toolRegistry: ToolRegistryContract
+	/**
+	 * Tool contributions this manager owns, replacing the `ToolRegistryContract`
+	 * it used to register into and unregister from directly (plan.md v3 §2).
+	 *
+	 * Two fixed toolsets, built once, both deferred and both live
+	 * (`onChange` fires on every enable/disable/rollback): `pluginFileTools`
+	 * (kind `plugin`, host-authored — this process, code the operator
+	 * installed) and `pluginMcpTools` (kind `mcp_server` — a plugin's MCP
+	 * server and the prompts it publishes, the same untrusted-by-default
+	 * shape any other MCP source gets). A host reads {@link toolsets} once,
+	 * when it composes its own `ToolManager`, and that manager's `refresh()`
+	 * at its next iteration boundary is what picks up a later enable/disable.
+	 *
+	 * Splitting by real per-server trust (`plugin:<name>/mcp:<server>`, one
+	 * toolset each) is plan.md v3 §7's job ("plugins are bundles of
+	 * toolsets"); nothing in `PluginMCPServerConfig` lets an operator mark
+	 * one server trusted and not another yet, so every plugin MCP server is
+	 * untrusted here today regardless, and collapsing them costs no real
+	 * fidelity in the meantime.
+	 */
+	private readonly pluginFileTools = new Map<string, ToolDefinition>()
+	private readonly pluginMcpTools = new Map<string, ToolDefinition>()
+	private readonly toolsetChangeListeners = new Set<() => void>()
 	private listeners: PluginEventListener[] = []
 	private hookHandlers: Map<
 		PluginHookEvent,
@@ -189,7 +212,6 @@ export class PluginLifecycleManager {
 
 	constructor(config: PluginLifecycleManagerConfig) {
 		this.pluginRegistry = config.pluginRegistry
-		this.toolRegistry = config.toolRegistry
 		this.skillRegistry = config.skillRegistry
 		this.scopeRoots = Object.freeze({ ...config.scopeRoots })
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
@@ -200,6 +222,64 @@ export class PluginLifecycleManager {
 			...(config.onMCPToolDrift ? { onDrift: config.onMCPToolDrift } : {}),
 			logger: this.log,
 		})
+	}
+
+	/**
+	 * The two toolsets this manager currently contributes — see the field
+	 * doc on {@link pluginFileTools}/{@link pluginMcpTools}. A host includes
+	 * both in its own `toolsets` array (`query()`/`ReactiveAgentConfig`/…)
+	 * alongside everything else it composes.
+	 */
+	get toolsets(): readonly Toolset[] {
+		return [this.fileToolset, this.mcpToolset]
+	}
+
+	private readonly fileToolset: Toolset = deferred({
+		source: { id: 'plugins', kind: 'plugin', name: 'plugins' },
+		tools: () => [...this.pluginFileTools.values()],
+		onChange: (listener) => {
+			this.toolsetChangeListeners.add(listener)
+			return () => this.toolsetChangeListeners.delete(listener)
+		},
+	})
+
+	private readonly mcpToolset: Toolset = deferred({
+		source: {
+			id: 'plugins/mcp',
+			kind: 'mcp_server',
+			name: 'plugin-mcp',
+			// See the field doc: no per-server trust config exists yet, so
+			// every plugin MCP server is untrusted, uniformly.
+			mcpServer: { name: 'plugin-mcp', readOnlyHintTrusted: false },
+		},
+		tools: () => [...this.pluginMcpTools.values()],
+		onChange: (listener) => {
+			this.toolsetChangeListeners.add(listener)
+			return () => this.toolsetChangeListeners.delete(listener)
+		},
+	})
+
+	private notifyToolsetChange(): void {
+		for (const listener of this.toolsetChangeListeners) listener()
+	}
+
+	/** A file-declared plugin tool. Always deferred, like every other tool this manager contributes. */
+	private addFileTool(tool: ToolDefinition): void {
+		this.pluginFileTools.set(tool.name, tool)
+		this.notifyToolsetChange()
+	}
+
+	/** An MCP-discovered tool or a prompt adapted to one. */
+	private addMcpTool(tool: ToolDefinition): void {
+		this.pluginMcpTools.set(tool.name, tool)
+		this.notifyToolsetChange()
+	}
+
+	/** Reverses whichever of the two maps above actually holds `name`; a name in neither is a no-op. */
+	private removeContributedTool(name: string): void {
+		if (this.pluginFileTools.delete(name) || this.pluginMcpTools.delete(name)) {
+			this.notifyToolsetChange()
+		}
 	}
 
 	/**
@@ -407,7 +487,7 @@ export class PluginLifecycleManager {
 					for (const tool of mod.tools) {
 						const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + tool.name
 						const namespacedTool: ToolDefinition = { ...tool, name: namespacedName }
-						this.toolRegistry.register(namespacedTool, 'deferred')
+						this.addFileTool(namespacedTool)
 						contributions.toolNames.push(namespacedName)
 					}
 				}
@@ -552,7 +632,7 @@ export class PluginLifecycleManager {
 			// produce distinct final names.
 			const namespacedName = `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}mcp__${config.name}__${mcpTool.name}`
 			const namespacedTool: ToolDefinition = { ...baseDef, name: namespacedName }
-			this.toolRegistry.register(namespacedTool, 'deferred')
+			this.addMcpTool(namespacedTool)
 			contributions.toolNames.push(namespacedName)
 		}
 
@@ -562,7 +642,7 @@ export class PluginLifecycleManager {
 		for (const prompt of prompts) {
 			const baseDef = mcpPromptToToolDefinition(prompt, client, config.name)
 			const namespacedName = `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}${baseDef.name}`
-			this.toolRegistry.register({ ...baseDef, name: namespacedName }, 'deferred')
+			this.addMcpTool({ ...baseDef, name: namespacedName })
 			contributions.toolNames.push(namespacedName)
 		}
 	}
@@ -573,7 +653,7 @@ export class PluginLifecycleManager {
 	): Promise<void> {
 		for (const name of contributions.toolNames) {
 			try {
-				this.toolRegistry.unregister(name)
+				this.removeContributedTool(name)
 			} catch (unregErr) {
 				this.log.warn('Rollback: tool unregister failed', {
 					[GENAI.TOOL_NAME]: name,
@@ -639,7 +719,7 @@ export class PluginLifecycleManager {
 
 		// Unregister contributed tools (plugin tools + MCP-adapted tools)
 		for (const name of contributions.toolNames) {
-			this.toolRegistry.unregister(name)
+			this.removeContributedTool(name)
 		}
 
 		// And its skills. A disabled plugin whose skills stayed registered

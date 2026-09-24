@@ -7,7 +7,6 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import {
@@ -33,7 +32,7 @@ async function fixture(provider: LLMProvider) {
 	return {
 		provider,
 		turnId: generateTurnId(),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'review-request',
 		agentName: 'Review request',
 		workingDirectory,
@@ -317,7 +316,7 @@ it('rebuilds request evidence on the next turn instead of retaining the old snap
 		...params,
 		turnId: generateTurnId(),
 		messages: [createUserMessage('Try again with the new reference.')],
-		tools: new ToolRegistry(),
+		toolsets: [],
 		provider: new MockLLMProvider({ turns: [{ text: 'B42' }] }),
 		prepareStep: () => ({ context: 'New request-only source: B42' }),
 		maxAnswerReviews: 1,

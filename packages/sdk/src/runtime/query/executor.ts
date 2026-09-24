@@ -15,6 +15,7 @@ import { sandboxShellSpawn, withoutBashStartup } from '../../tools/command-shell
 import { isAlwaysDestructive } from '../../tools/defineTool.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import { pathOutsideRoots, toolRoots } from '../../tools/paths.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { ToolCallEscalation } from '../../types/hitl/index.js'
 import type { SessionId, ToolUseId, TurnId } from '../../types/ids/index.js'
@@ -40,7 +41,6 @@ import type {
 	ToolContext,
 	ToolDispatchOptions,
 	ToolHandoff,
-	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
@@ -304,7 +304,7 @@ export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
 
 export interface ToolExecutorConfig {
 	fileReadTracker?: FileReadTracker
-	tools: ToolRegistryContract
+	tools: ToolManager
 	sessionId: SessionId
 	turnId: TurnId
 	workingDirectory: string
@@ -1954,35 +1954,30 @@ export class ToolExecutor {
 			}
 		}
 
-		// `reveals`: a curated activation, the same one `search_tools` performs,
-		// offered to any tool's own result. `getAvailability(name) === 'deferred'`
-		// is the one guard that makes an arbitrary tool/plugin/MCP-authored list
-		// safe to hand to `activate()` unfiltered otherwise: an unregistered name
-		// reports `'active'` by default (never matching, so it can never reach
-		// `activate()`'s `getOrThrow` and throw mid-finalization), and an
-		// already-active or `'suspended'` name is left exactly where it is — a
-		// host that suspended a tool on purpose is not overridden by a tool
-		// result. The `allowedTools` check keeps a narrowed turn narrowed: a
-		// name outside it is never made callable no matter what a result claims.
+		// `reveals`: a curated set of names this call's own result makes
+		// callable, the same mechanism `search_tools` uses. `availability(name)
+		// === 'deferred'` is the one guard that makes an arbitrary
+		// tool/plugin/MCP-authored list safe to write unfiltered otherwise: an
+		// unregistered name reports `'active'` by default (never matching, so
+		// it can never be written as revealed), and an already-active name is
+		// left exactly where it is. The `allowedTools` check keeps a narrowed
+		// turn narrowed: a name outside it is never made callable no matter
+		// what a result claims.
 		//
-		// `revealedTools` below carries the SAME filtered set onto the
-		// persisted tool message, for `ToolManager.availability`
-		// (`toolsets/manager.ts`) to derive from post-compaction history. The
-		// `registry.activate()` call stays: this runtime still runs on
-		// `ToolRegistry`, and `ToolManager` has no caller yet (plan.md v3
-		// Wave B, item B1b wires it in) — writing the field now means the
-		// derivation already has real history to read once that switch
-		// happens, instead of every session before the switch looking
-		// unrevealed forever.
+		// `revealedTools` is written onto the persisted tool message; nothing
+		// here mutates the manager itself, because `ToolManager.availability`
+		// (`toolsets/manager.ts`) DERIVES availability from this field the
+		// next time it reads the turn's post-compaction history — compaction
+		// is the one boundary that resets it. There is no `activate()` call
+		// to make: the manager has no mutable membership to activate.
 		let revealedTools: readonly string[] | undefined
 		if (!this.config.abortSignal.aborted && result.reveals && result.reveals.length > 0) {
 			const revealed = result.reveals.filter(
 				(name) =>
-					this.config.tools.getAvailability(name) === 'deferred' &&
+					this.config.tools.availability(name) === 'deferred' &&
 					(toolContext.allowedTools === undefined || toolContext.allowedTools.includes(name)),
 			)
 			if (revealed.length > 0) {
-				this.config.tools.activate(revealed)
 				revealedTools = revealed
 			}
 		}

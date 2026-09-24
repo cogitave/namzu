@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { PipelineAgentConfig } from '../../types/agent/pipeline.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SupervisorAgentConfig } from '../../types/agent/supervisor.js'
@@ -160,7 +159,7 @@ describe('agent front doors preserve the sandbox teardown bound', () => {
 		})
 		const config = {
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			sandboxProvider: heldSandboxProvider((signal) => {
 				teardownSignal = signal
 			}),
@@ -270,7 +269,7 @@ describe('agent front doors preserve the sandbox workspace choice', () => {
 
 		await agent.run({ messages: [createUserMessage('go')], workingDirectory }, {
 			provider: new MockLLMProvider({ turns: [{ text: 'done' }] }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			sandboxProvider,
 			sandbox: { workspace: 'working-directory' },
 			model: 'mock-model',

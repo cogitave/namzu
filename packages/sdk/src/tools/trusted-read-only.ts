@@ -1,3 +1,4 @@
+import type { ToolSourceRef } from '../toolsets/types.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 
 /**
@@ -30,23 +31,31 @@ import type { ToolDefinition } from '../types/tool/index.js'
  *    opening its own gate.
  *
  * Trust for the second case comes from the operator, per server, and is
- * recorded on the tool as `provenance.readOnlyHintTrusted`. Never a global
- * switch: one flag meaning "trust annotations" hands every connected
- * server the same reach, which is the hole restated.
+ * carried on the OWNING TOOLSET's source (`ToolSourceRef.readOnlyHintTrusted`,
+ * `toolsets/manager.ts`'s `sourceOf`) rather than stamped onto the tool
+ * itself — `ToolDefinition` has no `provenance` field to read; a definition
+ * cannot claim its own source. Never a global switch: one flag meaning
+ * "trust annotations" hands every connected server the same reach, which is
+ * the hole restated.
  *
  * `isReadOnly` itself is left reporting faithfully what the server said.
- * Provenance and policy are different questions, and collapsing them would
+ * Source and policy are different questions, and collapsing them would
  * corrupt the outbound re-export and the prompt's own destructive label in
  * order to fix a gate.
  */
-export function isTrustedReadOnly(tool: ToolDefinition | undefined, input: unknown): boolean {
+export function isTrustedReadOnly(
+	tool: ToolDefinition | undefined,
+	input: unknown,
+	source?: ToolSourceRef,
+): boolean {
 	if (!tool?.isReadOnly) return false
 
-	// No provenance means the tool is host-defined: it came from this
-	// process, from code the operator installed, and there is no untrusted
-	// party in the chain. Requiring an opt-in for a builtin would break
-	// every read-only exemption for no gain in trust.
-	if (tool.provenance && !tool.provenance.readOnlyHintTrusted) return false
+	// A source that is not `mcp_server` is host-defined: this process, code
+	// the operator installed, no untrusted party in the chain. Requiring an
+	// opt-in for a builtin would break every read-only exemption for no gain
+	// in trust. `source` itself absent (a caller with no manager to ask)
+	// is treated the same way, matching the old "no provenance" default.
+	if (source?.kind === 'mcp_server' && !source.readOnlyHintTrusted) return false
 
 	return tool.isReadOnly(input)
 }

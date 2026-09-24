@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { GuardedFetchProvider } from '../../../connector/web/guarded-fetch.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { WebFetchTool } from '../../../tools/builtins/web.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -58,8 +58,7 @@ describe('guarded web fetch cancellation reaches a real turn', () => {
 			resolve: async () => ['93.184.216.34'],
 			timeoutMs: 1_000,
 		})
-		const tools = new ToolRegistry()
-		tools.register(WebFetchTool)
+		const tools = testToolset(WebFetchTool)
 		const provider = new MockLLMProvider({
 			turns: [
 				{

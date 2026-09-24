@@ -11,8 +11,8 @@ status: stable
 
 A `Toolset` is a value, not a registration: `toolset()`, every wrapper in
 this module, and `combineToolsets` each build one without touching any
-shared state. Nothing "is registered" until a runtime component — today
-`ToolRegistry` or the newer `ToolManager` (below) — is handed one. Building
+shared state. Nothing "is registered" until a runtime component — a
+`ToolManager` (below) — is handed one. Building
 a toolset never runs a tool and never talks to a server; it only describes
 where tools come from and what they are.
 
@@ -146,8 +146,7 @@ own message history — and resolves them in toolset order, then tool order,
 the same rule `combineToolsets` follows. A name two toolsets both contribute
 throws `ToolsetConflictError` at construction, naming both sources.
 
-Unlike `ToolRegistry`, a `ToolManager` never mutates its own membership on
-its own: a live toolset's `onChange` only marks the manager dirty, and a
+A `ToolManager` never mutates its own membership on its own: a live toolset's `onChange` only marks the manager dirty, and a
 caller adopts the change by calling `refresh()` — at an iteration boundary
 it chooses, never mid-call. `refresh()` returns `undefined` when nothing
 was signalled (the common case, so refreshing every iteration boundary
@@ -196,33 +195,28 @@ a pure read of that history rather than a registry instance's private
 state.
 
 `toLLMTools`, `toPromptSection`, `toTierGuidance` and `searchDeferred(query,
-limit?)` mirror `ToolRegistry`'s equivalents, reading `availability` instead
-of a stored map. `sourceOf(name)` returns the owning toolset's
-`ToolSourceRef` — the source `ToolDefinition.provenance` is retired in
-favour of, once a later item finishes that wiring. `view()` returns the
-narrow, read-only `{ has, availability, searchDeferred }` slice a running
-tool's own `ToolContext` is given — the manager equivalent of today's
-`ToolRegistryRef`.
+limit?)` render from the derivation above. `sourceOf(name)` returns the
+owning toolset's `ToolSourceRef` — what `ToolDefinition.provenance` used to
+carry on the tool itself, before it was retired in favour of this. `view()`
+returns the narrow, read-only `{ has, availability, searchDeferred }` slice
+a running tool's own `ToolContext` is given, as a `ToolsView`.
 
 ### The execution pipeline
 
-`prepareExecution` / `executePrepared` / `execute` are copied from
-`ToolRegistry`'s (`registry/tool/execute.ts`) pipeline: the same
-decode-once preparation with a frozen review projection and a retained
-execution value in a `WeakMap`, the same ordered checks (availability →
-`allowedTools` → plan-mode read-only gate → execute + guardrail screening,
-with the halt/fail distinction and the explicit parent span for
-async-generator tracing), and the same messages. The only differences are
-reading `availability` from the derivation above instead of a stored map,
-and reading the source from `sourceOf(name)` instead of
-`ToolDefinition.provenance` for the plan-mode read-only gate and the result
+`prepareExecution` / `executePrepared` / `execute` are the decode-once
+preparation pipeline: a frozen review projection and a retained execution
+value in a `WeakMap`, ordered checks (availability → `allowedTools` →
+plan-mode read-only gate → execute + guardrail screening, with the
+halt/fail distinction and the explicit parent span for async-generator
+tracing). Availability comes from the derivation above; the source comes
+from `sourceOf(name)` for the plan-mode read-only gate and the result
 screen's `provenance` context.
 
-`ToolManager` is exported as an advanced API; `ToolRegistry` is unaffected
-by this and keeps its current behaviour. Wiring `query()` and the rest of
-the runtime onto `ToolManager` — and removing `ToolRegistry` — is a
-separate, later change: see [Tool discovery](tool-discovery.md) for how
-`ToolRegistry`'s activation currently works in production.
+`ToolManager` is exported as an advanced API; `query()` builds one per turn
+from the `toolsets` it is given, combined with its own generated `runtime`
+toolset (task tools, `search_tools`, the structured-output tool, advisory
+tools) — see [Tool discovery](tool-discovery.md) for how availability
+behaves across sends, resume and children under this model.
 
 ## Not yet built
 
@@ -231,6 +225,6 @@ separate, later change: see [Tool discovery](tool-discovery.md) for how
 enforced and matched outside this module — see [The review
 policy](review-policy.md#a-call-the-tool-itself-declares-always-needs-approval)
 and `matchesToolSelector` (`packages/sdk/src/tools/roster.ts`), which
-`filtered`'s `{ metadata }` selector defers to. `query()`, the CLI's
-session and every other current caller of `ToolRegistryContract` still
-take a `ToolRegistry`, not a `ToolManager`.
+`filtered`'s `{ metadata }` selector defers to. The CLI's session still
+builds a registry-shaped roster of its own; wiring it onto `toolsets` and a
+`ToolManager` is a separate, later change.

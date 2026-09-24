@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { createRuntimeContextMessage, createUserMessage } from '../../../types/message/index.js'
 import {
 	generateProjectId,
@@ -24,8 +24,7 @@ describe('advisory context after actual tool execution', () => {
 		async (mode) => {
 			const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-advisory-history-'))
 			dirs.push(workingDirectory)
-			const tools = new ToolRegistry()
-			tools.register({
+			const tools = testToolset({
 				name: 'observe',
 				description: 'Read fixture evidence.',
 				inputSchema: z.object({}),

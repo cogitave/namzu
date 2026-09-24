@@ -4,8 +4,7 @@ export type { RegistryCollisionPolicy } from './collision.js'
 export { ManagedRegistry } from './ManagedRegistry.js'
 export type { ManagedRegistryConfig } from './ManagedRegistry.js'
 
-export { ToolNameCollisionError, ToolRegistry } from './tool/execute.js'
-export type { ToolExecutionResult, ToolRegistryForkOptions } from './tool/execute.js'
+export { ToolNameCollisionError, TOOL_NAME_PATTERN, assertToolName } from './tool/execute.js'
 
 export { ConnectorRegistry } from './connector/definitions.js'
 export { ScopedConnectorRegistry } from './connector/scoped.js'

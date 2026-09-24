@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { PLUGIN_NAMESPACE_SEPARATOR } from '../../../constants/plugin/index.js'
-import { ToolRegistry, assertToolName } from '../execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
+import { assertToolName } from '../execute.js'
 
 /**
  * A tool name reaches the provider verbatim, and the major message APIs
@@ -51,26 +53,24 @@ describe('what a name may be', () => {
 	})
 })
 
-describe('the registry', () => {
-	it('refuses at registration rather than at request time', () => {
-		const registry = new ToolRegistry()
+describe('the manager', () => {
+	it('refuses at construction rather than at request time', () => {
 		// Failing here costs the turn nothing and can still be attributed.
-		expect(() => registry.register(tool('plugin:tool') as never)).toThrow(
-			/cannot be sent to a provider/,
-		)
+		expect(
+			() =>
+				new ToolManager({
+					toolsets: [testToolset(tool('plugin:tool') as never)],
+					messages: () => [],
+				}),
+		).toThrow(/cannot be sent to a provider/)
 	})
 
-	it('still registers a legal name', () => {
-		const registry = new ToolRegistry()
-		registry.register(tool('read_file') as never)
-		expect(registry.listNames()).toContain('read_file')
-	})
-
-	it('checks the id when one is passed separately', () => {
-		const registry = new ToolRegistry()
-		expect(() => registry.register('bad:id', tool('fine') as never)).toThrow(
-			/cannot be sent to a provider/,
-		)
+	it('still admits a legal name', () => {
+		const manager = new ToolManager({
+			toolsets: [testToolset(tool('read_file') as never)],
+			messages: () => [],
+		})
+		expect(manager.listNames()).toContain('read_file')
 	})
 })
 

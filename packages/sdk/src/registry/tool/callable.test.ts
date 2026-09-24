@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { testToolset } from '../../test-support/toolset.js'
+import { ToolManager } from '../../toolsets/manager.js'
+import { deferred } from '../../toolsets/wrappers.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { callableToolNames, formatToolNames } from './callable.js'
-import { ToolRegistry } from './execute.js'
 
 function tool(name: string): ToolDefinition {
 	return {
@@ -16,11 +18,14 @@ function tool(name: string): ToolDefinition {
 	} as unknown as ToolDefinition
 }
 
-function registry(): ToolRegistry {
-	const r = new ToolRegistry()
-	r.register([tool('read'), tool('write'), tool('bash')])
-	r.register([tool('deep_search')], 'deferred')
-	return r
+function registry(): ToolManager {
+	return new ToolManager({
+		toolsets: [
+			testToolset(tool('read'), tool('write'), tool('bash')),
+			deferred(testToolset(tool('deep_search'))),
+		],
+		messages: () => [],
+	})
 }
 
 describe('callableToolNames', () => {
@@ -33,16 +38,14 @@ describe('callableToolNames', () => {
 	})
 
 	it('drops a listed name the registry no longer holds', () => {
-		// `getAvailability` answers 'active' for a name it has never seen, so
+		// `availability` answers 'active' for a name it has never seen, so
 		// filtering the list by availability alone would keep it.
 		expect(callableToolNames(registry(), ['read', 'gone'])).toEqual(['read'])
 	})
 
-	it('drops a listed tool that is deferred or suspended', () => {
+	it('drops a listed tool that is deferred', () => {
 		const r = registry()
 		expect(callableToolNames(r, ['read', 'deep_search'])).toEqual(['read'])
-		r.suspendAll()
-		expect(callableToolNames(r, ['read', 'deep_search'])).toEqual([])
 	})
 
 	it('is empty for a step that may call nothing', () => {

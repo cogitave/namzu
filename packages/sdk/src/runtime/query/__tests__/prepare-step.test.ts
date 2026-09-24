@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -52,10 +52,9 @@ async function run(opts: {
 	dirs.push(workingDirectory)
 
 	const calls: string[] = []
-	const tools = new ToolRegistry()
-	for (const name of opts.toolNames ?? ['search', 'write_file']) {
-		tools.register(tool(name, calls))
-	}
+	const tools = testToolset(
+		...(opts.toolNames ?? ['search', 'write_file']).map((name) => tool(name, calls)),
+	)
 
 	const provider = new MockLLMProvider({ turns: opts.turns })
 	const result = await drainQuery({

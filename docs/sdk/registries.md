@@ -47,14 +47,15 @@ existed; only the shared base and the default policy are new.
 
 ## Where a caller means to replace, not collide
 
-Two registries opt out of `'throw'` as their own default, because their own
+`ToolRegistry` is gone: tools enter only through toolsets, resolved by the
+runtime-owned `ToolManager` (`toolsets/manager.ts`), which is not a
+`ManagedRegistry` at all — it throws `ToolsetConflictError` on any name
+collision at construction, with no `onCollision` policy to opt out of.
+
+One registry still opts out of `'throw'` as its own default, because its own
 callers are documented and tested as legitimately re-registering the same
 id:
 
-- **`ToolRegistry`** passes `onCollision: 'warn-overwrite'` explicitly. It is
-  scheduled for removal — tools will enter only through toolsets, resolved
-  by a runtime-owned tool manager — and nothing about tool registration
-  changes ahead of that redesign.
 - **`PluginRegistry`** passes `onCollision: 'warn-overwrite'` explicitly.
   `PluginLifecycleManager` re-registers the same plugin id on every status
   transition (installed → enabled → disabled, or → error), and the registry
@@ -78,5 +79,5 @@ The third policy, `'warn-skip'`, logs and keeps the existing item, discarding
 the one being registered. It is right when the FIRST registration should win
 and a host still wants to know a second tried — a plugin whose defaults must
 not shadow a user's override — but no in-tree registry defaults to it today;
-a registry opts in the same way `ToolRegistry` and `PluginRegistry` opt into
+a registry opts in the same way `PluginRegistry` opts into
 `'warn-overwrite'`, via `onCollision` in its constructor.

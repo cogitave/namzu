@@ -6,8 +6,8 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { CreateMemoryParams, MemoryStore } from '../../../types/memory/index.js'
@@ -69,8 +69,7 @@ function store(fail = false): MemoryStore & { created: CreateMemoryParams[] } {
 async function run(consolidateInto: MemoryStore) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-consolidate-'))
 	dirs.push(workingDirectory)
-	const tools = new ToolRegistry()
-	tools.register(
+	const tools = testToolset(
 		defineTool({
 			name: 'deploy',
 			description: 'fails once',

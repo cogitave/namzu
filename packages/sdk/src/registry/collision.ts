@@ -23,10 +23,11 @@
  *   every registry here unless a caller can name a reason a second
  *   registration under one id should not be a bug.
  * - `'warn-overwrite'`: log a warning and replace the existing item.
- *   `ToolRegistry` keeps this for one more wave — see its constructor — so
- *   that a host mounting the same tool twice (a legitimate, common shape
- *   today) keeps working unchanged while the registry itself is redesigned
- *   out from under it.
+ *   `ToolRegistry` used to keep this policy for its own `register`, so a
+ *   host mounting the same tool twice (once a legitimate, common shape)
+ *   kept working unchanged; that class is gone now (plan.md v3 §2) — a
+ *   `ToolManager`'s toolsets throw `ToolsetConflictError` on any collision
+ *   instead, naming both sources, with no overwrite mode at all.
  * - `'warn-skip'`: log a warning and keep the existing item — the one being
  *   registered is discarded.
  *

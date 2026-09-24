@@ -122,9 +122,14 @@ export function deferred(ts: Toolset): Toolset {
  * this wrapper marks gets the same always-true predicate rather than a
  * second field shape to check for.
  */
-export function requireApproval(ts: Toolset, selector?: ToolFilterSelector | ToolPredicate): Toolset {
+export function requireApproval(
+	ts: Toolset,
+	selector?: ToolFilterSelector | ToolPredicate,
+): Toolset {
 	const predicate = selector ? toPredicate(ts, selector) : () => true
-	return mapTools(ts, (tool) => (predicate(tool) ? { ...tool, requiresApproval: () => true } : tool))
+	return mapTools(ts, (tool) =>
+		predicate(tool) ? { ...tool, requiresApproval: () => true } : tool,
+	)
 }
 
 /**

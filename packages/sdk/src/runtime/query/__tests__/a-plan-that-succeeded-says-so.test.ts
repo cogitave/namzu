@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -34,7 +33,7 @@ async function runWithPlan(seed: (pm: PlanManager) => void): Promise<PlanManager
 
 	await drainQuery({
 		provider: new MockLLMProvider({ responses: [{ content: 'done' }] } as never),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],

@@ -193,11 +193,7 @@ export type {
 	Timestamped,
 } from './store/index.js'
 
-export type {
-	ManagedRegistryConfig,
-	ToolExecutionResult,
-	ToolRegistryForkOptions,
-} from './registry/index.js'
+export type { ManagedRegistryConfig } from './registry/index.js'
 
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 export type {
@@ -252,7 +248,7 @@ export type {
 export type {
 	ConnectorRouterInput,
 	ConnectorToolConfig,
-	ConnectorToolRouterConfig,
+	ConnectorTools,
 	ConnectorToolStrategy,
 } from './connector/tools/index.js'
 

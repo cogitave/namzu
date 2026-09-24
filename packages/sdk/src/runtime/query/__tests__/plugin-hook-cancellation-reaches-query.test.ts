@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { PluginRegistry } from '../../../registry/plugin/index.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { PluginId } from '../../../types/ids/index.js'
 import type { PluginHookContext, PluginHookResult } from '../../../types/plugin/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
@@ -80,7 +79,7 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const runPromise = drainQuery(
 			{
 				provider,
-				tools: new ToolRegistry(),
+				toolsets: [],
 				pluginManager: manager,
 				turnConfig: {
 					model: 'mock-model',
@@ -191,7 +190,7 @@ describe('plugin hook cancellation reaches a real query', () => {
 			provider: new MockLLMProvider({
 				responseText: 'must not be requested',
 			}),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			pluginManager: manager,
 			turnConfig: {
 				model: 'mock-model',
@@ -240,7 +239,7 @@ describe('plugin hook cancellation reaches a real query', () => {
 
 		const run = await drainQuery({
 			provider: new MockLLMProvider({ responseText: 'must not be requested' }),
-			tools: new ToolRegistry(),
+			toolsets: [],
 			pluginManager: manager,
 			turnConfig: {
 				model: 'mock-model',

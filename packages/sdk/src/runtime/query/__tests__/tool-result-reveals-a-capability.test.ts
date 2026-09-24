@@ -144,9 +144,11 @@ describe('ToolResult.reveals activates a curated capability', () => {
 		expect(status).toBe('completed')
 		const openDoorResult = messages.find((m) => m.role === 'tool' && m.toolCallId === 'a')
 		expect(openDoorResult?.role).toBe('tool')
-		expect(openDoorResult && 'revealedTools' in openDoorResult ? openDoorResult.revealedTools : undefined).toEqual([
-			'room_tool',
-		])
+		expect(
+			openDoorResult && 'revealedTools' in openDoorResult
+				? openDoorResult.revealedTools
+				: undefined,
+		).toEqual(['room_tool'])
 	})
 
 	it('does not activate a revealed name outside a narrowed allowedTools', async () => {

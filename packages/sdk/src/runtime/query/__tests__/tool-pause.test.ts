@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { HITLDecisionRequest, HITLResumeDecision } from '../../../types/hitl/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
@@ -260,8 +260,7 @@ describe('the id a resume gate matches on', () => {
 
 describe('the seam a tool author is handed', () => {
 	async function runToolThatPauses(turns: MockTurn[], seen: { outcome?: ToolPauseOutcome }) {
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'deploy',
 				description: 'deploy tool',

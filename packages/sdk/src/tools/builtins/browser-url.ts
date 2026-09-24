@@ -3,7 +3,7 @@
  *
  * The browser tools' `url` and `origin` arguments are canonicalised by their
  * input schema, and the registry hands the gate and the reviewer the schema's
- * OUTPUT (`ToolRegistry.prepareExecution`). So a site rule written as
+ * OUTPUT (`ToolManager.prepareExecution`, `toolsets/manager.ts`). So a site rule written as
  * `^https://github\.com(?:[/?#]|$)` is tested against the one spelling the
  * browser will load, never against `HTTPS://GitHub.com:443/`,
  * `https://github.com./` or `https://%67ithub.com/`, which name the same page

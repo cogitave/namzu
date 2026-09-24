@@ -32,7 +32,7 @@ export {
 	untrustedEnvelopeBody,
 	wrapUntrusted,
 } from './tools/untrusted-envelope.js'
-export { filterReadOnlyTools, filterToolsNamed, matchesToolSelector } from './tools/roster.js'
+export { matchesToolSelector } from './tools/roster.js'
 export type { ToolSelector } from './tools/roster.js'
 export type { UntrustedEnvelope } from './tools/untrusted-envelope.js'
 
@@ -193,7 +193,7 @@ export {
 	allConnectorTools,
 	connectorInstanceToTools,
 	connectorMethodToTool,
-	ConnectorToolRouter,
+	connectorTools,
 	createConnectorExecuteTool,
 	createConnectorListTool,
 	createConnectorRouterTool,

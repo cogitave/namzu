@@ -37,11 +37,13 @@ import {
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
-import {
-	STRUCTURED_OUTPUT_TOOL_NAME,
-	createStructuredOutputTool,
-} from '../../tools/builtins/structuredOutput.js'
+import { createStructuredOutputTool } from '../../tools/builtins/structuredOutput.js'
 import { buildTaskTools } from '../../tools/task/index.js'
+import { combineToolsets } from '../../toolsets/combine.js'
+import { ToolManager } from '../../toolsets/manager.js'
+import { toolset } from '../../toolsets/toolset.js'
+import type { Toolset } from '../../toolsets/types.js'
+import { deferred } from '../../toolsets/wrappers.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
@@ -91,7 +93,7 @@ import type { PromoteMemory } from '../../types/session/memory-promotion.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { ToolDefinition, ToolTierConfig } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
@@ -346,6 +348,13 @@ export interface QueryParams {
 	 */
 	toolResultGuardrails?: readonly import('../../types/guardrail/index.js').ToolResultGuardrailSpec[]
 	/**
+	 * Tier labels/guidance for the `ToolManager` this turn builds. Absent
+	 * means no tier legend and no `[label]` prefix on any tool's description
+	 * — the same as before this existed. A tier is still a static
+	 * `defineTool` field; this only configures how the manager renders it.
+	 */
+	tierConfig?: ToolTierConfig
+	/**
 	 * Smaller preview for text that exceeded maxToolOutputChars, after its full
 	 * host output and integrity manifest have been saved. Unset/0 keeps the old
 	 * preview size. Does not change the spill threshold, rich blocks or ordinary
@@ -472,7 +481,18 @@ export interface QueryParams {
 	 * `guardrail_triggered` event.
 	 */
 	outputGuardrails?: readonly OutputGuardrailSpec[]
-	tools: ToolRegistryContract
+	/**
+	 * Every tool this turn may see comes from one of these (`toolsets/types.ts`).
+	 *
+	 * `query()` never mutates what is passed here: its own generated tools
+	 * (task tools, `search_tools`, the structured-output tool, advisory
+	 * tools) are combined with these into the `ToolManager` it builds for
+	 * itself, once, at the top of the turn — see `buildRuntimeToolset`
+	 * below. A toolset here that contributes a name `query()` also generates
+	 * is refused at construction (`ToolsetConflictError`, naming both
+	 * sources), the same mechanism a plain toolset collision uses.
+	 */
+	toolsets: readonly Toolset[]
 	turnConfig: TurnConfig
 	allowedTools?: string[]
 	agentId: string
@@ -995,6 +1015,77 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			})
 		})
 
+		// ─── Advisors: constructed early because their agent-tool forms (if
+		// any) join the runtime toolset below, before the ToolManager exists.
+		// `setCallContextProvider` — which needs `workingStateManager`,
+		// `effectiveAllowedTools` and `iterationOrchestrator`, none of which
+		// exist yet — is configured later, in its historical spot; a closure
+		// reading those is fine to define before they do, as long as nothing
+		// CALLS it before they exist, and nothing does. ───
+		let advisoryCtx: AdvisoryContext | undefined
+		let advisoryToolDefs: ReturnType<typeof buildAdvisoryTools> = []
+		if (params.advisory && params.advisory.advisors.length > 0) {
+			// Advisors are model calls owned by this turn even when they use a
+			// different provider. Sending the raw definitions into the registry
+			// lets a triggered or model-requested consultation bypass both the
+			// finite stream-silence bound and Stop. Bind every advisor provider at
+			// the query boundary, where the effective timeout and run signal are
+			// already known; standalone AdvisoryExecutor callers retain their
+			// explicitly chosen provider/cancellation policy.
+			const boundedAdvisors = params.advisory.advisors.map((advisor) => ({
+				...advisor,
+				provider: withTokenBudget(
+					withStreamIdleTimeout(advisor.provider, {
+						idleTimeoutMs: streamIdleTimeoutMs,
+						log: ctx.log,
+					}),
+					budget,
+				),
+			}))
+			const advisorRegistry = new AdvisorRegistry(boundedAdvisors, params.advisory.defaultAdvisorId)
+			// A budget the runtime cannot measure is refused here rather than
+			// silently ignored for the length of the turn.
+			assertBudgetEnforceable(params.advisory)
+			const advisoryExecutor = new AdvisoryExecutor(
+				ctx.log,
+				params.advisory.budget,
+				ctx.abortController.signal,
+			)
+			const triggerEvaluator = new TriggerEvaluator(
+				params.advisory.triggers ?? [],
+				params.advisory.budget,
+			)
+			advisoryCtx = new AdvisoryContext(
+				advisorRegistry,
+				advisoryExecutor,
+				triggerEvaluator,
+				params.advisory.budget,
+			)
+			if (params.advisory.enableAgentTool) {
+				advisoryToolDefs = buildAdvisoryTools({ advisoryCtx })
+			}
+		}
+
+		// ─── query()'s own tools: never mutate the caller's toolsets. Task
+		// tools, `search_tools`, the structured-output tool and any advisory
+		// tools are gathered here and combined into one `runtime` toolset
+		// (plan.md v3 §2), which the `ToolManager` below resolves alongside
+		// `params.toolsets`. A name a caller's own toolset already contributes
+		// is refused at construction — `ToolsetConflictError`, naming both
+		// sources — the same mechanism any two colliding toolsets hit; this
+		// generalises `SupervisorAgent`'s old hand-written coordinator-name
+		// refusal, which is gone (its coordinator tools are just another
+		// toolset in `params.toolsets` now). ───
+		const runtimeToolOverrides = params.runtimeToolOverrides
+		const runtimeActiveTools: ToolDefinition[] = []
+		const runtimeDeferredTools: ToolDefinition[] = []
+		const addRuntimeTool = (tool: ToolDefinition, defaultAvailability: 'active' | 'deferred') => {
+			const override = runtimeToolOverrides?.[tool.name]
+			if (override === 'disabled') return
+			const availability = override ?? defaultAvailability
+			;(availability === 'active' ? runtimeActiveTools : runtimeDeferredTools).push(tool)
+		}
+
 		if (params.taskStore) {
 			const taskTools = buildTaskTools(params.taskStore, {
 				sessionId: ctx.sessionId,
@@ -1007,35 +1098,46 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 						? await recordedTurnStart(ctx.recorder.log, ctx.turnId)
 						: undefined) ?? ctx.recorder.getTurn().startedAt,
 			})
-			const overrides = params.runtimeToolOverrides
-			for (const tool of taskTools) {
-				const override = overrides?.[tool.name]
-				if (override === 'disabled') continue
-				params.tools.register(tool, override ?? 'deferred')
-			}
+			for (const tool of taskTools) addRuntimeTool(tool, 'deferred')
 		}
 
-		if (!params.tools.has(SearchToolsTool.name)) {
-			const hasDeferred = params.tools
-				.listNames()
-				.some((n) => params.tools.getAvailability(n) === 'deferred')
-			if (hasDeferred) {
-				params.tools.register(SearchToolsTool)
-			}
+		// `search_tools` is added only when something could actually be
+		// deferred — one of the runtime tools above, or a caller toolset that
+		// declared itself `deferred(...)`. Nothing deferred means nothing for
+		// a search to load, so it is never added at all.
+		const callerHasDeferredToolset = params.toolsets.some(
+			(ts) => (ts.availability ?? 'active') === 'deferred' && ts.tools().length > 0,
+		)
+		if (runtimeDeferredTools.length > 0 || callerHasDeferredToolset) {
+			addRuntimeTool(SearchToolsTool, 'active')
 		}
 
-		// Registered HERE, before the first turn, not when the model is nearly
+		// Added HERE, before the first turn, not when the model is nearly
 		// done. Tools render at prefix position 0, so injecting one late would
 		// invalidate the whole prompt cache for the rest of the turn — the same
 		// reason the forced-final turn keeps its tools array and uses
 		// `toolChoice: 'none'` instead of dropping it.
-		if (
-			params.structuredOutput &&
-			params.structuredOutput.mode !== 'native' &&
-			!params.tools.has(STRUCTURED_OUTPUT_TOOL_NAME)
-		) {
-			params.tools.register(createStructuredOutputTool(params.structuredOutput.schema))
+		if (params.structuredOutput && params.structuredOutput.mode !== 'native') {
+			addRuntimeTool(createStructuredOutputTool(params.structuredOutput.schema), 'active')
 		}
+
+		for (const tool of advisoryToolDefs) addRuntimeTool(tool, 'active')
+
+		const runtimeToolset = combineToolsets('runtime', [
+			toolset('runtime:active', runtimeActiveTools),
+			deferred(toolset('runtime:deferred', runtimeDeferredTools)),
+		])
+		const toolManager = new ToolManager({
+			toolsets: [...params.toolsets, runtimeToolset],
+			...(params.toolResultGuardrails !== undefined
+				? { resultGuardrails: params.toolResultGuardrails }
+				: {}),
+			...(params.tierConfig !== undefined ? { tierConfig: params.tierConfig } : {}),
+			// Read fresh on every `availability()` call, not captured once: see
+			// `ToolManager.availability` — derived from the turn's own
+			// post-compaction history, which grows as the turn proceeds.
+			messages: () => ctx.recorder.messages,
+		})
 
 		// ─── Provider capability negotiation (before tooling bootstrap) ────────
 		// Compare what the request asks for with what the DRIVER declared it
@@ -1043,7 +1145,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// for third-party providers); declared gaps degrade loudly instead of
 		// silently.
 		const capabilities = resolveProviderCapabilities(params.provider)
-		const registeredToolCount = params.tools.listNames().length
+		const registeredToolCount = toolManager.listNames().length
 		const stripToolSurfaces = !capabilities.supportsTools && registeredToolCount > 0
 		// Counted separately because they are separate wire shapes: a driver can
 		// map images and drop documents, and a vision warning would send the
@@ -1126,7 +1228,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		// shows the model fewer tools and lets it call any of them by name.
 		const allowedBeforeDenial = stripToolSurfaces
 			? []
-			: withDeferredDiscoveryTool(params.tools, params.allowedTools)
+			: withDeferredDiscoveryTool(toolManager, params.allowedTools)
 		const denied = new Set(params.deniedTools ?? [])
 		const effectiveAllowedTools: string[] | undefined =
 			denied.size === 0
@@ -1136,7 +1238,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					// here — otherwise the subtraction would be from an empty list
 					// and would deny nothing, which is the shape a delegated child
 					// arrives in.
-					[...(allowedBeforeDenial ?? params.tools.listNames())].filter((name) => !denied.has(name))
+					[...(allowedBeforeDenial ?? toolManager.listNames())].filter((name) => !denied.has(name))
 
 		// The two halves of a durable pause, owned by the TURN when the host
 		// does not own them.
@@ -1205,7 +1307,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 		const toolExecutor = ToolingBootstrap.init(
 			{
 				skillGrants,
-				tools: params.tools,
+				tools: toolManager,
 				sessionId: ctx.sessionId,
 				turnId: ctx.turnId,
 				workingDirectory: ctx.cwd,
@@ -1331,7 +1433,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			persona: params.persona,
 			skills: params.skills,
 			basePrompt: params.basePrompt,
-			tools: params.tools,
+			tools: toolManager,
 			allowedTools: effectiveAllowedTools,
 			runtimeContext: params.runtimeContext,
 			contributions: promptContributions,
@@ -1381,45 +1483,12 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			signal: ctx.abortController.signal,
 		})
 
-		let advisoryCtx: AdvisoryContext | undefined
-		if (params.advisory && params.advisory.advisors.length > 0) {
-			// Advisors are model calls owned by this turn even when they use a
-			// different provider. Sending the raw definitions into the registry
-			// lets a triggered or model-requested consultation bypass both the
-			// finite stream-silence bound and Stop. Bind every advisor provider at
-			// the query boundary, where the effective timeout and run signal are
-			// already known; standalone AdvisoryExecutor callers retain their
-			// explicitly chosen provider/cancellation policy.
-			const boundedAdvisors = params.advisory.advisors.map((advisor) => ({
-				...advisor,
-				provider: withTokenBudget(
-					withStreamIdleTimeout(advisor.provider, {
-						idleTimeoutMs: streamIdleTimeoutMs,
-						log: ctx.log,
-					}),
-					budget,
-				),
-			}))
-			const advisorRegistry = new AdvisorRegistry(boundedAdvisors, params.advisory.defaultAdvisorId)
-			// A budget the runtime cannot measure is refused here rather than
-			// silently ignored for the length of the turn.
-			assertBudgetEnforceable(params.advisory)
-			const advisoryExecutor = new AdvisoryExecutor(
-				ctx.log,
-				params.advisory.budget,
-				ctx.abortController.signal,
-			)
-			const triggerEvaluator = new TriggerEvaluator(
-				params.advisory.triggers ?? [],
-				params.advisory.budget,
-			)
-			advisoryCtx = new AdvisoryContext(
-				advisorRegistry,
-				advisoryExecutor,
-				triggerEvaluator,
-				params.advisory.budget,
-			)
-
+		// `advisoryCtx` itself was already built above, before the
+		// `ToolManager`, so its agent-tool form (if any) could join the
+		// `runtime` toolset. What's left is the callback that needs state this
+		// early construction cannot see yet: `workingStateManager`,
+		// `effectiveAllowedTools`, `iterationOrchestrator`.
+		if (advisoryCtx && params.advisory) {
 			// What the turn looks like when the MODEL consults an advisor, as
 			// opposed to when a trigger does. The trigger path has always passed
 			// this; the tool path passed an empty context, so an advisor the model
@@ -1430,7 +1499,8 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			// `AdvisorDefinition` and consulted by nothing, so a host who turned
 			// the catalogue off still paid for it in every advisory prompt.
 			const advisoryConfig = params.advisory
-			advisoryCtx.setCallContextProvider(() => {
+			const boundAdvisoryCtx = advisoryCtx
+			boundAdvisoryCtx.setCallContextProvider(() => {
 				const summary =
 					workingStateManager && advisoryConfig.advisors.some((a) => a.useCompactedContext)
 						? serializeWorkingState(workingStateManager.getState())
@@ -1440,21 +1510,11 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					turn: iterationOrchestrator.getAdvisoryTurnContext(),
 					...(summary !== undefined ? { workingStateSummary: summary } : {}),
 					...(advisoryConfig.includeToolCatalog
-						? { toolCatalog: params.tools.toLLMTools(effectiveAllowedTools) }
+						? { toolCatalog: toolManager.toLLMTools(effectiveAllowedTools) }
 						: {}),
 					iteration: ctx.recorder.currentIteration,
 				}
 			})
-
-			if (params.advisory.enableAgentTool) {
-				const advisoryTools = buildAdvisoryTools({ advisoryCtx })
-				const overrides = params.runtimeToolOverrides
-				for (const tool of advisoryTools) {
-					const override = overrides?.[tool.name]
-					if (override === 'disabled') continue
-					params.tools.register(tool, override ?? 'active')
-				}
-			}
 		}
 
 		const iterationOrchestrator = new IterationOrchestrator({
@@ -1477,7 +1537,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 			...(params.parkRecordDelayMs !== undefined
 				? { parkRecordDelayMs: params.parkRecordDelayMs }
 				: {}),
-			tools: params.tools,
+			tools: toolManager,
 			allowedTools: effectiveAllowedTools,
 			recorder: ctx.recorder,
 			toolExecutor,
@@ -1732,7 +1792,7 @@ export async function* query(params: QueryParams): AsyncGenerator<SessionEvent, 
 					persona: params.persona,
 					skills: params.skills,
 					basePrompt: contextLevel === 'full' ? params.basePrompt : undefined,
-					tools: params.tools,
+					tools: toolManager,
 					allowedTools: effectiveAllowedTools,
 					runtimeContext: params.runtimeContext,
 					contributions: promptContributions,
@@ -2554,19 +2614,19 @@ function assertSelectedResumeAttribution(params: QueryParams, state: SelectedRes
 }
 
 function withDeferredDiscoveryTool(
-	tools: ToolRegistryContract,
+	tools: ToolManager,
 	allowedTools?: string[],
 ): string[] | undefined {
 	if (!allowedTools) return undefined
 	if (allowedTools.includes(SearchToolsTool.name)) return allowedTools
 
 	const allowedHasDeferred = allowedTools.some(
-		(name) => tools.has(name) && tools.getAvailability(name) === 'deferred',
+		(name) => tools.has(name) && tools.availability(name) === 'deferred',
 	)
 	if (!allowedHasDeferred) return allowedTools
 
 	if (!tools.has(SearchToolsTool.name)) return allowedTools
-	if (tools.getAvailability(SearchToolsTool.name) !== 'active') return allowedTools
+	if (tools.availability(SearchToolsTool.name) !== 'active') return allowedTools
 
 	return [...allowedTools, SearchToolsTool.name]
 }

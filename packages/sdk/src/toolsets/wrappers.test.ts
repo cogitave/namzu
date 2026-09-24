@@ -49,15 +49,15 @@ describe('renamed', () => {
 
 describe('filtered', () => {
 	it('keeps only the named tools, by an array selector', () => {
-		const ts = filtered(toolset('demo', [tool('read'), tool('write'), tool('bash')]), ['read', 'bash'])
+		const ts = filtered(toolset('demo', [tool('read'), tool('write'), tool('bash')]), [
+			'read',
+			'bash',
+		])
 		expect(ts.tools().map((t) => t.name)).toEqual(['read', 'bash'])
 	})
 
 	it('keeps only tools a predicate admits', () => {
-		const ts = filtered(
-			toolset('demo', [tool('read'), tool('write')]),
-			(t) => t.name === 'write',
-		)
+		const ts = filtered(toolset('demo', [tool('read'), tool('write')]), (t) => t.name === 'write')
 		expect(ts.tools().map((t) => t.name)).toEqual(['write'])
 	})
 
@@ -118,7 +118,7 @@ describe('filtered', () => {
 		expect(ts.tools().map((t) => t.name)).toEqual(['read'])
 	})
 
-	it('keeps every tool when the toolset\'s own source id matches a glob, none otherwise', () => {
+	it("keeps every tool when the toolset's own source id matches a glob, none otherwise", () => {
 		const mcpSource = { id: 'mcp:github', kind: 'mcp_server' as const, name: 'GitHub' }
 		const kept = filtered(toolset(mcpSource, [tool('a'), tool('b')]), { sourceIdGlob: 'mcp:*' })
 		expect(kept.tools().map((t) => t.name)).toEqual(['a', 'b'])
@@ -161,10 +161,9 @@ describe('requireApproval', () => {
 
 describe('withMetadata', () => {
 	it('merges metadata onto every tool, keeping what was already there', () => {
-		const ts = withMetadata(
-			toolset('demo', [tool('read', { metadata: { team: 'infra' } })]),
-			{ stage: 'experimental' },
-		)
+		const ts = withMetadata(toolset('demo', [tool('read', { metadata: { team: 'infra' } })]), {
+			stage: 'experimental',
+		})
 		expect(ts.tools()[0]!.metadata).toEqual({ team: 'infra', stage: 'experimental' })
 	})
 

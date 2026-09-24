@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import type {
 	HITLDecisionRequest,
@@ -210,8 +211,10 @@ describe('coordinator ask_user_question canonical schema isolation', () => {
 	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })
 
 	it('returns a fresh schema on every render from the registry boundary', () => {
-		const registry = new ToolRegistry()
-		registry.register(askTool(noopHandler))
+		const registry = new ToolManager({
+			toolsets: [testToolset(askTool(noopHandler))],
+			messages: () => [],
+		})
 
 		const first = registry.toLLMTools()[0]?.function.parameters
 		expect(first).toEqual(askTool(noopHandler).modelInputSchema)

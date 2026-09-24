@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import { createToolPresenter } from '../../../registry/tool/presentation.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
-import type { ToolDefinition, ToolRegistryContract } from '../../../types/tool/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { buildTaskTools } from '../index.js'
 
 /**
@@ -23,7 +24,10 @@ function setup() {
 	const store = new InMemoryTaskStore()
 	const tools = buildTaskTools(store, { sessionId: SESSION, turnId: TURN })
 	const byName = new Map(tools.map((tool) => [tool.name, tool]))
-	const registry = { get: (name: string) => byName.get(name) } as unknown as ToolRegistryContract
+	const registry = { get: (name: string) => byName.get(name) } as unknown as Pick<
+		ToolManager,
+		'get'
+	>
 	const tool = (name: string) => byName.get(name) as ToolDefinition
 	return { presenter: createToolPresenter(registry), tool, store }
 }

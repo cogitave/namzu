@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
-import { ToolRegistry } from '../../registry/index.js'
 import { drainQuery } from '../../runtime/query/index.js'
 import { SteeringBinding } from '../../runtime/query/steering.js'
 import { DiskTopicStateStore, InMemoryTopicStateStore } from '../../store/topic/state.js'
@@ -59,7 +58,7 @@ async function runOnce(store: InMemoryTopicStateStore | DiskTopicStateStore) {
 
 	await drainQuery({
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 3 },
 		agentId: 'a',
 		agentName: 'A',

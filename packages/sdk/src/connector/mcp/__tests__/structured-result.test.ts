@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry, describeWithOutput } from '../../../registry/tool/execute.js'
+import { describeWithOutput } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { MCPToolDefinition, MCPToolResult } from '../../../types/connector/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { mcpToolResultToToolResult, mcpToolToToolDefinition } from '../adapter.js'
@@ -121,14 +123,18 @@ describe('a declared return shape', () => {
 	})
 
 	it('reaches the model, since no provider has a slot for it', () => {
-		const registry = new ToolRegistry()
-		registry.register({
-			name: 'forecast',
-			description: 'Weather for a city',
-			inputSchema: z.object({ city: z.string() }),
-			outputSchema: { type: 'object', properties: { temperature: { type: 'number' } } },
-			execute: async () => ({ success: true as const, output: '' }),
-		} as ToolDefinition)
+		const registry = new ToolManager({
+			toolsets: [
+				testToolset({
+					name: 'forecast',
+					description: 'Weather for a city',
+					inputSchema: z.object({ city: z.string() }),
+					outputSchema: { type: 'object', properties: { temperature: { type: 'number' } } },
+					execute: async () => ({ success: true as const, output: '' }),
+				} as ToolDefinition),
+			],
+			messages: () => [],
+		})
 
 		const rendered = registry.toLLMTools()[0]
 		expect(rendered?.function.description).toContain('Returns (JSON Schema)')

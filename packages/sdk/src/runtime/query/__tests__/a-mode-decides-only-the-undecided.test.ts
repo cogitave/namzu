@@ -7,8 +7,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { z } from 'zod'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { HITLDecisionRequest, ToolCallSummary } from '../../../types/hitl/index.js'
 import type { CheckpointId, TurnId } from '../../../types/ids/index.js'
 import { generateSessionId } from '../../../utils/id.js'
@@ -45,46 +46,46 @@ const exemptNames =
 		names.includes(name)
 
 describe('isReviewExempt', () => {
-	const registry = new ToolRegistry()
-	registry.register(
-		defineTool({
-			name: 'read',
-			description: 'r',
-			inputSchema: z.object({}),
-			readOnly: true,
-			category: 'filesystem',
-			permissions: [],
-			destructive: false,
-			concurrencySafe: true,
-			execute: async () => ({ success: true, output: '' }),
-		}),
-	)
-	registry.register(
-		defineTool({
-			name: 'write',
-			description: 'w',
-			inputSchema: z.object({}),
-			readOnly: false,
-			category: 'filesystem',
-			permissions: [],
-			destructive: false,
-			concurrencySafe: true,
-			execute: async () => ({ success: true, output: '' }),
-		}),
-	)
-	registry.register(
-		defineTool({
-			name: 'web_fetch',
-			description: 'f',
-			inputSchema: z.object({}),
-			readOnly: true,
-			category: 'network',
-			permissions: [],
-			destructive: false,
-			concurrencySafe: true,
-			execute: async () => ({ success: true, output: '' }),
-		}),
-	)
+	const registry = new ToolManager({
+		toolsets: [
+			testToolset(
+				defineTool({
+					name: 'read',
+					description: 'r',
+					inputSchema: z.object({}),
+					readOnly: true,
+					category: 'filesystem',
+					permissions: [],
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => ({ success: true, output: '' }),
+				}),
+				defineTool({
+					name: 'write',
+					description: 'w',
+					inputSchema: z.object({}),
+					readOnly: false,
+					category: 'filesystem',
+					permissions: [],
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => ({ success: true, output: '' }),
+				}),
+				defineTool({
+					name: 'web_fetch',
+					description: 'f',
+					inputSchema: z.object({}),
+					readOnly: true,
+					category: 'network',
+					permissions: [],
+					destructive: false,
+					concurrencySafe: true,
+					execute: async () => ({ success: true, output: '' }),
+				}),
+			),
+		],
+		messages: () => [],
+	})
 
 	it('exempts a trusted read-only tool and the named bookkeeping writes', () => {
 		expect(isReviewExempt(registry, 'read', {})).toBe(true)

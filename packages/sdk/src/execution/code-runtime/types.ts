@@ -18,7 +18,7 @@
  *    backend that cannot withhold those is not a backend for this.
  *  - **Everything it can do, it does by asking.** The only channel out is a
  *    call back into the host, which is what makes NZ-EXEC-06's dispatch
- *    through the turn's own `ToolRegistry` possible — the program cannot
+ *    through the turn's own `ToolManager` possible — the program cannot
  *    reach a tool the turn did not grant, because it cannot reach anything.
  *  - **Bounded.** Wall clock and output, both enforced by the backend
  *    rather than requested of the program.
@@ -57,7 +57,7 @@ export interface HostCallContext {
  * What the host will answer.
  *
  * A function rather than a table, so the host decides per call. NZ-EXEC-06
- * makes this the turn's `ToolRegistry` and its permission gate, which is
+ * makes this the turn's `ToolManager` and its permission gate, which is
  * exactly the point: the program's reach is the turn's reach, resolved at
  * the moment of the call rather than frozen when the program started.
  */

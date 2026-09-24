@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ReactiveAgentConfig } from '../../types/agent/reactive.js'
 import type { SupervisorAgentConfig } from '../../types/agent/supervisor.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
@@ -104,7 +103,7 @@ describe('agent front doors preserve the provider idle override', () => {
 		})
 		const config = {
 			provider,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			model: 'mock-model',
 			tokenBudget: 100_000,
 			timeoutMs: 5_000,

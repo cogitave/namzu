@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
@@ -36,7 +35,7 @@ function fixture(
 	const sessionId = generateSessionId()
 	const params = {
 		provider,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'Return a score below ten' }],
@@ -181,7 +180,7 @@ describe('structured result host review', () => {
 			sessionLog: session.log,
 			checkpointStore: session.store,
 			turnId: session.turnId,
-			tools: new ToolRegistry(),
+			toolsets: [],
 			resumeFromCheckpoint: session.checkpointId,
 		})
 		expect(run.stopReason).toBe('answer_rejected')

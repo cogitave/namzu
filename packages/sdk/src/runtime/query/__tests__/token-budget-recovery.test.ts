@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import {
 	InMemorySessionTokenBudgetStore,
 	openSessionTokenBudget,
@@ -68,7 +67,7 @@ async function recovery(mode: 'retry' | 'fallback' | 'auth', measured: number) {
 		workingDirectory,
 		provider: primary,
 		budget,
-		tools: new ToolRegistry(),
+		toolsets: [],
 		fallbackProviders: mode === 'retry' ? [] : [{ provider: fallback }],
 		retry: mode === 'retry' ? { maxRetries: 2, initialDelayMs: 1, maxDelayMs: 1 } : false,
 		turnConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 1_000, maxIterations: 2 },

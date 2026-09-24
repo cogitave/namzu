@@ -1,0 +1,48 @@
+---
+"@namzu/sdk": major
+---
+
+`ToolRegistry` is removed. The runtime now resolves tools from `Toolset`s
+(plan.md v3 §2) through a `ToolManager` (`toolsets/manager.ts`, added in a
+prior release) that `query()`/`drainQuery` builds for itself, once per turn,
+from the `toolsets` you pass — it is never mutated by the runtime, and its
+own generated tools (task tools, `search_tools`, the structured-output tool,
+advisory tools) are combined in as a `runtime` toolset rather than injected
+into your input.
+
+**What breaks, and what to do about it:**
+
+| Removed / changed | Replace with |
+| --- | --- |
+| `tools: ToolRegistryContract` on `QueryParams`, `ReactiveAgentConfig`, `RunAgentOptions`, `BidiTurnParams` | `toolsets: readonly Toolset[]`. Wrap a plain list with `toolset('name', [...])`; `deferred(toolset(...))` for a toolset whose tools start deferred. |
+| `tools?: ToolRegistryContract` on `SupervisorAgentConfig` | `toolsets?: readonly Toolset[]` (same shape). |
+| `ToolRegistry` class, `ToolRegistryContract`, `ToolRegistryRef`, `ToolRegistryForkOptions` | `ToolManager` (`new ToolManager({ toolsets, messages: () => turnMessages, resultGuardrails?, tierConfig? })`), exported as an advanced API. `ToolContext.toolRegistry` is now a `ToolsView` (`has`/`availability`/`searchDeferred` — no `activate`, no `searchActive`). |
+| `registry.fork({ deferExcept })` | No replacement: build the `toolsets` array you want for that turn/send instead of forking a shared registry. There is no live shared registry to fork from any more. |
+| `registry.activate(names)` / `.defer(names)` / `.suspendAll()` / `.hasSuspended()` / `.assignTiers()` | Gone — none had a production caller. Availability is now DERIVED, never mutated: a tool is `'active'` unless its toolset declared `'deferred'` and no tool message in the turn's post-compaction history has revealed it (`ToolResult.reveals`, persisted as `ToolMessage.revealedTools`). A tool's own result reveals names for the rest of the turn; nothing calls `activate` any more, including `search_tools`. |
+| `registry.searchActive(query)` | Gone. `ToolManager.searchDeferred(query, limit?)` remains, with an optional result cap. |
+| `ToolDefinition.provenance` / `ToolProvenance` on a tool | `ToolManager.sourceOf(name)` — a lean `ToolSourceRef` (`id`, `kind`, and for `mcp_server`, `server` + `readOnlyHintTrusted`) that names the OWNING TOOLSET, not the tool. A definition can no longer claim its own source. `tools/trusted-read-only.ts`'s `isTrustedReadOnly` now takes that source as a third argument. `ToolProvenance` itself stays, as the shape `screenToolResult` reads. |
+| `filterReadOnlyTools(registry)` / `filterToolsNamed(registry, names)` (`tools/roster.ts`) | `filtered(toolset, (tool) => isTrustedReadOnly(tool, undefined))` / `filtered(toolset, names)` (`toolsets/wrappers.ts`) — keeps the inner toolset's own `availability` and stays live over a live source, instead of freezing an always-`'active'` snapshot. |
+| `ConnectorToolRouter` class (`registerTools`/`unregisterTools`/`refreshTools` mutating a registry) | `connectorTools(manager, { strategy? })` (`connector/tools/router.js`) — a plain function returning `ToolDefinition[]`; wrap it in `toolset(...)` yourself. Never had a production caller. |
+| `mcp_<server>_<tool>` naming from the CLI's own MCP path | Unchanged in this release (the CLI does not yet build toolsets — that is a follow-up). `mcpToolToToolDefinition` no longer sets `.provenance`; a caller that wraps its tools into a toolset must set `source.kind: 'mcp_server'` with `mcpServer.name`/`readOnlyHintTrusted` itself (`plugin/lifecycle.ts` does this for plugin-contributed MCP servers). |
+| `PluginLifecycleManagerConfig.toolRegistry` | Removed. `PluginLifecycleManager` now owns its own tool contributions and exposes them as `.toolsets: readonly Toolset[]` (two fixed, live toolsets — file-declared tools and MCP/prompt-adapted tools) for a host to fold into its own `toolsets` array. |
+| `PluginResolver`'s second constructor argument | Was `ToolRegistryContract`; now `Pick<ToolManager, 'listNames' | 'has'>`. |
+| `ToolRegistryConfig`, `ToolCatalog` and companions | Already gone in a prior release; `ToolManagerConfig` (`toolsets/manager.ts`) is the manager's construction config. |
+
+**Not part of this change:** the CLI, `@namzu/live`'s duplex path callers,
+and every other package that still passes `tools`/imports `ToolRegistry`
+do not compile against this release — that migration is the next,
+separate change. `@namzu/ag-ui`, `@namzu/computer-use`, `@namzu/files`,
+`@namzu/lsp`, `@namzu/sandbox` are unaffected (no `ToolRegistry` reference).
+
+A caller toolset that contributes a name `query()` also generates internally
+(a task-tool name, `search_tools`, the structured-output tool's name, or an
+enabled advisory tool's name) is refused at construction with
+`ToolsetConflictError`, naming both sources — this generalises
+`SupervisorAgent`'s old hand-written refusal of a caller tool shadowing one
+of its six coordinator names, which is now the same mechanism (its
+coordinator tools are just another toolset).
+
+`search_tools` no longer activates anything: it returns `reveals` on its own
+result, like any other tool now can. Its receipt for "no deferred match"
+no longer echoes already-active matching tools, since the tool-body-facing
+`ToolsView` has no active-tool search — only `searchDeferred`.

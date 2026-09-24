@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -28,8 +28,7 @@ registerMock()
 async function runWithSteer(steerDuringTool?: string) {
 	const steering = new SteeringBinding()
 
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'inspect',
 		description: 'looks at something',
 		inputSchema: z.object({}),

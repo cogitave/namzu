@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto'
 import type { PromptContributionRegistry } from '../../prompt/contributions.js'
+import type { ToolManager } from '../../toolsets/manager.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
 import { PromptBuilder, type PromptSegments } from './prompt.js'
 
 export interface PromptCacheConfig {
@@ -18,7 +18,7 @@ export interface PromptCacheInput {
 	persona?: AgentPersona
 	skills?: Skill[]
 	basePrompt?: string
-	tools: ToolRegistryContract
+	tools: ToolManager
 	allowedTools?: string[]
 	runtimeContext?: AgentRuntimeContext
 	contributions?: PromptContributionRegistry

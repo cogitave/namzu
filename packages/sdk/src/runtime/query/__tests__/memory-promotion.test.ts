@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { createMemoryPromoter } from '../../../turn/memory-promoter.js'
 import type { MemoryStore } from '../../../types/memory/index.js'
@@ -36,7 +35,7 @@ function run(opts: {
 		provider: new MockLLMProvider({
 			turns: opts.failing ? [{ error: { message: 'provider is down' } }] : [{ text: 'done' }],
 		}),
-		tools: new ToolRegistry(),
+		toolsets: [],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'ship the invoice job' }],

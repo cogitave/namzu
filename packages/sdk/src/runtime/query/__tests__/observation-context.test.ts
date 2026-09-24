@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { estimateMessagesTokens } from '../../../compaction/token-estimate.js'
 import { clearToolResult } from '../../../compaction/tool-result-editing.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { Message, ToolMessage } from '../../../types/message/index.js'
 import { projectObservationContext } from '../observation-context.js'
 
@@ -18,8 +18,7 @@ function turn(id: string, content = body, args = '{"path":"a.ts"}', name = 'read
 	]
 }
 function registry(readOnly: boolean | undefined = true, destructive = false) {
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'read',
 		description: 'observe',
 		inputSchema: z.object({}),

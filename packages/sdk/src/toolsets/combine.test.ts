@@ -69,7 +69,11 @@ describe('combineToolsets', () => {
 			expect(() => combined.tools()).toThrow(ToolsetConflictError)
 			// The thrown call produced nothing observable; a fresh call over
 			// non-conflicting inputs proves the combinator itself still works.
-			expect(combineToolsets('all', [a]).tools().map((t) => t.name)).toEqual(['unique_a', 'read'])
+			expect(
+				combineToolsets('all', [a])
+					.tools()
+					.map((t) => t.name),
+			).toEqual(['unique_a', 'read'])
 		})
 
 		it('a conflict is avoided by prefixing one contributor first', () => {
@@ -83,7 +87,10 @@ describe('combineToolsets', () => {
 	describe('onChange propagation through combine', () => {
 		it('notifies the outer listener when an inner toolset (one layer deeper still) changes', () => {
 			const live = liveToolset('mcp:github', [tool('read')])
-			const combined = combineToolsets('all', [toolset('a', [tool('bash')]), prefixed(live.toolset, 'gh__')])
+			const combined = combineToolsets('all', [
+				toolset('a', [tool('bash')]),
+				prefixed(live.toolset, 'gh__'),
+			])
 			let notified = 0
 			combined.onChange?.(() => {
 				notified += 1
@@ -106,7 +113,10 @@ describe('combineToolsets', () => {
 		})
 
 		it('has no onChange when none of the inner toolsets have one', () => {
-			const combined = combineToolsets('all', [toolset('a', [tool('a1')]), toolset('b', [tool('b1')])])
+			const combined = combineToolsets('all', [
+				toolset('a', [tool('a1')]),
+				toolset('b', [tool('b1')]),
+			])
 			expect(combined.onChange).toBeUndefined()
 		})
 	})

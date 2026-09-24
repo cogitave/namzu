@@ -9,7 +9,7 @@ import { HttpEmbeddingProvider } from '../../../rag/embedding.js'
 import { DefaultKnowledgeBase } from '../../../rag/knowledge-base.js'
 import { createRAGTool } from '../../../rag/rag-tool.js'
 import { InMemoryVectorStore } from '../../../rag/vector-store.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -67,8 +67,7 @@ describe('RAG embedding cancellation reaches a real turn', () => {
 				requestTimeoutMs: 60_000,
 			}),
 		)
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			createRAGTool({
 				knowledgeBases: new Map([[knowledgeBase.id, knowledgeBase]]),
 				defaultKnowledgeBaseId: knowledgeBase.id,

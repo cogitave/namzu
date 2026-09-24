@@ -105,7 +105,7 @@ export interface Citation {
  * An attachment whose bytes are held by a store, not by the message.
  *
  * Structural rather than an import from `store/attachment`, so this types
- * module keeps depending on nothing — the same reasoning `ToolRegistryRef`
+ * module keeps depending on nothing — the same reasoning `ToolsView`
  * gives. `store/attachment` owns the resolution and its refusals; this is
  * the shape a message may carry.
  *

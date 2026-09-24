@@ -1,12 +1,14 @@
 import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api'
 import { isCompactionMessage } from '../compaction/summary.js'
+import { assertStrictSchema } from '../provider/strict-schema.js'
 import { callableToolNames, formatToolNames } from '../registry/tool/callable.js'
-import { describeWithOutput, toolDiscoveryHint } from '../registry/tool/execute.js'
+import { assertToolName, describeWithOutput, toolDiscoveryHint } from '../registry/tool/execute.js'
 import { renderToolSchema, toolWireSchema } from '../registry/tool/schema.js'
 import { ToolResultHalted, screenToolResult } from '../registry/tool/screen.js'
 import { GENAI, NAMZU, toolSpanName } from '../telemetry/attributes.js'
 import { recordToolCall } from '../telemetry/metrics.js'
 import { getTracer } from '../telemetry/runtime-accessors.js'
+import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { ToolResultGuardrailSpec } from '../types/guardrail/index.js'
 import type { Message } from '../types/message/index.js'
 import { PLAN_MODE_REFUSAL } from '../types/permission/index.js'
@@ -19,6 +21,7 @@ import type {
 	ToolPreparationResult,
 	ToolProvenance,
 	ToolTierConfig,
+	ToolsView,
 } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { cloneJsonValue as clonePreparedInput } from '../utils/json-snapshot.js'
@@ -53,13 +56,6 @@ export interface ToolsetChangeReport {
 	readonly drifted: readonly string[]
 	/** A new contributor for a name some other toolset already serves. Refused, not applied. */
 	readonly refused: readonly { readonly name: string; readonly reason: string }[]
-}
-
-/** The read-only slice `ToolContext.tools` (a running tool's own view) is given. */
-export interface ToolsView {
-	has(name: string): boolean
-	availability(name: string): ToolsetAvailability
-	searchDeferred(query: string, limit?: number): readonly ToolDefinition[]
 }
 
 export interface ToolManagerConfig {
@@ -195,6 +191,34 @@ export class ToolManager {
 	 * nothing has served anyone yet: unlike {@link refresh}, there is no
 	 * incumbent to protect by refusing the newcomer instead.
 	 */
+	/**
+	 * The checks `ToolRegistry.registerOne` used to run before admitting a
+	 * tool, copied verbatim: a legal name; `enforceModelInput` requires a
+	 * `modelInputSchema` (nothing to constrain generation against
+	 * otherwise) and that schema must itself fit the strict-decoding subset
+	 * `assertStrictSchema` checks (existing is not enough — it also has to
+	 * be sendable); a declared `tier` must be one `this.tierConfig` lists.
+	 */
+	private assertAdmissible(tool: ToolDefinition): void {
+		assertToolName(tool.name)
+		if (tool.enforceModelInput && !tool.modelInputSchema) {
+			throw new Error(
+				`Tool "${tool.name}" enables enforceModelInput but does not define modelInputSchema. Constrained input generation requires an explicit provider-safe model schema.`,
+			)
+		}
+		if (tool.enforceModelInput) {
+			assertStrictSchema(tool.name, tool.modelInputSchema)
+		}
+		if (tool.tier && this.tierConfig) {
+			const validIds = this.tierConfig.tiers.map((t) => t.id)
+			if (!validIds.includes(tool.tier)) {
+				throw new Error(
+					`Tool "${tool.name}" has tier "${tool.tier}" which is not defined. Valid tiers: ${validIds.join(', ')}`,
+				)
+			}
+		}
+	}
+
 	private resolveInitial(): void {
 		const toolsByName = new Map<string, ToolDefinition>()
 		const ownerToolsetByName = new Map<string, Toolset>()
@@ -202,6 +226,13 @@ export class ToolManager {
 
 		for (const toolset of this.toolsets) {
 			for (const tool of toolset.tools()) {
+				// The same admission checks `ToolRegistry.register` used to run
+				// (name legality, `enforceModelInput`'s two schema
+				// requirements, a declared tier's existence) — moved here
+				// rather than dropped when that class went away. "Fail where
+				// it can still be attributed" (at construction) instead of at
+				// the first request.
+				this.assertAdmissible(tool)
 				const existingOwner = ownerToolsetByName.get(tool.name)
 				if (existingOwner) {
 					throw new ToolsetConflictError(tool.name, existingOwner.source, toolset.source)
@@ -655,7 +686,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 				const allowed = context.allowedTools
 				if (allowed !== undefined && !allowed.includes(toolName)) {
-					const msg = `Tool "${toolName}" is not available on this step. Available: ${formatToolNames(callableToolNames(this.callableView(), allowed))}`
+					const msg = `Tool "${toolName}" is not available on this step. Available: ${formatToolNames(callableToolNames(this, allowed))}`
 					this.log.warn('Blocked a tool outside the step allow-list', {
 						[GENAI.TOOL_NAME]: toolName,
 						'namzu.registry.allowed': allowed.length,
@@ -675,7 +706,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 				const mode = context.permissionContext?.mode ?? 'auto'
 				if (mode === 'plan') {
-					const isReadOnly = isTrustedReadOnlyBySource(tool, finalInput, source)
+					const isReadOnly = isTrustedReadOnly(tool, finalInput, source)
 					if (!isReadOnly) {
 						const msg = `plan mode: non-read-only tool "${toolName}" blocked. ${PLAN_MODE_REFUSAL}`
 						span.setAttributes({
@@ -773,14 +804,6 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 		})
 	}
 
-	/** `callableToolNames` (`registry/tool/callable.ts`) picks these two by name; adapts `availability`'s different name. */
-	private callableView(): {
-		listNames(): string[]
-		getAvailability(name: string): 'active' | 'deferred'
-	} {
-		return { listNames: () => this.listNames(), getAvailability: (name) => this.availability(name) }
-	}
-
 	private validationFailure(
 		tool: ToolDefinition,
 		rawInput: unknown,
@@ -825,25 +848,6 @@ function toolSpanIdentity(context: ToolContext): Record<string, string> {
 		...(context.sessionId ? { [GENAI.CONVERSATION_ID]: context.sessionId } : {}),
 		...(context.turnId ? { [NAMZU.TURN_ID]: context.turnId } : {}),
 	}
-}
-
-/**
- * The plan-mode gate's `isTrustedReadOnly` (`tools/trusted-read-only.ts`),
- * keyed on the owning toolset's {@link ToolSourceRef} instead of
- * `tool.provenance` — the one substitution plan.md §2 names for this check.
- * Same asymmetry: a source's `readOnlyHintTrusted` may only RAISE the bar
- * (an untrusted MCP server's `isReadOnly` claim never settles the gate on
- * its own); a non-`mcp_server` source is host-defined, so there is no
- * untrusted party in the chain and nothing to require an opt-in for.
- */
-function isTrustedReadOnlyBySource(
-	tool: ToolDefinition,
-	input: unknown,
-	source: ToolSourceRef,
-): boolean {
-	if (!tool.isReadOnly) return false
-	if (source.kind === 'mcp_server' && !source.readOnlyHintTrusted) return false
-	return tool.isReadOnly(input)
 }
 
 /** Project a `ToolSourceRef` to the `ToolProvenance` shape `screenToolResult` reads, for MCP-kind sources only. */

@@ -497,9 +497,10 @@ export function toolResultCorrespondenceGuardrail(
  * The screens a turn installs on itself when its host configured none.
  *
  * A DEFAULT, and the reason it is here rather than on
- * {@link ToolRegistryConfig.resultGuardrails}: a host assembles a registry
- * and hands it to `runAgent`, so a registry-constructor default would be the
- * host's to write and this repository's default would reach nobody. The turn
+ * `ToolManagerConfig.resultGuardrails` (`toolsets/manager.ts`): a host
+ * assembles its toolsets and hands them to `query()`, so a manager-construction
+ * default would be the host's to write and this repository's default would
+ * reach nobody. The turn
  * is the thing that has to carry it, and a turn that wants none says so with
  * an empty array — which is the escape hatch, and it exists precisely because
  * the screen below can refuse a result.

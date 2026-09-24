@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { Message } from '../../../types/message/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
@@ -63,9 +63,7 @@ function trailingContext(messages: readonly Message[]): Message[] {
 }
 
 function setup() {
-	const tools = new ToolRegistry()
-	let n = 0
-	tools.register({
+	const tools = testToolset({
 		name: 'note',
 		description: 'Pin a fact',
 		inputSchema: z.object({ text: z.string() }),
@@ -75,6 +73,7 @@ function setup() {
 			workingState: [{ key: `k${++n}`, text }],
 		}),
 	})
+	let n = 0
 	return {
 		tools,
 		agentId: 'a',
