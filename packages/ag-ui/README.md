@@ -49,7 +49,7 @@ identity or tool permissions.
 
 History admission is explicit. After selecting or verifying the history your
 host permits, call `toNamzuMessages(admittedMessages)` and put it in
-`QueryParams.prompt`. The adapter does not automatically trust or replay the
+`QueryParams.messages`. The adapter does not automatically trust or replay the
 request's history. The helper converts complete tool rounds and inline
 image/document data; privileged roles require `allowSystemMessages: true`.
 

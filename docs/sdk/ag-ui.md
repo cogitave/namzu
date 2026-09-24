@@ -58,7 +58,7 @@ export function createAgentEndpoint(resolveAuthorizedThread: ResolveAuthorizedTh
       const authorized = await resolveAuthorizedThread(request, input, signal)
       return {
         ...authorized.params,
-        prompt: toNamzuMessages(authorized.admittedMessages),
+        messages: toNamzuMessages(authorized.admittedMessages),
       }
     },
   })
@@ -165,7 +165,7 @@ export function reconcileDisplay(ui: AGUITurnUI, authorized: readonly AGUIMessag
 ```
 
 This changes client display history only. Independently supply the admitted
-model history in `QueryParams.messages` or `prompt`. Do not include private
+model history in `QueryParams.messages`. Do not include private
 system prompts, reasoning or other server-only content in the display snapshot.
 The official message schema is checked, message IDs must be nonempty and unique,
 and the data is copied before enqueueing. Empty history clears the client view.
