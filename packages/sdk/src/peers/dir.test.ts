@@ -103,6 +103,82 @@ describe('resolvePeerRuntimeDir', () => {
 		expect(existsSync(join(root, 'namzu'))).toBe(false)
 	})
 
+	it('falls back to the next length-fitting candidate when hardening the preferred one fails for a reason other than length', () => {
+		// Models a hostile or merely misconfigured $XDG_RUNTIME_DIR: a real
+		// hardenPeerRuntimeDir would throw EPERM from chmod() on a directory
+		// this process does not own. The call must not fail outright — it
+		// should fall through to $NAMZU_HOME/run, which is perfectly usable.
+		const root = makeTempRoot()
+		const attempted: string[] = []
+		const result = resolvePeerRuntimeDir({
+			env: { XDG_RUNTIME_DIR: join(root, 'hostile') },
+			namzuHome: join(root, 'home'),
+			uid,
+			platform: 'linux',
+			hardenDirectory: (path) => {
+				attempted.push(path)
+				if (path.startsWith(join(root, 'hostile'))) {
+					throw new Error('EPERM: chmod not permitted (directory owned by another uid)')
+				}
+			},
+		})
+		expect(result.path).toBe(join(root, 'home', 'run'))
+		expect(result.sessionsDir).toBe(join(root, 'home', 'run', 'sessions'))
+		expect(attempted).toEqual([
+			join(root, 'hostile', 'namzu'),
+			join(root, 'home', 'run'),
+			join(root, 'home', 'run', 'sessions'),
+		])
+	})
+
+	it('throws naming every length-fitting candidate and why when none of them can be hardened', () => {
+		const root = makeTempRoot()
+		const xdg = join(root, 'xdg')
+		const home = join(root, 'home')
+		const tmp = join(root, 'tmp')
+		let thrown: unknown
+		try {
+			resolvePeerRuntimeDir({
+				env: { XDG_RUNTIME_DIR: xdg },
+				namzuHome: home,
+				uid,
+				platform: 'linux',
+				tmpDir: tmp,
+				hardenDirectory: (path) => {
+					throw new Error(`unusable: ${path}`)
+				},
+			})
+		} catch (error) {
+			thrown = error
+		}
+		expect(thrown).toBeInstanceOf(PeerDirectoryError)
+		const message = (thrown as Error).message
+		expect(message).toContain(join(xdg, 'namzu'))
+		expect(message).toContain(join(home, 'run'))
+	})
+
+	it('never attempts a candidate that does not fit the length budget, even when every fitting one fails', () => {
+		const root = makeTempRoot()
+		const longNamzuHome = join(root, 'x'.repeat(200))
+		const attempted: string[] = []
+		expect(() =>
+			resolvePeerRuntimeDir({
+				env: {},
+				namzuHome: longNamzuHome,
+				uid,
+				platform: 'linux',
+				tmpDir: root,
+				hardenDirectory: (path) => {
+					attempted.push(path)
+					throw new Error('nope')
+				},
+			}),
+		).toThrow(PeerDirectoryError)
+		// Only the tmp fallback fits; $NAMZU_HOME/run never does, so it is
+		// never even offered to hardenDirectory.
+		expect(attempted).toEqual([join(root, `namzu-${uid ?? 'user'}`)])
+	})
+
 	it('throws when not even the tmp fallback fits the platform limit', () => {
 		const hugeTmp = `/${'t'.repeat(200)}`
 		expect(() =>

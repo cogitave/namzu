@@ -131,22 +131,46 @@ function peerRuntimeDirCandidates(options: ResolvePeerRuntimeDirOptions): readon
  * Choose and harden the per-session peer runtime directory.
  *
  * Candidates, in order: `$XDG_RUNTIME_DIR/namzu`, `$NAMZU_HOME/run`,
- * `$TMPDIR/namzu-<uid>`. The first whose resulting socket paths fit this
- * platform's `sockaddr_un` limit is created 0700 (see
- * {@link hardenPeerRuntimeDir}), along with its `sessions/` subdirectory.
+ * `$TMPDIR/namzu-<uid>`. Every candidate whose resulting socket paths fit
+ * this platform's `sockaddr_un` limit is a length-eligible candidate; among
+ * those, the first that can actually be created and hardened 0700 (see
+ * {@link hardenPeerRuntimeDir}), along with its `sessions/` subdirectory, is
+ * the one used.
+ *
+ * Fitting the length budget and being hardenable are different failure
+ * modes, so they get different handling. A candidate that is too long for
+ * this platform's socket path is never even attempted — trying it would
+ * only fail later, at `listen()`, with a less useful error. A candidate
+ * that DOES fit but cannot be hardened (owned by another uid, a symlink, a
+ * permission this process cannot chmod away) is skipped in favour of the
+ * next length-eligible candidate rather than failing the whole call: a
+ * hostile or merely misconfigured `$XDG_RUNTIME_DIR` should not deny peer
+ * messaging to a session that could perfectly well fall back to
+ * `$NAMZU_HOME/run`. Only when every length-eligible candidate has failed to
+ * harden does this throw, naming each one and why.
  */
 export function resolvePeerRuntimeDir(options: ResolvePeerRuntimeDirOptions): PeerRuntimeDir {
 	const platform = options.platform ?? process.platform
 	const harden = options.hardenDirectory ?? hardenPeerRuntimeDir
 	const candidates = peerRuntimeDirCandidates(options)
-	const chosen = candidates.find((candidate) => fitsSocketPath(candidate, platform))
-	if (!chosen) {
+	const fitting = candidates.filter((candidate) => fitsSocketPath(candidate, platform))
+	if (fitting.length === 0) {
 		throw new PeerDirectoryError(
 			`No candidate peer runtime directory fits this platform's socket path limit (${platformSocketPathLimit(platform)} bytes): ${candidates.join(', ')}`,
 		)
 	}
-	harden(chosen, options.uid)
-	const sessionsDir = join(chosen, 'sessions')
-	harden(sessionsDir, options.uid)
-	return { path: chosen, sessionsDir }
+	const failures: string[] = []
+	for (const candidate of fitting) {
+		try {
+			harden(candidate, options.uid)
+			const sessionsDir = join(candidate, 'sessions')
+			harden(sessionsDir, options.uid)
+			return { path: candidate, sessionsDir }
+		} catch (error) {
+			failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`)
+		}
+	}
+	throw new PeerDirectoryError(
+		`No candidate peer runtime directory could be hardened:\n${failures.join('\n')}`,
+	)
 }
