@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-	generateRenderNonce,
-	nonceClosureStatement,
-	pickRenderNonce,
-} from '../render-nonce.js'
+import { generateRenderNonce, nonceClosureStatement, pickRenderNonce } from '../render-nonce.js'
 
 describe('generateRenderNonce', () => {
 	it('produces at least 8 lowercase hex characters', () => {

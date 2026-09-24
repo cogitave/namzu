@@ -23,8 +23,12 @@
  * @experimental
  */
 
+import {
+	generateRenderNonce,
+	nonceClosureStatement,
+	pickRenderNonce,
+} from '../tools/render-nonce.js'
 import { type UntrustedEnvelope, wrapUntrusted } from '../tools/untrusted-envelope.js'
-import { generateRenderNonce, nonceClosureStatement, pickRenderNonce } from '../tools/render-nonce.js'
 
 const SYSTEM_EVENT_KINDS_LIST = [
 	'agent',
