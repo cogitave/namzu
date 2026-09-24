@@ -120,8 +120,10 @@ notifications (below).
 path with anything but letters, digits and `. _ / @ + -` is refused rather than
 escaped. `install` checks that interop answers (a Windows program starts and
 exits 0) and refuses with the reason if it does not (`[interop] enabled=false`
-in `/etc/wsl.conf`). The Windows programs are found at their fixed locations,
-never through PATH, and recorded in the manifest. Runs get a PATH without the
+in `/etc/wsl.conf`). The Windows programs are found at their fixed locations
+under the drive mount root (`[automount] root` in `/etc/wsl.conf`, `/mnt/` by
+default), never through PATH, and recorded in the manifest. They are started in
+`C:` under that root, as is the PowerShell that shows a Windows notification. Runs get a PATH without the
 Windows `/mnt/*` entries: a failed lookup through them costs seconds.
 
 A job with a [browser grant](scheduled-tasks.md#browser-access) drives the

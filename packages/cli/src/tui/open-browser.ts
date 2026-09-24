@@ -40,7 +40,12 @@ import { constants, accessSync, existsSync } from 'node:fs'
 import { platform } from 'node:os'
 import { delimiter, isAbsolute, join } from 'node:path'
 
-import { DEFAULT_WSL_MOUNT_ROOT, detectWsl, readWslMountRoot } from '../context/environment.js'
+import {
+	DEFAULT_WSL_MOUNT_ROOT,
+	detectWsl,
+	readWslMountRoot,
+	wslSystem32,
+} from '../context/environment.js'
 
 /** Resolve a launcher before claiming that one started. */
 function executableOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
@@ -61,7 +66,7 @@ function executableOnPath(name: string, env: NodeJS.ProcessEnv): string | null {
 
 /** Where Windows keeps PowerShell, under a WSL mount root (`/mnt/` by default). */
 export function wslPowershell(mountRoot: string = DEFAULT_WSL_MOUNT_ROOT): string {
-	return `${mountRoot}c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`
+	return `${wslSystem32(mountRoot)}/WindowsPowerShell/v1.0/powershell.exe`
 }
 
 /** PowerShell under the default mount root. */
@@ -92,11 +97,11 @@ interface Launch {
 /** Windows' protocol handler through interop, or `null` when this is not a WSL that can reach it. */
 function wslLaunch(url: string, env: NodeJS.ProcessEnv, host: BrowserHost): Launch | null {
 	const exists = host.exists ?? existsSync
-	const wsl = detectWsl(env, { exists, list: () => [] })
-	if (!wsl?.interop) return null
 	// `/etc/wsl.conf` can move the drives (`[automount] root = /win/`), and
 	// PowerShell and the directory it starts in move with them.
 	const mountRoot = host.readFile ? readWslMountRoot(host.readFile) : readWslMountRoot()
+	const wsl = detectWsl(env, { exists, list: () => [], mountRoot })
+	if (!wsl?.interop) return null
 	const powershell = wslPowershell(mountRoot)
 	if (!exists(powershell)) return null
 	const passed = (env.WSLENV ?? '')

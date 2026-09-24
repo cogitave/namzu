@@ -91,9 +91,14 @@ describe('WSL', () => {
 	it('is detected from WSL_DISTRO_NAME, with interop from WSL_INTEROP', () => {
 		const wsl = detectWsl(
 			{ WSL_DISTRO_NAME: 'archlinux', WSL_INTEROP: '/run/WSL/240_interop' },
-			{ exists: () => false, list: () => ['c', 'd', 'wsl', 'wslg'] },
+			{ exists: () => false, list: () => ['c', 'd', 'wsl', 'wslg'], mountRoot: '/mnt/' },
 		)
-		expect(wsl).toEqual({ distro: 'archlinux', interop: true, drives: ['/mnt/c', '/mnt/d'] })
+		expect(wsl).toEqual({
+			distro: 'archlinux',
+			interop: true,
+			drives: ['/mnt/c', '/mnt/d'],
+			mountRoot: '/mnt/',
+		})
 	})
 
 	it('counts interop as on when its binfmt handler is registered without the variable', () => {
@@ -102,20 +107,67 @@ describe('WSL', () => {
 			{
 				exists: (path) => path === '/proc/sys/fs/binfmt_misc/WSLInterop',
 				list: () => [],
+				mountRoot: '/mnt/',
 			},
 		)
-		expect(wsl).toEqual({ distro: 'Ubuntu', interop: true, drives: [] })
+		expect(wsl).toEqual({ distro: 'Ubuntu', interop: true, drives: [], mountRoot: '/mnt/' })
 	})
 
 	it('is detected from WSL_INTEROP alone, and reports interop off when nothing says it is on', () => {
-		expect(detectWsl({ WSL_INTEROP: '/run/WSL/1_interop' }, { list: () => [] })).toEqual({
+		expect(
+			detectWsl({ WSL_INTEROP: '/run/WSL/1_interop' }, { list: () => [], mountRoot: '/mnt/' }),
+		).toEqual({
 			distro: null,
 			interop: true,
 			drives: [],
+			mountRoot: '/mnt/',
 		})
 		expect(
 			detectWsl({ WSL_DISTRO_NAME: 'Debian' }, { exists: () => false, list: () => [] })?.interop,
 		).toBe(false)
+	})
+
+	it('lists the drives under the mount root wsl.conf moved them to', () => {
+		const listed: string[] = []
+		const wsl = detectWsl(
+			{ WSL_DISTRO_NAME: 'archlinux', WSL_INTEROP: '/run/WSL/240_interop' },
+			{
+				exists: () => false,
+				list: (path) => {
+					listed.push(path)
+					return ['c', 'wsl']
+				},
+				mountRoot: '/win/',
+			},
+		)
+		expect(listed).toEqual(['/win'])
+		expect(wsl).toMatchObject({ drives: ['/win/c'], mountRoot: '/win/' })
+	})
+
+	it('names the paths the model will type under a moved mount root', () => {
+		const text = promptFor(
+			{ escape: 'ask', interactive: true },
+			{ distro: 'archlinux', interop: true, drives: ['/win/c'], mountRoot: '/win/' },
+		)
+		expect(text).toContain('`C:\\Users` is `/win/c/Users`')
+		expect(text).toContain('`cd` under `/win/c` first')
+		expect(text).toContain('`cmd.exe` is under `/win/c/Windows/System32`')
+		expect(text).not.toContain('/mnt/c')
+		expect(
+			promptFor(
+				{ escape: 'ask', interactive: true },
+				{ distro: 'archlinux', interop: true, drives: [], mountRoot: '/win/' },
+			),
+		).toContain('No Windows drive is mounted under `/win` right now.')
+	})
+
+	it('reads as it always did under the default mount root', () => {
+		const text = promptFor(
+			{ escape: 'ask', interactive: true },
+			{ distro: 'archlinux', interop: true, drives: ['/mnt/c'] },
+		)
+		expect(text).toContain('`C:\\Users` is `/mnt/c/Users`')
+		expect(text).toContain('`cmd.exe` is under `/mnt/c/Windows/System32`')
 	})
 
 	it('says nothing about Windows programs outside WSL', () => {
