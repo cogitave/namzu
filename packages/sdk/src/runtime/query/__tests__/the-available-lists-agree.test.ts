@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
+import type { Toolset } from '../../../toolsets/types.js'
+import { deferred } from '../../../toolsets/wrappers.js'
 import type { SessionId, TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
@@ -44,7 +47,7 @@ function tool(name: string, execute?: ToolDefinition['execute']): ToolDefinition
 	} as unknown as ToolDefinition
 }
 
-function makeExecutor(registry: ToolRegistry): ToolExecutor {
+function makeExecutor(registry: ToolManager): ToolExecutor {
 	return new ToolExecutor(
 		{
 			tools: registry,
@@ -59,6 +62,35 @@ function makeExecutor(registry: ToolRegistry): ToolExecutor {
 		() => Promise.resolve(),
 		makeLogger(),
 	)
+}
+
+function liveTools(initial: ToolDefinition[], deferredTools: ToolDefinition[] = []) {
+	let current = [...initial]
+	const listeners = new Set<() => void>()
+	const source: Toolset = {
+		source: { id: 'live', kind: 'host_tool', name: 'live' },
+		tools: () => current,
+		onChange(listener) {
+			listeners.add(listener)
+			return () => {
+				listeners.delete(listener)
+			}
+		},
+	}
+	const manager = new ToolManager({
+		toolsets: [source, deferred(testToolset(...deferredTools))],
+		messages: () => [],
+	})
+	function update(next: ToolDefinition[]) {
+		current = next
+		for (const listener of listeners) listener()
+		manager.refresh()
+	}
+	return {
+		manager,
+		remove: (name: string) => update(current.filter((tool) => tool.name !== name)),
+		add: (definition: ToolDefinition) => update([...current, definition]),
+	}
 }
 
 let callSeq = 0
@@ -107,15 +139,14 @@ function advertised(output: string): string[] | undefined {
 
 describe('the lists a model is shown agree with each other and with what runs', () => {
 	it('does not send a model that follows them round in a circle', async () => {
-		const registry = new ToolRegistry()
-		registry.register([tool('danger'), tool('mcp_fetch')])
-		const executor = makeExecutor(registry)
+		const tools = liveTools([tool('danger'), tool('mcp_fetch')])
+		const executor = makeExecutor(tools.manager)
 		// The step was narrowed to the connector's tool, and the request went
 		// out with it. Then the connector disconnected, which unregisters its
 		// tools — and the step's list, taken when the request was built, still
 		// names it.
 		executor.setStepAllowedTools(['mcp_fetch'])
-		registry.unregister('mcp_fetch')
+		tools.remove('mcp_fetch')
 
 		// The model calls something, then always the first tool it was told is
 		// available, until it is told there is none.
@@ -135,15 +166,16 @@ describe('the lists a model is shown agree with each other and with what runs', 
 	})
 
 	it('advertises the same tools from both errors, and every one of them runs', async () => {
-		const registry = new ToolRegistry()
-		registry.register([tool('read_only'), tool('danger'), tool('mcp_fetch')])
-		registry.register(tool('deep_search'), 'deferred')
-		const executor = makeExecutor(registry)
+		const tools = liveTools(
+			[tool('read_only'), tool('danger'), tool('mcp_fetch')],
+			[tool('deep_search')],
+		)
+		const executor = makeExecutor(tools.manager)
 		executor.setStepAllowedTools(['read_only', 'mcp_fetch', 'deep_search'])
-		registry.unregister('mcp_fetch')
+		tools.remove('mcp_fetch')
 		// Registered after the step's list was taken: in the registry, and not
 		// on the list.
-		registry.register(tool('late_arrival'))
+		tools.add(tool('late_arrival'))
 
 		const refused = await call(executor, 'danger')
 		expect(refused.output).toContain('not available on this step')
@@ -163,10 +195,8 @@ describe('the lists a model is shown agree with each other and with what runs', 
 	})
 
 	it('lists every active tool when the step is not narrowed', async () => {
-		const registry = new ToolRegistry()
-		registry.register([tool('read_only'), tool('danger')])
-		registry.register(tool('deep_search'), 'deferred')
-		const executor = makeExecutor(registry)
+		const tools = liveTools([tool('read_only'), tool('danger')], [tool('deep_search')])
+		const executor = makeExecutor(tools.manager)
 
 		const unknown = await call(executor, 'no_such_tool')
 
@@ -174,9 +204,8 @@ describe('the lists a model is shown agree with each other and with what runs', 
 	})
 
 	it('answers an unknown name the same way on a batch that was not prepared first', async () => {
-		const registry = new ToolRegistry()
-		registry.register([tool('read_only'), tool('danger')])
-		const executor = makeExecutor(registry)
+		const tools = liveTools([tool('read_only'), tool('danger')])
+		const executor = makeExecutor(tools.manager)
 		executor.setStepAllowedTools(['read_only'])
 
 		const batch = await executor.executeBatch(response('no_such_tool'))
@@ -187,8 +216,7 @@ describe('the lists a model is shown agree with each other and with what runs', 
 
 	it('answers a nested call to an unknown name with the step list too', async () => {
 		let nested = ''
-		const registry = new ToolRegistry()
-		registry.register([
+		const tools = liveTools([
 			tool('program', async (_input, context) => {
 				const result = await context.dispatchTool?.('no_such_tool', {})
 				nested = result?.error ?? ''
@@ -197,7 +225,7 @@ describe('the lists a model is shown agree with each other and with what runs', 
 			tool('read_only'),
 			tool('danger'),
 		])
-		const executor = makeExecutor(registry)
+		const executor = makeExecutor(tools.manager)
 		executor.setStepAllowedTools(['program', 'read_only'])
 
 		await call(executor, 'program')
