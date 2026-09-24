@@ -10,6 +10,7 @@ import {
 	ToolCallIndexer,
 	describeToolCallFramingViolation,
 	describeToolCallInterleaving,
+	isUnindexedFragment,
 	toolCallFramingViolation,
 } from '../../../provider/tool-call-framing.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
@@ -550,12 +551,71 @@ export async function* streamProviderTurn(
 			}
 
 			for (const tc of chunk.delta.toolCalls ?? []) {
-				// Checked BEFORE `indexOf`, which moves "most recently active"
-				// onto this fragment: the call it would leave incomplete is only
-				// readable before that happens.
-				const interleaving = toolIndexer.interleaving(tc, (i) =>
-					parseToolArguments(toolBuckets.get(i)?.argsBuf ?? '').ok,
-				)
+				if (isUnindexedFragment(tc)) {
+					// Neither an id nor an index: never a guess. Evaluated fresh
+					// for THIS fragment, not decided once when some call opened —
+					// a call's buffer stops accepting text the moment it becomes
+					// one complete JSON value, and only the state right now says
+					// which open calls still could be this fragment's target.
+					const placement = toolIndexer.placeUnindexedFragment((i) => {
+						const b = toolBuckets.get(i)
+						if (!b || b.completed) return false
+						return b.argsBuf === '' || !parseToolArguments(b.argsBuf).ok
+					})
+					if (typeof placement === 'number') {
+						let bucket = toolBuckets.get(placement)
+						if (!bucket) {
+							bucket = {
+								id: '',
+								name: '',
+								argsBuf: '',
+								started: false,
+								completed: false,
+								parsed: null,
+								precedingLength: streamedLength,
+							}
+							toolBuckets.set(placement, bucket)
+							lastOutputCall = bucket
+						}
+						if (tc.function?.name && !bucket.name) bucket.name = tc.function.name
+						const fragment = tc.function?.arguments
+						if (fragment) {
+							bucket.argsBuf += fragment
+							streamedLength += fragment.length
+							lastOutputCall = bucket
+						}
+						if (!bucket.started) {
+							yield* announceToolCall(bucket)
+						} else if (fragment) {
+							await emitEvent({
+								type: 'tool_input_delta',
+								turnId,
+								toolUseId: bucket.id as ToolUseId,
+								partialJson: fragment,
+							})
+							yield* drainPending()
+						}
+					} else {
+						// More than one open call could still have taken this
+						// fragment, or none could: every candidate is
+						// unreadable, and the fragment itself is attributed to
+						// none of them — appending it to a guess is exactly the
+						// splice this exists to refuse.
+						for (const candidate of placement.candidates) {
+							const stuck = toolBuckets.get(candidate.index)
+							if (stuck) stuck.interleaved = true
+						}
+						log.warn('tool-call fragments arrived interleaved with no index', {
+							[NAMZU.TURN_ID]: turnId,
+							[NAMZU.ITERATION]: iteration,
+							'exception.message': describeToolCallInterleaving({
+								kind: 'interleaved_without_index',
+								candidates: placement.candidates,
+							}),
+						})
+					}
+					continue
+				}
 				const index = toolIndexer.indexOf(tc)
 				let bucket = toolBuckets.get(index)
 				const violation = toolCallFramingViolation(bucket, tc, index)
@@ -572,19 +632,6 @@ export async function* streamProviderTurn(
 						detail: describeToolCallFramingViolation(violation),
 					})
 				}
-				if (interleaving) {
-					// The call that was still open when this one started: with no
-					// index to tell a later id-less fragment's owner apart from
-					// this one, it can no longer be trusted either, whatever its
-					// buffer holds.
-					const stuck = toolBuckets.get(interleaving.openIndex)
-					if (stuck) stuck.interleaved = true
-					log.warn('tool-call fragments arrived interleaved with no index', {
-						[NAMZU.TURN_ID]: turnId,
-						[NAMZU.ITERATION]: iteration,
-						'exception.message': describeToolCallInterleaving(interleaving),
-					})
-				}
 				if (!bucket) {
 					bucket = {
 						id: tc.id ?? '',
@@ -594,7 +641,6 @@ export async function* streamProviderTurn(
 						completed: false,
 						parsed: null,
 						precedingLength: streamedLength,
-						...(interleaving ? { interleaved: true } : {}),
 					}
 					toolBuckets.set(index, bucket)
 					lastOutputCall = bucket

@@ -566,6 +566,149 @@ describe('tool-call framing', () => {
 		expect(done.find((e) => e.toolUseId === 'call_b')?.input).toEqual({})
 	})
 
+	it('reports both calls unreadable when both open empty, back to back, before either streams any argument text', async () => {
+		// The standard OpenAI-style wire shape: id+name with EMPTY arguments,
+		// for one call right after another, before either has streamed any
+		// argument text. Checking ambiguity once, when "call_b" opens, and
+		// reading an empty buffer as already complete, let this exact shape
+		// through undetected. The fix asks fresh, for every id-less fragment,
+		// which open calls could still accept it right now — and an empty
+		// buffer can.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'c', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const { error, result, events } = await run([
+			unindexed({ id: 'call_a', type: 'function', function: { name: 'write', arguments: '' } }),
+			unindexed({ id: 'call_b', type: 'function', function: { name: 'write', arguments: '' } }),
+			unindexed({ function: { arguments: '{"path":"a.md","content":"AAAA"}' } }),
+			unindexed({ function: { arguments: '{"path":"b.md","content":"BBBB"}' } }),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		const calls = result?.response.message.toolCalls ?? []
+		expect(calls.map((call) => call.id)).toEqual(['call_a', 'call_b'])
+		for (const call of calls) {
+			expect(call.function.arguments).toBe('{}')
+			expect(call.metadata?.inputError?.reason).toBe('malformed')
+		}
+		const done = completed(events)
+		expect(done.map((e) => [e.toolUseId, e.inputTruncated, e.inputError?.reason])).toEqual([
+			['call_a', true, 'malformed'],
+			['call_b', true, 'malformed'],
+		])
+		// Neither ambiguous fragment was guessed onto either call.
+		expect(done.map((e) => e.partialArguments)).toEqual(['', ''])
+	})
+
+	it('attributes an id-less continuation to the one call whose arguments are not yet complete', async () => {
+		// "call_a" arrives complete in its own opening fragment; only
+		// "call_b" can still accept the id-less continuation that follows, so
+		// it is unambiguous, and "call_a" is never touched or flagged.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'c', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const { error, result, events } = await run([
+			unindexed({
+				id: 'call_a',
+				type: 'function',
+				function: { name: 'write', arguments: '{"path":"a.md","content":"x"}' },
+			}),
+			unindexed({ id: 'call_b', type: 'function', function: { name: 'write', arguments: '' } }),
+			unindexed({ function: { arguments: '{"path":"b.md","content":"y"}' } }),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		expect(
+			result?.response.message.toolCalls?.map((call) => [
+				call.id,
+				call.function.arguments,
+				call.metadata,
+			]),
+		).toEqual([
+			['call_a', '{"path":"a.md","content":"x"}', undefined],
+			['call_b', '{"path":"b.md","content":"y"}', undefined],
+		])
+		expect(completed(events).map((e) => e.inputTruncated)).toEqual([undefined, undefined])
+	})
+
+	it('leaves a lone empty-argument call clean when no further fragment ever arrives for it', async () => {
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'c', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const { error, result } = await run([
+			unindexed({
+				id: 'call_x',
+				type: 'function',
+				function: { name: 'list_files', arguments: '' },
+			}),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		expect(result?.response.message.toolCalls).toEqual([
+			{ id: 'call_x', type: 'function', function: { name: 'list_files', arguments: '{}' } },
+		])
+	})
+
+	it('attributes an id-less fragment to the one call, among three, that can still accept it', async () => {
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'c', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const { error, result } = await run([
+			unindexed({
+				id: 'call_a',
+				type: 'function',
+				function: { name: 'write', arguments: '{"a":1}' },
+			}),
+			unindexed({
+				id: 'call_b',
+				type: 'function',
+				function: { name: 'write', arguments: '{"b":2}' },
+			}),
+			unindexed({ id: 'call_c', type: 'function', function: { name: 'write', arguments: '' } }),
+			unindexed({ function: { arguments: '{"c":3}' } }),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		expect(
+			result?.response.message.toolCalls?.map((call) => [
+				call.id,
+				call.function.arguments,
+				call.metadata,
+			]),
+		).toEqual([
+			['call_a', '{"a":1}', undefined],
+			['call_b', '{"b":2}', undefined],
+			['call_c', '{"c":3}', undefined],
+		])
+	})
+
+	it('leaves calls placed by an explicit index untouched, however their fragments interleave', async () => {
+		// Every fragment carries its own index: the compliant, ordinary wire
+		// shape. Ambiguity never applies here, whatever order the fragments
+		// for the two calls arrive in.
+		const { error, result } = await run([
+			open(0, 'call_a', 'read'),
+			open(1, 'call_b', 'read'),
+			args(0, '{"path":'),
+			args(1, '{"path":'),
+			args(0, '"a.md"}'),
+			args(1, '"b.md"}'),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		expect(
+			result?.response.message.toolCalls?.map((call) => [
+				call.id,
+				call.function.arguments,
+				call.metadata,
+			]),
+		).toEqual([
+			['call_a', '{"path":"a.md"}', undefined],
+			['call_b', '{"path":"b.md"}', undefined],
+		])
+	})
+
 	it('refuses a second call id on an index another call holds, instead of joining their arguments', async () => {
 		const { error, events } = await run([
 			open(0, 'call_a'),

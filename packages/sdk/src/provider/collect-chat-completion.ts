@@ -7,24 +7,25 @@ import {
 	INTERLEAVED_TOOL_INPUT_PARSE_ERROR,
 	ToolCallIndexer,
 	describeToolCallFramingViolation,
+	isUnindexedFragment,
 	toolCallFramingViolation,
 } from './tool-call-framing.js'
 
 /**
- * Whether a streamed argument buffer is, so far, a complete JSON value: none
- * (a call with no arguments arrives empty) or text `JSON.parse` accepts.
- * Used only to tell whether a call could still have more coming — see
- * `ToolCallIndexer.interleaving` — not to validate a finished call, so it
- * does not need the offset-finding `parseToolArguments` the turn loop uses
- * for the message a model is shown.
+ * Whether a streamed argument buffer could still be receiving more of a
+ * call's arguments right now: empty, or not yet a complete JSON value. Used
+ * only by `ToolCallIndexer.placeUnindexedFragment` to tell which open calls
+ * could still be an id-less fragment's target — not to validate a finished
+ * call, so it does not need the offset-finding `parseToolArguments` the turn
+ * loop uses for the message a model is shown.
  */
-function isCompleteJsonValue(buffer: string): boolean {
+function canAcceptMoreText(buffer: string): boolean {
 	if (!buffer) return true
 	try {
 		JSON.parse(buffer)
-		return true
-	} catch {
 		return false
+	} catch {
+		return true
 	}
 }
 
@@ -116,31 +117,37 @@ export async function collectChatCompletion(
 		}
 
 		for (const tc of chunk.delta.toolCalls ?? []) {
-			// Checked BEFORE `indexOf`, which moves "most recently active" onto
-			// this fragment: the call it would leave incomplete is only
-			// readable before that happens.
-			const interleaving = toolIndexer.interleaving(tc, (i) =>
-				isCompleteJsonValue(toolBuckets.get(i)?.argsBuf ?? ''),
-			)
+			if (isUnindexedFragment(tc)) {
+				// Neither an id nor an index: never a guess. Evaluated fresh for
+				// THIS fragment, not decided once when some call opened.
+				const placement = toolIndexer.placeUnindexedFragment((i) =>
+					canAcceptMoreText(toolBuckets.get(i)?.argsBuf ?? ''),
+				)
+				if (typeof placement === 'number') {
+					const bucket = toolBuckets.get(placement) ?? { id: '', name: '', argsBuf: '' }
+					if (tc.function?.name) bucket.name = tc.function.name
+					if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments
+					toolBuckets.set(placement, bucket)
+				} else {
+					// More than one open call could still have taken this
+					// fragment, or none could: every candidate is unreadable, and
+					// the fragment itself is attributed to none of them —
+					// appending it to a guess is exactly the splice this exists
+					// to refuse.
+					for (const candidate of placement.candidates) {
+						const bucket = toolBuckets.get(candidate.index)
+						if (bucket) bucket.unreadable = true
+					}
+				}
+				continue
+			}
 			const index = toolIndexer.indexOf(tc)
 			const open = toolBuckets.get(index)
 			const violation = toolCallFramingViolation(open, tc, index)
 			if (violation) {
 				throw new Error(`Provider stream error: ${describeToolCallFramingViolation(violation)}`)
 			}
-			if (interleaving) {
-				// The call that was still open when this one started: with no
-				// index to tell a later id-less fragment's owner apart, it can
-				// no longer be trusted either, whatever its buffer holds.
-				const stuck = toolBuckets.get(interleaving.openIndex)
-				if (stuck) stuck.unreadable = true
-			}
-			const bucket = open ?? {
-				id: '',
-				name: '',
-				argsBuf: '',
-				...(interleaving ? { unreadable: true } : {}),
-			}
+			const bucket = open ?? { id: '', name: '', argsBuf: '' }
 			if (tc.id && !bucket.id) bucket.id = tc.id
 			if (tc.function?.name) bucket.name = tc.function.name
 			if (tc.function?.arguments) bucket.argsBuf += tc.function.arguments

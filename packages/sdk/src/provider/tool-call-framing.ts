@@ -41,6 +41,23 @@ export function toolCallFramingViolation(
 	return undefined
 }
 
+function hasIndex(index: number | undefined): index is number {
+	return typeof index === 'number' && Number.isInteger(index) && index >= 0
+}
+
+/**
+ * Whether a fragment carries neither an index nor an id — the one shape
+ * `ToolCallIndexer.indexOf` cannot place by itself, and the only shape
+ * {@link ToolCallIndexer.placeUnindexedFragment} is for. A fragment with
+ * either goes through `indexOf` instead, unaffected by anything below.
+ */
+export function isUnindexedFragment(delta: {
+	readonly index?: number
+	readonly id?: string
+}): boolean {
+	return !hasIndex(delta.index) && !delta.id
+}
+
 /**
  * The index each tool-call fragment of one stream belongs to.
  *
@@ -51,27 +68,29 @@ export function toolCallFramingViolation(
  * reused index, and the turn paused on a stream that had nothing wrong with
  * it but the missing field.
  *
- * A fragment with no index is placed by its id, in the order ids arrive: an
- * id seen before continues its call; a new id names the call the latest
- * fragment went to when that call has no id yet, and starts a call on the
- * next free index otherwise; and a fragment with no id continues the call the
- * latest fragment went to. A fragment that does carry an index keeps it, so a
- * well-formed stream is read exactly as before and a real reuse of an index is
- * still refused.
+ * A fragment that carries an id, with or without an index, is placed by
+ * {@link indexOf}: an id seen before continues its call; a new id names the
+ * call the latest fragment went to when that call has no id yet, and starts a
+ * call on the next free index otherwise. A fragment that carries an index
+ * keeps it, so a well-formed stream is read exactly as before and a real
+ * reuse of an index is still refused.
  *
- * That last rule — an id-less fragment continues whichever call was most
- * recently active — only holds when one call is open at a time. A caller
- * that also calls {@link ToolCallIndexer.interleaving} before `indexOf` for
- * each fragment can detect the moment that stops being true.
+ * A fragment with NEITHER an id nor an index — see
+ * {@link isUnindexedFragment} — goes through {@link placeUnindexedFragment}
+ * instead, which is never a guess: nothing in such a fragment says which call
+ * it continues, so the caller is asked, for every call opened so far,
+ * whether it could still be receiving more of its arguments right now, and
+ * the fragment is placed only when the answer says exactly one call.
  */
 export class ToolCallIndexer {
 	private readonly byId = new Map<string, number>()
 	private readonly idOf = new Map<number, string>()
 	private readonly named = new Set<number>()
+	private readonly opened = new Set<number>()
 	private latest: number | undefined
 	private next = 0
 
-	/** The index this fragment belongs to. */
+	/** The index this id- or index-bearing fragment belongs to. */
 	indexOf(delta: { readonly index?: number; readonly id?: string }): number {
 		const index = hasIndex(delta.index) ? delta.index : this.placed(delta.id)
 		if (delta.id && !this.byId.has(delta.id)) this.byId.set(delta.id, index)
@@ -79,6 +98,7 @@ export class ToolCallIndexer {
 			this.named.add(index)
 			this.idOf.set(index, delta.id)
 		}
+		this.opened.add(index)
 		if (index >= this.next) this.next = index + 1
 		this.latest = index
 		return index
@@ -92,36 +112,54 @@ export class ToolCallIndexer {
 	}
 
 	/**
-	 * Whether placing this fragment now would leave a later id-less fragment
-	 * with no way to be routed: see {@link ToolCallInterleaving}.
+	 * Where a fragment with neither an id nor an index belongs — see
+	 * {@link isUnindexedFragment}.
 	 *
-	 * Call BEFORE {@link indexOf} for the same fragment: `indexOf` moves
-	 * "most recently active" onto the new call, so the call it would leave
-	 * incomplete is only readable before that happens.
+	 * Evaluated fresh for every such fragment, never decided once and
+	 * remembered from when a call opened: a call's buffer can go from
+	 * accepting more text to not (once it completes) and stay that way, so
+	 * only the state right now, at each fragment, says which calls could
+	 * still be its target. `canAccept(index)` is asked for every call opened
+	 * so far and answers exactly that: true while its buffer is empty or is
+	 * not yet a complete JSON value (it could still be receiving more), false
+	 * once the buffer already parses as one complete value (nothing more is
+	 * missing from it).
 	 *
-	 * `undefined` when there is nothing ambiguous about this fragment: it
-	 * carries its own index (a real reuse of an index is
-	 * {@link toolCallFramingViolation}'s job, not this one's), repeats an id
-	 * already seen, names no id at all, or the call most recently active is
-	 * unnamed (a fresh id then names THAT call, same as always) or already
-	 * holds a complete JSON value, so nothing is left for an id-less
-	 * fragment to ambiguously continue.
-	 *
-	 * `isComplete` is asked only for the call this could interleave with,
-	 * and only when every cheaper check already passed — the caller's own
-	 * notion of "parses as one JSON value, or is empty" (empty is a call
-	 * with no arguments, not one still filling in).
+	 * - No call has opened yet: this fragment starts the first one. An id
+	 *   for it, if the stream sends one, arrives on a later fragment and
+	 *   attaches to it — the ordinary "arguments before the id" case,
+	 *   unchanged.
+	 * - Exactly one open call can still accept: it is unambiguously that
+	 *   one.
+	 * - Zero, or more than one, open call can: there is no way to tell which
+	 *   one this fragment was for, or none could take it at all. Every call
+	 *   that could have is returned in `candidates` (empty when none could),
+	 *   and the fragment belongs to none of them — appending it to a guess
+	 *   is exactly the splice this method exists to refuse.
 	 */
-	interleaving(
-		delta: { readonly index?: number; readonly id?: string },
-		isComplete: (index: number) => boolean,
-	): ToolCallInterleaving | undefined {
-		if (hasIndex(delta.index) || !delta.id || this.byId.has(delta.id)) return undefined
-		if (this.latest === undefined || !this.named.has(this.latest)) return undefined
-		if (isComplete(this.latest)) return undefined
-		const openId = this.idOf.get(this.latest)
-		if (!openId) return undefined
-		return { kind: 'interleaved_without_index', openIndex: this.latest, openId, newId: delta.id }
+	placeUnindexedFragment(
+		canAccept: (index: number) => boolean,
+	):
+		| number
+		| { readonly candidates: ReadonlyArray<{ readonly index: number; readonly id?: string }> } {
+		if (this.opened.size === 0) {
+			const index = this.next
+			this.opened.add(index)
+			this.next = index + 1
+			this.latest = index
+			return index
+		}
+		const candidates = [...this.opened].filter(canAccept)
+		if (candidates.length === 1) {
+			const [index] = candidates as [number]
+			this.latest = index
+			return index
+		}
+		return {
+			candidates: candidates
+				.sort((a, b) => a - b)
+				.map((index) => ({ index, id: this.idOf.get(index) })),
+		}
 	}
 
 	/**
@@ -134,47 +172,44 @@ export class ToolCallIndexer {
 	}
 }
 
-function hasIndex(index: number | undefined): index is number {
-	return typeof index === 'number' && Number.isInteger(index) && index >= 0
-}
-
 /** One sentence naming the violation, for an error's detail. */
 export function describeToolCallFramingViolation(violation: ToolCallFramingViolation): string {
 	return `the stream reused tool-call index ${violation.index} for call "${violation.newId}" while call "${violation.openId}" held it`
 }
 
 /**
- * A stream that opened a new tool call by id, with no index of its own,
- * while the call most recently active also has no index and had not yet
- * accumulated a complete JSON value.
+ * A stream sent a fragment with neither an id nor an index while more than
+ * one open call could still have been its target, or while none could.
  *
- * {@link ToolCallIndexer.indexOf} places an id-less fragment on whichever
- * call was most recently active. That is right as long as only one call is
- * open at a time: a real LLM decodes its own output linearly, so a
- * compliant server sends one call's fragments to completion before another
- * call's id ever appears. Once a second call's id arrives while the first is
- * still incomplete, that guarantee is gone — a later id-less fragment could
- * continue either call, and there is no field in the fragment that says
- * which. Guessing (as `indexOf` alone used to) can splice one call's JSON
- * into the other's buffer.
+ * {@link ToolCallIndexer.placeUnindexedFragment} places such a fragment only
+ * when exactly one open call can still accept more text right now (its
+ * buffer empty, or not yet a complete JSON value). Once two calls are both
+ * in that state — the ordinary shape of an OpenAI-style "open" fragment,
+ * name and id with empty arguments, sent for one call right after another,
+ * before either has streamed any argument text — a later fragment naming
+ * neither could belong to either, and there is no field in it that says
+ * which. Guessing (placing it on whichever call was merely most recently
+ * active) can splice one call's JSON into the other's, and the splice can
+ * still happen to parse, so the wrong call runs with no error at all.
  *
- * Detected the moment the second call opens, not only once an id-less
- * fragment actually arrives to prove the guess wrong: whether such a
- * fragment follows is exactly what cannot be known in advance, and code
- * shared across every driver must not bet on a compliant one never sending
- * it.
+ * `candidates` names every call that could have accepted the fragment: more
+ * than one when ambiguous, empty when the fragment matched no open call
+ * (nothing to route it to, and nothing to blame for it either).
  */
 export interface ToolCallInterleaving {
 	readonly kind: 'interleaved_without_index'
-	/** The index of the call that was still incomplete when the new one opened. */
-	readonly openIndex: number
-	readonly openId: string
-	readonly newId: string
+	readonly candidates: ReadonlyArray<{ readonly index: number; readonly id?: string }>
 }
 
 /** One sentence naming the interleaving, for an error's detail or log line. */
 export function describeToolCallInterleaving(interleaving: ToolCallInterleaving): string {
-	return `the stream opened tool call "${interleaving.newId}" with no index while call "${interleaving.openId}" (index ${interleaving.openIndex}) had not yet sent complete arguments and also carries no index, so a later fragment with neither could not be placed`
+	if (interleaving.candidates.length === 0) {
+		return 'the stream sent a tool-call fragment with neither an index nor an id, and no open call could still have accepted it'
+	}
+	const names = interleaving.candidates
+		.map((c) => (c.id ? `"${c.id}"` : `index ${c.index} (not yet named)`))
+		.join(' and ')
+	return `the stream sent a tool-call fragment with neither an index nor an id while ${names} could each still have accepted it, with nothing to tell them apart`
 }
 
 /**
@@ -182,10 +217,10 @@ export function describeToolCallInterleaving(interleaving: ToolCallInterleaving)
  * Reported `reason: 'malformed'`, never `'truncated'`: nothing here says the
  * response was cut off, and "the model moved on to more text, reasoning or
  * another call" — the only other case {@link ToolInputError} models — is
- * exactly what opening a second call means. The call left open may
- * genuinely have gone on to carry valid JSON, if by chance no id-less
- * fragment ever arrived for it; it is still reported unreadable rather than
- * risk having guessed right by luck on some other stream.
+ * exactly what opening a second call means. A call this leaves open may
+ * genuinely have gone on to carry valid JSON, if by chance no ambiguous
+ * fragment ever decided its fate; it is still reported unreadable rather
+ * than risk having guessed right by luck on some other stream.
  */
 export const INTERLEAVED_TOOL_INPUT_PARSE_ERROR =
 	"its fragments arrived interleaved with another call's, with neither carrying an index to tell them apart"

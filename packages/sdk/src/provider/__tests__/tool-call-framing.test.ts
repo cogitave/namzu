@@ -6,6 +6,7 @@ import {
 	ToolCallIndexer,
 	describeToolCallFramingViolation,
 	describeToolCallInterleaving,
+	isUnindexedFragment,
 	toolCallFramingViolation,
 } from '../tool-call-framing.js'
 
@@ -53,59 +54,103 @@ describe('toolCallFramingViolation', () => {
 	})
 })
 
-describe('ToolCallIndexer.interleaving', () => {
-	it('names the call left open when a new id opens while it is still incomplete', () => {
+describe('isUnindexedFragment', () => {
+	it('is true only with neither an index nor an id', () => {
+		expect(isUnindexedFragment({})).toBe(true)
+		expect(isUnindexedFragment({ id: 'a' })).toBe(false)
+		expect(isUnindexedFragment({ index: 0 })).toBe(false)
+		expect(isUnindexedFragment({ index: 0, id: 'a' })).toBe(false)
+	})
+})
+
+describe('ToolCallIndexer.placeUnindexedFragment', () => {
+	it('starts the first call when nothing has opened yet', () => {
+		const indexer = new ToolCallIndexer()
+		// `canAccept` is never asked: there is nothing open to ask about.
+		expect(indexer.placeUnindexedFragment(() => false)).toBe(0)
+	})
+
+	it('continues the one open call that can still accept text', () => {
 		const indexer = new ToolCallIndexer()
 		indexer.indexOf({ id: 'a' })
-		indexer.indexOf({ id: 'a' })
+		expect(indexer.placeUnindexedFragment((i) => i === 0)).toBe(0)
+	})
 
-		expect(indexer.interleaving({ id: 'b' }, () => false)).toEqual({
-			kind: 'interleaved_without_index',
-			openIndex: 0,
-			openId: 'a',
-			newId: 'b',
+	it('names every candidate, and places the fragment on none of them, when more than one open call can still accept', () => {
+		const indexer = new ToolCallIndexer()
+		indexer.indexOf({ id: 'a' })
+		indexer.indexOf({ id: 'b' })
+		// Both still empty: the ordinary "open, open, THEN arguments interleave"
+		// shape, which the old "check once when the second call opens" design
+		// missed because empty was read as already complete.
+		expect(indexer.placeUnindexedFragment(() => true)).toEqual({
+			candidates: [
+				{ index: 0, id: 'a' },
+				{ index: 1, id: 'b' },
+			],
 		})
 	})
 
-	it('is undefined for the sequential case: a new id after the open call completes', () => {
+	it('names no candidate when no open call can still accept', () => {
 		const indexer = new ToolCallIndexer()
 		indexer.indexOf({ id: 'a' })
-		indexer.indexOf({ id: 'a' })
-
-		// `isComplete` reports the open call's buffer as a finished JSON
-		// value, as it would be once "a" received its closing brace.
-		expect(indexer.interleaving({ id: 'b' }, () => true)).toBeUndefined()
+		expect(indexer.placeUnindexedFragment(() => false)).toEqual({ candidates: [] })
 	})
 
-	it('is undefined when the fragment carries its own index, repeats a known id, or names none', () => {
+	it('picks the one call that can accept among several that cannot', () => {
 		const indexer = new ToolCallIndexer()
 		indexer.indexOf({ id: 'a' })
-		indexer.indexOf({ id: 'a' })
-
-		expect(indexer.interleaving({ index: 1, id: 'b' }, () => false)).toBeUndefined()
-		expect(indexer.interleaving({ id: 'a' }, () => false)).toBeUndefined()
-		expect(indexer.interleaving({}, () => false)).toBeUndefined()
+		indexer.indexOf({ id: 'b' })
+		indexer.indexOf({ id: 'c' })
+		expect(indexer.placeUnindexedFragment((i) => i === 2)).toBe(2)
 	})
 
-	it('is undefined when the call most recently active has no id of its own yet', () => {
+	it('is evaluated fresh each time, not decided once when a call opened', () => {
 		const indexer = new ToolCallIndexer()
-		// Arguments before an id, as `collectChatCompletion` keeps them: the
-		// open call is not yet "named", so a later id continues IT rather
-		// than opening a second one (existing behaviour, unaffected).
-		indexer.indexOf({})
-
-		expect(indexer.interleaving({ id: 'a' }, () => false)).toBeUndefined()
+		indexer.indexOf({ id: 'a' })
+		indexer.indexOf({ id: 'b' })
+		// While both can still accept, a fragment is ambiguous...
+		expect(indexer.placeUnindexedFragment(() => true)).toEqual({
+			candidates: [
+				{ index: 0, id: 'a' },
+				{ index: 1, id: 'b' },
+			],
+		})
+		// ...but once only one can (its caller having since completed the
+		// other), the very same indexer places the next one unambiguously.
+		expect(indexer.placeUnindexedFragment((i) => i === 1)).toBe(1)
 	})
 
-	it('describes the interleaving in one sentence', () => {
+	it('names an as-yet-unnamed candidate by index, not by a made-up id', () => {
+		const indexer = new ToolCallIndexer()
+		// Arguments before any id at all: an anonymous open call. A SEPARATE
+		// call with its own explicit index, unlike one merely named by a
+		// later id-less-and-index-less id, leaves the first one unnamed.
+		indexer.placeUnindexedFragment(() => false)
+		indexer.indexOf({ index: 1, id: 'b' })
+		expect(indexer.placeUnindexedFragment(() => true)).toEqual({
+			candidates: [
+				{ index: 0, id: undefined },
+				{ index: 1, id: 'b' },
+			],
+		})
+	})
+
+	it('describes an ambiguous fragment and an orphaned one in one sentence each', () => {
 		expect(
 			describeToolCallInterleaving({
 				kind: 'interleaved_without_index',
-				openIndex: 0,
-				openId: 'a',
-				newId: 'b',
+				candidates: [
+					{ index: 0, id: 'a' },
+					{ index: 1, id: 'b' },
+				],
 			}),
-		).toContain('opened tool call "b"')
+		).toBe(
+			'the stream sent a tool-call fragment with neither an index nor an id while "a" and "b" could each still have accepted it, with nothing to tell them apart',
+		)
+		expect(
+			describeToolCallInterleaving({ kind: 'interleaved_without_index', candidates: [] }),
+		).toContain('no open call could still have accepted it')
 	})
 })
 
@@ -214,6 +259,164 @@ describe('collectChatCompletion and tool-call framing', () => {
 		const byId = new Map(calls.map((call) => [call.id, call]))
 		expect(byId.get('a')?.metadata?.partialArguments).not.toMatch(/BBBB|b\.md|CCCC/)
 		expect(byId.get('b')?.metadata?.partialArguments).not.toMatch(/AAAA|a\.md/)
+	})
+
+	it('reports both calls unreadable when both open empty, back to back, before either streams any argument text', async () => {
+		// The standard OpenAI-style wire shape: id+name with EMPTY arguments,
+		// for one call right after another, before either has streamed any
+		// argument text. The gap: a check made once, when "b" opens, reading
+		// "a"'s empty buffer as already complete, let this exact shape through.
+		// The fix asks fresh, for every id-less fragment, which open calls
+		// could still accept it right now — and an empty buffer can.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				unindexed({ id: 'call_a', type: 'function', function: { name: 'write', arguments: '' } }),
+				unindexed({ id: 'call_b', type: 'function', function: { name: 'write', arguments: '' } }),
+				unindexed({ function: { arguments: '{"path":"a.md","content":"AAAA"}' } }),
+				unindexed({ function: { arguments: '{"path":"b.md","content":"BBBB"}' } }),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		const calls = response.message.toolCalls ?? []
+		expect(calls.map((call) => call.id)).toEqual(['call_a', 'call_b'])
+		for (const call of calls) {
+			expect(call.function.arguments).toBe('{}')
+			expect(call.metadata?.inputTruncated).toBe(true)
+			expect(call.metadata?.inputError?.reason).toBe('malformed')
+		}
+		// Neither ambiguous fragment was guessed onto either call.
+		expect(calls[0]?.metadata?.partialArguments).toBe('')
+		expect(calls[1]?.metadata?.partialArguments).toBe('')
+	})
+
+	it('reports both unreadable when one call opens with its arguments already in the opening fragment', async () => {
+		// "b" is not empty when it opens — its own opening fragment already
+		// carries (incomplete) argument text — but it can still accept more,
+		// same as an empty one, so this is just as ambiguous.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				unindexed({ id: 'call_a', type: 'function', function: { name: 'write', arguments: '' } }),
+				unindexed({
+					id: 'call_b',
+					type: 'function',
+					function: { name: 'write', arguments: '{"path":"b.md","content":"' },
+				}),
+				unindexed({ function: { arguments: 'ambiguous"}' } }),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		const calls = response.message.toolCalls ?? []
+		expect(calls.map((call) => call.id)).toEqual(['call_a', 'call_b'])
+		for (const call of calls) {
+			expect(call.function.arguments).toBe('{}')
+			expect(call.metadata?.inputError?.reason).toBe('malformed')
+		}
+	})
+
+	it('attributes an id-less continuation to the one call whose arguments are not yet complete', async () => {
+		// "a" arrives complete in its own opening fragment. Only "b" can still
+		// accept an id-less continuation, so it is unambiguous and "a" is
+		// never touched or flagged.
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				unindexed({
+					id: 'call_a',
+					type: 'function',
+					function: { name: 'write', arguments: '{"path":"a.md","content":"x"}' },
+				}),
+				unindexed({ id: 'call_b', type: 'function', function: { name: 'write', arguments: '' } }),
+				unindexed({ function: { arguments: '{"path":"b.md","content":"y"}' } }),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		const calls = response.message.toolCalls ?? []
+		expect(
+			calls.map((call) => [call.id, call.function.arguments, call.metadata?.inputTruncated]),
+		).toEqual([
+			['call_a', '{"path":"a.md","content":"x"}', undefined],
+			['call_b', '{"path":"b.md","content":"y"}', undefined],
+		])
+	})
+
+	it('leaves a lone empty-argument call clean when no further fragment ever arrives for it', async () => {
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				unindexed({
+					id: 'call_x',
+					type: 'function',
+					function: { name: 'list_files', arguments: '' },
+				}),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		// `collectChatCompletion` returns the raw accumulated buffer, empty
+		// here, never `{}`; that normalization is `parseToolArguments`'s job
+		// downstream, not this helper's.
+		expect(response.message.toolCalls).toEqual([
+			{ id: 'call_x', type: 'function', function: { name: 'list_files', arguments: '' } },
+		])
+	})
+
+	it('attributes an id-less fragment to the one call, among three, that can still accept it', async () => {
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				unindexed({
+					id: 'call_a',
+					type: 'function',
+					function: { name: 'write', arguments: '{"a":1}' },
+				}),
+				unindexed({
+					id: 'call_b',
+					type: 'function',
+					function: { name: 'write', arguments: '{"b":2}' },
+				}),
+				unindexed({ id: 'call_c', type: 'function', function: { name: 'write', arguments: '' } }),
+				unindexed({ function: { arguments: '{"c":3}' } }),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		expect(
+			response.message.toolCalls?.map((call) => [call.id, call.function.arguments, call.metadata]),
+		).toEqual([
+			['call_a', '{"a":1}', undefined],
+			['call_b', '{"b":2}', undefined],
+			['call_c', '{"c":3}', undefined],
+		])
+	})
+
+	it('leaves an empty-argument tool immediately followed by another, self-contained call, untouched', async () => {
+		const unindexed = (fragment: Record<string, unknown>): StreamChunk =>
+			({ id: 'r', delta: { toolCalls: [fragment] } }) as unknown as StreamChunk
+		const response = await collectChatCompletion(
+			chunks(
+				unindexed({
+					id: 'call_x',
+					type: 'function',
+					function: { name: 'list_files', arguments: '' },
+				}),
+				unindexed({
+					id: 'call_y',
+					type: 'function',
+					function: { name: 'read', arguments: '{"path":"c.md"}' },
+				}),
+				{ id: 'r', delta: {}, finishReason: 'tool_calls' },
+			),
+		)
+		expect(response.message.toolCalls?.map((call) => [call.id, call.function.arguments])).toEqual([
+			['call_x', ''],
+			['call_y', '{"path":"c.md"}'],
+		])
+		expect(response.message.toolCalls?.every((call) => call.metadata === undefined)).toBe(true)
 	})
 
 	it('still refuses a reused index a fragment does carry', async () => {
