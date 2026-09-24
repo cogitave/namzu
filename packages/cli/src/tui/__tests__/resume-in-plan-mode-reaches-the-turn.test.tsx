@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, ResumePausedParams } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
 const CONVERSATION = '0ac90d46-4041-4402-8bc7-89c9a8c75f73'
@@ -60,6 +61,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			agentIds: [],

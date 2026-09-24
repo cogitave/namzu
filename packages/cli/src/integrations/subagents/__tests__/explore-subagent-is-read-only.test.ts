@@ -13,8 +13,9 @@ import {
 	type AgentDefinition,
 	AgentRegistry,
 	MockLLMProvider,
-	ToolRegistry,
+	type Toolset,
 	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -25,10 +26,8 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-function fullTools(): ToolRegistry {
-	const tools = new ToolRegistry()
-	tools.register(getBuiltinTools())
-	return tools
+function fullTools(): readonly Toolset[] {
+	return [toolset('test', getBuiltinTools())]
 }
 
 /**
@@ -60,10 +59,16 @@ async function toolsOf(registered: readonly AgentDefinition[], id: string) {
 	const definition = registered.find((d) => d.info.id === id)
 	if (!definition?.configBuilder) throw new Error(`no definition registered for ${id}`)
 	const config = (await definition.configBuilder({})) as unknown as {
-		tools: { listNames(): string[] }
+		toolsets: readonly Toolset[]
 		systemPrompt?: string
 	}
-	return { names: config.tools.listNames().sort(), prompt: config.systemPrompt ?? '' }
+	return {
+		names: config.toolsets
+			.flatMap((ts) => ts.tools())
+			.map((tool) => tool.name)
+			.sort(),
+		prompt: config.systemPrompt ?? '',
+	}
 }
 
 describe('the explore sub-agent', () => {

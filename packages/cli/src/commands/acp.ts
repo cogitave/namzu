@@ -8,10 +8,10 @@ import {
 	ServerStdioTransport,
 	type SessionEvent,
 	type SessionId,
-	ToolRegistry,
-	createToolPresenter,
+	type ToolPresenter,
 	createUserMessage,
 	generateSessionId,
+	genericLabel,
 	isEntityId,
 	openSessionIndex,
 } from '@namzu/sdk'
@@ -148,7 +148,7 @@ async function lookupInIndex(
 
 type AcpLiveSession = Pick<
 	AgentSession,
-	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close'
+	'hasProvider' | 'errorHint' | 'mcpFailed' | 'send' | 'close' | 'presenter'
 >
 
 export interface AcpRuntimeDependencies {
@@ -172,6 +172,18 @@ interface AcpRuntimeRecord {
 
 export interface CliAcpRuntime {
 	readonly gateway: AcpAgentGateway
+	/**
+	 * Delegates to whichever session's turn is currently streaming events —
+	 * `record.route` is set exactly when a `prompt` call is live for that
+	 * session (see `gateway.prompt` below) — falling back to the generic
+	 * label/view before any turn has run. Was permanently a presenter over
+	 * an empty, never-populated registry; every ACP tool-call/result view
+	 * fell back to the generic label for every tool, every session (fixed
+	 * here, not in the SDK: `ACPServerConfig.presenter` is one value for the
+	 * whole server, not per session, so this is the best a CLI-side fix can
+	 * do without also changing that surface).
+	 */
+	readonly presenter: ToolPresenter
 	close(): Promise<void>
 }
 
@@ -198,6 +210,22 @@ export function createCliAcpRuntime(
 	const constructing = new Map<string, string>()
 	let probePromise: ReturnType<typeof probeAgentSession> | undefined
 	let closed = false
+	// The record whose turn is currently streaming (`route` set below, at
+	// `gateway.prompt`) — the session `toAcpSessionUpdate`'s events are
+	// actually about, and so the session `presenter` delegates to.
+	let activeRecord: AcpRuntimeRecord | undefined
+	const presenter: ToolPresenter = {
+		presentCall: (toolName, input) =>
+			activeRecord?.session.presenter.presentCall(toolName, input) ?? {
+				kind: 'generic',
+				label: genericLabel(input),
+			},
+		presentResult: (toolName, input, result) =>
+			activeRecord?.session.presenter.presentResult(toolName, input, result) ?? {
+				kind: 'generic',
+				label: genericLabel(input),
+			},
+	}
 
 	const sharedProbe = () => {
 		if (!probePromise) {
@@ -346,6 +374,7 @@ export function createCliAcpRuntime(
 				throw error
 			}
 			record.route = onEvent
+			activeRecord = record
 			try {
 				let stopReason: string | undefined
 				let settledHistory: readonly Message[] | undefined
@@ -398,12 +427,14 @@ export function createCliAcpRuntime(
 				}
 			} finally {
 				if (record.route === onEvent) record.route = undefined
+				if (activeRecord === record) activeRecord = undefined
 			}
 		},
 	}
 
 	return {
 		gateway,
+		presenter,
 		close: async () => {
 			closed = true
 			const owned = [...records.values()]
@@ -423,7 +454,7 @@ export async function runAcpCommand(ctx: CommandContext): Promise<number> {
 		transport: new ServerStdioTransport(),
 		gateway: runtime.gateway,
 		commands: new HostCommandRegistry(),
-		presenter: createToolPresenter(new ToolRegistry()),
+		presenter: runtime.presenter,
 		agentInfo: { name: 'namzu', version: readPackageVersion() },
 	})
 

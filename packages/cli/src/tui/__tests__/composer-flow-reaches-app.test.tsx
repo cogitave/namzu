@@ -13,6 +13,7 @@ import {
 } from '../slashCommands.js'
 import type { TuiContext } from '../types.js'
 import { renderToScreen } from './support/screen.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -87,6 +88,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'model',
 			reasoningEffortLevels: [],
 			toolNames: () => [],
+			presenter: genericPresenter,
 			currentTaskStore: () => taskStore,
 			errorHint: null,
 			errorKind: null,

@@ -20,6 +20,8 @@ import {
 	type Message,
 	type ToolContext,
 	type ToolDefinition,
+	type Toolset,
+	ToolManager,
 	asSessionId,
 	asTurnId,
 } from '@namzu/sdk'
@@ -93,7 +95,10 @@ async function sendOnce(
 	}
 	// The LAST call: a test that opens a second session must read that
 	// session's registry, not the first one's with its first answerer.
-	const tools = queryCalls.at(-1)?.tools as { get(name: string): ToolDefinition | undefined }
+	const tools = new ToolManager({
+		toolsets: queryCalls.at(-1)?.toolsets as readonly Toolset[],
+		messages: () => [],
+	})
 	return tools.get('ask_user_question')
 }
 

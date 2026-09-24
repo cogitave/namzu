@@ -38,6 +38,7 @@ import type {
 	SendOptions,
 } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -157,6 +158,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 				providerSummary: 'goal-provider',
 				modelSummary: 'goal-model',
 				toolNames: () => [],
+				presenter: genericPresenter,
 				errorHint: null,
 				errorKind: null,
 				instructionFiles: [],

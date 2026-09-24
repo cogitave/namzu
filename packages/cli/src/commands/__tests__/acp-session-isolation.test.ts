@@ -7,7 +7,7 @@ import {
 	type MCPTransport,
 	type Message,
 	type SessionEvent,
-	ToolRegistry,
+	ToolManager,
 	asMessageId,
 	asSessionId,
 	asTurnId,
@@ -145,7 +145,7 @@ describe('the CLI ACP runtime', () => {
 			transport: wire.transport,
 			gateway: runtime.gateway,
 			commands: new HostCommandRegistry(),
-			presenter: createToolPresenter(new ToolRegistry()),
+			presenter: createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] })),
 			agentInfo: { name: 'namzu', version: 'test' },
 			newSessionId: () => ids.shift() ?? 'unexpected-session',
 		})

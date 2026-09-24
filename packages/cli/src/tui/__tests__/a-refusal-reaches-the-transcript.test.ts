@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
 	MockLLMProvider,
 	type SessionEvent,
-	ToolRegistry,
+	ToolManager,
 	createToolPresenter,
 	createUserMessage,
 	defineTool,
@@ -39,6 +39,7 @@ import type { ToolDefinition } from '@namzu/sdk'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { resolveToolResultScreens } from '../../config/tool-result-screens.js'
+import { testToolset } from '../../test-support/toolset.js'
 import { toAgentEvent } from '../agent.js'
 
 registerMock()
@@ -101,8 +102,6 @@ function framedSearchTool(): ToolDefinition {
 async function eventsFor(
 	screens: Parameters<typeof resolveToolResultScreens>[0],
 ): Promise<readonly SessionEvent[]> {
-	const registry = new ToolRegistry({ resultGuardrails: resolveToolResultScreens(screens) })
-	registry.register(framedSearchTool())
 	const events: SessionEvent[] = []
 	const workingDirectory = mkdtempSync(join(tmpdir(), 'namzu-refusal-'))
 	workDirs.push(workingDirectory)
@@ -112,7 +111,8 @@ async function eventsFor(
 			provider: new MockLLMProvider({
 				turns: [{ toolCalls: [{ name: TOOL, args: { query: QUERY } }] }, { text: 'done' }],
 			}),
-			tools: registry,
+			toolsets: [testToolset(framedSearchTool())],
+			toolResultGuardrails: resolveToolResultScreens(screens),
 			agentId: 'screens-fixture',
 			agentName: 'Screens fixture',
 			messages: [createUserMessage('find the rollback procedure')],
@@ -144,8 +144,10 @@ describe('a refused tool result', () => {
 
 		expect(completed.isError).toBe(true)
 
-		const registry = new ToolRegistry()
-		registry.register(framedSearchTool())
+		const registry = new ToolManager({
+			toolsets: [testToolset(framedSearchTool())],
+			messages: () => [],
+		})
 		const row = toAgentEvent(completed, createToolPresenter(registry))
 
 		expect(row).toMatchObject({ kind: 'tool-end', isError: true, toolName: TOOL })

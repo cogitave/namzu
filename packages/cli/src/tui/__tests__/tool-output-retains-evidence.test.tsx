@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 
-import { type SessionEvent, type TurnId, ToolRegistry, createToolPresenter } from '@namzu/sdk'
+import { type SessionEvent, type TurnId, ToolManager, createToolPresenter } from '@namzu/sdk'
 
 import { Transcript, renderedDetailLines, willCollapse } from '../Transcript.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
@@ -9,7 +9,7 @@ import { estimateRenderedLines } from '../live-window.js'
 import type { TranscriptMessage } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
-const presenter = createToolPresenter(new ToolRegistry())
+const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 const turnId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as TurnId
 const LONG_LINE = `${'x'.repeat(400)}FIRST_LINE_END`
 const OUTPUT = [

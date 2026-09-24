@@ -20,13 +20,15 @@ import {
 	AgentRegistry,
 	MockLLMProvider,
 	type SessionId,
-	ToolRegistry,
+	ToolManager,
+	type Toolset,
 	type TurnId,
 	getBuiltinTools,
 	isReviewExempt,
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { testToolset } from '../../../test-support/toolset.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { MAX_NARRATION_CODE_UNITS, MAX_RETAINED_NARRATION } from '../activity.js'
 import {
@@ -72,11 +74,7 @@ async function runtimeWithBuiltins(): Promise<{
 		// A mock with no turns is one that is never asked anything: these read
 		// rosters and tool results, and start no child.
 		buildProvider: () => new MockLLMProvider({ turns: [] }),
-		buildTools: () => {
-			const tools = new ToolRegistry()
-			tools.register(getBuiltinTools())
-			return tools
-		},
+		buildTools: (): readonly Toolset[] => [testToolset(...getBuiltinTools())],
 	})
 	return { runtime, registered, scope: parent.scope }
 }
@@ -88,9 +86,9 @@ async function childToolNames(
 	const definition = registered.find((entry) => entry.info.id === id)
 	if (!definition?.configBuilder) throw new Error(`no definition registered for ${id}`)
 	const config = (await definition.configBuilder({})) as unknown as {
-		tools: { listNames(): string[] }
+		toolsets: readonly Toolset[]
 	}
-	return config.tools.listNames()
+	return config.toolsets.flatMap((ts) => ts.tools()).map((tool) => tool.name)
 }
 
 describe('narration', () => {
@@ -184,9 +182,10 @@ describe('narration', () => {
 	it('shows its line without stopping to ask the operator for permission', async () => {
 		const { runtime } = await runtimeWithBuiltins()
 		try {
-			const registry = new ToolRegistry()
-			registry.register(runtime.narrationTool)
-			registry.register(runtime.sendMessageTool)
+			const registry = new ToolManager({
+				toolsets: [testToolset(runtime.narrationTool, runtime.sendMessageTool)],
+				messages: () => [],
+			})
 
 			// The same predicate the TUI's prompt consults. A consent dialog per
 			// line of commentary — shown to the very operator being asked — is a

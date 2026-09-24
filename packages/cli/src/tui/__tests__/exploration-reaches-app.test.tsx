@@ -1,12 +1,14 @@
 /** Real tool presenters and event adapter reach the rendered transcript. */
 
 import { afterEach, expect, it, vi } from 'vitest'
-import { ToolRegistry, ReadFileTool, GrepTool, JobTool, createToolPresenter, generateTurnId, type SessionEvent } from '@namzu/sdk'
+import { ReadFileTool, GrepTool, JobTool, createToolPresenter, generateTurnId, type SessionEvent , ToolManager } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -44,6 +46,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['computer_use'],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],
@@ -62,8 +65,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
-				const registry = new ToolRegistry()
-				registry.register([ReadFileTool, GrepTool, JobTool])
+				const registry = new ToolManager({ toolsets: [testToolset(...[ReadFileTool, GrepTool, JobTool])], messages: () => [] })
 				const presenter = createToolPresenter(registry)
 				const turnId = generateTurnId()
 				const calls = [

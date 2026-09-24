@@ -103,12 +103,14 @@ import {
 	type ToolCallEscalation,
 	type ToolCallView,
 	type ToolDefinition,
+	ToolManager,
 	type ToolPresenter,
-	ToolRegistry,
+	type ToolResultGuardrailSpec,
 	type ToolResultView,
 	type ToolReviewAnswer,
 	type ToolReviewPrompt,
 	type ToolReviewRequest,
+	type Toolset,
 	type TopicId,
 	type TurnId,
 	WebFetchTool,
@@ -132,7 +134,9 @@ import {
 	createReviewHandler,
 	createSkillTool,
 	createToolPresenter,
+	deferred,
 	ensureProject,
+	filtered,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -140,10 +144,12 @@ import {
 	getBuiltinTools,
 	isReviewExempt,
 	isTurnInProgressError,
+	mapTools,
 	query,
 	resolveContextWindow,
 	resumeSession,
 	seedObservationLedger,
+	toolset,
 	webGuidanceContribution,
 	withProviderFallback,
 } from '@namzu/sdk'
@@ -876,6 +882,14 @@ export interface AgentSession {
 	 * moment, and a line about what just happened should say what was true then.
 	 */
 	readonly toolNames: () => readonly string[]
+	/**
+	 * This session's real tool-call/result presenter (`createToolPresenter`
+	 * over the session's own `ToolManager`), for a host that renders tool
+	 * events outside `send()`'s own stream — the ACP bridge, which used to
+	 * build its presenter over a permanently empty registry and so always
+	 * fell back to the generic label/view for every tool, every session.
+	 */
+	readonly presenter: ToolPresenter
 	/** This session's background jobs, running and ended. Absent on a session with no registry. */
 	readonly jobs?: () => readonly BackgroundJob[]
 	/** The shell hooks this session runs, by event; what `/hooks` lists. */
@@ -1495,6 +1509,25 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 const DEFERRED_TOOL_GUIDANCE =
 	'Before using a tool listed under deferred_tools, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
 
+/**
+ * Everything `ts` contributes defaults to `deferred` except the names in
+ * `eager`, which stay `active`. Splits `ts` into its eager and deferred
+ * halves with `filtered`, kept as TWO SEPARATE array entries rather than
+ * recombined into one: `Toolset.availability` is one value for the whole
+ * toolset, and `ToolManager` reads it off whichever entry in ITS OWN
+ * `toolsets` array owns a name — a single combined entry would have no one
+ * availability to report and every tool would fall back to `'active'`. Both
+ * halves keep `ts`'s own `source` (via `filtered`), so `sourceOf` still
+ * resolves the same way regardless of which half actually served a name.
+ */
+function deferExceptToolset(ts: Toolset, eager: readonly string[]): readonly Toolset[] {
+	const eagerNames = new Set(eager)
+	return [
+		filtered(ts, (tool) => eagerNames.has(tool.name)),
+		deferred(filtered(ts, (tool) => !eagerNames.has(tool.name))),
+	]
+}
+
 // namzu's own identity. Injected as system context so the agent presents as
 // namzu, and nothing else, whatever identity the credential path needs
 // on the wire. Some OAuth token types require a fixed prefix block before
@@ -1519,7 +1552,8 @@ const NAMZU_IDENTITY = [
 ].join('\n')
 
 /**
- * The registry, and the memory store behind its memory tools.
+ * The base toolsets every session (and, unwrapped, every sub-agent) starts
+ * from, and the memory store behind the memory tools.
  *
  * The store used to be constructed inside this function and discarded, which
  * is why namzu could only ever remember something the model had explicitly
@@ -1528,9 +1562,15 @@ const NAMZU_IDENTITY = [
  * compaction pass's structured output, and supplying it needs THIS store —
  * the same one `search_memory` reads on the next turn, or a promoted memory
  * would be written somewhere nothing looks.
+ *
+ * `builtin` never carries the checkpoint wrap: the session composes its own
+ * checkpointed view over it with `mapTools` (see the caller), and a
+ * sub-agent's roster takes `builtin` itself, unwrapped, unchanged from
+ * before — sub-agent writes are still never checkpointed.
  */
-interface BuiltTools {
-	readonly registry: ToolRegistry
+interface BaseToolsets {
+	readonly builtin: Toolset
+	readonly memory: Toolset
 	readonly memoryStore: MarkdownMemoryStore
 	/** The directory the store keeps its files in: the project's `memory/`. */
 	readonly memoryDirectory: string
@@ -1582,33 +1622,22 @@ function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
 	})
 }
 
-function buildToolRegistry(
-	paths: SessionPaths,
-	backgroundJobs: boolean,
-	checkpoints: FileCheckpointStore | undefined,
-	screens?: readonly ToolResultScreenConfig[],
-): BuiltTools {
-	// Configured here rather than on the turn, so every registry this CLI
-	// builds for a turn carries the operator's choice — including the sub-agent
-	// registries below, which a turn-level option would reach only if each
-	// child's config were threaded as well. An absent key stays absent, so the
-	// kernel's default applies exactly as it does for any other host.
-	const screensConfig = resolveToolResultScreens(screens)
-	const registry = new ToolRegistry(
-		screensConfig === undefined ? undefined : { resultGuardrails: screensConfig },
+/**
+ * Wrap the file-editing tools named in {@link CHECKPOINTED_TOOLS} with
+ * {@link withCheckpoints}, leaving every other tool untouched — a pure
+ * `mapTools` over the `builtin` toolset (plan.md v3 §8), replacing the old
+ * unregister-then-re-register pair. Only the top-level session's own
+ * toolsets array gets this wrap; a sub-agent's roster takes `builtin`
+ * itself, so its writes are still never checkpointed.
+ */
+function withCheckpointsWrap(builtin: Toolset, checkpoints: FileCheckpointStore): Toolset {
+	return mapTools(builtin, (tool) =>
+		CHECKPOINTED_TOOLS.includes(tool.name) ? withCheckpoints(tool, checkpoints) : tool,
 	)
-	registry.register(builtinTools(backgroundJobs))
-	// The file tools take a checkpoint before they write, so `/restore` can
-	// put the tree back. Only the session's own registry: a sub-agent's
-	// writes are not checkpointed yet, and the page says so.
-	if (checkpoints) {
-		for (const name of CHECKPOINTED_TOOLS) {
-			const tool = registry.get(name)
-			if (!tool) continue
-			registry.unregister(name)
-			registry.register(withCheckpoints(tool, checkpoints))
-		}
-	}
+}
+
+function buildBaseToolsets(paths: SessionPaths, backgroundJobs: boolean): BaseToolsets {
+	const builtin = toolset('builtin', builtinTools(backgroundJobs))
 	// Stored memory: the agent gets search_memory / read_memory / save_memory
 	// over typed Markdown files, one per memory, in this project's `memory/`
 	// under the application home (`projects/<slug>/memory`), so every
@@ -1619,10 +1648,10 @@ function buildToolRegistry(
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
 	// read makes a new process report every persisted memory as absent.
-	registry.register(buildMemoryTools(memoryStore))
+	const memory = toolset('memory', buildMemoryTools(memoryStore))
 	// query() mounts search_tools only if a deferred roster actually exists,
 	// after runtime tools are registered. Ordinary CLI task tools are active.
-	return { registry, memoryStore, memoryDirectory: directory }
+	return { builtin, memory, memoryStore, memoryDirectory: directory }
 }
 
 export interface AgentSessionOptions {
@@ -2316,12 +2345,18 @@ export async function createAgentSession(
 		() => paths.fileHistory({ sessionId: scope.sessionId }),
 		cwd,
 	)
-	const { registry, memoryStore, memoryDirectory } = buildToolRegistry(
-		paths,
-		backgroundJobs,
-		checkpoints,
-		options.toolResultScreens,
-	)
+	// Configured here rather than on the turn, so every `ToolManager` this
+	// session builds carries the operator's choice. An absent key stays
+	// absent, so the kernel's default applies exactly as it does for any
+	// other host.
+	const screensConfig = resolveToolResultScreens(options.toolResultScreens)
+	const { builtin, memory, memoryStore, memoryDirectory } = buildBaseToolsets(paths, backgroundJobs)
+	// Every tool this session mounts, as named toolsets (plan.md v3 §8),
+	// combined into one `ToolManager` once composition finishes below. A
+	// sub-agent's own roster reuses `builtin`/`memory` directly rather than
+	// rebuilding either — see `buildTools` inside the sub-agent runtime
+	// options further down.
+	const toolsets: Toolset[] = [withCheckpointsWrap(builtin, checkpoints), memory]
 	// Once per store, idempotently: a launch that finds nothing to move moves
 	// nothing, and one interrupted halfway is finished by the next. A failure
 	// is a notice, never a refusal to start — the curated files and the store
@@ -2375,17 +2410,19 @@ export async function createAgentSession(
 			? computerUseUnavailableReason(provider)
 			: undefined
 	if (computerUseProviderRefusal !== undefined) {
-		registry.register(
-			createComputerUseTool(new SubprocessComputerUseHost(), {
-				unavailableReason: computerUseProviderRefusal,
-			}),
+		toolsets.push(
+			toolset('computer-use', [
+				createComputerUseTool(new SubprocessComputerUseHost(), {
+					unavailableReason: computerUseProviderRefusal,
+				}),
+			]),
 		)
 	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
 		const candidate = new SubprocessComputerUseHost()
 		try {
 			await candidate.initialize()
 			computerUseTool = createComputerUseTool(candidate)
-			registry.register(computerUseTool)
+			toolsets.push(toolset('computer-use', [computerUseTool]))
 			computerUseHost = candidate
 		} catch (error) {
 			computerUseError = error instanceof Error ? error : new Error(String(error))
@@ -2394,25 +2431,27 @@ export async function createAgentSession(
 			// A tool that is absent is a tool the model reasons about from the
 			// wrong premise; a tool that says "this desktop did not answer, and
 			// why" is one call the model reads once and does not repeat.
-			registry.register(
-				createComputerUseTool({
-					id: candidate.id,
-					capabilities: {
-						...candidate.capabilities,
-						screenshot: false,
-						mouse: false,
-						keyboard: false,
-						cursorPosition: false,
-						clipboard: false,
-						unavailableReason: describeError(computerUseError),
-					},
-					getDisplayGeometry: async () => {
-						throw computerUseError
-					},
-					execute: async () => {
-						throw computerUseError
-					},
-				}),
+			toolsets.push(
+				toolset('computer-use', [
+					createComputerUseTool({
+						id: candidate.id,
+						capabilities: {
+							...candidate.capabilities,
+							screenshot: false,
+							mouse: false,
+							keyboard: false,
+							cursorPosition: false,
+							clipboard: false,
+							unavailableReason: describeError(computerUseError),
+						},
+						getDisplayGeometry: async () => {
+							throw computerUseError
+						},
+						execute: async () => {
+							throw computerUseError
+						},
+					}),
+				]),
 			)
 		}
 	}
@@ -2427,7 +2466,7 @@ export async function createAgentSession(
 		try {
 			const { PlaywrightBrowserHost } = await import('@namzu/browser')
 			browserControl = createBrowserControl(PlaywrightBrowserHost, options.browser)
-			registry.register(createBrowserTools(browserControl.host))
+			toolsets.push(toolset('browser', createBrowserTools(browserControl.host)))
 		} catch (error) {
 			browserError = error instanceof Error ? error : new Error(String(error))
 		}
@@ -2450,9 +2489,12 @@ export async function createAgentSession(
 	const delegatedReviewAllowedCalls = new Map<TurnId, () => boolean>()
 	const goalToolNames = new Set<string>(SESSION_GOAL_TOOL_NAMES)
 	if (options.sessionGoals) {
-		registry.register(
-			buildSessionGoalTools(options.sessionGoals, (turnId) =>
-				goalAuthorities.get(turnId as TurnId),
+		toolsets.push(
+			toolset(
+				'session-goals',
+				buildSessionGoalTools(options.sessionGoals, (turnId) =>
+					goalAuthorities.get(turnId as TurnId),
+				),
 			),
 		)
 	}
@@ -2460,7 +2502,7 @@ export async function createAgentSession(
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
 	const mcp = await connectMcpServers(options.mcpServers, { cwd })
-	if (mcp.tools.length > 0) registry.register([...mcp.tools])
+	toolsets.push(...mcp.toolsets)
 	// External connector discovery is reported separately from executable
 	// plugin discovery. Folding both counts together would make a failed server
 	// indistinguishable from a plugin that never enabled.
@@ -2519,10 +2561,15 @@ export async function createAgentSession(
 		webSearch.mode !== 'off' && webSearch.backend === 'native'
 			? { mode: webSearch.mode }
 			: undefined
-	if (webSearch.mode !== 'off' && webSearch.backend === 'exa')
-		registry.register(createWebSearchTool())
+	// Kept aside (not just pushed) so a sub-agent can share this exact tool
+	// object rather than opening a second connection — see `buildTools` below.
+	let webSearchTool: ToolDefinition | undefined
+	if (webSearch.mode !== 'off' && webSearch.backend === 'exa') {
+		webSearchTool = createWebSearchTool()
+		toolsets.push(toolset('web-search', [webSearchTool]))
+	}
 	const webCapability = options.web?.fetch ? { fetch: new GuardedFetchProvider() } : undefined
-	if (webCapability) registry.register(WebFetchTool)
+	if (webCapability) toolsets.push(toolset('web-fetch', [WebFetchTool]))
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
@@ -2535,55 +2582,65 @@ export async function createAgentSession(
 	if (options.residentHistory) {
 		const history = options.residentHistory
 		const historyOwner = { ...scope }
-		registry.register(
-			buildResidentHistoryTools((context) => {
-				const owner = delegationScopes.get(context.turnId)
-				if (
-					!owner ||
-					owner.sessionId !== historyOwner.sessionId ||
-					owner.projectId !== historyOwner.projectId ||
-					owner.tenantId !== historyOwner.tenantId ||
-					owner.tenantId !== history.scope.tenantId
-				)
-					throw new Error('The requesting turn does not own this resident history.')
-				return history
-			}),
+		toolsets.push(
+			toolset(
+				'resident-history',
+				buildResidentHistoryTools((context) => {
+					const owner = delegationScopes.get(context.turnId)
+					if (
+						!owner ||
+						owner.sessionId !== historyOwner.sessionId ||
+						owner.projectId !== historyOwner.projectId ||
+						owner.tenantId !== historyOwner.tenantId ||
+						owner.tenantId !== history.scope.tenantId
+					)
+						throw new Error('The requesting turn does not own this resident history.')
+					return history
+				}),
+			),
 		)
 	}
 	if (options.residentToolEvidence) {
 		const evidence = options.residentToolEvidence
 		const evidenceOwner = { ...scope }
-		registry.register(
-			buildResidentToolEvidenceTools((context) => {
-				const owner = delegationScopes.get(context.turnId)
-				if (
-					!owner ||
-					owner.sessionId !== evidenceOwner.sessionId ||
-					owner.projectId !== evidenceOwner.projectId ||
-					owner.tenantId !== evidenceOwner.tenantId ||
-					owner.projectId !== evidence.scope.projectId ||
-					owner.tenantId !== evidence.scope.tenantId
-				)
-					throw new Error('The requesting turn does not own this resident tool evidence.')
-				return evidence
-			}),
+		toolsets.push(
+			toolset(
+				'resident-tool-evidence',
+				buildResidentToolEvidenceTools((context) => {
+					const owner = delegationScopes.get(context.turnId)
+					if (
+						!owner ||
+						owner.sessionId !== evidenceOwner.sessionId ||
+						owner.projectId !== evidenceOwner.projectId ||
+						owner.tenantId !== evidenceOwner.tenantId ||
+						owner.projectId !== evidence.scope.projectId ||
+						owner.tenantId !== evidence.scope.tenantId
+					)
+						throw new Error('The requesting turn does not own this resident tool evidence.')
+					return evidence
+				}),
+			),
 		)
 	}
 	if (options.conversationSessions) {
 		const sessions = options.conversationSessions
-		for (const build of [buildConversationSearchTool, buildConversationReadTool])
-			registry.register(
-				build((context) => {
-					const owner = delegationScopes.get(context.turnId)
-					if (
-						!owner ||
-						owner.projectId !== sessions.projectId ||
-						owner.tenantId !== sessions.tenantId
-					)
-						throw new Error('The requesting turn does not own this conversation.')
-					return { sessions, sessionId: owner.sessionId }
-				}),
-			)
+		toolsets.push(
+			toolset(
+				'conversation-sessions',
+				[buildConversationSearchTool, buildConversationReadTool].map((build) =>
+					build((context) => {
+						const owner = delegationScopes.get(context.turnId)
+						if (
+							!owner ||
+							owner.projectId !== sessions.projectId ||
+							owner.tenantId !== sessions.tenantId
+						)
+							throw new Error('The requesting turn does not own this conversation.')
+						return { sessions, sessionId: owner.sessionId }
+					}),
+				),
+			),
+		)
 	}
 	const evidenceRecallSteps = new Map<
 		SessionId,
@@ -2790,59 +2847,70 @@ export async function createAgentSession(
 				if (selection?.effort) await prepareDelegatedEffort(childProvider, selectedModel)
 				return childProvider
 			},
-			configureWebSearch: (childProvider, childModel, tools) => {
+			configureWebSearch: (childProvider, childModel, toolsets) => {
 				if (webSearch.mode === 'off') return undefined
 				const supported =
 					childProvider.capabilities?.supportsHostedWebSearch === true &&
 					(childProvider.supportsHostedWebSearchFor?.(childModel, webSearch.mode) ?? true)
 				// A restricted specialist roster cannot gain network access through a hosted tool.
-				if (!tools.has('web_search')) return undefined
+				if (!toolsets.some((ts) => ts.tools().some((t) => t.name === 'web_search')))
+					return undefined
 				const choice = resolveWebSearch(options.web, supported)
 				if (choice.backend !== 'native') return undefined
-				tools.unregister('web_search')
 				return { mode: webSearch.mode }
 			},
 			buildTools: () => {
-				// Sub-agents get the parent's working set minus `search_tools`:
-				// they run without a task store, so nothing in their registry is
+				// Sub-agents get the parent's `builtin`/`memory` toolsets directly
+				// — never rebuilt (plan.md v3 §8) — plus their own web-search
+				// tool. They run without a task store, so nothing here is
 				// deferred and there is nothing for a search to load.
 				//
-				// The store this also builds is dropped, deliberately: a sub-agent
-				// promoting its own memory would write a record per delegation,
-				// and a parent that delegated six times would leave seven accounts
-				// of one piece of work for the next turn to read. The parent's
-				// settle is the one that speaks for the whole task.
-				const childTools = buildToolRegistry(
-					paths,
-					backgroundJobs,
-					undefined,
-					options.toolResultScreens,
-				).registry
+				// A sub-agent's memory store is the SAME one the parent's own
+				// `memory` toolset holds, deliberately: a sub-agent promoting its
+				// own memory would write a record per delegation, and a parent
+				// that delegated six times would leave seven accounts of one
+				// piece of work for the next turn to read. `promoteMemory`
+				// (settle-time extraction) is never wired into a child's turn,
+				// so this sharing only ever lets a child's explicit
+				// `save_memory`/`search_memory` calls see the same store — it
+				// never risks a duplicate automatic write.
+				const childToolsets: Toolset[] = [builtin, memory]
 				// Search owns its provider connection per call, so it is safe to share
 				// with a child. Preserve the parent's configured backend/off choice.
-				const search = registry.get('web_search')
-				if (search) childTools.register(search)
-				else if (webSearch.mode !== 'off') childTools.register(createWebSearchTool())
-				return childTools
+				if (webSearchTool) childToolsets.push(toolset('web-search', [webSearchTool]))
+				else if (webSearch.mode !== 'off')
+					childToolsets.push(toolset('web-search', [createWebSearchTool()]))
+				return childToolsets
 			},
 			authorizationGate: gateFor(options.rules),
 		})
 		subagentRuntime = sub
-		registry.register([sub.agentTool, sub.waitForTaskTool])
-		if (sub.modelCatalogueTool) registry.register(sub.modelCatalogueTool)
-		if (sub.agentTaskListTool) registry.register(sub.agentTaskListTool)
-		if (sub.sendMessageTool) registry.register(sub.sendMessageTool)
-		if (sub.cancelAgentTool) registry.register(sub.cancelAgentTool)
-		// The parent's registry, and only ever this one — and only where
+		// The parent's own toolsets, and only ever these — and only where
 		// somebody is there to read it, the same condition `ask_user_question`
-		// mounts under further down. A child's roster is the registry
-		// `buildTools` builds above, which carries none of these: that is what
-		// keeps narration the turn's own voice rather than a child's. And a
-		// headless host — `exec`, `exec --json`, `drain`, the resident step —
-		// has no rail for a line to appear above, so a tool whose entire
-		// result is "the operator saw this" would be answering with something
-		// that did not happen.
-		if (options.askUser && sub.narrationTool) registry.register(sub.narrationTool)
+		// mounts under further down. A child's roster is `buildTools` above,
+		// which carries none of these: that is what keeps narration the turn's
+		// own voice rather than a child's. And a headless host — `exec`,
+		// `exec --json`, `drain`, the resident step — has no rail for a line
+		// to appear above, so a tool whose entire result is "the operator saw
+		// this" would be answering with something that did not happen.
+		const agentToolsets: Toolset[] = [toolset('agents', [sub.agentTool, sub.waitForTaskTool])]
+		if (sub.modelCatalogueTool)
+			agentToolsets.push(toolset('agents:model-catalogue', [sub.modelCatalogueTool]))
+		if (sub.agentTaskListTool)
+			agentToolsets.push(toolset('agents:task-list', [sub.agentTaskListTool]))
+		if (sub.sendMessageTool)
+			agentToolsets.push(toolset('agents:send-message', [sub.sendMessageTool]))
+		if (sub.cancelAgentTool) agentToolsets.push(toolset('agents:cancel', [sub.cancelAgentTool]))
+		if (options.askUser && sub.narrationTool)
+			agentToolsets.push(toolset('agents:narration', [sub.narrationTool]))
+		// Fail here, inside this try block, before anything lands in the
+		// session's own `toolsets` — not wherever `manager` is finally built
+		// at the end of this function, where a caller reading this array is
+		// no longer the cleanup right below. The same admission checks
+		// `registry.register(...)` used to run immediately after
+		// construction (a legal name among them).
+		new ToolManager({ toolsets: agentToolsets, messages: () => [] })
+		toolsets.push(...agentToolsets)
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
 		try {
@@ -2879,17 +2947,19 @@ export async function createAgentSession(
 	// This capability belongs to the active main turn, never the child roster.
 	const modelSwitchHandlers = new Map<TurnId, NonNullable<SendOptions['onModelSwitch']>>()
 	if (options.allowModelSwitch) {
-		registry.register(
-			buildSwitchModelTool(async (request, context) => {
-				const handler = modelSwitchHandlers.get(context.turnId)
-				if (!handler || context.abortSignal?.aborted) {
-					return {
-						kind: 'rejected',
-						reason: 'This turn no longer owns model selection.',
+		toolsets.push(
+			toolset('agents:model-switch', [
+				buildSwitchModelTool(async (request, context) => {
+					const handler = modelSwitchHandlers.get(context.turnId)
+					if (!handler || context.abortSignal?.aborted) {
+						return {
+							kind: 'rejected',
+							reason: 'This turn no longer owns model selection.',
+						}
 					}
-				}
-				return handler(request, context.abortSignal)
-			}),
+					return handler(request, context.abortSignal)
+				}),
+			]),
 		)
 	}
 	// `ask_user_question`, where somebody can answer. The SDK tool parks the
@@ -2922,12 +2992,16 @@ export async function createAgentSession(
 		// The park request carries the turn of the call that asked; the
 		// handler above routes by the question, not by the turn, and no durable
 		// park recorder is supplied.
-		registry.register(buildAskUserQuestionTool({ resumeHandler: parkQuestion }))
+		toolsets.push(
+			toolset('ask-user-question', [buildAskUserQuestionTool({ resumeHandler: parkQuestion })]),
+		)
 	}
-	// The host's own additions, to this registry only: `buildTools` above
+	// The host's own additions, to this session only: `buildTools` above
 	// builds a child's roster separately, so none of these reach a sub-agent.
-	for (const tool of options.extraTools ?? []) registry.register(tool)
-	if (options.openUrl) registry.register(createOpenUrlTool())
+	if (options.extraTools && options.extraTools.length > 0) {
+		toolsets.push(toolset('extra', options.extraTools))
+	}
+	if (options.openUrl) toolsets.push(toolset('open-url', [createOpenUrlTool()]))
 	// Task store → query registers task_create / task_update / task_list and
 	// emits task_created/task_updated, so the agent can track a plan. Tasks
 	// belong to the session (`<session-id>/tasks/`) and record the turn that
@@ -2986,8 +3060,8 @@ export async function createAgentSession(
 	// session before the first screenshot. Kept across mode switches and
 	// turns, unlike "approve all"; a new session id is asked again.
 	const screenConsent: ScreenConsentRecord = { sessions: new Set() }
-	// The registry is read at each decision: a turn may swap in its own.
-	const screenPolicyFor = (tools: () => ToolRegistry): ScreenPolicy => ({
+	// The manager is read at each decision: a turn may swap in its own.
+	const screenPolicyFor = (tools: () => Pick<ToolManager, 'get'>): ScreenPolicy => ({
 		consent: screenConsent,
 		capturesScreen: (name, input) => tools().get(name)?.capturesScreen?.(input) === true,
 	})
@@ -3002,13 +3076,9 @@ export async function createAgentSession(
 	// Plugins are the last fallible startup resource. The ordering is ownership:
 	// a malformed MCP entry cannot strand imported plugin hooks, and a plugin
 	// refusal closes the MCP processes already opened for this candidate before
-	// returning an inert session. Sub-agents were built above from their own
-	// registries, so executable plugins remain a top-level-session capability.
-	// File skills (built-in, ~/.agents, ~/.namzu, and the project's) reach the
-	// model through the kernel's manifest and `skill` tool. Registered BEFORE
-	// the plugin runtime: a runtime that finds the tool already there never
-	// owns it, so disabling the last plugin skill cannot take away the tool
-	// the file skills load through.
+	// returning an inert session. Sub-agents were built above from `builtin`/
+	// `memory` directly, so executable plugins remain a top-level-session
+	// capability.
 	const skillCatalog = await createSessionSkillCatalog({
 		cwd,
 		...(options.skills ? { config: options.skills } : {}),
@@ -3022,31 +3092,32 @@ export async function createAgentSession(
 			sandboxMounts: () => (sandboxWorkspace === 'working-directory' ? directories : []),
 		}),
 	})
-	// A session that can save a skill loads it next turn through this tool,
-	// even when it started with none.
-	if (
-		(skillCatalog.hasFileSkills || registry.has(SAVE_SKILL_TOOL_NAME)) &&
-		!registry.has(skillTool.name)
+	const hasSaveSkillTool = (options.extraTools ?? []).some(
+		(tool) => tool.name === SAVE_SKILL_TOOL_NAME,
 	)
-		registry.register(skillTool)
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(
-			options.plugins,
-			registry,
-			cwd,
-			options.hooks,
-			skillTool,
-		)
+		pluginRuntime = await createCliPluginRuntime(options.plugins, cwd, options.hooks)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(describeError(error))
 	}
-	// Everything is registered by now but the deferred task tools, which no
+	// A session that can save a skill, or whose plugins contribute one, loads
+	// it through this same tool, even when it started with no file skills —
+	// re-derived live on every call rather than owned by whichever source
+	// registered first, so a plugin enabling or disabling its last skill
+	// takes effect the moment `ToolManager.refresh()` next observes it.
+	toolsets.push({
+		source: { id: 'skills', kind: 'host_tool', name: 'skills' },
+		tools: () =>
+			skillCatalog.hasFileSkills || hasSaveSkillTool || (pluginRuntime?.skills.size ?? 0) > 0
+				? [skillTool]
+				: [],
+	})
+	if (pluginRuntime) toolsets.push(...pluginRuntime.manager.toolsets)
+	// Everything is composed by now but the deferred task tools, which no
 	// caller withholds.
-	for (const name of options.withheldTools ?? []) {
-		if (registry.get(name)) registry.unregister(name)
-	}
+	const withheldTools = new Set(options.withheldTools ?? [])
 	// The session's own lifecycle, for hooks that set up or tear down
 	// something per session rather than per turn. These two calls belong to no
 	// turn, so they carry no turn id — nothing is minted to fill the field.
@@ -3055,11 +3126,63 @@ export async function createAgentSession(
 	// is replaced when the conversation is first made durable — and a hook
 	// given the provisional id could never match it to a turn.
 	const sessionPlugins = pluginRuntime
+	// Every named toolset above, each wrapped WITHOUT collapsing them into
+	// one — filtering or deferring a merged umbrella toolset would erase
+	// which real source (an MCP server's trust, a plugin's) each tool came
+	// from, since `ToolManager.sourceOf` resolves by which ARRAY ENTRY
+	// served a name. `filtered` and `deferExceptToolset` both keep a
+	// toolset's own `source`, so mapping them over the array preserves that
+	// per-entry, exactly as `filtered(ts, selector)` on each contributing
+	// toolset before combining already has to (see `tools/roster.ts`).
+	//
+	// Withheld names removed — the same denylist pass `registry.unregister`
+	// used to run, now `filtered` instead of one unregister per name.
+	// `options.toolLoading === 'deferred'` demotes everything but a fixed
+	// eager allowlist to `deferred(...)`: because availability is now
+	// DERIVED from what a tool message has revealed
+	// (`ToolManager.availability`), this decides it once at session boot
+	// rather than by forking a snapshot per send — a revealed tool now stays
+	// active for the rest of the session, including after `namzu resume`,
+	// instead of being lost on the very next send.
+	const sessionToolsets: readonly Toolset[] = toolsets.flatMap((ts) => {
+		const wrapped =
+			withheldTools.size > 0 ? filtered(ts, (tool) => !withheldTools.has(tool.name)) : ts
+		return options.toolLoading === 'deferred'
+			? deferExceptToolset(wrapped, EAGER_TOOLS_WHEN_DEFERRED)
+			: [wrapped]
+	})
+	// Built once for every host-side read this session needs (the presenter,
+	// the roster shown to `/tools`, the exempt-tool list, MCP provenance for
+	// `toolResultScreens`) — never for execution, which `query()` does with
+	// its own manager built fresh per turn from the same toolsets. `messages`
+	// is a constant empty window: nothing here reads derived availability.
+	const manager = new ToolManager({
+		toolsets: sessionToolsets,
+		...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
+		messages: () => [],
+	})
+	// A live toolset (a plugin's) can change between session boot and any
+	// later ask — `/tools`, `/permissions`, a review decision. `manager`
+	// itself is built once and never rebuilt for the session's lifetime, so
+	// every host-facing read goes through this instead of `manager` bare:
+	// `refresh()` re-resolves iff something actually changed since the last
+	// ask (`ToolManager.refresh`'s own doc comment), so this costs nothing
+	// on the overwhelmingly common case where nothing did.
+	const liveManager = (): ToolManager => {
+		manager.refresh()
+		return manager
+	}
+	// Built once, over the session's own composed toolsets — see
+	// `AgentSession.presenter`'s doc comment for why this is exposed rather
+	// than left implicit inside `runTurn`'s own per-turn presenter. Reads
+	// through `liveManager()` so a plugin enabled or disabled after boot is
+	// reflected here too, not only in `/tools`.
+	const sessionPresenter = createToolPresenter({ get: (name) => liveManager().get(name) })
 	// What one turn's prompt manifest and `skill` tool see: the file skills
 	// gated against the tools registered now, merged with the plugins' own.
 	const turnSkillsFor = (turnModel: string | undefined) =>
 		skillCatalog.forTurn({
-			toolNames: registry.listNames(),
+			toolNames: liveManager().listNames(),
 			contextWindowTokens: resolveContextWindow(options.compaction?.contextWindowTokens, turnModel)
 				.tokens,
 			...(sessionPlugins ? { pluginSkills: sessionPlugins.skills } : {}),
@@ -3093,9 +3216,9 @@ export async function createAgentSession(
 	// explanation anywhere in the transcript.
 	const unmatchedPassthrough = unmatchedPassthroughTools(
 		configuredPassthroughTools(options.toolResultScreens),
-		registry.listNames().map((name) => {
-			const server = registry.get(name)?.provenance?.server
-			return server === undefined ? { name } : { name, server }
+		manager.listNames().map((name) => {
+			const source = manager.sourceOf(name)
+			return source.server === undefined ? { name } : { name, server: source.server }
 		}),
 	)
 	const passthroughNotice =
@@ -3322,12 +3445,12 @@ export async function createAgentSession(
 								mode,
 								reviewExemptionFor(
 									mode,
-									registry,
+									liveManager(),
 									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
 								),
 								{ unattendedSandboxEscape },
 								reviewHold.reason,
-								screenPolicyFor(() => registry),
+								screenPolicyFor(() => liveManager()),
 							)
 						: makeResumeHandler(
 								// A caller that brings its own prompt (a scheduled turn answered in
@@ -3338,11 +3461,11 @@ export async function createAgentSession(
 								mode,
 								reviewExemptionFor(
 									mode,
-									registry,
+									liveManager(),
 									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
 								),
 								{ unattendedSandboxEscape },
-								screenPolicyFor(() => registry),
+								screenPolicyFor(() => liveManager()),
 							),
 			})
 			const resumeHandler = modeControl.handler
@@ -3364,7 +3487,8 @@ export async function createAgentSession(
 				return await resumeSession({
 					provider: route?.provider ?? providerForSession(entry.sessionId),
 					fallbackProviders: route ? [] : fallbackPlan.build(currentToken, entry.sessionId),
-					tools: registry,
+					toolsets: sessionToolsets,
+					...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
 					pluginManager: pluginRuntime?.manager,
 					...(turnSkills.registry ? { skillRegistry: turnSkills.registry } : {}),
 					...(turnSkills.manifest ? { skills: turnSkills.manifest } : {}),
@@ -3506,8 +3630,8 @@ export async function createAgentSession(
 		let wake: (() => void) | undefined
 		let settled = false
 		let failure: Error | undefined
-		const presenter = createToolPresenter(registry)
-		const readsOnly = declaredReadOnly(registry)
+		const presenter = sessionPresenter
+		const readsOnly = declaredReadOnly(manager)
 		// The log the turn appends to, and its checkpoints beside it.
 		const sessionLog = DiskSessionLog.at(paths, { sessionId: scope.sessionId })
 		const outcome = kernelResume({
@@ -3613,14 +3737,10 @@ export async function createAgentSession(
 				}
 				return compactNow({ ...common, messages })
 			}),
-		// Reads the same registry object the deferred registration mutates, at
-		// call time — the pair of `promptExemptTools` below, and for the same
-		// reason.
-		toolNames: () =>
-			registry
-				.getCallableTools()
-				.map((t) => t.name)
-				.filter((name) => !goalToolNames.has(name)),
+		// Reads the same manager the session composed, at call time — the pair
+		// of `promptExemptTools` below, and for the same reason.
+		toolNames: () => liveManager().listNames().filter((name) => !goalToolNames.has(name)),
+		presenter: sessionPresenter,
 		...(pluginRuntime
 			? {
 					plugins: {
@@ -3734,7 +3854,7 @@ export async function createAgentSession(
 			)
 		},
 		promptExemptTools: () =>
-			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
+			promptExemptToolNames(liveManager()).filter((name) => !goalToolNames.has(name)),
 		describeComputerUseRef: (ref) => computerUseTool?.describeUiRef(ref),
 		send: (messages, opts) =>
 			operations.stream(opts?.signal, (signal) =>
@@ -3742,7 +3862,12 @@ export async function createAgentSession(
 					const selectTaskStore = beginTaskStoreReadout()
 					const turnLimits = resolveTurnGuards(options.limits, opts?.limits)
 					const turnOpts: SendOptions = { ...opts, signal }
-					let runTools = registry
+					// Per-send membership: neither another send nor delegated sessions
+					// inherit an addition made below (the resident-step bundle). No
+					// fork — an extra toolset for this send only, alongside the
+					// session's own (plan.md v3 §8).
+					let runToolsets: readonly Toolset[] = sessionToolsets
+					let runManager: ToolManager = manager
 					lastSendInteractive = opts?.onPermission !== undefined
 					const turnScope = { ...scope }
 					const initialMode: PermissionMode =
@@ -3763,12 +3888,12 @@ export async function createAgentSession(
 										mode,
 										reviewExemptionFor(
 											mode,
-											runTools,
+											runManager,
 											(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
 										),
 										{ unattendedSandboxEscape },
 										opts.reviewHold.reason,
-										screenPolicyFor(() => runTools),
+										screenPolicyFor(() => runManager),
 									)
 								: makeResumeHandler(
 										approval,
@@ -3776,11 +3901,11 @@ export async function createAgentSession(
 										mode,
 										reviewExemptionFor(
 											mode,
-											runTools,
+											runManager,
 											(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
 										),
 										{ unattendedSandboxEscape },
-										screenPolicyFor(() => runTools),
+										screenPolicyFor(() => runManager),
 									),
 					})
 					const resumeHandler = modeControl.handler
@@ -3828,12 +3953,10 @@ export async function createAgentSession(
 						// Its text only changes when a fact changes, so it costs a prompt-cache
 						// miss exactly when a hit would have been a stale claim.
 						const turnSkills = await turnSkillsFor(model)
-						// One fork after plugin refresh, held through every iteration of
-						// this send. Discovery cannot activate another send's schemas.
-						if (options.toolLoading === 'deferred')
-							runTools = registry.fork({
-								deferExcept: EAGER_TOOLS_WHEN_DEFERRED.filter((name) => registry.has(name)),
-							})
+						// `options.toolLoading === 'deferred'` is already baked into
+						// `sessionToolsets` (see its construction above) — availability
+						// is derived from the turn's own revealed-tool history now, not
+						// forked per send, so there is nothing to redo here.
 						const curatedMemory = readMemory(undefined, cwd)
 						for (const notice of formatMemoryDiagnostics(curatedMemory)) {
 							yield { kind: 'context' as const, text: notice, shed: false }
@@ -3917,9 +4040,15 @@ export async function createAgentSession(
 											tools: [],
 										}
 							if (bundle.tools.length) {
-								// Per-send membership: neither another send nor delegated sessions inherit this tool.
-								runTools = runTools.fork()
-								for (const tool of bundle.tools) runTools.register(tool)
+								// Per-send membership: neither another send nor delegated sessions
+								// inherit this toolset — an extra toolset for this send alone,
+								// not a fork.
+								runToolsets = [...sessionToolsets, toolset('resident-step', bundle.tools)]
+								runManager = new ToolManager({
+									toolsets: runToolsets,
+									...(screensConfig !== undefined ? { resultGuardrails: screensConfig } : {}),
+									messages: () => [],
+								})
 							}
 							for (const contribution of bundle.contributions)
 								promptContributions.register(contribution)
@@ -4036,7 +4165,8 @@ export async function createAgentSession(
 								// survive. Building a driver is a client object, not a request.
 								fallbackProviders: fallbackPlan.build(currentToken, turnScope.sessionId),
 								model,
-								tools: runTools,
+								toolsets: runToolsets,
+								...(screensConfig !== undefined ? { toolResultGuardrails: screensConfig } : {}),
 								pluginManager: pluginRuntime?.manager,
 								skillRegistry: turnSkills.registry,
 								skills: turnSkills.manifest,
@@ -4720,7 +4850,9 @@ interface TurnParams {
 	 */
 	readonly fallbackProviders: readonly ProviderChainMember[]
 	readonly model: string
-	readonly tools: ToolRegistry
+	readonly toolsets: readonly Toolset[]
+	/** See `ToolManagerConfig.resultGuardrails`; baked into a `ToolRegistry`'s constructor before toolsets existed. */
+	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 	readonly pluginManager: PluginLifecycleManager | undefined
 	readonly skillRegistry: SkillRegistryRef | undefined
 	readonly skills: Skill[] | undefined
@@ -4804,7 +4936,8 @@ async function* runTurn({
 	backgroundJobOwner,
 	fallbackProviders,
 	model,
-	tools,
+	toolsets,
+	toolResultGuardrails,
 	pluginManager,
 	skillRegistry,
 	skills,
@@ -4848,8 +4981,16 @@ async function* runTurn({
 	// already holds. Its absence HERE is what forced presentation to be name
 	// matching in the first place: `toAgentEvent` is pure over a `SessionEvent`
 	// and could not ask a tool anything, so the host guessed from the name.
-	const presenter = createToolPresenter(tools)
-	const readsOnly = declaredReadOnly(tools)
+	// A local manager, over the same toolsets `query()` below resolves its
+	// own from — built here only for host-side reads (the presenter, the
+	// read-only check for the skill suggestion), never for execution.
+	const turnManager = new ToolManager({
+		toolsets,
+		...(toolResultGuardrails !== undefined ? { resultGuardrails: toolResultGuardrails } : {}),
+		messages: () => [],
+	})
+	const presenter = createToolPresenter(turnManager)
+	const readsOnly = declaredReadOnly(turnManager)
 	try {
 		const events = query({
 			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
@@ -4866,7 +5007,8 @@ async function* runTurn({
 			// two the same, but an absent option reads as "this turn has no chain"
 			// where `[]` reads as "this turn has a chain with nothing in it".
 			...(fallbackProviders.length > 0 ? { fallbackProviders } : {}),
-			tools,
+			toolsets,
+			...(toolResultGuardrails !== undefined ? { toolResultGuardrails } : {}),
 			...(pluginManager ? { pluginManager } : {}),
 			...(skillRegistry ? { skillRegistry } : {}),
 			...(skills ? { skills } : {}),
@@ -5090,8 +5232,11 @@ export function makeHoldingResumeHandler(
  * declaration or a named bookkeeping write, never a fetch, never a tool the
  * registry does not know.
  */
-export const isPromptExempt: (registry: ToolRegistry, name: string, input: unknown) => boolean =
-	isReviewExempt
+export const isPromptExempt: (
+	manager: Pick<ToolManager, 'get' | 'sourceOf'>,
+	name: string,
+	input: unknown,
+) => boolean = isReviewExempt
 
 /** The delegation tool whose read-only launches {@link reviewExemptionFor} lets through. */
 export const AGENT_LAUNCH_TOOL = 'Agent'
@@ -5121,17 +5266,17 @@ export const AGENT_LAUNCH_TOOL = 'Agent'
  */
 export function reviewExemptionFor(
 	mode: PermissionMode,
-	registry: ToolRegistry,
+	manager: Pick<ToolManager, 'get' | 'sourceOf' | 'has'>,
 	launchesReadOnlyAgent: (input: unknown) => boolean,
 ): (name: string, input: unknown) => boolean {
 	return (name, input) =>
-		isPromptExempt(registry, name, input) ||
+		isPromptExempt(manager, name, input) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
 		(mode !== 'strict' &&
 			mode !== 'plan' &&
 			name === SAVE_SKILL_TOOL_NAME &&
-			registry.has(SAVE_SKILL_TOOL_NAME))
+			manager.has(SAVE_SKILL_TOOL_NAME))
 }
 
 /**
@@ -5155,11 +5300,11 @@ export function confirmsItself(name: string, input: unknown): boolean {
  * finished turn changed anything, for the TUI's skill suggestion.
  */
 function declaredReadOnly(
-	registry: Pick<ToolRegistry, 'get'>,
+	manager: Pick<ToolManager, 'get'>,
 ): (toolName: string, input: unknown) => boolean {
 	return (toolName, input) => {
 		try {
-			return registry.get(toolName)?.isReadOnly?.(input as never) === true
+			return manager.get(toolName)?.isReadOnly?.(input as never) === true
 		} catch {
 			return false
 		}
@@ -5167,11 +5312,12 @@ function declaredReadOnly(
 }
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */
-export function promptExemptToolNames(registry: ToolRegistry): readonly string[] {
-	return registry
-		.getCallableTools()
-		.filter((t) => isPromptExempt(registry, t.name, {}))
-		.map((t) => t.name)
+export function promptExemptToolNames(
+	manager: Pick<ToolManager, 'listNames' | 'get' | 'sourceOf'>,
+): readonly string[] {
+	return manager
+		.listNames()
+		.filter((name) => isPromptExempt(manager, name, {}))
 		.sort()
 }
 
@@ -5863,6 +6009,10 @@ function emptySession(
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: () => [],
+		// No toolsets were built, so every call falls back to the generic
+		// label/view, honestly — an empty manager, not this session pretending
+		// to have an opinion it never formed.
+		presenter: createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] })),
 		// No provider, so no runtime was built and there is nothing to delegate
 		// to — the same reason `toolNames` is empty.
 		agentIds: [],

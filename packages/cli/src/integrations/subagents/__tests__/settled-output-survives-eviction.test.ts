@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AgentManager, MockLLMProvider, ToolRegistry, generateTurnId } from '@namzu/sdk'
+import { AgentManager, MockLLMProvider, generateTurnId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
@@ -35,7 +35,7 @@ describe('retained delegated output', () => {
 			resolveWaitForInbound: () => async () => {},
 			cwd,
 			model: 'mock-model',
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider: () => ({
 				id: 'held-result',
 				name: 'Held Result',

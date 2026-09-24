@@ -1,4 +1,3 @@
-import { ToolRegistry } from '@namzu/sdk'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createCliPluginRuntime } from './runtime.js'
@@ -29,7 +28,6 @@ describe('CLI plugin discovery authority', () => {
 	it('passes the exact admitted scopes and discovery switch to the SDK scanner', async () => {
 		const runtime = await createCliPluginRuntime(
 			{ enabled: true, autoDiscovery: false, allowedScopes: ['user'] },
-			new ToolRegistry(),
 			'/trusted/project',
 		)
 

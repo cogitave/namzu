@@ -10,12 +10,14 @@
  */
 
 import { afterEach, expect, it, vi } from 'vitest'
-import { ToolRegistry, WebFetchTool, createToolPresenter, generateTurnId, type SessionEvent } from '@namzu/sdk'
+import { WebFetchTool, createToolPresenter, generateTurnId, type SessionEvent , ToolManager } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
 import { type Screen, renderToScreen } from './support/screen.js'
+import { testToolset } from '../../test-support/toolset.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const PREFS: Preferences = {
 	version: 3,
@@ -53,6 +55,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
 			toolNames: () => ['computer_use'],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],
@@ -89,8 +92,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					yield { kind: 'done', stopReason: 'end_turn' }
 					return
 				}
-				const registry = new ToolRegistry()
-				registry.register([WebFetchTool])
+				const registry = new ToolManager({ toolsets: [testToolset(...[WebFetchTool])], messages: () => [] })
 				const presenter = createToolPresenter(registry)
 				const turnId = generateTurnId()
 				const hosted = (id: string, status: string, query?: string, results?: number) => ({

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { SearchToolsTool, createUserMessage } from '@namzu/sdk'
+import { SearchToolsTool, createUserMessage, toolset } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { sessionMemoryStore } from '../../__fixtures__/session-memory.js'
@@ -269,6 +269,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 		// query only mounts discovery when absent, so deferring this entry strands it.
 		vi.spyOn(mcp, 'connectMcpServers').mockResolvedValue({
 			tools: [SearchToolsTool],
+			toolsets: [toolset('mcp:test', [SearchToolsTool])],
 			connected: [],
 			failed: [],
 			current: () => ({ connected: [], failed: [] }),

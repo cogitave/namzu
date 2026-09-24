@@ -22,7 +22,7 @@
  * ("fixture must match production").
  */
 
-import type { Message } from '@namzu/sdk'
+import { type Message, genericLabel } from '@namzu/sdk'
 
 import type { AgentEvent, AgentSession, SendOptions } from '../agent.js'
 
@@ -48,6 +48,13 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		providerSummary: 'mock',
 		modelSummary: 'mock-model',
 		toolNames: () => [],
+		// No real toolset behind a fake session, so every call gets the
+		// generic fallback view honestly — never a tool-specific opinion this
+		// fixture has no way to have formed.
+		presenter: {
+			presentCall: (_name, input) => ({ kind: 'generic', label: genericLabel(input) }),
+			presentResult: (_name, input) => ({ kind: 'generic', label: genericLabel(input) }),
+		},
 		errorHint: null,
 		// No failure, so nothing to classify. A test about the refusal codes sets
 		// this and `hasProvider` together — they are one fact in two fields, and a

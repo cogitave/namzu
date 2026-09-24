@@ -6,7 +6,7 @@ import {
 	type LLMProvider,
 	MockLLMProvider,
 	ProviderRegistry,
-	type ToolRegistryContract,
+	ToolManager,
 	createUserMessage,
 	generateSessionId,
 	generateTurnId,
@@ -22,13 +22,17 @@ import {
 import { openSessions } from '../../integrations/sessions/store.js'
 import { type AgentSession, type SessionScope, createAgentSession } from '../agent.js'
 
-const registries = new Map<string, ToolRegistryContract>()
+const registries = new Map<string, ToolManager>()
 vi.mock('@namzu/sdk', async (original) => {
 	const actual = await original<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
 		query: (params: Parameters<typeof actual.query>[0]) => {
-			if (params.turnId) registries.set(params.turnId, params.tools)
+			if (params.turnId)
+				registries.set(
+					params.turnId,
+					new ToolManager({ toolsets: params.toolsets, messages: () => [] }),
+				)
 			return actual.query(params)
 		},
 	}

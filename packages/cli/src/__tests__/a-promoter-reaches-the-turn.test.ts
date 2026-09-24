@@ -25,7 +25,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ToolRegistry } from '@namzu/sdk'
+import { ToolManager, type Toolset } from '@namzu/sdk'
 import type { SessionId, SessionMemoryCandidate, ToolContext, TurnId } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -176,9 +176,11 @@ describe('the turn memory promoter', () => {
 		})
 
 		await drive()
-		const tools = queryCalls[0]?.tools
-		expect(tools).toBeInstanceOf(ToolRegistry)
-		const result = await (tools as ToolRegistry).execute(
+		const tools = new ToolManager({
+			toolsets: queryCalls[0]?.toolsets as readonly Toolset[],
+			messages: () => [],
+		})
+		const result = await tools.execute(
 			'search_memory',
 			{ query: 'cold CLI', limit: 10 },
 			toolContext(),
@@ -217,9 +219,11 @@ describe('the turn memory promoter', () => {
 		writeFileSync(indexPath, poisoned)
 
 		await drive()
-		const tools = queryCalls[0]?.tools
-		expect(tools).toBeInstanceOf(ToolRegistry)
-		const result = await (tools as ToolRegistry).execute(
+		const tools = new ToolManager({
+			toolsets: queryCalls[0]?.toolsets as readonly Toolset[],
+			messages: () => [],
+		})
+		const result = await tools.execute(
 			'save_memory',
 			{
 				title: 'must not overwrite',
@@ -249,13 +253,11 @@ describe('the turn memory promoter', () => {
 		writeFileSync(contentPath, poisoned)
 
 		await drive()
-		const tools = queryCalls[0]?.tools
-		expect(tools).toBeInstanceOf(ToolRegistry)
-		const result = await (tools as ToolRegistry).execute(
-			'read_memory',
-			{ id: entry.id },
-			toolContext(),
-		)
+		const tools = new ToolManager({
+			toolsets: queryCalls[0]?.toolsets as readonly Toolset[],
+			messages: () => [],
+		})
+		const result = await tools.execute('read_memory', { id: entry.id }, toolContext())
 
 		expect(result.success).toBe(false)
 		expect(result.output).not.toContain('must not be replaced')
@@ -292,13 +294,11 @@ describe('the turn memory promoter', () => {
 		writeFileSync(outsidePath, outsideBytes)
 
 		await drive()
-		const tools = queryCalls[0]?.tools
-		expect(tools).toBeInstanceOf(ToolRegistry)
-		const result = await (tools as ToolRegistry).execute(
-			'read_memory',
-			{ id: escapedId },
-			toolContext(),
-		)
+		const tools = new ToolManager({
+			toolsets: queryCalls[0]?.toolsets as readonly Toolset[],
+			messages: () => [],
+		})
+		const result = await tools.execute('read_memory', { id: escapedId }, toolContext())
 
 		expect(result.success).toBe(false)
 		expect(result.output).not.toContain('outside secret bytes')

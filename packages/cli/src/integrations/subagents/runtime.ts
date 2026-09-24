@@ -58,8 +58,8 @@ import {
 	type TaskScheduler,
 	type ToolContext,
 	type ToolDefinition,
-	type ToolRegistryContract,
 	type ToolResult,
+	type Toolset,
 	type Topic,
 	TopicArchivedError,
 	TopicManager,
@@ -69,13 +69,14 @@ import {
 	asTaskId,
 	asTurnId,
 	defineTool,
-	filterReadOnlyTools,
-	filterToolsNamed,
+	filtered,
 	generateSummaryId,
 	isTerminalAgentTaskState,
+	isTrustedReadOnly,
 	mcpJsonSchemaToZod,
 	openSessionTokenBudget,
 	requireOpenProject,
+	toToolSourceRef,
 } from '@namzu/sdk'
 
 import type { TurnLimitsConfig } from '../../config/schema.js'
@@ -133,10 +134,21 @@ const EXPLORE_PROMPT = [EXPLORE_AGENT_PROMPT, '', NAMZU_WORKING_DOCTRINE].join('
 function fileAgentTools(
 	definition: AgentFileDefinition,
 	opts: SubagentRuntimeOptions,
-): () => ToolRegistryContract {
+): () => readonly Toolset[] {
 	return () => {
-		const source = definition.readOnly ? filterReadOnlyTools(opts.buildTools()) : opts.buildTools()
-		return definition.tools ? filterToolsNamed(source, definition.tools) : source
+		// Filter each contributing toolset, then combine — never the reverse:
+		// `filtered`'s predicate reads `source` from the ONE toolset it runs
+		// on (`tools/roster.ts`), so a wide, already-combined toolset would
+		// hand every tool the same umbrella source.
+		const source = definition.readOnly
+			? opts
+					.buildTools()
+					.map((ts) =>
+						filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
+					)
+			: opts.buildTools()
+		const names = definition.tools
+		return names ? source.map((ts) => filtered(ts, names)) : source
 	}
 }
 
@@ -220,13 +232,13 @@ export interface SubagentRuntimeOptions {
 		signal: AbortSignal,
 	) => Promise<DelegatedModel>
 	readonly listModels?: (query: string, signal: AbortSignal) => Promise<string>
-	/** Build the sub-agent's tool registry (its own working set). */
-	readonly buildTools: () => ToolRegistryContract
+	/** Build the sub-agent's own toolsets (its own working set). */
+	readonly buildTools: () => readonly Toolset[]
 	/** Resolve search against the actual child route and its admitted tool roster. */
 	readonly configureWebSearch?: (
 		provider: LLMProvider,
 		model: string,
-		tools: ToolRegistryContract,
+		toolsets: readonly Toolset[],
 	) => ReactiveAgentConfig['webSearch']
 	readonly authorizationGate?: AuthorizationGateConfig
 	/**
@@ -399,7 +411,11 @@ export async function createSubagentRuntime(
 	)
 	registry.register(
 		buildDefinition(EXPLORE_SUBAGENT, EXPLORE_AGENT_DESCRIPTION, EXPLORE_PROMPT, opts, () =>
-			filterReadOnlyTools(opts.buildTools()),
+			opts
+				.buildTools()
+				.map((ts) =>
+					filtered(ts, (tool) => isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source))),
+				),
 		),
 	)
 	// Agents a project or user defined in a file, each a type of its own.
@@ -873,7 +889,14 @@ export async function createSubagentRuntime(
 						fileAgent
 							? fileAgentTools(fileAgent, opts)
 							: explore
-								? () => filterReadOnlyTools(opts.buildTools())
+								? () =>
+										opts
+											.buildTools()
+											.map((ts) =>
+												filtered(ts, (tool) =>
+													isTrustedReadOnly(tool, undefined, toToolSourceRef(ts.source)),
+												),
+											)
 								: opts.buildTools,
 						selection?.model ?? fileAgent?.model ?? parentModel,
 						selection,
@@ -1557,7 +1580,7 @@ function buildDefinition(
 	systemPrompt: string,
 	opts: SubagentRuntimeOptions,
 	/** This definition's own roster; absent means the parent's working set. */
-	tools: () => ToolRegistryContract = opts.buildTools,
+	tools: () => readonly Toolset[] = opts.buildTools,
 	/** This definition's model; absent means the session's. */
 	model: string = opts.model,
 	selection?: DelegatedModel,
@@ -1604,8 +1627,13 @@ function buildDefinition(
 				? await opts.resolveParent(asTurnId(options.parentTurnId))
 				: undefined
 			const provider = await opts.buildProvider(parent?.sessionId, selection)
-			const registry = tools()
-			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, registry)
+			const toolsets = tools()
+			const webSearch = opts.configureWebSearch?.(provider, options.model ?? model, toolsets)
+			// The one tool `configureWebSearch` ever asks to have removed: once
+			// native mode is confirmed usable, the tool-based path is redundant.
+			const resolvedToolsets = webSearch
+				? toolsets.map((ts) => filtered(ts, (tool) => tool.name !== 'web_search'))
+				: toolsets
 			return {
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
@@ -1615,7 +1643,7 @@ function buildDefinition(
 				provider,
 				...(webSearch ? { webSearch } : {}),
 				...(selection?.effort ? { effort: selection.effort } : {}),
-				tools: registry,
+				toolsets: resolvedToolsets,
 				systemPrompt: [
 					base,
 					environment,

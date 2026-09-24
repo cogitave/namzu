@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentSession } from '../agent.js'
 import type { TuiContext } from '../types.js'
+import { genericPresenter } from '../__fixtures__/generic-presenter.js'
 
 const live = vi.hoisted(() => ({ dropped: false }))
 const PREFS: Preferences = {
@@ -52,6 +53,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			providerSummary: 'provider',
 			modelSummary: 'model',
 			toolNames: () => ['mcp_tickets_create'],
+			presenter: genericPresenter,
 			errorHint: null,
 			errorKind: null,
 			instructionFiles: [],

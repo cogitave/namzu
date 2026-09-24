@@ -17,7 +17,7 @@ import {
 	type LLMProvider,
 	LocalTaskScheduler,
 	type SessionEvent,
-	ToolRegistry,
+	ToolManager,
 	createToolPresenter,
 } from '@namzu/sdk'
 
@@ -27,7 +27,7 @@ import { toAgentEvent } from '../agent.js'
 
 /** No tool is involved in any event here; the registry-backed presenter with an
  * empty registry gives exactly the generic fallback these assertions expect. */
-const presenter = createToolPresenter(new ToolRegistry())
+const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 
 function fallbackEvent(over: Partial<Record<string, unknown>> = {}): SessionEvent {
 	return {

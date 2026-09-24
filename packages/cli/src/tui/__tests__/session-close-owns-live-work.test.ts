@@ -104,6 +104,7 @@ vi.mock('../../integrations/mcp/servers.js', async (importOriginal) => {
 		...actual,
 		connectMcpServers: vi.fn(async () => ({
 			tools: [],
+			toolsets: [],
 			connected: [],
 			failed: [],
 			close: async () => {
@@ -125,7 +126,7 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 			execute: async () => ({ success: true, output: '' }),
 		},
 		waitForTaskTool: {
-			name: operations.subagentToolName,
+			name: 'wait_for_task',
 			description: 'stub',
 			inputSchema: { type: 'object', properties: {} },
 			execute: async () => ({ success: true, output: '' }),

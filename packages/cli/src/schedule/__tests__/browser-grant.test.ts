@@ -9,8 +9,9 @@ import {
 	type AuthorizationRule,
 	type BrowserHost,
 	NOOP_LOGGER,
-	ToolRegistry,
+	ToolManager,
 	createBrowserTools,
+	toolset,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
@@ -33,8 +34,10 @@ const host: BrowserHost = {
 		throw new Error('not called')
 	},
 }
-const registry = new ToolRegistry()
-for (const tool of createBrowserTools(host)) registry.register(tool as never)
+const registry = new ToolManager({
+	toolsets: [toolset('test', createBrowserTools(host))],
+	messages: () => [],
+})
 
 function decide(rules: readonly AuthorizationRule[], name: string, raw: Record<string, unknown>) {
 	const gate = new AuthorizationGate(

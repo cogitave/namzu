@@ -1,9 +1,10 @@
 import {
 	MockLLMProvider,
 	type ToolDefinition,
-	ToolRegistry,
+	ToolManager,
 	findPortableSchemaViolations,
 	getBuiltinTools,
+	toolset,
 } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
@@ -40,11 +41,7 @@ async function subagentTools(): Promise<ToolDefinition[]> {
 		model: 'test-model',
 		// Never asked anything: the tools are read off the runtime, not run.
 		buildProvider: () => new MockLLMProvider({ turns: [] }),
-		buildTools: () => {
-			const tools = new ToolRegistry()
-			tools.register(getBuiltinTools())
-			return tools
-		},
+		buildTools: () => [toolset('test', getBuiltinTools())],
 	})
 	try {
 		return [
@@ -77,8 +74,10 @@ async function everyCliTool(): Promise<ToolDefinition[]> {
 
 describe('every tool the CLI adds to the request', () => {
 	it('stays inside the draft-07 ∩ 2020-12 profile', async () => {
-		const registry = new ToolRegistry()
-		for (const tool of await everyCliTool()) registry.register(tool)
+		const registry = new ToolManager({
+			toolsets: [toolset('test', await everyCliTool())],
+			messages: () => [],
+		})
 
 		const offenders = registry
 			.toLLMTools()

@@ -7,7 +7,6 @@ import {
 	type Message,
 	MockLLMProvider,
 	type StreamChunk,
-	ToolRegistry,
 	TurnCancelled,
 	createUserMessage,
 	drainQuery,
@@ -15,6 +14,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
 
@@ -105,7 +105,7 @@ describe('operator input releases delegation waits without cancelling children',
 				cwd,
 				model: 'mock-model',
 				tokenBudget: 1_000_000,
-				buildTools: () => new ToolRegistry(),
+				buildTools: () => [],
 				buildProvider: () => {
 					const index = childIndex++
 					const script = new MockLLMProvider({ turns: [{ text: `child-result-${index}` }] })
@@ -156,12 +156,10 @@ describe('operator input releases delegation waits without cancelling children',
 					return parentScript.chatStream(params)
 				},
 			}
-			const tools = new ToolRegistry()
-			tools.register(runtime.agentTool)
 			const caller = new AbortController()
 			const pending = drainQuery({
 				provider,
-				tools,
+				toolsets: [testToolset(runtime.agentTool)],
 				taskScheduler: gateway,
 				completionInbox,
 				inboundMessages: inbox.drain,
@@ -280,7 +278,7 @@ describe('operator input releases delegation waits without cancelling children',
 				cwd,
 				model: 'mock-model',
 				tokenBudget: 1_000_000,
-				buildTools: () => new ToolRegistry(),
+				buildTools: () => [],
 				buildProvider: () => {
 					const index = childCount++
 					return {
@@ -355,12 +353,10 @@ describe('operator input releases delegation waits without cancelling children',
 					yield* script.chatStream(params)
 				},
 			}
-			const tools = new ToolRegistry()
-			tools.register(runtime.agentTool)
 			const caller = new AbortController()
 			const pending = drainQuery({
 				provider,
-				tools,
+				toolsets: [testToolset(runtime.agentTool)],
 				taskScheduler: gateway,
 				completionInbox,
 				inboundMessages: inbox.drain,
@@ -474,7 +470,7 @@ describe('operator input releases delegation waits without cancelling children',
 			resolveWaitForInbound: () => inbox.wait,
 			cwd,
 			model: 'mock-model',
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider: () => ({
 				id: 'held-result',
 				name: 'Held Result',
@@ -555,7 +551,7 @@ describe('operator input releases delegation waits without cancelling children',
 			model: 'mock-model',
 			tokenBudget: 1_000,
 			resolveResumeHandler: () => async () => ({ action: 'approve_tools' }),
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			buildProvider: () =>
 				new MockLLMProvider({
 					turns: [

@@ -6,7 +6,6 @@ import {
 	MockLLMProvider,
 	type SessionEvent,
 	SessionPaths,
-	ToolRegistry,
 	createUserMessage,
 	drainQuery,
 	generateSessionId,
@@ -16,6 +15,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { resolveSubagentParent } from '../parent.js'
 import { listSavedChildren } from '../replay.js'
@@ -59,7 +59,7 @@ describe('delegation belongs to the actual parent', () => {
 				providerSessions.push(sessionId)
 				return new MockLLMProvider({ turns: [{ text: 'done' }] })
 			},
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 			onEvent: (event) => {
 				events.push(event)
 			},
@@ -73,8 +73,6 @@ describe('delegation belongs to the actual parent', () => {
 			const turns = await Promise.all(
 				[fixture.scope.turnId, secondTurnId].map(async (turnId) => {
 					const parent = parents.get(turnId) as SubagentParent
-					const tools = new ToolRegistry()
-					tools.register(runtime.agentTool)
 					const call = (id: string) => ({
 						id,
 						name: runtime.agentTool.name,
@@ -87,7 +85,7 @@ describe('delegation belongs to the actual parent', () => {
 								{ text: 'both reported' },
 							],
 						}),
-						tools,
+						toolsets: [testToolset(runtime.agentTool)],
 						turnConfig: {
 							model: 'mock',
 							timeoutMs: 30_000,
@@ -181,7 +179,7 @@ describe('delegation belongs to the actual parent', () => {
 			model: 'mock',
 			resolveParent: () => waiting,
 			buildProvider: () => new MockLLMProvider({ turns: [] }),
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 		})
 		const pending = runtime.gatewayForTurn(fixture.scope.turnId)
 		const rejected = expect(pending).rejects.toThrow('released')
@@ -244,7 +242,7 @@ describe('delegation belongs to the actual parent', () => {
 			model: 'mock',
 			resolveParent: async () => archived,
 			buildProvider: () => new MockLLMProvider({ turns: [] }),
-			buildTools: () => new ToolRegistry(),
+			buildTools: () => [],
 		})
 		try {
 			await expect(runtime.gatewayForTurn(fixture.scope.turnId)).rejects.toThrow()

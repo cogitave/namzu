@@ -36,7 +36,9 @@ import {
 	MCPClient,
 	type MCPTransportUnion,
 	type ToolDefinition,
+	type Toolset,
 	mcpToolToToolDefinition,
+	toolset,
 } from '@namzu/sdk'
 
 /**
@@ -150,6 +152,15 @@ export interface FailedMcpServer {
 export interface McpConnection {
 	/** Adapted tools from every server that connected, ready to register. */
 	readonly tools: readonly ToolDefinition[]
+	/**
+	 * One `Toolset` per server that connected, kind `mcp_server`, named
+	 * `mcp:<server>` — plan.md v3 §8's interim step (a real, live
+	 * `mcpToolset` primitive is a later wave; see the SDK's `toolsets/`).
+	 * `readOnlyHintTrusted` is `false` for every server here, matching
+	 * `mcpToolToToolDefinition`'s own default: this module has no per-server
+	 * trust configuration yet.
+	 */
+	readonly toolsets: readonly Toolset[]
 	/** One coherent live snapshot; use this when successes and failures are shown together. */
 	current(): {
 		readonly connected: readonly ConnectedMcpServer[]
@@ -325,6 +336,7 @@ export async function connectMcpServers(
 ): Promise<McpConnection> {
 	const entries = Object.entries(config ?? {})
 	const tools: ToolDefinition[] = []
+	const toolsets: Toolset[] = []
 	const startupFailed: FailedMcpServer[] = []
 	const clients: MCPClient[] = []
 	const liveServers: Array<{
@@ -370,6 +382,17 @@ export async function connectMcpServers(
 			// future adapter with a side effect turns into a bug.
 			const adapted = listed.map((tool) => mcpToolToToolDefinition(tool, client, name))
 			tools.push(...adapted)
+			toolsets.push(
+				toolset(
+					{
+						id: `mcp:${name}`,
+						kind: 'mcp_server',
+						name,
+						mcpServer: { name, readOnlyHintTrusted: false },
+					},
+					adapted,
+				),
+			)
 			const summary = {
 				name,
 				toolCount: adapted.length,
@@ -423,6 +446,7 @@ export async function connectMcpServers(
 
 	return {
 		tools,
+		toolsets,
 		current,
 		get connected() {
 			return current().connected

@@ -1,4 +1,4 @@
-import { type SessionEvent, ToolRegistry, createToolPresenter, generateTurnId } from '@namzu/sdk'
+import { type SessionEvent, ToolManager, createToolPresenter, generateTurnId } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import { type Screen, renderToScreen } from './support/screen.js'
@@ -27,7 +27,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 		}),
 		createAgentSession: async () => fakeAgentSession({
 			send: async function* () {
-				const presenter = createToolPresenter(new ToolRegistry())
+				const presenter = createToolPresenter(new ToolManager({ toolsets: [], messages: () => [] }))
 				const turnId = generateTurnId()
 				for (const [index, call] of calls.entries()) {
 					for (const event of [
