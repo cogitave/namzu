@@ -153,7 +153,16 @@ function validateInputError(value: unknown, path: string): string | null {
 		(isCount(value.length) ? null : `${path}.length must be a non-negative safe integer`) ??
 		(isCount(value.precedingLength)
 			? null
-			: `${path}.precedingLength must be a non-negative safe integer`)
+			: `${path}.precedingLength must be a non-negative safe integer`) ??
+		optional(
+			value,
+			'finishDetail',
+			path,
+			(candidate) => candidate === 'context_window',
+			'"context_window"',
+		) ??
+		optional(value, 'outputTokens', path, isCount, 'a non-negative safe integer') ??
+		optional(value, 'reasoningTokens', path, isCount, 'a non-negative safe integer')
 	)
 }
 

@@ -258,6 +258,29 @@ describe('stateless Message[] parsing', () => {
 			ok: false,
 			error: `${path}.precedingLength must be a non-negative safe integer`,
 		})
+		// The usage a truncated call records is read as counts too.
+		expect(
+			withError({
+				...valid,
+				reason: 'truncated',
+				finishReason: 'length',
+				finishDetail: 'context_window',
+				outputTokens: 8000,
+				reasoningTokens: 7800,
+			}).ok,
+		).toBe(true)
+		expect(withError({ ...valid, outputTokens: 'many' })).toEqual({
+			ok: false,
+			error: `${path}.outputTokens must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, reasoningTokens: -1 })).toEqual({
+			ok: false,
+			error: `${path}.reasoningTokens must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, finishDetail: 'output' })).toEqual({
+			ok: false,
+			error: `${path}.finishDetail must be "context_window"`,
+		})
 	})
 
 	it('names an invalid nested field by index', () => {

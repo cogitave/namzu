@@ -281,8 +281,9 @@ retain their raw fragments and carry `metadata.namzu.inputTruncated` on
 original call. `inputTruncated` is set for both causes. When the runtime
 recorded which, `TOOL_CALL_END` also carries it as `metadata.namzu.inputError`,
 the `ToolInputError` from `tool_input_completed`: `reason` is `truncated` or
-`malformed`, with `finishReason`, `parseError`, `offset`, `length` and
-`precedingLength`. Arguments only the adapter found unparsable, and those from
+`malformed`, with `finishReason`, `finishDetail`, `parseError`, `offset`,
+`length`, `precedingLength`, `outputTokens` and `reasoningTokens` as the
+runtime recorded them. Arguments only the adapter found unparsable, and those from
 an `@namzu/sdk` that records no reason, carry `inputTruncated` alone.
 Backend tool failures carry `metadata.namzu.isError` on their result.
 

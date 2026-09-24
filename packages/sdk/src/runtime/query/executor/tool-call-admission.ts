@@ -502,7 +502,7 @@ function ceilingBelow(length: number): number | undefined {
 	const half = Math.floor(length / 2)
 	const step = half >= 200 ? 100 : half >= 20 ? 10 : 1
 	const ceiling = Math.floor(half / step) * step
-	return ceiling >= 1 ? ceiling : undefined
+	return ceiling >= 2 ? ceiling : undefined
 }
 
 /**

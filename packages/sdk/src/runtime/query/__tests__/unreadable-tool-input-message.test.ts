@@ -98,14 +98,18 @@ describe('unreadableToolInputMessage', () => {
 		expect(unreadableToolInputMessage('ask', cutOff(29, 'length'))).toContain(
 			'keep its arguments under 14 characters in all.',
 		)
-		for (let length = 2; length <= 5_000; length++) {
+		for (let length = 4; length <= 5_000; length++) {
 			const message = unreadableToolInputMessage('ask', cutOff(length, 'length'))
 			const ceiling = Number(/under (\d+) characters/.exec(message)?.[1])
-			expect(ceiling).toBeGreaterThanOrEqual(1)
+			expect(ceiling).toBeGreaterThanOrEqual(2)
 			expect(ceiling).toBeLessThan(length)
 		}
-		// Nothing left to state for a call cut after one character.
-		expect(unreadableToolInputMessage('ask', cutOff(1, 'length'))).toMatch(/Send the call again\.$/)
+		// Nothing left to state for a call cut after a character or three.
+		for (const length of [1, 2, 3]) {
+			expect(unreadableToolInputMessage('ask', cutOff(length, 'length'))).toMatch(
+				/Send the call again\.$/,
+			)
+		}
 	})
 
 	it('says reasoning filled the response when the provider counts it, and does not blame the call', () => {
