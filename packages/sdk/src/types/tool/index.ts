@@ -723,6 +723,22 @@ export interface ToolResult {
 	 */
 	workingState?: readonly import('../../compaction/types.js').WorkingStatePin[]
 	/**
+	 * Names of tools this result makes callable for the rest of the turn —
+	 * the same activation `search_tools` performs (`ToolRegistry.activate`),
+	 * offered to any tool's own result instead of only the search built-in.
+	 * For a "connect to project X" call whose dozen further tools should
+	 * appear only once that connection is made, not be found by lexical
+	 * search or exposed eagerly from the start.
+	 *
+	 * Only a name currently `'deferred'` in the registry is activated, and
+	 * only when it is also inside `ToolContext.allowedTools` when that turn
+	 * is narrowed to an allow-list. Every other name — unknown, already
+	 * active, suspended, or outside the allow-list — is silently ignored:
+	 * this can never throw, resurrect a tool a host suspended on purpose, or
+	 * widen what a narrowed turn may call.
+	 */
+	reveals?: readonly string[]
+	/**
 	 * This result needs a person before the turn can go on — a sign-in page,
 	 * a CAPTCHA, a second factor, anything the model must not try to answer
 	 * itself.

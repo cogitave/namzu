@@ -37,6 +37,30 @@ method on `ToolRegistryContract` are optional so existing custom registries rema
 compatible. When a custom registry omits the method, `search_tools` says it cannot
 search active tools rather than asserting that matching tools are active or absent.
 
+## A tool's own result can reveal further tools
+
+`search_tools` is one way a deferred tool becomes callable; a tool's own
+result is another. `ToolResult.reveals?: readonly string[]` names further
+tools this result makes callable for the rest of the turn — for a "connect to
+project X" call whose dozen further tools should appear only once the
+connection is made, not be found by lexical search or exposed eagerly from
+the start. Any tool built with `defineTool` sets it as an ordinary field on
+the object its `execute()` resolves to, exactly as it already sets `data` or
+`workingState`.
+
+Only a name currently `deferred` in the registry is activated, and only when
+it is also inside `ToolContext.allowedTools` when that turn is narrowed to an
+allow-list — the same access-scoping `search_tools` applies. Every other
+name is silently ignored rather than throwing or failing the call: an
+unknown or misspelled name, an already-active name, and a name a host has
+suspended (`suspendAll`) all pass through unchanged. A tool result can grow
+what a turn may call; it can never resurrect a tool a host deliberately
+pulled out of reach, and it can never widen a narrowed turn's allow-list.
+
+Activation happens when the executor finalizes the revealing tool's result,
+before the model's next turn — so a tool named in `reveals` is already in the
+very next request's `tools` list, with no extra round trip.
+
 ## Independent availability for a turn
 
 `ToolRegistry.fork(options?: ToolRegistryForkOptions)` snapshots the registry's

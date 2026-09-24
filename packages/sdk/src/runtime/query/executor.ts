@@ -1945,6 +1945,27 @@ export class ToolExecutor {
 			}
 		}
 
+		// `reveals`: a curated activation, the same one `search_tools` performs,
+		// offered to any tool's own result. `getAvailability(name) === 'deferred'`
+		// is the one guard that makes an arbitrary tool/plugin/MCP-authored list
+		// safe to hand to `activate()` unfiltered otherwise: an unregistered name
+		// reports `'active'` by default (never matching, so it can never reach
+		// `activate()`'s `getOrThrow` and throw mid-finalization), and an
+		// already-active or `'suspended'` name is left exactly where it is — a
+		// host that suspended a tool on purpose is not overridden by a tool
+		// result. The `allowedTools` check keeps a narrowed turn narrowed: a
+		// name outside it is never made callable no matter what a result claims.
+		if (!this.config.abortSignal.aborted && result.reveals && result.reveals.length > 0) {
+			const revealed = result.reveals.filter(
+				(name) =>
+					this.config.tools.getAvailability(name) === 'deferred' &&
+					(toolContext.allowedTools === undefined || toolContext.allowedTools.includes(name)),
+			)
+			if (revealed.length > 0) {
+				this.config.tools.activate(revealed)
+			}
+		}
+
 		if (result.success) {
 			this.log.debug('Tool executed successfully', {
 				[NAMZU.TURN_ID]: this.config.turnId,
