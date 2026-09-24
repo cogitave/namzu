@@ -28,12 +28,10 @@ function composer(
 }
 
 async function waitUntil(screen: Awaited<ReturnType<typeof renderToScreen>>, check: () => boolean) {
-	const started = performance.now()
-	while (!check() && performance.now() - started < 3_000) {
-		await new Promise((resolve) => setTimeout(resolve, 20))
+	await vi.waitFor(async () => {
 		await screen.waitForRender()
-	}
-	expect(check()).toBe(true)
+		expect(check()).toBe(true)
+	})
 }
 
 describe('the composer on a production-shaped terminal', () => {

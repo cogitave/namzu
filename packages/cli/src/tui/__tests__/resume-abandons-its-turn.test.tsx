@@ -337,11 +337,7 @@ async function untilFrame(
 	needle: string,
 	why: string,
 ): Promise<void> {
-	const started = performance.now()
-	while (!(harness.lastFrame() ?? '').includes(needle) && performance.now() - started < 3_000) {
-		await tick(20)
-	}
-	expect(harness.lastFrame(), why).toContain(needle)
+	await vi.waitFor(() => expect(harness.lastFrame(), why).toContain(needle))
 }
 
 /**
@@ -387,9 +383,8 @@ async function queue(harness: { stdin: { write: (s: string) => void } }, text: s
 }
 
 /** Wait until `n` turns have persisted themselves. */
-async function appendsReach(n: number, timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (appended.length < n && performance.now() - started < timeoutMs) await tick(20)
+async function appendsReach(n: number, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(appended.length).toBeGreaterThanOrEqual(n), timeoutMs)
 }
 
 describe('/resume while a turn is running', () => {
@@ -614,9 +609,7 @@ describe('/resume while a turn is running', () => {
 		const harness = await pickerOpenMidTurn()
 
 		gates[0]?.release()
-		const started = performance.now()
-		while (!permissionAsked && performance.now() - started < 3_000) await tick(20)
-		expect(permissionAsked, 'the turn never reached the prompt').toBe(true)
+		await vi.waitFor(() => expect(permissionAsked, 'the turn never reached the prompt').toBe(true))
 
 		harness.stdin.write('\r')
 		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
@@ -713,10 +706,7 @@ describe('/fork after an interrupted turn', () => {
 		releaseTheAppend()
 		await tick(120)
 		await submit(harness, '/fork')
-		const started = performance.now()
-		while (forkedAfterAppends.length === 0 && performance.now() - started < 3_000) {
-			await tick(20)
-		}
+		await vi.waitFor(() => expect(forkedAfterAppends.length).toBeGreaterThan(0))
 
 		expect(forkedAfterAppends).toEqual([1])
 		expect(appended[0]?.contents.join(' ')).toContain('LEAKEDREPLY0')

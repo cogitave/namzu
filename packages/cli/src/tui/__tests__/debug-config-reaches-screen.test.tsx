@@ -78,11 +78,7 @@ async function waitFor(
 	harness: { readonly frames: readonly string[] },
 	text: string,
 ): Promise<void> {
-	const started = performance.now()
-	while (!harness.frames.join('\n').includes(text) && performance.now() - started < 3_000) {
-		await tick(20)
-	}
-	expect(harness.frames.join('\n')).toContain(text)
+	await vi.waitFor(() => expect(harness.frames.join('\n')).toContain(text))
 }
 
 it('shows the exact winning source handed to App', async () => {
