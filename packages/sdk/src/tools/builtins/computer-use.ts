@@ -503,8 +503,8 @@ function pointModelSchema(description?: string): Record<string, unknown> {
 		type: 'object',
 		...(description ? { description } : {}),
 		properties: {
-			x: { type: 'integer' },
-			y: { type: 'integer' },
+			x: { type: 'integer', description: 'Horizontal pixel coordinate, from the left edge.' },
+			y: { type: 'integer', description: 'Vertical pixel coordinate, from the top edge.' },
 		},
 		required: ['x', 'y'],
 		additionalProperties: false,
@@ -549,11 +549,15 @@ function hostModelSchema(
 	const fieldSchemas = (forItems: boolean): Record<string, unknown> => {
 		const present = forItems ? items : actions
 		const fields: Record<string, unknown> = {
-			to: pointModelSchema(),
-			at: pointModelSchema(),
-			from: pointModelSchema(),
+			to: pointModelSchema('Destination point: where mouse_move moves the cursor to, or where mouse_drag releases.'),
+			at: pointModelSchema('Point the action happens at: where to click, or where to scroll.'),
+			from: pointModelSchema('Drag start point, for mouse_drag.'),
 			button: { type: 'string', enum: buttonEnum, description: 'Mouse button; left when omitted.' },
-			direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
+			direction: {
+				type: 'string',
+				enum: ['up', 'down', 'left', 'right'],
+				description: 'Which way to scroll.',
+			},
 			amount: { type: 'integer', description: 'Positive integer scroll distance.' },
 			text: { type: 'string', description: 'Literal text to type.' },
 			keys: {
@@ -584,10 +588,10 @@ function hostModelSchema(
 				type: 'object',
 				description: 'Area of the screenshot to zoom into, in its pixels.',
 				properties: {
-					x: { type: 'integer' },
-					y: { type: 'integer' },
-					width: { type: 'integer' },
-					height: { type: 'integer' },
+					x: { type: 'integer', description: 'Left edge of the region, in screenshot pixels.' },
+					y: { type: 'integer', description: 'Top edge of the region, in screenshot pixels.' },
+					width: { type: 'integer', description: 'Width of the region, in screenshot pixels.' },
+					height: { type: 'integer', description: 'Height of the region, in screenshot pixels.' },
 				},
 				required: ['x', 'y', 'width', 'height'],
 				additionalProperties: false,
@@ -612,7 +616,11 @@ function hostModelSchema(
 			items: {
 				type: 'object',
 				properties: {
-					type: { type: 'string', enum: items },
+					type: {
+						type: 'string',
+						enum: items,
+						description: 'This batched action.',
+					},
 					...fieldSchemas(true),
 				},
 				required: ['type'],
