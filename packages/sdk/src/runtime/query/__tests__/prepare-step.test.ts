@@ -59,7 +59,7 @@ async function run(opts: {
 	const provider = new MockLLMProvider({ turns: opts.turns })
 	const result = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		turnConfig: {
 			model: 'base-model',
 			timeoutMs: 10_000,

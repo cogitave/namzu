@@ -139,7 +139,7 @@ async function run(opts: {
 	await drainQuery(
 		{
 			provider,
-			tools,
+			toolsets: [tools],
 			...(opts.allowedTools ? { allowedTools: opts.allowedTools } : {}),
 			...(opts.activeTools
 				? { prepareStep: () => ({ activeTools: opts.activeTools as string[] }) }

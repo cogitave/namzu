@@ -65,7 +65,7 @@ it.each(['enabled', 'opt-out', 'disabled', 'unconfigured'] as const)(
 		const result = await drainQuery({
 			provider,
 			repeatCallAdvisory: false,
-			tools,
+			toolsets: [tools],
 			agentId: 'context-test',
 			agentName: 'Context test',
 			messages: [{ role: 'user', content: 'Observe the file three times' }],

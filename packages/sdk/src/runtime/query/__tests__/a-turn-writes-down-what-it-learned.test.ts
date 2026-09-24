@@ -90,7 +90,7 @@ async function run(consolidateInto: MemoryStore) {
 				{ text: 'The deploy key was rejected, so I stopped.' },
 			],
 		}),
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',

@@ -119,7 +119,7 @@ describe('blocking Agent delegation cancellation reaches the child', () => {
 		const caller = new AbortController()
 		const pending = drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,

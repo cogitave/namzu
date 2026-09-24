@@ -79,7 +79,7 @@ async function run(
 	const store = makeStore(sessionLog)
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [...turns, { text: 'done' }] }),
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'probe four times' }],

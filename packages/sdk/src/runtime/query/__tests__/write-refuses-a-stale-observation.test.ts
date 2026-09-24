@@ -63,7 +63,7 @@ it('returns admission-time drift to the model and preserves the newer body', asy
 
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		agentId: 'agent_stale_write',
 		agentName: 'Stale Write Agent',
 		messages: [createUserMessage('read doc.md and then replace it')],

@@ -63,7 +63,7 @@ async function setup(base: string, selected: string, turns = 1) {
 			topicId: fixtureId.topic('selected-context'),
 			tenantId: fixtureId.tenant('selected-context'),
 			provider,
-			tools,
+			toolsets: [tools],
 			workingDirectory,
 			sessionLog: new InMemorySessionLog({ sessionId: fixtureId.session('selected-context') }),
 			agentId: 'context-audit',

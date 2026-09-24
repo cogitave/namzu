@@ -64,7 +64,7 @@ async function run(
 		{
 			...controls,
 			provider,
-			tools,
+			toolsets: [tools],
 			retry: false,
 			pricing: { inputCostPer1M: 1, outputCostPer1M: 1 },
 			turnConfig: {

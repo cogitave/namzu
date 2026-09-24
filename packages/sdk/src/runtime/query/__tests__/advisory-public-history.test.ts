@@ -64,7 +64,7 @@ describe('advisory context after actual tool execution', () => {
 			})
 			const result = await drainQuery({
 				provider: main,
-				tools,
+				toolsets: [tools],
 				workingDirectory,
 				retry: false,
 				turnConfig: { model: 'mock', maxIterations: 5, timeoutMs: 5000, tokenBudget: 10000 },

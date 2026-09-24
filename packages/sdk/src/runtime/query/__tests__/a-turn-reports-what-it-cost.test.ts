@@ -95,7 +95,7 @@ function run(opts: {
 		provider,
 		...(opts.fallbackProviders ? { fallbackProviders: opts.fallbackProviders } : {}),
 		retry: false,
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'hello' }],

@@ -139,7 +139,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 
 		const run = await drainQuery({
 			provider: new ClosingTurnProvider(),
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',

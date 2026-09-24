@@ -50,7 +50,7 @@ async function runWithSteer(steerDuringTool?: string) {
 
 	await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'go' }],

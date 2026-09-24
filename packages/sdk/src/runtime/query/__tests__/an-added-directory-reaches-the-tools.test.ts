@@ -45,7 +45,7 @@ async function readThroughQuery(added: boolean) {
 	}
 	const result = await drainQuery({
 		provider: new MockLLMProvider({ turns: [call, { text: 'done' }] }),
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
 		agentId: 'a',
 		agentName: 'A',

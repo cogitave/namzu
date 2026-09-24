@@ -89,7 +89,7 @@ describe('connector cancellation reaches a real turn', () => {
 		const caller = new AbortController()
 		const pending = drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			turnConfig: {
 				model: 'mock-model',
 				timeoutMs: 10_000,

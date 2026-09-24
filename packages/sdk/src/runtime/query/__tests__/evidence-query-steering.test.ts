@@ -51,7 +51,7 @@ it('keeps the current subject when tool-result steering repeats an older questio
 	})
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		steering,
 		workingDirectory,
 		agentId: 'query-steering',

@@ -279,7 +279,7 @@ describe('the seam a tool author is handed', () => {
 
 		return drainQuery({
 			provider: new MockLLMProvider({ turns }),
-			tools,
+			toolsets: [tools],
 			agentId: 'a',
 			agentName: 'A',
 			messages: [{ role: 'user', content: 'deploy it' }],

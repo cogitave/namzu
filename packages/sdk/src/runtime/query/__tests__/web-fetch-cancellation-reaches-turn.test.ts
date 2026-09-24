@@ -77,7 +77,7 @@ describe('guarded web fetch cancellation reaches a real turn', () => {
 		const caller = new AbortController()
 		const pending = drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			web: { fetch: guarded },
 			turnConfig: {
 				model: 'mock-model',

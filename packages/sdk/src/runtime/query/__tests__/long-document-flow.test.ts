@@ -137,7 +137,7 @@ describe('query long-document tool flow', () => {
 		const run = await drainQuery(
 			{
 				provider,
-				tools,
+				toolsets: [tools],
 				turnConfig: {
 					model: 'mock-model',
 					// The RUN's own deadline, not the test's. This test asserts a

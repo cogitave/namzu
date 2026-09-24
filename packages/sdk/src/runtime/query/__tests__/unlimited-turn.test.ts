@@ -43,7 +43,7 @@ it.each([
 	const run = await drainQuery({
 		workingDirectory,
 		provider,
-		tools,
+		toolsets: [tools],
 		retry: false,
 		agentId: 'limit-test',
 		agentName: 'Limit test',
