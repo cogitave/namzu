@@ -1,0 +1,94 @@
+import type { StreamChunk } from '@namzu/sdk'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import { HttpProvider } from '../client.js'
+
+/**
+ * The runtime tells a tool call the output stopped from one the model wrote
+ * badly by the finish reason alone. The OpenAI dialect cast the server's
+ * `finish_reason` straight through, so a spelling outside the SDK's four
+ * reached the runtime as-is; the Anthropic dialect reported the context
+ * window and a refusal as a normal finish, and announced a tool call without
+ * the id its arguments then carried.
+ */
+
+afterEach(() => {
+	vi.unstubAllGlobals()
+})
+
+function sse(frames: string[]): Response {
+	return new Response(`${frames.join('\n\n')}\n\n`, {
+		status: 200,
+		headers: { 'Content-Type': 'text/event-stream' },
+	})
+}
+
+async function chunksOf(dialect: 'openai' | 'anthropic', frames: string[]): Promise<StreamChunk[]> {
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(async () => sse(frames)),
+	)
+	const provider = new HttpProvider({ baseURL: 'https://example.test/v1', apiKey: 'k', dialect })
+	const out: StreamChunk[] = []
+	for await (const chunk of provider.chatStream({
+		model: 'm',
+		messages: [{ role: 'user', content: 'q' }],
+	})) {
+		out.push(chunk)
+	}
+	return out
+}
+
+const openAiFinish = (reason: string | null) =>
+	`data: ${JSON.stringify({ id: 'r', choices: [{ delta: {}, finish_reason: reason }] })}`
+
+describe('HTTP provider, OpenAI dialect finish reasons', () => {
+	it.each([
+		['length', 'length'],
+		['tool_calls', 'tool_calls'],
+		['function_call', 'tool_calls'],
+		['content_filter', 'content_filter'],
+		['stop', 'stop'],
+		['eos', 'stop'],
+	])('reports %s as %s', async (reason, expected) => {
+		const chunks = await chunksOf('openai', [openAiFinish(reason), 'data: [DONE]'])
+		expect(chunks.map((chunk) => chunk.finishReason).filter(Boolean)).toEqual([expected])
+	})
+
+	it('reports no finish reason for the null every frame but the last carries', async () => {
+		const chunks = await chunksOf('openai', [openAiFinish(null), 'data: [DONE]'])
+		expect(chunks[0]?.finishReason).toBeUndefined()
+	})
+})
+
+const anthropicFrames = (stopReason: string, toolUse = false) => [
+	'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1"}}',
+	...(toolUse
+		? [
+				'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","name":"write"}}',
+				'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"a\\":1}"}}',
+			]
+		: []),
+	`event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"${stopReason}"}}`,
+	'event: message_stop\ndata: {"type":"message_stop"}',
+]
+
+describe('HTTP provider, Anthropic dialect', () => {
+	it.each([
+		['max_tokens', 'length'],
+		['model_context_window_exceeded', 'length'],
+		['refusal', 'content_filter'],
+		['tool_use', 'tool_calls'],
+		['end_turn', 'stop'],
+	])('reports %s as %s', async (stopReason, expected) => {
+		const chunks = await chunksOf('anthropic', anthropicFrames(stopReason))
+		expect(chunks.find((chunk) => chunk.finishReason)?.finishReason).toBe(expected)
+	})
+
+	it('opens a tool call with the id its arguments carry', async () => {
+		const chunks = await chunksOf('anthropic', anthropicFrames('tool_use', true))
+		const calls = chunks.flatMap((chunk) => chunk.delta.toolCalls ?? [])
+		expect(calls[0]?.id).toMatch(/^tool-\d+$/)
+		expect(calls[1]?.id).toBe(calls[0]?.id)
+	})
+})

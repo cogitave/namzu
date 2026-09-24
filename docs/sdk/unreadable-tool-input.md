@@ -134,3 +134,26 @@ The turn loop throws a `ProviderRequestError` with `kind: 'server'`. Its
 Tool calls are not recovered from such a stream. `collectChatCompletion`
 throws an `Error` with the same sentence. The same id repeated on every
 fragment is accepted.
+
+## Finish reasons from the drivers
+
+The classification depends on each driver reporting how the response ended:
+
+- `@namzu/anthropic` and the HTTP driver's Anthropic dialect: `max_tokens` and
+  `model_context_window_exceeded` are reported as `length`, and `refusal` as
+  `content_filter`. `@namzu/anthropic` no longer fails the stream when a tool
+  call's JSON does not parse. Its search-replay record parsed every block's
+  input and threw, so the block close and the finish reason never arrived, and
+  every such call was reported as cut off.
+- `@namzu/bedrock`: `model_context_window_exceeded` is reported as `length`,
+  and `guardrail_intervened` as `content_filter`. A tool call opens with the id
+  the driver keeps, including the one it makes up when the wire has none.
+- `@namzu/http` (OpenAI dialect) and `@namzu/openrouter`: `finish_reason` is
+  mapped instead of cast. `function_call` becomes `tool_calls`, and an unknown
+  value becomes `stop`. OpenRouter's `error` fails the stream.
+- `@namzu/deepseek`: `insufficient_system_resource` fails the stream instead of
+  reading as `stop`.
+- `@namzu/openai` Codex: `response.incomplete` is reported as `length`, or
+  `content_filter` when that is the stated reason. It carries no replay state.
+- `MockLLMProvider`: a `truncateArguments` call sends half its arguments and
+  the turn finishes with `length` unless the script sets `finishReason`.

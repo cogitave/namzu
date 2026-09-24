@@ -683,6 +683,23 @@ export class CodexProvider implements LLMProvider {
 						}
 						break
 					}
+					case 'response.incomplete': {
+						// The backend stopped the response early: its output budget or
+						// a content filter. This event was not handled, so the stream
+						// just ended with no finish reason — a length cut looked like
+						// a dropped connection, auto-continuation never fired, and a
+						// tool call it cut off could not be told from one it did not.
+						// No replay state: the items are unfinished, and the message
+						// is replayed from its content instead.
+						const reason = event.response.incomplete_details?.reason
+						yield {
+							id: event.response.id,
+							delta: {},
+							finishReason: reason === 'content_filter' ? 'content_filter' : 'length',
+							usage: responseUsage(event.response.usage ?? {}),
+						}
+						break
+					}
 					case 'error':
 					case 'response.failed':
 						throw new ProviderRequestError({

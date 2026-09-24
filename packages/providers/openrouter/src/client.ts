@@ -18,6 +18,39 @@ import { attributionHeaders } from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
 /**
+ * OpenRouter's normalised `finish_reason` in the SDK's vocabulary, or
+ * `undefined` for the `null` every frame but the last carries.
+ *
+ * The value used to be cast straight through. `error` — the upstream failed
+ * mid-generation — then reached the runtime as a finish reason outside its
+ * union, and a tool call the failure cut off read as one the model had
+ * finished and got wrong. It is a failure, and is thrown as one.
+ */
+function mapFinishReason(reason: string | null | undefined): StreamChunk['finishReason'] {
+	switch (reason) {
+		case null:
+		case undefined:
+		case '':
+			return undefined
+		case 'length':
+			return 'length'
+		case 'tool_calls':
+		case 'function_call':
+			return 'tool_calls'
+		case 'content_filter':
+			return 'content_filter'
+		case 'error':
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'openrouter',
+				detail: 'the upstream model failed while generating',
+			})
+		default:
+			return 'stop'
+	}
+}
+
+/**
  * Models whose upstream caches only where the request places an explicit
  * `cache_control` breakpoint. OpenRouter's prompt-caching page
  * (openrouter.ai/docs/features/prompt-caching) lists Anthropic Claude, Google
@@ -485,7 +518,7 @@ export class OpenRouterProvider implements LLMProvider {
 										function?: { name?: string; arguments?: string }
 									}>
 								}
-								finish_reason?: string
+								finish_reason?: string | null
 							}>
 							usage?: RawUsage
 						}
@@ -539,7 +572,7 @@ export class OpenRouterProvider implements LLMProvider {
 									content,
 									toolCalls,
 								},
-								finishReason: choice.finish_reason as StreamChunk['finishReason'],
+								finishReason: mapFinishReason(choice.finish_reason),
 								usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
 							}
 						}

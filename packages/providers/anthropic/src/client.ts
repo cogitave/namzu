@@ -757,8 +757,17 @@ function mapStopReason(reason?: string | null): NamzuFinishReason {
 			return 'stop'
 		case 'tool_use':
 			return 'tool_calls'
+		// Both stop the output where it stands. `model_context_window_exceeded`
+		// is the context window rather than `max_tokens`, and fell to 'stop':
+		// a tool call it cut off mid-JSON then read as one the model finished
+		// and got wrong.
 		case 'max_tokens':
+		case 'model_context_window_exceeded':
 			return 'length'
+		// A refusal can end the response inside a tool_use block. As 'stop' it
+		// read as a finished turn, and the unfinished call as malformed.
+		case 'refusal':
+			return 'content_filter'
 		default:
 			return 'stop'
 	}

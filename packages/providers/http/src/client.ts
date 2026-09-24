@@ -132,7 +132,37 @@ function mapAnthropicStopReason(reason?: string | null): NamzuFinishReason {
 		case 'tool_use':
 			return 'tool_calls'
 		case 'max_tokens':
+		case 'model_context_window_exceeded':
 			return 'length'
+		case 'refusal':
+			return 'content_filter'
+		default:
+			return 'stop'
+	}
+}
+
+/**
+ * An OpenAI-dialect `finish_reason` in the SDK's vocabulary, or `undefined`
+ * for the `null` every frame but the last carries.
+ *
+ * The value used to be cast straight through, so a server's own spelling
+ * reached the runtime as a finish reason outside its union — read neither as
+ * a length cut nor as a normal finish, but as whatever the reader's default
+ * branch said.
+ */
+function mapOpenAIFinishReason(reason?: string | null): NamzuFinishReason | undefined {
+	switch (reason) {
+		case null:
+		case undefined:
+		case '':
+			return undefined
+		case 'length':
+			return 'length'
+		case 'tool_calls':
+		case 'function_call':
+			return 'tool_calls'
+		case 'content_filter':
+			return 'content_filter'
 		default:
 			return 'stop'
 	}
@@ -597,7 +627,7 @@ export class HttpProvider implements LLMProvider {
 								function: tc.function,
 							})),
 						},
-						finishReason: choice.finish_reason as StreamChunk['finishReason'],
+						finishReason: mapOpenAIFinishReason(choice.finish_reason),
 						usage: obj.usage ? parseOpenAIUsage(obj.usage) : undefined,
 					}
 				}
@@ -695,8 +725,9 @@ export class HttpProvider implements LLMProvider {
 							const idx = event.index ?? 0
 							const block = event.content_block
 							if (block?.type === 'tool_use') {
+								const toolId = block.id ?? `tool-${Date.now()}`
 								activeTools.set(idx, {
-									id: block.id ?? `tool-${Date.now()}`,
+									id: toolId,
 									name: block.name ?? '',
 								})
 								yield {
@@ -705,7 +736,8 @@ export class HttpProvider implements LLMProvider {
 										toolCalls: [
 											{
 												index: idx,
-												id: block.id,
+												// Announce the id the deltas below will carry.
+												id: toolId,
 												type: 'function',
 												function: { name: block.name ?? '' },
 											},

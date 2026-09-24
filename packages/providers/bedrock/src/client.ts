@@ -389,9 +389,14 @@ function mapStopReason(reason?: string): NamzuFinishReason {
 			return 'stop'
 		case 'tool_use':
 			return 'tool_calls'
+		// Both stop the output where it stands; the second is the context
+		// window rather than `maxTokens`, and fell to 'stop', so a tool call it
+		// cut off read as one the model finished and got wrong.
 		case 'max_tokens':
+		case 'model_context_window_exceeded':
 			return 'length'
 		case 'content_filtered':
+		case 'guardrail_intervened':
 			return 'content_filter'
 		default:
 			return 'stop'
@@ -565,8 +570,9 @@ export class BedrockProvider implements LLMProvider {
 						const start = event.contentBlockStart.start
 						if ('toolUse' in start && start.toolUse) {
 							const idx = event.contentBlockStart.contentBlockIndex ?? toolCallIndex
+							const toolId = start.toolUse.toolUseId ?? `tool-${Date.now()}`
 							activeToolCalls.set(idx, {
-								id: start.toolUse.toolUseId ?? `tool-${Date.now()}`,
+								id: toolId,
 								name: start.toolUse.name ?? '',
 								args: '',
 							})
@@ -576,7 +582,11 @@ export class BedrockProvider implements LLMProvider {
 									toolCalls: [
 										{
 											index: idx,
-											id: start.toolUse.toolUseId,
+											// The id this driver keeps is the id it announces. It
+											// announced the wire's, which is absent exactly when
+											// the fallback was made, and the call's arguments
+											// then arrived before any id at all.
+											id: toolId,
 											type: 'function',
 											function: { name: start.toolUse.name ?? '' },
 										},
