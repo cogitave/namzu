@@ -4026,6 +4026,9 @@ export async function createAgentSession(
 						// sends would otherwise both render whichever ran second.
 						const turnSnapshotPrompt = turnSnapshot ? composeTurnSnapshot(turnSnapshot) : null
 						const promptContributions = new PromptContributionRegistry()
+						for (const contribution of pluginRuntime?.manager.promptContributions ?? []) {
+							promptContributions.register(contribution)
+						}
 						for (const [serverName, spec] of Object.entries(options.mcpServers ?? {})) {
 							if (spec?.instructions !== true) continue
 							promptContributions.register({

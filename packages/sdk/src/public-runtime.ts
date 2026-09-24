@@ -591,6 +591,7 @@ export {
 	attachShellHooks,
 	createShellHook,
 	DEFAULT_SHELL_HOOK_TIMEOUT_MS,
+	definePlugin,
 	discoverAllPluginDirs,
 	discoverPlugins,
 	loadPluginManifest,
@@ -603,6 +604,7 @@ export {
 	shellHookMatches,
 	shellHookVerdict,
 } from './plugin/index.js'
+export type { DefinedPlugin, DefinePluginOptions } from './plugin/define.js'
 
 export {
 	AgentManager,

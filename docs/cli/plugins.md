@@ -41,6 +41,7 @@ a Namzu `plugin.json`, for example:
   "name": "ledger",
   "version": "1.0.0",
   "description": "Ledger review instructions",
+  "instructions": "Explain the evidence before using ledger tools.",
   "skills": ["skills/reconcile"]
 }
 ```
@@ -55,7 +56,10 @@ frontmatter. Its registered name is `ledger__reconcile`. If the skill declares
 `allowed-tools`, loading it pre-approves those tools for the rest of that turn.
 It never removes a tool, and deny rules and plan mode still win; see
 [Skills and allowed-tools](../sdk/skills.md). Enabling a plugin that carries such
-a skill trusts that skill's listed commands. Tools and hooks declare
+a skill trusts that skill's listed commands. The optional `instructions` text
+is plugin-authored context. It is labelled as untrusted material in each model
+request while this plugin is enabled, and disappears when the plugin is
+disabled. Tools and hooks declare
 JavaScript module paths; MCP servers declare their stdio command, optional
 arguments and environment. `connectors` and `personas` in plugin manifests are
 not supported and are refused rather than ignored.

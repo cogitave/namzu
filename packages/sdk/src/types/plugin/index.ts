@@ -367,6 +367,8 @@ export interface PluginManifest {
 	readonly version: string
 	readonly description: string
 	readonly author?: string
+	/** Plugin-authored request context, present only while this plugin is enabled. */
+	readonly instructions?: string
 	readonly tools?: readonly string[]
 	readonly skills?: readonly string[]
 	readonly hooks?: readonly string[]
@@ -391,6 +393,7 @@ export const PluginManifestSchema = z.object({
 	version: z.string().min(1),
 	description: z.string().min(1),
 	author: z.string().optional(),
+	instructions: z.string().min(1).optional(),
 	tools: z.array(z.string()).max(MAX_TOOLS_PER_PLUGIN).optional(),
 	skills: z.array(z.string()).max(MAX_SKILLS_PER_PLUGIN).optional(),
 	hooks: z.array(z.string()).max(MAX_HOOKS_PER_PLUGIN).optional(),

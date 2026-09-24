@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import type { PluginId } from '../../types/ids/index.js'
 import type { PluginDefinition } from '../../types/plugin/index.js'
@@ -138,6 +139,31 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 		mockConnect.mockReset()
 		mockDisconnect.mockReset()
 		mockListTools.mockReset()
+	})
+
+	it('revokes plugin instructions from an already-started prompt when disabled', async () => {
+		const { registry, scopeRoots } = makePluginRegistry({
+			manifest: {
+				name: 'guidance',
+				version: '0.0.1',
+				description: 't',
+				instructions: 'Use the plugin carefully.',
+			},
+		})
+		const manager = new PluginLifecycleManager({
+			pluginRegistry: registry,
+			scopeRoots,
+			log: makeLogger(),
+		})
+		await manager.enable(pluginId)
+		const turn = new PromptContributionRegistry()
+		for (const contribution of manager.promptContributions) turn.register(contribution)
+		expect(turn.render('context', {})[0]).toContain('Use the plugin carefully.')
+		await manager.disable(pluginId)
+		expect(manager.promptContributions).toEqual([])
+		expect(turn.render('context', {})).toEqual([])
+		await manager.enable(pluginId)
+		expect(manager.promptContributions).toHaveLength(1)
 	})
 
 	describe('unsupported contribution types', () => {

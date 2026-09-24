@@ -12,10 +12,13 @@ import {
 	PLUGIN_NAMESPACE_SEPARATOR,
 } from '../constants/plugin/index.js'
 import { GENAI } from '../constants/telemetry/index.js'
+import { PromptContributionRegistry } from '../prompt/contributions.js'
+import type { PromptContribution } from '../prompt/contributions.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
 import { loadSkill } from '../skills/loader.js'
 import type { SkillRegistry } from '../skills/registry.js'
 import { resolveWithinReal } from '../tools/paths.js'
+import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { Toolset } from '../toolsets/types.js'
 import { deferred, prefixed } from '../toolsets/wrappers.js'
 import type { PluginId } from '../types/ids/index.js'
@@ -37,6 +40,7 @@ import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
+import { type DefinedPlugin, definePlugin } from './define.js'
 import { assertEnableable, loadPluginManifest } from './loader.js'
 
 interface PluginContributionRecord {
@@ -55,6 +59,7 @@ interface PluginAdmission {
 	readonly scope: PluginScope
 	readonly rootDir: string
 	readonly installedAt: number
+	readonly inCode?: DefinedPlugin
 }
 
 function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefinition['manifest'] {
@@ -71,6 +76,7 @@ function immutableManifest(manifest: PluginDefinition['manifest']): PluginDefini
 		version: manifest.version,
 		description: manifest.description,
 		...(manifest.author !== undefined ? { author: manifest.author } : {}),
+		...(manifest.instructions !== undefined ? { instructions: manifest.instructions } : {}),
 		...(manifest.tools ? { tools: Object.freeze([...manifest.tools]) } : {}),
 		...(manifest.skills ? { skills: Object.freeze([...manifest.skills]) } : {}),
 		...(manifest.hooks ? { hooks: Object.freeze([...manifest.hooks]) } : {}),
@@ -149,6 +155,7 @@ export class PluginLifecycleManager {
 	private readonly pluginMcpTools = new Map<string, ToolDefinition>()
 	private readonly mcpOwnerByName = new Map<string, string>()
 	private readonly toolsetsByPlugin = new Map<PluginId, readonly Toolset[]>()
+	private readonly instructions = new PromptContributionRegistry()
 	private readonly toolsetChangeListeners = new Set<() => void>()
 	private listeners: PluginEventListener[] = []
 	private hookHandlers: Map<
@@ -206,6 +213,11 @@ export class PluginLifecycleManager {
 	/** Stable entries created at install, before a host composes its ToolManager. */
 	get toolsets(): readonly Toolset[] {
 		return [...this.toolsetsByPlugin.values()].flat()
+	}
+
+	/** Plugin-authored request context from enabled plugins. */
+	get promptContributions(): readonly PromptContribution[] {
+		return this.instructions.list()
 	}
 
 	private registerToolsets(admission: PluginAdmission): void {
@@ -358,6 +370,37 @@ export class PluginLifecycleManager {
 		return definition
 	}
 
+	/** Register a host-authored plugin without reading a manifest or importing modules. */
+	installDefined(plugin: DefinedPlugin, scope: PluginScope = 'project'): PluginDefinition {
+		const defined = definePlugin(plugin)
+		const existing = this.pluginRegistry.findByName(defined.name)
+		if (existing) {
+			throw new Error(`Plugin "${defined.name}" is already installed (id: ${existing.id})`)
+		}
+		const pluginId = generatePluginId()
+		const manifest = immutableManifest({
+			name: defined.name,
+			version: defined.version,
+			description: defined.description,
+			...(defined.instructions !== undefined ? { instructions: defined.instructions } : {}),
+			mcpServers: defined.mcpServers,
+		})
+		const admission: PluginAdmission = Object.freeze({
+			id: pluginId,
+			manifest,
+			scope,
+			rootDir: this.scopeRoots[scope],
+			installedAt: Date.now(),
+			inCode: defined,
+		})
+		const definition = this.definitionFrom(admission, 'installed')
+		this.pluginRegistry.register(definition)
+		this.pluginAdmissions.set(pluginId, admission)
+		this.registerToolsets(admission)
+		this.emit({ type: 'plugin_installed', pluginId, name: defined.name, scope })
+		return definition
+	}
+
 	private definitionFrom(
 		admission: PluginAdmission,
 		status: PluginDefinition['status'],
@@ -462,8 +505,14 @@ export class PluginLifecycleManager {
 		}
 
 		try {
-			// Load tools
-			if (manifest.tools && manifest.tools.length > 0) {
+			// Host-authored definitions have no file path to resolve or module to import.
+			if (admission.inCode) {
+				for (const tool of admission.inCode.tools) {
+					const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + tool.name
+					this.addFileTool({ ...tool, name: namespacedName })
+					contributions.toolNames.push(namespacedName)
+				}
+			} else if (manifest.tools && manifest.tools.length > 0) {
 				for (const toolPath of manifest.tools) {
 					const absolutePath = await resolveWithinReal(admission.rootDir, toolPath)
 					const fileUrl = pathToFileURL(absolutePath).href
@@ -512,7 +561,9 @@ export class PluginLifecycleManager {
 			}
 
 			// Load hooks
-			if (manifest.hooks && manifest.hooks.length > 0) {
+			if (admission.inCode) {
+				for (const hook of admission.inCode.hooks) this.registerHook(pluginId, hook)
+			} else if (manifest.hooks && manifest.hooks.length > 0) {
 				for (const hookPath of manifest.hooks) {
 					const absolutePath = await resolveWithinReal(admission.rootDir, hookPath)
 					const fileUrl = pathToFileURL(absolutePath).href
@@ -542,6 +593,24 @@ export class PluginLifecycleManager {
 		}
 
 		this.pluginContributions.set(pluginId, contributions)
+		const pluginInstructions = manifest.instructions
+		if (pluginInstructions?.trim()) {
+			this.instructions.register({
+				id: `plugin:${manifest.name}:instructions`,
+				placement: 'context',
+				render: () => {
+					if (!this.pluginContributions.has(pluginId)) return null
+					return wrapUntrusted(
+						{
+							kind: 'plugin-instructions',
+							attributes: { plugin: manifest.name },
+							provenance: `Plugin ${JSON.stringify(manifest.name)} supplied this text; it is plugin-authored context, not operator instructions or tool permissions.`,
+						},
+						pluginInstructions,
+					)
+				},
+			})
+		}
 
 		const enabled = this.definitionFrom(admission, 'enabled', Date.now())
 		this.pluginRegistry.register(enabled)
@@ -715,6 +784,9 @@ export class PluginLifecycleManager {
 		}
 
 		this.pluginContributions.delete(pluginId)
+		this.instructions.unregister(
+			`plugin:${admission?.manifest.name ?? plugin.manifest.name}:instructions`,
+		)
 
 		// Update status to disabled
 		const disabled: PluginDefinition = admission
@@ -743,6 +815,9 @@ export class PluginLifecycleManager {
 		}
 
 		this.pluginRegistry.unregister(pluginId)
+		this.instructions.unregister(
+			`plugin:${admission?.manifest.name ?? plugin.manifest.name}:instructions`,
+		)
 		this.pluginAdmissions.delete(pluginId)
 		this.toolsetsByPlugin.delete(pluginId)
 
