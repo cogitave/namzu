@@ -477,6 +477,55 @@ describe('tool-call framing', () => {
 		expect(result?.response.message.toolCalls?.[0]).toMatchObject({ id: 'call_1' })
 	})
 
+	it('completes a call under the id it runs with when the block close carries none', async () => {
+		// The close's empty id was used for the completion, which then came
+		// before the call was announced and named a different id from the
+		// one the call ran under. AG-UI failed the run on it.
+		const { error, result, events } = await run([
+			{
+				id: 'c',
+				delta: { toolCalls: [{ index: 0, function: { name: 'ask', arguments: '{"q":1}' } }] },
+			},
+			close(0, ''),
+			finish('tool_calls'),
+		])
+
+		expect(error).toBeUndefined()
+		const call = result?.response.message.toolCalls?.[0]
+		expect(call?.id).toMatch(/\S/)
+		expect(call?.function.arguments).toBe('{"q":1}')
+		const lifecycle = events.filter((e) => e.type.startsWith('tool_input_'))
+		expect(lifecycle.map((e) => e.type)).toEqual([
+			'tool_input_started',
+			'tool_input_delta',
+			'tool_input_completed',
+		])
+		expect(lifecycle.every((e) => 'toolUseId' in e && e.toolUseId === call?.id)).toBe(true)
+	})
+
+	it('completes a call under its own id when the block close names another', async () => {
+		const { result, events } = await run([
+			open(0, 'call_1'),
+			args(0, '{"q":1}'),
+			close(0, 'call_end'),
+			finish('tool_calls'),
+		])
+
+		expect(result?.response.message.toolCalls?.[0]?.id).toBe('call_1')
+		expect(completed(events)).toEqual([expect.objectContaining({ toolUseId: 'call_1' })])
+	})
+
+	it('sends no completion for a call it never announced', async () => {
+		// A call whose name never arrives is never started, so a completion
+		// for it would close something no consumer opened.
+		const { events } = await run([
+			args(0, '{"q":1}', 'call_1'),
+			close(0, 'call_1'),
+			finish('tool_calls'),
+		])
+		expect(events.filter((e) => e.type.startsWith('tool_input_'))).toEqual([])
+	})
+
 	it('gives a call whose id never arrives one, and runs it with all its arguments', async () => {
 		// It used to reach the executor with an empty id, which no result can
 		// name, and without the arguments dropped for arriving before it.

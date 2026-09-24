@@ -72,6 +72,12 @@ export interface StreamChunk {
 		 * leave this undefined; the orchestrator infers from
 		 * end-of-stream instead.
 		 *
+		 * `id` fills in the call's id when no fragment carried one. The
+		 * completion always carries the id the call was announced with, and
+		 * follows the announcement: a close with an empty `id` for a call no
+		 * fragment named, or for a call whose name has not arrived, is
+		 * settled when the stream ends instead.
+		 *
 		 * Added 2026-05-01 (ses_001-tool-stream-events A9).
 		 */
 		toolCallEnd?: {

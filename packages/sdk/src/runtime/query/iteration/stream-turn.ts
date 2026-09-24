@@ -67,8 +67,8 @@ interface ToolCallBucket {
 	 */
 	parsed: unknown | null
 	/**
-	 * A parse that failed at `toolCallEnd`, waiting for the finish
-	 * reason that classifies it. Cleared once classified.
+	 * A parse that failed at `toolCallEnd`, waiting for the end of the
+	 * stream, which classifies it. Cleared once classified.
 	 */
 	pendingFailure?: Extract<ParsedToolArguments, { ok: false }>
 	inputError?: ToolInputError
@@ -129,7 +129,9 @@ export interface StreamingTurnResult {
  *   cut off.
  * - A call whose id never arrives, on a fragment or on `toolCallEnd`: given
  *   one when the stream ends, and announced then. It used to reach the
- *   executor with an empty id and none of its arguments.
+ *   executor with an empty id and none of its arguments. Every call's
+ *   `tool_input_completed` follows its `tool_input_started`, under the same
+ *   id, whatever id `toolCallEnd` carries.
  * - A new id on an index another call holds: the stream is refused with a
  *   classified `ProviderRequestError` naming the violation. The second
  *   call's arguments used to be appended to the first's, and the model was
@@ -595,6 +597,15 @@ export async function* streamProviderTurn(
 					// fragment carried is announced by it.
 					if (!bucket.id && endId) bucket.id = endId
 					yield* announceToolCall(bucket)
+				}
+				// Settled here only once announced, and always under the id it
+				// was announced with, which is the id it runs under. A close
+				// with an empty id, or for a call whose name never came, leaves
+				// the call to the loop after the stream, which gives it an id
+				// and announces it first. The close's own id was used here
+				// before: an empty one completed a call that was not yet
+				// announced, under an id no other event of the call carried.
+				if (bucket?.started && !bucket.completed) {
 					bucket.completed = true
 					const parsed = parseToolArguments(bucket.argsBuf)
 					if (parsed.ok) {
@@ -602,14 +613,15 @@ export async function* streamProviderTurn(
 						await emitEvent({
 							type: 'tool_input_completed',
 							turnId,
-							toolUseId: endId as ToolUseId,
+							toolUseId: bucket.id as ToolUseId,
 							input: parsed.value,
 						})
 						yield* drainPending()
 					} else {
 						// Whether this call was cut off or malformed is decided by
-						// how the response ends, and that arrives after the block
-						// closes. Its completion is emitted once the stream is over.
+						// what follows it and how the response ends, and both
+						// arrive after the block closes. Its completion is emitted
+						// once the stream is over.
 						bucket.parsed = {}
 						bucket.pendingFailure = parsed
 					}

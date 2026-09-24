@@ -194,6 +194,14 @@ A stream groups a call's fragments by `index`. The turn loop and
   announced then. It used to reach the executor with an empty id, which no
   tool result can name, and without its arguments. `collectChatCompletion`
   returns such a call with an empty `id`, as it always has.
+- A call's `tool_input_completed` always follows its `tool_input_started`
+  and carries the same id, the one the call runs under. The turn loop used to
+  complete a call at its block close under the id the close carried. A close
+  with an empty id, which its type allows, then completed the call before it
+  was announced, under an id no other event of the call carried, and
+  `@namzu/ag-ui` failed the run with `NAMZU_TOOL_LIFECYCLE`. A close with an
+  empty id, or for a call whose name has not arrived, now leaves the call to
+  be settled when the stream ends.
 
 ## Finish reasons from the drivers
 
