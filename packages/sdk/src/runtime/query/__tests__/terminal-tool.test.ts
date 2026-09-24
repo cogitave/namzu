@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import {
@@ -49,8 +49,7 @@ async function run(opts: {
 	failing?: boolean
 	extraTool?: boolean
 }) {
-	const tools = new ToolRegistry()
-	tools.register(
+	const tools = testToolset(
 		opts.failing
 			? defineTool({
 					name: 'delegate',
@@ -65,13 +64,13 @@ async function run(opts: {
 					execute: async () => ({ success: false, output: '', error: 'the worker died' }),
 				})
 			: tool('delegate', opts.terminal),
+		...(opts.extraTool ? [tool('take_note', false)] : []),
 	)
-	if (opts.extraTool) tools.register(tool('take_note', false))
 
 	const provider = new MockLLMProvider({ turns: opts.turns })
 	const result = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user', content: 'route this' }],

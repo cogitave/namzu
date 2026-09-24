@@ -7,11 +7,12 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { resolveNamzuHome } from '../../../session/home.js'
 import { SessionPaths, slugForCwd } from '../../../session/paths.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { Toolset } from '../../../toolsets/types.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import {
@@ -43,9 +44,8 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function tools(): ToolRegistry {
-	const registry = new ToolRegistry()
-	registry.register(
+function tools(): Toolset {
+	return testToolset(
 		defineTool({
 			name: 'echo',
 			description: 'echoes',
@@ -58,7 +58,6 @@ function tools(): ToolRegistry {
 			execute: async (input) => ({ success: true, output: input.value }),
 		}),
 	)
-	return registry
 }
 
 function params(workingDirectory: string, sessionId: SessionId = generateSessionId()) {
@@ -73,7 +72,7 @@ function params(workingDirectory: string, sessionId: SessionId = generateSession
 				{ text: 'done' },
 			],
 		}),
-		tools: tools(),
+		toolsets: [tools()],
 		agentId: 'a',
 		agentName: 'A',
 		messages: [{ role: 'user' as const, content: 'go' }],
