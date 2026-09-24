@@ -45,7 +45,7 @@ export function toolCallFramingViolation(
  * The index each tool-call fragment of one stream belongs to.
  *
  * A driver sets `index`, and the index is what groups a call's fragments.
- * Some OpenAI-compatible servers leave it out of `tool_calls`, and a driver
+ * Some servers leave it out of their `tool_calls` fragments, and a driver
  * that passes the wire value through then sends none. Every such fragment used
  * to land on one `undefined` index: two parallel calls were refused as a
  * reused index, and the turn paused on a stream that had nothing wrong with

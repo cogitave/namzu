@@ -494,7 +494,7 @@ describe('only the call the response stopped on can have been cut off', () => {
 
 describe('tool-call framing', () => {
 	it('places fragments a server sent with no index by their ids, instead of refusing parallel calls', async () => {
-		// Some OpenAI-compatible servers leave `index` out of `tool_calls`, and
+		// Some servers leave `index` out of their tool-call fragments, and
 		// a driver that passes the wire value through sends none. Every
 		// fragment landed on one `undefined` index, and two parallel calls
 		// were refused as a reused index: the turn paused on a sound stream.

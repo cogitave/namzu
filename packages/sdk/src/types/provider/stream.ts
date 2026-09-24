@@ -122,8 +122,8 @@ export interface StreamChunk {
 	/**
 	 * Which limit a `'length'` finish reached, when it was not the output
 	 * token limit: `'context_window'` when the response filled the model's
-	 * context window (the Messages API's `model_context_window_exceeded`, an
-	 * OpenAI-compatible server's `model_length`).
+	 * context window (a stop reason such as `model_context_window_exceeded`
+	 * or `model_length`).
 	 *
 	 * Both stop the output where it stands, so both are `'length'`, and a
 	 * tool call either one cut off is truncated. They differ in what can
