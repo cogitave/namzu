@@ -81,6 +81,7 @@ import {
 	type ReviewAnswer,
 	SCHEDULE_TOOL_NAME,
 	SESSION_GOAL_TOOL_NAMES,
+	SearchToolsTool,
 	type SandboxProvider,
 	type ScreenConsentRecord,
 	type SessionApprovalPolicy,
@@ -110,6 +111,7 @@ import {
 	type ToolReviewAnswer,
 	type ToolReviewPrompt,
 	type ToolReviewRequest,
+	type ToolSourceRef,
 	type Toolset,
 	type TopicId,
 	type TurnId,
@@ -5242,6 +5244,53 @@ export const isPromptExempt: (
 export const AGENT_LAUNCH_TOOL = 'Agent'
 
 /**
+ * A tool `query()` mounts for itself every turn it needs one — never part of
+ * the session's own toolsets (`tools-and-permissions-agree.test.ts`'s
+ * docstring: `query()`'s generated tools are "never folded back into the
+ * session's own manager"). `manager` below is exactly that session-level
+ * object, so under `toolLoading: 'deferred'` it does not know `search_tools`
+ * exists even in the turn where `query()` is about to mount it. A review
+ * still has to answer for the call the model actually makes, so
+ * {@link reviewExemptionFor}'s lookup falls back to the SDK's own definition
+ * for a name `manager` does not carry, read exactly the way the kernel reads
+ * it, rather than treating an unknown name as never exempt. Harmless when
+ * `query()` never mounts the tool this turn: the model then has no way to
+ * call it at all.
+ */
+const RUNTIME_MOUNTED_TOOLS: ReadonlyMap<string, ToolDefinition> = new Map([
+	[SearchToolsTool.name, SearchToolsTool],
+])
+
+/** `sourceOf` for a {@link RUNTIME_MOUNTED_TOOLS} entry: host-defined, like the tool itself. */
+function runtimeMountedSource(): ToolSourceRef {
+	return { id: 'runtime:active', kind: 'host_tool' }
+}
+
+/**
+ * `manager`, with {@link RUNTIME_MOUNTED_TOOLS} answering for a name
+ * `manager` itself does not carry. Only for the exemption check: `has` and
+ * `sourceOf` still resolve through it (a call the model actually made can
+ * ask "is this exempt?" about a runtime-mounted name), but nothing here
+ * touches `manager.listNames()` — `/tools` and `/permissions`
+ * (`promptExemptToolNames`) read `manager` bare and stay exactly the roster
+ * fixed at session boot.
+ */
+function withRuntimeMountedTools(
+	manager: Pick<ToolManager, 'get' | 'sourceOf' | 'has'>,
+): Pick<ToolManager, 'get' | 'sourceOf' | 'has'> {
+	return {
+		get: (name) => manager.get(name) ?? RUNTIME_MOUNTED_TOOLS.get(name),
+		has: (name) => manager.has(name) || RUNTIME_MOUNTED_TOOLS.has(name),
+		sourceOf: (name) => {
+			if (manager.has(name)) return manager.sourceOf(name)
+			if (RUNTIME_MOUNTED_TOOLS.has(name)) return runtimeMountedSource()
+			// Unknown to both: preserve the real manager's "not found" throw.
+			return manager.sourceOf(name)
+		},
+	}
+}
+
+/**
  * What skips review under `mode`: the kernel's exemption, and — in every mode
  * but `strict` — an `Agent` call that starts a read-only child on the
  * session's own provider and model (`launchesReadOnlyAgent`).
@@ -5269,8 +5318,9 @@ export function reviewExemptionFor(
 	manager: Pick<ToolManager, 'get' | 'sourceOf' | 'has'>,
 	launchesReadOnlyAgent: (input: unknown) => boolean,
 ): (name: string, input: unknown) => boolean {
+	const exemptLookup = withRuntimeMountedTools(manager)
 	return (name, input) =>
-		isPromptExempt(manager, name, input) ||
+		isPromptExempt(exemptLookup, name, input) ||
 		(mode !== 'strict' && name === AGENT_LAUNCH_TOOL && launchesReadOnlyAgent(input)) ||
 		(mode !== 'strict' && mode !== 'plan' && confirmsItself(name, input)) ||
 		(mode !== 'strict' &&
