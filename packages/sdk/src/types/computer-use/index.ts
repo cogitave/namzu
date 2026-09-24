@@ -180,7 +180,11 @@ export type UiElementAction =
  * @experimental See {@link ComputerUseCapabilities.uiTree}.
  */
 export interface UiElement {
-	/** Opaque reference, valid until the next snapshot of the same window. */
+	/**
+	 * Opaque reference for {@link ComputerUseHost.uiAct}, valid until the
+	 * host's next snapshot. Empty for an element the host cannot act on (a
+	 * label, a group), which is in the tree for what it says.
+	 */
 	readonly ref: string
 	/** Platform role, e.g. `Button`, `Edit`, `ListItem` (UIA ControlType) or `AXButton`. */
 	readonly role: string
@@ -203,6 +207,10 @@ export interface UiElement {
  */
 export interface UiSnapshot {
 	readonly windowId?: string
+	/** The window's title, as its application sets it. */
+	readonly title?: string
+	/** The owning application or process name, as in {@link WindowInfo.app}. */
+	readonly app?: string
 	readonly root: UiElement
 	/** True when the host stopped walking the tree before it ended (a size or time bound). */
 	readonly truncated?: boolean

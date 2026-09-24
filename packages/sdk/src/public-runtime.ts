@@ -1437,6 +1437,7 @@ export type { SingleHandoffDeps } from './session/handoff/single.js'
 export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
 export type {
 	ActionInput,
+	ComputerUseTool,
 	ComputerUseToolOptions,
 	ImageSize,
 	ScreenshotLimits,

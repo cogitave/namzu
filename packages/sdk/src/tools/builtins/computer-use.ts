@@ -8,6 +8,10 @@ import type {
 	Point,
 	Rect,
 	ScreenshotResult,
+	UiActResult,
+	UiElement,
+	UiElementAction,
+	UiSnapshot,
 	WindowInfo,
 } from '../../types/computer-use/index.js'
 import type { ToolResultBlock } from '../../types/message/index.js'
@@ -15,6 +19,7 @@ import type { LLMProvider } from '../../types/provider/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import { sleep } from '../../utils/backoff.js'
 import { defineTool } from '../defineTool.js'
+import { neutralizeEnvelopeDelimiter, wrapUntrusted } from '../untrusted-envelope.js'
 import {
 	type ScreenshotFrame,
 	ScreenshotFrames,
@@ -47,6 +52,8 @@ const DEFAULT_SETTLE_MS = 500
 const DEFAULT_MAX_BATCH_ACTIONS = 20
 const DEFAULT_MAX_WAIT_MS = 10_000
 const MAX_LISTED_WINDOWS = 50
+/** The most of a ui_snapshot the model is shown, in characters (about 4 000 tokens). */
+const MAX_UI_SNAPSHOT_CHARS = 14_000
 
 /**
  * How `createComputerUseTool` sizes screenshots, paces actions and bounds a
@@ -148,6 +155,26 @@ const focusWindowSchema = z.object({
 	type: z.literal('focus_window'),
 	window_id: z.string().min(1),
 })
+const UI_ACTIONS = [
+	'invoke',
+	'set_value',
+	'toggle',
+	'select',
+	'expand',
+	'collapse',
+	'focus',
+	'scroll_into_view',
+] as const satisfies readonly UiElementAction[]
+const uiSnapshotSchema = z.object({
+	type: z.literal('ui_snapshot'),
+	window_id: z.string().min(1).optional(),
+})
+const uiActSchema = z.object({
+	type: z.literal('ui_act'),
+	ref: z.string().min(1),
+	action: z.enum(UI_ACTIONS),
+	value: z.string().optional(),
+})
 
 /** What a batch may carry: everything but the image-returning actions and another batch. */
 const batchItemSchema = z.discriminatedUnion('type', [
@@ -161,6 +188,7 @@ const batchItemSchema = z.discriminatedUnion('type', [
 	waitSchema,
 	listWindowsSchema,
 	focusWindowSchema,
+	uiActSchema,
 ])
 
 const withFrame = { screenshot_id: screenshotIdSchema }
@@ -178,6 +206,8 @@ const actionSchema = z.discriminatedUnion('type', [
 	waitSchema.extend(withFrame),
 	listWindowsSchema.extend(withFrame),
 	focusWindowSchema.extend(withFrame),
+	uiSnapshotSchema,
+	uiActSchema.extend(withFrame),
 	z.object({
 		type: z.literal('batch'),
 		actions: z.array(batchItemSchema).min(1),
@@ -189,7 +219,7 @@ const actionSchema = z.discriminatedUnion('type', [
  * The tool's input, inferred from its schema: one action, or
  * `{ type: 'batch', actions: [...] }`.
  *
- * Exported because `createComputerUseTool` returns a `ToolDefinition<ActionInput>`
+ * Exported because `createComputerUseTool` returns a `ToolDefinition<ActionInput>` (a `ComputerUseTool`)
  * and a consumer typing that variable, or writing a wrapper around it, had no
  * name for the parameter — the type was module-private while the function
  * carrying it was public.
@@ -222,6 +252,8 @@ const ALL_ACTIONS: readonly ToolActionType[] = [
 	'wait',
 	'list_windows',
 	'focus_window',
+	'ui_snapshot',
+	'ui_act',
 	'batch',
 ]
 
@@ -232,6 +264,7 @@ const READ_ONLY_ACTIONS = new Set<string>([
 	'cursor_position',
 	'wait',
 	'list_windows',
+	'ui_snapshot',
 ])
 
 const DESTRUCTIVE_ACTIONS = new Set<string>([
@@ -240,9 +273,14 @@ const DESTRUCTIVE_ACTIONS = new Set<string>([
 	'type_text',
 	'key',
 	'scroll',
+	'ui_act',
 ])
 
-const IMAGE_ACTIONS = new Set<string>(['screenshot', 'zoom', 'batch'])
+/** Observations that show the model what is on the screen, on their own. */
+const SCREEN_OBSERVATIONS = new Set<string>(['screenshot', 'zoom', 'list_windows', 'ui_snapshot'])
+
+/** Actions a batch cannot carry: the ones that return an image or a tree, and batch itself. */
+const OUTSIDE_BATCH = new Set<string>(['screenshot', 'zoom', 'ui_snapshot', 'batch'])
 
 /** A single action's whole result when it only acted: `<label>: done`, then its screenshot. */
 const ACKNOWLEDGEMENT = /^[^\n]*: done(\nScreenshot s\d+ \(\d+x\d+\)\.)?$/
@@ -297,6 +335,9 @@ function requiredCapability(type: string): keyof ComputerUseCapabilities | null 
 		case 'list_windows':
 		case 'focus_window':
 			return 'windows'
+		case 'ui_snapshot':
+		case 'ui_act':
+			return 'uiTree'
 		default:
 			return null
 	}
@@ -321,6 +362,10 @@ function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities):
 		caps.windows === true &&
 		typeof host.listWindows === 'function' &&
 		typeof host.focusWindow === 'function'
+	const uiTree =
+		caps.uiTree === true &&
+		typeof host.uiSnapshot === 'function' &&
+		typeof host.uiAct === 'function'
 	const available = ALL_ACTIONS.filter((action) => {
 		switch (action) {
 			case 'zoom':
@@ -329,13 +374,16 @@ function availableActions(host: ComputerUseHost, caps: ComputerUseCapabilities):
 			case 'list_windows':
 			case 'focus_window':
 				return windows
+			case 'ui_snapshot':
+			case 'ui_act':
+				return uiTree
 			case 'batch':
 				return false
 			default:
 				return hostActionAvailable(caps, action)
 		}
 	})
-	if (available.some((action) => !IMAGE_ACTIONS.has(action))) available.push('batch')
+	if (available.some((action) => !OUTSIDE_BATCH.has(action))) available.push('batch')
 	return available
 }
 
@@ -391,11 +439,15 @@ function buildDescription(
 	)
 	if (available.includes('batch'))
 		lines.push(
-			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Use it for steps whose targets you can already see (click a field, type, press ENTER). A batch cannot contain screenshot or zoom.`,
+			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Use it for steps whose targets you can already see (click a field, type, press ENTER). A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
 		)
 	if (available.includes('list_windows'))
 		lines.push(
 			'list_windows names the open windows with their ids; focus_window brings one to the front.',
+		)
+	if (available.includes('ui_snapshot'))
+		lines.push(
+			`ui_snapshot {window_id} reads a window's controls (its accessibility tree) as text, each control you can act on with a ref such as e12; without window_id it reads the window in front. ui_act {ref, action, value} acts on one control: invoke (press a button, open a menu item), set_value (replace a field's text with value), toggle, select, expand, collapse. Prefer ui_act to clicking pixels when the control is in the tree: it does not depend on coordinates or on which window is in front, and a batch of ui_act steps (for example pressing several buttons) runs in one call. Refs are valid only until the next ui_snapshot; take a new one after the window changes.`,
 		)
 	lines.push(
 		'Typing and keys go to whichever window has focus: confirm on a screenshot that the right window is in front before type_text or key.',
@@ -451,6 +503,8 @@ const ACTION_REQUIREMENTS: Readonly<Record<ToolActionType, string>> = {
 	wait: 'wait needs ms',
 	list_windows: 'list_windows needs no other fields',
 	focus_window: 'focus_window needs window_id',
+	ui_snapshot: 'ui_snapshot takes an optional window_id',
+	ui_act: 'ui_act needs ref and action, and value for set_value',
 	batch: 'batch needs actions',
 }
 
@@ -463,7 +517,7 @@ function hostModelSchema(
 	// on provider wires; every execution is still refused before host access.
 	const offered = availableActions(host, caps)
 	const actions = offered.length > 0 ? offered : ALL_ACTIONS.filter((a) => a !== 'batch')
-	const items = actions.filter((action) => !IMAGE_ACTIONS.has(action))
+	const items = actions.filter((action) => !OUTSIDE_BATCH.has(action))
 	const buttons = new Set<string>()
 	if (actions.includes('mouse_click'))
 		for (const button of caps.mouseClickButtons ?? ['left', 'right', 'middle']) buttons.add(button)
@@ -490,8 +544,20 @@ function hostModelSchema(
 				description: `Milliseconds to wait, 0 to ${settings.maxWaitMs}.`,
 			},
 		}
-		if (present.includes('focus_window'))
+		if (present.includes('focus_window') || (!forItems && present.includes('ui_snapshot')))
 			fields.window_id = { type: 'string', description: 'A window id from list_windows.' }
+		if (present.includes('ui_act')) {
+			fields.ref = {
+				type: 'string',
+				description: 'A ref from the latest ui_snapshot, such as e12.',
+			}
+			fields.action = {
+				type: 'string',
+				enum: [...UI_ACTIONS],
+				description: 'What ui_act does to the control.',
+			}
+			fields.value = { type: 'string', description: 'The text set_value puts in the control.' }
+		}
 		if (!forItems && present.includes('zoom'))
 			fields.region = {
 				type: 'object',
@@ -521,7 +587,7 @@ function hostModelSchema(
 			type: 'array',
 			minItems: 1,
 			maxItems: settings.maxBatchActions,
-			description: `For type batch: up to ${settings.maxBatchActions} actions run in order (no screenshot, zoom or batch inside).`,
+			description: `For type batch: up to ${settings.maxBatchActions} actions run in order (no screenshot, zoom, ui_snapshot or batch inside).`,
 			items: {
 				type: 'object',
 				properties: {
@@ -563,8 +629,40 @@ function waitLabel(ms: number): string {
 	return ms >= 1000 ? `Wait ${Number((ms / 1000).toFixed(1))} s` : `Wait ${ms} ms`
 }
 
-/** Human activity text for one action; the raw input remains the model-facing record. */
-function itemLabel(input: BatchItem | ActionInput): string {
+/** What a ui_act does, as a verb phrase over the control's description. */
+function uiActLabel(
+	input: { readonly ref: string; readonly action: UiElementAction; readonly value?: string },
+	describe?: (ref: string) => string | undefined,
+): string {
+	const target = describe?.(input.ref) ?? input.ref
+	switch (input.action) {
+		case 'invoke':
+			return `Press ${target}`
+		case 'set_value':
+			return `Set ${target} to ${quotedText(input.value ?? '')}`
+		case 'toggle':
+			return `Toggle ${target}`
+		case 'select':
+			return `Select ${target}`
+		case 'expand':
+			return `Expand ${target}`
+		case 'collapse':
+			return `Collapse ${target}`
+		case 'focus':
+			return `Focus ${target}`
+		case 'scroll_into_view':
+			return `Scroll to ${target}`
+	}
+}
+
+/**
+ * Human activity text for one action; the raw input remains the model-facing
+ * record. `describe` names a ui_act ref's control when the tool knows it.
+ */
+function itemLabel(
+	input: BatchItem | ActionInput,
+	describe?: (ref: string) => string | undefined,
+): string {
 	switch (input.type) {
 		case 'screenshot':
 			return 'Capture screenshot'
@@ -590,13 +688,22 @@ function itemLabel(input: BatchItem | ActionInput): string {
 			return 'List windows'
 		case 'focus_window':
 			return `Focus window ${input.window_id}`
+		case 'ui_snapshot':
+			return input.window_id
+				? `Read the controls of window ${input.window_id}`
+				: 'Read the controls of the front window'
+		case 'ui_act':
+			return uiActLabel(input, describe)
 		case 'batch':
-			return batchLabel(input.actions)
+			return batchLabel(input.actions, describe)
 	}
 }
 
-function batchLabel(actions: readonly BatchItem[]): string {
-	const parts = actions.map((item) => itemLabel(item))
+function batchLabel(
+	actions: readonly BatchItem[],
+	describe?: (ref: string) => string | undefined,
+): string {
+	const parts = actions.map((item) => itemLabel(item, describe))
 	const head = `${actions.length} desktop action${actions.length === 1 ? '' : 's'}`
 	const joined = parts.join(' · ')
 	return joined.length > 240 ? `${head}: ${joined.slice(0, 239)}…` : `${head}: ${joined}`
@@ -700,6 +807,85 @@ interface Capture {
 	readonly image: FittedImage
 }
 
+/** A control of the latest ui_snapshot: the host's ref and what it was. */
+interface UiRef {
+	readonly hostRef: string
+	readonly element: UiElement
+}
+
+/**
+ * The `computer_use` tool, with one question a host's review screen can ask
+ * of it.
+ */
+export interface ComputerUseTool extends ToolDefinition<ActionInput> {
+	/**
+	 * What a `ui_act` ref names in the latest `ui_snapshot` — `Button "Beş"
+	 * (e30)` — or undefined for a ref it does not hold. For a host that shows
+	 * a person the call before it runs; the words are the application's, so a
+	 * host shows them as text and nothing more.
+	 *
+	 * @experimental Follows the UI-tree surface; see `ComputerUseCapabilities.uiTree`.
+	 */
+	describeUiRef(ref: string): string | undefined
+}
+
+/** Whether a call sends the screen to the provider (see `ToolDefinition.capturesScreen`). */
+function capturesScreenInput(input: unknown, screenshotAfterActions: boolean): boolean {
+	const items = batchActions(input) ?? [input]
+	return items.some((item) => {
+		if (!isRecord(item)) return true
+		const type = String(item.type)
+		if (SCREEN_OBSERVATIONS.has(type)) return true
+		if (type === 'cursor_position') return false
+		// Everything else is followed by a screenshot unless that is switched off.
+		return screenshotAfterActions
+	})
+}
+
+function safeRole(role: string): string {
+	return /^[A-Za-z][\w-]{0,39}$/.test(role) ? role : 'Element'
+}
+
+/** `Button "Beş"`: the control's role and name, one line, cut to fit. */
+function uiElementText(element: UiElement): string {
+	const name = element.name.trim()
+	return name.length > 0 ? `${safeRole(element.role)} ${quotedText(name)}` : safeRole(element.role)
+}
+
+/**
+ * One line of a ui_snapshot: `[e12] Button "Beş" (disabled) [invoke] @(212, 488)`.
+ * The ref and position are the tool's; the rest is the application's, and
+ * sits inside the untrusted frame.
+ */
+function uiElementLine(
+	element: UiElement,
+	ref: string | undefined,
+	frame: ScreenshotFrame | undefined,
+): string {
+	const parts = [`${ref ? `[${ref}] ` : ''}${uiElementText(element)}`]
+	if (element.value !== undefined && element.value !== element.name)
+		parts.push(`value=${quotedText(element.value)}`)
+	const states = (element.states ?? []).filter((state) => /^[a-z_]{1,24}$/.test(state))
+	if (states.length > 0) parts.push(`(${states.join(', ')})`)
+	if (ref) {
+		const actions = (element.actions ?? []).filter((action) =>
+			(UI_ACTIONS as readonly string[]).includes(action),
+		)
+		if (actions.length > 0) parts.push(`[${actions.join(', ')}]`)
+		const at = frame && element.bounds ? centreOnImage(frame, element.bounds) : undefined
+		if (at) parts.push(`@${pointLabel(at)}`)
+	}
+	return neutralizeEnvelopeDelimiter(parts.join(' '))
+}
+
+/** The centre of a virtual-desktop rectangle on a screenshot, or undefined when it is not on its display. */
+function centreOnImage(frame: ScreenshotFrame, bounds: Rect): Point | undefined {
+	const x = Math.floor(bounds.x + bounds.width / 2) - frame.display.x
+	const y = Math.floor(bounds.y + bounds.height / 2) - frame.display.y
+	if (x < 0 || y < 0 || x >= frame.display.width || y >= frame.display.height) return undefined
+	return toImagePoint(frame, { x, y })
+}
+
 /**
  * Factory: given a ComputerUseHost (provided by the consumer — e.g.
  * @namzu/computer-use's SubprocessComputerUseHost), returns the
@@ -726,7 +912,7 @@ interface Capture {
 export function createComputerUseTool(
 	host: ComputerUseHost,
 	options: ComputerUseToolOptions = {},
-): ToolDefinition<ActionInput> {
+): ComputerUseTool {
 	const settings = resolveSettings(options)
 	const caps: ComputerUseCapabilities = options.unavailableReason
 		? {
@@ -744,6 +930,18 @@ export function createComputerUseTool(
 		: host.capabilities
 	const frames = new ScreenshotFrames()
 	const available = new Set<string>(availableActions(host, caps))
+
+	// The controls of the latest ui_snapshot, by the ref the model was shown.
+	// Refs count up across snapshots, so a ref from an earlier one is never
+	// silently a different control of the latest: it is simply not here.
+	let uiRefs = new Map<string, UiRef>()
+	let uiSnapshots = 0
+	let uiRefCount = 0
+	const describeUiRef = (ref: string): string | undefined => {
+		const entry = uiRefs.get(ref)
+		return entry ? `${uiElementText(entry.element)} (${ref})` : undefined
+	}
+	const label = (input: BatchItem | ActionInput): string => itemLabel(input, describeUiRef)
 
 	const refusal = (type: string): string | null => {
 		const required = requiredCapability(type)
@@ -823,9 +1021,13 @@ export function createComputerUseTool(
 	const plan = (item: BatchItem, frameId: string | undefined): PlannedStep => {
 		const denied = refusal(item.type)
 		if (denied) throw new StepFailure(denied)
-		const label = itemLabel(item)
 		const mutating = !READ_ONLY_ACTIONS.has(item.type)
-		const step = (run: PlannedStep['run']): PlannedStep => ({ item, label, mutating, run })
+		const step = (run: PlannedStep['run']): PlannedStep => ({
+			item,
+			label: label(item),
+			mutating,
+			run,
+		})
 		switch (item.type) {
 			case 'cursor_position':
 				frameFor(frameId)
@@ -892,6 +1094,142 @@ export function createComputerUseTool(
 						)
 					return 'done'
 				})
+			case 'ui_act': {
+				const entry = uiRefs.get(item.ref)
+				if (!entry)
+					throw new StepFailure(
+						uiSnapshots === 0
+							? `there is no ${item.ref}: no ui_snapshot has been taken yet; take one and use its refs`
+							: `${item.ref} is not a control of the latest ui_snapshot (u${uiSnapshots}); refs are valid only until the next ui_snapshot, so use the refs it showed`,
+					)
+				const offered = entry.element.actions
+				if (offered && offered.length > 0 && !offered.includes(item.action))
+					throw new StepFailure(
+						`${describeUiRef(item.ref)} offers ${offered.join(', ')}, not ${item.action}`,
+					)
+				if (item.action === 'set_value' && item.value === undefined)
+					throw new StepFailure('set_value needs value, the text to put in the control')
+				return step(async () => {
+					let outcome: UiActResult
+					try {
+						outcome = await (host.uiAct as NonNullable<ComputerUseHost['uiAct']>)(
+							entry.hostRef,
+							item.action,
+							item.value,
+						)
+					} catch (error) {
+						throw new StepFailure(errorText(error))
+					}
+					if (!outcome.ok)
+						throw new StepFailure(
+							outcome.detail ?? `${item.action} did not take effect on ${describeUiRef(item.ref)}`,
+						)
+					return outcome.detail ? `done (${outcome.detail})` : 'done'
+				})
+			}
+		}
+	}
+
+	/** Read one window's controls, number the ones the model can act on, and show them. */
+	const uiSnapshot = async (
+		input: Extract<ActionInput, { type: 'ui_snapshot' }>,
+	): Promise<ToolResult> => {
+		let snapshot: UiSnapshot
+		try {
+			snapshot = await (host.uiSnapshot as NonNullable<ComputerUseHost['uiSnapshot']>)(
+				input.window_id,
+			)
+		} catch (error) {
+			throw new StepFailure(errorText(error))
+		}
+		uiSnapshots += 1
+		const id = `u${uiSnapshots}`
+		const refs = new Map<string, UiRef>()
+		const frame = frames.latest()
+		const lines: string[] = []
+		let chars = 0
+		let shown = 0
+		let total = 0
+		let cut = false
+		const visit = (element: UiElement, depth: number): void => {
+			total += 1
+			const actionable = element.ref.length > 0
+			const children = element.children ?? []
+			// A nameless control nobody can act on says nothing by itself; its
+			// children still stand, one level up.
+			const silent = !actionable && element.name.trim().length === 0 && element.value === undefined
+			if (!silent && !cut) {
+				const ref = actionable ? `e${uiRefCount + 1}` : undefined
+				const line = `${'  '.repeat(depth)}${uiElementLine(element, ref, frame)}`
+				if (chars + line.length + 1 > MAX_UI_SNAPSHOT_CHARS) {
+					cut = true
+				} else {
+					lines.push(line)
+					chars += line.length + 1
+					shown += 1
+					if (ref) {
+						uiRefCount += 1
+						refs.set(ref, { hostRef: element.ref, element })
+					}
+				}
+			}
+			for (const child of children) visit(child, silent ? depth : depth + 1)
+		}
+		visit(snapshot.root, 0)
+		uiRefs = refs
+		const window =
+			snapshot.windowId && /^[\w.:-]{1,64}$/.test(snapshot.windowId) ? snapshot.windowId : undefined
+		const header = [
+			`UI snapshot ${id}${window ? ` of window ${window}` : ''}: ${shown} controls shown, ${refs.size} with a ref you can pass to ui_act. Refs are valid until the next ui_snapshot.`,
+			...(frame
+				? [
+						`@(x, y) is a control's centre on screenshot ${frame.id}, for a click when ui_act cannot reach it.`,
+					]
+				: []),
+		]
+		// The window's title and application, when the tree's own root does not
+		// already say them; inside the frame, since an application sets both.
+		const about = [
+			...(snapshot.app !== undefined ? [`Application ${quotedText(snapshot.app)}`] : []),
+			...(snapshot.title !== undefined && snapshot.title !== snapshot.root.name
+				? [`Window title ${quotedText(snapshot.title)}`]
+				: []),
+		]
+		const body = [...about, ...lines].join('\n')
+		const footer =
+			cut || snapshot.truncated
+				? [
+						cut
+							? `The tree was cut at ${MAX_UI_SNAPSHOT_CHARS} characters after ${shown} of ${total} controls. Read a smaller window, or use a screenshot for the rest.`
+							: 'The host stopped reading the tree before it ended; controls further down are missing. Use a screenshot for the rest.',
+					]
+				: []
+		const text = [
+			...header,
+			wrapUntrusted(
+				{
+					kind: 'desktop-ui',
+					...(window ? { attributes: { window } } : {}),
+					provenance:
+						"The accessibility tree of a window on the user's desktop, as the host read it. Names and values are whatever the application shows, which can include text anyone wrote.",
+				},
+				body,
+			),
+			...footer,
+		].join('\n')
+		return {
+			success: true,
+			output: header[0] ?? '',
+			content: [{ type: 'text', text }],
+			data: {
+				uiSnapshot: {
+					id,
+					...(window ? { windowId: window } : {}),
+					controls: shown,
+					refs: refs.size,
+					truncated: cut || snapshot.truncated === true,
+				},
+			},
 		}
 	}
 
@@ -929,7 +1267,16 @@ export function createComputerUseTool(
 			windows.length > MAX_LISTED_WINDOWS
 				? [`… and ${windows.length - MAX_LISTED_WINDOWS} more`]
 				: []
-		return `${windows.length} window${windows.length === 1 ? '' : 's'}, front to back:\n${[...lines, ...more].join('\n')}`
+		// Titles are whatever an application puts there — a web page's title in
+		// a browser window — so the list is framed as material, not direction.
+		return `${windows.length} window${windows.length === 1 ? '' : 's'}, front to back:\n${wrapUntrusted(
+			{
+				kind: 'desktop-windows',
+				provenance:
+					"The open windows on the user's desktop, as the host listed them. Titles are whatever each application shows, which can include text anyone wrote.",
+			},
+			[...lines, ...more].join('\n'),
+		)}`
 	}
 
 	const describeFrame = (frame: ScreenshotFrame): string => {
@@ -1070,7 +1417,7 @@ export function createComputerUseTool(
 					output: '',
 					error: single
 						? message
-						: `computer_use: action ${index + 1} of ${items.length} (${itemLabel(item)}) cannot run: ${message}. Nothing was run.`,
+						: `computer_use: action ${index + 1} of ${items.length} (${label(item)}) cannot run: ${message}. Nothing was run.`,
 				}
 			}
 		}
@@ -1193,20 +1540,29 @@ export function createComputerUseTool(
 		return result
 	}
 
-	return defineTool({
+	// Whether a call sends the screen to the provider: an observation, or an
+	// action that returns a screenshot afterwards. A diagnostic tool that can
+	// reach nothing captures nothing.
+	const observes =
+		available.has('screenshot') || available.has('list_windows') || available.has('ui_snapshot')
+	const capturesScreen = (input: ActionInput): boolean =>
+		observes && capturesScreenInput(input, settings.screenshotAfterActions)
+
+	const tool = defineTool({
 		name: COMPUTER_USE_TOOL_NAME,
 		description: buildDescription(host, caps, settings),
 		inputSchema: actionSchema,
 		modelInputSchema: hostModelSchema(host, caps, settings),
-		validationErrorHint: `Action requirements: ${ALL_ACTIONS.map((action) => ACTION_REQUIREMENTS[action]).join('; ')}. A batch is {"type":"batch","actions":[...]} with at most ${settings.maxBatchActions} actions and no screenshot, zoom or batch inside.`,
+		validationErrorHint: `Action requirements: ${ALL_ACTIONS.map((action) => ACTION_REQUIREMENTS[action]).join('; ')}. A batch is {"type":"batch","actions":[...]} with at most ${settings.maxBatchActions} actions and no screenshot, zoom, ui_snapshot or batch inside.`,
 		category: 'custom',
 		permissions: [],
 		readOnly: (input: ActionInput) => isReadOnlyInput(input),
 		destructive: (input: ActionInput) => isDestructiveInput(input),
+		capturesScreen,
 		concurrencySafe: false,
 		presentCall: (input) => ({
 			kind: 'generic',
-			label: itemLabel(input),
+			label: label(input),
 			presentation: 'activity',
 		}),
 		// Decided from the result alone: a host may present a finished call
@@ -1227,6 +1583,8 @@ export function createComputerUseTool(
 						return screenshotResult(await capture())
 					case 'zoom':
 						return await zoom(input)
+					case 'ui_snapshot':
+						return await uiSnapshot(input)
 					case 'batch':
 						return await runSteps(input.actions, input.screenshot_id, context, false)
 					default: {
@@ -1241,4 +1599,5 @@ export function createComputerUseTool(
 			}
 		},
 	})
+	return Object.assign(tool, { describeUiRef })
 }

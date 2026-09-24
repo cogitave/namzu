@@ -61,7 +61,7 @@ the method exists; either alone is not enough.
 | --- | --- | --- |
 | `windows` | `listWindows()`, `focusWindow(id)` | `list_windows`, `focus_window` |
 | `regionCapture` | `captureRegion(rect)` | `zoom`, which otherwise crops a full capture |
-| `uiTree` (experimental) | `uiSnapshot(windowId?)`, `uiAct(ref, action, value?)` | reserved for accessibility-tree actions |
+| `uiTree` (experimental) | `uiSnapshot(windowId?)`, `uiAct(ref, action, value?)` | `ui_snapshot`, `ui_act` |
 
 `listWindows()` returns `WindowInfo` records (`id`, `title`, `app`, `pid`,
 `bounds`, `focused`, `minimized`); `id` is opaque and host-defined. The
@@ -72,10 +72,23 @@ from the request. `captureRegion(rect)` returns a `ScreenshotResult` whose
 
 `UiSnapshot`, `UiElement`, `UiElementAction` and `UiActResult` describe an
 accessibility tree (Windows UI Automation, macOS AX, AT-SPI, or a driver that
-wraps one): each element has an opaque `ref` valid until the next snapshot,
-a platform `role`, `name`, optional `value`, `automationId`, virtual-desktop
-`bounds`, `states` and the `actions` it accepts. These shapes are marked
-`@experimental` and may change in a minor release until a host ships them.
+wraps one). `uiSnapshot(windowId?)` reads one window — the one in front when
+the id is omitted — and returns its `root`, optionally its `title`, `app` and
+`truncated`. Each element has an opaque `ref` valid until the host's next
+snapshot (empty for an element nothing can be done with: a label, a group,
+which is in the tree for what it says), a platform `role`, `name`, optional
+`value`, `automationId`, virtual-desktop `bounds`, `states` (`disabled`,
+`selected`, …) and the `actions` it accepts: `invoke`, `set_value`, `toggle`,
+`select`, `expand`, `collapse`, `focus`, `scroll_into_view`.
+`uiAct(ref, action, value?)` reports `{ ok, detail? }`; a host says why in
+`detail` when it could not act (a stale ref, a disabled control) rather than
+throwing, and reports an action whose outcome it cannot know (its driver died
+mid-request) as `ok: false` with a detail that says so, never as a retry.
+
+These shapes are `@experimental`: `@namzu/computer-use`'s Windows backend is
+the first host that implements them, and they may still change in a minor
+release. How the tool shows them to the model is in
+[the computer_use tool](computer-actions.md#a-windows-controls).
 
 Nothing here is specific to one backend: a custom helper and a ready-made
 desktop driver fit the same interface, and a host that has none of the
