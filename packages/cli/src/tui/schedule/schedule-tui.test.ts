@@ -768,6 +768,75 @@ describe('the schedule tool’s host', () => {
 			expect(readJob(sb.paths, job?.id as string)?.runKind).toBe('script')
 			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo hi' })
 		})
+
+		// A UX/security review found that `update` accepted `kind`/`script` in
+		// its input schema but silently dropped both from the change it
+		// actually applied — reporting success with no error or warning that
+		// the model's new script was ignored (`schedule-tool.ts`'s `CHANGEABLE`
+		// list, and `updateRequest` here, never named them).
+		it('an update actually changes the script body, verified fresh and shown in full', async () => {
+			expect((await host('create').tool.execute(scriptInput, {} as never)).success).toBe(true)
+			const { tool, said } = host('save')
+			const result = await tool.execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					script: { body: 'echo bye', shell: 'bash' },
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			expect(result.data).toMatchObject({
+				changes: expect.arrayContaining([expect.stringContaining('echo bye')]),
+			})
+			expect(said.at(-2)).toContain('Script (exactly as it will run, bash')
+			expect(said.at(-2)).toContain('│ echo bye')
+			// The old body shows only as what changed, not as the script's text.
+			expect(said.at(-2)).toContain('- Script  echo hi')
+			expect(said.at(-2)).toContain('+ Script  echo bye')
+			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
+			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo bye' })
+		})
+
+		it('an update refuses a script the floor denies, the same as a new one would be, before showing anything', async () => {
+			expect((await host('create').tool.execute(scriptInput, {} as never)).success).toBe(true)
+			const { tool, said } = host('save')
+			const result = await tool.execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					script: { body: 'systemctl --user stop namzu-scheduler', shell: 'bash' },
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/scheduled-run floor refused/)
+			expect(said).toEqual([])
+			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
+			expect(readJob(sb.paths, job?.id as string)?.script).toMatchObject({ body: 'echo hi' })
+		})
+
+		it('an update can change a job’s kind, going through the same static check and confirmation', async () => {
+			expect((await host('create').tool.execute(scriptInput, {} as never)).success).toBe(true)
+			const { tool, said } = host('save')
+			const result = await tool.execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script+agent',
+					script: { body: 'echo hi', shell: 'bash' },
+					prompt: 'summarise what changed',
+				},
+				{} as never,
+			)
+			expect(result.success).toBe(true)
+			expect(said.at(-2)).toContain('Wake-gate script (exactly as it will run')
+			const job = listJobs(sb.paths).jobs.find((j) => j.name === 'ticker')
+			const stored = readJob(sb.paths, job?.id as string)
+			expect(stored?.runKind).toBe('script+agent')
+			expect(stored?.prompt).toBe('summarise what changed')
+			expect(stored?.wakeGate).toMatchObject({ maxContextChars: expect.any(Number) })
+		})
 	})
 })
 

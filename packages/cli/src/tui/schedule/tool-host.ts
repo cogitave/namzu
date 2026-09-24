@@ -247,6 +247,14 @@ export function updateRequest(
 				...kept,
 				...(current.permissions.browser ? { browser: current.permissions.browser } : {}),
 			}
+	// A kind or script the tool did not touch carries the job's own forward
+	// unchanged, exactly as `editedJob` does for a terminal edit. Moving TO
+	// `'agent'` always drops the script — whether or not one was given here,
+	// since an agent job cannot carry one (`buildJob` refuses that
+	// combination outright) — and the wake-gate cap only ever applies to a
+	// `runKind` that stays (or becomes) `'script+agent'`.
+	const runKind = changes.runKind ?? current.runKind
+	const script = runKind === 'agent' ? undefined : (changes.script ?? current.script)
 	return {
 		name: current.name,
 		prompt: changes.prompt ?? current.prompt,
@@ -254,12 +262,9 @@ export function updateRequest(
 		...(spec ? { spec } : {}),
 		folder: changes.folder !== undefined ? resolve(cwd, changes.folder) : current.folder.path,
 		...(tz ? { tz } : {}),
-		// The tool cannot change a job's kind or script (only the CLI's own
-		// `schedule edit` can); an update carries the job's own forward
-		// unchanged, exactly as `editedJob` does for a terminal edit.
-		...(current.runKind ? { runKind: current.runKind } : {}),
-		...(current.script ? { script: current.script } : {}),
-		...(current.wakeGate ? { wakeGate: current.wakeGate } : {}),
+		...(runKind ? { runKind } : {}),
+		...(script ? { script } : {}),
+		...(runKind === 'script+agent' && current.wakeGate ? { wakeGate: current.wakeGate } : {}),
 		permissions,
 		budget: { ...current.budget, ...(changes.budget ?? {}) },
 		model: `${current.model.provider}${current.model.model ? `/${current.model.model}` : ''}`,

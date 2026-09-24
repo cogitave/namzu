@@ -357,7 +357,16 @@ async function list(host: ScheduleToolHost, input: Input): Promise<ToolResult> {
 }
 
 /** The fields `update` may change, as the model set them. */
-const CHANGEABLE = ['prompt', 'when', 'folder', 'tz', 'permissions', 'budget'] as const
+const CHANGEABLE = [
+	'prompt',
+	'when',
+	'folder',
+	'tz',
+	'permissions',
+	'budget',
+	'kind',
+	'script',
+] as const
 
 async function update(
 	host: ScheduleToolHost,
@@ -379,12 +388,33 @@ async function update(
 	if (given.length === 0) {
 		return refuse(`update needs at least one of ${CHANGEABLE.join(', ')} to change.`)
 	}
+	if (input.kind === 'agent' && input.script !== undefined) {
+		return refuse(
+			'update cannot set kind to agent while also giving a script; drop script to make it an agent job, or leave kind unset (or as script/script+agent) to keep one.',
+		)
+	}
 	let permissions: ScheduleJobDraft['permissions'] | undefined
 	if (input.permissions) {
 		const checked = checkPermissions(host, input.permissions)
 		if (!checked.ok) return refuse(checked.error)
 		permissions = checked.permissions
-		if (networkWithHostShell({ name: '', prompt: '', when: '', permissions }))
+		// The same guard `create` applies, against whatever THIS call
+		// changes: a kind given here is read too, since a script/script+agent
+		// job is refused this combination even where an agent job is not (no
+		// live turn reviews a script's calls one at a time). A kind changed
+		// here while permissions are left as they stand is not re-checked —
+		// the job's existing permissions already cleared this bar under
+		// whatever kind it had; the fresh re-verification at every `__fire`
+		// is the backstop for what this narrower, per-call check cannot see.
+		if (
+			networkWithHostShell({
+				name: '',
+				prompt: '',
+				when: '',
+				...(input.kind !== undefined ? { runKind: input.kind } : {}),
+				permissions,
+			})
+		)
 			return refuse(NETWORK_WITH_HOST_SHELL)
 	}
 	const changes: ScheduleJobChanges = {
@@ -394,6 +424,8 @@ async function update(
 		...(input.tz !== undefined ? { tz: input.tz } : {}),
 		...(permissions ? { permissions } : {}),
 		...(input.budget ? { budget: input.budget } : {}),
+		...(input.kind !== undefined ? { runKind: input.kind } : {}),
+		...(input.script !== undefined ? { script: input.script } : {}),
 	}
 	let proposal: ScheduleJobUpdateProposal
 	try {

@@ -163,6 +163,20 @@ export interface ScheduleJobChanges {
 	readonly tz?: string
 	readonly permissions?: ScheduleJobDraft['permissions']
 	readonly budget?: ScheduleJobDraft['budget']
+	/**
+	 * Changes what kind of run this is. Absent: keeps the job's current kind.
+	 * Moving to `'script'`/`'script+agent'` needs `script`; moving to
+	 * `'agent'` drops whatever script the job had, whether or not one is
+	 * given here — an agent job cannot carry one.
+	 */
+	readonly runKind?: 'agent' | 'script' | 'script+agent'
+	/**
+	 * Replaces the whole script (or, for `'script+agent'`, wake-gate) body,
+	 * shell and timeout — never a partial edit of just one of them. Absent:
+	 * keeps the job's current script. Re-verified fresh against the
+	 * scheduled-run floor and every `deny` rule, the same as a new job's.
+	 */
+	readonly script?: ScheduleJobDraft['script']
 }
 
 /** A proposed change to a job, as the host computed it. */

@@ -429,6 +429,105 @@ describe('schedule tool: kind and script', () => {
 		)
 		expect(result.success).toBe(true)
 	})
+
+	describe('update', () => {
+		const proposal = {
+			preview: PREVIEW,
+			changes: ['- Script  echo hi', '+ Script  echo bye'],
+			permissionsChange: false,
+		}
+		function updatingHost(over: Partial<ScheduleToolHost> = {}) {
+			return fakeHost('create', {
+				previewUpdate: vi.fn(async () => proposal),
+				confirmUpdate: vi.fn(async () => true),
+				update: vi.fn(async () => ({ name: 'host-name' })),
+				...over,
+			}).host
+		}
+
+		// A UX/security review found `update` accepted `kind`/`script` in its
+		// schema but silently dropped both from what it actually asked the
+		// host to change, reporting success with no error or warning.
+		it('forwards kind and script to the host instead of dropping them', async () => {
+			const host = updatingHost()
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo bye', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(true)
+			expect(host.previewUpdate).toHaveBeenCalledWith('ticker', {
+				runKind: 'script',
+				script: { body: 'echo bye', shell: 'bash' },
+			})
+		})
+
+		it('forwards script alone, keeping whatever kind the job already has', async () => {
+			const host = updatingHost()
+			await tool(host).execute(
+				{ action: 'update', job: 'ticker', script: { body: 'echo bye', shell: 'bash' } },
+				context,
+			)
+			expect(host.previewUpdate).toHaveBeenCalledWith('ticker', {
+				script: { body: 'echo bye', shell: 'bash' },
+			})
+		})
+
+		it('refuses kind: agent given together with a script, naming the conflict', async () => {
+			const host = updatingHost()
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'agent',
+					script: { body: 'echo hi', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/cannot set kind to agent while also giving a script/)
+			expect(host.previewUpdate).not.toHaveBeenCalled()
+		})
+
+		it('a script/kind error from the host (the floor, a deny rule, an empty script) is surfaced, not swallowed', async () => {
+			const host = updatingHost({
+				previewUpdate: vi.fn(async () => {
+					throw new Error('the scheduled-run floor refused this call: …')
+				}),
+			})
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					script: { body: 'systemctl --user stop namzu-scheduler', shell: 'bash' },
+				},
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/scheduled-run floor refused/)
+		})
+
+		it('reads a kind given alongside permissions for the network-beside-host-shell guard', async () => {
+			const host = updatingHost()
+			const result = await tool(host).execute(
+				{
+					action: 'update',
+					job: 'ticker',
+					kind: 'script',
+					script: { body: 'echo hi', shell: 'bash' },
+					permissions: { rules: { bash: 'allow', web_fetch: 'allow' }, unmatched: 'deny' },
+				},
+				context,
+			)
+			expect(result.success).toBe(false)
+			expect(result.error).toMatch(/cannot combine web or browser access with a shell on the host/)
+			expect(host.previewUpdate).not.toHaveBeenCalled()
+		})
+	})
 })
 
 describe('session_loop tool', () => {
