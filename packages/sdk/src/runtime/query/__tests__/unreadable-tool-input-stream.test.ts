@@ -184,6 +184,20 @@ describe('unreadable tool input is classified from how the response ended', () =
 		})
 	})
 
+	it('locates a Python literal in malformed arguments, though the parser names no position', async () => {
+		const broken = '{"question":"Ship it?","multi":True}'
+		const { events } = await run([
+			open(0, 'call_1'),
+			args(0, broken),
+			close(0, 'call_1'),
+			finish('tool_calls'),
+		])
+		expect(completed(events)[0]?.inputError).toMatchObject({
+			reason: 'malformed',
+			offset: broken.indexOf('True'),
+		})
+	})
+
 	it('reports the end of the text as the offset when the input simply ended', async () => {
 		const { events } = await run([open(0, 'call_1'), args(0, '   '), finish('tool_calls')])
 		expect(completed(events)[0]?.inputError).toMatchObject({

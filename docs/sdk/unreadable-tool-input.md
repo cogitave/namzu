@@ -52,8 +52,11 @@ send less. That does not fix malformed JSON.
 - `inputError`: a `ToolInputError`, with fields `reason`, `finishReason`
   (absent when the stream reported none), `parseError` (the JSON parser's
   message), `offset`, `length` and `responseLength`. `offset` is where parsing
-  stopped: the whole length when the text simply ended, and absent when the
-  parser did not say. `length` counts the characters of arguments that
+  stopped: the first character that cannot continue valid JSON, or the whole
+  length when the text simply ended. It is found by scanning the arguments,
+  not read from the parser's message, which names no position for a bare
+  token such as Python's `True` or `None` or JavaScript's `undefined` or
+  `NaN`. `length` counts the characters of arguments that
   arrived. `responseLength` counts the characters the whole response streamed
   before it stopped: its text, its visible reasoning and every tool call's
   arguments, this call's included.

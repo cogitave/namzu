@@ -193,8 +193,11 @@ export interface ToolInputError {
 	/** The JSON parser's own message. */
 	readonly parseError: string
 	/**
-	 * Zero-based character offset in the arguments where parsing failed: their
-	 * length when the text simply ended. Absent when the parser did not say.
+	 * Zero-based character offset in the arguments where parsing failed: the
+	 * first character that cannot continue valid JSON, or their length when
+	 * the text simply ended. Found by scanning the arguments, so it is there
+	 * when {@link parseError} names no position, as for a bare `True` or
+	 * `None`.
 	 */
 	readonly offset?: number
 	/** How many characters of arguments arrived. */

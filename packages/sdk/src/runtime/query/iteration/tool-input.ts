@@ -23,21 +23,190 @@ export function parseToolArguments(buffer: string): ParsedToolArguments {
 		return { ok: true, value: JSON.parse(buffer) }
 	} catch (err) {
 		const parseError = err instanceof Error ? err.message : String(err)
-		const offset = parseErrorOffset(parseError, buffer.length)
+		const offset = jsonSyntaxErrorOffset(buffer)
 		return { ok: false, parseError, ...(offset !== undefined ? { offset } : {}) }
 	}
 }
 
+const OBJECT = 0
+const ARRAY = 1
+
+function isDigit(code: number): boolean {
+	return code >= 0x30 && code <= 0x39
+}
+
+function isHexDigit(code: number): boolean {
+	return isDigit(code) || (code >= 0x41 && code <= 0x46) || (code >= 0x61 && code <= 0x66)
+}
+
 /**
- * Where the parser stopped, from its own message. V8 names a position for
- * most failures; "Unexpected end of JSON input" names none because the
- * failure is the end itself, and "Unexpected token" quotes the text instead.
+ * Where a text stops being JSON: the offset of the first character that
+ * cannot continue a valid JSON text (RFC 8259), the text's length when it
+ * ended before its value did, or `undefined` when it is valid JSON.
+ *
+ * Found by scanning the text, not read from the parser's message. V8 names a
+ * position for most failures, but for an unexpected bare token it only quotes
+ * the text around it ("Unexpected token 'T', ... is not valid JSON"), and that
+ * quote is cut short on a long input. `True`, `None`, `NaN` and `undefined`,
+ * the literals a model carries over from Python or JavaScript, are exactly
+ * those. Where V8 does name a position, this is the same one.
+ *
+ * Iterative, with an explicit stack, so deep nesting cannot overflow it.
  */
-function parseErrorOffset(message: string, length: number): number | undefined {
-	const at = /\bposition (\d+)/.exec(message)
-	if (at?.[1] !== undefined) return Number(at[1])
-	if (/\bend of (?:JSON )?input\b/i.test(message)) return length
-	return undefined
+export function jsonSyntaxErrorOffset(text: string): number | undefined {
+	const end = text.length
+	const containers: number[] = []
+	let i = 0
+	let expect: 'value' | 'valueOrClose' | 'key' | 'keyOrClose' | 'colon' | 'next' = 'value'
+
+	const skipWhitespace = () => {
+		while (i < end) {
+			const code = text.charCodeAt(i)
+			if (code !== 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d) return
+			i++
+		}
+	}
+	// Each reader below consumes one token from `i` and returns the offset of
+	// the first character that does not fit it, or `undefined` when it fits.
+	const readString = (): number | undefined => {
+		i++
+		while (i < end) {
+			const code = text.charCodeAt(i)
+			if (code === 0x22) {
+				i++
+				return undefined
+			}
+			if (code < 0x20) return i
+			i++
+			if (code !== 0x5c) continue
+			if (i >= end) return end
+			const escaped = text[i] as string
+			if (escaped === 'u') {
+				for (let k = 1; k <= 4; k++) {
+					if (i + k >= end) return end
+					if (!isHexDigit(text.charCodeAt(i + k))) return i + k
+				}
+				i += 5
+			} else if ('"\\/bfnrt'.includes(escaped)) {
+				i++
+			} else {
+				return i
+			}
+		}
+		return end
+	}
+	const readDigits = (): number | undefined => {
+		if (i >= end) return end
+		if (!isDigit(text.charCodeAt(i))) return i
+		while (i < end && isDigit(text.charCodeAt(i))) i++
+		return undefined
+	}
+	const readNumber = (): number | undefined => {
+		if (text[i] === '-') i++
+		if (text[i] === '0') {
+			i++
+		} else {
+			const bad = readDigits()
+			if (bad !== undefined) return bad
+		}
+		if (text[i] === '.') {
+			i++
+			const bad = readDigits()
+			if (bad !== undefined) return bad
+		}
+		if (text[i] === 'e' || text[i] === 'E') {
+			i++
+			if (text[i] === '+' || text[i] === '-') i++
+			const bad = readDigits()
+			if (bad !== undefined) return bad
+		}
+		return undefined
+	}
+	const readLiteral = (word: string): number | undefined => {
+		for (const expected of word) {
+			if (i >= end) return end
+			if (text[i] !== expected) return i
+			i++
+		}
+		return undefined
+	}
+
+	for (;;) {
+		skipWhitespace()
+		if (i >= end) return expect === 'next' && containers.length === 0 ? undefined : end
+		const char = text[i] as string
+		switch (expect) {
+			case 'valueOrClose':
+				if (char === ']') {
+					containers.pop()
+					i++
+					expect = 'next'
+					continue
+				}
+				expect = 'value'
+				continue
+			case 'value': {
+				if (char === '{') {
+					containers.push(OBJECT)
+					i++
+					expect = 'keyOrClose'
+					continue
+				}
+				if (char === '[') {
+					containers.push(ARRAY)
+					i++
+					expect = 'valueOrClose'
+					continue
+				}
+				let bad: number | undefined
+				if (char === '"') bad = readString()
+				else if (char === '-' || isDigit(text.charCodeAt(i))) bad = readNumber()
+				else if (char === 't') bad = readLiteral('true')
+				else if (char === 'f') bad = readLiteral('false')
+				else if (char === 'n') bad = readLiteral('null')
+				else return i
+				if (bad !== undefined) return bad
+				expect = 'next'
+				continue
+			}
+			case 'keyOrClose':
+				if (char === '}') {
+					containers.pop()
+					i++
+					expect = 'next'
+					continue
+				}
+				expect = 'key'
+				continue
+			case 'key': {
+				if (char !== '"') return i
+				const bad = readString()
+				if (bad !== undefined) return bad
+				expect = 'colon'
+				continue
+			}
+			case 'colon':
+				if (char !== ':') return i
+				i++
+				expect = 'value'
+				continue
+			case 'next': {
+				const open = containers.at(-1)
+				if (open === undefined) return i
+				if (char === ',') {
+					i++
+					expect = open === OBJECT ? 'key' : 'value'
+					continue
+				}
+				if (char === (open === OBJECT ? '}' : ']')) {
+					containers.pop()
+					i++
+					continue
+				}
+				return i
+			}
+		}
+	}
 }
 
 /**
