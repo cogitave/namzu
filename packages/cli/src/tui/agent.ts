@@ -94,7 +94,6 @@ import {
 	type SessionTokenBudgetSummary,
 	type Skill,
 	type SkillRegistryRef,
-	SkillTool,
 	type StopReason,
 	type StructuredOutputConfig,
 	type TaskScheduler,
@@ -129,6 +128,7 @@ import {
 	createResidentStepContext,
 	createResidentStepContributions,
 	createReviewHandler,
+	createSkillTool,
 	createToolPresenter,
 	ensureProject,
 	generateSessionId,
@@ -291,6 +291,7 @@ import {
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
+import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -2970,16 +2971,30 @@ export async function createAgentSession(
 		...(options.skills ? { config: options.skills } : {}),
 		log: cliLogger(),
 	})
+	// One `skill` tool for file and plugin skills alike, told which directory
+	// the model can open for each: the real one on the host, the mounted one
+	// inside the sandbox, none when the sandbox does not mount it.
+	const skillTool = createSkillTool({
+		resolveModelDirectory: createSkillDirectoryResolver({
+			sandboxMounts: () => (sandboxWorkspace === 'working-directory' ? directories : []),
+		}),
+	})
 	// A session that can save a skill loads it next turn through this tool,
 	// even when it started with none.
 	if (
 		(skillCatalog.hasFileSkills || registry.has(SAVE_SKILL_TOOL_NAME)) &&
-		!registry.has(SkillTool.name)
+		!registry.has(skillTool.name)
 	)
-		registry.register(SkillTool)
+		registry.register(skillTool)
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd, options.hooks)
+		pluginRuntime = await createCliPluginRuntime(
+			options.plugins,
+			registry,
+			cwd,
+			options.hooks,
+			skillTool,
+		)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(describeError(error))

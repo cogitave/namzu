@@ -7,7 +7,13 @@ export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './lsp.js'
 export { GrepTool } from './grep.js'
 export { JobTool } from './job.js'
 export { WaitForJobTool } from './wait-for-job.js'
-export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './skill.js'
+export { SKILL_TOOL_NAME, SkillTool, createSkillTool, parseAllowedTools } from './skill.js'
+export type {
+	SkillDirectoryContext,
+	SkillDirectoryRequest,
+	SkillDirectoryResolver,
+	SkillToolOptions,
+} from './skill.js'
 export {
 	WEB_FETCH_TOOL_NAME,
 	WEB_SEARCH_TOOL_NAME,
