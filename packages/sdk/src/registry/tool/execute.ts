@@ -20,6 +20,7 @@ import type {
 import { toErrorMessage } from '../../utils/error.js'
 import { cloneJsonValue as clonePreparedInput } from '../../utils/json-snapshot.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
+import { callableToolNames, formatToolNames } from './callable.js'
 import { renderToolSchema, toolWireSchema } from './schema.js'
 import { ToolResultHalted, screenToolResult } from './screen.js'
 
@@ -636,9 +637,15 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				// that may call nothing, and treating it as "no restriction" is
 				// the fail-open reading this codebase has already been bitten by
 				// once, in the delegate roster.
+				//
+				// What it says is available is what would run, not the list
+				// itself: the list was taken when the request was built, and a
+				// name on it may since have been unregistered, or be deferred or
+				// suspended. Echoing it sent a model to a name that was then
+				// answered "unknown tool". See `callableToolNames`.
 				const allowed = context.allowedTools
 				if (allowed !== undefined && !allowed.includes(toolName)) {
-					const msg = `Tool "${toolName}" is not available on this step. Available: ${allowed.length > 0 ? allowed.join(', ') : '(none)'}`
+					const msg = `Tool "${toolName}" is not available on this step. Available: ${formatToolNames(callableToolNames(this, allowed))}`
 					this.log.warn('Blocked a tool outside the step allow-list', {
 						[GENAI.TOOL_NAME]: toolName,
 						'namzu.registry.allowed': allowed.length,
