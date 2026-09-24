@@ -108,6 +108,64 @@ describe('jobs', () => {
 		expect(job.runKind).toBeUndefined()
 		expect(readJob(sb.paths, job.id)?.runKind).toBeUndefined()
 	})
+
+	// A UX review found `createJob`'s uniqueness check and `findJob` both
+	// worked only from `listJobs`'s successfully PARSED jobs, so a job file
+	// `readVersioned` could not fully parse (written by a newer namzu, or
+	// hand-corrupted) was invisible to both: a name collision with it went
+	// undetected, and looking it up by its own name or id said "No scheduled
+	// job is named…" instead of the real reason it could not be read.
+	describe('a job file that cannot be fully read', () => {
+		function writeUnreadable(id: string, name: string): string {
+			const path = join(sb.paths.jobs, `${id}.json`)
+			writeFileSync(path, JSON.stringify({ v: 99, kind: 'schedule-job', id, name }))
+			return path
+		}
+
+		it('createJob refuses a name a readable job does not have, but an unreadable one does', () => {
+			confirmedJob(sb) // ensures paths.jobs exists
+			writeUnreadable('11111111-0000-0000-0000-000000000000', 'nightly-future')
+			expect(() => confirmedJob(sb, { name: 'nightly-future' })).toThrow(
+				/nightly-future.*already exists.*could not be fully read/is,
+			)
+		})
+
+		it('findJob by the exact name of an unreadable job reports the real reason, not "not found"', () => {
+			confirmedJob(sb)
+			writeUnreadable('22222222-0000-0000-0000-000000000000', 'from-the-future')
+			expect(() => findJob(sb.paths, 'from-the-future')).toThrow(
+				/from-the-future.*could not be fully read.*written by a newer namzu/is,
+			)
+		})
+
+		it('findJob by an id prefix only an unreadable job has reports the real reason', () => {
+			confirmedJob(sb)
+			const id = '33333333-0000-0000-0000-000000000000'
+			writeUnreadable(id, 'from-the-future-2')
+			expect(() => findJob(sb.paths, id.slice(0, 8))).toThrow(/could not be fully read/)
+		})
+
+		it('a name matching a readable and an unreadable job is an error naming both ids and how to address each', () => {
+			const job = confirmedJob(sb, { name: 'clashing' })
+			writeUnreadable('44444444-0000-0000-0000-000000000000', 'clashing')
+			expect(() => findJob(sb.paths, 'clashing')).toThrow(
+				new RegExp(`matches 2 jobs.*${job.id}.*44444444-0000.*could not be fully read`, 'is'),
+			)
+		})
+
+		it('list reports how many job files could not be read, not "No scheduled jobs", when none can be', async () => {
+			const { listCommand } = await import('../commands/list.js')
+			const { recordingContext } = await import('./fixtures.js')
+			mkdirSync(sb.paths.jobs, { recursive: true })
+			writeUnreadable('55555555-0000-0000-0000-000000000000', 'unreadable-1')
+			writeUnreadable('66666666-0000-0000-0000-000000000000', 'unreadable-2')
+			const ctx = recordingContext()
+			expect(await listCommand(ctx, ['--home', sb.home])).toBe(0)
+			const printed = ctx.out.printed.join('\n')
+			expect(printed).toMatch(/2 job files? could not be read/)
+			expect(printed).not.toMatch(/No scheduled jobs/)
+		})
+	})
 })
 
 describe('claims and history', () => {

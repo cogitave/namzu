@@ -16,7 +16,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readdirSync, rmSync, statSync, unlinkSync } from 'node:fs'
+import { readFileSync, readdirSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SchedulePaths } from '../paths.js'
 import { SCHEDULE_FORMAT_VERSION, type ScheduleJob, jobFormatVersion } from '../types.js'
@@ -107,8 +107,32 @@ export function readJob(paths: SchedulePaths, id: string): ScheduleJob | undefin
 
 export interface JobListing {
 	readonly jobs: ScheduleJob[]
-	/** Files that could not be read, with why. Never silently dropped. */
-	readonly errors: { readonly path: string; readonly message: string }[]
+	/**
+	 * Files that could not be read, with why. Never silently dropped. `id`/
+	 * `name` are filled in when the raw JSON has them as strings — read
+	 * leniently, without validating anything else about the file — so a job
+	 * `readVersioned` refused (a newer namzu's format, a hand-broken file)
+	 * is still nameable: `createJob`'s uniqueness check and `findJob` see it.
+	 */
+	readonly errors: {
+		readonly path: string
+		readonly message: string
+		readonly id?: string
+		readonly name?: string
+	}[]
+}
+
+/** `id`/`name` read straight off the raw JSON, ignoring everything else — for a file the real reader refused. */
+function identifyLeniently(path: string): { id?: string; name?: string } {
+	try {
+		const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+		return {
+			...(typeof raw.id === 'string' ? { id: raw.id } : {}),
+			...(typeof raw.name === 'string' ? { name: raw.name } : {}),
+		}
+	} catch {
+		return {}
+	}
 }
 
 export function listJobs(paths: SchedulePaths): JobListing {
@@ -130,27 +154,62 @@ export function listJobs(paths: SchedulePaths): JobListing {
 			errors.push({
 				path,
 				message: error instanceof ScheduleFormatError ? error.message : String(error),
+				...identifyLeniently(path),
 			})
 		}
 	}
 	return { jobs: jobs.sort((a, b) => a.name.localeCompare(b.name)), errors }
 }
 
+/** How to tell one of several same-named or same-prefixed READABLE jobs from the rest. */
+function addressReadable(job: ScheduleJob): string {
+	return `${job.name} (id ${job.id}) — address it with the full id ${job.id} if its name ever collides again`
+}
+
+/** How to tell one of several same-named or same-prefixed UNREADABLE jobs from the rest. */
+function addressUnreadable(job: JobListing['errors'][number]): string {
+	return `id ${job.id ?? '(unknown, not recorded in the file)'} — its file could not be fully read (${job.message}); address it with the full id once it can be, or fix/remove the file`
+}
+
 /** A job by exact name or by an unambiguous id prefix (four characters at least). */
 export function findJob(paths: SchedulePaths, ref: string): ScheduleJob {
-	const { jobs } = listJobs(paths)
-	const byName = jobs.find((j) => j.name === ref)
-	if (byName) return byName
+	const { jobs, errors } = listJobs(paths)
+	const byName = jobs.filter((j) => j.name === ref)
+	const unreadableByName = errors.filter((e) => e.name === ref)
+	if (byName.length + unreadableByName.length > 1) {
+		throw ambiguity(ref, byName, unreadableByName)
+	}
+	if (byName.length === 1) return byName[0] as ScheduleJob
+	if (unreadableByName.length === 1) {
+		const only = unreadableByName[0] as NonNullable<(typeof unreadableByName)[number]>
+		throw new Error(`"${ref}" exists but its file could not be fully read: ${only.message}`)
+	}
 	if (ref.length >= 4) {
-		const matches = jobs.filter((j) => j.id.startsWith(ref.toLowerCase()))
-		if (matches.length === 1) return matches[0] as ScheduleJob
-		if (matches.length > 1) {
+		const lower = ref.toLowerCase()
+		const byId = jobs.filter((j) => j.id.startsWith(lower))
+		const unreadableById = errors.filter((e) => e.id?.toLowerCase().startsWith(lower))
+		if (byId.length + unreadableById.length > 1) {
+			throw ambiguity(ref, byId, unreadableById)
+		}
+		if (byId.length === 1) return byId[0] as ScheduleJob
+		if (unreadableById.length === 1) {
+			const only = unreadableById[0] as NonNullable<(typeof unreadableById)[number]>
 			throw new Error(
-				`"${ref}" matches ${matches.length} jobs (${matches.map((j) => j.name).join(', ')}); use the name.`,
+				`"${ref}" matches a job whose file could not be fully read (id ${only.id}): ${only.message}`,
 			)
 		}
 	}
 	throw new ScheduleJobNotFoundError(ref)
+}
+
+function ambiguity(
+	ref: string,
+	readable: readonly ScheduleJob[],
+	unreadable: readonly JobListing['errors'][number][],
+): Error {
+	const total = readable.length + unreadable.length
+	const parts = [...readable.map(addressReadable), ...unreadable.map(addressUnreadable)]
+	return new Error(`"${ref}" matches ${total} jobs: ${parts.join('; ')}.`)
 }
 
 function markerDir(paths: SchedulePaths, id: string): string {
@@ -202,9 +261,18 @@ export function createJob(paths: SchedulePaths, job: ScheduleJob): ScheduleJob {
 			`"${job.name}" is not a job name: lowercase letters, digits and dashes, starting with a letter or digit.`,
 		)
 	}
-	const { jobs } = listJobs(paths)
+	const { jobs, errors } = listJobs(paths)
 	if (jobs.some((j) => j.name === job.name)) {
 		throw new Error(`A job named "${job.name}" already exists.`)
+	}
+	// A file `readVersioned` could not fully parse is still a real job with
+	// this name as far as uniqueness goes — leniently read, so it is not
+	// invisible to this check just because the real reader refused it.
+	const unreadable = errors.find((e) => e.name === job.name)
+	if (unreadable) {
+		throw new Error(
+			`A job named "${job.name}" already exists, in a file that could not be fully read (${unreadable.message}); rename this one, or fix/remove ${unreadable.path} first.`,
+		)
 	}
 	ensureDir(paths.jobs)
 	claimRevision(paths, job.id, 0)

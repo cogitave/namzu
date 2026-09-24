@@ -100,8 +100,13 @@ export async function listCommand(ctx: CommandContext, argv: readonly string[]):
 		return EXIT_OK
 	}
 	if (rows.length === 0) {
+		// "No scheduled jobs" is only true when there is nothing at all;
+		// `errors` above already said why each such file could not be read,
+		// so this line says there is something, not nothing, to look at.
 		ctx.formatter.print(
-			'No scheduled jobs. Create one with `namzu schedule add`, or /schedule in the TUI.',
+			errors.length > 0
+				? `${errors.length} job file${errors.length === 1 ? '' : 's'} could not be read; see above.`
+				: 'No scheduled jobs. Create one with `namzu schedule add`, or /schedule in the TUI.',
 		)
 		return EXIT_OK
 	}
