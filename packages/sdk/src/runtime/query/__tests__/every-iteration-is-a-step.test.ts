@@ -22,15 +22,16 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { SessionEvent } from '../../../types/session/index.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
-function registerEcho(tools: ToolRegistry): void {
-	tools.register({
+function registerEcho(tools: ToolDefinition[]): void {
+	tools.push({
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({}),
@@ -40,13 +41,13 @@ function registerEcho(tools: ToolRegistry): void {
 
 function baseParams(
 	provider: MockLLMProvider,
-	tools: ToolRegistry,
+	tools: ToolDefinition[],
 	workingDirectory: string,
 	maxIterations = 4,
 ) {
 	return {
 		provider,
-		tools,
+		toolsets: [testToolset(...tools)],
 		turnConfig: {
 			model: 'run-model',
 			timeoutMs: 5_000,
@@ -96,7 +97,7 @@ describe('every iteration leaves a step', () => {
 				},
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -121,7 +122,7 @@ describe('every iteration leaves a step', () => {
 				{ text: 'done' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 		const events: SessionEvent[] = []
 
@@ -152,7 +153,7 @@ describe('every iteration leaves a step', () => {
 				{ text: 'the final answer' },
 			],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 
 		const run = await drainQuery({
@@ -174,7 +175,7 @@ describe('every iteration leaves a step', () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'just an answer' }] })
 
 		const run = await drainQuery({
-			...baseParams(provider, new ToolRegistry(), await mkWorkdir(), 2),
+			...baseParams(provider, [], await mkWorkdir(), 2),
 			messages: [createUserMessage('hello')],
 		})
 
@@ -189,7 +190,7 @@ describe('every iteration leaves a step', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ id: 'c1', name: 'echo', rawArguments: '{}' }] }, { text: 'done' }],
 		})
-		const tools = new ToolRegistry()
+		const tools: ToolDefinition[] = []
 		registerEcho(tools)
 		const seen: number[] = []
 
@@ -233,7 +234,7 @@ describe('an iteration that loops back is still a step', () => {
 		let asked = 0
 
 		const run = await drainQuery({
-			...baseParams(provider, new ToolRegistry(), dir),
+			...baseParams(provider, [], dir),
 			// Rejected once, then accepted. Both turns are iterations; neither
 			// called a tool.
 			reviewAnswer: async () => {

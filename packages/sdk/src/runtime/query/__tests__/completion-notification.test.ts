@@ -7,8 +7,8 @@ import { z } from 'zod'
 import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
@@ -176,13 +176,12 @@ async function runWith(inbox: CompletionInbox | undefined): Promise<{
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-completion-'))
 	workdirs.push(workingDirectory)
 
-	const tools = new ToolRegistry()
-	tools.register(noop)
+	const tools = testToolset(noop)
 
 	const provider = new ToolThenAnswerProvider()
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		...(inbox ? { completionInbox: inbox } : {}),
 		agentId: 'agent_test',
 		agentName: 'Test Agent',
@@ -355,12 +354,11 @@ describe('a turn that ends some other way still hands over what finished', () =>
 			},
 		})
 
-		const tools = new ToolRegistry()
-		tools.register(finisher)
+		const tools = testToolset(finisher)
 
 		const run = await drainQuery({
 			provider: new CallsFinisherProvider(),
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',
@@ -411,8 +409,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		workdirs.push(workingDirectory)
 		const inbox = new CompletionInbox()
 		inbox.expect('tsk_still_running' as TaskId)
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'finisher',
 				description: 'the worker remains active after this tool returns',
@@ -431,7 +428,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		try {
 			const run = await drainQuery({
 				provider,
-				tools,
+				toolsets: [tools],
 				completionInbox: inbox,
 				signal: caller.signal,
 				stopWhen: () => true,
@@ -494,8 +491,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		// over, so only a hold can produce this result.
 		inbox.expect('tsk_slow' as TaskId)
 
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'finisher',
 				description: 'the worker is still going when this returns',
@@ -515,7 +511,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		const provider = new CallsFinisherProvider()
 		const run = await drainQuery({
 			provider,
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',
@@ -581,8 +577,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		)
 		inbox.expect('tsk_slow' as TaskId)
 
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'finisher',
 				description: 'launches, then does nothing',
@@ -632,7 +627,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		let asked = 0
 		const run = await drainQuery({
 			provider: new ToolToolProse(),
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',
@@ -671,8 +666,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 		// Launched, never settles, and the terminal tool ends the turn over it.
 		inbox.expect('tsk_still_running' as TaskId)
 
-		const tools = new ToolRegistry()
-		tools.register(
+		const tools = testToolset(
 			defineTool({
 				name: 'finisher',
 				description: 'ends the turn',
@@ -691,7 +685,7 @@ describe('a turn that ends some other way still hands over what finished', () =>
 
 		const run = await drainQuery({
 			provider: new CallsFinisherProvider(),
-			tools,
+			toolsets: [tools],
 			completionInbox: inbox,
 			agentId: 'agent_test',
 			agentName: 'Test Agent',
