@@ -65,6 +65,7 @@
  */
 
 import { RUNTIME_EVALUATORS } from './command-line.js'
+import { skipOneReexecWrapper } from './reexec-wrapper.js'
 import {
 	NESTED_SHELLS,
 	type ShellCommand,
@@ -120,29 +121,6 @@ function poisonedByWrapperAssignment(wrapper: string, name: string): string {
 }
 
 /**
- * Skip `NAME=value` words `wrapper` (`sudo`, after its own options) reads as
- * environment for the command it runs, stopping at the first word that
- * is not one. A poisoning name (`PATH`, `LD_PRELOAD`, …) among them makes
- * the position unknown outright, the same as {@link poisonedProgramPosition}
- * — resolution does not continue past it, since nothing after can be
- * trusted once the environment it resolves against is not.
- */
-function skipWrapperAssignments(wrapper: string, words: readonly ShellWord[]): Consumed {
-	let i = 0
-	while (i < words.length) {
-		const w = words[i] as ShellWord
-		if (!LITERAL(w)) return { rest: words.slice(i) }
-		const name = assignmentName(w)
-		if (name === null) return { rest: words.slice(i) }
-		if (DYNAMIC_RESOLUTION_VARIABLES.has(name)) {
-			return { unknown: poisonedByWrapperAssignment(wrapper, name) }
-		}
-		i += 1
-	}
-	return { none: true }
-}
-
-/**
  * Scan `words` for a bare `-c`/`--command COMMAND` pair among options this
  * wrapper recognises (everything else validated against `flags`/`withArg`,
  * the same as {@link skipOptions}). `--command=X` is not modelled — a
@@ -156,6 +134,7 @@ function findDashC(
 	words: readonly ShellWord[],
 	flags: ReadonlySet<string>,
 	withArg: ReadonlySet<string>,
+	optionalAttached: readonly string[] = [],
 ): WithDashC | { readonly rest: readonly ShellWord[] } | { readonly unknown: string } {
 	let i = 0
 	while (i < words.length) {
@@ -168,6 +147,16 @@ function findDashC(
 		}
 		if (w.value === '--') return { rest: words.slice(i + 1) }
 		if (flags.has(w.value)) {
+			i += 1
+			continue
+		}
+		if (
+			optionalAttached.some((option) =>
+				option.startsWith('--')
+					? w.value.startsWith(`${option}=`)
+					: w.value.startsWith(option) && w.value.length > option.length,
+			)
+		) {
 			i += 1
 			continue
 		}
@@ -241,39 +230,6 @@ function skipOptions(
 	return { none: true }
 }
 
-/** `env [-i] [-0] [-u NAME]… [-C dir] [NAME=value]… [program [args]]`. */
-function unwrapEnv(words: readonly ShellWord[]): Consumed {
-	let i = 0
-	for (;;) {
-		const w = words[i]
-		if (w === undefined) return { none: true }
-		if (!LITERAL(w)) return { rest: words.slice(i) }
-		if (w.value === '--') return { rest: words.slice(i + 1) }
-		if (w.value === '-i' || w.value === '-0' || w.value === '--ignore-environment') {
-			i += 1
-			continue
-		}
-		if (w.value === '-u' || w.value === '-C' || w.value === '--unset' || w.value === '--chdir') {
-			i += 2
-			continue
-		}
-		if (/^--(?:unset|chdir)=/.test(w.value)) {
-			i += 1
-			continue
-		}
-		const name = assignmentName(w)
-		if (name !== null) {
-			if (DYNAMIC_RESOLUTION_VARIABLES.has(name)) {
-				return { unknown: poisonedByWrapperAssignment('env', name) }
-			}
-			i += 1
-			continue
-		}
-		if (/^--?[A-Za-z]/.test(w.value)) return { unknown: `an option this does not read: ${w.value}` }
-		return { rest: words.slice(i) }
-	}
-}
-
 /** `xargs`' own options, then its program (the first non-option word, `echo` when there is none). */
 function unwrapXargs(words: readonly ShellWord[]): Consumed {
 	const flags = new Set(['-0', '-o', '-p', '-r', '-t', '-x', '--null', '--open-tty', '--verbose'])
@@ -298,48 +254,16 @@ function unwrapXargs(words: readonly ShellWord[]): Consumed {
 }
 
 /**
- * One level of a re-exec wrapper's own name and options, or `null` when
- * `words[0]` does not name one this reads. `words` is already known
- * literal and non-empty by the caller.
+ * Special command runners. Plain re-exec wrappers are all read by the
+ * shared skipOneReexecWrapper, also used by the shell lexer to find -c.
  */
 function unwrapOnce(words: readonly ShellWord[]): Consumed | WithDashC | null {
 	const head = words[0] as ShellWord
 	const name = basename(head.value)
 	const rest = words.slice(1)
 	switch (name) {
-		case 'env':
-			return unwrapEnv(rest)
 		case 'xargs':
 			return unwrapXargs(rest)
-		case 'sudo': {
-			const skipped = skipOptions(
-				rest,
-				new Set(['-A', '-b', '-E', '-H', '-k', '-K', '-n', '-P', '-S', '-v']),
-				new Set(['-g', '-h', '-p', '-u', '-U', '--group', '--host', '--user']),
-				new Map([
-					['-i', 'sudo -i runs a runtime-chosen login shell, not a named program'],
-					['--login', 'sudo --login runs a runtime-chosen login shell, not a named program'],
-					['-s', 'sudo -s runs a runtime-chosen shell, not a named program'],
-					['--shell', 'sudo --shell runs a runtime-chosen shell, not a named program'],
-					['-e', 'sudo -e (sudoedit) opens a runtime-chosen editor, not a named program'],
-					['--edit', 'sudo --edit (sudoedit) opens a runtime-chosen editor, not a named program'],
-				]),
-			)
-			if ('unknown' in skipped) return skipped
-			// A `sudo NAME=value…` pair sets an environment variable for the
-			// sudo'd command only, same as `env`'s — never itself the program.
-			return skipWrapperAssignments('sudo', 'none' in skipped ? [] : skipped.rest)
-		}
-		case 'sudoedit':
-			// `sudo -e`'s own command name: always opens an editor, never a
-			// named program, whatever its arguments are.
-			return { unknown: 'sudoedit always opens a runtime-chosen editor, not a named program' }
-		case 'busybox':
-		case 'toybox':
-			// A multi-call binary: the next word names the applet to run
-			// (`busybox ls -la` runs busybox's own `ls`), read transparently
-			// the same way `builtin` is.
-			return { rest }
 		case 'su':
 		case 'runuser': {
 			const found = findDashC(
@@ -366,16 +290,60 @@ function unwrapOnce(words: readonly ShellWord[]): Consumed | WithDashC | null {
 			}
 		}
 		case 'script': {
-			const found = findDashC(
-				rest,
-				new Set(['-a', '--append', '-q', '--quiet', '-f', '--flush', '-e', '--return']),
-				new Set(['-t', '--timing', '-O', '--log-out', '-I', '--log-in', '-B', '--log-io']),
-			)
+			// Per util-linux `script --help`: `-t[<file>], --timing[=<file>]`
+			// is a DEPRECATED ALIAS for `-T`/`--log-timing` with an OPTIONAL
+			// value (default file is stderr when bare) — it never consumes a
+			// separate following word, unlike the real `-T <file>`. Modelling
+			// `-t` as taking one used to swallow a following `-c` as `-t`'s own
+			// value, reading `script` as known and never looking at `-c`'s
+			// argument at all.
+			const flags = new Set([
+				'-a',
+				'--append',
+				'-e',
+				'--return',
+				'-f',
+				'--flush',
+				'--force',
+				'-q',
+				'--quiet',
+				'-t',
+				'--timing',
+			])
+			const withArg = new Set([
+				'-I',
+				'--log-in',
+				'-O',
+				'--log-out',
+				'-B',
+				'--log-io',
+				'-T',
+				'--log-timing',
+				'-m',
+				'--logging-format',
+				'-E',
+				'--echo',
+				'-o',
+				'--output-limit',
+			])
+			// `script [options] [<file>] [-- <command> [<argument>...]]`: `--`
+			// is an alternative to `-c`, running the command directly as an
+			// argv (not a joined string re-lexed through a shell) rather than
+			// recording an interactive session.
+			const dashDash = rest.findIndex((w) => LITERAL(w) && w.value === '--')
+			if (dashDash >= 0) {
+				const before = skipOptions(rest.slice(0, dashDash), flags, withArg)
+				if ('unknown' in before) return before
+				const after = rest.slice(dashDash + 1)
+				return after.length === 0 ? { none: true } : { rest: after }
+			}
+			const found = findDashC(rest, flags, withArg, ['-t', '--timing'])
 			if ('unknown' in found) return found
 			if ('payload' in found) return found
-			// No `-c`: `script` itself is the program — it records a terminal
-			// session (an interactive shell as its own child), and its only
-			// other argument is a log file name, not a command to name.
+			// No `-c` and no `--`: `script` itself is the program — it
+			// records a terminal session (an interactive shell as its own
+			// child), and its only other argument is a log file name, not a
+			// command to name.
 			return { none: true }
 		}
 		case 'flock': {
@@ -409,271 +377,6 @@ function unwrapOnce(words: readonly ShellWord[]): Consumed | WithDashC | null {
 			const remaining = found.rest.slice(1)
 			return remaining.length === 0 ? { none: true } : { rest: remaining }
 		}
-		case 'chroot': {
-			const skipped = skipOptions(
-				rest,
-				new Set(['--skip-chdir']),
-				new Set(['--groups', '--userspec']),
-			)
-			if ('unknown' in skipped) return skipped
-			const afterOptions = 'none' in skipped ? [] : skipped.rest
-			// The first positional word is the new root directory, not a
-			// program; without a command after it, chroot runs an
-			// interactive shell, the same open case as `su`/`runuser`.
-			const newroot = afterOptions[0]
-			if (newroot === undefined) return { none: true }
-			const remaining = afterOptions.slice(1)
-			return remaining.length === 0
-				? { unknown: 'chroot without a command runs an interactive shell, not a named program' }
-				: { rest: remaining }
-		}
-		case 'unshare':
-			return skipOptions(
-				rest,
-				new Set([
-					'-i',
-					'--ipc',
-					'-m',
-					'--mount',
-					'-n',
-					'--net',
-					'-p',
-					'--pid',
-					'-u',
-					'--uts',
-					'-U',
-					'--user',
-					'-C',
-					'--cgroup',
-					'-T',
-					'--time',
-					'-f',
-					'--fork',
-					'-r',
-					'--map-root-user',
-					'-c',
-					'--map-current-user',
-					'--mount-proc',
-				]),
-				new Set([
-					'-R',
-					'--root',
-					'-w',
-					'--wd',
-					'-S',
-					'--setuid',
-					'-G',
-					'--setgid',
-					'-s',
-					'--setgroups',
-					'--propagation',
-				]),
-			)
-		case 'nsenter':
-			return skipOptions(
-				rest,
-				new Set([
-					'-m',
-					'--mount',
-					'-u',
-					'--uts',
-					'-i',
-					'--ipc',
-					'-n',
-					'--net',
-					'-p',
-					'--pid',
-					'-C',
-					'--cgroup',
-					'-U',
-					'--user',
-					'-T',
-					'--time',
-					'--preserve-credentials',
-					'-r',
-					'--root',
-					'-w',
-					'--wd',
-					'-F',
-					'--no-fork',
-					'-Z',
-					'--follow-context',
-				]),
-				new Set(['-t', '--target', '-S', '--setuid', '-G', '--setgid']),
-			)
-		case 'setpriv':
-			return skipOptions(
-				rest,
-				new Set([
-					'--clear-groups',
-					'--keep-groups',
-					'--no-new-privs',
-					'--reset-env',
-					'-d',
-					'--dump',
-				]),
-				new Set([
-					'--inh-caps',
-					'--ambient-caps',
-					'--bounding-set',
-					'--groups',
-					'--pdeathsig',
-					'--securebits',
-					'--reuid',
-					'--ruid',
-					'--regid',
-					'--rgid',
-					'--selinux-label',
-					'--apparmor-profile',
-				]),
-			)
-		case 'prlimit': {
-			// `-p pid` acts on an already-running process; no command follows.
-			if (rest.some((w) => LITERAL(w) && (w.value === '-p' || w.value === '--pid')))
-				return { none: true }
-			// Each `--resource` takes an OPTIONAL value (`--nofile` alone
-			// queries; `--nofile=soft:hard` sets) — recognised bare (`flags`)
-			// and with `=value` (`withArg`, matched through `skipOptions`'s
-			// generic `--opt=value` handling).
-			const resources = [
-				'--as',
-				'--core',
-				'--cpu',
-				'--data',
-				'--fsize',
-				'--locks',
-				'--memlock',
-				'--msgqueue',
-				'--nice',
-				'--nofile',
-				'--nproc',
-				'--rss',
-				'--rtprio',
-				'--rttime',
-				'--sigpending',
-				'--stack',
-			]
-			return skipOptions(
-				rest,
-				new Set(['--noheadings', '--raw', '--verbose', ...resources]),
-				new Set(['-o', '--output', ...resources]),
-			)
-		}
-		case 'numactl': {
-			// `--show`/`--hardware` report and run no command.
-			if (
-				rest.some(
-					(w) =>
-						LITERAL(w) &&
-						(w.value === '--show' ||
-							w.value === '--hardware' ||
-							w.value === '-s' ||
-							w.value === '-H'),
-				)
-			) {
-				return { none: true }
-			}
-			return skipOptions(
-				rest,
-				new Set(['--localalloc', '-l']),
-				new Set(['--interleave', '--membind', '--cpunodebind', '--physcpubind', '--preferred']),
-			)
-		}
-		case 'doas':
-			return skipOptions(rest, new Set(['-n']), new Set(['-C', '-u']))
-		case 'pkexec':
-			return skipOptions(rest, new Set(['--disable-internal-agent']), new Set(['--user']))
-		case 'nice': {
-			const first = rest[0]
-			if (first !== undefined && LITERAL(first) && /^-\d+$/.test(first.value)) {
-				return { rest: rest.slice(1) }
-			}
-			return skipOptions(rest, new Set([]), new Set(['-n', '--adjustment']))
-		}
-		case 'ionice': {
-			const skipped = skipOptions(rest, new Set(['-t']), new Set(['-c', '-n']))
-			// `-p` operates on an existing process; no program follows.
-			if (rest.some((w) => LITERAL(w) && w.value === '-p')) return { none: true }
-			return skipped
-		}
-		case 'nohup':
-			return skipOptions(rest, new Set([]), new Set([]))
-		case 'setsid':
-			return skipOptions(rest, new Set(['-w', '-c', '-f']), new Set([]))
-		case 'timeout': {
-			const skipped = skipOptions(
-				rest,
-				new Set(['--preserve-status', '--foreground', '-v', '--verbose']),
-				new Set(['-s', '-k', '--signal', '--kill-after']),
-			)
-			if ('rest' in skipped) {
-				// The duration is mandatory and not itself a program position.
-				const duration = skipped.rest[0]
-				if (duration === undefined) return { none: true }
-				return { rest: skipped.rest.slice(1) }
-			}
-			return skipped
-		}
-		case 'stdbuf':
-			return skipOptions(
-				rest,
-				new Set([]),
-				new Set(['-i', '-o', '-e', '--input', '--output', '--error']),
-			)
-		case 'chrt': {
-			if (rest.some((w) => LITERAL(w) && (w.value === '-p' || w.value === '-m')))
-				return { none: true }
-			const skipped = skipOptions(
-				rest,
-				new Set(['-b', '-d', '-f', '-i', '-o', '-r', '-a', '-v', '--all-tasks', '--verbose']),
-				new Set([]),
-			)
-			if ('rest' in skipped) {
-				const priority = skipped.rest[0]
-				if (priority === undefined) return { none: true }
-				return { rest: skipped.rest.slice(1) }
-			}
-			return skipped
-		}
-		case 'taskset': {
-			if (rest.some((w) => LITERAL(w) && w.value === '-p')) return { none: true }
-			const skipped = skipOptions(
-				rest,
-				new Set(['-a', '--all-tasks']),
-				new Set(['-c', '--cpu-list']),
-			)
-			if ('rest' in skipped) {
-				const usedCpuList = rest.some(
-					(w) =>
-						LITERAL(w) &&
-						(w.value === '-c' ||
-							w.value === '--cpu-list' ||
-							w.value.startsWith('--cpu-list=') ||
-							(w.value.startsWith('-c') && !w.value.startsWith('--') && w.value.length > 2)),
-				)
-				if (usedCpuList) return skipped
-				// No `-c`: a plain affinity mask is the next (non-program) word.
-				const mask = skipped.rest[0]
-				if (mask === undefined) return { none: true }
-				return { rest: skipped.rest.slice(1) }
-			}
-			return skipped
-		}
-		case 'time':
-			// bash's reserved-word `time` never reaches here (stripped before
-			// the word array); this is `/usr/bin/time` or similar.
-			return skipOptions(rest, new Set(['-p', '--portability']), new Set([]))
-		case 'command': {
-			if (rest.some((w) => LITERAL(w) && (w.value === '-v' || w.value === '-V'))) {
-				// A query mode: reports on the name, does not execute it.
-				return { none: true }
-			}
-			return skipOptions(rest, new Set(['-p']), new Set([]))
-		}
-		case 'builtin':
-			return { rest }
-		case 'exec':
-			return skipOptions(rest, new Set(['-c', '-l']), new Set(['-a']))
 		default:
 			return null
 	}
@@ -751,6 +454,19 @@ function resolveChain(
 			// literal `eval` reads its payload rather than being the position
 			// itself.
 			return [resolveSourceOrDot(head, current.slice(1))]
+		}
+		const wrapper = skipOneReexecWrapper(current)
+		if (wrapper !== null) {
+			if ('unknown' in wrapper) return [{ unknown: wrapper.unknown }]
+			if ('none' in wrapper) return [{ word: head }]
+			for (const assignment of wrapper.assignments) {
+				if (DYNAMIC_RESOLUTION_VARIABLES.has(assignment)) {
+					return [{ unknown: poisonedByWrapperAssignment(name, assignment) }]
+				}
+			}
+			if (wrapper.rest.length === 0) return [{ word: head }]
+			current = wrapper.rest
+			continue
 		}
 		const unwrapped = unwrapOnce(current)
 		if (unwrapped === null) return [{ word: head }]

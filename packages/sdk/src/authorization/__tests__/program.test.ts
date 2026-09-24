@@ -89,9 +89,15 @@ describe('a final review of program.ts: assignments through a wrapper, applet di
 	it('an opaque or incomplete reading is itself unknown, not just its resolved positions', () => {
 		expect(isUnknown('bash -c "$X"')).toBe(true)
 		expect(isUnknown('sh -c "$X"')).toBe(true)
+		expect(isUnknown('env -i bash -c "$X"')).toBe(true)
+		expect(isUnknown('nice -n 5 sh -ec "$X"')).toBe(true)
+		expect(isUnknown('toybox sh -c "$X"')).toBe(true)
+		expect(isUnknown('sudo env -i busybox ash -lc "$X"')).toBe(true)
 		// Sanity: a LITERAL bash -c payload is still read fine (the lexer
 		// splits it into its own nested command), not opaque.
 		expect(isUnknown('bash -c "echo hi"')).toBe(false)
+		expect(isUnknown('env -i bash -c "echo hi"')).toBe(false)
+		expect(isUnknown('toybox sh -c "echo hi"')).toBe(false)
 	})
 
 	it('busybox/toybox applet dispatch is transparent, the same as builtin', () => {
@@ -140,6 +146,17 @@ describe('a final review of program.ts: assignments through a wrapper, applet di
 		it('script without -c is known: it records a session, its own argument is a log file, not a command', () => {
 			expect(isUnknown('script session.log')).toBe(false)
 			expect(isUnknown('script')).toBe(false)
+		})
+
+		it('script timing options do not swallow -c, and -T consumes its required value', () => {
+			expect(isUnknown('script -t -c "$X" -a /dev/null')).toBe(true)
+			expect(isUnknown('script --timing -c "$X" -a /dev/null')).toBe(true)
+			expect(isUnknown('script -T timing.log -c "$X" -a /dev/null')).toBe(true)
+			expect(isUnknown('script -ttiming.log -c "$X" -a /dev/null')).toBe(true)
+			expect(isUnknown('script --timing=timing.log -c "$X" -a /dev/null')).toBe(true)
+			expect(isUnknown('script -t -c "echo hi" -a /dev/null')).toBe(false)
+			expect(isUnknown('script -T timing.log -c "echo hi" -a /dev/null')).toBe(false)
+			expect(isUnknown('script --timing=timing.log -c "echo hi" -a /dev/null')).toBe(false)
 		})
 	})
 

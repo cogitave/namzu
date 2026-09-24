@@ -75,6 +75,25 @@ describe('the permission-model fix: no allow rule is needed', () => {
 	})
 })
 
+describe('nested shells behind command wrappers', () => {
+	it.each([
+		'env -i bash -c "$X"',
+		'nice -n 5 sh -ec "$X"',
+		'toybox sh -c "$X"',
+		'script -t -c "$X" -a /dev/null',
+		'script -T timing.log -c "$X" -a /dev/null',
+	])('refuses an unreadable command in %s', (body) => {
+		expect(ok(body)).toBe(false)
+	})
+
+	it.each(['env -i bash -c "namzu schedule stop"', 'toybox sh -c "namzu schedule stop"'])(
+		'applies the floor to a literal command in %s',
+		(body) => {
+			expect(ok(body)).toBe(false)
+		},
+	)
+})
+
 describe('deny rules, per lexed command', () => {
 	it('refuses the exact command a deny rule matches, naming it', () => {
 		const policy = policyFor({ rules: { bash: { 'curl*': 'deny' } } })

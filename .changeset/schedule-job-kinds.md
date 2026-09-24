@@ -7,6 +7,7 @@ A scheduled job can now be a fixed shell script instead of a model prompt, or a 
 
 **`@namzu/sdk` (major)**
 
+- **Security fix:** a recognised wrapper such as `env`, `nice`, `sudo`, `busybox` or `toybox` can no longer hide a shell's `-c` payload from review. Literal payloads are read for permission checks; an expanding payload requires review and is refused in unattended runs. `script -t -c` now recognises `-c` as the command option; `-T` consumes its required timing-file value.
 - **Breaking:** `ScheduleJobDraft.prompt` is now optional (`prompt?: string`), since a pure `script` draft has none. Any `ScheduleToolHost` implementation that reads `draft.prompt` as a bare `string` needs a null check (or to keep reading it only when `draft.runKind` is `'agent'`/`'script+agent'`, where it is still guaranteed present).
 - `ScheduleJobDraft` gains `runKind?: 'agent' | 'script' | 'script+agent'` (absent = `'agent'`, unchanged from before) and `script?: { body, shell, timeoutMs? }`. `ScheduleJobPreview` gains the same `runKind`/`script` fields so a host's confirmation screen can show the exact text.
 - The `schedule` tool's input schema gains `kind` and `script`; `create` requires `script` unless `kind` is `'agent'` and requires `prompt` unless `kind` is `'script'`, and refuses an agent draft that also carries a script. The existing network-beside-a-host-shell refusal now also covers a `script`/`script+agent` job on the host: the script IS shell code, not a rule a live call might reach later.

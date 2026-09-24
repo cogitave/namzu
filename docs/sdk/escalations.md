@@ -35,6 +35,8 @@ Both default to `'refuse'`, and `ReactiveAgentConfig` carries the same two field
 
 ## The residual boundary: what `unknownProgram` does and does not cover
 
+When a recognised re-exec wrapper leads to a shell, the lexer follows that shell's `-c` payload too: `env -i bash -c '…'`, `nice -n 5 sh -ec '…'`, and `toybox sh -c '…'` are read the same way as a shell at the start of the line. An expanding payload such as `env -i bash -c "$X"` is unknown and requires review. The wrapper reader and lexer share the same option scan, including clustered shell flags such as `-ec`. For `script`, bare `-t`/`--timing` is an optional-value flag and cannot consume a following `-c`; `-T`/`--log-timing` requires a value. This distinction prevents a `script -t -c "$X"` payload from passing the check unread.
+
 `resolveScriptPrograms` models a fixed, named set of re-exec wrappers, listed above. That list is not exhaustive of every program that can hand execution to another one — it cannot be, since any program can `exec()` — and it is not meant to be. A wrapper this does not name is simply not unwrapped: its own name is the position `unknownProgram` (and every `deny`/`allow` rule) sees, and whatever it does with its trailing arguments is invisible to this specific check.
 
 That is not a silent gap. Three other layers still apply to exactly the same call, unaffected by whether `unknownProgram` fired:

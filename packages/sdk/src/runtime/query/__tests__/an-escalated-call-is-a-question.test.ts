@@ -781,13 +781,20 @@ describe('a command whose own program name is decided at runtime', () => {
 	// so nothing flagged it. `unknownProgramInLine` — the single function
 	// this method now delegates to — checks the reading's own opacity first.
 	it('is escalated for a payload the lexer could not read at all, not just an unresolved position', async () => {
-		const { text } = await unknownProgramThroughQuery({
-			command: 'bash -c "$(echo echo HOST_RAN)"',
-			resumeHandler: createReviewHandler({ mode: 'auto' }),
-		})
-
-		expect(text).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
-		expect(text).not.toContain('HOST_RAN')
+		for (const command of [
+			'bash -c "$(echo echo HOST_RAN)"',
+			'env -i bash -c "$(echo echo HOST_RAN)"',
+			'nice -n 5 sh -ec "$(echo echo HOST_RAN)"',
+			'toybox sh -c "$(echo echo HOST_RAN)"',
+			'script -t -c "$(echo echo HOST_RAN)" -a /dev/null',
+		]) {
+			const { text } = await unknownProgramThroughQuery({
+				command,
+				resumeHandler: createReviewHandler({ mode: 'auto' }),
+			})
+			expect(text, command).toContain(UNKNOWN_PROGRAM_UNATTENDED_REFUSAL)
+			expect(text, command).not.toContain('HOST_RAN')
+		}
 	})
 })
 

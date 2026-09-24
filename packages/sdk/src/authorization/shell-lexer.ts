@@ -153,15 +153,7 @@ export interface ShellLexResult {
  * payload is decoded as bash reads it; for `dash` and friends the bash reading
  * is a close approximation, and the line is only as exact as that.
  */
-export const NESTED_SHELLS: ReadonlySet<string> = new Set([
-	'sh',
-	'bash',
-	'zsh',
-	'dash',
-	'ksh',
-	'ash',
-	'mksh',
-])
+export const NESTED_SHELLS: ReadonlySet<string> = PLAIN_SHELL_NAMES
 
 /** What {@link nestedShellCommand} found: the payload the lexer reads, or why it could not. */
 export type NestedShellCommand =
@@ -179,10 +171,17 @@ export type NestedShellCommand =
 /**
  * Whether the lexer reads a simple command's payload as a command line of
  * its own: `words` are the command's words without its leading assignments.
- * The command must start a shell in {@link NESTED_SHELLS} by basename,
- * exactly as written (`bash`, `/bin/sh`; not `bash.exe`, `BASH` or `fish`),
- * or `busybox` running one, with `-c` among its options; the payload is the
- * first argument that is not an option. `null` when it reads no payload.
+ * The command must, after unwrapping a chain of re-exec wrappers this
+ * recognises (`sudo`, `env`, `nice`, `timeout`, … — {@link unwrapReexecChain}
+ * in `reexec-wrapper.ts`, shared with `program.ts` so the two can never
+ * quietly disagree about where one ends), start a shell in
+ * {@link NESTED_SHELLS} by basename, exactly as written (`bash`, `/bin/sh`;
+ * not `bash.exe`, `BASH` or `fish`), or `busybox`/`toybox` running one, with
+ * `-c` among its options (clustered short forms included, `-ec`, `-lc`); the
+ * payload is the first argument that is not an option. `null` when it reads
+ * no payload — including when a wrapper consumed the whole line (`chroot
+ * /mnt` alone) or hit an option it does not recognise, in which case the
+ * whole line is opaque instead (below), not silently read as unremarkable.
  *
  * A host deciding on {@link lexShellCommandLine}'s reading uses this to know
  * which text that reading already includes. Every other text a program runs
@@ -190,43 +189,16 @@ export type NestedShellCommand =
  * — is not in it.
  */
 export function nestedShellCommand(words: readonly ShellWord[]): NestedShellCommand | null {
-	const head = words[0]
-	if (head === undefined || head.expands) return null
-	const name = basename(head.value)
-	if (name === 'busybox') {
-		const next = words[1]
-		return next !== undefined && !next.expands && NESTED_SHELLS.has(basename(next.value))
-			? nestedShellCommand(words.slice(1))
-			: null
-	}
-	if (!NESTED_SHELLS.has(name)) return null
-	let command = false
-	let payload: ShellWord | undefined
-	for (let i = 1; i < words.length; i += 1) {
-		const word = words[i] as ShellWord
-		if (word.expands) return { opaque: 'nested shell option' }
-		const value = word.value
-		if (value === '--' || value === '-') {
-			payload = words[i + 1]
-			break
-		}
-		if (value.startsWith('--')) {
-			if (value === '--rcfile' || value === '--init-file') i += 1
-			continue
-		}
-		if (/^[-+][A-Za-z]+$/.test(value)) {
-			if (value.startsWith('-') && value.includes('c')) command = true
-			// `-o name`, `-O name`: the option takes the next word.
-			if (/[oO]$/.test(value)) i += 1
-			continue
-		}
-		payload = word
-		break
-	}
-	if (!command) return null
-	if (payload === undefined) return { opaque: 'nested shell without a command' }
-	if (payload.expands) return { opaque: 'nested shell command is expanded at runtime' }
-	return { shell: name, payload }
+	if (words.length === 0) return null
+	const chained = unwrapReexecChain(words)
+	if ('unknown' in chained) return { opaque: chained.unknown }
+	if ('none' in chained) return null
+	const invocation = shellInvocation(chained.rest)
+	if (invocation === null) return null
+	const found = shellDashC(invocation.rest)
+	if ('unknown' in found) return { opaque: found.unknown }
+	if ('none' in found) return null
+	return { shell: invocation.shell, payload: found.payload }
 }
 
 /** How many `bash -c` payloads deep the lexer follows before it gives up. */
@@ -235,6 +207,13 @@ const MAX_SHELL_DEPTH = 4
 const MAX_NESTING = 100
 
 import type { ShellDialect } from '../types/tool/index.js'
+import {
+	PLAIN_SHELL_NAMES,
+	REEXEC_WRAPPER_NAMES,
+	shellDashC,
+	shellInvocation,
+	unwrapReexecChain,
+} from './reexec-wrapper.js'
 
 export type { ShellDialect }
 
@@ -1281,8 +1260,8 @@ class Parser {
 			name !== 'shopt' &&
 			name !== 'enable' &&
 			name !== 'set' &&
-			name !== 'busybox' &&
-			!NESTED_SHELLS.has(name)
+			!NESTED_SHELLS.has(name) &&
+			!REEXEC_WRAPPER_NAMES.has(name)
 		)
 			return
 		const words = command.words.slice(command.assignments)
