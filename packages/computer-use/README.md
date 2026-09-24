@@ -34,7 +34,8 @@ Adapters publish an exact `supportedActions` subset. Optional `mouseClickButtons
 and `mouseDragButtons` distinguish gesture support: on macOS scrolling is
 unavailable, move/drag require cliclick, and drag supports only the left button.
 The SDK tool filters its advertised actions and rejects unsupported gestures
-before desktop execution. See [computer action capabilities](../../docs/sdk/computer-actions.md).
+before desktop execution. See [the computer_use tool](../../docs/sdk/computer-actions.md)
+and [the host contract](../../docs/sdk/computer-use-host.md).
 
 ## Install
 
@@ -115,6 +116,14 @@ standard streams:
 - **Windows.** `capabilities.windows` is `true`: `listWindows()` and
   `focusWindow(id)` (which restores a minimized window, gets past the
   foreground lock and reports what is actually in front afterwards).
+- **Controls (experimental).** `capabilities.uiTree` is `true`:
+  `uiSnapshot(windowId?)` reads a window's UI Automation tree (the window in
+  front without an id) and `uiAct(ref, action, value?)` acts on a control of
+  the latest snapshot — `invoke`, `toggle`, `select`, `expand`, `collapse`
+  through UI Automation in the background, `set_value` through the control's
+  value, or by typing into an empty field that has none. The SDK tool offers
+  these as `ui_snapshot` and `ui_act`. Pressing six Calculator buttons this
+  way took about 90 ms, without bringing the window to the front.
 - **Fallback.** When cua-driver cannot be downloaded, verified or started,
   or does not reach the desktop, the host uses PowerShell instead — one
   `powershell.exe` per action, DPI aware, Unicode text, no window list.

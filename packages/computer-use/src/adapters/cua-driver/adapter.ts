@@ -6,6 +6,9 @@ import type {
 	DisplayInfo,
 	FocusWindowResult,
 	ScreenshotResult,
+	UiActResult,
+	UiElementAction,
+	UiSnapshot,
 	WindowInfo,
 } from '@namzu/sdk'
 import type { Adapter } from '../types.js'
@@ -16,6 +19,7 @@ import {
 	type McpToolResult,
 } from './client.js'
 import { translateKeyForCuaDriver } from './keys.js'
+import { type UiRefFacts, toUiTree } from './ui-tree.js'
 
 /**
  * The Windows desktop through cua-driver (github.com/trycua/cua, MIT): one
@@ -35,7 +39,12 @@ import { translateKeyForCuaDriver } from './keys.js'
  * - a pointer action whose only failure is cua-driver's after-the-fact
  *   foreground check is reported as done (see {@link isDeliveredPointerAction});
  * - the window list drops cua-driver's own overlay, the shell's desktop and
- *   1-pixel windows, and orders it front to back.
+ *   1-pixel windows, and orders it front to back;
+ * - a window's UI Automation tree (`get_window_state`) becomes a `UiSnapshot`
+ *   whose refs are cua-driver's element tokens, and `uiAct` drives a control
+ *   by token: UIA Invoke for a button, ValuePattern for a field, falling back
+ *   to typing into a field that is empty and has no settable value (classic
+ *   Notepad's editor is one).
  */
 
 export interface CuaDriverAdapterOptions {
@@ -54,6 +63,10 @@ export interface CuaDriverAdapterOptions {
 
 const CAPTURE_TIMEOUT_MS = 30_000
 const LIST_TIMEOUT_MS = 20_000
+/** A browser window's tree takes 2–3 s; a huge one is cut by `UI_MAX_ELEMENTS` first. */
+const UI_TREE_TIMEOUT_MS = 30_000
+/** The most controls one snapshot walks. The SDK shows the model at most ~14 000 characters of it. */
+const UI_MAX_ELEMENTS = 1_500
 /** cua-driver refuses more than 50 ticks in one scroll call. */
 const MAX_SCROLL_TICKS = 50
 /** A drag glides through intermediate moves; many targets ignore one that teleports. */
@@ -65,6 +78,8 @@ export class CuaDriverAdapter implements Adapter {
 	private readonly client: McpStdioClient
 	/** Window id → owning pid, from the latest list; `bring_to_front` needs both. */
 	private readonly windowPids = new Map<string, number>()
+	/** The refs of the latest UI snapshot: element token → its window's pid and what it held. */
+	private uiRefs = new Map<string, UiRefFacts & { readonly pid: number }>()
 
 	constructor(options: CuaDriverAdapterOptions) {
 		this.backend = `cua-driver${options.version ? ` ${options.version}` : ''}`
@@ -106,6 +121,7 @@ export class CuaDriverAdapter implements Adapter {
 			// No display-relative region capture in cua-driver (its zoom is
 			// per-window and pads the region); the tool crops a full capture.
 			regionCapture: false,
+			uiTree: true,
 		})
 	}
 
@@ -235,8 +251,128 @@ export class CuaDriverAdapter implements Adapter {
 		return { ok: focusedId === windowIdOf(hwnd), focusedId }
 	}
 
+	/**
+	 * One window's controls. Without an id, the window in front — which,
+	 * for an agent run from a terminal, is usually that terminal.
+	 */
+	async uiSnapshot(windowId?: string): Promise<UiSnapshot> {
+		const target = await this.resolveWindow(windowId)
+		const state = structured(
+			await this.client.callTool(
+				'get_window_state',
+				{
+					pid: target.pid,
+					window_id: target.hwnd,
+					include_screenshot: false,
+					max_elements: UI_MAX_ELEMENTS,
+				},
+				UI_TREE_TIMEOUT_MS,
+			),
+			'get_window_state',
+		)
+		const tree = toUiTree(state)
+		// A token names its snapshot, and cua-driver refuses a stale one, so
+		// only the latest snapshot's refs are kept.
+		this.uiRefs = new Map(
+			[...tree.refs].map(([ref, facts]) => [ref, { ...facts, pid: target.pid }]),
+		)
+		const title = typeof state.window_title === 'string' ? state.window_title : undefined
+		const app =
+			typeof state.app_name === 'string' ? state.app_name.replace(/\.exe$/i, '') : undefined
+		return {
+			windowId: windowIdOf(target.hwnd),
+			...(title !== undefined ? { title } : {}),
+			...(app !== undefined ? { app } : {}),
+			root: tree.root,
+			...(state.truncated === true ? { truncated: true } : {}),
+		}
+	}
+
+	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
+		const facts = this.uiRefs.get(ref)
+		if (!facts)
+			return {
+				ok: false,
+				detail: `${ref} is not a control of the latest UI snapshot; take a new one.`,
+			}
+		const { pid } = facts
+		try {
+			switch (action) {
+				case 'invoke':
+				case 'toggle':
+				case 'select':
+				case 'expand':
+				case 'collapse':
+					// cua-driver's click on an element token performs the control's
+					// own pattern in the background (Invoke, or a posted click at its
+					// centre), with no pointer move and no change of foreground.
+					return actResult(await this.client.callTool('click', { pid, element_token: ref }))
+				case 'set_value': {
+					const text = value ?? ''
+					try {
+						return actResult(
+							await this.client.callTool('set_value', { pid, element_token: ref, value: text }),
+						)
+					} catch (error) {
+						if (
+							!(error instanceof McpToolError) ||
+							!/does not implement ValuePattern/i.test(error.message)
+						)
+							throw error
+						// A classic Win32 edit reports no ValuePattern. Typing into it
+						// equals setting it only while it is empty.
+						if (facts.value !== undefined && facts.value.length > 0)
+							return {
+								ok: false,
+								detail:
+									'this field cannot be set directly and already holds text; click it, select its text (CTRL+A) and type the new text instead',
+							}
+						const typed = actResult(
+							await this.client.callTool('type_text', { pid, element_token: ref, text }),
+						)
+						return typed.ok
+							? { ok: true, detail: 'typed into the empty field, which has no settable value' }
+							: typed
+					}
+				}
+				case 'focus':
+				case 'scroll_into_view':
+					return {
+						ok: false,
+						detail: `this host cannot ${action === 'focus' ? 'focus' : 'scroll to'} a control by itself; invoke it or click it instead`,
+					}
+			}
+		} catch (error) {
+			if (error instanceof McpToolError) return { ok: false, detail: toolRefusal(error) }
+			throw error
+		}
+	}
+
 	async dispose(): Promise<void> {
 		await this.client.dispose()
+	}
+
+	/** A window id (or the window in front) → its handle and owning process. */
+	private async resolveWindow(
+		windowId: string | undefined,
+	): Promise<{ hwnd: number; pid: number }> {
+		if (windowId === undefined) {
+			const front = (await this.listWindows()).find((window) => window.focused)
+			if (!front)
+				throw new Error('computer-use: no window is in front; pass a window id from list_windows.')
+			return { hwnd: parseWindowId(front.id) as number, pid: front.pid }
+		}
+		const hwnd = parseWindowId(windowId)
+		if (hwnd === undefined)
+			throw new Error(`computer-use: "${windowId}" is not a window id from list_windows.`)
+		let pid = this.windowPids.get(windowIdOf(hwnd))
+		if (pid === undefined) {
+			await this.listWindows()
+			pid = this.windowPids.get(windowIdOf(hwnd))
+		}
+		if (pid === undefined)
+			throw new Error(`computer-use: no window ${windowId} is open now. List the windows again.`)
+		return { hwnd, pid }
 	}
 
 	private async pointer(tool: string, args: Record<string, unknown>): Promise<void> {
@@ -297,6 +433,37 @@ export function isDeliveredPointerAction(error: unknown): boolean {
 		/not foreground after the/.test(error.message) &&
 		!/no (mouse )?input was sent/.test(error.message)
 	)
+}
+
+/**
+ * cua-driver's action result → the host's. `confirmed`, `partial` and
+ * `unverifiable` count as done: a background UIA Invoke is `unverifiable` by
+ * design (the control does not report back), and the screenshot the tool
+ * takes afterwards is where the model sees the effect.
+ */
+export function actResult(result: McpToolResult): UiActResult {
+	const facts = result.structuredContent ?? {}
+	switch (facts.effect) {
+		case 'suspected_noop':
+			return { ok: false, detail: 'the control did not change; the action may not have reached it' }
+		case 'refused': {
+			const refusal = facts.refusal as { message?: unknown } | undefined
+			return {
+				ok: false,
+				detail:
+					typeof refusal?.message === 'string' ? refusal.message : 'cua-driver refused the action',
+			}
+		}
+		default:
+			return { ok: true }
+	}
+}
+
+/** Why a tool call failed, in words that tell the model what to do next. */
+function toolRefusal(error: McpToolError): string {
+	if (/stale/i.test(error.message))
+		return 'that control is from an older UI snapshot; take a new one'
+	return error.message.length > 300 ? `${error.message.slice(0, 299)}…` : error.message
 }
 
 /** `0x…` hex, the form `bring_to_front` reports and `WindowInfo.id` carries. */

@@ -7,6 +7,9 @@ import type {
 	FocusWindowResult,
 	Rect,
 	ScreenshotResult,
+	UiActResult,
+	UiElementAction,
+	UiSnapshot,
 	WindowInfo,
 } from '@namzu/sdk'
 import { type Adapter, AdapterUnavailableError } from './adapters/types.js'
@@ -170,6 +173,40 @@ export class SubprocessComputerUseHost implements ComputerUseHost {
 		const adapter = this.requireAdapter()
 		if (!adapter.captureRegion) throw unsupported('captureRegion', this._capabilities.displayServer)
 		return adapter.captureRegion(rect)
+	}
+
+	/**
+	 * A window's controls. Offered to the model only when
+	 * `capabilities.uiTree` is true.
+	 *
+	 * @experimental Follows the SDK's UI-tree surface.
+	 */
+	async uiSnapshot(windowId?: string): Promise<UiSnapshot> {
+		const adapter = this.requireAdapter()
+		if (!adapter.uiSnapshot) throw unsupported('uiSnapshot', this._capabilities.displayServer)
+		return adapter.uiSnapshot(windowId)
+	}
+
+	/**
+	 * Act on a control of the latest {@link uiSnapshot}. A request lost after
+	 * it was sent (the driver died or stopped answering) may have acted, so
+	 * it is reported as not done with an unknown outcome, never retried.
+	 *
+	 * @experimental Follows the SDK's UI-tree surface.
+	 */
+	async uiAct(ref: string, action: UiElementAction, value?: string): Promise<UiActResult> {
+		const adapter = this.requireAdapter()
+		if (!adapter.uiAct) throw unsupported('uiAct', this._capabilities.displayServer)
+		try {
+			return await adapter.uiAct(ref, action, value)
+		} catch (error) {
+			if (error instanceof SpawnError)
+				return {
+					ok: false,
+					detail: `the desktop driver stopped before it answered, so ${action} may or may not have happened; look at the screen (ui_snapshot or screenshot) before trying again. ${error.message}`,
+				}
+			throw error
+		}
 	}
 
 	/** Stops whatever the adapter keeps running (the Windows cua-driver process). */
