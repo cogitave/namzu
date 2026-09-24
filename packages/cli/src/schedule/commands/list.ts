@@ -191,8 +191,13 @@ export async function showCommand(ctx: CommandContext, argv: readonly string[]):
 				`Confirmed   ${job.confirmation ? `${when(job.confirmation.at, tz)} (${job.confirmation.surface})` : 'not yet'}`,
 				'Permissions',
 				...policy.lines.map((l) => `  ${l}`),
-				'Prompt',
-				...job.prompt.split('\n').map((l) => `  ${l}`),
+				...(job.runKind && job.runKind !== 'agent' && job.script
+					? [
+							job.runKind === 'script' ? 'Script' : 'Wake-gate script',
+							...job.script.body.split('\n').map((l) => `  ${l}`),
+						]
+					: []),
+				...(job.prompt.trim() ? ['Prompt', ...job.prompt.split('\n').map((l) => `  ${l}`)] : []),
 				'Recent',
 				...(history.length === 0
 					? ['  nothing yet']

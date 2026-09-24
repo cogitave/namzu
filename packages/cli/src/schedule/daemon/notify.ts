@@ -21,6 +21,8 @@ export type NoticeKind =
 	| 'held'
 	| 'needs-confirmation'
 	| 'auto-paused'
+	/** `runKind: 'script'`/`'script+agent'`: the script (or wake-gate) itself malfunctioned. */
+	| 'check-failed'
 
 function clock(at: Date): string {
 	return new Intl.DateTimeFormat('en-GB', {
@@ -56,6 +58,12 @@ export function noticeText(
 		 * says why.
 		 */
 		readonly refused?: ScheduleCallTally
+		/**
+		 * For `check-failed`: why the script or wake-gate malfunctioned. May
+		 * quote the script's own output, so — like `refused` — it is said only
+		 * where the job asked for its summary; otherwise `show` says why.
+		 */
+		readonly reason?: string
 	},
 ): { title: string; body: string } {
 	const title = `namzu: ${job.name}`
@@ -86,6 +94,20 @@ export function noticeText(
 		}
 		case 'failed':
 			return { title, body: `failed at ${when}${summary}` }
+		case 'check-failed': {
+			if (!job.notify.includeSummary || !extra.reason) {
+				return {
+					title,
+					body: `check failed at ${when}; namzu schedule show ${job.name} says why`,
+				}
+			}
+			const head = `check failed at ${when}: `
+			const room = NOTICE_BODY_MAX - [...head].length
+			const reason = [...extra.reason]
+			const said =
+				reason.length <= room ? extra.reason : `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
+			return { title, body: fit(`${head}${said}`, `check failed at ${when}`) }
+		}
 		case 'timed-out':
 			return { title, body: `stopped at its time limit at ${when}` }
 		case 'interrupted':
@@ -147,6 +169,30 @@ function fit(...candidates: readonly string[]): string {
 	if (whole !== undefined) return whole
 	const last = [...(candidates.at(-1) ?? '')]
 	return `${last.slice(0, NOTICE_BODY_MAX - 1).join('')}…`
+}
+
+/**
+ * What `notify.includeSummary` shows for a `completed` `script`/`script+
+ * agent` run: there is no model text, so the last line of the script's
+ * stdout that is not itself the wake-gate's JSON contract line stands in
+ * for it — the same "one line, gated behind the flag" shape a `finished`
+ * agent notice already gives the model's own summary.
+ */
+export function scriptSummaryOf(result: {
+	readonly scriptOutput?: { readonly stdout: string }
+}): string | undefined {
+	const stdout = result.scriptOutput?.stdout
+	if (!stdout) return undefined
+	const lines = stdout
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const line = lines[i] as string
+		const looksLikeContract = line.startsWith('{') && line.endsWith('}')
+		if (!looksLikeContract) return line
+	}
+	return undefined
 }
 
 /** The same failure told once: status plus the reason with numbers and ids removed. */
