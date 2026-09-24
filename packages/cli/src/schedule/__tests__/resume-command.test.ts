@@ -186,4 +186,38 @@ describe('a completed run with refused calls', () => {
 		expect(callsCount({ refusedCalls: 2, failedCalls: 1 })).toBe('2 calls refused, 1 failed')
 		expect(callsCount({})).toBe('')
 	})
+
+	it('reads the kernel’s unknown-tool answer that lists what the step can call', () => {
+		// The kernel answers a name its registry does not hold with the tools
+		// the step can call (`unknownToolMessage` in the SDK's tool-call
+		// admission), not the registry's "Not found". A withheld tool is such
+		// a name, and its call is still a refusal; any other unknown name is
+		// the model's mistake, a failure.
+		const tally = new CallTally(['write'])
+		tally.observe({
+			toolName: 'write',
+			isError: true,
+			summary: '',
+			output: 'Error: Unknown tool "write". Available: read, grep',
+		})
+		tally.observe({
+			toolName: 'writ',
+			isError: true,
+			summary: '',
+			output: 'Error: Unknown tool "writ". Available: read, grep',
+		})
+		expect(tally.tallies()).toEqual({
+			refusedCalls: {
+				count: 1,
+				first: {
+					tool: 'write',
+					reason: "the job's permissions never let a run use write, so the run was not given it",
+				},
+			},
+			failedCalls: {
+				count: 1,
+				first: { tool: 'writ', reason: 'Unknown tool "writ". Available: read, grep' },
+			},
+		})
+	})
 })

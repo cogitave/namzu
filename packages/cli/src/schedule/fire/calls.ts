@@ -15,7 +15,12 @@ import type { ScheduleCallTally } from '../types.js'
 
 /** What the kernel writes in place of a result for a call that never ran (`deniedToolOutput`). */
 const NOT_EXECUTED = /^Error: Tool "[^"]*" was not executed\.\s*/
-/** What the kernel writes for a call to a tool the session does not have. */
+/**
+ * What the kernel writes for a call to a tool the session does not have, in
+ * each of its forms: `Error: Unknown tool "x"`, followed by `. Available: …`
+ * (what the step can call) when the registry says it lacks the name, and
+ * `Error: Unknown or unavailable tool "x": …` from a direct call.
+ */
 const UNKNOWN_TOOL = /^Error: Unknown (?:or unavailable )?tool "/
 /** The gate's prefix, which says nothing the word "refused" does not. */
 const GATE = /^Blocked by the authorization gate:\s*/
