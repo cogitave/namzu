@@ -1,3 +1,4 @@
+import { RegistryCollisionError } from '../registry/collision.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import type { ToolSource, Toolset } from './types.js'
 
@@ -8,13 +9,14 @@ import type { ToolSource, Toolset } from './types.js'
  * Named, and carrying both sources, for the reason `ToolNameCollisionError`
  * (`registry/tool/execute.ts`) is: a caller that wants to handle this —
  * rename one side, refuse the whole config — has to be able to catch it
- * narrowly and read who collided, not match on message text. There is no
- * `RegistryCollisionError` base in this branch yet (plan.md's `ToolRegistry`
- * removal item may add one and have this extend it); until then this stands
- * alone, with the same name/message/fields shape so that move costs nothing
- * but a superclass.
+ * narrowly and read who collided, not match on message text. Extends
+ * `RegistryCollisionError` (`registry/collision.ts`) like every other
+ * `*CollisionError`, with `combineToolsets` as the "registry" name and the
+ * tool name as the colliding id; `firstSource`/`secondSource` are this
+ * class's own addition, since a plain `RegistryCollisionError` has nowhere
+ * to carry two whole sources.
  */
-export class ToolsetConflictError extends Error {
+export class ToolsetConflictError extends RegistryCollisionError {
 	readonly toolName: string
 	readonly firstSource: ToolSource
 	readonly secondSource: ToolSource
@@ -25,6 +27,8 @@ export class ToolsetConflictError extends Error {
 				? `toolset "${firstSource.id}" contributes it more than once`
 				: `it is contributed by both "${firstSource.id}" and "${secondSource.id}"`
 		super(
+			'combineToolsets',
+			toolName,
 			`combineToolsets: tool name "${toolName}" is not unique — ${detail}. Wrap one contributor with prefixed(toolset, prefix) (or renamed(toolset, { ${toolName}: "..." })) before combining.`,
 		)
 		this.name = 'ToolsetConflictError'

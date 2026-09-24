@@ -33,7 +33,9 @@ supersession a caller intended.
 `PromptContributionCollisionError`, `ReadModelCollisionError`,
 `InvariantNameCollisionError`, `ProbeNameCollisionError`,
 `DuplicateProviderError`, `AdvisorCollisionError`, `SkillCollisionError`,
-`EnvironmentCollisionError`, `TenantCollisionError`). A host that wants to
+`EnvironmentCollisionError`, `TenantCollisionError`, `ToolsetConflictError`
+— `combineToolsets`'s own name conflict, not a `ManagedRegistry`). A host
+that wants to
 catch "some registry collided" without naming every concrete class catches
 `RegistryCollisionError`; a host that wants the specific one — to decide
 between skip, rename or refuse to boot — catches the named subclass exactly
