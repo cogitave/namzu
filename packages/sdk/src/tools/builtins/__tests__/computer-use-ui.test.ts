@@ -339,9 +339,11 @@ describe('computer_use UI tree', () => {
 		expect(unavailable.capturesScreen?.({ type: 'screenshot' })).toBe(false)
 	})
 
-	it('points at the controls beside the first screenshot only, and at the Run dialog on Windows', async () => {
+	it('points at the controls beside the first screenshot only, and at a shell for starting programs', async () => {
 		const tool = createComputerUseTool(makeUiHost().host, { settleMs: 0 })
-		expect(tool.description).toContain('use the Run dialog in one batch')
+		expect(tool.description).toContain('a shell command (Start-Process notepad')
+		expect(tool.description).not.toContain('WIN+R')
+		expect(tool.description).toContain('refused while a terminal window is in front')
 		const first = text(await run(tool, { type: 'screenshot' }))
 		expect(first).toContain('This host can also read a window’s controls')
 		const second = text(await run(tool, { type: 'screenshot' }))
@@ -357,5 +359,88 @@ describe('computer_use UI tree', () => {
 		expect(tool.isReadOnly?.({ type: 'ui_snapshot' })).toBe(true)
 		expect(tool.isReadOnly?.({ type: 'ui_act', ref: 'e1', action: 'invoke' })).toBe(false)
 		expect(tool.isDestructive?.({ type: 'ui_act', ref: 'e1', action: 'invoke' })).toBe(true)
+	})
+})
+
+describe('computer_use typing with a terminal in front', () => {
+	function window(id: string, app: string, focused: boolean): WindowInfo {
+		return {
+			id,
+			title: app,
+			app,
+			pid: 1,
+			bounds: { x: 0, y: 0, width: 800, height: 600 },
+			focused,
+			minimized: false,
+		}
+	}
+
+	/** A host whose window in front is `front`, until focus_window moves it. */
+	function terminalHost() {
+		const state = { front: 'WindowsTerminal' }
+		const typed: string[] = []
+		let lists = 0
+		const { host } = makeUiHost()
+		const guarded: ComputerUseHost = {
+			...host,
+			async execute(action) {
+				if (action.type === 'type_text') typed.push(action.text)
+				if (action.type === 'key') typed.push(`<${action.keys}>`)
+				return host.execute(action)
+			},
+			listWindows: async () => {
+				lists += 1
+				return [
+					window('0x1', 'WindowsTerminal', state.front === 'WindowsTerminal'),
+					window('0x2', 'notepad', state.front === 'notepad'),
+				]
+			},
+			focusWindow: async (id) => {
+				state.front = id === '0x2' ? 'notepad' : 'WindowsTerminal'
+				return { ok: true, focusedId: id }
+			},
+		}
+		return { host: guarded, typed, lists: () => lists }
+	}
+
+	it('refuses the whole run of keys before the first one reaches the terminal', async () => {
+		const { host, typed } = terminalHost()
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'screenshot' })
+		const result = await run(tool, {
+			type: 'batch',
+			actions: [
+				{ type: 'key', keys: 'WIN+R' },
+				{ type: 'type_text', text: 'notepad' },
+				{ type: 'key', keys: 'ENTER' },
+			],
+		})
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Batch stopped at action 1 of 3')
+		expect(result.error).toContain('a terminal is in front (WindowsTerminal, window 0x1)')
+		expect(typed).toEqual([])
+		const single = await run(tool, { type: 'type_text', text: 'rm -rf /' })
+		expect(single.error).toContain('never sends keys or text to a terminal')
+		expect(typed).toEqual([])
+	})
+
+	it('types once the window meant is in front, reading the front again only after focus may have moved', async () => {
+		const { host, typed, lists } = terminalHost()
+		const tool = createComputerUseTool(host, { settleMs: 0 })
+		await run(tool, { type: 'screenshot' })
+		const result = await run(tool, {
+			type: 'batch',
+			actions: [
+				{ type: 'focus_window', window_id: '0x2' },
+				{ type: 'type_text', text: 'Merhaba dünya ığüşöç' },
+				{ type: 'key', keys: 'ALT+F4' },
+				{ type: 'key', keys: 'TAB' },
+			],
+		})
+		expect(result.success).toBe(true)
+		expect(typed).toEqual(['Merhaba dünya ığüşöç', '<ALT+F4>', '<TAB>'])
+		// Once before the text; the key after typing needs no new read, the
+		// key after a key does.
+		expect(lists()).toBe(2)
 	})
 })

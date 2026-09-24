@@ -186,13 +186,32 @@ Screenshot s5: 1568x656 pixels, …
 ```
 
 The description tells the model that every call costs a round trip and to
-batch the steps it can already predict. On a Windows host it also says to
-start a program through the Run dialog in one batch (`WIN+R`, the file name,
-`ENTER`) rather than Start-menu search, which matches display names in the
-system language and turns an unmatched `ENTER` into a web search in the
-browser — on a Turkish Windows a model typed "Calculator" into Start and
-opened Bing in the operator's Edge. With `uiTree`, the first screenshot's
-text points at `list_windows`, `ui_snapshot` and `ui_act`.
+batch the steps it can already predict, but to end a batch at any step that
+should bring up a new window and look before typing into it. On a Windows
+host it says a shell command is the surest way to start a program: the Start
+menu matches display names in the system language and turns an unmatched
+`ENTER` into a web search in the browser (on a Turkish Windows a model typed
+"Calculator" into Start and opened Bing in the operator's Edge). With
+`uiTree`, the first screenshot's text points at `list_windows`, `ui_snapshot`
+and `ui_act`.
+
+## Nothing is typed into a terminal
+
+With a host that lists windows, `type_text` and `key` read the window in
+front first and refuse — before anything is sent — when it is a terminal
+(`WindowsTerminal`, `conhost`, `cmd`, `powershell`, `pwsh`, `mintty`,
+`wezterm`, `alacritty`, `kitty`, `iTerm2`, `Terminal`, `gnome-terminal`,
+`konsole`, `xterm` and the like, by `WindowInfo.app`): that is usually the
+terminal running the agent or one the user is typing in, and `ENTER` there
+runs or sends whatever was typed. The read happens before the first keyboard
+step of a call and again after any step other than typing that may have moved
+focus, so a batch that focuses Notepad and types into it reads the front
+once. In a real session a batch of `WIN+R`, `notepad`, `ENTER` ran while the
+user's own terminal was in front and the Run dialog did not open: the letters
+and the `ENTER` went into that terminal and submitted the half-written
+message there. The model is told to bring the window it means to the front
+first, or to use a shell for commands. A host without a window list cannot
+say what is in front, and only the description's advice applies.
 
 The screenshot is still taken when an earlier action changed the screen or
 the failed one's outcome is unknown. A batch cannot contain `screenshot`,

@@ -281,6 +281,13 @@ const DESTRUCTIVE_ACTIONS = new Set<string>([
 /** Observations that show the model what is on the screen, on their own. */
 const SCREEN_OBSERVATIONS = new Set<string>(['screenshot', 'zoom', 'list_windows', 'ui_snapshot'])
 
+/**
+ * Terminal applications, by the process name a host reports in
+ * `WindowInfo.app` (on Windows without `.exe`). Keys are not typed into these.
+ */
+const TERMINAL_APPS =
+	/^(WindowsTerminal|OpenConsole|conhost|cmd|powershell|pwsh|wsl|mintty|wezterm(-gui)?|alacritty|Hyper|Tabby|kitty|ConEmu(64)?|putty|Terminal|iTerm2?|gnome-terminal(-server)?|konsole|xterm|xfce4-terminal|tilix|terminator|foot|ghostty|Warp)$/i
+
 /** Actions a batch cannot carry: the ones that return an image or a tree, and batch itself. */
 const OUTSIDE_BATCH = new Set<string>(['screenshot', 'zoom', 'ui_snapshot', 'batch'])
 
@@ -441,7 +448,7 @@ function buildDescription(
 	)
 	if (available.includes('batch'))
 		lines.push(
-			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Every call costs a model round trip of several seconds, so put the steps you can already predict into one batch (click a field, type, press ENTER; press keys and wait for a window) rather than one call each. A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
+			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Every call costs a model round trip of several seconds, so put the steps you can already predict into one batch (click a field, type, press ENTER) rather than one call each — but end the batch at any step that should bring up a new window, and look before typing into it. A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
 		)
 	if (
 		caps.displayServer === 'win32' &&
@@ -449,7 +456,7 @@ function buildDescription(
 		available.includes('type_text')
 	)
 		lines.push(
-			'To start a Windows program, use the Run dialog in one batch — key WIN+R, wait 500, type_text its file name (notepad, calc, mspaint), key ENTER, wait 1500 — rather than Start-menu search: Start searches by display names in the system language, and ENTER on a name it does not find opens a web search in the browser.',
+			'To start a Windows program, a shell command (Start-Process notepad, or cmd.exe /c start calc) is surest when you have a shell tool. The Start menu searches by display names in the system language, and ENTER on a name it does not find opens a web search in the browser.',
 		)
 	if (available.includes('list_windows'))
 		lines.push(
@@ -462,6 +469,10 @@ function buildDescription(
 	lines.push(
 		'Typing and keys go to whichever window has focus: confirm on a screenshot that the right window is in front before type_text or key.',
 	)
+	if (available.includes('list_windows'))
+		lines.push(
+			'type_text and key are refused while a terminal window is in front — usually the one running this agent, or the user’s own; bring the window you mean to the front first (focus_window, or click it).',
+		)
 	return finish(lines, caps, available)
 }
 
@@ -1243,6 +1254,32 @@ export function createComputerUseTool(
 		}
 	}
 
+	/**
+	 * Keys and text go to the window in front, and a terminal there — the
+	 * one running this agent, or the user's own — turns a model's typing into
+	 * a command line: ENTER runs it or sends it. A session had a WIN+R that
+	 * did not open the Run dialog type "notepad" and ENTER into the user's
+	 * terminal, and submitted their half-typed message. So with a window list
+	 * the tool reads what is in front before typing, and refuses a terminal.
+	 * Without one it cannot tell, and the description's advice stands alone.
+	 */
+	const refuseTerminalInFront = async (): Promise<void> => {
+		if (!available.has('list_windows')) return
+		let windows: readonly WindowInfo[]
+		try {
+			windows = await (host.listWindows as NonNullable<ComputerUseHost['listWindows']>)()
+		} catch (error) {
+			throw new StepFailure(
+				`the window in front could not be read, so nothing was typed: ${errorText(error)}`,
+			)
+		}
+		const front = windows.find((window) => window.focused)
+		if (front && TERMINAL_APPS.test(front.app))
+			throw new StepFailure(
+				`a terminal is in front (${front.app}, window ${front.id}), so nothing was typed: computer_use never sends keys or text to a terminal. Bring the window you mean to the front (focus_window, or click it) and try again; for a command, use a shell tool instead`,
+			)
+	}
+
 	const listWindows = async (): Promise<string> => {
 		let windows: readonly WindowInfo[]
 		try {
@@ -1449,6 +1486,9 @@ export function createComputerUseTool(
 		const records: StepRecord[] = []
 		let changed = false
 		let failure: { index: number; error: string; unknown?: ComputerUseOutcomeUnknown } | undefined
+		// Whether the window in front was checked since the last step that could
+		// have changed it. Typing does not move focus; everything else may.
+		let frontChecked = false
 		for (const [index, step] of planned.entries()) {
 			if (signal?.aborted) {
 				failure = { index, error: 'cancelled before it started' }
@@ -1456,6 +1496,12 @@ export function createComputerUseTool(
 				break
 			}
 			try {
+				const keyboard = step.item.type === 'type_text' || step.item.type === 'key'
+				if (keyboard && !frontChecked) {
+					await refuseTerminalInFront()
+					frontChecked = true
+				}
+				if (step.item.type !== 'type_text') frontChecked = false
 				const note = await step.run(signal)
 				records.push({ label: step.label, status: 'done', note })
 				if (step.mutating) changed = true
