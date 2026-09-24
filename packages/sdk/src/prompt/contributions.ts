@@ -150,6 +150,11 @@ export class PromptContributionRegistry {
 		this.byId.set(contribution.id, contribution)
 	}
 
+	/** Revoke one contribution when its owner is disabled or uninstalled. */
+	unregister(id: string): boolean {
+		return this.byId.delete(id)
+	}
+
 	has(id: string): boolean {
 		return this.byId.has(id)
 	}

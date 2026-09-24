@@ -73,7 +73,10 @@ The older factory below retains eager disclosure for existing SDK hosts.
 [resident step](resident-agents.md). It returns two `PromptContribution` objects
 for the existing `PromptContributionRegistry`. Register them on the registry
 passed to `query` or `drainQuery`; other host contributions can use that same
-registry.
+registry. A host that disables a contribution owner calls
+`PromptContributionRegistry.unregister(id)` for each of its ids. It returns
+whether an entry existed; registering the same id again after re-enabling is
+then allowed and appears at the end of rendering order.
 
 `ResidentStepPromptOptions` requires `state: ResidentState` and
 `outputInstructions: string`. Optional fields are the admission's approved
