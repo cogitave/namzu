@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { Logger } from '../../../utils/logger.js'
-import { ToolRegistry } from '../execute.js'
 import { createToolPresenter, genericLabel } from '../presentation.js'
 
 /**
@@ -30,10 +31,8 @@ function spyLogger(): { log: Logger; warn: ReturnType<typeof vi.fn> } {
 	return { log, warn }
 }
 
-function registryWith(...tools: ReturnType<typeof defineTool>[]): ToolRegistry {
-	const registry = new ToolRegistry()
-	for (const tool of tools) registry.register(tool)
-	return registry
+function registryWith(...tools: ReturnType<typeof defineTool>[]): ToolManager {
+	return new ToolManager({ toolsets: [testToolset(...tools)], messages: () => [] })
 }
 
 const remotePatch = defineTool({
@@ -88,7 +87,7 @@ describe('a tool the host never heard of', () => {
 		// A host renders events from a run it did not configure — a resumed
 		// run, a peer's stream. An unknown name must produce a view, not an
 		// exception, and it is the only path where `registry.get` misses.
-		const presenter = createToolPresenter(new ToolRegistry())
+		const presenter = createToolPresenter(registryWith())
 
 		expect(presenter.presentCall('never_registered', { path: '/tmp/x' })).toEqual({
 			kind: 'generic',
