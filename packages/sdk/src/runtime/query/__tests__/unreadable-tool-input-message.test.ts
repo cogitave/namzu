@@ -112,6 +112,30 @@ describe('unreadableToolInputMessage', () => {
 		}
 	})
 
+	it('gives no size budget on a tiny cutoff even to a tool that declares large arguments', () => {
+		// A tool with no largeStringArguments already fell through to "Send the
+		// call again." on a 1-3 character cutoff. A tool that DOES declare large
+		// arguments (write, edit) instead fell through
+		// `Math.min(budget, ceiling ?? Infinity)` to its full, undiminished
+		// budget: a call cut after three characters ('{"p') was told to keep
+		// `content` under 12000 of them, breaking the invariant that a call is
+		// always told less than what arrived.
+		const tool = { largeStringArguments: { content: 12_000 } }
+		for (const length of [1, 3]) {
+			const message = unreadableToolInputMessage('write', cutOff(length, 'length'), tool)
+			expect(message).toMatch(/Send the call again\.$/)
+			expect(message).not.toMatch(/under \d+ characters/)
+		}
+		// From length 4 a ceiling exists again, and it still bounds the declared
+		// budget rather than handing it out whole.
+		expect(unreadableToolInputMessage('write', cutOff(4, 'length'), tool)).toContain(
+			'keep `content` under 2 characters',
+		)
+		expect(unreadableToolInputMessage('write', cutOff(10, 'length'), tool)).toContain(
+			'keep `content` under 5 characters',
+		)
+	})
+
 	it('says reasoning filled the response when the provider counts it, and does not blame the call', () => {
 		// An encrypted reasoning block streams no text, and still spends the
 		// output limit: judged by the characters alone, this call was the whole

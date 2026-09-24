@@ -567,7 +567,18 @@ function sizeAdvice(
 	largeStringArguments: ToolDefinition['largeStringArguments'],
 	error: ToolInputError,
 ): string | undefined {
-	const ceiling = error.finishReason === 'length' ? ceilingBelow(error.length) : undefined
+	const lengthCutoff = error.finishReason === 'length'
+	const ceiling = lengthCutoff ? ceilingBelow(error.length) : undefined
+	// A length cutoff too short to leave any figure worth stating
+	// (`ceilingBelow` under 4 characters) gives no budget to any tool,
+	// declared or not. Falling through to a tool's full declared budget here
+	// would tell a call cut after three characters to keep `content` under
+	// 12000 of them: more than a budget, an invitation back into the same
+	// cutoff, and a broken invariant (a call is always told less than what
+	// arrived). Only a stream that ended for a reason other than the output
+	// limit — where no ceiling applies at all — still gets the plain
+	// declared budgets below.
+	if (lengthCutoff && ceiling === undefined) return undefined
 	const declared = Object.entries(largeStringArguments ?? {}).filter(
 		([, budget]) => Number.isFinite(budget) && budget > 0,
 	)
