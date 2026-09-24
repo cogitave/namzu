@@ -74,10 +74,10 @@ export function wslWindowsHome(
 ): string | null {
 	if (!env.WSL_DISTRO_NAME && !env.WSL_INTEROP) return null
 	const root = mountRoot ?? readWslMountRoot()
-	command ??= `${wslSystem32(root)}/cmd.exe`
+	const cmd = command ?? `${wslSystem32(root)}/cmd.exe`
 	try {
-		if (!statSync(command).isFile()) return null
-		const output = run(command, ['/d', '/s', '/c', 'echo', '%USERPROFILE%'], {
+		if (!statSync(cmd).isFile()) return null
+		const output = run(cmd, ['/d', '/s', '/c', 'echo', '%USERPROFILE%'], {
 			encoding: 'utf8',
 			timeout: 1_000,
 			// The interop shim that fronts a Windows process does not honour
