@@ -1,5 +1,120 @@
 # @namzu/cli
 
+## 29.1.0
+
+### Minor Changes
+
+- 2b96136: The interactive terminal can drive a web browser. `@namzu/browser` is now a dependency, and the TUI mounts the `browser` and `browser_act` tools on a namzu-owned profile; in WSL they drive the Windows Chrome. Nothing launches until the model's first browser call. `namzu exec`, `exec --json`, `drain`, `acp` and the resident step do not get the tools.
+
+  What changes for you:
+
+  - **Browser calls are reviewed by default.** With no config, opening any site and every action on a page is reviewed (`"*": ask`); looking at the page the browser holds is not. Set `browser.sites` to allow sites (`read`, `act`) or refuse them (`deny`), or `browser.enabled: false` to turn the tools off.
+  - **New config key `browser`** (`enabled`, `defaultProfile`, `engine`, `headless`, `sites`, `keepOpen`). An unreadable site key or level stops namzu from starting and names the key. The key is merged across files per site; a deny in any file holds. A project file that sets `browser.defaultProfile` is refused, and namzu will not start in that folder until the key is removed.
+  - **Site rules come before your `[permissions]` table for the browser tools.** A table `deny` for `browser` or `browser_act` still wins; a table `allow` or `ask` for them applies only to `back`, `forward` and `reload`.
+  - **New commands:** `namzu browser login <profile> [url]`, `list`, `status`, `install`, `remove`; the `/browser` slash command (status, `profile <name>`).
+  - **`namzu doctor`** reports `browser.installed` and `browser.engine`. The boot capability line gains `browser yes|no`.
+  - **The review screen** names the site rule, profile and engine for a browser call. A turn paused because a page needs you (sign-in, CAPTCHA) says where to do it and how to continue.
+  - New exports: `browserInstalledCheck`, `browserEngineCheck`; `NAMZU_OPTIONAL_CAPABILITIES` includes `@namzu/browser`.
+
+  See docs/cli/browser.md.
+
+- 2b96136: The CLI ships three built-in skills and a way to make your own from the TUI.
+
+  - `skill-creator` (model and operator), `browser-automation` (model only, offered only when the `browser` tool is present) and `schedule-task` (offered where the `schedule` tool is: the TUI). Every session now carries the `skill` tool and lists `skill-creator` in its skills manifest. To go back to no built-ins, set `skills.builtin: false`; to drop one, name it in `skills.disabled`; a skill of the same name in `~/.namzu/skills`, `~/.agents/skills` or the project replaces it.
+  - `/skills new [what it should do]` starts an interview with the model, which drafts a `SKILL.md` and proposes it through the new `save_skill` tool. Nothing is written until you choose Save to user (`~/.namzu/skills`), Save to project (`./.namzu/skills`) or Cancel on a screen that shows the whole file with invisible characters revealed and names any skill it replaces. The screen asks in every permission mode, `auto` included; `plan` and `strict` refuse the tool. `save_skill` exists only in the interactive TUI, never in `exec`, `drain`, a scheduled run or a sub-agent. `/skills new` is now a subcommand, so a skill named `new` is activated from the `/skills` picker rather than by `/skills new`.
+  - The skill tiers are read again at the start of every turn, so a skill added while a session runs is offered from the next turn.
+
+- 2b96136: Scheduled jobs can drive the browser, on the sites you list and no others.
+
+  - **New flags** on `namzu schedule add` and `edit`: `--browser <profile>`, `--browser-site <site>=read|ask|act` (repeatable) and `--browser-headed`; on `edit`, `<site>=none` takes a site off and `--no-browser` removes the grant. Sign in first with `namzu browser login <profile> <url>`. `*` is refused: every site not listed is denied. `ask` needs `--unmatched park`. A browser grant alone (no `--permissions`) needs `--unmatched`.
+  - **New job field** `permissions.browser` (`profile`, `sites`, `headed`), covered by the confirmation. The model's `schedule` tool in the TUI can now propose it; you confirm it on screen.
+  - **A job's `[permissions]` rules may no longer name `browser` or `browser_act`**; creating or editing such a job is refused with a pointer to the grant. Without a grant both tools are denied in a scheduled run, as before.
+  - **A run with a grant checks its browser before the model**: the profile exists and has its data, the browser it was signed in with can start (WSL interop for the Windows browser), a display for `--browser-headed`. Otherwise it is `blocked-config` with the `namzu browser login` command.
+  - **A run a page parked for you** (a sign-in, a CAPTCHA) reads `needs you: <reason>` in `schedule list`, `show`, `status`, `/schedule` and the TUI's startup line instead of "waiting for approval". `--json` gains `activeRun.handoff` (`list`) and `awaitingApproval[].handoff` and `waitingFor` (`status`).
+  - The scheduled-run floor also refuses tool arguments naming the Windows browser's profile folder (`…/AppData/Local/namzu`, `%LOCALAPPDATA%\namzu`). A site a config file's `browser.sites` denies stays denied for every job.
+  - `DISPLAY`, `WAYLAND_DISPLAY` and `XAUTHORITY` now reach a scheduled run's environment.
+
+  See docs/cli/scheduled-tasks.md#browser-access.
+
+- d233f26: Add scheduled jobs: prompts that run later in a folder while namzu is closed, under a permission set you write down, run by a scheduler service.
+
+  New commands, all under `namzu schedule`: `add`, `edit`, `confirm`, `list`, `show`, `history`, `pause`, `resume`, `remove`, `run-now`, `prune`, `install`, `uninstall`, `status`, `start`, `stop`, `logs` and `daemon`. `install` registers a systemd user unit, a launchd agent or a Windows scheduled task (under WSL, a task that runs the daemon through `wsl.exe`). New config key `schedule` (`maxConcurrentRuns`, `notifications`), read from the user and managed files only. New files under `NAMZU_HOME/schedule/`. `namzu doctor` gains a `scheduler.service` check. `namzu upgrade` asks a running scheduler to restart on the new code.
+
+  In the TUI: `/schedule` lists jobs and what needs you and acts on them, `/loop` re-sends a prompt to the open conversation on an interval between turns, the model gets a `schedule` tool (every job it proposes is confirmed by you on a screen namzu computes) and a `session_loop` tool, and one startup line reports scheduled work since you last looked.
+
+  A job is confirmed on a terminal or in the TUI; `schedule add --yes` without a terminal (a script, or a model's own shell call) creates it inert. This is a tripwire, not a lock against a program running as you: see "Only a terminal or the TUI confirms a job" in the docs. A scheduled run never approves a call on its own: a call its rules do not allow is refused or parks for you, and you answer it later from `/resume` in the job's folder, under the job's rules. Allows come only from the job; every `deny` in your config files still holds.
+
+  Wording only, no behaviour change: `namzu serve` now says namzu has no _server_ (it used to say no daemon, which the scheduler made untrue), and `namzu drain --help` no longer says namzu has no daemon. A script matching the old `serve` sentence must match the new one.
+
+  See `docs/cli/scheduled-tasks.md` and `docs/cli/scheduler-service.md`.
+
+- 2b96136: The interactive terminal now proposes saving a multi-step task as a skill. After a turn that answered with at least six successful tool calls across two or more tools (one of them changing something), it prints one dim line under the reply: `✻ That took 9 steps across 4 tools. Save it as a reusable skill? /skills save [name] · /skills save off to stop suggesting`. It appears at most once per conversation, takes no keys and costs no model call; nothing is saved unless you type `/skills save`, which drafts the skill in the same conversation and saves it only from the confirmation screen.
+
+  To turn it off, type `/skills save off` (it writes `skills.suggest: false` to `~/.namzu/config.yaml`) or set that key yourself; `/skills save on` restores it. It also stops by itself after three proposals in a row go unused. `skills.suggestMinToolCalls` changes the threshold. `namzu exec`, `drain`, ACP, scheduled runs and sub-agents never show it.
+
+- 2b96136: `SKILL.md` skills now reach the model on their own. Every session lists the usable skills in the prompt's skills manifest and mounts the `skill` tool, which the model calls to load one when a task matches its description; until now only plugin skills did, and a file skill needed `/skills <name>` or `exec --skills`. Skills are read from six tiers, the later shadowing the earlier: built-in (`skills/` in this package), `~/.agents/skills`, `~/.namzu/skills`, `./skills`, `.agents/skills` from the checkout root down to the working directory, and `./.namzu/skills`. The manifest is capped at 2% of the context window or 4 KB, whichever is smaller; skills that do not fit are named in one line and stay loadable.
+
+  What may change for you:
+
+  - A model working in a folder with skills now sees them and may load one. To keep a skill away from the model, add `disable-model-invocation: true` (or `invocation: operator`) to its frontmatter, or name it in the new `skills.disabled` config list; `skills.builtin: false` leaves the built-in tier out.
+  - A skill whose `metadata.namzu-requires-tools` names a tool the session lacks is not offered.
+  - `namzu skills-json` can now report `"source": "system"` for a built-in skill, and leaves disabled skills out. A host that switches on `source` should accept the new value.
+  - `namzu skills` and `/skills list` show each skill's directory tier and the files it shadows; `namzu --format json skills` items gain `tier`, and `shadows`, `disabled`, `invocation` and `requiresTools` when they apply.
+
+- 2b96136: Handles a tool's request for a person (`ToolResult.handoff`, see `@namzu/sdk`). The `paused` `AgentEvent` gains `handoff`. The terminal shows the reason with `press Enter to continue · Esc to stop`: Enter resumes the turn and Esc abandons it. `namzu exec` prints `Turn paused — needs you: <reason>`. A scheduled run paused this way records `awaiting-approval` with the reason (`reason` and the new `handoff.reason` in its run result), and its notification says `needs you: <reason>`. `namzu resume <session-id>` and `/resume` offer Continue or Abandon for such a run instead of a permission screen. Nothing to change on your side.
+
+### Patch Changes
+
+- 2b96136: The review screen reads a browser call in words. It was titled `browser` and asked "Do you want to run browser?" over `action: "navigate"`; it now says `Open a web page` / `Do you want to open this page?`, `Go back in the browser`, or `Click on https://shop.example` / `Do you want to do this on https://shop.example?`. An address opens with its path as a person writes it (`/wiki/İstanbul`) and, when that differs, the address actually sent (`/wiki/%C4%B0stanbul`) below it; the host stays in its punycode form.
+- 2b96136: A generic tool result view may now set `outcome: 'cancelled'` for a call the person declined on the tool's own screen. `save_skill` and the `schedule` tool's `create`, `resume` and `delete` use it (the `schedule` tool also sets `data.cancelled` on those results), and the TUI shows the row as `○ … Cancelled — nothing was saved` instead of `✗ … failed: Error: The operator cancelled`. The model still receives the same refusal text.
+- 2b96136: A tool call a person declines without giving a reason now tells the model not to get the same content or result another way — another tool, another site or address, or a web search — unless it asks first and the person agrees. The text was "User declined to run the proposed tool(s)." (and "The user rejected this tool call." on a resumed decision); in a live session a model whose browser navigation was declined fetched the same page through web search instead.
+
+  New export: `DECLINED_TOOL_CALL_FEEDBACK`, the text. A host that passes its own `feedback` with a refusal is unchanged. A test or host that matched the old default text must match the new one.
+
+- 2b96136: Continuing a turn a tool paused for a person — Enter at "The browser needs you", or Continue on a parked scheduled run — now tells the model that you dealt with it and to try the step again. It used to see only the tool's "needs a person" result and end the turn, so a scheduled post you had signed in again for was reported as not possible. The Continue/Abandon card for a scheduled run names the site, the profile and the sign-in command in words.
+- 2b96136: A scheduled run the browser parked on a sign-in page says how to sign in again: its reason, and so the notification, `schedule list`, `show`, `status` and `/schedule`, read `… is showing a sign-in page; sign in again with namzu browser login <profile> <url>`.
+- 2b96136: `/abandon`, `/resume` and Abandon on a parked scheduled run no longer print the turn's id. They say `Stopped the paused turn. Your next message starts a new one in this conversation.`, `Continuing where it paused…` and `Stopped this run. The job stays scheduled.` Nothing else changes.
+- d233f26: The permission screen shows a shell command as it would be typed. It used to escape the command the way JSON does, so `printf '%s\n' "$out"` read as `printf '%s\\n' \"$out\"`. A multi-line command now shows one row per line, later lines indented under the first; a carriage return and other invisible characters are spelled out as `\u{....}`, and `d` still shows the exact input. Nothing to change on your side.
+- 2b96136: A tool result whose first line is up to 300 characters long shows that line whole on its `⎿` row and not again underneath. It used to be cut at 120 characters on the row and repeated in full as the first line of the output below, so a blocked browser navigation's note appeared twice. A longer first line is still shortened on the row and kept whole in the output.
+- 2b96136: A parked scheduled run whose job cannot run shell commands (`bash` denied, as in the `read-only` preset) can be continued from a TUI session whatever its sandbox setting. It used to be refused unless the session's sandbox matched the job's `execution`, which for a browser job created with `execution: sandbox` meant editing your config to continue it. A job that can run commands is still continued only from a matching session. The refusal now says a run a page parked "is waiting for you" rather than "waiting for approval".
+- 2b96136: Esc or Ctrl+C on the screen that saves a skill now only cancels the save. It also interrupted the turn, so the model never heard that nothing was written.
+- 2b96136: The `schedule` tool's input schema now says that `budget` limits one run and that `maxIterations` counts model steps, not repetitions of the job. A model proposed `maxIterations: 1` for a job meant to post once per run, and every run stopped after its first model call. The CLI's confirmation of a job, on a terminal or in the TUI, warns when it allows fewer than 10 iterations.
+- 2b96136: `ScheduleToolHost.create()` may return an optional `note`, which the `schedule` tool appends to what the model is told about the new job. Existing hosts that return only `{ name }` are unaffected. The CLI uses it to tell the model that no scheduler is installed, so its reply no longer promises a run that cannot happen until you run `namzu schedule install`.
+- 2b96136: A job the model proposes in the TUI and you create now says, when no scheduler is installed, that it will not run until `namzu schedule install`. `namzu browser login` ends by saying a scheduled job uses the profile with `namzu schedule add … --browser <profile>`.
+- 2b96136: Confirming an edited scheduled job now lists what changed since it was last confirmed, as `+` and `-` lines above the question, in `namzu schedule edit`, `namzu schedule confirm` and `/schedule confirm`. An edit saved with `--yes` records the lines in the job's history (`changes` on the `edited` record in `schedule history --json`) so the later confirmation can show them.
+- 2b96136: The `schedule` tool asks the model to leave optional fields (folder, time zone, execution, budget, a visible browser window) unset unless the user asked for them, and the TUI's confirmation of a proposed job marks every such value the model set that differs from what you would get by default, e.g. `Chosen by the model, not the default: time zone America/New_York, not this machine's Europe/Istanbul`.
+- 2b96136: A job the model proposes, resumes or deletes in the TUI is confirmed once, on the job's own screen. The permission review no longer asks "Do you want to run schedule?" first in `prompt`, `accept-edits` or `auto`. `plan` and `strict` still refuse the call, a `schedule` rule of `ask` or `deny` still applies, and `pause` is still reviewed. The SDK's `schedule` tool no longer declares `delete` destructive, since the host confirms it before anything is removed; a host that relied on that flag to review deletes should add an `ask` rule for `schedule`.
+- 2b96136: The `schedule` tool's input schema describes `budget.tokenBudget` as what the whole run may spend, with every model call resending the prompt, and the CLI's confirmation of a job warns when it allows fewer than 50 000 tokens. A model proposed 4 000 tokens for a browser job whose runs each took about 110 000.
+- 2b96136: A parked scheduled run you approve or continue from the TUI is told the current local time again, since an answer can come long after the run started, and every time line now says it is the current time already looked up, so the model does not try to run `date` for it.
+- 2b96136: A scheduled run is told the time it started, in the job's time zone with its UTC offset (`It is now Wednesday, 23 September 2026 at 21:04 GMT+03:00 (Europe/Istanbul)`). It had only the date; a job that wrote the time into a post, with no shell to ask, wrote the time in UTC.
+- 2b96136: A scheduled run is no longer sent the tools its job can never use, which every model call used to resend. For a browser job that posts once to a site with the `read-only` preset and `--unmatched deny`, a run went from about 106 000 tokens to about 78 000. A tool withheld this way is refused as an unknown tool if the model names it anyway; nothing a job's rules allow is withheld. New `AgentSessionOptions.withheldTools`.
+- 2b96136: The `skill` tool now presents its calls as `Read skill <name>` (or `List skills`) and hides a successful result, so a host shows one row instead of the raw input and the skill's body. In the TUI, the Working row says `Waiting for you` while the screen that saves a skill is open, instead of counting on as if the turn were working.
+- 2b96136: `/skills save off` and `/skills save on` now warn when a project file, profile or managed config sets its own `skills` block that would override the value you just wrote to `~/.namzu/config.yaml`. The warning names that file and says what `skills.suggest` will be the next time namzu starts. Add `suggest` under `skills` in that file to make the change stick. `/skills save` and `/skills new` typed while a turn is running now wait and run when that turn ends, instead of being injected into it.
+- 2b96136: The confirmation of a job the model proposes is shown whole again. When the model wrote a sentence along with the `schedule` call, the confirmation was drawn below that still-open reply and, taller than the screen, lost its top lines — the job, the model, the budget and its warnings — while you were asked to create it. A tool's own screen now closes the reply first.
+- 2b96136: Skills drafted by `/skills save` and `/skills new`, job prompts the model proposes through the `schedule` tool, and a scheduled run's final summary now follow the language you write in (the job prompt's language for a run), instead of defaulting to English.
+- 2b96136: While a question is waiting for you during a turn — a permission review, a scheduled job's confirmation, the Continue/Abandon card — the activity row reads "Waiting for you · the question below" instead of a running `Working` timer, and the time spent answering is not counted in the turn's elapsed time.
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [d233f26]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [d233f26]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+- Updated dependencies [2b96136]
+  - @namzu/sdk@45.1.0
+  - @namzu/browser@0.1.0
+
 ## 29.0.1
 
 ### Patch Changes
