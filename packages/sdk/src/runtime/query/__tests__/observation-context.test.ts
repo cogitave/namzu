@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { estimateMessagesTokens } from '../../../compaction/token-estimate.js'
 import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { Message, ToolMessage } from '../../../types/message/index.js'
 import { projectObservationContext } from '../observation-context.js'
 
@@ -26,7 +27,7 @@ function registry(readOnly: boolean | undefined = true, destructive = false) {
 		isDestructive: () => destructive,
 		execute: async () => ({ success: true, output: body }),
 	})
-	return tools
+	return new ToolManager({ toolsets: [tools], messages: () => [] })
 }
 
 describe('dynamic exact observation policy', () => {
