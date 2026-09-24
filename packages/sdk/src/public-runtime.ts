@@ -560,6 +560,25 @@ export {
 	toolDefinitionToCatalogEntry,
 } from './registry/index.js'
 
+// Toolsets (plan.md §1): the unit every tool comes from, before any of it
+// reaches a `ToolRegistry`. `toolset()` builds a plain static one;
+// `combineToolsets` merges several under one umbrella source, atomically
+// (throwing `ToolsetConflictError` on a name collision instead of silently
+// picking a winner); the rest are composable wrappers over any `Toolset`.
+export { combineToolsets, ToolsetConflictError } from './toolsets/combine.js'
+export { matchesSourceIdGlob } from './toolsets/source-glob.js'
+export { toolset } from './toolsets/toolset.js'
+export { toToolSourceRef } from './toolsets/types.js'
+export {
+	deferred,
+	filtered,
+	mapTools,
+	prefixed,
+	renamed,
+	requireApproval,
+	withMetadata,
+} from './toolsets/wrappers.js'
+
 export {
 	attachShellHooks,
 	createShellHook,

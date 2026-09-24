@@ -39,6 +39,16 @@ export type {
 	SupervisorPlan,
 } from './directory/derive-supervisor.js'
 export type * from './types/toolset/index.js'
+// The toolset layer (plan.md §1): the unit every tool comes from, and its
+// composable wrappers. `ToolSource`/`ToolSourceKind` above are the ones
+// `Toolset.source` and `toolset()` use — this only adds what is new.
+export type {
+	ToolFilterSelector,
+	ToolPredicate,
+	Toolset,
+	ToolsetAvailability,
+	ToolSourceRef,
+} from './toolsets/types.js'
 export type * from './types/permission/index.js'
 export type * from './types/errors/index.js'
 export type * from './types/provider/index.js'
