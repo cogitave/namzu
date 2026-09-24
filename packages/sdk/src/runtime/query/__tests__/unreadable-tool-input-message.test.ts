@@ -62,8 +62,8 @@ describe('unreadableToolInputMessage', () => {
 
 	it('tells a tool that declares nothing to carry less when its own arguments filled the response', () => {
 		// A long `bash` heredoc, a `run_code` body or an MCP tool's input: the
-		// arguments were what ran out, and blaming the text before them sent
-		// the same input back into the same cutoff.
+		// arguments were what ran out, and blaming the text before them would
+		// send the same input back into the same cutoff.
 		const message = unreadableToolInputMessage('bash', cutOff(30_000, 'length', 1_000))
 
 		expect(message).toBe(

@@ -120,10 +120,14 @@ The message is assembled from the reason and from the tool:
 - **Stopped by a content filter.** No advice and no hint: sending less does
   not get past a filter.
 
-Before, a tool that declared no large arguments was always told to send less
-text before the call. A `bash` heredoc, a `run_code` body or an MCP tool's
-long input that filled the response on its own was sent back the same size,
-into the same cut.
+Before this, every unreadable call got one fixed message, whatever the tool
+and whatever the cause: the call "was cut off while the model was streaming
+JSON arguments", "Retry with a much shorter input", keep `content` and
+`new_string` under 12000 characters before calling file tools, write a long
+file as a short opening with a marker advanced by `edit` calls, and pass
+delegated work a workspace file instead of its content. A malformed call was
+told to send less, and a question, `bash` or MCP tool was given the advice
+for file tools, with no budget for its own arguments.
 
 A tool declares what it needs on its definition or through `defineTool`:
 
