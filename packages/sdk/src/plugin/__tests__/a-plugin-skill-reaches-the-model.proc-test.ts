@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { assembleSystemPrompt } from '../../persona/assembler.js'
-import { ToolRegistry } from '../../registry/index.js'
 import { PluginRegistry } from '../../registry/plugin/index.js'
 import { SkillRegistry } from '../../skills/registry.js'
 import type { PluginManifest } from '../../types/plugin/index.js'
@@ -64,7 +63,6 @@ function manager(authorityRoot: string, skillRegistry?: SkillRegistry) {
 		pluginRegistry,
 		manager: new PluginLifecycleManager({
 			pluginRegistry,
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: authorityRoot, user: authorityRoot },
 			log: NOOP_LOGGER,
 			...(skillRegistry ? { skillRegistry } : {}),

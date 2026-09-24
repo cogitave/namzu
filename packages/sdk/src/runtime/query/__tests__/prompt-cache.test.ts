@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { PromptContributionRegistry, skillsContribution } from '../../../prompt/contributions.js'
 import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
 import type { AgentPersona } from '../../../types/persona/index.js'
 import type { ProjectId } from '../../../types/session/ids.js'
 import type { Skill } from '../../../types/skills/index.js'
@@ -15,6 +16,8 @@ const cache = () =>
 		agentId: 'agent-1',
 	})
 
+const emptyTools = () => new ToolManager({ toolsets: [], messages: () => [] })
+
 describe.each(['full', 'segmented'] as const)('%s prompt cache', (mode) => {
 	const read = (c: PromptCache, input: PromptCacheInput) =>
 		mode === 'segmented' ? c.getSystemPromptSegmented(input).static : c.getSystemPrompt(input)
@@ -26,7 +29,7 @@ describe.each(['full', 'segmented'] as const)('%s prompt cache', (mode) => {
 			const contributions = new PromptContributionRegistry()
 			const firstRender = vi.fn(() => 'FIRST INSTRUCTIONS')
 			contributions.register({ id: 'instructions', placement: 'static', render: firstRender })
-			const input = { systemPrompt: 'be brief', tools: new ToolRegistry(), contributions }
+			const input = { systemPrompt: 'be brief', tools: emptyTools(), contributions }
 			expect(read(c, input)).toContain('FIRST INSTRUCTIONS')
 
 			const next = change === 'replace' ? contributions : new PromptContributionRegistry()
@@ -50,7 +53,7 @@ describe.each(['full', 'segmented'] as const)('%s prompt cache', (mode) => {
 		const c = cache()
 		const contributions = new PromptContributionRegistry()
 		contributions.register({ id: 'instructions', placement: 'static', render: () => 'OLD TEXT' })
-		const input = { systemPrompt: 'be brief', tools: new ToolRegistry(), contributions }
+		const input = { systemPrompt: 'be brief', tools: emptyTools(), contributions }
 		expect(read(c, input)).toContain('OLD TEXT')
 
 		contributions.replace({ id: 'instructions', placement: 'static', render: () => null })
@@ -70,7 +73,7 @@ describe.each(['full', 'segmented'] as const)('%s prompt cache', (mode) => {
 			body: 'FIRST SKILL',
 			dirPath: '/skills/reconcile',
 		} as Skill
-		const input = { basePrompt: 'BASE', persona, skills: [skill], tools: new ToolRegistry() }
+		const input = { basePrompt: 'BASE', persona, skills: [skill], tools: emptyTools() }
 		const before = read(c, input)
 		const updated = {
 			...input,
@@ -110,7 +113,7 @@ describe.each(['full', 'segmented'] as const)('%s prompt cache', (mode) => {
 		contributions.register({ id: 'static', placement: 'static', render: staticRender })
 		contributions.register({ id: 'dynamic', placement: 'dynamic', render: dynamicRender })
 		contributions.register({ id: 'turn', placement: 'turn', render: turnRender })
-		const input = { systemPrompt: 'be brief', tools: new ToolRegistry(), contributions }
+		const input = { systemPrompt: 'be brief', tools: emptyTools(), contributions }
 		const whole = () =>
 			mode === 'full'
 				? c.getSystemPrompt(input)
@@ -133,7 +136,7 @@ describe.each(['full', 'segmented'] as const)('%s prompt cache', (mode) => {
 describe('prompt cache options', () => {
 	it('honors a different context level when reusing the same cache', () => {
 		const c = cache()
-		const input = { basePrompt: 'BASE', systemPrompt: 'be brief', tools: new ToolRegistry() }
+		const input = { basePrompt: 'BASE', systemPrompt: 'be brief', tools: emptyTools() }
 		expect(c.getSystemPromptSegmented(input, 'full').static).toContain('BASE')
 		expect(c.getSystemPromptSegmented(input, 'minimal').static).toBe('be brief')
 		expect(c.getSystemPromptSegmented(input, 'full').static).toContain('BASE')
@@ -141,14 +144,19 @@ describe('prompt cache options', () => {
 
 	it('uses current render options while preserving skills and environment composition', () => {
 		const c = cache()
-		const tools = testToolset(
-			['first-tool', 'second-tool'].map((name) => ({
-				name,
-				description: `Use ${name}`,
-				inputSchema: z.object({}),
-				execute: async () => ({ success: true, output: '' }),
-			})),
-		)
+		const tools = new ToolManager({
+			toolsets: [
+				testToolset(
+					...['first-tool', 'second-tool'].map((name) => ({
+						name,
+						description: `Use ${name}`,
+						inputSchema: z.object({}),
+						execute: async () => ({ success: true, output: '' }),
+					})),
+				),
+			],
+			messages: () => [],
+		})
 		const contributions = new PromptContributionRegistry()
 		contributions.register(skillsContribution)
 		contributions.register({
@@ -196,7 +204,7 @@ describe('prompt cache options', () => {
 		const c = cache()
 		const contributions = new PromptContributionRegistry()
 		contributions.register({ id: 'instructions', placement: 'static', render: () => 'OLD TEXT' })
-		const input = { tools: new ToolRegistry(), contributions }
+		const input = { tools: emptyTools(), contributions }
 		c.getSystemPrompt(input)
 		const previousHash = c.configHash
 		expect(c.needsRebuild(input)).toBe(false)

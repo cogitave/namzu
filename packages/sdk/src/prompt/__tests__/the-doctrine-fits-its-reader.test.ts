@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../registry/tool/execute.js'
 import { PromptBuilder } from '../../runtime/query/prompt.js'
+import { ToolManager } from '../../toolsets/manager.js'
 import {
 	CODING_AGENT_DELEGATION_DOCTRINE,
 	CODING_AGENT_DOCTRINE_CONTRIBUTION_ID,
@@ -59,7 +59,7 @@ describe('the coding-agent doctrine', () => {
 		registry.register(codingAgentDoctrineContribution())
 		const builder = new PromptBuilder({
 			systemPrompt: 'You are the host.',
-			tools: new ToolRegistry(),
+			tools: new ToolManager({ toolsets: [], messages: () => [] }),
 			contributions: registry,
 		})
 		const segments = builder.buildSegmented('full', '/tmp/project')

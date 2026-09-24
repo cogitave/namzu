@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { ToolRegistry } from '../../registry/index.js'
 import { PromptCache } from '../../runtime/query/prompt-cache.js'
 import { PromptBuilder } from '../../runtime/query/prompt.js'
+import { ToolManager } from '../../toolsets/manager.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -40,7 +40,7 @@ const contribution = (
 ): PromptContribution => ({ id, placement, render: () => text })
 
 const builder = (over: Partial<ConstructorParameters<typeof PromptBuilder>[0]> = {}) =>
-	new PromptBuilder({ tools: new ToolRegistry(), ...over })
+	new PromptBuilder({ tools: new ToolManager({ toolsets: [], messages: () => [] }), ...over })
 
 describe('a contribution reaches the prompt', () => {
 	it('appears in the assembled text', () => {
@@ -399,7 +399,7 @@ describe('a turn contribution never reaches the system prompt', () => {
 describe('the prompt cache notices when the contributors change', () => {
 	const cacheInput = (contributions?: PromptContributionRegistry) => ({
 		systemPrompt: 'be brief',
-		tools: new ToolRegistry(),
+		tools: new ToolManager({ toolsets: [], messages: () => [] }),
 		...(contributions ? { contributions } : {}),
 	})
 

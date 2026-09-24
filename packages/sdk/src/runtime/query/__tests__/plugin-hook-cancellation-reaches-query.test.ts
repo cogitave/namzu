@@ -38,7 +38,6 @@ describe('plugin hook cancellation reaches a real query', () => {
 		})
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 10_000,
@@ -165,7 +164,6 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const caller = new AbortController()
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 10_000,
@@ -225,7 +223,6 @@ describe('plugin hook cancellation reaches a real query', () => {
 		const caller = new AbortController()
 		const manager = new PluginLifecycleManager({
 			pluginRegistry: new PluginRegistry(),
-			toolRegistry: new ToolRegistry(),
 			scopeRoots: { project: process.cwd(), user: process.cwd() },
 			log: logger(),
 			hookTimeoutMs: 1_000,
