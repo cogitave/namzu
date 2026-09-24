@@ -62,6 +62,11 @@ back.
 Without `--session`, prior history may be supplied on stdin as one JSON
 `Message[]`, and nothing is persisted: the call is a stateless one-shot.
 Invalid or provider-incomplete tool history is refused before a turn starts.
+A tool call's `metadata.inputError` (see
+[Unreadable tool input](../sdk/unreadable-tool-input.md#what-a-host-sees)) is
+checked too: `reason` must be `truncated` or `malformed`, `length` and
+`precedingLength` non-negative integers, and `parseError` a string, since the
+model is told about that call from them.
 
 **One turn at a time.** A session has at most one active turn. A call against
 a session whose last turn is still running, or is paused, does not start a

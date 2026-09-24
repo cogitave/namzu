@@ -123,6 +123,40 @@ function validateAssistantSource(value: unknown, path: string): string | null {
 	)
 }
 
+const isCount = (candidate: unknown): boolean =>
+	Number.isSafeInteger(candidate) && (candidate as number) >= 0
+
+/**
+ * `ToolCall.metadata.inputError`, which the executor reads to tell the model
+ * why a call was not run: a reason it does not know, or a count that is not
+ * one, would reach the model as "after undefined characters".
+ */
+function validateInputError(value: unknown, path: string): string | null {
+	if (!isObject(value)) return `${path} must be an object`
+	return (
+		(value.reason === 'truncated' || value.reason === 'malformed'
+			? null
+			: `${path}.reason must be "truncated" or "malformed"`) ??
+		optional(
+			value,
+			'finishReason',
+			path,
+			(candidate) =>
+				candidate === 'stop' ||
+				candidate === 'tool_calls' ||
+				candidate === 'length' ||
+				candidate === 'content_filter',
+			'"stop", "tool_calls", "length", or "content_filter"',
+		) ??
+		stringField(value, 'parseError', path) ??
+		optional(value, 'offset', path, isCount, 'a non-negative safe integer') ??
+		(isCount(value.length) ? null : `${path}.length must be a non-negative safe integer`) ??
+		(isCount(value.precedingLength)
+			? null
+			: `${path}.precedingLength must be a non-negative safe integer`)
+	)
+}
+
 function validateToolCall(value: unknown, path: string): string | null {
 	if (!isObject(value)) return `${path} must be a tool-call object`
 	const fn = value.function
@@ -150,7 +184,10 @@ function validateToolCall(value: unknown, path: string): string | null {
 						`${path}.metadata`,
 						(candidate) => typeof candidate === 'string',
 						'a string',
-					)))
+					) ??
+					(metadata.inputError === undefined
+						? null
+						: validateInputError(metadata.inputError, `${path}.metadata.inputError`))))
 	)
 }
 
