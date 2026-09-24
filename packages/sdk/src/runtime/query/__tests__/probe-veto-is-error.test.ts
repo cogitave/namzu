@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createProbeRegistry } from '../../../probe/registry.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { SessionEventDraft } from '../events.js'
@@ -36,16 +36,14 @@ function makeLogger(): Logger {
 	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
 }
 
-function makeToolRegistry(): ToolRegistryContract {
+function makeToolRegistry(): ToolManager {
 	return {
-		register: vi.fn(),
-		unregister: vi.fn(),
 		execute: vi.fn(async () => ({ success: true, output: 'should never run' })),
 		get: vi.fn(() => undefined),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(),
+	} as unknown as ToolManager
 }
 
 function response(): ChatCompletionResponse {

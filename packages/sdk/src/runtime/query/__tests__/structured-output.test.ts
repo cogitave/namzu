@@ -9,12 +9,12 @@ import {
 	STRUCTURED_OUTPUT_TOOL_NAME,
 	createStructuredOutputTool,
 } from '../../../tools/builtins/structuredOutput.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
@@ -86,11 +86,9 @@ function harness(opts: {
 		}),
 		has: vi.fn((name: string) => registry.has(name)),
 		listNames: vi.fn(() => [...registry.keys()]),
-		getAvailability: vi.fn(() => 'active'),
+		availability: vi.fn(() => 'active'),
 		toLLMTools: vi.fn(() => []),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+	} as unknown as ToolManager
 
 	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,

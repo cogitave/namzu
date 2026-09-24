@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { ToolRegistryContract, ToolResult } from '../../../types/tool/index.js'
+import type { ToolResult } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
@@ -53,10 +54,8 @@ function executorReturning(result: ToolResult, maxToolOutputChars?: number): Too
 		execute: vi.fn(async () => result),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(() => 'active'),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+		availability: vi.fn(() => 'active'),
+	} as unknown as ToolManager
 
 	return new ToolExecutor(
 		{

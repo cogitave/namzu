@@ -4,12 +4,12 @@ import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { TurnRecorder } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { ToolManager } from '../../../toolsets/manager.js'
 import type { TurnId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent, StepResult } from '../../../types/session/index.js'
 import { hasToolCall, stepCountIs } from '../../../types/session/step.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { generateSessionId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
@@ -77,11 +77,9 @@ function buildCtx(opts: {
 		}),
 		has: vi.fn(() => true),
 		listNames: vi.fn(() => []),
-		getAvailability: vi.fn(() => 'active'),
+		availability: vi.fn(() => 'active'),
 		toLLMTools: vi.fn(() => []),
-		register: vi.fn(),
-		unregister: vi.fn(),
-	} as unknown as ToolRegistryContract
+	} as unknown as ToolManager
 
 	const activityStore = new ActivityStore(TURN_ID, {
 		enabled: false,
