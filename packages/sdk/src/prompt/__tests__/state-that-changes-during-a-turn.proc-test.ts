@@ -63,7 +63,7 @@ async function runWith(contributions: PromptContributionRegistry, turns: number)
 
 	await drainQuery({
 		provider,
-		tools,
+		toolsets: [tools],
 		turnConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 6 },
 		agentId: 'a',
 		agentName: 'A',

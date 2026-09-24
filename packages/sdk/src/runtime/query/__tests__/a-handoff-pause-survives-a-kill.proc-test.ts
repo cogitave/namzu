@@ -7,9 +7,9 @@ import { afterEach, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionPaths } from '../../../session/paths.js'
 import { DiskSessionLog } from '../../../store/session-log/index.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -49,16 +49,15 @@ const sessionLog = new DyingLog({
 })
 // A short lease: the next process may take the session soon after the kill.
 const lease = await sessionLog.claim({ holder: 'handoff:' + process.pid, ttlMs: 400 })
-const tools = new sdk.ToolRegistry()
-tools.register({ name: 'open_page', description: 'opens a page', inputSchema: z.object({}), execute: async () => {
+const tools = sdk.toolset('handoff-worker', [{ name: 'open_page', description: 'opens a page', inputSchema: z.object({}), execute: async () => {
   await appendFile(join(root, 'ran'), 'x')
   return {
     success: false, output: 'The page is a sign-in form.', error: 'sign-in required',
     handoff: { kind: 'human-required', reason: 'Sign in to example.test, then continue.' },
   }
-} })
+} }])
 await sdk.drainQuery({
-  ...ids, paths, sessionLog, lease, tools, workingDirectory: root, agentId: 'handoff', agentName: 'Handoff',
+  ...ids, paths, sessionLog, lease, toolsets: [tools], workingDirectory: root, agentId: 'handoff', agentName: 'Handoff',
   provider: new sdk.MockLLMProvider({ turns: [
     { toolCalls: [{ id: 'c1', name: 'open_page', args: {} }], finishReason: 'tool_calls' },
     { text: 'the worker must never get here' },
@@ -115,8 +114,7 @@ it('resumes a handoff pause in a new process after the first was killed', async 
 	expect(paused.handoff?.reason).toBe('Sign in to example.test, then continue.')
 
 	let ranAgain = 0
-	const tools = new ToolRegistry()
-	tools.register({
+	const tools = testToolset({
 		name: 'open_page',
 		description: 'opens a page',
 		inputSchema: z.object({}),
@@ -124,7 +122,7 @@ it('resumes a handoff pause in a new process after the first was killed', async 
 			ranAgain += 1
 			return { success: true, output: 'unexpected' }
 		},
-	} as unknown as Parameters<ToolRegistry['register']>[0])
+	})
 	const provider = new MockLLMProvider({ turns: [{ text: 'signed in, carrying on' }] })
 	const { turnId: _turnId, ...session } = ids
 	const outcome = await resumeSession({
@@ -133,7 +131,7 @@ it('resumes a handoff pause in a new process after the first was killed', async 
 		sessionLog,
 		paths,
 		provider,
-		tools,
+		toolsets: [tools],
 		workingDirectory: root,
 		agentId: 'handoff',
 		agentName: 'Handoff',

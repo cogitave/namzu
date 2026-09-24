@@ -6,46 +6,51 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
-import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager } from '../../../toolsets/manager.js'
+import type { Toolset } from '../../../toolsets/types.js'
+import { deferred, filtered } from '../../../toolsets/wrappers.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
 
 /**
  * `ToolResult.reveals`: the same activation `search_tools` performs
- * (`ToolRegistry.activate`), offered to any tool's own result — a "connect
+ * (derived by ToolManager from tool messages), offered to any tool's own result — a "connect
  * to project X" call whose further tools should appear only once the
  * connection is made, rather than be found by lexical search or exposed
  * eagerly. See `types/tool/index.ts`'s `reveals` doc and
  * `runtime/query/executor.ts`'s finalize step.
  */
 
-function registerOpenDoorTool(tools: ToolRegistry, reveals: readonly string[]): void {
-	tools.register({
+function openDoorTool(reveals: readonly string[]): ToolDefinition {
+	return {
 		name: 'open_door',
 		description: 'Open the door to a room.',
 		inputSchema: z.object({}),
 		execute: async () => ({ success: true, output: 'opened', reveals }),
-	})
+	}
 }
 
-function registerDeferredRoomTool(tools: ToolRegistry, name = 'room_tool'): void {
-	tools.register(
-		{
-			name,
-			description: 'Do something inside the room.',
-			inputSchema: z.object({}),
-			execute: async () => ({ success: true, output: 'done inside' }),
-		},
-		'deferred',
-	)
+function roomTool(name = 'room_tool'): ToolDefinition {
+	return {
+		name,
+		description: 'Do something inside the room.',
+		inputSchema: z.object({}),
+		execute: async () => ({ success: true, output: 'done inside' }),
+	}
+}
+
+function doorAndRoom(reveals: readonly string[]): readonly Toolset[] {
+	return [testToolset(openDoorTool(reveals)), deferred(testToolset(roomTool()))]
 }
 
 async function runOpenDoor(
-	tools: ToolRegistry,
+	tools: readonly Toolset[],
 	turns: readonly MockTurn[],
 	allowedTools?: string[],
 ): Promise<{ provider: MockLLMProvider; status: string }> {
@@ -53,7 +58,7 @@ async function runOpenDoor(
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-reveals-'))
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: tools,
 		...(allowedTools ? { allowedTools } : {}),
 		turnConfig: {
 			model: 'mock-model',
@@ -75,14 +80,14 @@ async function runOpenDoor(
 }
 
 async function runOpenDoorWithMessages(
-	tools: ToolRegistry,
+	tools: readonly Toolset[],
 	turns: readonly MockTurn[],
 ): Promise<{ status: string; messages: readonly Message[] }> {
 	const provider = new MockLLMProvider({ turns: [...turns] })
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-reveals-'))
 	const run = await drainQuery({
 		provider,
-		tools,
+		toolsets: tools,
 		turnConfig: {
 			model: 'mock-model',
 			timeoutMs: 5_000,
@@ -111,9 +116,7 @@ describe('ToolResult.reveals activates a curated capability', () => {
 	})
 
 	it('activates a deferred name so the very next turn can call it', async () => {
-		const tools = new ToolRegistry()
-		registerOpenDoorTool(tools, ['room_tool'])
-		registerDeferredRoomTool(tools)
+		const tools = doorAndRoom(['room_tool'])
 
 		const { provider, status } = await runOpenDoor(tools, [
 			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
@@ -122,7 +125,9 @@ describe('ToolResult.reveals activates a curated capability', () => {
 		])
 
 		expect(status).toBe('completed')
-		expect(tools.getAvailability('room_tool')).toBe('active')
+		expect(new ToolManager({ toolsets: tools, messages: () => [] }).availability('room_tool')).toBe(
+			'deferred',
+		)
 		// The second request — issued right after `open_door`'s result — already
 		// offers `room_tool`, proving activation happened at finalize, not on
 		// some later pass.
@@ -131,9 +136,7 @@ describe('ToolResult.reveals activates a curated capability', () => {
 	})
 
 	it('also persists the revealed name on the tool message, for ToolManager.availability to derive from', async () => {
-		const tools = new ToolRegistry()
-		registerOpenDoorTool(tools, ['room_tool'])
-		registerDeferredRoomTool(tools)
+		const tools = doorAndRoom(['room_tool'])
 
 		const { status, messages } = await runOpenDoorWithMessages(tools, [
 			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
@@ -149,14 +152,15 @@ describe('ToolResult.reveals activates a curated capability', () => {
 				? openDoorResult.revealedTools
 				: undefined,
 		).toEqual(['room_tool'])
+		expect(
+			new ToolManager({ toolsets: tools, messages: () => messages }).availability('room_tool'),
+		).toBe('active')
 	})
 
 	it('does not activate a revealed name outside a narrowed allowedTools', async () => {
-		const tools = new ToolRegistry()
-		registerOpenDoorTool(tools, ['room_tool'])
-		registerDeferredRoomTool(tools)
+		const tools = doorAndRoom(['room_tool'])
 
-		const { status } = await runOpenDoor(
+		const { status, provider } = await runOpenDoor(
 			tools,
 			[{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] }, { text: 'done' }],
 			['open_door'],
@@ -165,12 +169,13 @@ describe('ToolResult.reveals activates a curated capability', () => {
 		expect(status).toBe('completed')
 		// Outside the turn's allow-list: still deferred, never made callable,
 		// no matter what the tool's own result claimed.
-		expect(tools.getAvailability('room_tool')).toBe('deferred')
+		expect(provider.requests[1]?.tools?.map((tool) => tool.function.name)).not.toContain(
+			'room_tool',
+		)
 	})
 
 	it('silently ignores an unknown or misspelled name, without throwing or failing the call', async () => {
-		const tools = new ToolRegistry()
-		registerOpenDoorTool(tools, ['no_such_tool'])
+		const tools = [testToolset(openDoorTool(['no_such_tool']))]
 
 		const { status } = await runOpenDoor(tools, [
 			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
@@ -178,32 +183,26 @@ describe('ToolResult.reveals activates a curated capability', () => {
 		])
 
 		// Completed, not aborted or errored — a stale/misspelled name in
-		// `reveals` never reaches `activate()`'s `getOrThrow`.
+		// `reveals` never makes the unknown name callable.
 		expect(status).toBe('completed')
-		expect(tools.has('no_such_tool')).toBe(false)
+		expect(new ToolManager({ toolsets: tools, messages: () => [] }).has('no_such_tool')).toBe(false)
 	})
 
-	it('does not resurrect a tool a host suspended', async () => {
-		const tools = new ToolRegistry()
-		registerOpenDoorTool(tools, ['room_tool'])
-		tools.register(
-			{
-				name: 'room_tool',
-				description: 'Do something inside the room.',
-				inputSchema: z.object({}),
-				execute: async () => ({ success: true, output: 'done inside' }),
-			},
-			'active',
-		)
-		tools.suspendAll()
-		expect(tools.getAvailability('room_tool')).toBe('suspended')
+	it('does not resurrect a tool the host filtered out', async () => {
+		const tools = [
+			testToolset(openDoorTool(['room_tool'])),
+			filtered(deferred(testToolset(roomTool())), () => false),
+		]
+		expect(tools[1]?.tools()).toEqual([])
 
-		const { status } = await runOpenDoor(tools, [
+		const { status, provider } = await runOpenDoor(tools, [
 			{ toolCalls: [{ id: 'a', name: 'open_door', args: {} }] },
 			{ text: 'done' },
 		])
 
 		expect(status).toBe('completed')
-		expect(tools.getAvailability('room_tool')).toBe('suspended')
+		expect(provider.requests[1]?.tools?.map((tool) => tool.function.name)).not.toContain(
+			'room_tool',
+		)
 	})
 })
