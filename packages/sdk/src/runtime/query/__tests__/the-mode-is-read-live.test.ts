@@ -6,8 +6,8 @@ import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
-import { ToolRegistry } from '../../../registry/index.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -39,13 +39,14 @@ afterEach(async () => {
 	dirs.length = 0
 })
 
-function registry(): ToolRegistry {
-	const r = new ToolRegistry()
-	for (const [name, readOnly] of [
-		['write', false],
-		['read', true],
-	] as const) {
-		r.register(
+function fixtureToolset() {
+	return testToolset(
+		...(
+			[
+				['write', false],
+				['read', true],
+			] as const
+		).map(([name, readOnly]) =>
 			defineTool({
 				name,
 				description: name,
@@ -57,9 +58,8 @@ function registry(): ToolRegistry {
 				concurrencySafe: true,
 				execute: async () => ({ success: true, output: `${name} ran` }),
 			}),
-		)
-	}
-	return r
+		),
+	)
 }
 
 const call = (id: string, name: string) => ({
@@ -87,7 +87,7 @@ async function run(opts: {
 
 	const result = await drainQuery({
 		provider,
-		tools: registry(),
+		toolsets: [fixtureToolset()],
 		turnConfig: {
 			model: 'mock',
 			timeoutMs: 20_000,
@@ -179,14 +179,13 @@ describe('the mode is read live, not frozen at turn start', () => {
 		// what has to hold if that structure ever moves. Measured rather than
 		// assumed; see the note on `batchMode`.
 		const modeRef = { current: 'plan' as PermissionMode }
-		const registryWithFlip = new ToolRegistry()
 		// The flipper is READ-ONLY, and that is the whole trick. A write is
 		// refused in plan mode BEFORE its body runs, so a write that flips the
 		// mode never gets to — a first version of this test used one and
 		// passed against a per-call read as happily as against a per-batch
 		// sample. A read is allowed, its body runs, and the flip lands between
 		// the checks of the writes that follow it in the same batch.
-		registryWithFlip.register(
+		const toolsWithFlip = [
 			defineTool({
 				name: 'read',
 				description: 'read',
@@ -203,8 +202,6 @@ describe('the mode is read live, not frozen at turn start', () => {
 					return { success: true, output: 'read ran' }
 				},
 			}),
-		)
-		registryWithFlip.register(
 			defineTool({
 				name: 'write',
 				description: 'write',
@@ -216,7 +213,7 @@ describe('the mode is read live, not frozen at turn start', () => {
 				concurrencySafe: false,
 				execute: async () => ({ success: true, output: 'write ran' }),
 			}),
-		)
+		]
 
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-mode-batch-'))
 		dirs.push(workingDirectory)
@@ -235,7 +232,7 @@ describe('the mode is read live, not frozen at turn start', () => {
 					{ text: 'done' },
 				] as never,
 			}),
-			tools: registryWithFlip,
+			toolsets: [testToolset(...toolsWithFlip)],
 			turnConfig: {
 				model: 'mock',
 				timeoutMs: 20_000,
