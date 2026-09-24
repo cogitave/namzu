@@ -125,7 +125,9 @@ const regionSchema = z.object({
 	height: z.number().int().positive(),
 })
 
-const mouseButtonSchema = z.enum(['left', 'right', 'middle'])
+// Left when omitted: a model asked to "click the Start button" often leaves
+// the button out, and refusing that cost a whole round trip for nothing.
+const mouseButtonSchema = z.enum(['left', 'right', 'middle']).default('left')
 const screenshotIdSchema = z.string().min(1).optional()
 
 const cursorPositionSchema = z.object({ type: z.literal('cursor_position') })
@@ -439,7 +441,15 @@ function buildDescription(
 	)
 	if (available.includes('batch'))
 		lines.push(
-			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Use it for steps whose targets you can already see (click a field, type, press ENTER). A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
+			`batch: {"type":"batch","actions":[...]} runs up to ${settings.maxBatchActions} actions in order, stops at the first one that fails, and returns one screenshot at the end. Every call costs a model round trip of several seconds, so put the steps you can already predict into one batch (click a field, type, press ENTER; press keys and wait for a window) rather than one call each. A batch cannot contain screenshot${available.includes('ui_snapshot') ? ', zoom or ui_snapshot' : ' or zoom'}.`,
+		)
+	if (
+		caps.displayServer === 'win32' &&
+		available.includes('key') &&
+		available.includes('type_text')
+	)
+		lines.push(
+			'To start a Windows program, use the Run dialog in one batch — key WIN+R, wait 500, type_text its file name (notepad, calc, mspaint), key ENTER, wait 1500 — rather than Start-menu search: Start searches by display names in the system language, and ENTER on a name it does not find opens a web search in the browser.',
 		)
 	if (available.includes('list_windows'))
 		lines.push(
@@ -495,8 +505,8 @@ const ACTION_REQUIREMENTS: Readonly<Record<ToolActionType, string>> = {
 	zoom: 'zoom needs region',
 	cursor_position: 'cursor_position needs no other fields',
 	mouse_move: 'mouse_move needs to',
-	mouse_click: 'mouse_click needs at and button',
-	mouse_drag: 'mouse_drag needs from, to, and button',
+	mouse_click: 'mouse_click needs at (button defaults to left)',
+	mouse_drag: 'mouse_drag needs from and to (button defaults to left)',
 	scroll: 'scroll needs at, direction, and amount',
 	type_text: 'type_text needs text',
 	key: 'key needs keys',
@@ -531,7 +541,7 @@ function hostModelSchema(
 			to: pointModelSchema(),
 			at: pointModelSchema(),
 			from: pointModelSchema(),
-			button: { type: 'string', enum: buttonEnum },
+			button: { type: 'string', enum: buttonEnum, description: 'Mouse button; left when omitted.' },
 			direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] },
 			amount: { type: 'integer', description: 'Positive integer scroll distance.' },
 			text: { type: 'string', description: 'Literal text to type.' },
@@ -1309,10 +1319,23 @@ export function createComputerUseTool(
 		mediaType: 'image/png',
 	})
 
+	// Said once, beside the first screenshot, where it is read: a model that
+	// has just seen the screen reaches for pixels unless told the host can
+	// name the controls.
+	const firstLookHint = (frame: ScreenshotFrame): string[] =>
+		frame.id === 's1' && available.has('ui_snapshot')
+			? [
+					'This host can also read a window’s controls: list_windows, then ui_snapshot {window_id}, then ui_act by ref (a batch of them for several buttons) — surer than clicking pixels in an ordinary application.',
+				]
+			: []
+
 	const screenshotResult = (shot: Capture): ToolResult => ({
 		success: true,
 		output: `Screenshot ${shot.frame.id} captured (${shot.frame.imageWidth}x${shot.frame.imageHeight} of the ${shot.frame.display.width}x${shot.frame.display.height} display).`,
-		content: [{ type: 'text', text: describeFrame(shot.frame) }, imageBlock(shot.image)],
+		content: [
+			{ type: 'text', text: [describeFrame(shot.frame), ...firstLookHint(shot.frame)].join('\n') },
+			imageBlock(shot.image),
+		],
 		data: { screenshot: frameData(shot.frame) },
 		workingState: pin(shot.frame),
 	})

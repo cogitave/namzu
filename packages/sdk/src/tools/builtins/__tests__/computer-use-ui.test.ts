@@ -339,6 +339,19 @@ describe('computer_use UI tree', () => {
 		expect(unavailable.capturesScreen?.({ type: 'screenshot' })).toBe(false)
 	})
 
+	it('points at the controls beside the first screenshot only, and at the Run dialog on Windows', async () => {
+		const tool = createComputerUseTool(makeUiHost().host, { settleMs: 0 })
+		expect(tool.description).toContain('use the Run dialog in one batch')
+		const first = text(await run(tool, { type: 'screenshot' }))
+		expect(first).toContain('This host can also read a window’s controls')
+		const second = text(await run(tool, { type: 'screenshot' }))
+		expect(second).not.toContain('read a window’s controls')
+		const plain = createComputerUseTool(makeUiHost({ capabilities: { uiTree: false } }).host, {
+			settleMs: 0,
+		})
+		expect(text(await run(plain, { type: 'screenshot' }))).not.toContain('controls')
+	})
+
 	it('classifies ui_snapshot as a read and ui_act as a change', () => {
 		const tool = createComputerUseTool(makeUiHost().host)
 		expect(tool.isReadOnly?.({ type: 'ui_snapshot' })).toBe(true)

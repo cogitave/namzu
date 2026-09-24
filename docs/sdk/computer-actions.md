@@ -87,8 +87,8 @@ the action still reports success and the text says to take one.
 | `zoom` | `region: { x, y, width, height }` | a closer view, not a new coordinate space |
 | `cursor_position` | — | no |
 | `mouse_move` | `to` | yes |
-| `mouse_click` | `at`, `button` | yes |
-| `mouse_drag` | `from`, `to`, `button` | yes |
+| `mouse_click` | `at`, `button` (left when omitted) | yes |
+| `mouse_drag` | `from`, `to`, `button` (left when omitted) | yes |
 | `scroll` | `at`, `direction`, `amount` | yes |
 | `type_text` | `text` | yes |
 | `key` | `keys` | yes |
@@ -184,6 +184,15 @@ Batch stopped at action 2 of 3; 1 not run.
 3. Press ENTER: not run
 Screenshot s5: 1568x656 pixels, …
 ```
+
+The description tells the model that every call costs a round trip and to
+batch the steps it can already predict. On a Windows host it also says to
+start a program through the Run dialog in one batch (`WIN+R`, the file name,
+`ENTER`) rather than Start-menu search, which matches display names in the
+system language and turns an unmatched `ENTER` into a web search in the
+browser — on a Turkish Windows a model typed "Calculator" into Start and
+opened Bing in the operator's Edge. With `uiTree`, the first screenshot's
+text points at `list_windows`, `ui_snapshot` and `ui_act`.
 
 The screenshot is still taken when an earlier action changed the screen or
 the failed one's outcome is unknown. A batch cannot contain `screenshot`,

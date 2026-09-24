@@ -1099,8 +1099,9 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 			expect(tool.validationErrorHint).toMatch(/"type":"batch"/)
 			for (const action of [
 				{ type: 'mouse_move' },
-				{ type: 'mouse_click', at: { x: 1, y: 2 } },
-				{ type: 'mouse_drag', from: { x: 1, y: 2 }, to: { x: 3, y: 4 } },
+				{ type: 'mouse_click' },
+				{ type: 'mouse_click', at: { x: 1, y: 2 }, button: 'thumb' },
+				{ type: 'mouse_drag', from: { x: 1, y: 2 } },
 				{ type: 'scroll', at: { x: 1, y: 2 }, direction: 'down' },
 				{ type: 'type_text' },
 				{ type: 'key' },
@@ -1116,6 +1117,23 @@ describe('createComputerUseTool', { timeout: 30_000 }, () => {
 				expect(registry.prepareExecution(COMPUTER_USE_TOOL_NAME, action).success).toBe(false)
 			}
 			expect(calls).toHaveLength(0)
+		})
+
+		it('clicks and drags with the left button when the model leaves it out', () => {
+			// A model asked to click the Start button sent no button, and the
+			// refusal cost a round trip for nothing.
+			const tool = createComputerUseTool(makeHost().host, FAST)
+			expect(tool.inputSchema.parse({ type: 'mouse_click', at: { x: 1, y: 2 } })).toEqual({
+				type: 'mouse_click',
+				at: { x: 1, y: 2 },
+				button: 'left',
+			})
+			expect(
+				tool.inputSchema.parse({
+					type: 'batch',
+					actions: [{ type: 'mouse_drag', from: { x: 1, y: 2 }, to: { x: 3, y: 4 } }],
+				}),
+			).toMatchObject({ actions: [{ button: 'left' }] })
 		})
 	})
 
