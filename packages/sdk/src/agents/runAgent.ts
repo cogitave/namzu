@@ -78,12 +78,8 @@ export interface RunAgentOptions extends AgentIdentity {
 	toolsets?: readonly Toolset[]
 
 	/**
-	 * Screens to run against every tool result, where the registry was not
-	 * built with its own.
-	 *
-	 * The front door needs its own way to say this, because the registry it
-	 * was handed — usually the host's, assembled before this call — is not a
-	 * place a turn can reach. Absent installs the shipped default
+	 * Screens to run against every tool result. The turn builds its own
+	 * manager from the supplied toolsets. Absent installs the shipped default
 	 * ({@link DEFAULT_TOOL_RESULT_GUARDRAILS}: a connected server's result
 	 * that restates the request is refused). **An empty array is how a caller
 	 * turns that off**, and it is the reason this option is here at all: a

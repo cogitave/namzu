@@ -333,14 +333,8 @@ export interface QueryParams {
 	 */
 	maxToolOutputChars?: number
 	/**
-	 * Screens to run against every tool result, where the registry was not
-	 * built with its own.
-	 *
-	 * This is the turn's half of a boundary whose only other door is the
-	 * registry constructor — and a registry is usually the HOST's, assembled
-	 * before the turn exists, so a turn-config option is the only way a turn
-	 * screens a registry it did not build. A registry built WITH
-	 * `resultGuardrails` states its own policy and wins, `[]` included.
+	 * Screens to run against every tool result. The turn builds its manager
+	 * from `toolsets` and gives it this policy.
 	 *
 	 * Absent installs {@link DEFAULT_TOOL_RESULT_GUARDRAILS}; an empty array
 	 * installs none, which is how a caller turns the default off.

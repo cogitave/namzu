@@ -177,17 +177,11 @@ reached after normalising whitespace.
 
 **A turn installs the default.** `DEFAULT_TOOL_RESULT_GUARDRAILS` is one
 correspondence screen, and the executor puts it on the tool context of every
-turn. A default here rather than on the registry because a turn usually does not
-build its registry: a host assembles one and hands it to `runAgent`, so a
-registry-construction option alone is the host's to write and the kernel's
-default would reach nobody.
+turn. The turn builds a `ToolManager` from its toolsets and applies the
+default there when no screen policy was supplied.
 
-**A registry that was built with `resultGuardrails` wins.** Including an empty
-array, which means none — a registry that stated its policy has stated it, and a
-turn must not overrule it.
-
-**A turn config option overrides the default** for a registry that declared
-nothing:
+**A turn config option overrides the default.** An empty array means no
+screens:
 
 ```ts
 import { MockLLMProvider, runAgent } from '@namzu/sdk'
@@ -209,6 +203,10 @@ the child config after the child's `configBuilder` runs, the way it stamps
 registered the agent cannot be expected to forward a field it was never told
 about. A spawn that supplies `configOverrides.toolResultGuardrails` replaces
 the inherited value — including with `[]`.
+
+A duplex session builds its own manager from `BidiTurnParams.toolsets`. Its
+`toolResultGuardrails` option chooses the screens for that session; it has no
+separately constructed registry policy to override.
 
 **The CLI names screens in `namzu.config.json`:**
 

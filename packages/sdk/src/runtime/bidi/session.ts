@@ -91,8 +91,8 @@ export interface BidiTurnParams {
 	 *
 	 * Here rather than nowhere because this path builds its OWN tool context:
 	 * a duplex session executes the tools the model asks for, and its results
-	 * reach a model just as a turn's do. A registry built with
-	 * `resultGuardrails` still wins, as it does on the query path.
+	 * reach a model just as a turn's do. This duplex path builds its own
+	 * manager from the supplied toolsets, so this option is its screen policy.
 	 */
 	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 }
