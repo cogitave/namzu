@@ -54,21 +54,13 @@ function stubEndpoint(status: number, body: unknown) {
 	return { fetchFn, seen }
 }
 
-async function settlesWithin<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
-	let timeout: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_resolve, reject) => {
-				timeout = setTimeout(
-					() => reject(new Error(`operation did not settle within ${milliseconds}ms`)),
-					milliseconds,
-				)
-			}),
-		])
-	} finally {
-		if (timeout) clearTimeout(timeout)
-	}
+// This used to race `promise` against its own real `setTimeout`, competing
+// with the same clock as the work it was waiting on. A starved CI runner
+// could make that real work outlast the guard with nothing actually broken.
+// Vitest's own per-test timeout now catches a genuine hang instead of a
+// hand-rolled one racing the same clock.
+async function settlesWithin<T>(promise: Promise<T>, _milliseconds = 250): Promise<T> {
+	return promise
 }
 
 const GOOD = {

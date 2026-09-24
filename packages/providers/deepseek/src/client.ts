@@ -75,6 +75,15 @@ function mapFinishReason(
 			return 'tool_calls'
 		case 'content_filter':
 			return 'content_filter'
+		// The server stopped generating for want of capacity. Reported as
+		// 'stop', it read as a finished answer, and a tool call it cut off as
+		// one the model had finished and got wrong. It is a failure.
+		case 'insufficient_system_resource':
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'deepseek',
+				detail: 'the server interrupted generation for lack of resources',
+			})
 		default:
 			return 'stop'
 	}

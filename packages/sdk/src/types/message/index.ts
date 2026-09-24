@@ -1,4 +1,4 @@
-import type { GoalId } from '../ids/index.js'
+import type { GoalId, MessageId } from '../ids/index.js'
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -144,16 +144,104 @@ export interface ToolCall {
 	 * JSON payload, while provider/runtime recovery state lives here.
 	 */
 	metadata?: {
+		/**
+		 * The streamed arguments could not be read, and `function.arguments`
+		 * was normalized to `"{}"`. Set for every unreadable call, cut off or
+		 * malformed alike: the name predates that distinction, and
+		 * {@link inputError} is what says which it was.
+		 */
 		inputTruncated?: boolean
 		/**
-		 * The partial argument buffer as it arrived, when the stream cut off
-		 * mid-JSON. `function.arguments` is normalized to `"{}"` in that
-		 * case so tool args stay clean, which leaves this as the only record
-		 * of what the model was actually saying — and a `repairToolCall`
-		 * hook has nothing to repair without it.
+		 * The argument buffer as it arrived, when it could not be read.
+		 * `function.arguments` is normalized to `"{}"` in that case so tool
+		 * args stay clean, which leaves this as the only record of what the
+		 * model was actually saying — and a `repairToolCall` hook has nothing
+		 * to repair without it.
 		 */
 		partialArguments?: string
+		/**
+		 * Why the arguments could not be read. Present with
+		 * {@link inputTruncated} on every call the runtime marked; absent on a
+		 * call marked by an older runtime, which recorded only the flag.
+		 */
+		inputError?: ToolInputError
 	}
+}
+
+/**
+ * Why a streamed tool call's arguments could not be read. See
+ * {@link ToolInputError}.
+ */
+export type ToolInputErrorReason = 'truncated' | 'malformed'
+
+/**
+ * A tool call whose streamed arguments did not parse as JSON, and why.
+ *
+ * An output limit, a content filter or a dropped stream stops a response
+ * wherever it is, so only the call the response was streaming at that moment
+ * can have been cut off: the last one, with nothing the model streamed after
+ * it. For that call the finish reason decides, never the text:
+ *
+ * - `truncated` — the response stopped before the model closed the
+ *   arguments. It reached its output limit (`finishReason: 'length'`), a
+ *   content filter stopped it (`'content_filter'`), or the stream ended
+ *   without reporting a finish reason at all.
+ * - `malformed` — the response finished normally (`'stop'` or
+ *   `'tool_calls'`) and the arguments still were not valid JSON.
+ *
+ * Every other unreadable call is `malformed`, whatever the finish reason:
+ * the model moved on to more text, reasoning or another call, so it had
+ * finished writing this one.
+ */
+export interface ToolInputError {
+	readonly reason: ToolInputErrorReason
+	/** How the response ended, as the provider reported it. Absent when the stream reported nothing. */
+	readonly finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/**
+	 * `'context_window'` when a `'length'` finish was the model's context
+	 * window rather than its output token limit (`StreamChunk.finishDetail`).
+	 */
+	readonly finishDetail?: 'context_window'
+	/** The JSON parser's own message. */
+	readonly parseError: string
+	/**
+	 * Zero-based character offset in the arguments where parsing failed: the
+	 * first character that cannot continue valid JSON, or their length when
+	 * the text simply ended. Found by scanning the arguments, so it is there
+	 * when {@link parseError} names no position, as for a bare `True` or
+	 * `None`.
+	 */
+	readonly offset?: number
+	/** How many characters of arguments arrived. */
+	readonly length: number
+	/**
+	 * How many characters the response streamed before this call began: its
+	 * text, its visible reasoning and the arguments of earlier tool calls.
+	 * Text a driver adds of its own is not counted. For a `truncated` call,
+	 * which nothing followed, this plus {@link length} is everything the
+	 * response streamed as text. It is not everything the response spent:
+	 * reasoning a provider does not stream (encrypted, summarised, or only
+	 * counted) uses the output limit too, and {@link outputTokens} and
+	 * {@link reasoningTokens} are what show it.
+	 */
+	readonly precedingLength: number
+	/**
+	 * The output tokens the whole response used, reasoning included, as the
+	 * provider reported them when it ended. Present on a `truncated` call when
+	 * the provider reported any.
+	 *
+	 * After an output limit it says whether the visible text accounts for the
+	 * limit: when most of the output went to reasoning, or to anything else
+	 * the stream did not carry, the call is not what filled the response, and
+	 * the model is told so rather than told to shrink the call.
+	 */
+	readonly outputTokens?: number
+	/**
+	 * Of {@link outputTokens}, the tokens the provider says went to reasoning.
+	 * Present only when the provider reports that split; absent means unknown,
+	 * not zero.
+	 */
+	readonly reasoningTokens?: number
 }
 
 export interface BaseMessage {
@@ -167,6 +255,22 @@ export interface BaseMessage {
 	content: string | null | readonly ToolResultBlock[]
 	timestamp?: number
 	cacheHint?: CacheHint
+	/**
+	 * The id of the durable `message` record this message was written as, or
+	 * a `message_replaced` record's `targetMessageId` when a guardrail,
+	 * review or structured-output override replaced its content in place.
+	 * Absent means the kernel has not recorded this exact message: a host
+	 * just constructed it, or it is a compaction's own summary (a bulk
+	 * spilled or inline array, which carries no per-message id — see
+	 * `docs/sdk/session-log.md`).
+	 *
+	 * Set by the kernel alone, never by a caller: `query()` stamps every
+	 * message it folds from the session log or records fresh, on `Turn.messages`,
+	 * on the messages `onConversationMessages` reports, and on a checkpoint's
+	 * restored messages. A caller that mints its own id here gets `conflict`
+	 * on the next turn — this log never recorded it under that name.
+	 */
+	readonly id?: MessageId
 	/**
 	 * Exempt this message from compaction and from tool-result clearing.
 	 *
@@ -248,6 +352,8 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'auto-continuation',
 	'job-exit',
 	'limit-finalization',
+	'peer-message',
+	'peer-notice',
 	'repeat-call',
 	'steering',
 	'step-context',

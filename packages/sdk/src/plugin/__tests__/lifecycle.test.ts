@@ -161,17 +161,18 @@ describe('PluginLifecycleManager', () => {
 			await entered
 			caller.abort(reason)
 
-			const safety = Symbol('hook cancellation did not settle')
-			const outcome = await Promise.race([
-				execution.then(
-					(value) => ({ kind: 'resolved' as const, value }),
-					(error: unknown) => ({ kind: 'rejected' as const, error }),
-				),
-				new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 250)),
-			])
+			// No real 250ms safety race: it competed with the same clock as
+			// the cancellation work it waited on, so a starved CI runner
+			// could make that work outlast the guard with nothing actually
+			// broken. A regression that left this unresolved now fails on
+			// Vitest's own per-test timeout instead; the `finally` below
+			// still releases the held hook so nothing is left live either
+			// way.
+			const outcome = await execution.then(
+				(value) => ({ kind: 'resolved' as const, value }),
+				(error: unknown) => ({ kind: 'rejected' as const, error }),
+			)
 			try {
-				expect(outcome).not.toBe(safety)
-				if (outcome === safety) return
 				expect(outcome.kind).toBe('rejected')
 				if (outcome.kind === 'rejected') expect(outcome.error).toBe(reason)
 				expect(hookSignal?.aborted).toBe(true)

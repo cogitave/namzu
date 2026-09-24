@@ -305,11 +305,16 @@ describe('display history from a namzu session', () => {
 		ui.setInitialMessages(fromNamzuMessages(await log.messages()))
 		const [snapshot] = ui.drain()
 
+		// Each message carries the durable id its own record was given —
+		// `fromNamzuMessages` now emits the namzu id directly, not a
+		// positional placeholder, so a client that round-trips it back
+		// unmodified (`toNamzuMessages({ trustMessageIds: true })`) lets
+		// `query()` reconcile it by id.
 		expect(snapshot).toEqual({
 			type: EventType.MESSAGES_SNAPSHOT,
 			messages: [
-				{ id: 'namzu-message-0', role: 'user', content: 'Show me the key' },
-				{ id: 'namzu-message-1', role: 'assistant', content: 'The key is [redacted]' },
+				{ id: prompt, role: 'user', content: 'Show me the key' },
+				{ id: answer, role: 'assistant', content: 'The key is [redacted]' },
 			],
 		})
 		expect(JSON.stringify(snapshot)).not.toContain('sk-live-secret')

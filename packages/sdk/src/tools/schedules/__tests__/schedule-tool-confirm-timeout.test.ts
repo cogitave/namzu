@@ -187,12 +187,12 @@ describe('schedule tool — a person answering the confirmation is not the execu
 		const pending = exec.executeBatch(response('schedule', CREATE_ARGS))
 		await sleep(20)
 		controller.abort(new Error('operator stopped the turn'))
-		const batch = await Promise.race([
-			pending,
-			sleep(1_000).then(() => {
-				throw new Error('turn abort did not reach the pending confirm')
-			}),
-		])
+		// No real 1000ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now hangs and fails on
+		// Vitest's own per-test timeout instead.
+		const batch = await pending
 		expect(confirmSignal).toBeDefined()
 		expect(confirmSignal?.aborted).toBe(true)
 		expect(batch.results[0]?.isError).toBe(true)

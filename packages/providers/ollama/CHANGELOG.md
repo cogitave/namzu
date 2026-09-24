@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.5
+
+### Patch Changes
+
+- 2d4ff9a: Earlier entries in this package's CHANGELOG no longer name one particular application built on namzu, or quote a path from outside this repository. This changes only the CHANGELOG.md that ships in the tarball; no code or types change, and there is nothing to do to upgrade.
+
 ## 2.2.4
 
 ### Patch Changes
@@ -595,8 +601,8 @@
   The kernel now emits a per-message and per-tool-input lifecycle on the
   event bus, and the provider contract collapses to a single streaming
   entry point. Together these unlock live tool-call rendering (Calling →
-  Running → Done with incremental input) for SSE consumers — the cowork
-  workspace surface that motivated the work in the first place.
+  Running → Done with incremental input) for SSE consumers — a live
+  workspace surface motivated the work in the first place.
 
   ## Breaking changes
 

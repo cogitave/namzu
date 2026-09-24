@@ -181,7 +181,7 @@ import { type CapabilityProbe, probeCapabilities } from '../context/capabilities
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_ORCHESTRATE_DOCTRINE,
+	NAMZU_HYPERMODE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
@@ -340,6 +340,28 @@ export type AgentEvent =
 			 * suggestion only, never by a permission decision.
 			 */
 			readonly readOnly?: true
+	  }
+	/**
+	 * A tool call whose streamed arguments could not be read, and why: cut
+	 * off (`inputError.reason: 'truncated'`) or not valid JSON
+	 * (`'malformed'`). The kernel's `tool_input_completed` carries both, and
+	 * nothing here passed it on, so a host reading `exec --json` saw only the
+	 * failed `tool-end` and could neither tell the two apart nor record what
+	 * the model sent. Comes before the call's `tool-start`; the TUI draws
+	 * nothing for it, since that `tool-end` already says what went wrong.
+	 */
+	| {
+			readonly kind: 'tool-input-unreadable'
+			readonly turnId?: string
+			readonly toolUseId: string
+			/** Absent only from a kernel that records no reason. */
+			readonly inputError?: import('@namzu/sdk').ToolInputError
+			/**
+			 * The arguments as they arrived: at most their first 16 384
+			 * characters, as the kernel's event carries them;
+			 * `inputError.length` says how many there were.
+			 */
+			readonly partialArguments?: string
 	  }
 	| {
 			readonly kind: 'tool-progress'
@@ -647,12 +669,21 @@ export interface SendOptions {
 	readonly effort?: ReasoningEffort
 	/**
 	 * Strengthen delegation guidance toward delegating by default for this
-	 * turn, for a session whose orchestrate mode (`/orchestrate`) is on.
-	 * Default `false`; appends `NAMZU_ORCHESTRATE_DOCTRINE` after the
+	 * turn, for a session whose hypermode (`/hypermode`) is on.
+	 * Default `false`; appends `NAMZU_HYPERMODE_DOCTRINE` after the
 	 * delegation doctrine and never on its own. Display/prompt-only — creates
 	 * no roster and starts no delegation by itself.
 	 */
-	readonly orchestrate?: boolean
+	readonly hypermode?: boolean
+	/**
+	 * What the host tells the model about this turn in its own words — the
+	 * composer triggers the operator armed (`./triggers/context-text.ts`).
+	 * Read at every iteration and sent through the kernel's `context`
+	 * placement: after the history, request-only, never in it, and never in
+	 * the system prompt, so the cached prefix is the same with or without it.
+	 * Absent or empty adds nothing.
+	 */
+	readonly hostContext?: () => readonly string[]
 	/**
 	 * How this turn resolves review requests no declarative rule decided.
 	 * Overrides the session default for this turn only.
@@ -3875,6 +3906,13 @@ export async function createAgentSession(
 						// tools are there: guidance about a capability the turn does not
 						// have reads as a capability it should be looking for.
 						if (webCapability) promptContributions.register(webGuidanceContribution)
+						const hostContext = opts?.hostContext
+						if (hostContext)
+							promptContributions.register({
+								id: 'namzu.cli.composer-triggers',
+								placement: 'context',
+								render: () => hostContext().join('\n\n') || null,
+							})
 						if (nativeWebSearch)
 							promptContributions.register({
 								id: 'namzu.web.hosted-search',
@@ -3927,7 +3965,7 @@ export async function createAgentSession(
 								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
-								!residentContext && opts?.orchestrate ? NAMZU_ORCHESTRATE_DOCTRINE : undefined,
+								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change
@@ -5251,6 +5289,18 @@ export function toAgentEvent(
 				})(),
 				...(readsOnly?.(event.toolName, event.input) ? { readOnly: true as const } : {}),
 			}
+		case 'tool_input_completed':
+			return event.inputTruncated
+				? {
+						kind: 'tool-input-unreadable',
+						turnId: event.turnId,
+						toolUseId: event.toolUseId,
+						...(event.inputError ? { inputError: event.inputError } : {}),
+						...(event.partialArguments !== undefined
+							? { partialArguments: event.partialArguments }
+							: {}),
+					}
+				: null
 		case 'tool_progress':
 			return {
 				kind: 'tool-progress',

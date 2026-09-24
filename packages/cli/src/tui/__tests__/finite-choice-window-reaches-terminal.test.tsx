@@ -124,12 +124,8 @@ afterEach(async () => {
 	for (const screen of mounted.splice(0)) await screen.unmount()
 })
 
-async function waitUntil(_screen: Screen, predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (!predicate() && performance.now() - started < timeoutMs) {
-		await new Promise((resolve) => setTimeout(resolve, 20))
-	}
-	expect(predicate()).toBe(true)
+async function waitUntil(_screen: Screen, predicate: () => boolean, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(predicate()).toBe(true), timeoutMs)
 }
 
 function viewport(screen: Screen): string {

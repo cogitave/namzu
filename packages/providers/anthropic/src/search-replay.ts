@@ -77,6 +77,27 @@ export function restoreSearch(msg: Assistant, route: ProviderRoute): Block[] | u
 	return structuredClone(state.blocks)
 }
 
+/**
+ * A block's input for the replay record: what the runtime will record as the
+ * call's arguments, which is `{}` when they were empty or could not be read.
+ *
+ * This parse used to throw. It runs on every `content_block_stop`, client
+ * tool calls included, so a tool call the output limit cut off — or one whose
+ * JSON the model got wrong — failed the whole stream as "malformed data"
+ * before its block-close reached the runtime, and the runtime, seeing a
+ * stream error instead of a finish reason, reported every such call as cut
+ * off. Reading the arguments is the runtime's job; this record only has to
+ * agree with it.
+ */
+function replayInput(json: string): unknown {
+	if (!json) return {}
+	try {
+		return JSON.parse(json)
+	} catch {
+		return {}
+	}
+}
+
 /** Accumulate native content separately from locally executable tool calls. */
 export class SearchBlocks {
 	private readonly blocks = new Map<number, Block>()
@@ -123,7 +144,7 @@ export class SearchBlocks {
 	}
 	stop(index: number) {
 		const b = this.blocks.get(index)
-		if (b && this.json.has(index)) b.input = JSON.parse(this.json.get(index) ?? '{}')
+		if (b && this.json.has(index)) b.input = replayInput(this.json.get(index) ?? '')
 		this.active.delete(index)
 	}
 	complete(route: ProviderRoute) {

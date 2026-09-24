@@ -204,10 +204,10 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 		} as DetectedProvider,
 	]
 	const sessions = await openSessions(cwd)
-	const sessionOptions = () => ({
+	const sessionOptions = (sessionId = generateSessionId()) => ({
 		cwd,
 		scope: {
-			sessionId: generateSessionId(),
+			sessionId,
 			topicId: sessions.topicId,
 			projectId: sessions.projectId,
 			tenantId: sessions.tenantId,
@@ -252,7 +252,14 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 		},
 	})
 
-	const resumedSession = await createAgentSession(preferences, detected, sessionOptions())
+	// `loaded`'s messages carry the ids `conversationId`'s own log gave them
+	// (via `recordTurn` above); a resume/model-switch is the SAME conversation
+	// picked back up, not a new one, so both continuations name it explicitly.
+	const resumedSession = await createAgentSession(
+		preferences,
+		detected,
+		sessionOptions(conversationId),
+	)
 	try {
 		for await (const _event of resumedSession.send([
 			...loaded,
@@ -267,7 +274,7 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 	const switchedSession = await createAgentSession(
 		{ ...preferences, providers: [{ id: 'deepseek', model: 'deepseek-v4-pro' }] },
 		detected,
-		sessionOptions(),
+		sessionOptions(conversationId),
 	)
 	try {
 		for await (const _event of switchedSession.send([

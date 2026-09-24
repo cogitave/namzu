@@ -10,6 +10,7 @@ import {
 	type SessionLogEntry,
 	type SessionLogHead,
 	SessionMessageFold,
+	withMessageId,
 } from '../../store/session-log/index.js'
 import type { SpillRef } from '../../store/session-log/spill.js'
 import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
@@ -64,6 +65,23 @@ export interface RecordedMessage {
 	readonly message: Message
 	/** Absent for a compaction summary message, which has no record of its own. */
 	readonly messageId?: MessageId
+}
+
+/**
+ * Stamp (or clear) `id` on a message already living in `recorder.messages`,
+ * in place — the recorder's own bookkeeping (`#ids`, `#recorded`, `#view`)
+ * is keyed by object IDENTITY, so replacing the array element the way
+ * `withMessageId` does would desync it. `recorder.messages`/`Turn.messages`
+ * is the one place a message a HOST passed in is allowed to change under
+ * it: once the kernel records that exact object, it is stamped with the id
+ * its record was given, which is the id `BaseMessage.id` documents. A
+ * message read from the log for a DIFFERENT purpose (a fold a host did not
+ * hand in, a checkpoint restore) is never this function's object — it goes
+ * through `withMessageId`, a copy, because nothing here owns it to mutate.
+ */
+function stampMessageId(message: Message, id: MessageId | undefined): void {
+	if (id === undefined) delete (message as { id?: MessageId }).id
+	else (message as { id?: MessageId }).id = id
 }
 
 /** How {@link TurnRecorder.open} takes the session's writer lease and starts an empty log. */
@@ -877,8 +895,8 @@ export class TurnRecorder {
 		if (!target?.id) return
 		const current = target.message as AssistantMessage
 		if (current.content === result) return
-		const replacement: AssistantMessage = { ...current, content: result }
 		const targetMessageId = target.id
+		const replacement: AssistantMessage = { ...current, content: result, id: targetMessageId }
 		await this.#enqueue(() =>
 			this.#append({
 				type: 'message_replaced',
@@ -916,6 +934,7 @@ export class TurnRecorder {
 		if (options.messageId) {
 			this.#ids.set(message, options.messageId)
 			this.#recorded.set(message, options.messageId)
+			stampMessageId(message, options.messageId)
 		}
 		if (options.transient) this.#transient.add(message)
 		this.#turn.messages.push(message)
@@ -965,6 +984,7 @@ export class TurnRecorder {
 			this.#ids.set(message, id)
 		}
 		this.#recorded.set(message, id)
+		stampMessageId(message, id)
 		return id
 	}
 
@@ -1054,6 +1074,11 @@ export class TurnRecorder {
 		for (const entry of summaryEntries) {
 			entry.id = undefined
 			this.#ids.delete(entry.message)
+			// A summary member is no longer individually recorded — a fresh
+			// fold would show it with no id, so its object stops claiming one
+			// too. `entry.message` is the same object `live` holds at this
+			// position (built from it, above), so this is what a caller sees.
+			stampMessageId(entry.message, undefined)
 		}
 		const summary = summaryEntries.map((entry) => entry.message)
 		const keptMessageIds = keptEntries.map((entry) => entry.id as MessageId)
@@ -1241,17 +1266,67 @@ export async function readFoldedHistory(
 	const out: RecordedMessage[] = []
 	const spilled = fold.spilledSummary
 	if (spilled) {
+		// `withMessageId(message, undefined)` strips any id already embedded in
+		// the spilled JSON — same as the inline branch below, and for the same
+		// reason `readEverRecordedMessages`'s doc comment gives: a summary
+		// member has no record of its own. A synthesized summary never had an
+		// id, so this is invisible there; a fork's seeded summary IS the
+		// source session's own already-id'd messages, and without this a
+		// spilled (large) fork's first live turn reads its fold back carrying
+		// a DIFFERENT session's ids and fails reconciliation as foreign.
 		for (const message of JSON.parse(await log.readSpill(spilled.spill)) as Message[]) {
-			out.push({ message })
+			out.push({ message: withMessageId(message, undefined) })
 		}
 	}
 	for (const entry of fold.entries()) {
 		const message = entry.spill
 			? (JSON.parse(await log.readSpill(entry.spill as SpillRef)) as Message)
 			: entry.message
-		out.push({ message, ...(entry.messageId ? { messageId: entry.messageId } : {}) })
+		out.push({
+			message: withMessageId(message, entry.messageId),
+			...(entry.messageId ? { messageId: entry.messageId } : {}),
+		})
 	}
 	return out
+}
+
+/**
+ * Every message this session's log has ever recorded, keyed by the durable
+ * id its `message` record gave it — including one a compaction has since
+ * folded into a summary and dropped from {@link readFoldedHistory}'s
+ * current fold. A `message_replaced` record's content wins over the message
+ * it targets, the log's own precedence for "what this id means now."
+ *
+ * A compaction summary member has no entry here: it was never its own
+ * `message` record (see {@link RecordedMessage.messageId}), so nothing can
+ * recognise it by id — a caller's copy of it is reconciled by value instead.
+ */
+export async function readEverRecordedMessages(
+	log: SessionLog,
+): Promise<ReadonlyMap<MessageId, Message>> {
+	const latest = new Map<MessageId, { readonly content: Message; readonly spill?: SpillRef }>()
+	for await (const entry of log.read()) {
+		const record = entry.record as SessionRecord
+		if (record.type === 'message') {
+			latest.set(record.messageId, {
+				content: record.content,
+				...(record.spill ? { spill: record.spill } : {}),
+			})
+		} else if (record.type === 'message_replaced') {
+			latest.set(record.targetMessageId, {
+				content: record.content,
+				...(record.spill ? { spill: record.spill } : {}),
+			})
+		}
+	}
+	const resolved = new Map<MessageId, Message>()
+	for (const [id, entry] of latest) {
+		const content = entry.spill
+			? (JSON.parse(await log.readSpill(entry.spill)) as Message)
+			: entry.content
+		resolved.set(id, withMessageId(content, id))
+	}
+	return resolved
 }
 
 /**

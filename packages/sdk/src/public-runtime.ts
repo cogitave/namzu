@@ -1343,6 +1343,7 @@ export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
 export {
 	CODING_AGENT_DELEGATION_DOCTRINE,
 	CODING_AGENT_DOCTRINE_CONTRIBUTION_ID,
+	CODING_AGENT_HYPERMODE_DOCTRINE,
 	CODING_AGENT_ORCHESTRATE_DOCTRINE,
 	CODING_AGENT_WORKING_DOCTRINE,
 	PLAN_MODE_DOCTRINE,
@@ -1576,3 +1577,76 @@ export * from './store/session-index/index.js'
 export * from './store/checkpoint/index.js'
 export * from './store/budget/index.js'
 export * from './contracts/session/index.js'
+
+// ─── system events (@experimental) ──────────────────────────────────────
+//
+// One envelope for every asynchronous event a running turn reads as
+// provider-required user-role context. See `runtime/system-events.ts`.
+
+export {
+	SYSTEM_EVENT_HEADER,
+	SYSTEM_EVENT_KINDS,
+	SYSTEM_EVENT_STATUSES,
+	formatSystemEvent,
+} from './runtime/system-events.js'
+
+// ─── peer messaging (@experimental) ─────────────────────────────────────
+//
+// Cross-session messaging's SDK half: the live-session registry, the
+// `namzu-peer/1` transport (server + client), and the runtime-context
+// rendering of a delivered message or notice. CLI wiring (registry
+// lifecycle, inbox policy, `/peers`) is a separate workstream. See
+// `peers/index.ts`.
+
+export {
+	DEFAULT_PEER_READ_DEADLINE_MS,
+	DeliverRequestSchema,
+	DeliverResponseSchema,
+	DeliverStatusSchema,
+	LONGEST_PEER_SOCKET_FILE_NAME_LENGTH,
+	MAX_OUTSTANDING_PEERS,
+	MAX_OUTSTANDING_PER_PEER,
+	MAX_PEER_CONNECTIONS,
+	MAX_PEER_MESSAGE_TEXT_BYTES,
+	MAX_PEER_REQUEST_BYTES,
+	NoticeRequestSchema,
+	NoticeResponseSchema,
+	OUTSTANDING_EXPIRY_MS,
+	PEER_PROTOCOL_VERSION,
+	PEER_RECORD_VERSION,
+	PeerAddressError,
+	PeerClient,
+	PeerClientError,
+	PeerDirectoryError,
+	PeerEndpointError,
+	PeerFromSchema,
+	PeerNoticeAboutSchema,
+	PeerNoticePayloadSchema,
+	PeerRecordSchema,
+	PeerRefSchema,
+	PeerRegistryError,
+	PeerRequestSchema,
+	PeerSessionKindSchema,
+	PeerSessionStateSchema,
+	PingRequestSchema,
+	PingResponseSchema,
+	SubscribeIdleRequestSchema,
+	SubscribeIdleResponseSchema,
+	createPeerEndpoint,
+	derivePeerRef,
+	formatPeerMessage,
+	formatPeerNotice,
+	hardenPeerRuntimeDir,
+	isPeerRecordLive,
+	listLivePeers,
+	parsePeerAddress,
+	peerSocketFileName,
+	pingPeer,
+	pipePeerAddress,
+	readPeerRecord,
+	readPeerRecords,
+	removePeerRecord,
+	resolvePeerRuntimeDir,
+	udsPeerAddress,
+	writePeerRecord,
+} from './peers/index.js'

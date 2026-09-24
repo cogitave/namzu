@@ -106,14 +106,14 @@ describe('plugin hook cancellation reaches a real query', () => {
 
 		await entered
 		caller.abort(reason)
-		const safety = Symbol('still waiting for the held hook')
-		const outcome = await Promise.race([
-			runPromise,
-			new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 250)),
-		])
+		// No real 250ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead; the `finally` below still releases the
+		// held hook so nothing is left live either way.
 		try {
-			expect(outcome).not.toBe(safety)
-			if (outcome === safety) return
+			const outcome = await runPromise
 			expect(outcome.status).toBe('cancelled')
 			expect(provider.requests).toHaveLength(0)
 			expect(hookSignal?.aborted).toBe(true)

@@ -321,6 +321,99 @@ in the log for audit only. A checkpoint's context is the fold of the log up to
 its `throughSeq`, which equals the session's fold at that point because no
 other turn can interleave.
 
+## A host's cached messages
+
+Every message `query()` folds from the log, or records fresh, carries
+`Message.id`: the `message` record's own id, or a `message_replaced` record's
+`targetMessageId` when an override rewrote it in place (§ above). It appears
+on `Turn.messages`, on the messages `onConversationMessages` reports, and on a
+checkpoint's restored messages — everywhere a host is handed messages back. A
+message a host constructs itself (a fresh prompt) has no id; the kernel is the
+only writer of this field, never a caller.
+
+A host is free to cache what it is given and pass it back as `query()`'s next
+`messages`, in whole or in part — this is how an interactive session and a
+resumed one both work. A message carrying an id reconciles against the log
+directly:
+
+- **a known id, unedited** — already durable; dropped, because the fold
+  supplies it from wherever a compaction has since put it. A message before a
+  compaction that summarized it away is still known this way: the log
+  remembers every id it ever gave out, not only the current fold.
+- **a known id, edited** — refused with `stale_cached_history`
+  (`details.kind: 'edited'`): a message read from history must not be
+  mutated before it is sent back.
+- **an id this log never recorded** — refused with `stale_cached_history`
+  (`details.kind: 'foreign'`): a host must never mint its own id, only
+  replay one the kernel gave it in this same session. A host need not be
+  all-or-nothing about ids for this to matter: a protocol adapter that can
+  only ever attach one to a message it produced itself, never to one its own
+  client authored, still reconciles correctly — an id an id-carrying message
+  already claimed this way is set aside for the rest of this list too, so it
+  cannot also be matched by value below.
+
+Every remaining message with no id — new input a host just wrote, one from a
+caller that never adopted `Message.id` at all, or one a protocol adapter
+could never attach one to — is reconciled by an ANCHORED rule against what
+remains of the log's own fold once the kinds a caller cannot usefully cache
+(below) and any id already claimed above are set aside from both sides. This
+replaced an earlier design that searched for some aligned position by value;
+that could not tell a host echoing old content from a host writing new
+content that happened to match it, in either direction, and so either
+duplicated or dropped depending on which way the coincidence ran. The
+anchored rule only ever recognizes ONE shape as "my cache, trimmed to a
+prefix of the fold":
+
+- **the cache's own no-id messages start with an exact, in-order match of
+  every one of the fold's remaining messages** — the host resent the whole
+  fold and, usually, something after it. That matched block is dropped as
+  already durable; anything after it is new, unconditionally — never
+  compared to anything else, so a message repeating older text as a host's
+  newest addition (a user saying "hello" again) is never mistaken for an
+  echo. This needs the cache to have MORE messages than the fold, unless an
+  id elsewhere in the same call already anchors it as part of a larger,
+  structured resend (a protocol adapter's own reply, or a wholesale history
+  replacement such as a compaction or the provider-rejected-image repair,
+  both of which record their result as one bulk, no-id segment) — then a
+  cache exactly as long as the fold, matching it completely, is recognized
+  too: "everything, nothing new yet".
+- **anything else is `'new'`, in full, with no value matching attempted at
+  all**: a cache with no more messages than the fold has left (a host that
+  trims part of its cache, keeping fewer messages than remain), or one that
+  diverges from the fold's very first message. A host without ids must
+  therefore send either its WHOLE cache (recognized and trimmed) or ONLY
+  new messages (all kept, nothing checked) to reconcile by value; a
+  genuinely partial cache — trimmed from the front, the middle, or anywhere
+  a full match does not cover — is not reconciled by value at all and MAY
+  duplicate what the fold already holds. A host that needs a partial cache
+  to reconcile correctly must adopt `Message.id`.
+- **refused, rather than guessed at**: a cache longer than the fold (or, per
+  the id-anchored exception above, exactly as long) whose first message
+  matches the fold's first, but which diverges somewhere after that — an
+  attempted full resend of a fold this log does not actually hold (edited,
+  reordered, or from elsewhere). `stale_cached_history`
+  (`details.kind: 'unaligned'`) names it, rather than duplicating or
+  dropping content nobody can prove is redundant.
+
+Two kinds of message never join that reconciliation, on either side outside
+`continuationMode`, because the kernel does not trust a cached copy of them
+to begin with: the per-turn system prompt (rebuilt fresh every turn, and
+never durably recorded at all) and a project-instruction snapshot (durably
+recorded once per turn that had one, but collapsed to only the LATEST in
+what a host is ever handed back). A host using `continuationMode` — asking
+`query()` not to rebuild or filter its input at all — is the exception:
+there, a message of either kind is ordinary content like any other, since
+there is no "the kernel discards this anyway" to lean on.
+
+Every `stale_cached_history` refusal names what it can (the message id, for
+`'edited'`/`'foreign'`; the role, for `'unaligned'`) and fails the turn
+before any provider call — retrying with the same cache cannot help. The way
+out is to pass only new messages, or to re-read history from the session
+instead of reusing a stale copy. Nothing here concatenates a caller's cache
+after the log's own fold — a durable message is always dropped, never
+appended a second time — which is what makes replaying a whole cached
+conversation safe.
+
 ## Documents beside the log
 
 Each has `v` and `kind`, and an unknown version is refused, never migrated.

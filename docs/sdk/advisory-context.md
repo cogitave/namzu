@@ -22,6 +22,13 @@ Assistant records retain tool call IDs, names, arguments and available public
 text phases. Tool records retain the matching call ID, text blocks and the
 explicit error flag when known. Missing error status stays unknown.
 
+A call whose streamed arguments could not be read (see
+[Unreadable tool input](unreadable-tool-input.md)) has `arguments` `"{}"` and
+one flag that says why: `argumentsIncomplete: true` when the response was cut
+off inside it, `argumentsMalformed: true` when they were not valid JSON, and
+`argumentsUnreadable: true` when the call was recorded by a runtime that kept
+no reason. The text that arrived is not sent.
+
 Host provenance identifies runtime feedback, goal continuations, project
 instructions and compaction summaries. Provider/model attribution can accompany
 assistant records. A user-role record with host provenance is not presented as

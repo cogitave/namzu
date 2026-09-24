@@ -137,7 +137,14 @@ function prefixDigest(messages: readonly Message[]): string {
 					chainIndex: message.source.chainIndex,
 				},
 			}),
+			// Bookkeeping the kernel stamps, not content the prefix is defined
+			// by: `id` names which durable record a message came from, and two
+			// requests built from the exact same prefix disagree on it whenever
+			// one side is a fresh, never-recorded copy of the other (or a
+			// fork's copy, carrying a different session's id for identical
+			// content).
 			timestamp: undefined,
+			id: undefined,
 		})),
 	)
 }

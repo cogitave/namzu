@@ -1,7 +1,7 @@
 import { Box, Text, useWindowSize } from 'ink'
 import type { ReactNode } from 'react'
 
-import { ORCHESTRATE_RULE_COLORS, theme } from './theme.js'
+import { HYPERMODE_RULE_COLORS, theme } from './theme.js'
 
 /** Below this many columns the mode tag leaves the border whole; the footer still names the mode. */
 export const COMPOSER_MODE_TAG_MIN_COLUMNS = 40
@@ -19,7 +19,7 @@ export function ComposerFrame({
 	readonly animate?: boolean
 	/**
 	 * A session mode to name on the top border's right, in its own colour —
-	 * today only `orchestrate`. The run of `─` before it takes a still colour
+	 * today only `hypermode`. The run of `─` before it takes a still colour
 	 * gradient where colour is available, so the mode is visible where the
 	 * operator is looking without spending a row.
 	 */
@@ -45,11 +45,11 @@ export function ComposerFrame({
 				{gradient ? <GradientRule columns={terminal.columns ?? 80} /> : <Rule />}
 				{showMode ? (
 					<Box flexShrink={0}>
-						<Text color={theme.accent.orchestrate} bold>
+						<Text color={theme.accent.hypermode} bold>
 							{' '}
 							{mode}{' '}
 						</Text>
-						<Text color={gradient ? ORCHESTRATE_RULE_COLORS.at(-1) : theme.border.default}>─</Text>
+						<Text color={gradient ? HYPERMODE_RULE_COLORS.at(-1) : theme.border.default}>─</Text>
 					</Box>
 				) : null}
 				<Box flexShrink={0}>
@@ -114,7 +114,7 @@ function GradientRule({ columns }: { readonly columns: number }) {
 			<Text wrap="wrap">
 				{Array.from({ length: cells }, (_, index) => (
 					// biome-ignore lint/suspicious/noArrayIndexKey: one cell per column; nothing reorders.
-					<Text key={index} color={ORCHESTRATE_RULE_COLORS[index % ORCHESTRATE_RULE_COLORS.length]}>
+					<Text key={index} color={HYPERMODE_RULE_COLORS[index % HYPERMODE_RULE_COLORS.length]}>
 						─
 					</Text>
 				))}

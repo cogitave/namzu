@@ -72,9 +72,7 @@ afterEach(() => {
 })
 
 async function until(check: () => boolean, why: string): Promise<void> {
-	const started = performance.now()
-	while (!check() && performance.now() - started < 5_000) await tick(20)
-	expect(check(), why).toBe(true)
+	await vi.waitFor(() => expect(check(), why).toBe(true))
 }
 
 it('renders the real DeepSeek text-model refusal without a false driver warning', async () => {

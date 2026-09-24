@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
@@ -138,15 +138,36 @@ describe('query-owned advisors inherit the turn stream boundary', () => {
 		const advisor = new AbortAwareAdvisorProvider()
 		const caller = new AbortController()
 		const events: SessionEvent[] = []
-		const safety = setTimeout(
-			() => caller.abort(new Error('test safety bound: advisor watchdog did not settle')),
-			1_000,
-		)
+		const dir = await workdir()
 
+		// The advisor's stall watchdog (`streamIdleTimeoutMs: 10`) is a real
+		// `setTimeout` inside `withStreamIdleTimeout`, and this case used to
+		// race it against a one-second real-time safety bound instead of
+		// controlling it. Both sides read the wall clock, so a loaded CI
+		// runner — several forked test files competing for the same CPU —
+		// could make the "private abort, then finish on the table" path take
+		// longer in real time than the hand-rolled safety net, which then
+		// aborted the caller itself and turned `run.status` into `cancelled`.
+		// Reproduced locally by pinning the process to one starved core
+		// (`taskset -c 0`, a dozen busy loops on the same core): the run
+		// consistently came back `cancelled`.
+		//
+		// A fake clock removes the race rather than widening it: the watchdog
+		// fires on exactly one deterministic advance, timed to the real event
+		// (`advisor.started`) that marks the request as open, so nothing here
+		// depends on how fast the host machine is. If a regression left the
+		// advisor's abort unresolved, `await running` would hang and fail on
+		// Vitest's own test timeout — a real bug, not a clock coincidence.
+		vi.useFakeTimers()
 		try {
-			const run = await drainQuery(params(main, advisor, await workdir(), caller, 10), (event) => {
+			const running = drainQuery(params(main, advisor, dir, caller, 10), (event) => {
 				events.push(event)
 			})
+
+			await advisor.started
+			await vi.advanceTimersByTimeAsync(10)
+
+			const run = await running
 
 			expect(run.status).toBe('completed')
 			expect(run.stopReason).toBe('token_budget')
@@ -166,7 +187,7 @@ describe('query-owned advisors inherit the turn stream boundary', () => {
 			})
 			expect(caller.signal.aborted).toBe(false)
 		} finally {
-			clearTimeout(safety)
+			vi.useRealTimers()
 			if (!caller.signal.aborted) caller.abort(new Error('test cleanup'))
 		}
 	})
@@ -178,35 +199,50 @@ describe('query-owned advisors inherit the turn stream boundary', () => {
 		const advisor = new AbortAwareAdvisorProvider()
 		const caller = new AbortController()
 		const events: SessionEvent[] = []
-		const running = drainQuery(params(main, advisor, await workdir(), caller, 0), (event) => {
-			events.push(event)
-		})
+		const dir = await workdir()
 
-		await Promise.race([
-			advisor.started,
-			new Promise<never>((_resolve, reject) =>
-				setTimeout(() => reject(new Error('advisor request did not start')), 500),
-			),
-		])
-		const stop = new Error('operator stopped the advisory run')
-		caller.abort(stop)
+		// streamIdleTimeoutMs is 0 here — the watchdog is disabled for this
+		// case — so unlike the case above there is no internal timer to
+		// advance: both waits below settle purely on real microtask and
+		// abort-listener scheduling. The previous version guarded each one
+		// with its own real setTimeout (500ms, then 200ms) racing that
+		// scheduling, which is the same pattern that made the case above
+		// flaky under CI load: a starved event loop can legitimately take
+		// longer than either bound without anything being broken. Reproduced
+		// locally under the same starved-core load used for that fix, this
+		// case failed with "advisor request did not start" well before the
+		// advisor's request had actually failed to start.
+		//
+		// Fake timers remove the race rather than widen it: fake time never
+		// advances on its own, so nothing here can time out from CPU
+		// contention. A genuine hang — the advisor never opening its
+		// request, or the run ignoring cancellation — still fails the test,
+		// on Vitest's own real per-test timeout, which is a correctness
+		// signal rather than a clock coincidence.
+		vi.useFakeTimers()
+		try {
+			const running = drainQuery(params(main, advisor, dir, caller, 0), (event) => {
+				events.push(event)
+			})
 
-		const run = await Promise.race([
-			running,
-			new Promise<never>((_resolve, reject) =>
-				setTimeout(() => reject(new Error('advisor ignored run cancellation')), 200),
-			),
-		])
+			await advisor.started
+			const stop = new Error('operator stopped the advisory run')
+			caller.abort(stop)
 
-		expect(run.status).toBe('cancelled')
-		expect(run.stopReason).toBe('cancelled')
-		expect(advisor.transportSignals).toHaveLength(1)
-		expect(advisor.transportSignals[0]?.aborted).toBe(true)
-		expect(advisor.transportSignals[0]?.reason).toBe(stop)
-		expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
-			type: 'turn_completed',
-			stopReason: 'cancelled',
-		})
+			const run = await running
+
+			expect(run.status).toBe('cancelled')
+			expect(run.stopReason).toBe('cancelled')
+			expect(advisor.transportSignals).toHaveLength(1)
+			expect(advisor.transportSignals[0]?.aborted).toBe(true)
+			expect(advisor.transportSignals[0]?.reason).toBe(stop)
+			expect([...events].reverse().find((event) => event.type === 'turn_completed')).toMatchObject({
+				type: 'turn_completed',
+				stopReason: 'cancelled',
+			})
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('starts no main or advisory model call when the caller already cancelled', async () => {

@@ -1,0 +1,29 @@
+# Günlük Türkçe: bu satırların hiçbiri bir tetikleyiciyi KURMAMALI (öneri
+# olabilir). Tetikleyiciden söz etmek, onu sormak, alıntı, kod, yol ve olumsuz
+# fiil burada.
+yani mesela claude'da hypermode yazınca farklı bir şekilde gözüküyor
+hypermode nedir?
+hypermode nasıl çalışıyor?
+hypermode kelimesini yazınca ne oluyor
+hypermode modu açık mı?
+hypermode'u nasıl açarım
+bunu skill olarak kaydetme
+bunu skill olarak kaydetmeyin
+skill olarak kaydetmeden önce testleri çalıştır
+bunu skill olarak kaydetmesin
+skill olarak kaydet: bu komut ne yapıyor?
+neden skill olarak kaydet diyorsun
+`bunu skill olarak kaydet` yazınca ne oluyor
+"bunu skill olarak kaydet" demiştim
+kaydet bunu skill olarak
+bunu skille çevir
+skill dosyasını kaydettim
+bunu zamanla öğrenirsin
+ultracode ile şunu yap
+bu testleri düzelt
+e-posta gönder
+şişe sık düş aşı
+bunu her gün çalıştırmak zor
+skill olarak kaydedelim mi diye düşündüm
+bunu ajanlara dağıtmak pahalı olur
+yeni bir skill olarak kaydetmek istemiyorum

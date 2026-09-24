@@ -266,14 +266,38 @@ describe('coordinator ask_user_question request synthesis', () => {
 		// zod defaults applied by the schema parse, exactly like the registry
 		expect(request.question.multiSelect).toBe(false)
 		expect(request.question.allowFreeText).toBe(true)
+		// The host is handed the recommendation as a field and the label
+		// without the marker the model wrote into it.
 		expect(request.question.options).toEqual([
 			{
 				id: 'opt_1',
-				label: 'Board (Recommended)',
+				label: 'Board',
 				description: 'Executive framing, business outcomes first',
+				recommended: true,
 			},
 			{ id: 'opt_2', label: 'Engineering team' },
 			{ id: 'opt_3', label: 'Customer' },
+		])
+	})
+
+	it('parks with the recommendation the model flagged, and a localised marker out of the label', async () => {
+		const { requests } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_2'] },
+			input: {
+				question: 'Kitle kim?',
+				options: [
+					{ label: 'Mühendisler' },
+					{ label: 'Yönetim kurulu (Önerilen)', recommended: true },
+				],
+			},
+		})
+		const request = requests[0]
+		if (!request || request.type !== 'user_question') {
+			throw new Error('expected a user_question request')
+		}
+		expect(request.question.options).toEqual([
+			{ id: 'opt_1', label: 'Mühendisler' },
+			{ id: 'opt_2', label: 'Yönetim kurulu', recommended: true },
 		])
 	})
 
@@ -338,9 +362,104 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 		expect(result.output).toBe('User answered "Who is the audience?": "Board"')
 		expect(result.data).toEqual({
 			question: 'Who is the audience?',
-			selected: [{ id: 'opt_1', label: 'Board' }],
+			selected: [{ id: 'opt_1', label: 'Board', recommended: true }],
 			answered: true,
 		})
+	})
+
+	it.each([
+		['Yönetim kurulu (Önerilen)', 'Yönetim kurulu'],
+		['Vorstand (Empfohlen)', 'Vorstand'],
+		['董事会（推荐）', '董事会'],
+	])(
+		'never records the marker of %j on the flagged option in the answer the model reads',
+		async (label, clean) => {
+			const { result } = await executeAsk({
+				decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+				input: {
+					question: 'Who is the audience?',
+					options: [{ label, recommended: true }, { label: 'Engineering team' }],
+				},
+			})
+			expect(result.output).toBe(`User answered "Who is the audience?": "${clean}"`)
+			expect(result.data).toEqual({
+				question: 'Who is the audience?',
+				selected: [{ id: 'opt_1', label: clean, recommended: true }],
+				answered: true,
+			})
+		},
+	)
+
+	it.each([
+		['with the flag left out', {}],
+		['with recommended: false', { recommended: false }],
+	])('shows and records an unflagged first option exactly as written, %s', async (_, flag) => {
+		// Recommending is optional: a first option nobody flagged is not the
+		// recommendation, and "(AWS)" is part of what the person chose.
+		const { requests, result } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+			input: {
+				question: 'Where should it run?',
+				options: [
+					{ label: 'Cloud (AWS)', ...flag },
+					{ label: 'On-premises', ...flag },
+				],
+			},
+		})
+		const request = requests[0]
+		if (!request || request.type !== 'user_question') {
+			throw new Error('expected a user_question request')
+		}
+		expect(request.question.options).toEqual([
+			{ id: 'opt_1', label: 'Cloud (AWS)' },
+			{ id: 'opt_2', label: 'On-premises' },
+		])
+		expect(result.output).toBe('User answered "Where should it run?": "Cloud (AWS)"')
+		expect(result.data).toEqual({
+			question: 'Where should it run?',
+			selected: [{ id: 'opt_1', label: 'Cloud (AWS)' }],
+			answered: true,
+		})
+	})
+
+	it.each([
+		['Cloud (AWS) (Recommended)', 'Cloud (AWS)'],
+		['Tests (unit) (Recommended)', 'Tests (unit)'],
+	])('shows and records %j, the old instruction followed, as %j', async (label, clean) => {
+		// The old tool description told the model to append " (Recommended)",
+		// and a checkpoint written before the upgrade re-executes that call:
+		// the answer read "Cloud (AWS)" then and must still read it.
+		const { requests, result } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_1'] },
+			input: {
+				question: 'Where should it run?',
+				options: [{ label }, { label: 'On-premises' }],
+			},
+		})
+		const request = requests[0]
+		if (!request || request.type !== 'user_question') {
+			throw new Error('expected a user_question request')
+		}
+		expect(request.question.options).toEqual([
+			{ id: 'opt_1', label: clean, recommended: true },
+			{ id: 'opt_2', label: 'On-premises' },
+		])
+		expect(result.output).toBe(`User answered "Where should it run?": "${clean}"`)
+		expect(result.data).toEqual({
+			question: 'Where should it run?',
+			selected: [{ id: 'opt_1', label: clean, recommended: true }],
+			answered: true,
+		})
+	})
+
+	it('records no recommendation on an option the model did not recommend', async () => {
+		const { result } = await executeAsk({
+			decision: { action: 'answer_question', selectedOptionIds: ['opt_2'] },
+		})
+		expect(result.data).toMatchObject({
+			selected: [{ id: 'opt_2', label: 'Engineering team' }],
+		})
+		expect((result.data as { selected: object[] }).selected[0]).not.toHaveProperty('recommended')
 	})
 
 	it('joins multiple selected labels', async () => {
@@ -353,6 +472,28 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 			'User answered "Who is the audience?": "Engineering team", "Customer"',
 		)
 	})
+
+	it.each([[['Tests (unit)', 'Tests (e2e)']], [['Tests (e2e)', 'Tests (unit)']]])(
+		'shows and records the groups two flagged options of a multi-select differ in, %j',
+		async (flagged) => {
+			const { requests, result } = await executeAsk({
+				decision: { action: 'answer_question', selectedOptionIds: ['opt_1', 'opt_2'] },
+				input: {
+					question: 'Which checks should I run?',
+					options: [...flagged.map((label) => ({ label, recommended: true })), { label: 'Lint' }],
+					multiSelect: true,
+				},
+			})
+			const request = requests[0]
+			if (!request || request.type !== 'user_question') {
+				throw new Error('expected a user_question request')
+			}
+			expect(request.question.options.map((option) => option.label)).toEqual([...flagged, 'Lint'])
+			expect(result.output).toBe(
+				`User answered "Which checks should I run?": "${flagged[0]}", "${flagged[1]}"`,
+			)
+		},
+	)
 
 	it('renders a free-text-only answer "in their own words"', async () => {
 		const { result } = await executeAsk({
@@ -529,5 +670,34 @@ describe('the question contract is closed, not merely shaped', () => {
 
 		expect(tool.validationErrorHint).toContain('"options" must be a JSON array')
 		expect(tool.validationErrorHint).toContain('never a string')
+		expect(tool.validationErrorHint).toContain('"recommended":true')
+	})
+
+	it('takes the recommendation as a field and never asks for a marker in the label', () => {
+		const tool = askTool(noopHandler)
+		const option = (
+			tool.modelInputSchema as {
+				properties: { options: { items: { properties: Record<string, { type: string }> } } }
+			}
+		).properties.options.items.properties
+		expect(option.recommended?.type).toBe('boolean')
+		expect(
+			tool.inputSchema.safeParse({
+				question: 'Who is the audience?',
+				options: [{ label: 'Board', recommended: true }, { label: 'Engineering' }],
+			}).success,
+		).toBe(true)
+
+		// The old instruction was to append " (Recommended)"; a model answering
+		// in the user's language translated it. Nothing tells it to any more.
+		for (const text of [
+			tool.description,
+			JSON.stringify(tool.modelInputSchema),
+			tool.validationErrorHint ?? '',
+		]) {
+			expect(text).not.toMatch(/append/i)
+			expect(text).not.toContain('"label":"First (Recommended)"')
+		}
+		expect(tool.description).toContain('recommended: true')
 	})
 })

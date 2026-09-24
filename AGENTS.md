@@ -39,6 +39,18 @@ pnpm build        # Build all packages
 Use `pnpm --filter <pkg>` to scope commands to a single package. SDK tests run
 through `pnpm --filter @namzu/sdk test -- <file>`, never bare `vitest`.
 
+**A test must not decide its outcome by racing real time.** `Promise.race`
+against a real `setTimeout`, a labelled sentinel like `'hung'`/`'timed out'`,
+or a `while (...) { await sleep(n) }` poll with a wall-clock deadline all read
+as "prove this doesn't hang" but actually measure how fast the machine is: on
+a loaded CI runner the real work can legitimately outlast the guard with
+nothing broken, and the guard trips first. Use `vi.useFakeTimers()` and
+advance the clock deterministically, or await the real promise/event directly
+and let Vitest's own per-test timeout catch a genuine hang (raising it, with a
+comment saying why, only when the operation is legitimately slow — real
+subprocess, socket or filesystem I/O). Either way, nothing in the test should
+depend on how fast the host happens to be.
+
 Four packages are **local-only**: `packages/contracts`, `packages/agents`,
 `packages/api` and `packages/docs`. They are absent from a fresh checkout by
 design — `.gitignore` lists them under "Local-only packages" and
@@ -104,6 +116,7 @@ The fence gate compiles the ```ts in `docs/` and the package READMEs against the
 - Every page other than `index.md` and `log.md` is a **concept**: YAML frontmatter with a non-empty `type`. Recommended: `title`, `description`, `resource` (the code the page describes), `tags`.
 - `docs/index.md` carries only `okf_version: "0.2"`. Every other `index.md` carries no frontmatter and lists its directory as `* [Title](file.md) - description`. Add a page to its directory's index when you add the page.
 - `docs/log.md` is the update history, newest date first, `## YYYY-MM-DD` headings, one bullet per change with a leading bold word (`**Creation**`, `**Update**`, `**Deprecation**`). Write the entry in the same commit as the change.
+- `docs/log.md` merges by union (`.gitattributes`), so concurrent branches that each add a bullet under the same date heading land both bullets with no conflict; a reviewer should still check that the date headings stayed newest-first after a merge, since the union driver only keeps lines, it does not reorder them.
 - Trust is frontmatter, not prose. `generated: { by, at }` says who produced the content and when; `verified: [{ by, at }]` says who confirmed it against its sources. Actors are `human:<id>`, `process:<id>`, or `<producer>/<version>`. Omit `verified` rather than guess it: absent reads honestly as unverified.
 - `status` is `draft`, `stable` (the default) or `deprecated`. Set `stale_after` when a page has a known expiry.
 

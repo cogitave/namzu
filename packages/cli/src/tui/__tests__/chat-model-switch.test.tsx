@@ -479,30 +479,97 @@ it('previews supported effort as requested and unsupported effort as unavailable
 	expect(screen.viewport().join('\n')).toContain('Effort: ultracode · unavailable for this model')
 })
 
-it("turning orchestrate mode on pins effort to the model's highest published level", async () => {
+it('turning hypermode on pins the highest level not above xhigh on a menu without it', async () => {
 	const screen = await open()
-	await submit(screen, '/orchestrate on')
+	await submit(screen, '/hypermode on')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Orchestrate mode is on'),
-		'Orchestrate mode did not turn on',
+		() => screen.viewport().join('\n').includes('Hypermode is on'),
+		'Hypermode did not turn on',
 	)
 	expect(screen.viewport().join('\n')).toContain('effort pinned to high')
 	await submit(screen, 'go')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBe('high')
-	expect(sent[0]?.options?.orchestrate).toBe(true)
+	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
-it("orchestrate mode survives a model switch and re-pins to the new model's highest level", async () => {
-	activate = async (model) =>
-		fakeAgentSession({ ...makeSession(model), reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'] })
+it('puts the effort back when hypermode turns off, unless it was changed meanwhile', async () => {
+	const screen = await open()
+	await submit(screen, '/effort low')
+	await until(screen, () => screen.viewport().join('\n').includes('Reasoning: low'), '/effort low')
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').includes('Hypermode is on'), 'on')
+	await submit(screen, '/hypermode off')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is off — effort back to low.'),
+		'the effort did not come back',
+	)
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('low')
+	expect(sent[0]?.options?.hypermode).toBeUndefined()
+
+	// Chosen by hand while the mode was on: that choice stays. (From the
+	// provider default, so putting it back would send no effort at all.)
+	await submit(screen, '/effort default')
+	await until(screen, () => screen.viewport().join('\n').includes('provider default'), 'default')
+	await submit(screen, '/hypermode on')
+	await until(screen, () => screen.viewport().join('\n').split('Hypermode is on').length > 2, 'on again')
+	await submit(screen, '/effort low')
+	await until(screen, () => screen.viewport().join('\n').split('Reasoning: low').length > 2, 'low again')
+	await submit(screen, '/hypermode off')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is off.'),
+		'off again',
+	)
+	await submit(screen, 'again')
+	await until(screen, () => sent.length === 2, 'Second turn was not sent')
+	expect(sent[1]?.options?.effort).toBe('low')
+})
+
+it('keeps /orchestrate working as a deprecated alias that says so', async () => {
 	const screen = await open()
 	await submit(screen, '/orchestrate on')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Orchestrate mode is on'),
-		'Orchestrate mode did not turn on',
+		() => screen.viewport().join('\n').includes('Hypermode is on'),
+		'/orchestrate on did not turn hypermode on',
+	)
+	const text = screen.viewport().join('\n').replace(/\s+/g, ' ')
+	expect(text).toContain('/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode')
+	// The line comes before the mode's own confirmation, not after it.
+	expect(text.indexOf('/orchestrate is deprecated')).toBeLessThan(text.indexOf('Hypermode is on'))
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.hypermode).toBe(true)
+})
+
+it('pins xhigh, not the top level, on a model whose menu goes up to max', async () => {
+	oldOverrides = { reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'] }
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is on — effort pinned to xhigh'),
+		'Hypermode did not pin xhigh',
+	)
+	await submit(screen, 'go')
+	await until(screen, () => sent.length === 1, 'Turn was not sent')
+	expect(sent[0]?.options?.effort).toBe('xhigh')
+})
+
+it("hypermode survives a model switch and re-pins to the new model's xhigh", async () => {
+	activate = async (model) =>
+		fakeAgentSession({ ...makeSession(model), reasoningEffortLevels: ['low', 'medium', 'high', 'xhigh'] })
+	const screen = await open()
+	await submit(screen, '/hypermode on')
+	await until(
+		screen,
+		() => screen.viewport().join('\n').includes('Hypermode is on'),
+		'Hypermode did not turn on',
 	)
 	await submit(screen, `/model ${NEXT}`)
 	await until(
@@ -517,23 +584,23 @@ it("orchestrate mode survives a model switch and re-pins to the new model's high
 	await until(screen, () => sent.length === 1, 'Turn was not sent on the new model')
 	expect(sent[0]?.model).toBe(NEXT)
 	expect(sent[0]?.options?.effort).toBe('xhigh')
-	expect(sent[0]?.options?.orchestrate).toBe(true)
+	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
-it('accepts orchestrate mode without pinning when the model publishes no effort menu, and says so', async () => {
+it('accepts hypermode without pinning when the model publishes no effort menu, and says so', async () => {
 	oldOverrides = { reasoningEffortLevels: undefined }
 	const screen = await open()
-	await submit(screen, '/orchestrate on')
+	await submit(screen, '/hypermode on')
 	await until(
 		screen,
-		() => screen.viewport().join('\n').includes('Orchestrate mode is on'),
-		'Orchestrate mode did not turn on',
+		() => screen.viewport().join('\n').includes('Hypermode is on'),
+		'Hypermode did not turn on',
 	)
 	expect(screen.viewport().join('\n')).toContain('does not publish an exact effort menu')
 	await submit(screen, 'continue')
 	await until(screen, () => sent.length === 1, 'Turn was not sent')
 	expect(sent[0]?.options?.effort).toBeUndefined()
-	expect(sent[0]?.options?.orchestrate).toBe(true)
+	expect(sent[0]?.options?.hypermode).toBe(true)
 })
 
 it('routes the original spaced Turkish Luna request directly to the host', async () => {

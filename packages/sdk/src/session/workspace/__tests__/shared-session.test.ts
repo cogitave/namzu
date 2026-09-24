@@ -11,13 +11,13 @@ describe('SharedSessionWorkspace', () => {
 		const workspace = await SharedSessionWorkspace.create({
 			hostRoot,
 			runtimeRoot: '/mnt/user-data/outputs/_work',
-			label: 'Cowork task',
+			label: 'Acme task',
 			now: new Date('2026-05-08T10:00:00.000Z'),
 		})
 
 		const manifest = await workspace.readManifest()
 		expect(manifest.kind).toBe('shared-session-workspace')
-		expect(manifest.label).toBe('Cowork task')
+		expect(manifest.label).toBe('Acme task')
 		expect(manifest.paths).toMatchObject({
 			root: '/mnt/user-data/outputs/_work',
 			manifest: '/mnt/user-data/outputs/_work/manifest.json',

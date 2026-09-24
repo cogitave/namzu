@@ -91,6 +91,28 @@ class ClassifiedFailureProvider implements LLMProvider {
 	}
 }
 
+/** Two calls on one tool-call index: a stream the turn loop refuses. */
+class IndexReusingProvider implements LLMProvider {
+	readonly id = 'index-reusing'
+	readonly name = 'Index Reusing Provider'
+
+	async *chatStream(): AsyncIterable<StreamChunk> {
+		yield {
+			id: 'r',
+			delta: {
+				toolCalls: [{ index: 0, id: 'call_a', type: 'function', function: { name: 'write_file' } }],
+			},
+		}
+		yield {
+			id: 'r',
+			delta: {
+				toolCalls: [{ index: 0, id: 'call_b', type: 'function', function: { name: 'write_file' } }],
+			},
+		}
+		yield { id: 'r', delta: {}, finishReason: 'tool_calls', usage: ZERO_USAGE }
+	}
+}
+
 describe('query stream recovery', () => {
 	let workdirs: string[] = []
 
@@ -113,6 +135,8 @@ describe('query stream recovery', () => {
 				path: z.string(),
 				content: z.string(),
 			}),
+			largeStringArguments: { content: 12_000 },
+			truncatedInputHint: 'Write a long file in sections.',
 			execute: actualWrite,
 		})
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-stream-recovery-'))
@@ -157,6 +181,9 @@ describe('query stream recovery', () => {
 				(event) =>
 					event.type === 'tool_input_completed' &&
 					event.inputTruncated === true &&
+					event.inputError?.reason === 'truncated' &&
+					event.inputError.finishReason === undefined &&
+					event.partialArguments === '{"path":"/tmp/out.md","content":"partial' &&
 					JSON.stringify(event.input) === '{}',
 			),
 		).toBe(true)
@@ -170,12 +197,56 @@ describe('query stream recovery', () => {
 			toolName: 'write_file',
 			isError: true,
 		})
-		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
-			'call was cut off',
+		// The stream died, so the call was cut off — and the tool's own
+		// declarations, not a fixed file-tool recipe, say what to do about it.
+		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toBe(
+			'Error: The call to "write_file" was cut off: the response stream ended after 40 characters of its arguments, before they were complete. The tool was NOT executed. Send it again with less in one call: keep `content` under 12000 characters. Write a long file in sections.',
 		)
-		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
-			'advance that marker with bounded exact edit calls',
+	})
+
+	it('pauses on a stream that broke tool-call framing, naming the violation, and runs nothing', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-framing-'))
+		workdirs.push(workingDirectory)
+		const actualWrite = vi.fn(async () => ({ success: true, output: 'should not run' }))
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'write_file',
+			description: 'write a file',
+			inputSchema: z.object({ path: z.string() }),
+			execute: actualWrite,
+		})
+
+		const run = await drainQuery(
+			{
+				provider: new IndexReusingProvider(),
+				retry: { maxRetries: 0 },
+				tools,
+				turnConfig: {
+					model: 'mock-model',
+					timeoutMs: 5_000,
+					tokenBudget: 100_000,
+					maxIterations: 2,
+					maxResponseTokens: 256,
+				},
+				agentId: 'agent_test',
+				agentName: 'Test Agent',
+				messages: [createUserMessage('write two files')],
+				workingDirectory,
+				sessionId: '0f0c4a52-3f7e-4b0c-9a51-6f3de1b7a2c4' as SessionId,
+				topicId: 'b8f1e0a4-5c2d-4e7b-8a9f-1d2c3b4a5e6f' as TopicId,
+				projectId: 'c7d6e5f4-a3b2-4c1d-9e8f-7a6b5c4d3e2f' as ProjectId,
+				tenantId: 'd1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f5a' as TenantId,
+			},
+			() => {},
 		)
+
+		expect(run.stopReason).toBe('paused')
+		expect(run.lastProviderError).toEqual({
+			kind: 'server',
+			providerId: 'index-reusing',
+			detail: 'the stream reused tool-call index 0 for call "call_b" while call "call_a" held it',
+		})
+		expect(actualWrite).not.toHaveBeenCalled()
 	})
 
 	it('preserves classified provider metadata through the primary turn boundary', async () => {

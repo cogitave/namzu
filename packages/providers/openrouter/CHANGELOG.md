@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.2
+
+### Patch Changes
+
+- 49491b9: The drivers now report more accurately how a response ended. The runtime uses this to tell a tool call the output limit cut off from one the model wrote badly.
+
+  - `@namzu/anthropic`: a tool call whose JSON does not parse no longer fails the whole stream with "the provider stream returned malformed data". The block close and the finish reason now reach the runtime. `model_context_window_exceeded` is reported as `length`, and `refusal` as `content_filter`. Both used to read as a normal `stop`.
+  - `@namzu/bedrock`: `model_context_window_exceeded` is reported as `length`, and `guardrail_intervened` as `content_filter`. A tool call opens with the id the driver keeps, so its arguments never arrive before an id.
+  - `@namzu/http`: the OpenAI dialect maps `finish_reason` instead of passing the server's string through. `function_call` becomes `tool_calls`; `max_tokens` and `max_output_tokens` become `length`; `model_length`, `context_length`, `context_length_exceeded` and `model_context_window_exceeded` become `length` with `finishDetail: 'context_window'`; `eos`, `eos_token`, `end_turn` and `stop_sequence` become `stop`. `error` fails the stream with a `ProviderRequestError` (`kind: 'server'`), as OpenRouter's does. A value it does not know reports no finish reason at all, which the runtime reads as a response that did not say how it ended, rather than as a normal finish. The Anthropic dialect gets the Anthropic mapping above and opens a tool call with the id its arguments carry.
+  - `@namzu/openrouter`: `finish_reason` is mapped the same way. `error` (the upstream model failed mid-generation) now fails the stream with a `ProviderRequestError` (`kind: 'server'`).
+  - `@namzu/deepseek`: `insufficient_system_resource` now fails the stream with a `ProviderRequestError` (`kind: 'server'`). It used to read as a finished answer.
+  - `@namzu/openai`: Codex's `response.incomplete` is reported as `length`, or as `content_filter` when that is the stated reason, with its usage. The stream used to end with no finish reason, so auto-continuation never ran.
+  - `@namzu/anthropic`, `@namzu/bedrock` and `@namzu/http`'s Anthropic dialect: a `model_context_window_exceeded` stop also carries `finishDetail: 'context_window'`, so the runtime does not ask the model to continue a reply that filled the whole context window.
+  - `@namzu/anthropic`, `@namzu/google` and `@namzu/openai` (Codex): the list of sources a driver appends after a hosted search now carries `contentOrigin: 'driver'` on its stream chunk. The text is unchanged. Without the mark, a tool call the output limit cut off before that list would be reported as malformed.
+
+  If you branch on `finishReason`, expect `length` or `content_filter` where you saw `stop` for these cases.
+
+- 2d4ff9a: Earlier entries in this package's CHANGELOG no longer name one particular application built on namzu, or quote a path from outside this repository. This changes only the CHANGELOG.md that ships in the tarball; no code or types change, and there is nothing to do to upgrade.
+- 49491b9: A response whose upstream backend reports its own context-window-exceeded reason (Anthropic's `model_context_window_exceeded`, or the words other OpenAI-compatible backends use) via OpenRouter's `native_finish_reason` now carries `finishDetail: 'context_window'` alongside `finishReason: 'length'`. OpenRouter normalizes every backend's finish reason to one of five values, so a proxied model's context-window stop and its output-token-limit stop both used to report a plain `'length'` finish; the runtime auto-continues that, sending a reply that had just filled the model's context window straight back in, in a prompt now longer than the window it had just overflowed. A plain output-limit `'length'` is unaffected: `finishDetail` is set only when `native_finish_reason` names the model's context window.
+
 ## 3.0.1
 
 ### Patch Changes
@@ -661,8 +681,8 @@
   The kernel now emits a per-message and per-tool-input lifecycle on the
   event bus, and the provider contract collapses to a single streaming
   entry point. Together these unlock live tool-call rendering (Calling →
-  Running → Done with incremental input) for SSE consumers — the cowork
-  workspace surface that motivated the work in the first place.
+  Running → Done with incremental input) for SSE consumers — a live
+  workspace surface motivated the work in the first place.
 
   ## Breaking changes
 

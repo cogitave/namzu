@@ -182,19 +182,25 @@ describe('the CLI ACP runtime', () => {
 			params: { sessionId: 'session-a' },
 		})
 
-		const firstOutcome = await Promise.race([
-			Promise.all([waitForFrame(wire.sent, 4), waitForFrame(wire.sent, 5)]),
-			new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 30)),
-		])
-		candidateA.resolve({
-			hasProvider: true,
-			errorHint: null,
-			mcpFailed: [],
-			close: closeA,
-			send: sendA,
-		})
-		expect(firstOutcome).not.toBe('timed-out')
-		if (firstOutcome === 'timed-out') throw new Error('cancelled prompt remained behind startup')
+		// No real 30ms safety race: it competed with the same clock as the
+		// frames it waited on, so a starved CI runner could make that work
+		// outlast the guard with nothing actually broken. `candidateA` stays
+		// unresolved until a `finally` so a regression that made the
+		// cancelled prompt wait behind startup still hangs and fails on
+		// Vitest's own per-test timeout, instead of resolving `candidateA`
+		// early and masking exactly the ordering bug this proves against.
+		let firstOutcome: [MCPJsonRpcMessage, MCPJsonRpcMessage]
+		try {
+			firstOutcome = await Promise.all([waitForFrame(wire.sent, 4), waitForFrame(wire.sent, 5)])
+		} finally {
+			candidateA.resolve({
+				hasProvider: true,
+				errorHint: null,
+				mcpFailed: [],
+				close: closeA,
+				send: sendA,
+			})
+		}
 		expect(firstOutcome[0].result).toEqual({ stopReason: 'cancelled' })
 		expect(firstOutcome[1].result).toEqual({ stopReason: 'end_turn' })
 		await settle()

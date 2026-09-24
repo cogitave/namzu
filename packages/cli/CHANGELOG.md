@@ -1,5 +1,76 @@
 # @namzu/cli
 
+## 31.0.0
+
+### Major Changes
+
+- 166fe10: **Words you type in the interactive composer can now act for that message — on by default.** This changes what existing keystrokes do, so it is a major version.
+
+  - `hypermode` at the start or end of a message (or clause) arms a one-turn hypermode: that turn runs at `xhigh` effort (the highest level below it on a model without `xhigh`) and the model is asked to delegate independent work to parallel agents. The next turn gets neither, and `/hypermode` (the session setting) is not turned on.
+  - "save this as a skill", "turn it into a skill", "bunu skill olarak kaydet", "bunu skill'e çevir", "bundan bir skill yap" and their request forms (`kaydeder misin`, `kaydedebilir misin`, `kaydedelim mi`, …) run `/skills save` after the turn — only when that turn completed, did tool work and did not already save a skill. A message that is only the phrase runs `/skills save` at once.
+  - Schedule phrases ("run it every day", "bunu her sabah çalıştır") are only suggested; they never act on their own.
+
+  Before you press Enter, the words are highlighted and a row above the input says exactly what will happen, for example `✦ hypermode · this turn: effort xhigh, delegate to parallel agents · alt+w drop`. **Alt+W** drops it for that message; Backspace right after `hypermode` drops it too. Only keys you type arm a trigger: pasted, recalled or edited text only shows a suggestion (`✧ hypermode? · alt+w arms`), and loops, pickers, `namzu exec`, `drain`, ACP and scheduled runs never act on these words. Talking about a word does not arm it: "what is hypermode?", a word in the middle of a sentence, in quotes, in code or in a path stays prose. A trigger grants nothing and skips no confirmation; `save_skill` and scheduled jobs still show their own screens. Your message reaches the model and the log unchanged.
+
+  **To keep the old behaviour**, turn composer triggers off with `/config triggers off` (writes the user config), or in `~/.namzu/config.yaml`:
+
+  ```yaml
+  composerTriggers:
+    enabled: false
+  ```
+
+  Or keep the feature and turn one trigger down: `composerTriggers.builtin.hypermode: suggest` (or `off`), likewise `save-skill`. A project's `namzu.config.json` can turn triggers off or down for that project but cannot turn them back on over your user file. The `composerTriggers` key is new on the exported `NamzuCliConfig` type.
+
+- 166fe10: The multi-agent session mode is now called **hypermode**. Turn it on with `/hypermode on` (or pick the last stop of the `/effort` picker, which now reads `xhigh + hypermode (workflows)`, with `Off · delegates to parallel agents by default` under it). The footer shows `· hypermode` and the message box's border names it the same way. **One behaviour change:** the mode now pins reasoning effort to `xhigh`, not to the highest level the model publishes. On a model that offers `max` (or `ultra`), turning the mode on used to select `max`; it now selects `xhigh`, which spends less per turn. A model without `xhigh` gets the highest level it publishes below it, and the stop names that level (`high + hypermode (workflows)`). To run a hypermode session at `max`, turn the mode on and then choose `/effort max`; the mode keeps delegating by default. Independent work is still delegated to parallel agents by default, for this session only.
+
+  `/orchestrate` still works: it prints `/orchestrate is deprecated: the mode is now called hypermode. Use /hypermode; /orchestrate will be removed in a later major version.` and then does exactly what `/hypermode` does. Switch any scripts, notes or muscle memory to `/hypermode` before the next major version. The mode was never stored in a config file, so there is nothing to migrate.
+
+### Minor Changes
+
+- 443094a: Stateless `namzu exec --json` history on stdin (`Message[]`, no `--session`) now accepts and keeps an optional `id` on each message (`BaseMessage.id`, `@namzu/sdk`'s new field), the same way it already keeps `toolCalls[].id`: validated as a string, never required, never stripped. A host that reads a prior turn back from `namzu history --session <key>` (which carries the real durable id on every message) can feed that same history into a later stateless call unmodified and have `query()` reconcile it by id. This stream's own `delta`/`tool-start`/`tool-end` events do not yet surface a message's id as it happens, so a host that only ever rebuilds `Message[]` from this stream still has none to attach — that keeps working exactly as before, reconciled by value.
+
+### Patch Changes
+
+- 2d4ff9a: **`ask_user_question` says which option it recommends in a field, not in the label.** An option takes `recommended: true`, and `UserQuestionOption.recommended` is set on each recommended option of the question your `ResumeHandler` receives; it is absent on the others. The answer's `data.selected[]` carries `recommended: true` on a chosen option the model recommended. The tool no longer tells the model to append " (Recommended)" to a label.
+
+  Labels now reach your handler without a recommendation marker. An option is recommended when the model set `recommended: true` on it, or left the flag out and ended its label in "(Recommended)". That English marker was already removed from the answer; it is now also removed from the label you are shown, on every option that carries it, and an option the model set `recommended: false` on stays unrecommended. What was left before it still reaches you and the answer whole: "Cloud (AWS) (Recommended)" reads "Cloud (AWS)", as the answer did before. On a recommended option, a trailing parenthesised group of one to three words — "(Önerilen)", "(Empfohlen)", "（推荐）", which used to reach both your screen and the answer the model read back — is taken for the marker and removed from the label you are shown and from the answer. That includes a qualifier the model put there against the tool's instructions: a flagged "Use cache (Redis)" arrives as "Use cache". It is removed only when every option whose label ends in a group is recommended, did not end in "(Recommended)", and ends in that same group (letter case aside, compared the same way whatever your host's locale), so a group that differs between options is kept, flagged or not: "Postgres (managed)" / "Postgres (self-hosted)", or a multi-select's "Tests (unit)" / "Tests (e2e)". A marker that is all that tells two options apart ("Redis (Empfohlen)" next to "Redis") and a group with digits or symbols are kept too, and the order of the options changes none of this. Nothing else changes a label or makes an option recommended: apart from surrounding spaces and a trailing "(Recommended)", an option that is not recommended reaches you, and the answer, exactly as written, and a localised marker on it stays.
+
+  What to do: if your question UI showed the recommendation only because the label said "(Recommended)", show it from `option.recommended` instead; nothing else changes. In the CLI the question card draws `[recommended]` next to that option.
+
+- 49491b9: A cut-off or malformed `Agent` call is no longer answered with advice about writing files. The tool declares `prompt` as its one long argument, so a call whose prompt filled the response when the output limit cut it off is told to keep `prompt` under half of what arrived, or under 12000 characters when that is less, and to put long material in a file and name it in the prompt. A call cut off by a stream that ended is told 12000 characters. When most of the response went to reasoning, or to what came before the call, the call is told that instead, with no budget. A malformed call is told to send valid JSON and how to write a newline, tab, quote or backslash inside the `prompt` string, with nothing about files or size.
+- 49491b9: `namzu exec --json` now writes a `tool-input-unreadable` event for a tool call whose streamed arguments could not be read, before the call's `tool-start`. It carries `toolUseId`, `turnId`, `inputError` (whose `reason` says whether the arguments were cut off, `truncated`, or were not valid JSON, `malformed`) and `partialArguments`, the first 16 384 characters of what the model sent. A host used to see only the failed `tool-end`, so it could not tell the two apart or record what was sent. A host that line-scans by `kind` and ignores kinds it does not know needs no change.
+- 49491b9: `namzu exec --json` checks a prior tool call's `metadata.inputError` on the history it reads from stdin, as it already checked `inputTruncated` and `partialArguments`. The executor words its answer to that call from the field, so a `reason` other than `truncated` or `malformed`, or a `length` that is not a count, reached the model as "after undefined characters". Such history is now refused before the turn starts, naming the field, like any other invalid history.
+- 166fe10: `/hypermode off` now puts back the reasoning effort you had before turning the mode on (the message says which: `Hypermode is off — effort back to low.`). Before, turning the mode off left effort pinned at the level the mode chose, so later turns kept running — and spending — at that level although the help said both settings revert. If you picked a level yourself while the mode was on, that level stays. Nothing to change on your side.
+- 166fe10: Security fix: a loop the model creates with the `session_loop` tool now sends its prompt to the model as plain text every time it fires. Before, the TUI treated a model loop's prompt like a line you typed: a prompt starting with `!` ran a shell command on your machine, outside the sandbox and without review; `#` saved a project memory; `/` ran a slash command; and a sentence such as "modeli opus-5 yapar mısın" switched the model. A loop fires every interval for up to seven days, so one approval of its creation (none in `auto` mode) could become unreviewed host commands.
+
+  Loops you create with `/loop` are unchanged: their `/`, `!` and `#` still work. No loop's prompt is added to the composer's history any more, so Up brings back only what you typed. Nothing to configure; if you relied on a model-created loop running a command, create the loop yourself with `/loop <interval> <command>`.
+
+- 2d4ff9a: Earlier entries in this package's CHANGELOG no longer name one particular application built on namzu, or quote a path from outside this repository. This changes only the CHANGELOG.md that ships in the tarball; no code or types change, and there is nothing to do to upgrade.
+- 7c810bc: `web_search`'s transcript presenter stripped the untrusted-content envelope from its own tool result by matching the frame's literal opening/closing tags by hand. `@namzu/sdk`'s `wrapUntrusted` now binds those tags to a per-render nonce (see the `@namzu/sdk` major changeset in this same release), so the hand-rolled match would have silently stopped recognizing the envelope and shown the raw, tagged text in the transcript instead of the clean result. The presenter now reads the body back with the exported `untrustedEnvelopeBody`, which already understands the nonce, instead of re-deriving the tag shape.
+- Updated dependencies [2d4ff9a]
+- Updated dependencies [49491b9]
+- Updated dependencies [166fe10]
+- Updated dependencies [2d4ff9a]
+- Updated dependencies [2d4ff9a]
+- Updated dependencies [49491b9]
+- Updated dependencies [7c810bc]
+- Updated dependencies [443094a]
+- Updated dependencies [49491b9]
+- Updated dependencies [7c810bc]
+- Updated dependencies [49491b9]
+- Updated dependencies [443094a]
+  - @namzu/sdk@47.0.0
+  - @namzu/anthropic@6.2.1
+  - @namzu/openrouter@3.0.2
+  - @namzu/deepseek@2.0.1
+  - @namzu/openai@4.1.2
+  - @namzu/google@1.1.1
+  - @namzu/computer-use@2.0.1
+  - @namzu/ollama@2.2.5
+  - @namzu/files@1.1.2
+  - @namzu/zen@2.5.1
+  - @namzu/browser@0.1.0
+
 ## 30.0.0
 
 ### Major Changes
@@ -6314,7 +6385,7 @@ redis"` passes through untouched; the extra words are what distinguish a request
   What a consumer sees change:
 
   - `@namzu/sandbox` raised `Sandbox backend 'x' is not implemented yet. Track
-progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
+progress in <a local notes directory>/...` — a runtime error
     instructing the reader to open a path that is not in the package, not in the
     repository, and not on the internet. It now names what does ship instead.
   - `@namzu/computer-use`'s README linked to an adapter-pattern document under a

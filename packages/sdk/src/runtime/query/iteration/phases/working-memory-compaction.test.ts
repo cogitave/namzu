@@ -1,8 +1,8 @@
 /**
- * Regression test for the ses_055 Layer-B SDK seam (#104):
+ * Regression test for the working-memory compaction seam:
  *
  *   1. **Compaction FIRES** under a small `contextWindowTokens` even with the
- *      turn-level `tokenBudget = 0` (UNLIMITED) — proving the F1 fix repointed
+ *      turn-level `tokenBudget = 0` (UNLIMITED) — proving the fix repointed
  *      BOTH the `<= 0` guard AND the divisor, closing the silent-no-op trap.
  *   2. **The pinned working-memory slot SURVIVES** the compaction pass (it is a
  *      leading system message → preserved by header identity).
@@ -164,7 +164,7 @@ function asText(content: unknown): string {
 	return typeof content === 'string' ? content : ''
 }
 
-describe('Layer-B compaction seam (ses_055 #104)', () => {
+describe('working-memory compaction seam', () => {
 	it('FIRES on small contextWindowTokens with tokenBudget=0 AND preserves the pinned WM slot', async () => {
 		const messages = buildOverflowingMessages()
 		const ctx = makeCtx({

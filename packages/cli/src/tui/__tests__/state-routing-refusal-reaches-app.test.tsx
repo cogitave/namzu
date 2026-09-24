@@ -78,13 +78,7 @@ it('surfaces the routing refusal and never constructs an unscoped agent session'
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 
-	const started = performance.now()
-	while (
-		!(harness.lastFrame() ?? '').includes('split histories') &&
-		performance.now() - started < 3_000
-	) {
-		await new Promise((resolveWait) => setTimeout(resolveWait, 20))
-	}
+	await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('split histories'))
 
 	expect(harness.lastFrame()).toContain('Failed to probe agents')
 	expect(harness.lastFrame()).toContain('split histories')

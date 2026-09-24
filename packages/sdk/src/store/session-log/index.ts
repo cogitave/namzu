@@ -51,6 +51,7 @@ export {
 	SpillUnavailableError,
 	TurnRuleError,
 	foldSessionMessages,
+	withMessageId,
 } from './fold.js'
 export { type TornTailRepair, repairRecordDraft } from './heal.js'
 export {

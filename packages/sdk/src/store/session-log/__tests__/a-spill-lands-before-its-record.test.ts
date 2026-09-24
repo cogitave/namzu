@@ -126,10 +126,11 @@ describe('a spill', () => {
 		})
 		try {
 			const body = 'y'.repeat(8000)
+			const bigMessageId = generateMessageId()
 			const entry = await log.append(lease, {
 				type: 'message',
 				turnId,
-				messageId: generateMessageId(),
+				messageId: bigMessageId,
 				role: 'tool',
 				content: { role: 'tool', content: body, toolCallId: 'toolu_big' },
 			} as SessionRecordDraft)
@@ -138,7 +139,12 @@ describe('a spill', () => {
 			expect(record.content.content.length).toBeLessThan(body.length)
 			expect(seen).toEqual([true])
 			const [, folded] = [undefined, (await log.messages()).at(-1)]
-			expect(folded).toEqual({ role: 'tool', content: body, toolCallId: 'toolu_big' })
+			expect(folded).toEqual({
+				role: 'tool',
+				content: body,
+				toolCallId: 'toolu_big',
+				id: bigMessageId,
+			})
 		} finally {
 			spy.mockRestore()
 		}
@@ -187,7 +193,11 @@ describe('a spill', () => {
 		const r2 = (await replace(second)).record as { spill?: { path: string; sha256: string } }
 		expect(r1.spill?.path).not.toBe(r2.spill?.path)
 		expect(await log.readSpill(r1.spill as never)).toContain('r'.repeat(100))
-		expect((await log.messages()).at(-1)).toEqual({ role: 'assistant', content: second })
+		expect((await log.messages()).at(-1)).toEqual({
+			role: 'assistant',
+			content: second,
+			id: messageId,
+		})
 
 		const answer = 'a'.repeat(9000)
 		const done = await log.append(lease, {

@@ -1,6 +1,6 @@
 {
 	"name": "@namzu/ag-ui",
-	"version": "1.0.0",
+	"version": "2.0.0",
 	"description": "AG-UI protocol adapter for the Namzu agent kernel: typed event streams and Fetch-compatible HTTP handling.",
 	"license": "FSL-1.1-MIT",
 	"engines": {
@@ -56,7 +56,8 @@
 		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
 	},
 	"peerDependencies": {
-		"@namzu/sdk": ">=44.0.0"
+		"@namzu/sdk": ">=45.1.0",
+		"zod": "^3.23.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",

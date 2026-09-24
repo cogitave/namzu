@@ -29,8 +29,28 @@ export interface StreamChunk {
 		}
 
 		content?: string
+		/**
+		 * Who wrote {@link content}. Absent means the model. `'driver'` marks
+		 * text a driver adds of its own after the model's output, such as a
+		 * list of the sources a hosted search used. It is shown and kept in
+		 * the message like any other text, but it is not output the model
+		 * produced: the turn loop does not read it as the model moving on from
+		 * its last tool call, which would turn a call the output limit cut
+		 * off into a malformed one.
+		 */
+		contentOrigin?: 'driver'
 		/** Identity and phase of this content fragment, when the provider supplies them. */
 		textPart?: Omit<import('../message/index.js').AssistantTextPart, 'text'>
+		/**
+		 * Fragments of tool calls. `index` is what groups them: every fragment
+		 * of one call carries the same index, and no other call in the
+		 * response uses it. The call's `id` and `function.name` may arrive on
+		 * any of its fragments, including after arguments; arguments that
+		 * arrive first are kept for the call at their index. The turn loop gives
+		 * a call whose id never arrives, here or on `toolCallEnd`, an id of its
+		 * own. A second id on an index another call holds is refused, by the
+		 * turn loop and by `collectChatCompletion`.
+		 */
 		toolCalls?: Array<{
 			index: number
 			id?: string
@@ -51,6 +71,12 @@ export interface StreamChunk {
 		 * `message_stop`. Providers that cannot emit a per-tool boundary
 		 * leave this undefined; the orchestrator infers from
 		 * end-of-stream instead.
+		 *
+		 * `id` fills in the call's id when no fragment carried one. The
+		 * completion always carries the id the call was announced with, and
+		 * follows the announcement: a close with an empty `id` for a call no
+		 * fragment named, or for a call whose name has not arrived, is
+		 * settled when the stream ends instead.
 		 *
 		 * Added 2026-05-01 (ses_001-tool-stream-events A9).
 		 */
@@ -93,6 +119,19 @@ export interface StreamChunk {
 		citation?: import('../message/index.js').Citation
 	}
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	/**
+	 * Which limit a `'length'` finish reached, when it was not the output
+	 * token limit: `'context_window'` when the response filled the model's
+	 * context window (a stop reason such as `model_context_window_exceeded`
+	 * or `model_length`).
+	 *
+	 * Both stop the output where it stands, so both are `'length'`, and a
+	 * tool call either one cut off is truncated. They differ in what can
+	 * follow: after the output limit the turn loop asks the model to continue
+	 * a reply it cut off mid-text, and after the context window there is no
+	 * room to continue into. Set only with `finishReason: 'length'`.
+	 */
+	finishDetail?: 'context_window'
 	usage?: TokenUsage
 	error?: string
 

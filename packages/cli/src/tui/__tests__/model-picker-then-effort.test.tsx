@@ -161,20 +161,38 @@ async function chooseNextModel(screen: Screen) {
 	await until(screen, () => constructed.length === 2, 'Replacement construction did not start')
 	expect(constructed[1]?.prefs.providers[0]?.model).toBe(NEXT)
 }
-/** The stops of the effort slider, read off its label row (the one carrying the `┆` before orchestrate). */
+/**
+ * The stops of the effort slider, read off its label row: one word per level
+ * before the `┆`, and after it the hypermode stop, whose label is several
+ * words (`high + hypermode (workflows)`).
+ */
+function stops(row: string): Array<{ readonly label: string; readonly start: number }> {
+	const cells = [...row]
+	const separator = cells.indexOf('┆')
+	const before = separator >= 0 ? cells.slice(0, separator).join('') : row
+	const found = [...before.matchAll(/\S+/gu)].map((match) => ({
+		label: match[0],
+		start: [...before.slice(0, match.index)].length,
+	}))
+	if (separator >= 0) {
+		const after = cells.slice(separator + 1).join('')
+		const lead = [...after].length - [...after.trimStart()].length
+		found.push({ label: after.trim(), start: separator + 1 + lead })
+	}
+	return found
+}
 function choices(screen: Screen) {
-	const row = screen.viewport().find((line) => line.includes('┆ orchestrate')) ?? ''
-	return row.replace('┆', ' ').trim().split(/\s+/u).filter(Boolean)
+	// The label row; the ruler above it carries the `┆` too, joined to `─`.
+	const row = screen.viewport().find((line) => line.includes('┆ ')) ?? ''
+	return stops(row).map((stop) => stop.label)
 }
 /** The stop the slider's `▲` caret sits under. */
 function caretStop(screen: Screen): string | undefined {
 	const rows = screen.viewport()
 	const ruler = rows.findIndex((line) => line.includes('▲'))
-	const labels = rows[ruler + 1] ?? ''
 	const column = [...(rows[ruler] ?? '')].indexOf('▲')
-	for (const match of labels.matchAll(/\S+/gu)) {
-		const start = [...labels.slice(0, match.index)].length
-		if (column >= start && column < start + [...match[0]].length) return match[0]
+	for (const stop of stops(rows[ruler + 1] ?? '')) {
+		if (column >= stop.start && column < stop.start + [...stop.label].length) return stop.label
 	}
 	return undefined
 }
@@ -185,19 +203,20 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await shows(screen, 'Reasoning: high (this session).')
 	await chooseNextModel(screen)
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
-	// The orchestrate-mode row always trails the model's own levels, below a
-	// rule — a session setting offered here, never a level the model published.
+	// The hypermode stop always trails the model's own levels, after a `┆` —
+	// a session setting offered here, never a level the model published. It
+	// names the level it pins.
 	expect(choices(screen), screen.viewport().join('\n')).toEqual([
 		'default',
 		'medium',
 		'xhigh',
-		'orchestrate',
+		'xhigh + hypermode (workflows)',
 	])
 	expect(caretStop(screen)).toBe('default')
 	expect(closeOld).toHaveBeenCalledTimes(1)
 	expect(sent).toHaveLength(0)
 	// Select the exact published level by number rather than End, which now
-	// lands on the trailing orchestrate row instead of the highest level.
+	// lands on the trailing hypermode stop instead of the highest level.
 	await press(screen, '3')
 	await shows(screen, 'Reasoning: xhigh (this session).')
 	await submit(screen, 'Continue this task')
@@ -207,7 +226,7 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await shows(screen, 'Type a message')
 	await submit(screen, '/effort')
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
-	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh', 'orchestrate'])
+	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh', 'xhigh + hypermode (workflows)'])
 	await press(screen, '1')
 	await shows(screen, 'Reasoning: provider default.')
 	await submit(screen, 'Use the provider default now')
@@ -216,11 +235,11 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	expect(sent[1]?.options?.effort).toBeUndefined()
 })
 
-it('moves the slider with ←/→, clamps at both ends, and applies orchestrate as a mode', async () => {
+it('moves the slider with ←/→, clamps at both ends, and applies hypermode as a mode', async () => {
 	const screen = await open()
 	await submit(screen, '/effort')
 	await shows(screen, 'Select Reasoning Level')
-	expect(choices(screen)).toEqual(['default', 'low', 'high', 'orchestrate'])
+	expect(choices(screen)).toEqual(['default', 'low', 'high', 'high + hypermode (workflows)'])
 	await press(screen, '\x1b[D')
 	expect(caretStop(screen)).toBe('default')
 	await press(screen, '\x1b[C')
@@ -229,14 +248,31 @@ it('moves the slider with ←/→, clamps at both ends, and applies orchestrate 
 	await press(screen, '\x1b[B')
 	expect(caretStop(screen)).toBe('high')
 	for (let i = 0; i < 4; i++) await press(screen, '\x1b[C')
-	expect(caretStop(screen)).toBe('orchestrate')
-	expect(screen.viewport().join('\n')).toContain('high + delegate by default')
+	expect(caretStop(screen)).toBe('high + hypermode (workflows)')
+	// The one-line description under the stop says what it does and that it is off.
+	expect(screen.viewport().join('\n')).toContain('Off · delegates to parallel agents by default')
 	expect(screen.viewport().join('\n')).toContain('←/→ adjust')
 	await press(screen, '\r')
 	await shows(screen, 'Type a message')
 	const footer = screen.viewport().join('\n')
-	expect(footer).toContain('orchestrate')
-	expect(footer).not.toContain('effort orchestrate')
+	expect(footer).toContain('· hypermode')
+	expect(footer).not.toContain('effort hypermode')
+})
+
+it('names xhigh on the hypermode stop when the model publishes max too', async () => {
+	candidateLevels = ['low', 'medium', 'high', 'xhigh', 'max']
+	const screen = await open()
+	await chooseNextModel(screen)
+	await shows(screen, `Select Reasoning Level for ${NEXT}`)
+	expect(choices(screen)).toEqual([
+		'default',
+		'low',
+		'medium',
+		'high',
+		'xhigh',
+		'max',
+		'xhigh + hypermode (workflows)',
+	])
 })
 
 it('keeps the vertical list on a terminal too narrow for the slider', async () => {
@@ -245,7 +281,7 @@ it('keeps the vertical list on a terminal too narrow for the slider', async () =
 	await shows(screen, 'Select Reasoning Level')
 	const text = screen.viewport().join('\n')
 	expect(text).not.toContain('▲')
-	expect(text).toMatch(/\d\.\s+orchestrate/u)
+	expect(text).toMatch(/\d\.\s+high \+ hypermode \(workflows\)/u)
 })
 
 it('keeps the selected model with provider-default effort when the effort menu is cancelled', async () => {

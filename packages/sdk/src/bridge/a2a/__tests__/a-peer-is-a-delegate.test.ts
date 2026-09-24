@@ -227,7 +227,12 @@ describe('reading a peer’s card', () => {
 			timeoutMs: 5,
 		})
 
-		const failure = await rejectionOf(settleWithin(pending))
+		// `pending` carries its own 5ms product timeout, so this needs no
+		// outer real-time race: it either rejects with that TimeoutError or
+		// it does not, and a regression that dropped the timeout hangs the
+		// test on Vitest's own timeout rather than tripping a hand-rolled one
+		// racing the same clock.
+		const failure = await rejectionOf(pending)
 
 		expect(failure).toMatchObject({ name: 'TimeoutError' })
 		expect(transport?.aborted).toBe(true)
@@ -238,20 +243,18 @@ describe('reading a peer’s card', () => {
 	it('bounds a stalled card response body, not only the fetch handshake', async () => {
 		let transport: AbortSignal | undefined
 		const failure = await rejectionOf(
-			settleWithin(
-				fetchAgentCard('https://peer.example', {
-					fetch: async (_url, init) => {
-						transport = init?.signal
-						return {
-							ok: true,
-							status: 200,
-							json: async () => await new Promise<never>(() => {}),
-							text: async () => '',
-						}
-					},
-					timeoutMs: 5,
-				}),
-			),
+			fetchAgentCard('https://peer.example', {
+				fetch: async (_url, init) => {
+					transport = init?.signal
+					return {
+						ok: true,
+						status: 200,
+						json: async () => await new Promise<never>(() => {}),
+						text: async () => '',
+					}
+				},
+				timeoutMs: 5,
+			}),
 		)
 
 		expect(failure).toMatchObject({ name: 'TimeoutError' })
@@ -275,7 +278,7 @@ describe('reading a peer’s card', () => {
 		})
 
 		caller.abort(reason)
-		const failure = await rejectionOf(settleWithin(pending))
+		const failure = await rejectionOf(pending)
 
 		expect(failure).toBe(reason)
 		expect(transport?.reason).toBe(reason)
@@ -655,7 +658,7 @@ describe('dispatching to a peer', () => {
 			task('canceled', { status: { state: 'canceled' } }),
 		])
 
-		const failure = await rejectionOf(settleWithin(delegate(fetch).dispatch(request, {})))
+		const failure = await rejectionOf(delegate(fetch).dispatch(request, {}))
 
 		expect(failure).toBeInstanceOf(A2ARequestError)
 		expect(failure).toMatchObject({ details: { method: 'tasks/get' } })
@@ -677,7 +680,7 @@ describe('dispatching to a peer', () => {
 			task('canceled', { status: { state: 'canceled' } }),
 		])
 
-		const failure = await rejectionOf(settleWithin(delegate(fetch).dispatch(request, {})))
+		const failure = await rejectionOf(delegate(fetch).dispatch(request, {}))
 
 		expect(failure).toBeInstanceOf(A2ARequestError)
 		expect(failure).toMatchObject({
@@ -694,7 +697,7 @@ describe('dispatching to a peer', () => {
 	it('refuses an empty task id before it can become a poll or cancel address', async () => {
 		const { fetch } = peer([{ id: '', status: { state: 'running' } }])
 
-		const failure = await rejectionOf(settleWithin(delegate(fetch).dispatch(request, {})))
+		const failure = await rejectionOf(delegate(fetch).dispatch(request, {}))
 		expect(failure).toBeInstanceOf(A2ARequestError)
 	})
 
@@ -732,7 +735,7 @@ describe('cancelling reaches the peer, not just our own loop', () => {
 		const running = delegate(fetch).dispatch(request, { signal: controller.signal })
 		await new Promise((resolve) => setTimeout(resolve, 5))
 		controller.abort()
-		const result = await settleWithin(running)
+		const result = await running
 		await new Promise((resolve) => setTimeout(resolve, 5))
 
 		expect(result.status).toBe('cancelled')
@@ -764,7 +767,7 @@ describe('cancelling reaches the peer, not just our own loop', () => {
 		const running = delegate(fetch).dispatch(request, { signal: controller.signal })
 		await vi.waitFor(() => expect(pollSignal).toBeDefined())
 		controller.abort(reason)
-		const result = await settleWithin(running)
+		const result = await running
 
 		expect(result.status).toBe('cancelled')
 		expect(pollSignal?.aborted).toBe(true)
@@ -800,7 +803,7 @@ describe('cancelling reaches the peer, not just our own loop', () => {
 		await vi.waitFor(() => expect(polling).toBe(true))
 		controller.abort(reason)
 
-		await expect(settleWithin(running)).resolves.toEqual({ status: 'cancelled' })
+		await expect(running).resolves.toEqual({ status: 'cancelled' })
 		expect(controller.signal.reason).toBe(reason)
 	})
 
@@ -826,7 +829,7 @@ describe('cancelling reaches the peer, not just our own loop', () => {
 			})
 		}
 
-		const result = await settleWithin(delegate(fetch, { timeoutMs: 10 }).dispatch(request, {}))
+		const result = await delegate(fetch, { timeoutMs: 10 }).dispatch(request, {})
 
 		expect(result).toMatchObject({ status: 'failed' })
 		expect(result.error).toMatch(/still running/)
@@ -903,7 +906,7 @@ describe('cancelling reaches the peer, not just our own loop', () => {
 			}),
 		)
 
-		await expect(settleWithin(running)).resolves.toEqual({ status: 'cancelled' })
+		await expect(running).resolves.toEqual({ status: 'cancelled' })
 		expect(initialSignal?.aborted).toBe(true)
 		expect(calls).toEqual(['message/send', 'tasks/cancel'])
 	})
@@ -932,7 +935,7 @@ describe('cancelling reaches the peer, not just our own loop', () => {
 			}),
 		)
 
-		await expect(settleWithin(running)).resolves.toEqual({ status: 'cancelled' })
+		await expect(running).resolves.toEqual({ status: 'cancelled' })
 		expect(calls).toEqual([
 			{ method: 'message/send', id: undefined },
 			{ method: 'tasks/cancel', id: 'task-safe-to-cancel' },
@@ -1055,10 +1058,7 @@ describe('the peer reaches the delegation predicates, through the scheduler', ()
 				result: task('running', { status: { state: 'running' } }),
 			}),
 		)
-		const safety = new Promise<never>((_resolve, reject) => {
-			setTimeout(() => reject(new Error('scheduler cancellation did not settle')), 100)
-		})
-		const settled = await Promise.race([scheduler.waitForTask(created.taskId), safety])
+		const settled = await scheduler.waitForTask(created.taskId)
 
 		expect(settled.state).toBe('canceled')
 		expect(settled.result?.status).toBe('cancelled')

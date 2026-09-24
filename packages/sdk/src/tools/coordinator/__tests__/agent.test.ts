@@ -96,7 +96,7 @@ describe('buildAgentTool', () => {
 		// says whose text it is. A host reading the result programmatically
 		// gets it verbatim off `data.result` instead.
 		expect(result.output).toContain('final report text')
-		expect(result.output.startsWith('<namzu-untrusted kind="agent-result"')).toBe(true)
+		expect(result.output).toMatch(/^<namzu-untrusted-[0-9a-f]+ kind="agent-result"/)
 		expect(result.data).toMatchObject({ result: 'final report text' })
 	})
 

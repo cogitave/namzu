@@ -112,11 +112,11 @@ afterEach(() => {
 })
 
 /** Wait for the durable trust write, or give up. */
-async function trustedWithin(timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (trusted.length === 0 && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
+async function trustedWithin(timeoutMs?: number): Promise<void> {
+	await vi.waitFor(
+		() => expect(trusted.length, 'the durable trust write never happened').toBeGreaterThan(0),
+		timeoutMs,
+	)
 }
 
 /** Move the stubbed clock past the settle window. */
@@ -132,14 +132,9 @@ async function gateOnScreen(context: TuiContext = ctx) {
 	// window is measured from that stamp — so pressing a key in the gap between
 	// "drawn" and "stamped" is measured against no stamp at all and refused.
 	// A fixed wait here made that gap load-dependent.
-	const started = performance.now()
-	while (
-		!(harness.lastFrame() ?? '').includes('Do you trust') &&
-		performance.now() - started < 3_000
-	) {
-		await tick(20)
-	}
-	expect(harness.lastFrame(), 'the trust gate never appeared').toContain('Do you trust')
+	await vi.waitFor(() =>
+		expect(harness.lastFrame(), 'the trust gate never appeared').toContain('Do you trust'),
+	)
 	await tick(60)
 	return harness
 }
@@ -192,10 +187,7 @@ describe('the trust gate', () => {
 		settle()
 		stdin.write('y')
 		await trustedWithin()
-		const started = performance.now()
-		while (!lifecycle.events.includes('probe') && performance.now() - started < 3_000) {
-			await tick(20)
-		}
+		await vi.waitFor(() => expect(lifecycle.events).toContain('probe'))
 
 		expect(lifecycle.events).toEqual(['activate:C:/a/folder', 'probe'])
 	})
@@ -212,10 +204,7 @@ describe('the trust gate', () => {
 		settle()
 		stdin.write('y')
 		await trustedWithin()
-		const started = performance.now()
-		while (!lifecycle.events.includes('probe') && performance.now() - started < 3_000) {
-			await tick(20)
-		}
+		await vi.waitFor(() => expect(lifecycle.events).toContain('probe'))
 
 		expect(trusted).toEqual(['C:/real/project'])
 		expect(lifecycle.events).toEqual(['activate:C:/real/project', 'probe'])
@@ -231,13 +220,7 @@ describe('the trust gate', () => {
 		settle()
 		harness.stdin.write('y')
 		await trustedWithin()
-		const started = performance.now()
-		while (
-			!(harness.lastFrame() ?? '').includes('malformed project config') &&
-			performance.now() - started < 3_000
-		) {
-			await tick(20)
-		}
+		await vi.waitFor(() => expect(harness.lastFrame() ?? '').toContain('malformed project config'))
 
 		expect(lifecycle.events).toEqual(['activate'])
 		expect(harness.lastFrame()).toContain('Could not activate project config')

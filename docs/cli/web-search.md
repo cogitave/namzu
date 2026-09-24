@@ -69,7 +69,9 @@ native protocol details apply to that optional backend.
 The CLI displays each search as a row naming its query, with a live `⎿` status
 that settles to the result count and time (see
 [Terminal design](terminal-design.md#web-searches-and-fetches)). URL annotations
-missing from the answer's text are appended as a Sources list. Native response items, including
+missing from the answer's text are appended as a Sources list. The drivers mark that list
+`contentOrigin: 'driver'` on its stream chunk, because the model did not write it (see
+[Unreadable tool input](../sdk/unreadable-tool-input.md#truncated-or-malformed)). Native response items, including
 search calls and annotations, remain in the assistant's provider replay state;
 matching-route continuation reuses them. Cross-provider continuation retains the
 readable answer and source links, not another provider's private protocol items.

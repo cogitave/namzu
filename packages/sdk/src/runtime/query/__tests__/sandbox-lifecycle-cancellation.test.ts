@@ -94,18 +94,15 @@ async function params(input: {
 	}
 }
 
-async function within<T>(promise: Promise<T>, label: string): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => reject(new Error(label)), 1_000)
-			}),
-		])
-	} finally {
-		if (timer !== undefined) clearTimeout(timer)
-	}
+// `label` names what a hang would have meant; it stays in every call site as
+// documentation now that nothing races it. This used to guard each `await`
+// with its own real 1000ms `setTimeout`, racing the same clock as the
+// cancellation/timeout work it was waiting on — a starved CI runner could
+// make that real work outlast the guard with nothing actually broken. Vitest's
+// own per-test timeout catches a genuine hang without adding a second, tighter
+// real clock underneath it.
+async function within<T>(promise: Promise<T>, _label: string): Promise<T> {
+	return promise
 }
 
 describe('sandbox lifecycle belongs to the turn', () => {

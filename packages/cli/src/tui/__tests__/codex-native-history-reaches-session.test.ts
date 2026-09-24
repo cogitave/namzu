@@ -144,11 +144,15 @@ it('keeps native items through a tool continuation, persistence and a new Sessio
 		{ replayState: { content: null, items: [reasoning, call] } },
 		{ replayState: { content: 'Read the fixture.', items: [answer] } },
 	])
+	// `loaded`'s messages carry the ids `recorded`'s own log gave them (via
+	// `recordTurn` above); a resume/model-switch is the SAME conversation
+	// picked back up, not `first`'s original one.
+	const resumedOptions = { ...options, scope: { ...options.scope, sessionId: recorded } }
 	for (const selected of [model, 'gpt-5.6-sol']) {
 		const resumed = await createAgentSession(
 			{ ...preferences, providers: [{ id: 'codex', model: selected }] },
 			detected,
-			options,
+			resumedOptions,
 		)
 		try {
 			for await (const _event of resumed.send([

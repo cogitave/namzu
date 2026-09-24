@@ -128,12 +128,13 @@ describe('DefaultKnowledgeBase', () => {
 		const reason = new Error('ingestion store wait cancelled')
 		controller.abort(reason)
 
-		await expect(
-			Promise.race([
-				pending,
-				new Promise((resolve) => setTimeout(() => resolve('still pending'), 100)),
-			]),
-		).rejects.toBe(reason)
+		// No real 100ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken — the race
+		// would then resolve instead of reject, and `.rejects` would fail for
+		// the wrong reason. A regression that left this unresolved now hangs
+		// and fails on Vitest's own per-test timeout instead.
+		await expect(pending).rejects.toBe(reason)
 	})
 
 	it('remove delegates to vectorStore.deleteByDocument', async () => {
@@ -189,11 +190,12 @@ describe('DefaultKnowledgeBase', () => {
 		const reason = new Error('retrieval store wait cancelled')
 		controller.abort(reason)
 
-		await expect(
-			Promise.race([
-				pending,
-				new Promise((resolve) => setTimeout(() => resolve('still pending'), 100)),
-			]),
-		).rejects.toBe(reason)
+		// No real 100ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken — the race
+		// would then resolve instead of reject, and `.rejects` would fail for
+		// the wrong reason. A regression that left this unresolved now hangs
+		// and fails on Vitest's own per-test timeout instead.
+		await expect(pending).rejects.toBe(reason)
 	})
 })
