@@ -814,7 +814,7 @@ async function runCompactionCheckInner(
 
 	const newMessages = [...preservedSystem, compactionMessage, ...retainedOlder, ...recentMessages]
 
-	// OPAQUE survival guard (ses_055 D1): the pinned working-memory slot is a
+	// OPAQUE survival guard: the pinned working-memory slot is a
 	// leading system message, so it is kept in `preservedSystem` (the compaction
 	// filter only drops prior `[COMPACTED CONTEXT]` summaries, never the WM slot)
 	// and survives for free — this branch is DEFENSIVE-ONLY, exercised only if a

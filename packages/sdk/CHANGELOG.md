@@ -6877,7 +6877,7 @@ v2'` instead of a scatter of assertion failures whose common cause is not
   What a consumer sees change:
 
   - `@namzu/sandbox` raised `Sandbox backend 'x' is not implemented yet. Track
-progress in vendor/namzu/docs.local/sessions/ses_004-...` — a runtime error
+progress in <a local notes directory>/...` — a runtime error
     instructing the reader to open a path that is not in the package, not in the
     repository, and not on the internet. It now names what does ship instead.
   - `@namzu/computer-use`'s README linked to an adapter-pattern document under a
@@ -12622,7 +12622,7 @@ ProviderCapabilities` (with a new `supportsVision?` flag on the type)
 
 ### Patch Changes
 
-- 999e4be: Context-management correctness fixes (Vandal round-3 architecture audit).
+- 999e4be: Context-management correctness fixes (from a third-round architecture audit).
 
   - **Compaction no longer orphans tool pairs.** `runCompactionCheck` now snaps
     the recent-window boundary through `findSafeTrimIndex` (previously wired only
@@ -12771,13 +12771,13 @@ ProviderCapabilities` (with a new `supportsVision?` flag on the type)
       outputs: {
         source: {
           type: "hostDir",
-          hostPath: "/var/lib/vandal/sessions/<task>/outputs",
+          hostPath: "/var/lib/<host>/sessions/<task>/outputs",
         },
       },
       uploads: {
         source: {
           type: "hostDir",
-          hostPath: "/var/lib/vandal/sessions/<task>/uploads",
+          hostPath: "/var/lib/<host>/sessions/<task>/uploads",
         },
       },
       skills: [
@@ -12864,8 +12864,7 @@ b.cause = a`), and longer loops, replacing the offending node with
   - The docker backend no longer allocates host directories
     (`mkdtemp`) or removes them on `destroy()`. Every bind source is
     consumer-owned. This also fixes an `EACCES: permission denied,
-mkdir '/Users'` crash that hit sibling-container deployments
-    (Vandal Cowork).
+mkdir '/Users'` crash that hit sibling-container deployments.
   - The worker no longer reads `NAMZU_SANDBOX_LAYOUT` (it never
     branched on the env, only logged it; size grew with the skill
     list). Only `NAMZU_SANDBOX_WORKSPACE` is forwarded today.
@@ -13093,8 +13092,8 @@ test:smoke`) runs an opt-in docker integration test exercising the
   The kernel now emits a per-message and per-tool-input lifecycle on the
   event bus, and the provider contract collapses to a single streaming
   entry point. Together these unlock live tool-call rendering (Calling →
-  Running → Done with incremental input) for SSE consumers — the cowork
-  workspace surface that motivated the work in the first place.
+  Running → Done with incremental input) for SSE consumers — a live
+  workspace surface motivated the work in the first place.
 
   ## Breaking changes
 

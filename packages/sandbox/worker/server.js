@@ -9,9 +9,8 @@
  * Why HTTP and not stdin/stdout: a long-running container with a
  * stable HTTP surface lets the host issue many `exec` /
  * `read-file` / `write-file` calls per task without spawning a
- * new container for each (cold-start kills latency). Compass-
- * platform's worker uses the same shape; namzu's protocol is
- * deliberately a simplified subset because the namzu backend is
+ * new container for each (cold-start kills latency). namzu's
+ * protocol is deliberately minimal because the namzu backend is
  * trusted-tenant by default. (For adversarial multi-tenant the
  * host picks the `microvm` tier instead.)
  *
@@ -84,7 +83,7 @@ const WORKER_CONFIG_PREFIX = 'NAMZU_SANDBOX_'
 
 const PORT = Number(process.env.NAMZU_SANDBOX_PORT || 2024)
 // Bind address picks `0.0.0.0` by default so a sibling container
-// (the Vandal app talking to a sandbox spawned via docker.sock on
+// (a host app talking to a sandbox spawned via docker.sock on
 // the same host) can reach the worker over a docker bridge network.
 // Overridable via `NAMZU_SANDBOX_BIND` for the dev case where the
 // SDK consumer runs on the docker host itself and prefers loopback.
@@ -341,10 +340,10 @@ const EXECUTION_ID_PATTERN = /^exec_[0-9a-f-]{36}$/
 // `/write-file` request for this many ms, it `process.exit(0)`s. The
 // container is spawned `--rm` so the daemon collects the corpse
 // automatically; that's the cheap layer-2 defense against orphaned
-// sandboxes when the Vandal-side TTL or the supervisor's `finally`
+// sandboxes when the host's TTL or the supervisor's `finally`
 // block both fail. `0` disables.
 //
-// Default 5 min: the Cowork supervisor's median tool-call → tool-call
+// Default 5 min: a supervised agent's median tool-call → tool-call
 // gap is well under a minute, so 5 min is a comfortable buffer that
 // still bounds runaway lifetime to a single-digit-minute scale. Hosts
 // that run longer interactive turns (heavy data-prep, slow LLMs)
@@ -881,7 +880,7 @@ async function handleExecute(req, res) {
 	// `unhandledRejection: throw` policy it terminates the worker
 	// process. The container exits 1 (`--rm` GCs it), the host's next
 	// `fetch` gets `UND_ERR_SOCKET` ("other side closed") and reports
-	// it as the bare "fetch failed" the cowork transcripts surfaced —
+	// it as the bare "fetch failed" real transcripts surfaced —
 	// every subsequent tool call in the same supervisor.run() then
 	// hits the same dead DNS name and looks like a sandbox-runtime bug
 	// when the trigger was a single bad input on a single endpoint.
