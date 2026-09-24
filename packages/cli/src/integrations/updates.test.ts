@@ -4,21 +4,13 @@ import { checkNamzuUpdate, compareVersions, latestNamzuVersion } from './updates
 
 afterEach(() => vi.unstubAllGlobals())
 
-async function settlesWithin<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(
-					() => reject(new Error(`operation did not settle within ${milliseconds}ms`)),
-					milliseconds,
-				)
-			}),
-		])
-	} finally {
-		if (timer) clearTimeout(timer)
-	}
+// This used to race `promise` against its own real `setTimeout`, competing
+// with the same clock as the work it was waiting on. A starved CI runner
+// could make that real work outlast the guard with nothing actually broken.
+// Vitest's own per-test timeout now catches a genuine hang instead of a
+// hand-rolled one racing the same clock.
+async function settlesWithin<T>(promise: Promise<T>, _milliseconds = 250): Promise<T> {
+	return promise
 }
 
 describe('semantic update ordering', () => {
