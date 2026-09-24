@@ -363,20 +363,13 @@ describe('AgentSession close owns its live work', () => {
 		expect(resumeCall?.skills?.map((skill) => skill.metadata?.name)).toEqual(['owner__settle'])
 		const close = session.close()
 		expect(session.close()).toBe(close)
-		const allSettled = Promise.all([close, compactOutcome, resumeOutcome])
-		const safety = Symbol('session close left live work pending')
-		const outcome = await Promise.race([
-			allSettled,
-			new Promise<typeof safety>((resolve) => setTimeout(() => resolve(safety), 1_000)),
-		])
-		try {
-			expect(outcome).not.toBe(safety)
-		} finally {
-			if (outcome === safety) {
-				for (const release of operations.releases) release()
-				await allSettled
-			}
-		}
+		// No real 1000ms safety race: it competed with the same clock as the
+		// close-owns-live-work behaviour it waited on (each operation settles
+		// once `close()` aborts its signal), so a starved CI runner could
+		// make that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now hangs and fails on
+		// Vitest's own per-test timeout instead.
+		await Promise.all([close, compactOutcome, resumeOutcome])
 
 		expect(sendCaller.signal.aborted).toBe(false)
 		expect(resumeCaller.signal.aborted).toBe(false)

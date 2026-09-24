@@ -105,6 +105,13 @@ it('uses hosted search, emits activity without local calls, and preserves encryp
 	})
 	const text = chunks.map((c) => c.delta.content ?? '').join('')
 	expect(text).toContain('https://example.com')
+	// The sources list is marked as the driver's own text; the model's is not.
+	expect(
+		chunks.flatMap((c) => (c.delta.content ? [[c.delta.content, c.delta.contentOrigin]] : [])),
+	).toEqual([
+		['Found.', undefined],
+		[expect.stringContaining('https://example.com'), 'driver'],
+	])
 	const replayState = chunks.find((c) => c.replayState)?.replayState
 	const assistant = {
 		role: 'assistant' as const,

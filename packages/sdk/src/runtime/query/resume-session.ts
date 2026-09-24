@@ -92,6 +92,25 @@ export async function resumeSession(params: ResumeSessionParams): Promise<Resume
 	if (!state?.checkpointId || !selected) return { resumed: false, reason: 'no-checkpoint' }
 	assertResumeRequestAttribution(params, state)
 
+	// A checkpoint outlives the turn it was written for: nothing prunes it
+	// just because `turn_completed`/`turn_failed` settled that turn, and a
+	// turn that never checkpointed leaves none at all — `no-checkpoint`
+	// above already covers that half. This half is the OTHER way a
+	// checkpoint can stop meaning "resumable": the turn it belongs to
+	// finished. `assertTurnMayStart` (`prepare-turn.ts`) refuses this too,
+	// once `resumeFromCheckpoint` reaches it inside `query()` — but only
+	// after this function has already claimed a lease and resolved storage
+	// under the dead turn's id. Refusing here is cheaper and names the
+	// caller's own mistake instead of `query()`'s internal contract.
+	const active = await sessionLog.activeTurn()
+	if (active?.turnId !== state.turnId) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `Turn ${state.turnId} already ended; a completed or failed turn's checkpoint cannot be resumed.`,
+			details: { sessionId: state.sessionId, turnId: state.turnId },
+		})
+	}
+
 	// A park is outstanding until it is answered.
 	const outstanding = state.pending && !state.pending.resolvedAt ? state.pending : undefined
 	if (outstanding && !pendingDecision) {

@@ -111,12 +111,9 @@ const mounted: { unmount: () => void }[] = []
 async function frameShows(
 	lastFrame: () => string | undefined,
 	text: string,
-	timeoutMs = 3_000,
+	timeoutMs?: number,
 ): Promise<void> {
-	const started = performance.now()
-	while (!(lastFrame() ?? '').includes(text) && performance.now() - started < timeoutMs) {
-		await tick(20)
-	}
+	await vi.waitFor(() => expect(lastFrame() ?? '').toContain(text), timeoutMs)
 }
 
 beforeEach(() => {
@@ -142,9 +139,8 @@ async function ready() {
 	return harness
 }
 
-async function sendsReach(count: number, timeoutMs = 3_000): Promise<void> {
-	const started = performance.now()
-	while (sent.length < count && performance.now() - started < timeoutMs) await tick(20)
+async function sendsReach(count: number, timeoutMs?: number): Promise<void> {
+	await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(count), timeoutMs)
 }
 
 
@@ -232,13 +228,13 @@ describe('Ctrl+V with an image', () => {
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #1')
 		await submit(harness, 'queued first')
-		await frameShows(harness.lastFrame, '1 message queued')
+		await frameShows(harness.lastFrame, '1 message steering the active turn')
 
 		clipboard = { kind: 'image', image: secondImage }
 		harness.stdin.write('\x16')
 		await frameShows(harness.lastFrame, 'Image #1')
 		await submit(harness, 'queued second')
-		await frameShows(harness.lastFrame, '2 messages queued')
+		await frameShows(harness.lastFrame, '2 messages steering the active turn')
 
 		firstGate?.release()
 		await sendsReach(3)

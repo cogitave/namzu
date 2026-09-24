@@ -36,6 +36,16 @@ function stringField(value: JSONObject, key: string, path: string): string | nul
 
 function validateCommon(value: JSONObject, path: string): string | null {
 	return (
+		// A string, not a checked `MessageId`: this file validates spelling
+		// the same way it already does for `toolCalls[].id`, never provenance
+		// — `query()`'s own reconciliation is what tells an id this log
+		// actually recorded from one a host invented, refusing the latter as
+		// `stale_cached_history` (`'foreign'`) rather than trusting it here.
+		// Keeping it (not stripping it) is what lets a host that reads its
+		// prior turn back from `namzu history --session <key>` (which DOES
+		// carry the real durable id) feed that same history into a stateless
+		// `exec --json` call and have it reconcile by id.
+		optional(value, 'id', path, (candidate) => typeof candidate === 'string', 'a string') ??
 		optional(value, 'timestamp', path, isFiniteNumber, 'a finite number') ??
 		optional(
 			value,
@@ -123,6 +133,49 @@ function validateAssistantSource(value: unknown, path: string): string | null {
 	)
 }
 
+const isCount = (candidate: unknown): boolean =>
+	Number.isSafeInteger(candidate) && (candidate as number) >= 0
+
+/**
+ * `ToolCall.metadata.inputError`, which the executor reads to tell the model
+ * why a call was not run: a reason it does not know, or a count that is not
+ * one, would reach the model as "after undefined characters".
+ */
+function validateInputError(value: unknown, path: string): string | null {
+	if (!isObject(value)) return `${path} must be an object`
+	return (
+		(value.reason === 'truncated' || value.reason === 'malformed'
+			? null
+			: `${path}.reason must be "truncated" or "malformed"`) ??
+		optional(
+			value,
+			'finishReason',
+			path,
+			(candidate) =>
+				candidate === 'stop' ||
+				candidate === 'tool_calls' ||
+				candidate === 'length' ||
+				candidate === 'content_filter',
+			'"stop", "tool_calls", "length", or "content_filter"',
+		) ??
+		stringField(value, 'parseError', path) ??
+		optional(value, 'offset', path, isCount, 'a non-negative safe integer') ??
+		(isCount(value.length) ? null : `${path}.length must be a non-negative safe integer`) ??
+		(isCount(value.precedingLength)
+			? null
+			: `${path}.precedingLength must be a non-negative safe integer`) ??
+		optional(
+			value,
+			'finishDetail',
+			path,
+			(candidate) => candidate === 'context_window',
+			'"context_window"',
+		) ??
+		optional(value, 'outputTokens', path, isCount, 'a non-negative safe integer') ??
+		optional(value, 'reasoningTokens', path, isCount, 'a non-negative safe integer')
+	)
+}
+
 function validateToolCall(value: unknown, path: string): string | null {
 	if (!isObject(value)) return `${path} must be a tool-call object`
 	const fn = value.function
@@ -150,7 +203,10 @@ function validateToolCall(value: unknown, path: string): string | null {
 						`${path}.metadata`,
 						(candidate) => typeof candidate === 'string',
 						'a string',
-					)))
+					) ??
+					(metadata.inputError === undefined
+						? null
+						: validateInputError(metadata.inputError, `${path}.metadata.inputError`))))
 	)
 }
 

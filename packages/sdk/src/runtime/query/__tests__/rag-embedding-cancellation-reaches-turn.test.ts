@@ -112,16 +112,12 @@ describe('RAG embedding cancellation reaches a real turn', () => {
 		await started
 		const reason = new Error('operator stopped knowledge retrieval')
 		caller.abort(reason)
-		let safetyTimer: ReturnType<typeof setTimeout> | undefined
-		const safety = new Promise<never>((_resolve, reject) => {
-			safetyTimer = setTimeout(
-				() => reject(new Error('RAG cancellation did not settle the turn')),
-				1_000,
-			)
-		})
-		const run = await Promise.race([pending, safety]).finally(() => {
-			if (safetyTimer !== undefined) clearTimeout(safetyTimer)
-		})
+		// No real 1000ms safety race: it competed with the same clock as the
+		// cancellation work it waited on, so a starved CI runner could make
+		// that work outlast the guard with nothing actually broken. A
+		// regression that left this unresolved now fails on Vitest's own
+		// per-test timeout instead.
+		const run = await pending
 
 		expect(run.status).toBe('cancelled')
 		expect(run.stopReason).toBe('cancelled')

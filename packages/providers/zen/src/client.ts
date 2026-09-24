@@ -50,6 +50,22 @@ export const ZEN_CAPABILITIES: ProviderCapabilities = {
 export const ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
 export const ZEN_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 
+/**
+ * The words a backend's own finish reason uses, in `LanguageModelV3FinishReason.raw`,
+ * for "the model's context window, not its output-token budget, is what ran
+ * out" — Anthropic's `model_context_window_exceeded` (folded, with
+ * `max_tokens`, into `unified: 'length'` by `@ai-sdk/anthropic`'s
+ * `mapAnthropicStopReason`) and the words other OpenAI-compatible backends
+ * use (see `@namzu/http`'s `mapOpenAIFinish`), since Zen also routes through
+ * `@ai-sdk/openai-compatible`.
+ */
+const CONTEXT_WINDOW_RAW_FINISH_REASONS = new Set([
+	'model_context_window_exceeded',
+	'model_length',
+	'context_length',
+	'context_length_exceeded',
+])
+
 /** A provider instance belongs to one conversation; it never owns an agent loop. */
 export class ZenProvider implements LLMProvider {
 	readonly id: 'zen' | 'zen-go'
@@ -423,6 +439,11 @@ export class ZenProvider implements LLMProvider {
 				id,
 				delta: {},
 				finishReason,
+				...(finishReason === 'length' &&
+				finish.finishReason.raw &&
+				CONTEXT_WINDOW_RAW_FINISH_REASONS.has(finish.finishReason.raw)
+					? { finishDetail: 'context_window' as const }
+					: {}),
 				usage: mapUsage(finish.usage),
 				replayState: createReplayState(
 					{ ...params, model },

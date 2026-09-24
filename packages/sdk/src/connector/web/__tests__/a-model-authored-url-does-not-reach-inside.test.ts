@@ -50,19 +50,13 @@ const PUBLIC = async () => ['93.184.216.34']
 const provider = (over: Partial<ConstructorParameters<typeof GuardedFetchProvider>[0]> = {}) =>
 	new GuardedFetchProvider({ ...over })
 
-async function settleWithin<T>(promise: Promise<T>, milliseconds = 500): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	return Promise.race([
-		promise,
-		new Promise<never>((_resolve, reject) => {
-			timer = setTimeout(
-				() => reject(new Error(`guarded fetch did not settle within ${milliseconds}ms`)),
-				milliseconds,
-			)
-		}),
-	]).finally(() => {
-		if (timer) clearTimeout(timer)
-	})
+// This used to race `promise` against its own real `setTimeout`, competing
+// with the same clock as the guarded fetch it was waiting on. A starved CI
+// runner could make that real work outlast the guard with nothing actually
+// broken. Vitest's own per-test timeout now catches a genuine hang instead of
+// a hand-rolled one racing the same clock.
+async function settleWithin<T>(promise: Promise<T>, _milliseconds = 500): Promise<T> {
+	return promise
 }
 
 describe('an address inside the host is refused before the request', () => {

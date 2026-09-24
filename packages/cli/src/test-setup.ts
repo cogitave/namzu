@@ -22,9 +22,79 @@ import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, inject } from 'vitest'
+import { afterAll, beforeEach, inject, vi } from 'vitest'
 
 import { removeTempDir } from './__fixtures__/temp-dir.js'
+
+/**
+ * `vi.waitFor`'s own default timeout is 1000ms (interval 50ms) — a real
+ * wall clock every bare `vi.waitFor(callback)` in this package's TUI tests
+ * races against the render pipeline it is waiting on, independent of and
+ * far tighter than this file's own `testTimeout` (`vitest.config.ts`,
+ * 15_000ms). On a loaded CI runner a render can legitimately take longer
+ * than 1s with nothing broken, and `vi.waitFor` gives up first — reported
+ * for `run-limits-config.test.tsx`'s "opens with unlimited values…" case
+ * (`vi.waitFor(() => expect(harness.lastFrame()).toContain('hello'))`),
+ * the same real-time-race class as every other fix on this branch, just at
+ * a call site the sweep for explicit numeric timeouts could not see.
+ *
+ * There is no documented vitest config for `vi.waitFor`'s own default the
+ * way `test.expect.poll.timeout` configures `expect.poll()` (checked:
+ * vitest 4.1's `TestOptions.expect.poll` covers only `expect.poll`,
+ * `vi.waitFor` reads no config at all). So a bare call — no explicit
+ * timeout — inherits a budget tied to this package's own `testTimeout`
+ * instead of vitest's unrelated 1s default; a caller that already passes a
+ * timeout (a number, or an options object naming one) keeps exactly what
+ * it asked for.
+ *
+ * The budget is the REMAINING time in the current test, not a flat
+ * per-call constant: a TUI case here can chain half a dozen bare
+ * `vi.waitFor`s (type, wait for the echo, press enter, wait for the next
+ * screen, …), and hard-coding each one's ceiling near the full 15s would
+ * let their worst cases sum to several times the test's own timeout —
+ * moving the failure from a specific, descriptive `vi.waitFor` message to
+ * a generic "Test timed out" once the LAST wait in the chain finally
+ * exhausts a budget none of the earlier ones actually had to give back.
+ * Tracking the test's own start lets each wait's ceiling shrink as the
+ * test spends its real budget, so the chain as a whole still fails inside
+ * `testTimeout`, at whichever wait actually ran out of it. Measured
+ * against `run-limits-config.test.tsx` under a starved core: a flat
+ * ~13s-per-call ceiling still failed (13731ms on the last of several
+ * waits), because earlier waits in the same test had already spent part
+ * of the real 15s testTimeout; the remaining-budget version passes.
+ */
+const CLI_TEST_TIMEOUT_MS = 15_000 // must track packages/cli/vitest.config.ts's `testTimeout`
+const WAIT_FOR_TIMEOUT_MARGIN_MS = 2_000
+const MIN_WAIT_FOR_TIMEOUT_MS = 500
+
+let currentTestStartedAt: number | undefined
+beforeEach(() => {
+	currentTestStartedAt = performance.now()
+})
+
+function defaultWaitForTimeoutMs(): number {
+	const elapsed = currentTestStartedAt === undefined ? 0 : performance.now() - currentTestStartedAt
+	return Math.max(
+		MIN_WAIT_FOR_TIMEOUT_MS,
+		CLI_TEST_TIMEOUT_MS - elapsed - WAIT_FOR_TIMEOUT_MARGIN_MS,
+	)
+}
+
+// Idempotent under a marker rather than a plain module-local flag: this file
+// is a `setupFiles` entry and reruns fresh before every test file, but `vi`
+// is the one live singleton those reruns share, so re-wrapping an
+// already-wrapped `waitFor` on the second file would silently nest a second
+// layer around the first.
+const ORIGINAL_WAIT_FOR = Symbol.for('namzu.cli.test-setup.vi.waitFor.original')
+type ViWithOriginalWaitFor = typeof vi & { [ORIGINAL_WAIT_FOR]?: typeof vi.waitFor }
+const viInternal = vi as ViWithOriginalWaitFor
+const realWaitFor = viInternal[ORIGINAL_WAIT_FOR] ?? vi.waitFor
+viInternal[ORIGINAL_WAIT_FOR] = realWaitFor
+vi.waitFor = ((callback, options) => {
+	if (options === undefined) return realWaitFor(callback, defaultWaitForTimeoutMs())
+	if (typeof options === 'number') return realWaitFor(callback, options)
+	return realWaitFor(callback, { timeout: defaultWaitForTimeoutMs(), ...options })
+}) as typeof vi.waitFor
 
 // macOS commonly exposes one temporary directory through both `/var/...` and
 // `/private/var/...`. The product canonicalizes filesystem authority paths, so

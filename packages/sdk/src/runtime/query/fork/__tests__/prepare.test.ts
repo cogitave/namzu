@@ -34,7 +34,9 @@ describe('prepareForkState', () => {
 		})
 
 		expect(prepared.sourceCheckpoint.checkpointId).toBe('17f1fb6b-0479-40a1-bf1e-115de23b0ba3')
-		expect(prepared.messages).toEqual(messages)
+		// The restored messages carry the id their `message` record was given;
+		// the literal fixture above was never recorded under one.
+		expect(prepared.messages.map(({ id: _id, ...rest }) => rest)).toEqual(messages)
 		// A fork is a new session; this is where it comes from.
 		expect(prepared.forkedFrom).toEqual({
 			sessionId: session.sessionId,

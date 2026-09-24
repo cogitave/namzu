@@ -127,6 +127,32 @@ describe('stateless Message[] parsing', () => {
 		expect(parsePriorMessages('  \n')).toEqual({ ok: true, messages: [] })
 	})
 
+	it('accepts and keeps a message id, so a host that read it from `namzu history` can feed it back', () => {
+		// A host does not mint this id itself — `query()` refuses one it never
+		// recorded (`stale_cached_history`, `'foreign'`) — but a host that
+		// read this exact history back from `namzu history --session <key>`
+		// (which carries the real durable `BaseMessage.id`) must be able to
+		// replay it into a stateless call unmodified.
+		const messages = [
+			{ id: '01a0d452-5af8-7583-8afe-ebfb4be78d7e', role: 'user', content: 'earlier question' },
+			{
+				id: '01a0d452-5af8-7583-8afe-ebfc201c235a',
+				role: 'assistant',
+				content: 'earlier answer',
+			},
+		]
+
+		expect(parsePriorMessages(JSON.stringify(messages))).toEqual({ ok: true, messages })
+	})
+
+	it('refuses a non-string message id the same way it refuses a non-string tool-call id', () => {
+		const result = parsePriorMessages(
+			JSON.stringify([{ id: 12345, role: 'user', content: 'hello' }]),
+		)
+
+		expect(result).toEqual({ ok: false, error: 'messages[0].id must be a string' })
+	})
+
 	it('accepts canonical project-policy provenance and rejects traversal', () => {
 		const valid = {
 			role: 'user',
@@ -192,6 +218,94 @@ describe('stateless Message[] parsing', () => {
 		expect(parsePriorMessages('{"role":"user","content":"lost"}')).toEqual({
 			ok: false,
 			error: 'stdin history must be a JSON Message[] array',
+		})
+	})
+
+	it("admits a tool call's inputError and refuses one the executor could not word", () => {
+		const withError = (inputError: unknown) =>
+			parsePriorMessages(
+				JSON.stringify([
+					{ role: 'user', content: 'ask me' },
+					{
+						role: 'assistant',
+						content: null,
+						toolCalls: [
+							{
+								...call('call_a'),
+								metadata: { inputTruncated: true, partialArguments: '{"a" 1}', inputError },
+							},
+						],
+					},
+					{ role: 'tool', content: 'not run', toolCallId: 'call_a', isError: true },
+				]),
+			)
+		const valid = {
+			reason: 'malformed',
+			finishReason: 'tool_calls',
+			parseError: "Expected ':' after property name in JSON at position 4",
+			offset: 4,
+			length: 7,
+			precedingLength: 0,
+		}
+		const admitted = withError(valid)
+		expect(admitted.ok).toBe(true)
+		if (admitted.ok) {
+			const assistant = admitted.messages[1]
+			expect(
+				assistant?.role === 'assistant' && assistant.toolCalls?.[0]?.metadata?.inputError,
+			).toEqual(valid)
+		}
+		const { finishReason: _finish, offset: _offset, ...minimal } = valid
+		expect(withError(minimal).ok).toBe(true)
+
+		const path = 'messages[1].toolCalls[0].metadata.inputError'
+		expect(withError('malformed')).toEqual({ ok: false, error: `${path} must be an object` })
+		expect(withError({ ...valid, reason: 'cut' })).toEqual({
+			ok: false,
+			error: `${path}.reason must be "truncated" or "malformed"`,
+		})
+		expect(withError({ ...valid, finishReason: 'max_tokens' })).toEqual({
+			ok: false,
+			error: `${path}.finishReason must be "stop", "tool_calls", "length", or "content_filter"`,
+		})
+		expect(withError({ ...valid, parseError: 1 })).toEqual({
+			ok: false,
+			error: `${path}.parseError must be a string`,
+		})
+		expect(withError({ ...valid, offset: -1 })).toEqual({
+			ok: false,
+			error: `${path}.offset must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, length: '7' })).toEqual({
+			ok: false,
+			error: `${path}.length must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, precedingLength: undefined })).toEqual({
+			ok: false,
+			error: `${path}.precedingLength must be a non-negative safe integer`,
+		})
+		// The usage a truncated call records is read as counts too.
+		expect(
+			withError({
+				...valid,
+				reason: 'truncated',
+				finishReason: 'length',
+				finishDetail: 'context_window',
+				outputTokens: 8000,
+				reasoningTokens: 7800,
+			}).ok,
+		).toBe(true)
+		expect(withError({ ...valid, outputTokens: 'many' })).toEqual({
+			ok: false,
+			error: `${path}.outputTokens must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, reasoningTokens: -1 })).toEqual({
+			ok: false,
+			error: `${path}.reasoningTokens must be a non-negative safe integer`,
+		})
+		expect(withError({ ...valid, finishDetail: 'output' })).toEqual({
+			ok: false,
+			error: `${path}.finishDetail must be "context_window"`,
 		})
 	})
 

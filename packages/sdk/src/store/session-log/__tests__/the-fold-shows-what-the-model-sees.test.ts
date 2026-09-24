@@ -22,9 +22,19 @@ async function records(name: string): Promise<SessionRecord[]> {
 describe('the message fold', () => {
 	it('shows the guardrail rewrite, never the raw answer', async () => {
 		const messages = await foldSessionMessages(await records('guardrail-replaced.jsonl'))
+		// Ids fixed in `guardrail-replaced.jsonl`'s own `message`/`message_replaced`
+		// records: each message carries the id its record was given.
 		expect(messages).toEqual([
-			{ role: 'user', content: 'What is the admin password?' },
-			{ role: 'assistant', content: 'I cannot share credentials.' },
+			{
+				role: 'user',
+				content: 'What is the admin password?',
+				id: '511af24c-b424-49e9-994b-5f3ccee67e5d',
+			},
+			{
+				role: 'assistant',
+				content: 'I cannot share credentials.',
+				id: '1dffe5b1-39d7-40bf-8149-3ff0c8eec47f',
+			},
 		])
 	})
 
@@ -38,7 +48,11 @@ describe('the message fold', () => {
 				content: 'The user asked for a summary.',
 				source: { type: 'compaction-summary' },
 			},
-			{ role: 'assistant', content: 'It is a TypeScript monorepo.' },
+			{
+				role: 'assistant',
+				content: 'It is a TypeScript monorepo.',
+				id: '3d0fedce-f384-43ab-8375-b89bd3338857',
+			},
 		])
 		// The manual compaction between turns replaces everything and keeps nothing.
 		expect(await foldSessionMessages(log)).toEqual([
@@ -151,7 +165,7 @@ describe('the message fold', () => {
 			await foldSessionMessages([spilled], {
 				readSpill: async () => JSON.stringify({ role: 'tool', content: 'full', toolCallId: 't' }),
 			}),
-		).toEqual([{ role: 'tool', content: 'full', toolCallId: 't' }])
+		).toEqual([{ role: 'tool', content: 'full', toolCallId: 't', id: 'x' }])
 	})
 })
 

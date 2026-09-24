@@ -272,9 +272,12 @@ describe('resuming a turn paused at the cadence', () => {
 		expect(recorded?.pending.request).toEqual(parked.pending.request)
 
 		// The turn settled, so there is nothing left to resume: a settled turn
-		// is refused rather than reopened.
+		// is refused rather than reopened. `resumeSession` catches this itself
+		// now, before claiming a lease under the dead turn's id; `query()`'s
+		// own `assertTurnMayStart` still refuses it too, deeper in, if
+		// something ever reaches it a different way.
 		await expect(resumeSession(await resumeParamsFor(paused))).rejects.toThrow(
-			/a settled turn cannot be resumed/,
+			/already ended; a completed or failed turn's checkpoint cannot be resumed/,
 		)
 	})
 })

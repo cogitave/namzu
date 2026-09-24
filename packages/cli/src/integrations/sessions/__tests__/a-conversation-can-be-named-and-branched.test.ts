@@ -252,10 +252,10 @@ describe('forking before a selected user prompt', () => {
 
 		const forked = await forkConversationBeforeUser(s, id, 1, selected)
 
-		expect(forked.messages).toEqual([first, answer])
-		expect(forked.selected).toEqual(selected)
-		expect(await loadConversation(s, forked.id)).toEqual([first, answer])
-		expect(await loadConversation(s, id)).toEqual([first, answer, selected, suffix])
+		expect(forked.messages).toMatchObject([first, answer])
+		expect(forked.selected).toMatchObject(selected)
+		expect(await loadConversation(s, forked.id)).toMatchObject([first, answer])
+		expect(await loadConversation(s, id)).toMatchObject([first, answer, selected, suffix])
 	})
 
 	it('allows the first prompt to reopen on an empty branch', async () => {

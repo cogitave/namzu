@@ -132,13 +132,9 @@ function holdNextTurn(): void {
 async function waitUntil(
 	_screen: Screen,
 	predicate: () => boolean,
-	timeoutMs = 3_000,
+	timeoutMs?: number,
 ): Promise<void> {
-	const started = performance.now()
-	while (!predicate() && performance.now() - started < timeoutMs) {
-		await new Promise((resolve) => setTimeout(resolve, 20))
-	}
-	expect(predicate()).toBe(true)
+	await vi.waitFor(() => expect(predicate()).toBe(true), timeoutMs)
 }
 
 async function submit(screen: Screen, text: string): Promise<void> {

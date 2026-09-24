@@ -572,6 +572,12 @@ const MAPPING: {
 		transform: (e) => ({
 			tool_use_id: e.toolUseId,
 			input: e.input,
+			// Arguments that could not be read: that they were not, why, and
+			// what arrived. Dropped here before, so a wire client saw `{}` as
+			// the call's input with nothing to say it was not the model's.
+			...(e.inputTruncated ? { input_truncated: true } : {}),
+			...(e.inputError ? { input_error: e.inputError } : {}),
+			...(e.partialArguments !== undefined ? { partial_arguments: e.partialArguments } : {}),
 		}),
 	},
 }

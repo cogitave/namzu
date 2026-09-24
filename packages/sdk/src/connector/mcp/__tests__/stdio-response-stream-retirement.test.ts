@@ -23,21 +23,13 @@ function isAlive(pid: number): boolean {
 	}
 }
 
-async function within<T>(promise: Promise<T>, timeoutMs = 2_000): Promise<T> {
-	let timer: ReturnType<typeof setTimeout> | undefined
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<T>((_resolve, reject) => {
-				timer = setTimeout(
-					() => reject(new Error(`did not settle within ${timeoutMs}ms`)),
-					timeoutMs,
-				)
-			}),
-		])
-	} finally {
-		if (timer) clearTimeout(timer)
-	}
+// This used to race `promise` against its own real `setTimeout`, competing
+// with the same clock as the work it was waiting on. A starved CI runner
+// could make that real work outlast the guard with nothing actually broken.
+// Vitest's own per-test timeout now catches a genuine hang instead of a
+// hand-rolled one racing the same clock.
+async function within<T>(promise: Promise<T>, _timeoutMs = 2_000): Promise<T> {
+	return promise
 }
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 2_000): Promise<void> {

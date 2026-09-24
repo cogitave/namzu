@@ -1,0 +1,5 @@
+---
+'@namzu/ag-ui': minor
+---
+
+`fromNamzuMessages` now emits the source namzu message's own `id` (`@namzu/sdk`'s new `BaseMessage.id`) as the converted AG-UI message's id, when it has one — which a message read from a session's fold (`foldSessionMessages`, or `namzu history`'s own read of the log) always does. `options.idPrefix` (default unchanged, `namzu-message-`) now only names the fallback for a message with none. This is display-only: `toNamzuMessages` does not read an inbound AG-UI message's id back onto the converted message, because a live run's own streaming events give a client a different, unrelated correlation id for the same content, and resending it would fail `query()`'s reconciliation as an id its session log never recorded (`stale_cached_history`, `'foreign'`). A caller that compared a `fromNamzuMessages` result's ids against `${idPrefix}${index}` in a fixed sequence sees real ids instead; one that only checked they were present, unique and stable per history is unaffected.
