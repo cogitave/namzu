@@ -1,11 +1,11 @@
 ---
 type: Reference
 title: Skills
-description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model is offered them and loads one with the skill tool, the manifest budget, tool gating, the built-in skills, making a skill with /skills new and save_skill, the TUI's proposal to save a multi-step task with /skills save, and the skills.builtin, skills.disabled, skills.suggest and skills.suggestMinToolCalls config keys.
+description: Where the CLI finds SKILL.md skills, which tier wins a name, how the model is offered them and loads one with the skill tool, which directory it is told a skill's files are in, the manifest budget, tool gating, the built-in skills, making a skill with /skills new and save_skill, the TUI's proposal to save a multi-step task with /skills save, and the skills.builtin, skills.disabled, skills.suggest and skills.suggestMinToolCalls config keys.
 resource: packages/cli/src/skills/
 tags: [cli, skills, config]
 status: stable
-generated: { by: process:claude-code, at: 2026-09-23T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-09-24T00:00:00Z }
 ---
 
 # Skills
@@ -52,6 +52,29 @@ At the start of a session the CLI registers every usable winner's metadata
   description (paged) when called without a name. It is never deferred behind
   tool search.
 
+**The skill's directory.** A loaded body opens with the directory the model
+can open the skill's own files in (`[Skill directory: <dir>. …]`), so a body
+that says `scripts/render.sh` or `references/api.md` can be followed; the
+listing gives the same `directory` for each skill
+([The skill's directory](../sdk/skills.md#the-skills-directory)). The skill is
+still read from where the CLI found it. Which directory is given depends on
+where the tools run:
+
+| Tools run | Skill | Directory given |
+| --- | --- | --- |
+| On the host (the default) | any tier | the directory it was read from |
+| In the sandbox, `workspace: working-directory` | under `<cwd>` (the project tiers, a project plugin), or under an added directory | the same path, links resolved: the sandbox mounts those at their own paths |
+| In the sandbox, `workspace: working-directory` | anywhere else: `~/.namzu/skills`, `~/.agents/skills`, a built-in, `.agents/skills` above `<cwd>`, a user plugin, a link out of `<cwd>` | none |
+| In the sandbox, `workspace: ephemeral` | any tier | none: nothing of the host is mounted |
+
+For a skill with none, the body opens with a line saying its directory is not
+reachable from the model's tools in this session and not to search the
+filesystem for its files, and `${CLAUDE_SKILL_DIR}` in its `allowed-tools`
+grants nothing. The bwrap tier also mounts `/usr`, `/opt` and Node's prefix
+read-only for commands, but the file tools refuse them, so a skill there is
+not offered as reachable (`packages/cli/src/skills/directory.ts`). The
+manifest's `<location>` is still the path the skill was read from.
+
 Plugin skills ([Plugins](plugins.md)) join the same manifest and tool under
 their `plugin__skill` names. The tiers are read again at the start of every
 turn: a skill added while the session runs (by `save_skill` or by hand) is
@@ -94,7 +117,10 @@ The CLI ships three, in `packages/cli/skills/`:
 | `schedule-task` | model and operator | `schedule` | Proposing a scheduled job with the `schedule` tool: choosing presets or rules, `unmatched` park or deny, budgets of one run, `when` and `tz`, a browser grant (`permissions.browser`, the profile signed in with `namzu browser login`, sites at `read`/`ask`/`act`), leaving the defaults unset, and wording a prompt for a run nobody watches. Offered in the TUI, where the `schedule` tool is. |
 
 Each is shadowed by a skill of the same name in any other tier, and none is
-read when `skills.builtin` is `false`. A test (`packages/cli/src/skills/builtin-skills.test.ts`)
+read when `skills.builtin` is `false`. Each is one `SKILL.md` with no files
+beside it. A built-in that bundles files must not depend on them under the
+sandbox: the installed package is not mounted there, and the `skill` tool
+says its directory is not reachable. A test (`packages/cli/src/skills/builtin-skills.test.ts`)
 loads each with the kernel's loader and checks that every `namzu …` command,
 `namzu schedule add` flag and slash command it names exists, `namzu browser
 login` and `--browser-site` included.
@@ -193,6 +219,18 @@ without one the model picks one for the kind of task. Typed while a turn is
 running, `/skills save` (and `/skills new`) is not steered into that turn: it
 waits in the queue, says so, and runs when the turn ends.
 
+**Saving by asking in words.** "save this as a skill", "turn it into a
+skill", "bunu skill olarak kaydet", "bunu skill'e çevir" and "bundan bir skill
+yap", typed into the composer, arm a [composer trigger](composer-triggers.md):
+the words are highlighted and a row above the input says what will happen.
+Embedded in a task ("şu TODO'ları say ve bunu skill olarak kaydet"), it runs
+`/skills save` after that turn, but only when the turn completed, did tool
+work and did not already save a skill, and saving is still possible (not
+`plan` or `strict`); otherwise a row says why. The message on its own runs
+`/skills save` at once, as if typed. The proposal line above is not printed
+for a turn whose save you asked for. Alt+W drops the trigger before you send;
+`composerTriggers.builtin.save-skill: off` turns the phrases off.
+
 **Turning it off.** `/skills save off` writes `skills.suggest: false` to your
 user config (`$NAMZU_HOME/config.yaml`, keeping the rest of the file as it
 was) and says which file; `/skills save on` writes `true`. Either applies to
@@ -271,6 +309,7 @@ skills` adds `tier`, `shadows`, `disabled`, `invocation` and
 
 - `packages/cli/src/skills/store.ts` — tiers, precedence, shadowing, listing
 - `packages/cli/src/skills/catalog.ts` — the per-session registry, gating, budget
+- `packages/cli/src/skills/directory.ts` — the directory the model is told for each skill
 - `packages/cli/src/skills/save.ts` — `save_skill`: validation, targets, atomic write
 - `packages/cli/src/tui/SaveSkillOverlay.tsx` — the confirmation screen
 - `packages/cli/src/tui/skills/learning.ts` — when a turn is proposed as a skill

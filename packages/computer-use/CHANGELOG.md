@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 82769f1: On Windows and under WSL, `SubprocessComputerUseHost` now drives the desktop through cua-driver (MIT, github.com/trycua/cua) instead of starting `powershell.exe` for every action, and every adapter now takes and returns physical pixels. Both are changes a caller can see; read on before upgrading.
+
+  **What changes by default on Windows / WSL.** The first `initialize()` downloads cua-driver 0.28.2 for the machine's architecture (a 27–29 MB archive from the project's GitHub releases), checks the SHA-256 of the archive and of `cua-driver.exe` against values pinned in this package, and keeps only the executable in `<NAMZU_HOME>/computer-use/cua-driver/0.28.2/` (`~/.namzu` unless `NAMZU_HOME` is set). One `cua-driver.exe` process then runs until `host.dispose()`; call `dispose()` when you are done. It runs with its telemetry and release check off and without environment variables whose names look like secrets. If it cannot be downloaded, verified or started, the host falls back to PowerShell and says why in `host.fallbackReason`.
+
+  To keep the old behaviour — no download, no long-lived process — set `NAMZU_CUA_DRIVER=off` or pass `new SubprocessComputerUseHost({ windows: { backend: 'powershell' } })`. To use a cua-driver you installed yourself, set `NAMZU_CUA_DRIVER=<path to cua-driver.exe>` or `windows: { cuaDriverPath }`. `windows: { download: false }` uses only a cached or configured build.
+
+  **Physical pixels everywhere.** Points you pass to `execute()` and sizes you get back are pixels of the captured bitmap, as the SDK's host contract now states. This changes results only on scaled displays:
+
+  - macOS Retina: `getDisplayGeometry()` returns the capture's resolution (2880x1800, not 1440x900; 3360x2100 in a "Looks like 1680x1050" mode), `cursor_position` is in pixels, and click/move/drag points are pixels; the adapter divides by the capture's pixels per point for `cliclick` and System Events, once. Before, a click aimed at the middle of a Retina screenshot landed near the bottom-right corner. Screenshots show the main display only, the one the input tools address. If you converted screenshot pixels to points yourself, stop.
+  - Windows above 100 % scaling: both backends are DPI aware, so the capture is the whole display (it was the top-left part) and points are physical (they were DPI-virtualised).
+  - Every capture now carries `result.display` (`id`, origin, size, `scaleFactor`).
+
+  **Also new.** With the cua-driver backend, `capabilities.windows` is `true` and `host.listWindows()` / `host.focusWindow(id)` work (focus restores a minimised window and reports what is actually in front); `host.captureRegion()` exists and throws where the adapter has no region capture. `host.backend` names the backend in use. Measured on a 3440x1440 display: a click went from 0.68–0.83 s to 0.13 s, a screenshot from 0.40 s to 0.08–0.13 s.
+
+  **Smaller differences on the cua-driver backend.** `capabilities.clipboard` is `false` (no clipboard action was ever offered); `win`/`super` in a key chord press the Windows key (PowerShell's SendKeys pressed Ctrl); a single punctuation key such as `/` is typed as text so the keyboard layout cannot change it. Only the primary display is captured, as before. The PowerShell fallback now types text through Unicode key events instead of SendKeys, so `+ ^ % ~ ( ) { }` and non-Latin text arrive as written.
+
+### Minor Changes
+
+- 82769f1: `computer_use` can read a window's controls and act on them by reference, on a host that declares `uiTree` — which the Windows backend of `@namzu/computer-use` now does.
+
+  **What changes for a caller of the tool**
+
+  - Two new actions when the host declares `uiTree` and implements `uiSnapshot` and `uiAct`: `ui_snapshot { window_id? }` returns the window's accessibility tree as text, each control that can be acted on with a ref such as `e12`; `ui_act { ref, action, value? }` performs `invoke`, `set_value`, `toggle`, `select`, `expand`, `collapse`, `focus` or `scroll_into_view` on it and returns a screenshot afterwards. `ui_act` may be in a batch; `ui_snapshot` may not. Refs count up across snapshots and only the latest snapshot's are accepted, so a stale ref is refused rather than acting on another control. `ActionInput` gains both, so code that switches exhaustively over `input.type` needs two more cases — that is why this is a major release for `@namzu/sdk`.
+  - `ui_snapshot` is read-only; `ui_act` is destructive.
+  - `list_windows` now returns its window lines inside an untrusted-content frame (`<namzu-untrusted kind="desktop-windows">`), since titles are whatever each application shows. The lines themselves are unchanged; code that parsed the whole output text needs to skip the frame's three header lines.
+  - `createComputerUseTool` returns a `ComputerUseTool`, a `ToolDefinition<ActionInput>` with `describeUiRef(ref)` (experimental), which names the control a ref points at for a review screen.
+  - `UiSnapshot` gains optional `title` and `app`; `UiElement.ref` is empty for an element nothing can be done with. Both types stay experimental.
+
+  **`@namzu/computer-use`**
+
+  On Windows and WSL with the cua-driver backend, `capabilities.uiTree` is `true` and `SubprocessComputerUseHost` offers `uiSnapshot(windowId?)` and `uiAct(ref, action, value?)`, read from cua-driver's UI Automation walk. A control is invoked in the background, without moving the pointer or bringing its window to the front; a field without a settable value is typed into when it is empty. An action whose driver died mid-request comes back as not done with an unknown outcome, never retried. The PowerShell fallback and the other platforms do not declare `uiTree`, so nothing changes there.
+
 ## 1.4.3
 
 ### Patch Changes

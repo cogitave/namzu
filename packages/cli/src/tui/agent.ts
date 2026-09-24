@@ -82,6 +82,7 @@ import {
 	SCHEDULE_TOOL_NAME,
 	SESSION_GOAL_TOOL_NAMES,
 	type SandboxProvider,
+	type ScreenConsentRecord,
 	type SessionApprovalPolicy,
 	type SessionCheckpointStore,
 	type SessionEvent,
@@ -94,7 +95,6 @@ import {
 	type SessionTokenBudgetSummary,
 	type Skill,
 	type SkillRegistryRef,
-	SkillTool,
 	type StopReason,
 	type StructuredOutputConfig,
 	type TaskScheduler,
@@ -121,6 +121,7 @@ import {
 	buildSessionGoalTools,
 	compactNow,
 	compactSession,
+	computerUseUnavailableReason,
 	createBrowserTools,
 	createComputerUseTool,
 	createFileReadTracker,
@@ -129,6 +130,7 @@ import {
 	createResidentStepContext,
 	createResidentStepContributions,
 	createReviewHandler,
+	createSkillTool,
 	createToolPresenter,
 	ensureProject,
 	generateSessionId,
@@ -179,7 +181,7 @@ import { type CapabilityProbe, probeCapabilities } from '../context/capabilities
 import { type SessionDirectories, createSessionDirectories } from '../context/directories.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
-	NAMZU_ORCHESTRATE_DOCTRINE,
+	NAMZU_HYPERMODE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
@@ -291,6 +293,7 @@ import {
 } from '../permissions/live-mode.js'
 import type { PermissionMode } from '../permissions/mode.js'
 import { createSessionSkillCatalog } from '../skills/catalog.js'
+import { createSkillDirectoryResolver } from '../skills/directory.js'
 import { SAVE_SKILL_TOOL_NAME } from '../skills/save.js'
 import { projectTurnConversation } from './conversation-history.js'
 import { type ModelSwitchOutcome, buildSwitchModelTool } from './model-switch-tool.js'
@@ -644,12 +647,21 @@ export interface SendOptions {
 	readonly effort?: ReasoningEffort
 	/**
 	 * Strengthen delegation guidance toward delegating by default for this
-	 * turn, for a session whose orchestrate mode (`/orchestrate`) is on.
-	 * Default `false`; appends `NAMZU_ORCHESTRATE_DOCTRINE` after the
+	 * turn, for a session whose hypermode (`/hypermode`) is on.
+	 * Default `false`; appends `NAMZU_HYPERMODE_DOCTRINE` after the
 	 * delegation doctrine and never on its own. Display/prompt-only — creates
 	 * no roster and starts no delegation by itself.
 	 */
-	readonly orchestrate?: boolean
+	readonly hypermode?: boolean
+	/**
+	 * What the host tells the model about this turn in its own words — the
+	 * composer triggers the operator armed (`./triggers/context-text.ts`).
+	 * Read at every iteration and sent through the kernel's `context`
+	 * placement: after the history, request-only, never in it, and never in
+	 * the system prompt, so the cached prefix is the same with or without it.
+	 * Absent or empty adds nothing.
+	 */
+	readonly hostContext?: () => readonly string[]
 	/**
 	 * How this turn resolves review requests no declarative rule decided.
 	 * Overrides the session default for this turn only.
@@ -1062,6 +1074,12 @@ export interface AgentSession {
 	 * report a set the operator never had.
 	 */
 	readonly promptExemptTools: () => readonly string[]
+	/**
+	 * The control a `computer_use` `ui_act` ref names in the latest UI
+	 * snapshot, for the review screen (`Button "Beş" (e30)`). Undefined when
+	 * the session has no computer use or does not hold the ref.
+	 */
+	readonly describeComputerUseRef?: (ref: string) => string | undefined
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Continue a turn some OTHER process started, from its session log.
@@ -2345,12 +2363,29 @@ export async function createAgentSession(
 	const capabilities = await probeCapabilities()
 	const computerUsePackage = capabilities.find((probe) => probe.specifier === '@namzu/computer-use')
 	let computerUseHost: SubprocessComputerUseHost | undefined
+	let computerUseTool: ReturnType<typeof createComputerUseTool> | undefined
 	let computerUseError: Error | undefined
-	if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
+	// The model sees the desktop only as an image in a tool result. A driver
+	// that declares it cannot carry one would hand the model a line of text
+	// for every screenshot while each click reported success — the model
+	// acting on a screen it never saw. Mounted as a diagnostic that says so,
+	// without starting the desktop host at all.
+	const computerUseProviderRefusal =
+		options.enableComputerUse === true && computerUsePackage?.state === 'present'
+			? computerUseUnavailableReason(provider)
+			: undefined
+	if (computerUseProviderRefusal !== undefined) {
+		registry.register(
+			createComputerUseTool(new SubprocessComputerUseHost(), {
+				unavailableReason: computerUseProviderRefusal,
+			}),
+		)
+	} else if (options.enableComputerUse === true && computerUsePackage?.state === 'present') {
 		const candidate = new SubprocessComputerUseHost()
 		try {
 			await candidate.initialize()
-			registry.register(createComputerUseTool(candidate))
+			computerUseTool = createComputerUseTool(candidate)
+			registry.register(computerUseTool)
 			computerUseHost = candidate
 		} catch (error) {
 			computerUseError = error instanceof Error ? error : new Error(String(error))
@@ -2947,6 +2982,15 @@ export async function createAgentSession(
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
+	// The sessions whose operator let the model see the screen, asked once per
+	// session before the first screenshot. Kept across mode switches and
+	// turns, unlike "approve all"; a new session id is asked again.
+	const screenConsent: ScreenConsentRecord = { sessions: new Set() }
+	// The registry is read at each decision: a turn may swap in its own.
+	const screenPolicyFor = (tools: () => ToolRegistry): ScreenPolicy => ({
+		consent: screenConsent,
+		capturesScreen: (name, input) => tools().get(name)?.capturesScreen?.(input) === true,
+	})
 	// The turns running now, each deciding under a mode the operator may change
 	// mid-turn, and the mode each conversation's log last recorded.
 	const liveModeControls = new Set<LiveModeControl>()
@@ -2970,16 +3014,30 @@ export async function createAgentSession(
 		...(options.skills ? { config: options.skills } : {}),
 		log: cliLogger(),
 	})
+	// One `skill` tool for file and plugin skills alike, told which directory
+	// the model can open for each: the real one on the host, the mounted one
+	// inside the sandbox, none when the sandbox does not mount it.
+	const skillTool = createSkillTool({
+		resolveModelDirectory: createSkillDirectoryResolver({
+			sandboxMounts: () => (sandboxWorkspace === 'working-directory' ? directories : []),
+		}),
+	})
 	// A session that can save a skill loads it next turn through this tool,
 	// even when it started with none.
 	if (
 		(skillCatalog.hasFileSkills || registry.has(SAVE_SKILL_TOOL_NAME)) &&
-		!registry.has(SkillTool.name)
+		!registry.has(skillTool.name)
 	)
-		registry.register(SkillTool)
+		registry.register(skillTool)
 	let pluginRuntime: Awaited<ReturnType<typeof createCliPluginRuntime>>
 	try {
-		pluginRuntime = await createCliPluginRuntime(options.plugins, registry, cwd, options.hooks)
+		pluginRuntime = await createCliPluginRuntime(
+			options.plugins,
+			registry,
+			cwd,
+			options.hooks,
+			skillTool,
+		)
 	} catch (error) {
 		await Promise.allSettled([mcp.close(), computerUseHost?.dispose(), browserControl?.dispose()])
 		return emptySession(describeError(error))
@@ -3269,6 +3327,7 @@ export async function createAgentSession(
 								),
 								{ unattendedSandboxEscape },
 								reviewHold.reason,
+								screenPolicyFor(() => registry),
 							)
 						: makeResumeHandler(
 								// A caller that brings its own prompt (a scheduled turn answered in
@@ -3283,6 +3342,7 @@ export async function createAgentSession(
 									(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
 								),
 								{ unattendedSandboxEscape },
+								screenPolicyFor(() => registry),
 							),
 			})
 			const resumeHandler = modeControl.handler
@@ -3625,6 +3685,9 @@ export async function createAgentSession(
 			...(computerUseError
 				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
 				: []),
+			...(computerUseProviderRefusal !== undefined
+				? [`Computer use is unavailable in this session: ${computerUseProviderRefusal}`]
+				: []),
 			...(browserUnavailable !== undefined
 				? [`The browser is unavailable: ${browserUnavailable}`]
 				: []),
@@ -3672,6 +3735,7 @@ export async function createAgentSession(
 		},
 		promptExemptTools: () =>
 			promptExemptToolNames(registry).filter((name) => !goalToolNames.has(name)),
+		describeComputerUseRef: (ref) => computerUseTool?.describeUiRef(ref),
 		send: (messages, opts) =>
 			operations.stream(opts?.signal, (signal) =>
 				(async function* () {
@@ -3704,6 +3768,7 @@ export async function createAgentSession(
 										),
 										{ unattendedSandboxEscape },
 										opts.reviewHold.reason,
+										screenPolicyFor(() => runTools),
 									)
 								: makeResumeHandler(
 										approval,
@@ -3715,6 +3780,7 @@ export async function createAgentSession(
 											(input) => subagentRuntime?.launchesReadOnlyAgent(input) === true,
 										),
 										{ unattendedSandboxEscape },
+										screenPolicyFor(() => runTools),
 									),
 					})
 					const resumeHandler = modeControl.handler
@@ -3818,6 +3884,13 @@ export async function createAgentSession(
 						// tools are there: guidance about a capability the turn does not
 						// have reads as a capability it should be looking for.
 						if (webCapability) promptContributions.register(webGuidanceContribution)
+						const hostContext = opts?.hostContext
+						if (hostContext)
+							promptContributions.register({
+								id: 'namzu.cli.composer-triggers',
+								placement: 'context',
+								render: () => hostContext().join('\n\n') || null,
+							})
 						if (nativeWebSearch)
 							promptContributions.register({
 								id: 'namzu.web.hosted-search',
@@ -3870,7 +3943,7 @@ export async function createAgentSession(
 								residentContext || options.withheldTools?.includes(AGENT_LAUNCH_TOOL)
 									? undefined
 									: NAMZU_DELEGATION_DOCTRINE,
-								!residentContext && opts?.orchestrate ? NAMZU_ORCHESTRATE_DOCTRINE : undefined,
+								!residentContext && opts?.hypermode ? NAMZU_HYPERMODE_DOCTRINE : undefined,
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change
@@ -4945,17 +5018,29 @@ export function makeResumeHandler(
 	mode: PermissionMode = onPermission ? 'prompt' : 'auto',
 	exempt: (name: string, input: unknown) => boolean = () => false,
 	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' } = {},
+	screen?: ScreenPolicy,
 ): ResumeHandler {
 	return createReviewHandler({
 		mode,
 		prompt: onPermission,
 		exempt,
 		remembered: approval,
+		...(screen ? { screenConsent: screen.consent, capturesScreen: screen.capturesScreen } : {}),
 		// Refused unless the operator wrote `sandbox.allowUnattendedEscape`: a
 		// session with nobody to ask has nobody to consent to leaving the
 		// sandbox, and `auto` is not consent to a command it never showed.
 		unattendedSandboxEscape: escapePolicy.unattendedSandboxEscape ?? 'refuse',
 	})
+}
+
+/**
+ * The session's screen-sharing answer and which calls it covers. With it,
+ * the first call that would send the screen to the provider in a session
+ * asks once (`ToolReviewRequest.screenConsent`); see `createReviewHandler`.
+ */
+export interface ScreenPolicy {
+	readonly consent: ScreenConsentRecord
+	readonly capturesScreen: (name: string, input: unknown) => boolean
 }
 
 /** Thrown by the holding prompt; never leaves {@link makeHoldingResumeHandler}. */
@@ -4978,6 +5063,7 @@ export function makeHoldingResumeHandler(
 	exempt: (name: string, input: unknown) => boolean,
 	escapePolicy: { readonly unattendedSandboxEscape?: 'refuse' | 'allow' },
 	reason: string,
+	screen?: ScreenPolicy,
 ): ResumeHandler {
 	const inner = createReviewHandler({
 		mode,
@@ -4986,6 +5072,7 @@ export function makeHoldingResumeHandler(
 		},
 		exempt,
 		remembered: { all: false },
+		...(screen ? { screenConsent: screen.consent, capturesScreen: screen.capturesScreen } : {}),
 		unattendedSandboxEscape: escapePolicy.unattendedSandboxEscape ?? 'refuse',
 	})
 	return async (request) => {
@@ -5029,8 +5116,8 @@ export const AGENT_LAUNCH_TOOL = 'Agent'
  * and asks in every mode, `auto` included. A second question in front of it
  * would ask the same thing with less on the screen. `strict` and `plan` still
  * refuse it, and an `ask` or `deny` rule for it still applies. Neither is
- * the `schedule` tool's `create`, `resume` or `delete`, for the same reason
- * (see {@link confirmsItself}).
+ * the `schedule` tool's `create`, `update`, `resume` or `delete`, for the
+ * same reason (see {@link confirmsItself}).
  */
 export function reviewExemptionFor(
 	mode: PermissionMode,
@@ -5048,7 +5135,7 @@ export function reviewExemptionFor(
 }
 
 /**
- * The `schedule` tool's `create`, `resume` and `delete`: each puts its own
+ * The `schedule` tool's `create`, `update`, `resume` and `delete`: each puts its own
  * confirmation in front of the operator, drawn from the host's computation,
  * and changes nothing unless they choose to. A review before it only asked
  * "Do you want to run schedule?" over the model's raw arguments, and then the
@@ -5059,7 +5146,7 @@ export function reviewExemptionFor(
 export function confirmsItself(name: string, input: unknown): boolean {
 	if (name !== SCHEDULE_TOOL_NAME || typeof input !== 'object' || input === null) return false
 	const action = (input as { action?: unknown }).action
-	return action === 'create' || action === 'resume' || action === 'delete'
+	return action === 'create' || action === 'update' || action === 'resume' || action === 'delete'
 }
 
 /**

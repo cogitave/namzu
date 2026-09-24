@@ -923,7 +923,13 @@ export {
 // The one reader of a bash command line the gate itself uses. A host that
 // writes a `predicate` rule about what a line runs decides on this reading,
 // so its rule and the SDK's own never disagree about where a quote ends.
-export { lexShellCommandLine } from './authorization/shell-lexer.js'
+// `nestedShellCommand` says which `-c` payloads that reading already
+// includes, so a host treats every other text a program runs as unread.
+export {
+	NESTED_SHELLS,
+	lexShellCommandLine,
+	nestedShellCommand,
+} from './authorization/shell-lexer.js'
 
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`
@@ -1302,6 +1308,8 @@ export {
 	REVIEW_EXEMPT_WRITES,
 	REVIEW_MODES,
 	SANDBOX_ESCAPE_UNATTENDED_REFUSAL,
+	SCREEN_CONSENT_DECLINED_FEEDBACK,
+	SCREEN_CONSENT_UNATTENDED_REFUSAL,
 	STRICT_MODE_REFUSAL,
 	batchNeedsReview,
 	createReviewHandler,
@@ -1317,6 +1325,7 @@ export { DECLINED_TOOL_CALL_FEEDBACK } from './runtime/query/declined.js'
 export {
 	CODING_AGENT_DELEGATION_DOCTRINE,
 	CODING_AGENT_DOCTRINE_CONTRIBUTION_ID,
+	CODING_AGENT_HYPERMODE_DOCTRINE,
 	CODING_AGENT_ORCHESTRATE_DOCTRINE,
 	CODING_AGENT_WORKING_DOCTRINE,
 	PLAN_MODE_DOCTRINE,
@@ -1433,7 +1442,13 @@ export type {
 export type { BroadcastHandoffDeps } from './session/handoff/broadcast.js'
 export type { SingleHandoffDeps } from './session/handoff/single.js'
 export type { InterventionChainLoader } from './session/intervention/prev-artifact.js'
-export type { ActionInput } from './tools/builtins/computer-use.js'
+export type {
+	ActionInput,
+	ComputerUseTool,
+	ComputerUseToolOptions,
+	ImageSize,
+	ScreenshotLimits,
+} from './tools/builtins/computer-use.js'
 export type { Project } from './types/project/entity.js'
 export type { CreatedLogger } from './utils/log/create-logger.js'
 export type {

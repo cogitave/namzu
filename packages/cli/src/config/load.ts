@@ -39,10 +39,18 @@ import {
 } from '../permissions/browser-sites.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
+import {
+	COMPOSER_TRIGGER_IDS,
+	COMPOSER_TRIGGER_LANGUAGES,
+	mergeComposerTriggers,
+} from './composer-triggers.js'
 import { configMetadataLiteral } from './debug.js'
 import type {
 	BrowserConfig,
 	CompactionCliConfig,
+	ComposerTriggerArming,
+	ComposerTriggerId,
+	ComposerTriggerLanguage,
 	PluginConfig,
 	ProfileConfig,
 	ProfilesConfig,
@@ -530,6 +538,8 @@ type ConfigReaders = {
 		context: ConfigReaderContext,
 	) => NamzuCliConfig[K]
 }
+
+const COMPOSER_TRIGGERS_KEYS: readonly string[] = ['enabled', 'suggest', 'languages', 'builtin']
 
 const SKILLS_CONFIG_KEYS: readonly string[] = [
 	'builtin',
@@ -1185,6 +1195,69 @@ const CONFIG_READERS: ConfigReaders = {
 			...(raw.notifications !== undefined ? { notifications: raw.notifications as boolean } : {}),
 		}
 	},
+	// Shape only: the words themselves are matched by the interactive
+	// terminal, which is the only reader. A wrong key or value still refuses,
+	// because an operator who wrote `enabled: flase` believes it is off.
+	composerTriggers: (v, context) => {
+		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
+		for (const key of Object.keys(v)) {
+			if (!COMPOSER_TRIGGERS_KEYS.includes(key)) {
+				return invalidConfigValue(
+					context,
+					[key],
+					`is not a composerTriggers setting (${COMPOSER_TRIGGERS_KEYS.join(', ')})`,
+				)
+			}
+		}
+		const raw = v as {
+			enabled?: unknown
+			suggest?: unknown
+			languages?: unknown
+			builtin?: unknown
+		}
+		for (const key of ['enabled', 'suggest'] as const) {
+			if (raw[key] !== undefined && typeof raw[key] !== 'boolean')
+				return invalidConfigValue(context, [key], 'must be true or false')
+		}
+		let languages: ComposerTriggerLanguage[] | undefined
+		if (raw.languages !== undefined) {
+			if (!Array.isArray(raw.languages))
+				return invalidConfigValue(context, ['languages'], 'must be a list: en, tr')
+			languages = []
+			for (const [index, language] of raw.languages.entries()) {
+				if (!COMPOSER_TRIGGER_LANGUAGES.includes(language as ComposerTriggerLanguage))
+					return invalidConfigValue(context, ['languages', index], 'must be en or tr')
+				languages.push(language as ComposerTriggerLanguage)
+			}
+		}
+		let builtin: Partial<Record<ComposerTriggerId, ComposerTriggerArming>> | undefined
+		if (raw.builtin !== undefined) {
+			if (!isConfigMapping(raw.builtin))
+				return invalidConfigValue(
+					context,
+					['builtin'],
+					'must be a mapping of trigger to arm, suggest or off',
+				)
+			builtin = {}
+			for (const [id, arming] of Object.entries(raw.builtin)) {
+				if (!COMPOSER_TRIGGER_IDS.includes(id as ComposerTriggerId))
+					return invalidConfigValue(
+						context,
+						['builtin', id],
+						`is not a built-in trigger (${COMPOSER_TRIGGER_IDS.join(', ')})`,
+					)
+				if (arming !== 'arm' && arming !== 'suggest' && arming !== 'off')
+					return invalidConfigValue(context, ['builtin', id], 'must be arm, suggest or off')
+				builtin[id as ComposerTriggerId] = arming
+			}
+		}
+		return {
+			...(raw.enabled !== undefined ? { enabled: raw.enabled as boolean } : {}),
+			...(raw.suggest !== undefined ? { suggest: raw.suggest as boolean } : {}),
+			...(languages !== undefined ? { languages } : {}),
+			...(builtin !== undefined ? { builtin } : {}),
+		}
+	},
 	tui: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as { notifications?: unknown; notificationMethod?: unknown }
@@ -1286,6 +1359,9 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// A list of names and a switch that decide what reaches the model's prompt;
 	// declared in a file, where a project's runs are reviewed.
 	skills: undefined,
+	// What typed words do in the operator's own composer: a file decision,
+	// never a variable a shell profile could carry invisibly.
+	composerTriggers: undefined,
 	// A scalar switch, and the one a CI job or a test harness needs to keep a
 	// launch off the network without writing a config file.
 	modelCatalogueRefresh: 'NAMZU_MODEL_CATALOGUE_REFRESH',
@@ -1452,6 +1528,16 @@ function mergeConfigs(...layers: readonly ConfigLayer[]): {
 			if (key === 'browser' && layer.config.browser) {
 				// Merged, not replaced: see `mergeBrowserConfig`.
 				out.browser = mergeBrowserConfig(out.browser, layer.config.browser, layer.sourceFor(key))
+				provenance[key] = layer.sourceFor(key)
+				continue
+			}
+			if (key === 'composerTriggers' && layer.config.composerTriggers) {
+				// Merged per key; a project layer only lowers. See `mergeComposerTriggers`.
+				out.composerTriggers = mergeComposerTriggers(
+					out.composerTriggers,
+					layer.config.composerTriggers,
+					isProjectSource(layer.sourceFor(key)),
+				)
 				provenance[key] = layer.sourceFor(key)
 				continue
 			}

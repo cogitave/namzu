@@ -33,6 +33,8 @@ export function presentScheduleCall(input: {
 		}
 		case 'list':
 			return activity('List scheduled jobs')
+		case 'update':
+			return activity(`Change scheduled job · ${oneLine(input.job)}`)
 		case 'pause':
 			return activity(`Pause scheduled job · ${oneLine(input.job)}`)
 		case 'resume':

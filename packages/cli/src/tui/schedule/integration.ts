@@ -43,8 +43,12 @@ export interface ScheduleIntegrationDeps {
 	readonly ask: QuestionFn
 	/** The permission screen; a scheduled turn's prompts are batch-only. */
 	readonly askPermission: ScreenPermissionFn
-	/** Send a prompt as the next turn, as if typed. */
-	readonly submit: (text: string) => void
+	/**
+	 * Send a loop's prompt as the next turn. `createdBy` says whose loop it is:
+	 * an operator's loop runs a `/` command as if typed; a loop the model made
+	 * is only ever a plain prompt (see `SubmitSource` in `../Composer.tsx`).
+	 */
+	readonly submit: (text: string, createdBy: 'model' | 'operator') => void
 }
 
 export interface ScheduleIntegration {
@@ -88,7 +92,9 @@ export function createScheduleIntegration(deps: ScheduleIntegrationDeps): Schedu
 		isIdle: deps.isIdle,
 		fire: (loop) => {
 			deps.say(`↻ loop ${loop.id}${loop.createdBy === 'model' ? ' (created by the model)' : ''}`)
-			deps.submit(loop.prompt)
+			// Fails closed: a loop read back from disk that does not say it is
+			// the operator's is treated as the model's.
+			deps.submit(loop.prompt, loop.createdBy === 'operator' ? 'operator' : 'model')
 		},
 	})
 	const timer = setInterval(() => {

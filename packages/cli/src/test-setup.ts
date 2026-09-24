@@ -48,6 +48,15 @@ if (process.env.NAMZU_MODEL_CATALOGUE_REFRESH === undefined) {
 	process.env.NAMZU_MODEL_CATALOGUE_REFRESH = '0'
 }
 
+// For the same reason, computer use starts without cua-driver: on Windows and
+// under WSL a session's first initialize() downloads its 27-29 MB archive from
+// GitHub. A test that opened a session there reached the network (the DeepSeek
+// capability test's fetch stub caught it). Tests about the driver pass their
+// own resolver.
+if (process.env.NAMZU_CUA_DRIVER === undefined) {
+	process.env.NAMZU_CUA_DRIVER = 'off'
+}
+
 // Production now routes generated state through NAMZU_HOME. Give every test
 // suite an owned application home so a command-level test can never inspect
 // or mutate the developer's real sessions merely because it exercises the

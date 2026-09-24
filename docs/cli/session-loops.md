@@ -25,7 +25,13 @@ because you are there.
 ```
 
 The interval is `5m`, `2h`, `1d`, or a five-field cron expression in this
-machine's time zone. A prompt starting with `/` runs that command.
+machine's time zone. In a loop you made, a prompt starting with `/` runs that
+command, and `!` and `#` mean what they mean when you type them
+([composer prefixes](composer-prefixes.md)). A loop the model made never does
+any of that; see [The model's version](#the-models-version). A loop's prompt
+is not added to the composer's history: Up brings back what you typed. No
+loop's prompt ever carries a [composer trigger](composer-triggers.md): only
+keys typed in the composer arm one.
 
 ## When it fires
 
@@ -56,3 +62,12 @@ loop when you ask for one. Creating a loop is an ordinary reviewed call: it is
 not exempt from review, so in `prompt` mode you see it before it exists. A loop
 the model made is shown as `(created by the model)` in `/loop list` and on each
 `↻` line. `list` and `delete` only read or remove loops.
+
+Every time a loop the model made fires, its prompt is sent to the model as
+plain text, whatever it starts with. `/permissions auto` is a sentence the
+model reads, not a command; `!rm -rf build` is not run on the host; `#note` is
+not remembered; and "switch to another model" does not switch it. Only you
+can do those things, by typing them. Before this, a model's loop could run
+`!` commands on the host, outside the sandbox and with no review, on every
+fire for up to seven days after one review of its creation — and in `auto`
+mode, with none.

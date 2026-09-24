@@ -104,8 +104,14 @@ and `permissions`. Leave `folder` (the session's folder), `tz`, `execution`,
 sees one confirmation screen with the job as it will run, and every value
 you set that differs from the default is marked as yours. Do not ask them
 to confirm again in chat. Afterwards, `schedule` with
-`action: "list"` shows jobs, and the operator manages them with `/schedule`
-or `namzu schedule list`. Jobs run only when the scheduler service is
+`action: "list"` shows every job, in any folder, and the operator manages
+them with `/schedule` or `namzu schedule list`.
+
+To change a job, call `schedule` with `action: "update"`, `job` (its name)
+and only the fields that change (`prompt`, `when`, `folder`, `tz`, `budget`,
+or `permissions` as the whole new set). The operator sees what changes and
+confirms it; the job keeps its history. Never delete a job and create it
+again to change it: its history is lost. Jobs run only when the scheduler service is
 installed: if the result says none is installed, tell the user to run
 `namzu schedule install`; do not say the job is set up and running.
 

@@ -86,6 +86,7 @@ describe('a registry files a skill under the name it was given', () => {
 				registeredName: 'ledger__reconcile',
 				description: 'before',
 				location: path,
+				directory: dir,
 			},
 		])
 
@@ -100,6 +101,7 @@ describe('a registry files a skill under the name it was given', () => {
 				registeredName: 'ledger__reconcile',
 				description: 'after metadata edit',
 				location: path,
+				directory: dir,
 			},
 		])
 	})

@@ -627,6 +627,23 @@ describe('ToolRegistry — execute', () => {
 		expect(result.error).toMatch(/deferred and cannot be executed/)
 	})
 
+	it('refuses a tool off the step list and names only what the step could run', async () => {
+		// The list is a snapshot from when the request was built: `gone` was
+		// unregistered since and `later` is deferred. Neither would run, so
+		// neither may be offered.
+		const r = new ToolRegistry()
+		r.register([makeTool('read'), makeTool('write')])
+		r.register([makeTool('later')], 'deferred')
+		const result = await r.execute(
+			'write',
+			{},
+			makeContext({ allowedTools: ['gone', 'later', 'read'] }),
+		)
+		expect(result.success).toBe(false)
+		expect(result.permissionDenied).toBe(true)
+		expect(result.error).toBe('Tool "write" is not available on this step. Available: read')
+	})
+
 	it('blocks non-read-only tools in plan mode', async () => {
 		const r = new ToolRegistry()
 		r.register(makeTool('write', { isReadOnly: () => false }))

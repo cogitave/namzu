@@ -10,7 +10,10 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # The composer prefixes
 
-Two first characters make a line something other than a prompt.
+Two first characters make a line something other than a prompt — in a line
+you type, or in a [loop you made](session-loops.md). A loop the model made
+is always sent as a prompt, so its `!` and `#` lines never run or remember
+anything ([The model's version](session-loops.md#the-models-version)).
 
 ## `!command` — the operator's own shell
 
@@ -25,3 +28,10 @@ Bounds: a command that has not ended after 60 seconds is killed with its whole p
 ## `#note` — remember
 
 `#always run tests with pnpm` saves the note as a typed `project` memory — one Markdown file in this project's stored memory — exactly as `/memory add <text>` does, and the row names the file. The next turn's prompt lists it in the stored-memory index. `/memory --user add <text>` remembers something for every project. See [Memory](memory.md). A `#` with nothing after it is sent as a prompt.
+
+## Neither is read for composer triggers
+
+A line whose first character, after any leading spaces, is `/`, `!` or `#` is
+a command, so the composer never reads it for [composer
+triggers](composer-triggers.md): `!echo hypermode` runs `echo hypermode` and
+arms nothing.

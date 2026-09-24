@@ -197,6 +197,28 @@ export const SANDBOX_ESCAPE_UNATTENDED_REFUSAL =
 export const OUTSIDE_ROOTS_UNATTENDED_REFUSAL =
 	"Refused: a call in this batch reaches a path outside the working directory and the added directories, which needs a person to approve it each time, and nobody can be asked in this session. Nothing in this batch ran. Stay inside the working directory, or tell the user which directory you need so they can add it to the session (the CLI's --add-dir)."
 
+/**
+ * What the model is told when a batch would show it the operator's screen for
+ * the first time in a session and nobody can be asked.
+ */
+export const SCREEN_CONSENT_UNATTENDED_REFUSAL =
+	"Refused: this call would send what is on the user's screen to the model provider, which a person agrees to once per session, and nobody can be asked in this session. Nothing in this batch ran. Tell the user computer use needs their consent in an interactive session."
+
+/** What the model is told when the operator declines to share the screen. */
+export const SCREEN_CONSENT_DECLINED_FEEDBACK =
+	'The user declined to share their screen in this session. Nothing in this batch ran. Do not take screenshots or read windows again; ask the user how they want to proceed.'
+
+/**
+ * The sessions whose operator agreed to let the model see the screen.
+ *
+ * A host keeps one for as long as its sessions live and hands the same box to
+ * every policy it builds, so a mode switch keeps the answer and a new session
+ * (a different id) is asked again. The policy only adds to it.
+ */
+export interface ScreenConsentRecord {
+	readonly sessions: Set<string>
+}
+
 /** The batch a person is asked about. */
 export interface ToolReviewRequest {
 	/** Originating session, preserved by createReviewHandler for host attribution. */
@@ -204,6 +226,14 @@ export interface ToolReviewRequest {
 	/** Originating turn, preserved by createReviewHandler for host attribution. */
 	readonly turnId?: TurnId
 	readonly toolCalls: readonly ToolCallSummary[]
+	/**
+	 * This batch would send the screen to the model provider for the first
+	 * time in the session (see {@link ReviewPolicyOptions.screenConsent}).
+	 * The question is whether the model may see the screen for the rest of
+	 * the session; a yes also approves this batch, and later screen captures
+	 * in the session run without asking.
+	 */
+	readonly screenConsent?: true
 }
 
 export type ToolReviewAnswer =
@@ -250,6 +280,24 @@ export interface ReviewPolicyOptions {
 	 * either way.
 	 */
 	readonly skillGrants?: 'honour' | 'ignore'
+	/**
+	 * Ask once per session before the model first sees the screen.
+	 *
+	 * With a record, a batch holding a call that captures the screen
+	 * ({@link capturesScreen}) in a session not yet in `sessions` is put to
+	 * a person first, as a {@link ToolReviewRequest.screenConsent} request,
+	 * even when every call in it only reads: in `prompt`, `accept-edits` and
+	 * `plan`. A yes adds the session; a no refuses the batch. `strict`
+	 * refuses such a call unless a rule allowed it, `auto` never asks, and a
+	 * policy without a `prompt` refuses. A call a rule allowed is never
+	 * asked about. Omitted, the screen is treated like any other read.
+	 */
+	readonly screenConsent?: ScreenConsentRecord
+	/**
+	 * Which calls capture the screen. Default: the tool's own
+	 * `capturesScreen` declaration, read from `registry`; nothing without one.
+	 */
+	readonly capturesScreen?: (name: string, input: unknown) => boolean
 }
 
 /**
@@ -276,9 +324,60 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		options.exempt ??
 		(registry ? (name, input) => isReviewExempt(registry, name, input) : () => false)
 	const remembered = options.remembered ?? { all: false }
+	const capturesScreen =
+		options.capturesScreen ??
+		(registry
+			? (name: string, input: unknown) => {
+					const tool = registry.get(name) ?? registry.get(name.toLowerCase())
+					return tool?.capturesScreen?.(input) === true
+				}
+			: () => false)
 	return async (request): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
 			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
+		}
+		// The one answer a person gives for this batch. The screen question
+		// below shows the whole batch, so its yes also answers any question
+		// the rest of this function would ask; nobody is asked twice.
+		let answered: ToolReviewAnswer | undefined
+		const ask = async (screenConsent?: true): Promise<ToolReviewAnswer> =>
+			answered ??
+			(prompt as ToolReviewPrompt)({
+				sessionId: request.sessionId,
+				turnId: request.turnId,
+				toolCalls: request.toolCalls,
+				...(screenConsent ? { screenConsent } : {}),
+			})
+		// The first look at the screen in a session is the operator's to allow:
+		// what is on it goes to the model provider, and a screenshot reads as
+		// harmlessly as a file read to every rule below. Asked once, in the
+		// modes where a person decides; a rule that allowed the call already
+		// said yes, and a call a rule denied will not run.
+		const consent = options.screenConsent
+		const sessionKey = String(request.sessionId ?? '')
+		if (
+			consent &&
+			mode !== 'auto' &&
+			!consent.sessions.has(sessionKey) &&
+			request.toolCalls.some(
+				(tc) =>
+					tc.authorization?.decision !== 'allow' &&
+					tc.authorization?.decision !== 'deny' &&
+					capturesScreen(tc.name, tc.input),
+			)
+		) {
+			if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
+			if (!prompt) return { action: 'reject_tools', feedback: SCREEN_CONSENT_UNATTENDED_REFUSAL }
+			const answer = await ask(true)
+			if (answer.kind === 'reject') {
+				return {
+					action: 'reject_tools',
+					feedback: answer.feedback ?? SCREEN_CONSENT_DECLINED_FEEDBACK,
+				}
+			}
+			consent.sessions.add(sessionKey)
+			if (answer.kind === 'approve-all') remembered.all = true
+			answered = answer
 		}
 		if (!batchNeedsReview(request.toolCalls, exempt)) {
 			return { action: 'approve_tools' }
@@ -326,11 +425,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 					? { action: 'approve_tools', confirmedEscalations: escapes }
 					: { action: 'reject_tools', feedback: SANDBOX_ESCAPE_UNATTENDED_REFUSAL }
 			}
-			const answer = await prompt({
-				sessionId: request.sessionId,
-				turnId: request.turnId,
-				toolCalls: request.toolCalls,
-			})
+			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
 					action: 'reject_tools',
@@ -348,11 +443,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		// With nobody to ask it is refused, not approved.
 		if (request.toolCalls.some((tc) => (tc.escalation?.outsidePaths?.length ?? 0) > 0)) {
 			if (!prompt) return { action: 'reject_tools', feedback: OUTSIDE_ROOTS_UNATTENDED_REFUSAL }
-			const answer = await prompt({
-				sessionId: request.sessionId,
-				turnId: request.turnId,
-				toolCalls: request.toolCalls,
-			})
+			const answer = await ask()
 			if (answer.kind === 'reject') {
 				return {
 					action: 'reject_tools',
@@ -383,6 +474,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				),
 		)
 		if (
+			answered === undefined &&
 			options.skillGrants !== 'ignore' &&
 			needsPerson.length > 0 &&
 			needsPerson.every(isSkillGranted)
@@ -392,11 +484,7 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 				skillGranted: needsPerson.map((tc) => tc.id),
 			}
 		}
-		const answer = await prompt({
-			sessionId: request.sessionId,
-			turnId: request.turnId,
-			toolCalls: request.toolCalls,
-		})
+		const answer = await ask()
 		switch (answer.kind) {
 			case 'approve':
 				return { action: 'approve_tools' }

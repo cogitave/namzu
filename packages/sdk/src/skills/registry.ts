@@ -220,6 +220,12 @@ export class SkillRegistry {
 			registeredName: string
 			description: string
 			location: string
+			/**
+			 * The skill's directory (`Skill.dirPath`); `location` is its SKILL.md.
+			 * Always set here. Declared optional so a subclass that overrides
+			 * `catalog()` without it still compiles.
+			 */
+			directory?: string
 			allowedTools?: string
 			invocation?: 'model' | 'operator' | 'both'
 		}[]
@@ -228,6 +234,7 @@ export class SkillRegistry {
 			registeredName: string
 			description: string
 			location: string
+			directory: string
 			allowedTools?: string
 			invocation?: 'model' | 'operator' | 'both'
 		}> = []
@@ -243,6 +250,7 @@ export class SkillRegistry {
 				registeredName,
 				description: skill.metadata.description,
 				location: join(skill.dirPath, SKILL_FILENAME),
+				directory: skill.dirPath,
 				...(skill.metadata.allowedTools === undefined
 					? {}
 					: { allowedTools: skill.metadata.allowedTools }),
