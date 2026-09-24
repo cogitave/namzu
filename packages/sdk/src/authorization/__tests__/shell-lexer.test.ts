@@ -217,8 +217,10 @@ describe('here-documents', () => {
 		expect(words('cat <<EOF\na\nb')).toEqual([['cat']])
 	})
 
-	it('is opaque when an unquoted body substitutes, and not when quoted', () => {
-		expect(lexShellCommandLine('cat <<EOF\n$(x)\nEOF').opaque).toBe(true)
+	it('reads an unquoted body’s substitution as a nested command, and does not run one in a quoted body', () => {
+		const unquoted = lexShellCommandLine('cat <<EOF\n$(x)\nEOF')
+		expect(unquoted.opaque).toBe(false)
+		expect(unquoted.commands.map((c) => c.words[0]?.value)).toEqual(['x', 'cat'])
 		expect(lexShellCommandLine("cat <<'EOF'\n$(x)\nEOF").opaque).toBe(false)
 	})
 })
@@ -328,9 +330,6 @@ describe('nested shells', () => {
 
 describe('opacity', () => {
 	it.each([
-		['a $(b)', 'command substitution'],
-		['a `b`', 'command substitution'],
-		['a "$(b)"', 'command substitution'],
 		['a ${ b; }', 'command substitution'],
 		['a <(b)', 'process substitution'],
 		['a ${x:-<(b)}', 'process substitution'],

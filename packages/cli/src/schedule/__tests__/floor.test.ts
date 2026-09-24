@@ -216,8 +216,12 @@ describe('the tripwire, on text a program runs as code', () => {
 		expect(detail(`python3 -c "import os; os.system('pkill node')"`)).toMatch(
 			/^`python3` runs text as code, and it holds `pkill` /,
 		)
-		expect(detail('$(echo namzu) schedule stop')).toMatch(
-			/^the floor cannot read the line \(command substitution\), and it holds `schedule stop`/,
+		// `$(echo namzu)` is now read as a nested command line, not opaque
+		// outright; the command it heads still cannot be verified (its own
+		// name expands at runtime), and that command's own text still holds
+		// `schedule stop`.
+		expect(detail('$(echo namzu) schedule stop')).toBe(
+			"the command's name `$(echo namzu)` expands at runtime, and it holds `schedule stop` (a `namzu schedule` subcommand other than list, show, status, history, logs)",
 		)
 		expect(detail('systemctl --user stop namzu-scheduler')).toBe(
 			"`systemctl --user stop namzu-scheduler` stops or disables the scheduler's service",
@@ -458,6 +462,22 @@ describe('NAMZU_HOME', () => {
 			'echo "$USER: namzu done"',
 			'notify-send "$JOB" "namzu finished"',
 		])
+	})
+
+	it('reaches inside a command substitution or backtick body, the same as it would read outside one', () => {
+		// `$(…)`/backtick content is read as a nested command line and
+		// checked by this same, structural resolution — not only by the
+		// tripwire's text scan, which a name split across two otherwise
+		// harmless-looking words (`D=~/.nam` then `${D}zu`, never ".namzu"
+		// as one substring anywhere in the line) would not catch.
+		denied([
+			'echo $(cat ../../.namzu/x)',
+			'echo `cat ../../.namzu/x`',
+			'echo $(D=~/.nam; ls ${D}zu)',
+			'x=$(cd /tmp && cat ../home/u/.namzu/x)',
+			'echo $(echo $(cat ~/.namzu/config.yaml))',
+		])
+		allowed(['echo $(cat .git/x)', 'echo `echo hi`', 'a=$(echo hi)', 'echo $(basename "$PWD")'])
 	})
 
 	it('reads a line in both dialects when the shell may be bash or sh', () => {

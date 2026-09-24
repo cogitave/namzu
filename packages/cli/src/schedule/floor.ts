@@ -1385,7 +1385,9 @@ class Floor {
 			i++
 		}
 		const roots: readonly ShellWord[] =
-			rootWords.length > 0 ? rootWords : [{ text: '.', value: '.', expands: false, quoted: false }]
+			rootWords.length > 0
+				? rootWords
+				: [{ text: '.', value: '.', expands: false, quoted: false, substitutes: false }]
 		const reachesHome = roots.some((root) => {
 			if (root.expands) return true
 			for (const spelling of this.spell(root, variables, cwd)) {
@@ -1518,6 +1520,7 @@ function assignedValue(
 			value: word.value.slice(match[0].length),
 			expands: word.expands,
 			quoted: word.quoted,
+			substitutes: word.substitutes,
 		},
 	}
 }

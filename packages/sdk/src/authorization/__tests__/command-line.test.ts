@@ -151,13 +151,24 @@ describe('a nested shell', () => {
 
 describe('opacity', () => {
 	it.each([
-		['echo $(whoami)', 'command substitution'],
-		['echo `whoami`', 'backticks'],
 		['diff <(a) <(b)', 'process substitution'],
-		['echo "$(whoami)"', 'substitution inside double quotes'],
 		['eval "$CMD"', 'runtime evaluation'],
 	])('marks %s opaque (%s)', (command) => {
 		expect(decomposeCommandLine(command).opaque).toBe(true)
+	})
+
+	it.each([
+		['echo $(whoami)', 'command substitution'],
+		['echo `whoami`', 'backticks'],
+		['echo "$(whoami)"', 'substitution inside double quotes'],
+	])('reads %s instead of marking it opaque (%s)', (command) => {
+		// `$(…)`/backtick content is read as a nested command line and its
+		// own commands are in `segments` for deny, the same as `diff <(a)
+		// <(b)` (still opaque, out of this scope) shows above for a
+		// construct the reader does not model at all.
+		const result = decomposeCommandLine(command)
+		expect(result.opaque).toBe(false)
+		expect(result.segments).toContain('whoami')
 	})
 
 	it('does not mark single-quoted substitution, where nothing expands', () => {
@@ -174,10 +185,18 @@ describe('opacity', () => {
 
 	it('still reports the segments it could see when opaque', () => {
 		// Opacity withdraws `allow`; it must not also blind `deny`, which is the
-		// decision that fails dangerously when it stops matching.
-		const { segments, opaque } = decomposeCommandLine('echo $(date) && git push')
+		// decision that fails dangerously when it stops matching. `<(…)`
+		// process substitution is left opaque (out of scope, unlike `$(…)`).
+		const { segments, opaque } = decomposeCommandLine('diff <(date) && git push')
 		expect(opaque).toBe(true)
 		expect(segments).toContain('git push')
+	})
+
+	it('a command substitution beside && does not withdraw either side from deny', () => {
+		const { segments, opaque } = decomposeCommandLine('echo $(date) && git push')
+		expect(opaque).toBe(false)
+		expect(segments).toContain('git push')
+		expect(segments).toContain('date')
 	})
 })
 

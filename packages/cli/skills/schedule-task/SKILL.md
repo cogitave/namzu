@@ -72,28 +72,30 @@ script may still reach Windows: shell out to `powershell.exe` **by absolute
 path**, with `-Command '<literal text>'` — never `-EncodedCommand`, which is
 refused outright because its base64 payload cannot be read at all.
 
-**Command substitution (`$(...)` or `` `...` `` ) makes the whole script
-unreadable to the floor and is refused outright, not run unverified** — do
-not propose one that uses it, in `"script"` or the `"script+agent"` gate.
-Capture a command's output into a file and read the file on a later line
-instead of into a shell variable:
+**Command substitution (`$(...)` or `` `...` ``) is read as its own nested
+command line and checked against the same deny rules as the rest of the
+script** — `count=$(grep -c ERROR /var/log/app.log)` is fine on its own. A
+few shapes around it are still refused outright, not run unverified, because
+what they actually run cannot be pinned down from the text alone:
+
+- Brace expansion beside a substitution in the SAME word (`$(cmd){a,b}`,
+  `${x:-$(cmd)}{a,b}`) — bash runs `cmd` once per brace alternative, not
+  once, so the check cannot say how many times it runs.
+- An unquoted substitution used AS a `<`/`>` redirection target
+  (`< $(cmd)`, `> ${x:-$(cmd)}`) — for a `${x:-...}`-style default value
+  this can run `cmd` twice (measured, real bash). Quote it
+  (`< "$(cmd)"`) and it is fine, exactly one word either way.
+- `${ list; }` (bash 5.3's brace-form substitution), process substitution
+  (`<(cmd)`, `>(cmd)`), and anything else the checker cannot fully parse —
+  same as before, refused with the reason named.
+
+If a proposed script hits one of these, restructure it rather than working
+around it — for example, capture into a file and read the file on a later
+line instead of using a substitution as a redirect target:
 
 ```bash
 grep -c ERROR /var/log/app.log > /tmp/error-count.txt
-count="$(cat /tmp/error-count.txt)"   # still $(...) — do not do this
-```
-
-is still refused; write the whole check without ever capturing output into a
-variable, for example with a piped loop:
-
-```bash
-grep -c ERROR /var/log/app.log | while read -r count; do
-  if [ "$count" -gt 0 ]; then
-    echo "{\"wake\": true, \"context\": \"$count errors in app.log\"}"
-  else
-    echo "{\"wake\": false, \"context\": \"\"}"
-  fi
-done
+count="$(cat /tmp/error-count.txt)"
 ```
 
 or, when only a yes/no matters, test directly (`grep -q ERROR file &&

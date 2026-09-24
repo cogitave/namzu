@@ -225,9 +225,17 @@ function disagreement(
 			: 'bash reports a syntax error and the lexer does not call the line opaque'
 	}
 	if (lexed.opaque) return undefined
+	// `$(…)`/backtick content is read recursively (`origin: 'substitution'`)
+	// instead of making the line opaque, and bash actually RUNS it —
+	// unlike a `bash -c` payload (`origin: 'shell'`), which this harness
+	// cannot observe, since the outer `bash` invocation itself is the
+	// thing `command_not_found_handle` intercepts, never reaching its `-c`
+	// argument. A substitution's own command is expected in argument order
+	// alongside the line's own, since it evaluates before the word that
+	// contains it does.
 	const listed = lexed.commands.filter(
 		(command) =>
-			command.origin === 'line' &&
+			(command.origin === 'line' || command.origin === 'substitution') &&
 			command.depth === 0 &&
 			command.words.length > command.assignments,
 	)
@@ -457,6 +465,38 @@ const KNOWN = [
 	'b ${x:-<(a)}',
 	'b[x >(a)] c',
 	">&2${a:-'$(a)'}",
+	// Command substitution and backtick bodies are read as nested command
+	// lines instead of making the containing line opaque: nesting, mixed
+	// quoting, a `)` that belongs to a `case` pattern rather than closing
+	// the substitution, a pipe or redirection inside it, and the
+	// substitution itself as the command name.
+	'echo $(echo $(echo hi))',
+	'echo `echo \\`echo hi\\``',
+	'echo $(echo `echo hi`)',
+	'echo $(case a in a) echo yes;; esac)',
+	'echo $(a | b)',
+	'echo $(a > f)',
+	'echo $(echo "hi \'there\'")',
+	'echo $(a; b; c)',
+	'$(echo cmd) arg',
+	'a=$(b)',
+	'echo "$(a)" "`b`"',
+	// A `${var:-…}`-style default value's substitution can run twice as an
+	// unquoted `<`/`>` redirection target when it turns out ambiguous
+	// (measured, bash 5.2.21 and 5.3.15) — opaque, whether or not the
+	// substitution stands alone.
+	'<${a:-$(a)} echo hi',
+	'>${a:-$(a)} echo hi',
+	'< $(a) echo hi',
+	'<a$(a) echo hi',
+	// Quoting a redirection target rules out the ambiguity outright: exactly
+	// one word, however many it would otherwise split into.
+	'< "$(echo x)" cat',
+	// Brace expansion runs on a word's raw text before any expansion does,
+	// so it duplicates a substitution beside it into two copies that each
+	// run — opaque, rather than trusted to run once.
+	'echo $(a){x,y}',
+	'echo ${a:-$(a)}{x,y}',
 ]
 
 describe.skipIf(!available)('the lexer agrees with bash', () => {
@@ -482,7 +522,7 @@ describe.skipIf(!available)('the lexer agrees with bash', () => {
 	})
 
 	it('on a seeded sample of longer lines', { timeout: 180_000 }, async () => {
-		const result = await check(random(2000, 526))
+		const result = await check(random(6000, 526))
 		expect(result.failures).toEqual([])
 		expect(result.exact).toBeGreaterThan(700)
 	})

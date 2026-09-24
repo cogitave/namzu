@@ -70,6 +70,14 @@ export interface ShellWord {
 	readonly expands: boolean
 	/** True when any part of the word was quoted or escaped. */
 	readonly quoted: boolean
+	/**
+	 * True when the word reads a `$(…)` or backtick substitution. Read by
+	 * `redirectionTarget()`: an unquoted substitution used as a `<`/`>`
+	 * redirection target can run twice (measured, bash 5.2.21 and 5.3.15,
+	 * for a `${var:-…}`-style default value that turns out ambiguous), so
+	 * such a target is opaque rather than trusted to run once.
+	 */
+	readonly substitutes: boolean
 }
 
 /** A redirection: `2>&1`, `> file`, `<<EOF` and the rest. */
@@ -456,6 +464,14 @@ class WordBuilder {
 	quoted = false
 	/** A brace expansion, which POSIX shells do not perform. */
 	brace = false
+	/**
+	 * A `$(…)` or backtick substitution read in this word. Brace expansion
+	 * happens on the word's raw text BEFORE any expansion runs, so `{a,b}`
+	 * beside one duplicates it — `$(cmd){a,b}` runs `cmd` once per brace
+	 * alternative, not once — which the recursive read below does not
+	 * model; `brace && substitutes` together are opaque instead of trusted.
+	 */
+	substitutes = false
 	/** Unquoted `{` seen, and whether a `,` or `..` followed it: brace expansion. */
 	private braceOpen = false
 	private braceSeparator = false
@@ -500,6 +516,12 @@ class WordBuilder {
 		this.previous = ''
 		this.value += text
 		this.empty = false
+	}
+
+	/** A `$(…)` or backtick substitution, kept as written. */
+	substitution(text: string): void {
+		this.substitutes = true
+		this.expansion(text)
 	}
 }
 
@@ -1204,6 +1226,21 @@ class Parser {
 			// Ubuntu ship).
 			this.context.opaque('quoted or expanding target of >& or <&')
 		}
+		if (
+			['<', '>', '<>', '>>', '>|'].includes(operator.op) &&
+			!target.word.quoted &&
+			target.word.substitutes
+		) {
+			// A `<`/`>`-family target must be exactly one word; when it is not
+			// (empty, or several), bash reports "ambiguous redirect" — and for
+			// a `${var:-…}`-style default value, running that check evaluates
+			// the substitution in it a SECOND time (measured, bash 5.2.21 and
+			// 5.3.15: `<${a:-$(a)}` and `>${a:-$(a)}` both run `a` twice, a
+			// bare `<$(a)` or `<a$(a)` only once). Whether the default branch
+			// even runs depends on whether the variable is set at runtime, so
+			// this is opaque rather than trusted to run once.
+			this.context.opaque('unquoted substitution in a redirection target')
+		}
 		const redirection: { -readonly [K in keyof ShellRedirection]: ShellRedirection[K] } = {
 			operator: operator.op,
 			...(operator.fd !== undefined ? { fd: operator.fd } : {}),
@@ -1454,7 +1491,7 @@ class Parser {
 					kind: 'word',
 					start,
 					end: start + 1,
-					word: { text: '-', value: '-', expands: false, quoted: false },
+					word: { text: '-', value: '-', expands: false, quoted: false, substitutes: false },
 					reservedOk: false,
 				}
 			}
@@ -1842,11 +1879,19 @@ class Parser {
 		}
 		this.pos = i
 		if (builder.brace) this.bashOnly('brace expansion')
+		// Brace expansion runs on the word's raw text before any substitution
+		// does, so `$(cmd){a,b}` duplicates `$(cmd)` into two copies that
+		// each run `cmd` — the commands pushed while reading this word are
+		// not the one-time account the recursive read otherwise gives.
+		if (builder.brace && builder.substitutes) {
+			this.context.opaque('command substitution duplicated by brace expansion')
+		}
 		const word: ShellWord = {
 			text: src.slice(start, i),
 			value: builder.value,
 			expands: builder.expands,
 			quoted: builder.quoted,
+			substitutes: builder.substitutes,
 		}
 		// A descriptor before a redirection operator: `2>`, `{fd}>`.
 		const next = src[i]
@@ -2019,7 +2064,7 @@ class Parser {
 				builder.expansion(src.slice(at, end))
 				return end
 			}
-			const end = this.parameterBraces(n + 1, inDouble)
+			const end = this.parameterBraces(n + 1, inDouble, builder)
 			builder.expansion(src.slice(at, end))
 			return end
 		}
@@ -2033,7 +2078,18 @@ class Parser {
 					return end
 				}
 			}
-			this.context.opaque('command substitution')
+			// `$(…)`'s body is read as a command list of its own, the same
+			// way `nestedShell()` reads a `bash -c` payload: each command
+			// found inside it is pushed to the shared `context.commands`
+			// (marked `origin: 'substitution'`), checked by the same deny
+			// rules, instead of the containing line being called opaque
+			// outright. Finding the matching `)` requires the parse to
+			// succeed — a `)` inside a quoted string or a `case` pattern is
+			// not it — so a substitution that does not parse throws all the
+			// way to `lexShellCommandLine`'s own catch, which is the only
+			// sound way to be wrong about its extent, and marks the whole
+			// line opaque (`internal error`) exactly as any other
+			// unmodeled construct does.
 			const inner = new Parser(
 				src,
 				n + 1,
@@ -2043,7 +2099,7 @@ class Parser {
 				this.nestingNow + 1,
 			)
 			const end = inner.substitution()
-			builder.expansion(src.slice(at, end))
+			builder.substitution(src.slice(at, end))
 			return end
 		}
 		if (next === '[') {
@@ -2112,7 +2168,7 @@ class Parser {
 	 * (indirection, a subscript or offset evaluated as arithmetic, a
 	 * transformation) is opaque.
 	 */
-	private parameterBraces(from: number, inDouble: boolean): number {
+	private parameterBraces(from: number, inDouble: boolean, builder: WordBuilder): number {
 		const src = this.src
 		let i = from
 		const scratch = new WordBuilder()
@@ -2162,6 +2218,11 @@ class Parser {
 		const content = src.slice(from, i).replace(/\\\n/g, '')
 		if (!SAFE_PARAMETER.test(content)) this.context.opaque('parameter expansion')
 		else if (!POSIX_PARAMETER.test(content)) this.bashOnly('parameter expansion')
+		// A substitution inside the default-value expression (`${a:-$(cmd)}`)
+		// is read into a scratch builder discarded above; propagate whether
+		// it happened onto the enclosing word, which is what the caller's
+		// own brace-expansion check reads.
+		if (scratch.substitutes) builder.substitutes = true
 		return i + 1
 	}
 
@@ -2296,8 +2357,12 @@ class Parser {
 			body += char
 			i += 1
 		}
-		this.context.opaque('command substitution')
-		builder.expansion(src.slice(at, i + 1))
+		// Backtick's extent is found lexically, above — unlike `$(…)`, its
+		// boundary does not depend on the body parsing as commands. So a
+		// body that fails to parse is caught here, the same way a `bash -c`
+		// payload's own failure is (`nestedShell()`): the rest of the LINE
+		// is still read, only this substitution's own commands are unknown.
+		builder.substitution(src.slice(at, i + 1))
 		this.context.rescan(body.length)
 		this.inherit(body)
 		const inner = new Parser(body, 0, this.context, 'substitution', this.depth, this.nestingNow + 1)
@@ -2305,6 +2370,7 @@ class Parser {
 			inner.program()
 		} catch (error) {
 			if (!(error instanceof Stop)) throw error
+			this.context.opaque(`command substitution: ${error.reason}`)
 		}
 		return i + 1
 	}

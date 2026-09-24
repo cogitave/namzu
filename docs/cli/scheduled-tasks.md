@@ -255,9 +255,15 @@ The rules a run is gated by, in order (the first that matches decides):
      is something the lexer does not read, and the tripwire below refuses it
      as a path into the profile folder;
    - **what the lexer cannot account for, when it mentions what the floor
-     protects.** A line is opaque when it holds a command substitution, a
-     function, `[[ … ]]`, arithmetic on a variable, a syntax error or another
-     construct listed under [When a line is
+     protects.** `$(…)`/backtick command substitution is read as its own
+     nested command line and checked the same as the rest of the line, not
+     opaque on its own; a line is still opaque when it holds a function,
+     `[[ … ]]`, arithmetic on a variable, a syntax error, a command
+     substitution combined with brace expansion in the same word
+     (`$(cmd){a,b}` can run `cmd` more than once), an unquoted substitution
+     used as a `<`/`>` redirection target (which can run twice for a
+     `${var:-…}`-style default value that turns out ambiguous — quoting it
+     rules this out), or another construct listed under [When a line is
      opaque](../sdk/command-lines.md#when-a-line-is-opaque). A command also
      escapes the reading when its name expands (`$S --user stop …`) or when it
      runs text as code: a shell the lexer did not follow (`bash` reading its
@@ -413,11 +419,13 @@ gave the model itself unrestricted `bash` in its own agent phase. Dropping
 job's `rules`/`unmatched` (allow included) still govern the AGENT phase
 exactly as before, unaffected by whatever the script's own check does.
 
-A script the lexer cannot fully account for (a command substitution, a
-syntax error, a construct it does not model) is refused outright, naming
-the lexer's reason — there is no textual-tripwire fallback for a whole
-script the way there is for one opaque argument inside an otherwise-read
-line. `powershell.exe`/`pwsh` with `-EncodedCommand` (or an unambiguous
+A script the lexer cannot fully account for (a syntax error, or a construct
+it does not model — see the floor's own list, above) is refused outright,
+naming the lexer's reason — there is no textual-tripwire fallback for a
+whole script the way there is for one opaque argument inside an
+otherwise-read line. `$(…)`/backtick command substitution is not, on its own,
+one of those: it is read as a nested command line and its own commands are
+checked against the same `deny` rules as everything else in the script. `powershell.exe`/`pwsh` with `-EncodedCommand` (or an unambiguous
 abbreviation of it, `-e`, `-en`, …) is refused outright, always, in both a
 script and a live call: its payload is base64, so nothing in it can be
 read as text, and the tripwire proves nothing about what it decodes to.

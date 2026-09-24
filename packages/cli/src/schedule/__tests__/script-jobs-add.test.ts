@@ -165,8 +165,11 @@ describe('a script the floor or the job rules refuse is held before any preview'
 			...base(sb),
 			'--kind',
 			'script',
+			// `${ …; }` (bash 5.3's brace-form command substitution) is left
+			// opaque; unlike `$(…)`/backtick, a plain command substitution,
+			// which this now reads instead of refusing outright.
 			'--script',
-			'echo "$(date)"',
+			'echo "${ date; }"',
 			'--shell',
 			'bash',
 			'--permissions',
@@ -177,6 +180,25 @@ describe('a script the floor or the job rules refuse is held before any preview'
 		expect(ctx.out.info).toEqual([])
 		expect(ctx.out.errors.join(' ')).toMatch(/cannot be verified line-for-line/)
 		expect(ctx.out.errors.join(' ')).toMatch(/command substitution/)
+	})
+
+	it('reads a clean command substitution instead of refusing the script outright', async () => {
+		const ctx = recordingContext()
+		const code = await addCommand(ctx, [
+			'ticker',
+			...base(sb),
+			'--kind',
+			'script',
+			'--script',
+			'echo "$(date)"',
+			'--shell',
+			'bash',
+			'--permissions',
+			permissions(sb, { bash: 'allow' }),
+			'--yes',
+		])
+		expect(code).toBe(0)
+		expect(findJob(sb.paths, 'ticker').script?.body).toBe('echo "$(date)"')
 	})
 
 	it('refuses a script one of whose commands the job’s own rules deny, naming the command', async () => {

@@ -169,8 +169,20 @@ describe('one call, whole text, for the floor; per command for deny rules', () =
 		expect(ok(`case "$1" in start) cat ${HOME}/config.yaml ;; esac`)).toBe(false)
 	})
 
-	it('refuses a command substitution outright: opaque, no fallback tripwire', () => {
-		const result = verifyScheduledScript('echo "$(date)"', 'bash', NO_RULES)
+	it('reads a clean command substitution instead of refusing the script outright', () => {
+		// `$(…)`/backtick content is read as a nested command line, checked
+		// by the floor and the same deny rules as everything else in the
+		// script — not blanket-refused just for containing one.
+		expect(ok('echo "$(date)"')).toBe(true)
+		expect(ok('echo "$(date)"', 'bash', policyFor({ rules: { bash: { 'date*': 'deny' } } }))).toBe(
+			false,
+		)
+	})
+
+	it('still refuses a genuinely opaque construct outright: no fallback tripwire', () => {
+		// `${ …; }` (bash 5.3's brace-form command substitution) is left
+		// opaque; unlike `$(…)`/backtick, it is out of this scope.
+		const result = verifyScheduledScript('echo "${ date; }"', 'bash', NO_RULES)
 		expect(result.ok).toBe(false)
 		expect(result.reason).toMatch(/cannot be verified line-for-line/)
 		expect(result.reason).toMatch(/command substitution/)
