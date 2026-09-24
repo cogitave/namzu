@@ -1394,7 +1394,14 @@ export class AnthropicProvider implements LLMProvider {
 								if (event.delta.stop_reason === 'pause_turn')
 									throw new Error('Anthropic paused hosted search before completing its answer.')
 								const search = searchBlocks.complete(providerRoute)
-								if (search?.appendix) yield { id: messageId, delta: { content: search.appendix } }
+								// The sources list is the driver's text, not the model's: it
+								// must not read as the model moving on from a tool call the
+								// output limit cut off.
+								if (search?.appendix)
+									yield {
+										id: messageId,
+										delta: { content: search.appendix, contentOrigin: 'driver' },
+									}
 								searchReplayEmitted = Boolean(search)
 								const replayState = search?.replay ?? completedReplayState()
 								yield {
@@ -1417,7 +1424,11 @@ export class AnthropicProvider implements LLMProvider {
 							if (searchReplayEmitted) return
 							const search = searchBlocks.complete(providerRoute)
 							if (search) {
-								if (search.appendix) yield { id: messageId, delta: { content: search.appendix } }
+								if (search.appendix)
+									yield {
+										id: messageId,
+										delta: { content: search.appendix, contentOrigin: 'driver' },
+									}
 								yield { id: messageId, delta: {}, replayState: search.replay }
 								return
 							}

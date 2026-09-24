@@ -197,7 +197,11 @@ A stream groups a call's fragments by `index`. The turn loop and
 
 ## Finish reasons from the drivers
 
-The classification depends on each driver reporting how the response ended:
+The classification depends on each driver reporting how the response ended,
+and marking the text it adds of its own:
+
+- `@namzu/anthropic`, `@namzu/google` and `@namzu/openai` Codex: the list of
+  sources appended after a hosted search carries `contentOrigin: 'driver'`.
 
 - `@namzu/anthropic` and the HTTP driver's Anthropic dialect: `max_tokens` and
   `model_context_window_exceeded` are reported as `length`, and `refusal` as

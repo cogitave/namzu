@@ -5,6 +5,7 @@
 '@namzu/openrouter': patch
 '@namzu/deepseek': patch
 '@namzu/openai': patch
+'@namzu/google': patch
 ---
 
 The drivers now report more accurately how a response ended. The runtime uses this to tell a tool call the output limit cut off from one the model wrote badly.
@@ -15,5 +16,6 @@ The drivers now report more accurately how a response ended. The runtime uses th
 - `@namzu/openrouter`: `finish_reason` is mapped the same way. `error` (the upstream model failed mid-generation) now fails the stream with a `ProviderRequestError` (`kind: 'server'`).
 - `@namzu/deepseek`: `insufficient_system_resource` now fails the stream with a `ProviderRequestError` (`kind: 'server'`). It used to read as a finished answer.
 - `@namzu/openai`: Codex's `response.incomplete` is reported as `length`, or as `content_filter` when that is the stated reason, with its usage. The stream used to end with no finish reason, so auto-continuation never ran.
+- `@namzu/anthropic`, `@namzu/google` and `@namzu/openai` (Codex): the list of sources a driver appends after a hosted search now carries `contentOrigin: 'driver'` on its stream chunk. The text is unchanged. Without the mark, a tool call the output limit cut off before that list would be reported as malformed.
 
 If you branch on `finishReason`, expect `length` or `content_filter` where you saw `stop` for these cases.

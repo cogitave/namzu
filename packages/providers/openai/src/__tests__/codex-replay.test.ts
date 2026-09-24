@@ -230,6 +230,13 @@ describe('Codex finalized output retention', () => {
 		)
 		const m = { ...assistant(chunks), toolCalls: undefined }
 		expect(m.content).toBe('Reading.\n\nSources: [Reference](<https://example.com/reference>)')
+		// The sources list is marked as the driver's own text; the model's is not.
+		expect(
+			chunks.flatMap((c) => (c.delta.content ? [[c.delta.content, c.delta.contentOrigin]] : [])),
+		).toEqual([
+			['Reading.', undefined],
+			['\n\nSources: [Reference](<https://example.com/reference>)', 'driver'],
+		])
 		expect(chunks.at(-1)?.finishReason).toBe('stop')
 		expect(toCodexInput([m], route)).toEqual([search, cited])
 		expect(chunks.flatMap((c) => c.delta.toolCalls ?? [])).toEqual([])

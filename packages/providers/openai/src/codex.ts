@@ -662,7 +662,8 @@ export class CodexProvider implements LLMProvider {
 							}
 							const part = textParts[partIndex]
 							if (part) textParts[partIndex] = { ...part, text: part.text + suffix }
-							yield { id: responseId, delta: { content: suffix } }
+							// The driver's text, not the model's.
+							yield { id: responseId, delta: { content: suffix, contentOrigin: 'driver' } }
 						}
 						const replayState: CodexReplayState = {
 							kind: 'namzu.codex.responses',
