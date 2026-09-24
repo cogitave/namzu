@@ -46,8 +46,9 @@ async function decide(mode: PermissionMode, tc: ToolCallSummary) {
 }
 
 describe('the schedule tool’s own confirmation', () => {
-	it('names create, resume and delete, and nothing else', () => {
+	it('names create, update, resume and delete, and nothing else', () => {
 		expect(confirmsItself('schedule', { action: 'create' })).toBe(true)
+		expect(confirmsItself('schedule', { action: 'update' })).toBe(true)
 		expect(confirmsItself('schedule', { action: 'resume' })).toBe(true)
 		expect(confirmsItself('schedule', { action: 'delete' })).toBe(true)
 		expect(confirmsItself('schedule', { action: 'pause' })).toBe(false)
@@ -57,7 +58,7 @@ describe('the schedule tool’s own confirmation', () => {
 	it.each(['prompt', 'accept-edits', 'auto'] as const)(
 		'is not preceded by a review in %s',
 		async (mode) => {
-			for (const action of ['create', 'resume', 'delete']) {
+			for (const action of ['create', 'update', 'resume', 'delete']) {
 				expect(await decide(mode, call(action))).toEqual({ action: 'approve_tools', asked: 0 })
 			}
 		},

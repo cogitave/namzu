@@ -56,11 +56,32 @@
 		{
 			"providerId": "anthropic",
 			"unmetered": false,
-			"verified": "2026-08-10",
+			"verified": "2026-09-24",
 			"promptIncludesCacheReads": false,
 			"reportsCacheWrites": true,
-			"note": "The last two rows exist because the driver's own offline catalogue offers those models and this table did not price them — a lookup-key gap that reads as `cost unknown` and is invisible to the generator's own check, which only proves the module matches this file. `providers/anthropic` asserts the two lists agree. Vendor list prices. Cache read is the vendor's published 0.1x of the input rate; cache write is its published 1.25x for the five-minute entry, which is the default TTL and the one the driver's `cacheControl: { type: 'auto' }` asks for. A time-limited introductory rate applied to one model at the time of entry; this table has no time dimension and records the list rate, so a turn inside a promotional window is over-reported rather than mis-modelled.",
+			"note": "The last two rows exist because the driver's own offline catalogue offers those models and this table did not price them — a lookup-key gap that reads as `cost unknown` and is invisible to the generator's own check, which only proves the module matches this file. `providers/anthropic` asserts the two lists agree. Vendor list prices, every row checked against its pricing page on the `verified` date. Cache read is the vendor's published 0.1x of the input rate, except on the three models it prices differently: 0.05x on claude-opus-5-5 and 0.025x on claude-fable-5-1 and claude-mythos-5-1, entered at the published rate rather than derived. Cache write is its published 1.25x for the five-minute entry, which is the default TTL and the one the driver's `cacheControl: { type: 'auto' }` asks for. claude-sonnet-5 launched at an introductory $2/$10 with $3/$15 scheduled from 2026-09-01, and this table recorded the scheduled rate; the vendor has since made $2/$10 the standard price and cancelled the increase. The table has no time dimension, so a future promotional window is still recorded at the list rate and over-reported rather than mis-modelled.",
 			"models": [
+				{
+					"id": "claude-fable-5-1",
+					"inputPer1M": 10,
+					"outputPer1M": 50,
+					"cacheReadPer1M": 0.25,
+					"cacheWritePer1M": 12.5
+				},
+				{
+					"id": "claude-mythos-5-1",
+					"inputPer1M": 10,
+					"outputPer1M": 50,
+					"cacheReadPer1M": 0.25,
+					"cacheWritePer1M": 12.5
+				},
+				{
+					"id": "claude-opus-5-5",
+					"inputPer1M": 4,
+					"outputPer1M": 20,
+					"cacheReadPer1M": 0.2,
+					"cacheWritePer1M": 5
+				},
 				{
 					"id": "claude-fable-5",
 					"inputPer1M": 10,
@@ -105,10 +126,10 @@
 				},
 				{
 					"id": "claude-sonnet-5",
-					"inputPer1M": 3,
-					"outputPer1M": 15,
-					"cacheReadPer1M": 0.3,
-					"cacheWritePer1M": 3.75
+					"inputPer1M": 2,
+					"outputPer1M": 10,
+					"cacheReadPer1M": 0.2,
+					"cacheWritePer1M": 2.5
 				},
 				{
 					"id": "claude-sonnet-4-6",

@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { listCommand, listing, showCommand } from '../commands/list.js'
 import { NOTICE_BODY_MAX, noticeText } from '../daemon/notify.js'
+import { CallTally, callsCount, callsLine } from '../fire/calls.js'
 import { resumeCommand, scheduledSessionElsewhere, shellQuote } from '../resume-command.js'
 import { readState, writeState } from '../store/state.js'
 import { type Sandbox, confirmedJob, recordingContext, sandbox } from './fixtures.js'
@@ -114,5 +115,109 @@ describe('namzu resume <id> from another folder', () => {
 		expect(scheduledSessionElsewhere(sb.home, SESSION, sb.project)).toBeUndefined()
 		expect(scheduledSessionElsewhere(sb.home, 'another', sb.osHome)).toBeUndefined()
 		expect(scheduledSessionElsewhere(join(sb.root, 'nowhere'), SESSION, sb.osHome)).toBeUndefined()
+	})
+})
+
+describe('a completed run with refused calls', () => {
+	const at = new Date('2026-09-24T08:03:15Z')
+	const refused = {
+		count: 1,
+		first: {
+			tool: 'bash',
+			reason:
+				'the scheduled-run floor refused this call: `powershell.exe` runs commands the floor does not read, and it holds `schedule stop`',
+		},
+	}
+	const job = (includeSummary: boolean) => ({
+		name: 'windows-alert-test',
+		notify: { finished: true, failed: true, awaitingApproval: true, includeSummary },
+	})
+
+	it('is not told as a plain finish', () => {
+		expect(noticeText('finished', job(false), { at }).body).toMatch(/^finished at /)
+		const body = noticeText('finished', job(false), { at, refused, summary: 'x' }).body
+		expect(body).toMatch(
+			/^done at .+, but 1 call was refused \(bash\); namzu schedule show windows-alert-test says why$/,
+		)
+		// The reason quotes what the model wrote: not on a lock screen by default.
+		expect(body).not.toContain('powershell')
+	})
+
+	it('gives the reason where the job asked for its summary, cut to fit', () => {
+		const body = noticeText('finished', job(true), { at, refused, summary: 'x' }).body
+		expect(body).toMatch(
+			/^done at .+, but 1 call was refused: the scheduled-run floor refused this call: /,
+		)
+		const long = { ...refused, count: 3, first: { ...refused.first, reason: 'r'.repeat(400) } }
+		const cut = noticeText('finished', job(true), { at, refused: long, summary: ' — done' }).body
+		expect([...cut].length).toBeLessThanOrEqual(NOTICE_BODY_MAX)
+		expect(cut).toMatch(/^done at .+, but 3 calls were refused: r+…/)
+	})
+
+	it('reads the kernel’s refusals and failures apart, in words', () => {
+		const tally = new CallTally(['write'])
+		tally.observe({ toolName: 'read', isError: false, summary: 'ok' })
+		tally.observe({
+			toolName: 'bash',
+			isError: true,
+			summary: '',
+			output:
+				'Error: Tool "bash" was not executed. Blocked by the authorization gate: the scheduled-run floor refused this call: x',
+		})
+		tally.observe({
+			toolName: 'write',
+			isError: true,
+			summary: 'Error: Unknown or unavailable tool "write": Not found',
+		})
+		tally.observe({ toolName: 'read', isError: true, summary: 'Error: read failed: ENOENT\nstack' })
+		tally.observe({ toolName: 'schedule', isError: true, summary: 'Cancelled', cancelled: true })
+		const tallies = tally.tallies()
+		expect(tallies).toEqual({
+			refusedCalls: {
+				count: 2,
+				first: { tool: 'bash', reason: 'the scheduled-run floor refused this call: x' },
+			},
+			failedCalls: { count: 1, first: { tool: 'read', reason: 'read failed: ENOENT' } },
+		})
+		expect(callsLine(tallies)).toBe(
+			'2 calls were refused (bash: the scheduled-run floor refused this call: x); 1 call failed (read: read failed: ENOENT)',
+		)
+		expect(callsCount({ refusedCalls: 1 })).toBe('1 call refused')
+		expect(callsCount({ refusedCalls: 2, failedCalls: 1 })).toBe('2 calls refused, 1 failed')
+		expect(callsCount({})).toBe('')
+	})
+
+	it('reads the kernel’s unknown-tool answer that lists what the step can call', () => {
+		// The kernel answers a name its registry does not hold with the tools
+		// the step can call (`unknownToolMessage` in the SDK's tool-call
+		// admission), not the registry's "Not found". A withheld tool is such
+		// a name, and its call is still a refusal; any other unknown name is
+		// the model's mistake, a failure.
+		const tally = new CallTally(['write'])
+		tally.observe({
+			toolName: 'write',
+			isError: true,
+			summary: '',
+			output: 'Error: Unknown tool "write". Available: read, grep',
+		})
+		tally.observe({
+			toolName: 'writ',
+			isError: true,
+			summary: '',
+			output: 'Error: Unknown tool "writ". Available: read, grep',
+		})
+		expect(tally.tallies()).toEqual({
+			refusedCalls: {
+				count: 1,
+				first: {
+					tool: 'write',
+					reason: "the job's permissions never let a run use write, so the run was not given it",
+				},
+			},
+			failedCalls: {
+				count: 1,
+				first: { tool: 'writ', reason: 'Unknown tool "writ". Available: read, grep' },
+			},
+		})
 	})
 })

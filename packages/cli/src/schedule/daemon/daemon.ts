@@ -1007,6 +1007,8 @@ export class ScheduleDaemon {
 					status,
 					endedAt: result.endedAt ?? at,
 					sessionId: result.sessionId,
+					refusedCalls: result.refusedCalls?.count,
+					failedCalls: result.failedCalls?.count,
 				}),
 			})
 		}
@@ -1072,6 +1074,7 @@ export class ScheduleDaemon {
 				this.#notice(tell, job, {
 					at: new Date(now),
 					...(result.summary ? { summary: result.summary } : {}),
+					...(result.refusedCalls ? { refused: result.refusedCalls } : {}),
 					...(tell === 'awaiting-approval' && next.activeRun?.sessionId
 						? { resumeCommand: resumeCommand(job, next.activeRun.sessionId) }
 						: {}),
@@ -1330,6 +1333,8 @@ export function appendRunRecord(
 		...(result.summary ? { summary: result.summary } : {}),
 		...(result.usage ? { usage: result.usage } : {}),
 		...(result.warnings ? { warnings: result.warnings } : {}),
+		...(result.refusedCalls ? { refusedCalls: result.refusedCalls } : {}),
+		...(result.failedCalls ? { failedCalls: result.failedCalls } : {}),
 	})
 }
 

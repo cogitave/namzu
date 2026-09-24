@@ -66,7 +66,21 @@ export { WaitForJobTool } from './tools/builtins/wait-for-job.js'
 // NOT in the default builtin set: a turn with no skills has nothing for it
 // to do, and offering a tool that can only refuse is worse than not
 // offering it. Hosts register it alongside a skills registry.
-export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './tools/builtins/skill.js'
+// `createSkillTool` takes what the host knows about where its model's tools
+// run: `resolveModelDirectory` names the directory the model can open for
+// each skill, which a sandboxed host's own path is not.
+export {
+	SKILL_TOOL_NAME,
+	SkillTool,
+	createSkillTool,
+	parseAllowedTools,
+} from './tools/builtins/skill.js'
+export type {
+	SkillDirectoryContext,
+	SkillDirectoryRequest,
+	SkillDirectoryResolver,
+	SkillToolOptions,
+} from './tools/builtins/skill.js'
 // Both declare `category: 'network'`, which is what the authorization
 // presets branch on. NOT in the default builtin set: a turn with no web
 // provider has nothing for them to do, and only the `unattended` preset --

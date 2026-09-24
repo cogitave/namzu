@@ -214,3 +214,36 @@ describe('a narrowed step narrows what can run, not just what is shown', () => {
 		expect(output).toContain('(none)')
 	})
 })
+
+describe('a narrowed step says the same thing about a name that does not exist', () => {
+	// The unknown-tool answer used to list the whole registry, so on a
+	// narrowed step it advertised exactly the tools the step would refuse —
+	// and a model that took it at its word was refused next.
+	it('lists only what prepareStep left the step', async () => {
+		const { output } = await run({ names: 'no_such_tool', activeTools: ['read_only'] })
+
+		expect(output).toContain('Unknown tool "no_such_tool"')
+		expect(output).toContain('Available: read_only')
+		expect(output).not.toContain('danger')
+	})
+
+	it('lists only what the turn-level list allows', async () => {
+		const { output } = await run({ names: 'no_such_tool', allowedTools: ['read_only'] })
+
+		expect(output).toContain('Available: read_only')
+		expect(output).not.toContain('danger')
+	})
+
+	it('says "(none)" on a step that may call nothing', async () => {
+		const { output } = await run({ names: 'no_such_tool', activeTools: [] })
+
+		expect(output).toContain('Available: (none)')
+		expect(output).not.toContain('danger')
+	})
+
+	it('lists every tool when nothing narrowed the turn', async () => {
+		const { output } = await run({ names: 'no_such_tool' })
+
+		expect(output).toContain('Available: read_only, danger')
+	})
+})

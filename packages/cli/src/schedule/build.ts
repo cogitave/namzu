@@ -252,6 +252,28 @@ export function confirmJob(
 	}
 }
 
+/**
+ * An edit: `current` with what `rebuilt` (the job built again from the
+ * edited request) says, and everything that makes it the same job kept —
+ * its id, name, creation, revision and state. The caller confirms it again
+ * and writes it with `updateJob`, so its history carries on.
+ */
+export function editedJob(current: ScheduleJob, rebuilt: ScheduleJob): ScheduleJob {
+	return {
+		...current,
+		prompt: rebuilt.prompt,
+		folder: rebuilt.folder,
+		schedule: rebuilt.schedule,
+		permissions: rebuilt.permissions,
+		budget: rebuilt.budget,
+		model: rebuilt.model,
+		notify: rebuilt.notify,
+		failurePolicy: rebuilt.failurePolicy,
+		retention: rebuilt.retention,
+		approvalTtlMs: rebuilt.approvalTtlMs,
+	}
+}
+
 /** At most how many times a day the schedule fires (the busiest of the next seven days). */
 export function runsPerDay(spec: ScheduleSpec, now: Date): number {
 	if (spec.kind === 'at') return 1

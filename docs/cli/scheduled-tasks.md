@@ -187,7 +187,7 @@ The rules a run is gated by, in order (the first that matches decides):
      bash drops the backslashes and passes `C:Users…namzu`, a file in the
      current folder. Passed to `cmd.exe` or `powershell.exe`, the same text
      is something the lexer does not read, and the tripwire below refuses it
-     for naming `namzu`;
+     as a path into the profile folder;
    - **what the lexer cannot account for, when it mentions what the floor
      protects.** A line is opaque when it holds a command substitution, a
      function, `[[ … ]]`, arithmetic on a variable, a syntax error or another
@@ -195,16 +195,54 @@ The rules a run is gated by, in order (the first that matches decides):
      opaque](../sdk/command-lines.md#when-a-line-is-opaque). A command also
      escapes the reading when its name expands (`$S --user stop …`) or when it
      runs text as code: a shell the lexer did not follow (`bash` reading its
-     input or a script, `sudo bash -c`, `env -S`), `eval`, `source`, `.`,
+     input or a script, `sudo bash -c`, `env -S`, and any shell other than
+     `sh`, `bash`, `dash`, `zsh`, `ksh`, `ash` and `mksh` even with `-c`:
+     `powershell -c`, `pwsh -c`, `fish -c`, `tcsh -c`, `bash.exe -c`),
+     `eval`, `source`, `.`,
      `xargs`, `watch`, `ssh`, `su`, `python`, `node`, `perl`, `ruby`, `awk`,
-     `sed` and the like. Such a line is refused when its text, with quotes
-     and backslashes dropped, or any decoded word names `namzu`, `schedul`,
-     `systemctl`, `launchctl`, `schtasks`, `pkill`, `killall`, `busctl`,
-     `dbus-send`, `gdbus`, `NAMZU_HOME` or its last segment, or a path into
-     it. Text such a program may run — an argument, a here-string, a
-     here-document's body — is read as a command line of its own, so
-     `echo $'…\x6e…' | sh` is refused when its decoded text would be;
-     otherwise it is not: `echo "$(date)" >> run.log` runs.
+     `sed` and the like, and `powershell`, `pwsh` and `cmd`. Such a line is
+     refused when its text — as written, with quotes and expansion marks
+     dropped, with backslashes dropped too, and in every word the lexer
+     decoded — holds something that can reach what the floor protects:
+     - `NAMZU_HOME` by name (`$NAMZU_HOME`, `%NAMZU_HOME%`,
+       `os.environ['NAMZU_HOME']`), its last segment as a path segment
+       (`.namzu`, always, so `$env:USERPROFILE\.namzu` too), or a path into
+       it;
+     - the Windows browser's profile folder as a path, or `LOCALAPPDATA`,
+       `LocalApplicationData` or `AppData` with `namzu` as a segment or a
+       string of its own (`Join-Path $env:LOCALAPPDATA 'namzu'`);
+     - the scheduler service's name: `namzu-scheduler…` (the unit, and the
+       Windows task `namzu-scheduler-wsl-<distro>`) or `com.namzu.…` (the
+       launchd label);
+     - a service tool — `systemctl`, `launchctl`, `schtasks`, `busctl`,
+       `dbus-send`, `gdbus`, PowerShell's `Stop-`, `Disable-`,
+       `Unregister-` or `Set-ScheduledTask`, `Schedule.Service` — with
+       `namzu` or a `*` in the text, or `systemctl isolate` or `exit`; and
+       `pkill` or `killall` anywhere, because a pattern can match the
+       scheduler's `node` process without naming namzu;
+     - `schedule` as a command word followed by anything but `list`,
+       `show`, `status`, `history` or `logs` (or by nothing, as in
+       `xargs … namzu schedule`), when the text also names the CLI
+       (`namzu`, `@namzu/cli`, a `bin.js`, `node`, `npx` …) or holds an
+       expansion that could (`$cli`, a backtick, `%CLI%`).
+
+     The product's name alone is not on that list: `[System.Windows.MessageBox]::Show('Namzu: scheduled job running','Namzu')`
+     passed to `powershell.exe` runs, as does `python3 -c "print('namzu
+     done')"`. 29.1.0 refused both for naming `namzu` (and the first for
+     `schedul`). Text such a program may run — an argument, a
+     here-string, a here-document's body — is read as a command line of its
+     own, so `echo $'…\x6e…' | sh` is refused when its decoded text would
+     be; otherwise it is not: `echo "$(date)" >> run.log` runs.
+
+   A refusal names the rule that matched and where, not the whole list: for
+   `powershell.exe -Command "namzu schedule stop"` it reads ``the
+   scheduled-run floor refused this call: `powershell.exe` runs commands the
+   floor does not read, and it holds `schedule stop` (a `namzu schedule`
+   subcommand other than list, show, status, history, logs), in the argument
+   `namzu schedule stop` ``; for `cat ~/.namzu/x`, ``the argument
+   `~/.namzu/x` names NAMZU_HOME (…)``; for another tool, the argument by
+   name (``the `content` argument names NAMZU_HOME``). The floor gives the
+   gate that reason through the `predicate` rule's `describe`.
 
    Every other tool's arguments are read as text, at any depth: a string
    naming `NAMZU_HOME` by path, as `~/…`, `$HOME/…` or `${HOME}/…`, or as
@@ -239,7 +277,21 @@ The rules a run is gated by, in order (the first that matches decides):
    `C:\Users\u\AppData\Local` as a run inherits it. Every one of the 9 068
    lines whose run reached the scheduler, `NAMZU_HOME` or the profiles
    (an argument or open file inside them, or the text of one a Windows
-   program would read) was refused;
+   program would read) was refused. When the tripwire stopped refusing the
+   product's name (29.1.x), the same 35 159 lines (seeds 11–14 in bash,
+   31–33 in `sh`, the 159 ordinary lines) were run again: still every
+   dangerous line refused, and the share of harmless lines refused fell from
+   42% to 30% in bash and from 76% to 47% in `sh`, the rest being scheduler
+   words and path fragments the generator plants in unreadable text on
+   purpose. On 1 189 labelled lines of code text for PowerShell, `cmd`,
+   Python, Node and `sh` (half of them reaching the scheduler, `NAMZU_HOME`
+   or the profiles, half only mentioning namzu or "scheduled"), 72% of the
+   harmless ones were refused before and 7% after (every one of those a
+   PowerShell string starting `namzu …` with a `$(…)` in it, read as a
+   possible call to the CLI), and 92 dangerous ones — every
+   `powershell -c` or `pwsh -c` among them — had run unread before 29.1.x
+   took the lexer's own word for which `-c` payloads it follows; none do
+   now;
 3. every `deny` in your user, project and managed config files, each file read
    on its own. **Allows come only from the job**: a config `allow` never widens
    a job, and a config `deny` ("we never force-push") always holds;
@@ -372,7 +424,24 @@ guess the time in UTC. A parked run continued from the TUI is told the time
 again, as it is then: an answer can come days later.
 
 A run ends as one of: `completed`, `failed`, `awaiting-approval`, `timed-out`,
-`blocked-config`, `interrupted`, `approval-expired`. The run enforces its own
+`blocked-config`, `interrupted`, `approval-expired`. The status says how the
+turn ended, not what its tool calls did, so a run whose only command was
+refused ends `completed` — the model was answered and finished. Beside the
+status, a run records the calls that did not do what they were for:
+`refusedCalls` (never ran: a rule, the scheduled-run floor, `unmatched: deny`,
+a tool its permissions withhold) and `failedCalls` (ran and returned an
+error), each `{ count, first: { tool, reason } }`. They are in the run's result
+and history record, the job's state (`lastRun.refusedCalls`,
+`lastRun.failedCalls`, counts only), `list` (`last completed (1 call refused)
+11:03`), `show` and `history` (`1 call was refused (bash: the scheduled-run
+floor refused this call: …)` under the run), `run-now`, `/schedule` and the
+model's `schedule` tool `list`. There is no separate status for it: every
+reader of a status — the failure streak and automatic pause, which
+notification is sent, catch-up, a `v: 1` history an older namzu reads — would
+have to decide whether such a run failed, and a run that failed or timed out
+can have refused calls too. In the operator's first trial a job's only
+command was refused on every run and each was recorded `completed` with a
+`finished` notification and nothing else. The run enforces its own
 wall clock (`--timeout`): the turn's limit first, then a minute later the run
 records `timed-out`, gives its session back and exits. A provider pause (a rate
 limit, an outage) is waited out within `--wait-for-provider`, resuming from the
@@ -484,7 +553,12 @@ again at its next time.
 
 A notification names the job and what happened — finished, failed, waiting for
 your approval, a catch-up, a job on hold — and nothing the model wrote, unless
-the job asked for its one-line summary (`--notify-summary`). At most one per job
+the job asked for its one-line summary (`--notify-summary`). A finished run
+with refused calls says so: `done at Thu 11:03, but 1 call was refused (bash);
+namzu schedule show <job> says why`. The reason can quote the command the model
+wrote, so it is in the notification only for a job that asked for its summary
+(`done at …, but 1 call was refused: the scheduled-run floor refused this call:
+…`), cut to fit. At most one per job
 every ten minutes and twenty a day, except the ones that need you — a run
 waiting for your approval, an approval that expired, a job on hold, waiting for
 confirmation or paused after failures — which are always sent.
@@ -532,7 +606,9 @@ resumeCommand?, handoff? } }] }`, `resumeCommand` for a run waiting for
 approval and `handoff: { reason }` for one a tool parked for a person (the
 text list says `needs you: <reason>` for it, not `WAITING FOR APPROVAL`); `show` prints `{ "v": 1,
 job, state, history }`; `history` prints `{ "v": 1, "job": { id, name },
-"records": [...] }` with records newest first, a run's last status winning.
+"records": [...] }` with records newest first, a run's last status winning. A
+run record and `lastRun` carry `refusedCalls` and `failedCalls` when a run had
+any (see [One run](#one-run)).
 
 In the TUI, `/schedule` is the same list with actions, and the `schedule` tool
 lets a model propose a job — always confirmed by you on a screen namzu draws
@@ -547,7 +623,20 @@ other than the session's, the sandbox, a budget, a visible browser window —
 is marked on the confirmation: `Chosen by the model, not the default: time
 zone America/New_York, not this machine's Europe/Istanbul`. When no scheduler is
 installed, the line that says the job was created also says it does not run
-until `namzu schedule install`. See
+until `namzu schedule install`. The tool's `update` changes a job in place
+the way `schedule edit` does: the confirmation starts with what changes
+(`Changed since it was last confirmed`, `-`/`+` lines), says `THE PERMISSIONS
+CHANGE` when the rules, `unmatched`, where it runs or the browser grant do,
+and then shows the job as it will run, whole; `Cancel` is the default and
+`Save` writes the same job, its id and history kept, with your new
+confirmation (`tool-confirmed`), paused if it was paused. Its history records
+`edited by tool` with the changes. The tool's `list` shows every job in
+`NAMZU_HOME`, whatever folder it runs in and whatever `allFolders` says, as
+`namzu schedule list` does; the jobs of the session's own folder are marked
+`(this folder)` and are the only ones whose prompt the model is given. It used
+to list only the session folder's jobs unless the model passed `allFolders`,
+so a model that had just created a job in a folder below the session's was
+told "No scheduled jobs.". See
 [Session loops](session-loops.md) for `/loop`, which repeats a prompt inside an
 open session instead.
 

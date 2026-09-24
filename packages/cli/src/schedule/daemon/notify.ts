@@ -6,7 +6,8 @@
  * (`notify.includeSummary`), and then only as one sanitised line.
  */
 
-import type { ScheduleJob } from '../types.js'
+import { callsWords } from '../fire/calls.js'
+import type { ScheduleCallTally, ScheduleJob } from '../types.js'
 
 export type NoticeKind =
 	| 'finished'
@@ -48,14 +49,41 @@ export function noticeText(
 		 * the tool, not the model, and already one sanitised line.
 		 */
 		readonly handoff?: string
+		/**
+		 * For a finished run: the calls its permissions refused. The reason
+		 * may quote the command the model wrote, so it is said only where the
+		 * job asked for its summary; otherwise the tool is named and `show`
+		 * says why.
+		 */
+		readonly refused?: ScheduleCallTally
 	},
 ): { title: string; body: string } {
 	const title = `namzu: ${job.name}`
 	const when = clock(extra.at)
 	const summary = job.notify.includeSummary && extra.summary ? ` — ${extra.summary}` : ''
 	switch (kind) {
-		case 'finished':
-			return { title, body: `finished at ${when}${summary}` }
+		case 'finished': {
+			const refused = extra.refused
+			if (!refused) return { title, body: `finished at ${when}${summary}` }
+			const done = `done at ${when}, but ${callsWords(refused, 'refused')}`
+			if (!job.notify.includeSummary)
+				return {
+					title,
+					body: fit(
+						`${done} (${refused.first.tool}); namzu schedule show ${job.name} says why`,
+						`${done} (${refused.first.tool})`,
+					),
+				}
+			// The reason is cut, never the words before it or the summary's absence.
+			const head = `${done}: `
+			const room = NOTICE_BODY_MAX - [...head].length - [...summary].length
+			const reason = [...refused.first.reason]
+			const said =
+				reason.length <= room
+					? refused.first.reason
+					: `${reason.slice(0, Math.max(room - 1, 0)).join('')}…`
+			return { title, body: fit(`${head}${said}${summary}`, `${head}${said}`) }
+		}
 		case 'failed':
 			return { title, body: `failed at ${when}${summary}` }
 		case 'timed-out':
@@ -111,6 +139,14 @@ export function noticeText(
 		case 'auto-paused':
 			return { title, body: `paused after ${extra.failures ?? 'several'} failed runs in a row` }
 	}
+}
+
+/** The first text that fits a notification whole, else the last cut to fit. */
+function fit(...candidates: readonly string[]): string {
+	const whole = candidates.find((text) => [...text].length <= NOTICE_BODY_MAX)
+	if (whole !== undefined) return whole
+	const last = [...(candidates.at(-1) ?? '')]
+	return `${last.slice(0, NOTICE_BODY_MAX - 1).join('')}…`
 }
 
 /** The same failure told once: status plus the reason with numbers and ids removed. */

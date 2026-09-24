@@ -102,3 +102,46 @@ This provider-level feature does not enable native mode in
 `QueryParams.structuredOutput`; that still uses the SDK output tool. See
 [structured output review and native transport](../../../docs/sdk/structured-output-review.md)
 for the boundary and tested behavior.
+
+## Thinking and effort
+
+`thinking` on a request is an intent. The driver resolves it against the model
+before it builds the request, because the vendor rejects a thinking mode the
+model does not have instead of adjusting it:
+
+- On a model with adaptive thinking only (Claude 4.7 and later), `enabled` is
+  sent as `adaptive`, without its budget.
+- On a model with manual thinking only (Claude 4.5 and earlier), `adaptive` is
+  sent as `enabled`.
+- On a model that cannot stop thinking, a `disabled` intent is left out and the
+  model runs its default adaptive thinking. These are the Fable and Mythos
+  families, Mythos Preview, and Opus from 5.5. On those models `effort` is the
+  only thinking control.
+
+`effort` must be a level the model accepts with the thinking that is actually
+sent, or the request fails before it is sent. `provider.effortLevelsFor(model,
+thinking)` returns those levels. `resolveThinkingCapability(model)` also says
+whether thinking can be switched off at all (`canDisable`).
+
+## Forced tool choice
+
+`toolChoice: 'required'` and a named function force a tool call. The vendor
+rejects both on Claude Opus 5.5, Claude Fable 5.1 and Claude Mythos 5.1, and on
+any model when the request carries manual extended thinking
+(`thinking: { type: 'enabled' }` as sent, after the resolution above). The
+driver refuses such a request before sending it, with a `bad_request`
+`ProviderRequestError` whose `providerCode` is `forced_tool_choice_unsupported`.
+Use `toolChoice: 'auto'` and say in the prompt which tool to call, or
+`responseFormat` for a fixed JSON shape. `'auto'` and `'none'` are accepted on
+every model.
+
+Ask before you force a step:
+
+```ts
+import { acceptsForcedToolChoice } from '@namzu/anthropic'
+
+const toolChoice = acceptsForcedToolChoice('claude-opus-5-5') ? 'required' : 'auto'
+```
+
+Pass the thinking configuration you will send as the second argument; the
+answer comes from the same resolution the request uses.

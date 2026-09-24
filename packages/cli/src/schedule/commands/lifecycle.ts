@@ -23,6 +23,7 @@ import { CLI_VERSION } from '../../version.js'
 import { MANUAL_KEY_PREFIX, ScheduleDaemon, appendRunRecord } from '../daemon/daemon.js'
 import { callEndpoint, readEndpoint } from '../daemon/endpoint.js'
 import { abandonParkedTurn, sessionFacts, sessionLeaseLive } from '../daemon/sessions.js'
+import { callsLine } from '../fire/calls.js'
 import { type FireDependencies, runFire } from '../fire/fire.js'
 import { isFinal, readRunResult } from '../fire/result.js'
 import type { SchedulePaths } from '../paths.js'
@@ -378,7 +379,7 @@ export async function runNowCommand(
 		}
 		const result = await record(code, 'the run ended without recording a result')
 		ctx.formatter.print({
-			text: `${job.name}: ${result?.status ?? 'interrupted'}${result?.reason ? ` — ${result.reason}` : ''}${result?.sessionId ? `\nsession ${result.sessionId}` : ''}${result?.status === 'awaiting-approval' && result.sessionId ? `\nanswer it: ${resumeCommand(job, result.sessionId)}` : ''}`,
+			text: `${job.name}: ${result?.status ?? 'interrupted'}${result?.reason ? ` — ${result.reason}` : ''}${result && callsLine(result) ? `\n${callsLine(result)}` : ''}${result?.sessionId ? `\nsession ${result.sessionId}` : ''}${result?.status === 'awaiting-approval' && result.sessionId ? `\nanswer it: ${resumeCommand(job, result.sessionId)}` : ''}`,
 			status: result?.status,
 		})
 		return code

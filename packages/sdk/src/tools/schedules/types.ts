@@ -114,6 +114,48 @@ export interface ScheduleJobSummary {
 	readonly lastStatus?: string
 	/** Present only for jobs in the session's own folder. */
 	readonly prompt?: string
+	/**
+	 * True for a job whose folder is the session's own. A host that lists
+	 * other folders' jobs sets it so the model can tell them apart; the tool
+	 * marks such a job `(this folder)`.
+	 */
+	readonly inSessionFolder?: boolean
+}
+
+/**
+ * What the model proposes to change in an existing job. Every field left
+ * out keeps the job's current value. `permissions`, when given, is the whole
+ * new set, with the same limits as a new job's; the host keeps the job's
+ * `execution` when it is not given, and its additional directories.
+ */
+export interface ScheduleJobChanges {
+	readonly prompt?: string
+	readonly when?: string
+	readonly folder?: string
+	readonly tz?: string
+	readonly permissions?: ScheduleJobDraft['permissions']
+	readonly budget?: ScheduleJobDraft['budget']
+}
+
+/** A proposed change to a job, as the host computed it. */
+export interface ScheduleJobUpdateProposal {
+	/** The job as it would be once changed. Every field is the host's own computation. */
+	readonly preview: ScheduleJobPreview
+	/**
+	 * What differs from the job as it stands (and from edits saved since it
+	 * was last confirmed), one line each: `- ` what goes, `+ ` what comes.
+	 */
+	readonly changes: readonly string[]
+	/** The change touches what a run may do: its rules, `unmatched`, where it runs, its browser grant. */
+	readonly permissionsChange: boolean
+}
+
+/** What the person confirming a change is shown. */
+export interface ScheduleUpdateRequest extends ScheduleJobUpdateProposal {
+	/** The prompt tripwire's findings over `preview.prompt`. */
+	readonly promptFindings: readonly string[]
+	/** Always `model` from this tool. */
+	readonly proposedBy: 'model'
 }
 
 /** What the person answered to a proposed job. */
@@ -157,7 +199,14 @@ export interface ScheduleToolHost {
 		preview: ScheduleJobPreview,
 		options: { readonly paused: boolean },
 	): Promise<{ readonly name: string; readonly note?: string }>
-	/** Jobs, the session folder's in full, other folders' without their prompts. */
+	/**
+	 * Jobs, the session folder's in full, other folders' without their
+	 * prompts. `allFolders: false` lets a host list only the session
+	 * folder's; a host may list every job regardless, marking the session
+	 * folder's with {@link ScheduleJobSummary.inSessionFolder}. The tool says
+	 * "No scheduled jobs." when this returns none, so a host that filters
+	 * says so only for its folder.
+	 */
 	list(options: { readonly allFolders: boolean }): Promise<readonly ScheduleJobSummary[]>
 	/** A job by name or id prefix, or undefined. */
 	find(job: string): Promise<ScheduleJobSummary | undefined>
@@ -170,6 +219,25 @@ export interface ScheduleToolHost {
 	pause(job: string): Promise<void>
 	resume(job: string): Promise<void>
 	delete(job: string): Promise<void>
+	/**
+	 * Validate a change to `job` (a name or id prefix) and compute what the
+	 * person will be shown. Throws with a message on a refusal. The tool
+	 * offers `update` only when a host has all three of `previewUpdate`,
+	 * `confirmUpdate` and `update`.
+	 */
+	previewUpdate?(job: string, changes: ScheduleJobChanges): Promise<ScheduleJobUpdateProposal>
+	/**
+	 * Ask the person whether to save the change. Anything but `true` — a
+	 * thrown error, a closed screen — changes nothing. See `confirm` on
+	 * `signal`.
+	 */
+	confirmUpdate?(request: ScheduleUpdateRequest, signal?: AbortSignal): Promise<boolean>
+	/**
+	 * Save the change the person confirmed, to the same job: its id and its
+	 * history are kept, and the confirmation is the person's. `note` as for
+	 * `create`.
+	 */
+	update?(preview: ScheduleJobPreview): Promise<{ readonly name: string; readonly note?: string }>
 }
 
 /** A prompt the session re-sends to itself on an interval. */

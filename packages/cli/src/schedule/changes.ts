@@ -12,7 +12,18 @@
 
 import { previewLines } from './build.js'
 import type { CompiledJobPolicy } from './policy.js'
+import { stableStringify } from './store/jobs.js'
 import type { ScheduleHistoryRecord, ScheduleJob } from './types.js'
+
+/**
+ * Whether an edit changes what a run may do: its rules, `unmatched`, where
+ * it runs, its additional directories or its browser grant. Only `preset`,
+ * a label for display, is left out.
+ */
+export function permissionsChanged(before: ScheduleJob, after: ScheduleJob): boolean {
+	const what = ({ preset: _, ...rest }: ScheduleJob['permissions']) => stableStringify(rest)
+	return what(before.permissions) !== what(after.permissions)
+}
 
 /** The preview as compared: without the next fire times, which change by the minute. */
 export function confirmationView(job: ScheduleJob, policy: CompiledJobPolicy, now: Date): string[] {
