@@ -8,8 +8,8 @@
 // module named for deciding whether a tool call is permitted, which is a
 // worse home than the one it started in.
 
-import { RegistryCollisionError } from '../registry/collision.js'
 import { ManagedRegistry } from '../registry/ManagedRegistry.js'
+import { RegistryCollisionError } from '../registry/collision.js'
 
 /**
  * What a module's check said about its own claim, the moment it was asked.

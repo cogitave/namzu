@@ -549,7 +549,9 @@ function hostModelSchema(
 	const fieldSchemas = (forItems: boolean): Record<string, unknown> => {
 		const present = forItems ? items : actions
 		const fields: Record<string, unknown> = {
-			to: pointModelSchema('Destination point: where mouse_move moves the cursor to, or where mouse_drag releases.'),
+			to: pointModelSchema(
+				'Destination point: where mouse_move moves the cursor to, or where mouse_drag releases.',
+			),
 			at: pointModelSchema('Point the action happens at: where to click, or where to scroll.'),
 			from: pointModelSchema('Drag start point, for mouse_drag.'),
 			button: { type: 'string', enum: buttonEnum, description: 'Mouse button; left when omitted.' },
