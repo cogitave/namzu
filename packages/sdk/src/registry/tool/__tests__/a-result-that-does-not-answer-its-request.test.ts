@@ -9,19 +9,21 @@ import {
 	passthroughToolNames,
 	toolResultCorrespondenceGuardrail,
 } from '../../../runtime/query/guardrail-presets.js'
+import { testToolset } from '../../../test-support/toolset.js'
 import { getBuiltinTools } from '../../../tools/builtins/index.js'
 import { createStructuredOutputTool } from '../../../tools/builtins/structuredOutput.js'
 import { WebFetchTool } from '../../../tools/builtins/web.js'
 import { untrustedEnvelopeBody, wrapUntrusted } from '../../../tools/untrusted-envelope.js'
+import { ToolManager, type ToolManagerConfig } from '../../../toolsets/manager.js'
+import { toolset } from '../../../toolsets/toolset.js'
 import type { ToolResultGuardrailSpec } from '../../../types/guardrail/index.js'
-import type { ToolContext, ToolDefinition, ToolRegistryConfig } from '../../../types/tool/index.js'
-import { ToolRegistry } from '../execute.js'
+import type { ToolContext, ToolDefinition, ToolProvenance } from '../../../types/tool/index.js'
 
 /**
  * #427, the screen half of the pairing #426 left unused: the screen context
  * carries `input` alongside `output`, and nothing read the two together.
  *
- * The tests drive the real `ToolRegistry`, as `a-tool-result-can-be-refused`
+ * The tests drive the real `ToolManager`, as `a-tool-result-can-be-refused`
  * does and for the same reason: a test that calls the screen and asserts it
  * screens passes against a registry that never calls it.
  *
@@ -36,76 +38,116 @@ type AnyInput = Record<string, unknown>
 const QUERY = 'the deployment rollback procedure for the payments service'
 
 /**
- * What a connected server's tool carries. `provenance` is what the exemption
- * list and the `server:tool` spelling are derived from; the scope reads the
- * FRAME, which the `connected` helper below applies.
+ * A fixture marker records the connected server. `registryWith` puts that
+ * server on the contributing toolset, where production now keeps provenance;
+ * the scope reads the frame that `connected` applies.
  */
 const CONNECTED = {
 	provenance: { server: 'weather-co', readOnlyHintTrusted: false },
 } as const
 
-function toolReturning(output: string, overrides: Partial<ToolDefinition> = {}): ToolDefinition {
-	return {
-		name: 'lookup',
-		description: 'd',
-		inputSchema: z.object({}).passthrough(),
-		async execute() {
-			return { success: true, output }
+const sourceMarker = Symbol('fixture tool source')
+type FixtureTool = ToolDefinition & { [sourceMarker]?: ToolProvenance }
+type FixtureOverrides = Partial<ToolDefinition> & { provenance?: ToolProvenance }
+
+function withSource(tool: ToolDefinition, provenance?: ToolProvenance): FixtureTool {
+	return provenance ? { ...tool, [sourceMarker]: provenance } : tool
+}
+
+function toolReturning(output: string, overrides: FixtureOverrides = {}): FixtureTool {
+	const { provenance, ...definitionOverrides } = overrides
+	return withSource(
+		{
+			name: 'lookup',
+			description: 'd',
+			inputSchema: z.object({}).passthrough(),
+			async execute() {
+				return { success: true, output }
+			},
+			...definitionOverrides,
 		},
-		...overrides,
-	}
+		provenance,
+	)
 }
 
 function respondingTool(
 	respond: (input: AnyInput) => string,
-	overrides: Partial<ToolDefinition> = {},
-): ToolDefinition {
-	return {
-		name: 'lookup',
-		description: 'd',
-		inputSchema: z.object({}).passthrough(),
-		async execute(input) {
-			return { success: true, output: respond(input as AnyInput) }
+	overrides: FixtureOverrides = {},
+): FixtureTool {
+	const { provenance, ...definitionOverrides } = overrides
+	return withSource(
+		{
+			name: 'lookup',
+			description: 'd',
+			inputSchema: z.object({}).passthrough(),
+			async execute(input) {
+				return { success: true, output: respond(input as AnyInput) }
+			},
+			...definitionOverrides,
 		},
-		...overrides,
-	}
+		provenance,
+	)
 }
 
 /**
  * The same tool, as a connected server's.
  *
- * `provenance` AND the frame the adapter applies, because in the product the
- * two arrive together and it is the frame the default scope reads. A stand-in
- * that carried only the provenance would be a shape no connector produces —
+ * The source AND the frame the adapter applies arrive together in the product.
+ * A stand-in that carried only the source would be a shape no connector produces —
  * the same kind of hand-written stand-in that hid the fetch returning its own
  * URL — and it would pass this screen for a reason nothing in the tree shares.
  */
 function connected(tool: ToolDefinition): ToolDefinition {
 	// A tool that names its own server keeps it — a plugin-qualified server's
 	// name is its own, and the `server:tool` spelling is derived from it.
-	const server = tool.provenance?.server ?? CONNECTED.provenance.server
-	return {
-		...CONNECTED,
-		...tool,
-		async execute(input, context) {
-			const result = await tool.execute(input, context)
-			return typeof result.output === 'string'
-				? frameServerResult(result, server, tool.name)
-				: result
+	const provenance = (tool as FixtureTool)[sourceMarker] ?? CONNECTED.provenance
+	const server = provenance.server
+	return withSource(
+		{
+			...tool,
+			async execute(input, context) {
+				const result = await tool.execute(input, context)
+				return typeof result.output === 'string'
+					? frameServerResult(result, server, tool.name)
+					: result
+			},
 		},
-	}
+		provenance,
+	)
 }
 
 function registryWith(
-	config: ToolRegistryConfig,
+	config: Pick<ToolManagerConfig, 'resultGuardrails'>,
 	...tools: readonly ToolDefinition[]
-): ToolRegistry {
-	const r = new ToolRegistry(config)
-	for (const tool of tools) r.register(tool)
-	return r
+): ToolManager {
+	const hostTools: ToolDefinition[] = []
+	const connectedSets = tools.flatMap((tool, index) => {
+		const provenance = (tool as FixtureTool)[sourceMarker]
+		if (!provenance) {
+			hostTools.push(tool)
+			return []
+		}
+		const server = provenance.server
+		return [
+			toolset(
+				{
+					id: `fixture-mcp-${index}`,
+					kind: 'mcp_server',
+					name: server,
+					mcpServer: { name: server, readOnlyHintTrusted: provenance.readOnlyHintTrusted },
+				},
+				[tool],
+			),
+		]
+	})
+	return new ToolManager({
+		...config,
+		toolsets: [testToolset(...hostTools), ...connectedSets],
+		messages: () => [],
+	})
 }
 
-function screened(...tools: readonly ToolDefinition[]): ToolRegistry {
+function screened(...tools: readonly ToolDefinition[]): ToolManager {
 	return registryWith({ resultGuardrails: [toolResultCorrespondenceGuardrail()] }, ...tools)
 }
 
@@ -554,7 +596,7 @@ describe('the names a host may exempt a connected tool by', () => {
 
 	it('accepts the bare tail of a plugin-qualified name', async () => {
 		// `myplugin__mcp__weather__lookup`, which is how a plugin-provided
-		// server's tool is registered.
+		// server's tool is named.
 		const r = registryWith(
 			{
 				resultGuardrails: [toolResultCorrespondenceGuardrail({ passthroughTools: ['lookup'] })],
@@ -699,13 +741,13 @@ describe('the tools this SDK ships', () => {
 		}
 	}
 
-	function shippedRegistry(screens: readonly ToolResultGuardrailSpec[]): ToolRegistry {
-		const registry = registryWith({ resultGuardrails: screens }, ...getBuiltinTools())
-		registry.register(WebFetchTool)
-		registry.register(
+	function shippedRegistry(screens: readonly ToolResultGuardrailSpec[]): ToolManager {
+		return registryWith(
+			{ resultGuardrails: screens },
+			...getBuiltinTools(),
+			WebFetchTool,
 			createStructuredOutputTool(z.object({ title: z.string(), summary: z.string() })),
 		)
-		return registry
 	}
 
 	it('is never refused by the default, and this test claims only that', async () => {

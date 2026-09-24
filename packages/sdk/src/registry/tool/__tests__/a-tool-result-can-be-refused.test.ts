@@ -2,22 +2,29 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import { toolResultInjectionGuardrail } from '../../../runtime/query/guardrail-presets.js'
+import { testToolset } from '../../../test-support/toolset.js'
+import { ToolManager, type ToolManagerConfig } from '../../../toolsets/manager.js'
+import { toolset } from '../../../toolsets/toolset.js'
 import type { ToolResultGuardrailContext } from '../../../types/guardrail/index.js'
-import type { ToolContext, ToolDefinition, ToolRegistryConfig } from '../../../types/tool/index.js'
-import { ToolRegistry } from '../execute.js'
+import type { ToolContext, ToolDefinition, ToolProvenance } from '../../../types/tool/index.js'
 import { ToolResultHalted } from '../screen.js'
 
 /**
  * #399 step two. Step one framed a connector's result with the server's
  * name; nothing read the frame. This is the thing that reads it.
  *
- * The tests drive the real `ToolRegistry`, not `screenToolResult`. A test
+ * The tests drive the real `ToolManager`, not `screenToolResult`. A test
  * that calls the screen and asserts it screens would pass against a
- * registry that never calls it — which is precisely the defect shape this
+ * manager that never calls it — which is precisely the defect shape this
  * repo keeps finding, and the one step one was.
  */
 
-function toolReturning(output: string, overrides: Partial<ToolDefinition> = {}): ToolDefinition {
+const sourceMarker = Symbol('fixture tool source')
+type FixtureTool = ToolDefinition & { [sourceMarker]?: ToolProvenance }
+type FixtureOverrides = Partial<ToolDefinition> & { provenance?: ToolProvenance }
+
+function toolReturning(output: string, overrides: FixtureOverrides = {}): FixtureTool {
+	const { provenance, ...definitionOverrides } = overrides
 	return {
 		name: 'lookup',
 		description: 'd',
@@ -25,14 +32,33 @@ function toolReturning(output: string, overrides: Partial<ToolDefinition> = {}):
 		async execute() {
 			return { success: true, output }
 		},
-		...overrides,
+		...definitionOverrides,
+		...(provenance ? { [sourceMarker]: provenance } : {}),
 	}
 }
 
-function registryWith(config: ToolRegistryConfig, tool: ToolDefinition): ToolRegistry {
-	const r = new ToolRegistry(config)
-	r.register(tool)
-	return r
+function registryWith(
+	config: Pick<ToolManagerConfig, 'resultGuardrails'>,
+	tool: FixtureTool,
+): ToolManager {
+	const provenance = tool[sourceMarker]
+	const tools = provenance
+		? [
+				toolset(
+					{
+						id: 'fixture-mcp',
+						kind: 'mcp_server',
+						name: provenance.server,
+						mcpServer: {
+							name: provenance.server,
+							readOnlyHintTrusted: provenance.readOnlyHintTrusted,
+						},
+					},
+					[tool],
+				),
+			]
+		: [testToolset(tool)]
+	return new ToolManager({ ...config, toolsets: tools, messages: () => [] })
 }
 
 const CTX = {} as ToolContext
