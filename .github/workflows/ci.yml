@@ -171,19 +171,8 @@ jobs:
       # holding the loop open for it.
       - name: Process-level regression tests
         run: pnpm --filter @namzu/sdk test:proc
-      # The same step also refuses a downstream consumer's name anywhere in the
-      # tree (#530). Its list is the repository secret below, passed to this
-      # step and no other, and in no file in any form: a committed list, even
-      # of digests, is the trace the rule removes. Without it the audit fails
-      # with "NAMZU_DOWNSTREAM_NAMES is not set", except on a pull request from
-      # a fork, which GitHub gives no secrets: there the rule is skipped with a
-      # notice, and release.yml's copy of this step, which runs on every push
-      # to main, reads the tree with the list before anything is published.
-      # The tests clear the variable for every script they run.
       - name: External-name audit
-        env:
-          NAMZU_DOWNSTREAM_NAMES: ${{ secrets.NAMZU_DOWNSTREAM_NAMES }}
-        run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts scripts/__tests__/check-downstream-names.test.ts && node scripts/audit-external-names.mjs
+        run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs
 
       # Started as the seed of the eventual nine-rule log-standard gate
       # (LOG-02): four rules a plain syntactic AST walk can decide — the

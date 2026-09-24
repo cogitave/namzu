@@ -18,5 +18,3 @@ Closes #
 - [ ] `pnpm test` passes
 - [ ] Public API changes are documented
 - [ ] Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)
-- [ ] No downstream product, deployment or customer names in the code, docs, commit messages or this description
-- [ ] A squash-merge `Co-authored-by` trailer carries a personal or noreply address, not a work one

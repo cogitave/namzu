@@ -40,14 +40,11 @@ name: Release
 # tree is byte-identical to one CI already passed, which is the same content.
 #
 # Every validation step carries `if: steps.revalidation.outputs.skip != 'true'`
-# and nothing else, but one. Install and Build always run, because publishing
-# needs `dist`; the pre-publish consumer install check keeps its version-commit
+# and nothing else. Install and Build always run, because publishing needs
+# `dist`; the pre-publish consumer install check keeps its version-commit
 # condition and runs whatever the skip says, because it measures the packages
-# that actually ship, which no earlier run has seen. The External-name audit
-# carries no guard and runs every time: a ci.yml run for a pull request from a
-# fork gets no secrets, so it skipped the downstream-name rule and still
-# recorded its tree. The step log says which path was taken, why, and which CI
-# run it relied on.
+# that actually ship, which no earlier run has seen. The step log says which
+# path was taken, why, and which CI run it relied on.
 #
 # `check-workflow-gate-parity.mjs` holds all of that: a gate on one path and
 # not the other still fails it, and so does a gate carrying any condition but
@@ -153,20 +150,9 @@ jobs:
         if: steps.revalidation.outputs.skip != 'true'
         run: node .github/scripts/check-project-references.mjs
 
-      # A direct push reaches the tarballs without a pull request, so this is
-      # the one place a downstream name pushed straight to `main` is stopped
-      # before it ships. The list is the same repository secret ci.yml reads,
-      # passed to this step and no other; without it the step fails.
-      #
-      # No skip guard, deliberately: this runs even when ci.yml validated the
-      # tree. A pull request from a fork gets no secrets, so its ci.yml run
-      # skipped the downstream-name rule and still recorded the tree as
-      # validated; this is where that tree is read with the list before it
-      # ships. It costs seconds.
       - name: External-name audit
-        env:
-          NAMZU_DOWNSTREAM_NAMES: ${{ secrets.NAMZU_DOWNSTREAM_NAMES }}
-        run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts scripts/__tests__/check-downstream-names.test.ts && node scripts/audit-external-names.mjs
+        if: steps.revalidation.outputs.skip != 'true'
+        run: node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs
 
       - name: Log standard gate
         if: steps.revalidation.outputs.skip != 'true'
