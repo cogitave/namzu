@@ -273,6 +273,38 @@ describe('the tripwire, on text a program runs as code', () => {
 	})
 })
 
+describe("PowerShell's -EncodedCommand", () => {
+	// Real base64 of UTF-16LE `Write-Host hi`: unreadable text, denied
+	// whatever it decodes to, unlike `-Command '<literal>'`.
+	const ENCODED = 'VwByAGkAdABlAC0ASABvAHMAdAAgAGgAaQA='
+
+	it('is refused outright: the payload cannot be read at all, so it is never given the benefit of the tripwire finding nothing', () => {
+		denied([
+			`powershell.exe -EncodedCommand ${ENCODED}`,
+			`powershell -encodedcommand ${ENCODED}`,
+			`pwsh -EncodedCommand ${ENCODED}`,
+			`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${ENCODED}`,
+			`powershell -e ${ENCODED}`,
+			`powershell -en ${ENCODED}`,
+			`powershell -enc ${ENCODED}`,
+			`powershell -Enc ${ENCODED}`,
+			// Nested inside a followed shell, and inside unread text a program runs.
+			`bash -c "powershell.exe -EncodedCommand ${ENCODED}"`,
+			`sudo bash -c 'powershell -EncodedCommand ${ENCODED}'`,
+		])
+	})
+
+	it('does not deny -Command with literal text, which the tripwire can still read', () => {
+		allowed([`powershell.exe -NoProfile -Command "Write-Host hi"`])
+	})
+
+	it('names the rule that matched', () => {
+		expect(detail(`powershell.exe -EncodedCommand ${ENCODED}`)).toMatch(
+			/runs a base64-encoded script the floor cannot read at all/,
+		)
+	})
+})
+
 describe('NAMZU_HOME', () => {
 	it('denies a word or redirection that resolves into it, however it is spelled', () => {
 		denied([

@@ -131,6 +131,7 @@ export type FloorReason =
 	| `loop or case word names ${FloorProtected}`
 	| 'opaque line mentions a protected name'
 	| 'unread text mentions a protected name'
+	| 'encoded command cannot be read at all'
 	| 'too many spellings'
 
 /** Why the floor denied a call, and what in it matched. */
@@ -255,6 +256,19 @@ const STRING_OPTIONS: Readonly<Record<string, RegExp>> = {
 	sudo: /^-(?:[a-z]*[si][a-z]*|-shell|-login)$/,
 	env: /^-(?:[a-z]*s[a-z]*|-split-string(?:=.*)?)$/i,
 }
+
+/** PowerShell's two names, wherever the floor treats them as an unread shell. */
+const POWERSHELL_NAMES = new Set(['powershell', 'pwsh'])
+/**
+ * `-EncodedCommand` and every unambiguous prefix PowerShell itself accepts
+ * (`-e`, `-en`, `-enc`, …, up to the full name), case-insensitive. Unlike
+ * `-Command`/`-c`, whose literal text the tripwire can still read, the
+ * argument here is base64 of UTF-16LE: nothing in it can be read as text, so
+ * a line the tripwire finds nothing in front of proves nothing about what it
+ * runs.
+ */
+const ENCODED_COMMAND_FLAG =
+	/^-e(?:n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?)?$/i
 
 /** What a refusal says about a `schedule` verb that is not read-only. */
 const NOT_READ_ONLY = `a \`namzu schedule\` subcommand other than ${READ_ONLY_VERBS.join(', ')}`
@@ -437,6 +451,25 @@ function runsUnreadText(command: ShellCommand): string | null {
 		const flag = words.find((w) => !w.expands && option.test(w.value))
 		if (names.includes(program) && flag !== undefined)
 			return `\`${program} ${flag.value}\` runs a string as commands`
+	}
+	return null
+}
+
+/**
+ * `powershell`/`pwsh`, anywhere in the command, given `-EncodedCommand` (or
+ * an unambiguous prefix of it): the program word and the flag, or null.
+ */
+function encodedCommandCall(
+	command: ShellCommand,
+): { readonly program: ShellWord; readonly flag: ShellWord } | null {
+	const words = command.words
+	for (let i = command.assignments; i < words.length; i++) {
+		const word = words[i] as ShellWord
+		if (word.expands || !POWERSHELL_NAMES.has(commandName(word.value))) continue
+		const flag = words
+			.slice(i + 1)
+			.find((w) => !w.expands && ENCODED_COMMAND_FLAG.test(w.value))
+		if (flag !== undefined) return { program: word, flag }
 	}
 	return null
 }
@@ -936,6 +969,14 @@ class Floor {
 		catalogue: boolean,
 		loops: boolean,
 	): FloorFinding | null {
+		for (const command of reading.commands) {
+			const encoded = encodedCommandCall(command)
+			if (encoded !== null)
+				return {
+					reason: 'encoded command cannot be read at all',
+					detail: `${shown(encoded.program.value)} ${shown(encoded.flag.value)} runs a base64-encoded script the floor cannot read at all, so it is refused outright whatever it decodes to; use -Command '<literal text>' instead`,
+				}
+		}
 		for (const command of reading.commands) {
 			const does = reachesScheduler(wordsOf(command, catalogue), this.daemonCommandLine)
 			if (does !== null)

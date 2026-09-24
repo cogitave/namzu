@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto'
 import { readdirSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SchedulePaths } from '../paths.js'
-import type { ScheduleJob } from '../types.js'
+import { SCHEDULE_FORMAT_VERSION, type ScheduleJob, jobFormatVersion } from '../types.js'
 import {
 	ScheduleFormatError,
 	ensureDir,
@@ -63,9 +63,21 @@ export function stableStringify(value: unknown): string {
 /**
  * The digest of what a confirmation vouches for: the prompt, the folder and
  * its trust, the permissions, the schedule, the model, the budget, the
- * approval window and the pinned project config. Not a secret — a tripwire.
+ * approval window, the pinned project config, and — when the job runs one —
+ * the script's exact text, shell and timeout. Not a secret — a tripwire: a
+ * later change to the script needs re-confirmation exactly as a change to
+ * the prompt does, through this same digest, not a second mechanism.
+ *
+ * `runKind`/`script`/`wakeGate` are folded in only when the job actually has
+ * a non-`agent` `runKind`: an ordinary `agent` job's digest is byte-for-byte
+ * what it always was, so upgrading namzu never holds an already-confirmed
+ * `v:1` job that this design never touched.
  */
 export function jobSecurityDigest(job: ScheduleJob): string {
+	const script =
+		job.runKind !== undefined && job.runKind !== 'agent'
+			? { runKind: job.runKind, script: job.script ?? null, wakeGate: job.wakeGate ?? null }
+			: {}
 	return createHash('sha256')
 		.update(
 			stableStringify({
@@ -78,6 +90,7 @@ export function jobSecurityDigest(job: ScheduleJob): string {
 				budget: job.budget,
 				approvalTtlMs: job.approvalTtlMs,
 				projectDigest: job.projectDigest,
+				...script,
 			}),
 		)
 		.digest('hex')
@@ -89,7 +102,7 @@ export function confirmationHolds(job: ScheduleJob): boolean {
 }
 
 export function readJob(paths: SchedulePaths, id: string): ScheduleJob | undefined {
-	return readVersioned<ScheduleJob>(paths.job(id), 'schedule-job')
+	return readVersioned<ScheduleJob>(paths.job(id), 'schedule-job', SCHEDULE_FORMAT_VERSION)
 }
 
 export interface JobListing {
@@ -111,7 +124,7 @@ export function listJobs(paths: SchedulePaths): JobListing {
 		if (!name.endsWith('.json') || name.startsWith('.')) continue
 		const path = join(paths.jobs, name)
 		try {
-			const job = readVersioned<ScheduleJob>(path, 'schedule-job')
+			const job = readVersioned<ScheduleJob>(path, 'schedule-job', SCHEDULE_FORMAT_VERSION)
 			if (job) jobs.push(job)
 		} catch (error) {
 			errors.push({
@@ -215,10 +228,16 @@ export function updateJob(
 	if (!current) throw new ScheduleJobNotFoundError(id)
 	if (current.revision !== expectedRevision) throw new ScheduleConflictError(id)
 	const revision = claimRevision(paths, id, current.revision)
+	const mutated = mutate(current)
 	const next: ScheduleJob = {
-		...mutate(current),
+		...mutated,
 		id: current.id,
-		v: 1,
+		// A job that does not touch `runKind`/`script` keeps its file at
+		// whatever version it already read at (usually `v:1`), so an
+		// unrelated edit never forces a re-confirmation cycle a v:1 job never
+		// needed. One that gains a non-`agent` runKind is written at the
+		// current version from here on.
+		v: jobFormatVersion(mutated),
 		kind: 'schedule-job',
 		revision,
 		updatedAt: now.toISOString(),

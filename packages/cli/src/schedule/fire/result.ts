@@ -7,7 +7,7 @@
 
 import type { SchedulePaths } from '../paths.js'
 import { readVersioned, writeJsonAtomic } from '../store/atomic.js'
-import type { ScheduleRunResult } from '../types.js'
+import { SCHEDULE_FORMAT_VERSION, type ScheduleRunResult } from '../types.js'
 
 export function writeRunResult(paths: SchedulePaths, result: ScheduleRunResult): void {
 	writeJsonAtomic(paths.runResult(result.jobId, result.runId), result)
@@ -18,7 +18,11 @@ export function readRunResult(
 	jobId: string,
 	runId: string,
 ): ScheduleRunResult | undefined {
-	return readVersioned<ScheduleRunResult>(paths.runResult(jobId, runId), 'schedule-run-result')
+	return readVersioned<ScheduleRunResult>(
+		paths.runResult(jobId, runId),
+		'schedule-run-result',
+		SCHEDULE_FORMAT_VERSION,
+	)
 }
 
 /** Whether a result is final (the child is done with it). */

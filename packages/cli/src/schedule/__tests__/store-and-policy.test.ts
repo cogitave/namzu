@@ -91,9 +91,22 @@ describe('jobs', () => {
 
 	it('refuses a file written by a newer namzu, and leaves it alone', () => {
 		const path = join(sb.home, 'future.json')
-		writeFileSync(path, JSON.stringify({ v: 2, kind: 'schedule-job' }))
-		expect(() => readVersioned(path, 'schedule-job')).toThrow(ScheduleFormatError)
-		expect(JSON.parse(readFileSync(path, 'utf8')).v).toBe(2)
+		writeFileSync(path, JSON.stringify({ v: 99, kind: 'schedule-job' }))
+		expect(() => readVersioned(path, 'schedule-job', 2)).toThrow(ScheduleFormatError)
+		expect(JSON.parse(readFileSync(path, 'utf8')).v).toBe(99)
+	})
+
+	it('a v:2 job file is refused by a reader whose ceiling is v:1', () => {
+		const path = join(sb.home, 'v2.json')
+		writeFileSync(path, JSON.stringify({ v: 2, kind: 'schedule-job', runKind: 'script' }))
+		expect(() => readVersioned(path, 'schedule-job', 1)).toThrow(ScheduleFormatError)
+	})
+
+	it('a v:1 job with no runKind reads as an agent job', () => {
+		const job = confirmedJob(sb)
+		expect(job.v).toBe(1)
+		expect(job.runKind).toBeUndefined()
+		expect(readJob(sb.paths, job.id)?.runKind).toBeUndefined()
 	})
 })
 

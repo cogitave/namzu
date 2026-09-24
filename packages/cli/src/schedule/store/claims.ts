@@ -45,7 +45,7 @@ export function readClaim(
 	jobId: string,
 	key: string,
 ): ScheduleClaim | undefined {
-	return readVersioned<ScheduleClaim>(paths.claim(jobId, key), 'schedule-claim')
+	return readVersioned<ScheduleClaim>(paths.claim(jobId, key), 'schedule-claim', 1)
 }
 
 export function isClaimed(paths: SchedulePaths, jobId: string, key: string): boolean {

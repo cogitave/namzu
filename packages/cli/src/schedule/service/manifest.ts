@@ -37,7 +37,7 @@ export interface ServiceManifest {
 }
 
 export function readManifest(paths: SchedulePaths): ServiceManifest | undefined {
-	return readVersioned<ServiceManifest>(paths.service, 'schedule-service')
+	return readVersioned<ServiceManifest>(paths.service, 'schedule-service', 1)
 }
 
 export function writeManifest(paths: SchedulePaths, manifest: ServiceManifest): void {
